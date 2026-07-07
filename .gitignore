@@ -1,0 +1,65 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+ENV/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*~
+
+# Tests / experiments scratch
+.pytest_cache/
+.cache/
+*.egg-info/
+build/
+dist/
+*.bak.amh-awareness.*
+
+# brain pool data (用户级数据不在项目内，但保险起见)
+/items/
+
+# Logs
+*.log
+
+# macOS
+.AppleDouble
+.LSOverride
+
+# Type checking / lint / coverage
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Generated PDF artifacts (rebuild via pandoc + Chrome headless)
+docs/proposals/*.pdf
+
+# Generated benchmark artifacts can contain local paths and dataset excerpts.
+docs/evaluation/memorydata-artifacts/
+docs/evaluation/amh-full-ranking*/memorydata-artifacts/
+docs/evaluation/amh-full-ranking*/full-matrix.pid
+
+# Internal planning / verification scratch should not ship in the public repo.
+docs/superpowers/
+docs/verification/
+docs/design/
+docs/archive/
+
+# Generated visual previews / temporary comparisons.
+docs/visuals/tmp-*/
+docs/visuals/tmp-*.html
+docs/visuals/*.self-contained.html.txt
+.claude/
+.superpowers/

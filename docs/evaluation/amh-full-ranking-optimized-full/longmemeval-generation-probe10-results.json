@@ -1,0 +1,283 @@
+{
+  "averaged_metrics": {
+    "exact_match": 20.0,
+    "f1": 41.23407109322602
+  },
+  "base_url": "http://127.0.0.1:11434/v1",
+  "case_count": 10,
+  "data": [
+    {
+      "answer": "Business Administration",
+      "eval_metadata": {
+        "dataset": "longmemeval_s_cleaned",
+        "qa_pair_id": "e47becba",
+        "question_id": "e47becba",
+        "question_type": "single-session-user"
+      },
+      "output": "You graduated with a degree in Business Administration.",
+      "qa_pair_id": "e47becba",
+      "query": "What degree did I graduate with?",
+      "question_id": "e47becba",
+      "question_type": "single-session-user",
+      "ranked_session_ids": [
+        "02bd2b90_3",
+        "answer_280352e9",
+        "ultrachat_214101",
+        "sharegpt_Cr2tc1f_0",
+        "f6859b48_2",
+        "5dac7cc2_1",
+        "41abc171_4",
+        "d94b721b",
+        "2ae4f277_2",
+        "e27891d3_2"
+      ]
+    },
+    {
+      "answer": "45 minutes each way",
+      "eval_metadata": {
+        "dataset": "longmemeval_s_cleaned",
+        "qa_pair_id": "118b2229",
+        "question_id": "118b2229",
+        "question_type": "single-session-user"
+      },
+      "output": "Your daily commute to work takes 45 minutes each way.",
+      "qa_pair_id": "118b2229",
+      "query": "How long is my daily commute to work?",
+      "question_id": "118b2229",
+      "question_type": "single-session-user",
+      "ranked_session_ids": [
+        "answer_40a90d51",
+        "db73b7e4_4",
+        "afe04238_1",
+        "ultrachat_392094",
+        "5dce60dd",
+        "db50c0f6",
+        "3ea9f765",
+        "d600c646",
+        "a0b8b0ad_6",
+        "ultrachat_498215"
+      ]
+    },
+    {
+      "answer": "Target",
+      "eval_metadata": {
+        "dataset": "longmemeval_s_cleaned",
+        "qa_pair_id": "51a45a95",
+        "question_id": "51a45a95",
+        "question_type": "single-session-user"
+      },
+      "output": "You redeemed a $5 coupon on coffee creamer through the Cartwheel app from Target.",
+      "qa_pair_id": "51a45a95",
+      "query": "Where did I redeem a $5 coupon on coffee creamer?",
+      "question_id": "51a45a95",
+      "question_type": "single-session-user",
+      "ranked_session_ids": [
+        "answer_d61669c7",
+        "98c198fb",
+        "217debf7",
+        "5c44d9fe_1",
+        "sharegpt_3vxz2Zr_0",
+        "07ba9acd_2",
+        "sharegpt_hChsWOp_128",
+        "ultrachat_282235",
+        "8fa64936_1",
+        "sharegpt_CyJ3dal_0"
+      ]
+    },
+    {
+      "answer": "The Glass Menagerie",
+      "eval_metadata": {
+        "dataset": "longmemeval_s_cleaned",
+        "qa_pair_id": "58bf7951",
+        "question_id": "58bf7951",
+        "question_type": "single-session-user"
+      },
+      "output": "The Glass Menagerie",
+      "qa_pair_id": "58bf7951",
+      "query": "What play did I attend at the local community theater?",
+      "question_id": "58bf7951",
+      "question_type": "single-session-user",
+      "ranked_session_ids": [
+        "answer_355c48bb",
+        "ultrachat_304942",
+        "ultrachat_268434",
+        "sharegpt_gmLF3PE_17",
+        "sharegpt_M84blrA_53",
+        "ultrachat_365156",
+        "ultrachat_221066",
+        "sharegpt_RkFlOeC_19",
+        "sharegpt_DGiqvVv_270",
+        "sharegpt_CvVLg2J_18"
+      ]
+    },
+    {
+      "answer": "Summer Vibes",
+      "eval_metadata": {
+        "dataset": "longmemeval_s_cleaned",
+        "qa_pair_id": "1e043500",
+        "question_id": "1e043500",
+        "question_type": "single-session-user"
+      },
+      "output": "The answer is not available.",
+      "qa_pair_id": "1e043500",
+      "query": "What is the name of the playlist I created on Spotify?",
+      "question_id": "1e043500",
+      "question_type": "single-session-user",
+      "ranked_session_ids": [
+        "answer_3e012175",
+        "01bd9def",
+        "ultrachat_266656",
+        "7b1d1f43_1",
+        "sharegpt_bph7DTk_7",
+        "8020d945_2",
+        "ultrachat_271928",
+        "sharegpt_Clr6oyu_0",
+        "b28990c8_1",
+        "4d0d7984"
+      ]
+    },
+    {
+      "answer": "Johnson",
+      "eval_metadata": {
+        "dataset": "longmemeval_s_cleaned",
+        "qa_pair_id": "c5e8278d",
+        "question_id": "c5e8278d",
+        "question_type": "single-session-user"
+      },
+      "output": "Johnson",
+      "qa_pair_id": "c5e8278d",
+      "query": "What was my last name before I changed it?",
+      "question_id": "c5e8278d",
+      "question_type": "single-session-user",
+      "ranked_session_ids": [
+        "answer_f6168136",
+        "aaf71ce2_2",
+        "sharegpt_WPGrlAK_0",
+        "64767b7f",
+        "89b1028d_1",
+        "f58317c6",
+        "193c23bd_2",
+        "sharegpt_DB8U4oH_9",
+        "sharegpt_EXJAjmw_0",
+        "b1265fd7_1"
+      ]
+    },
+    {
+      "answer": "Serenity Yoga",
+      "eval_metadata": {
+        "dataset": "longmemeval_s_cleaned",
+        "qa_pair_id": "6ade9755",
+        "question_id": "6ade9755",
+        "question_type": "single-session-user"
+      },
+      "output": "I don't have access to specific locations or addresses, so I can't provide exact information about where you can take yoga classes. However, there are many options available depending on your location and preferences. You could try searching online for yoga studios in your area, checking with local gyms or fitness centers that offer yoga classes, or looking into online platforms like Down Dog or YogaGlo for virtual classes.",
+      "qa_pair_id": "6ade9755",
+      "query": "Where do I take yoga classes?",
+      "question_id": "6ade9755",
+      "question_type": "single-session-user",
+      "ranked_session_ids": [
+        "answer_9398da02",
+        "ec8fa65d_2",
+        "7c5ab02a_2",
+        "ultrachat_217527",
+        "sharegpt_eGVTJri_33",
+        "ultrachat_329610",
+        "ultrachat_556745",
+        "sharegpt_mJ7MnQS_31",
+        "ultrachat_565482",
+        "ultrachat_112120"
+      ]
+    },
+    {
+      "answer": "a lighter shade of gray",
+      "eval_metadata": {
+        "dataset": "longmemeval_s_cleaned",
+        "qa_pair_id": "6f9b354f",
+        "question_id": "6f9b354f",
+        "question_type": "single-session-user"
+      },
+      "output": "You repainted your bedroom walls a lighter shade of gray.",
+      "qa_pair_id": "6f9b354f",
+      "query": "What color did I repaint my bedroom walls?",
+      "question_id": "6f9b354f",
+      "question_type": "single-session-user",
+      "ranked_session_ids": [
+        "answer_feb5200f",
+        "a79f1a04_1",
+        "ultrachat_549317",
+        "sharegpt_kRjBUsA_79",
+        "ultrachat_224845",
+        "sharegpt_VAELSB3_0",
+        "0c0f2449_2",
+        "36828c66_2",
+        "68d4de04_2",
+        "de877349"
+      ]
+    },
+    {
+      "answer": "February 14th",
+      "eval_metadata": {
+        "dataset": "longmemeval_s_cleaned",
+        "qa_pair_id": "58ef2f1c",
+        "question_id": "58ef2f1c",
+        "question_type": "single-session-user"
+      },
+      "output": "February",
+      "qa_pair_id": "58ef2f1c",
+      "query": "When did I volunteer at the local animal shelter's fundraising dinner?",
+      "question_id": "58ef2f1c",
+      "question_type": "single-session-user",
+      "ranked_session_ids": [
+        "answer_59547700",
+        "ultrachat_5212",
+        "e6ab6a7b_2",
+        "ultrachat_246324",
+        "13f3da23_3",
+        "e82ce7cd_1",
+        "ultrachat_477344",
+        "403ee298_1",
+        "sharegpt_eHZgwR0_9",
+        "ultrachat_151027"
+      ]
+    },
+    {
+      "answer": "the sports store downtown",
+      "eval_metadata": {
+        "dataset": "longmemeval_s_cleaned",
+        "qa_pair_id": "f8c5f88b",
+        "question_id": "f8c5f88b",
+        "question_type": "single-session-user"
+      },
+      "output": "You bought your new tennis racket from a sports store downtown.",
+      "qa_pair_id": "f8c5f88b",
+      "query": "Where did I buy my new tennis racket from?",
+      "question_id": "f8c5f88b",
+      "question_type": "single-session-user",
+      "ranked_session_ids": [
+        "answer_c3567066",
+        "15232887_1",
+        "sharegpt_TKj3yO8_0",
+        "68ace657_1",
+        "ultrachat_360085",
+        "ultrachat_412973",
+        "7ff89315_3",
+        "3b5205b6_1",
+        "91880423",
+        "58de8f9b"
+      ]
+    }
+  ],
+  "dataset_config": {
+    "dataset": "LongMemEval",
+    "sub_dataset": "longmemeval_s"
+  },
+  "dataset_file": ".cache/external/LongMemEval/data/longmemeval_s_cleaned.json",
+  "generated_at": "2026-07-04T03:46:36.596698+00:00",
+  "max_concurrency": 4,
+  "model": "gui-owl-1.5:latest",
+  "run_scope": "smoke",
+  "start_index": 0,
+  "status": "passed",
+  "top_k_context": 5,
+  "total_available_cases": 500
+}

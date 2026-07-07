@@ -1,0 +1,628 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>AMH MemoryData 第一阶段评测报告</title>
+  <style>
+    /* Default styles provided by pandoc.
+    ** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+    */
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: min(4vw, 1.5em);}
+    div.column{flex: auto; overflow-x: auto;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+    /* CSS for syntax highlighting */
+    html { -webkit-text-size-adjust: 100%; }
+    pre > code.sourceCode { white-space: pre; position: relative; }
+    pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
+    pre > code.sourceCode > span:empty { height: 1.2em; }
+    .sourceCode { overflow: visible; }
+    code.sourceCode > span { color: inherit; text-decoration: inherit; }
+    div.sourceCode { margin: 1em 0; }
+    pre.sourceCode { margin: 0; }
+    @media screen {
+    div.sourceCode { overflow: auto; }
+    }
+    @media print {
+    pre > code.sourceCode { white-space: pre-wrap; }
+    pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+    }
+    pre.numberSource code
+      { counter-reset: source-line 0; }
+    pre.numberSource code > span
+      { position: relative; left: -4em; counter-increment: source-line; }
+    pre.numberSource code > span > a:first-child::before
+      { content: counter(source-line);
+        position: relative; left: -1em; text-align: right; vertical-align: baseline;
+        border: none; display: inline-block;
+        -webkit-touch-callout: none; -webkit-user-select: none;
+        -khtml-user-select: none; -moz-user-select: none;
+        -ms-user-select: none; user-select: none;
+        padding: 0 4px; width: 4em;
+        color: #aaaaaa;
+      }
+    pre.numberSource { margin-left: 3em; border-left: 1px solid #aaaaaa;  padding-left: 4px; }
+    div.sourceCode
+      {   }
+    @media screen {
+    pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+    }
+    code span.al { color: #ff0000; font-weight: bold; } /* Alert */
+    code span.an { color: #60a0b0; font-weight: bold; font-style: italic; } /* Annotation */
+    code span.at { color: #7d9029; } /* Attribute */
+    code span.bn { color: #40a070; } /* BaseN */
+    code span.bu { color: #008000; } /* BuiltIn */
+    code span.cf { color: #007020; font-weight: bold; } /* ControlFlow */
+    code span.ch { color: #4070a0; } /* Char */
+    code span.cn { color: #880000; } /* Constant */
+    code span.co { color: #60a0b0; font-style: italic; } /* Comment */
+    code span.cv { color: #60a0b0; font-weight: bold; font-style: italic; } /* CommentVar */
+    code span.do { color: #ba2121; font-style: italic; } /* Documentation */
+    code span.dt { color: #902000; } /* DataType */
+    code span.dv { color: #40a070; } /* DecVal */
+    code span.er { color: #ff0000; font-weight: bold; } /* Error */
+    code span.ex { } /* Extension */
+    code span.fl { color: #40a070; } /* Float */
+    code span.fu { color: #06287e; } /* Function */
+    code span.im { color: #008000; font-weight: bold; } /* Import */
+    code span.in { color: #60a0b0; font-weight: bold; font-style: italic; } /* Information */
+    code span.kw { color: #007020; font-weight: bold; } /* Keyword */
+    code span.op { color: #666666; } /* Operator */
+    code span.ot { color: #007020; } /* Other */
+    code span.pp { color: #bc7a00; } /* Preprocessor */
+    code span.sc { color: #4070a0; } /* SpecialChar */
+    code span.ss { color: #bb6688; } /* SpecialString */
+    code span.st { color: #4070a0; } /* String */
+    code span.va { color: #19177c; } /* Variable */
+    code span.vs { color: #4070a0; } /* VerbatimString */
+    code span.wa { color: #60a0b0; font-weight: bold; font-style: italic; } /* Warning */
+  </style>
+  <link rel="stylesheet" href="docs/visuals/readme-preview.css" />
+</head>
+<body>
+<header id="title-block-header">
+<h1 class="title">AMH MemoryData 第一阶段评测报告</h1>
+</header>
+<h1 id="memorydata-外部横评与-amh-本地指标">MemoryData 外部横评与 AMH
+本地指标</h1>
+<p><strong>生成时间</strong>：2026-07-01T08:09:29.837850+00:00
+<strong>总状态</strong>：<code>PASS_WITH_MEMORYDATA_SMOKE</code></p>
+<p>这份报告把 AMH 本地 system benchmark 的核心指标和 MemoryData 外部横评
+loop 放在同一个门禁视图里。AMH 本地指标可以直接复核；MemoryData /
+AgentMemory-Bench 外部结果只有在源码、依赖、数据集和模型 endpoint
+都满足并完成运行后才写入，不填充无法复核的外部榜单数字。</p>
+<h2 id="amh-核心指标">AMH 核心指标</h2>
+<table>
+<thead>
+<tr>
+<th>指标</th>
+<th>结果</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>总用例</td>
+<td>240</td>
+</tr>
+<tr>
+<td>失败数</td>
+<td>0</td>
+</tr>
+<tr>
+<td>弱意图阻断</td>
+<td>100.00%</td>
+</tr>
+<tr>
+<td>可注入问题识别</td>
+<td>100.00%</td>
+</tr>
+<tr>
+<td>Recall@10</td>
+<td>100.00%</td>
+</tr>
+<tr>
+<td>MRR</td>
+<td>99.78%</td>
+</tr>
+<tr>
+<td>Firewall include</td>
+<td>100.00%</td>
+</tr>
+<tr>
+<td>Firewall exclude</td>
+<td>100.00%</td>
+</tr>
+<tr>
+<td>ContextPack 可逆</td>
+<td>100.00%</td>
+</tr>
+<tr>
+<td>top_k</td>
+<td>10</td>
+</tr>
+<tr>
+<td>indexed items</td>
+<td>1250</td>
+</tr>
+<tr>
+<td>运行耗时</td>
+<td>44.775s</td>
+</tr>
+</tbody>
+</table>
+<h2 id="外部-source-lock">外部 Source Lock</h2>
+<table>
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+</colgroup>
+<thead>
+<tr>
+<th>来源</th>
+<th>状态</th>
+<th>URL / 路径</th>
+<th>commit / 说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>MemoryData</td>
+<td>ready</td>
+<td>https://github.com/OpenDataBox/MemoryData</td>
+<td>e7ecdbe368426bb3b24bbb6126a57ea90eba1dfb</td>
+</tr>
+<tr>
+<td>MEMTRON/AgentMemory-Bench</td>
+<td>blocked</td>
+<td>https://github.com/MEMTRON/AgentMemory-Bench</td>
+<td>Current public source lock uses OpenDataBox/MemoryData;
+MEMTRON/AgentMemory-Bench is not treated as an anonymously readable
+canonical repo.</td>
+</tr>
+<tr>
+<td>OpenViking</td>
+<td>ready</td>
+<td>https://openviking.ai/</td>
+<td>Design/reference source, not an AMH result source.</td>
+</tr>
+<tr>
+<td>arXiv 2606.24775</td>
+<td>ready</td>
+<td>https://arxiv.org/abs/2606.24775</td>
+<td>Paper reference for agent-native memory evaluation taxonomy.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="记忆评估-loop四源融合">记忆评估 Loop（四源融合）</h2>
+<p>这条 loop 把四类外部口径合并成 AMH 的评估合同：先锁来源，再准备数据和
+adapter，再跑 smoke / full matrix，最后只发布可复核结果。</p>
+<table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<thead>
+<tr>
+<th>来源</th>
+<th>作用</th>
+<th>对齐信号</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>agentmemory COMPARISON</td>
+<td>横向对照口径：LongMemEval、质量、规模、成本，不把第三方表格数字冒充
+AMH 结果。</td>
+<td>LongMemEval / quality benchmark / scale benchmark / cost</td>
+</tr>
+<tr>
+<td>State-Bench</td>
+<td>有状态任务闭环口径：任务完成率、可靠性、效率、用户体验。</td>
+<td>task completion / pass^5 / efficiency / user experience</td>
+</tr>
+<tr>
+<td>MemoryAgentBench</td>
+<td>能力分型口径：准确召回、测试时学习、长程理解、冲突解决。</td>
+<td>准确召回 / 测试时学习 / 长程理解 / 冲突解决</td>
+</tr>
+<tr>
+<td>OpenViking</td>
+<td>公开评测体系参考：LoCoMo、tau2-bench、HotpotQA / KB QA、延迟和 token
+成本。</td>
+<td>LoCoMo / tau2-bench / HotpotQA / KB QA / latency / token cost</td>
+</tr>
+</tbody>
+</table>
+<table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<thead>
+<tr>
+<th>阶段</th>
+<th>状态</th>
+<th>门禁</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>source lock</td>
+<td>done</td>
+<td>四份外部资料有固定 URL；MemoryData 本地 repo 有 commit SHA。</td>
+</tr>
+<tr>
+<td>dataset materialize</td>
+<td>partial</td>
+<td>MemoryAgentBench / LoCoMo / LongBench / MemBench
+数据集本地可读。</td>
+</tr>
+<tr>
+<td>adapter mapping</td>
+<td>planned</td>
+<td>AMH write / retrieve / update / context pack 映射到外部
+runner。</td>
+</tr>
+<tr>
+<td>smoke run</td>
+<td>done</td>
+<td>最小样本在依赖、数据集和 OpenAI-compatible endpoint 全部 ready
+后执行。</td>
+</tr>
+<tr>
+<td>full matrix</td>
+<td>planned</td>
+<td>smoke pass 后才跑 AR / TTL / LRU / CR、LoCoMo、State-Bench
+类任务。</td>
+</tr>
+<tr>
+<td>result normalize</td>
+<td>planned</td>
+<td>统一 Recall@K、MRR、accuracy、pass^5、latency、token、storage
+和失败类型。</td>
+</tr>
+<tr>
+<td>report publish</td>
+<td>done</td>
+<td>本地指标已发布；外部指标必须区分 source-lock / smoke / full
+matrix。</td>
+</tr>
+</tbody>
+</table>
+<p>流程：<code>source lock -&gt; dataset materialize -&gt; adapter mapping -&gt; smoke run -&gt; full matrix -&gt; result normalize -&gt; report publish</code></p>
+<h2 id="能力与指标矩阵">能力与指标矩阵</h2>
+<table>
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+</colgroup>
+<thead>
+<tr>
+<th>维度</th>
+<th>外部指标</th>
+<th>AMH 本地指标</th>
+<th>门禁</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>准确召回</td>
+<td>MemoryAgentBench AR、LoCoMo QA、LongMemEval-S、Recall@K / MRR</td>
+<td>Recall@10、MRR、词频/BM25、向量召回、RRF 融合</td>
+<td>候选必须可追溯到 MemoryItem 和 source evidence</td>
+</tr>
+<tr>
+<td>测试时学习</td>
+<td>MemoryAgentBench TTL、State-Bench state update tasks</td>
+<td>WriteService、MemoryItem 写入审计、runtime ledger、feedback
+ledger</td>
+<td>新事实必须落到本地事实层，不能只停在 prompt</td>
+</tr>
+<tr>
+<td>长程理解</td>
+<td>MemoryAgentBench LRU、LoCoMo long conversation、多跳/时序问题</td>
+<td>locator / overview / detail 分层注入、ContextPack 可逆、token
+budget</td>
+<td>长上下文只允许分层装载，detail 需要按需取证</td>
+</tr>
+<tr>
+<td>冲突解决</td>
+<td>MemoryAgentBench CR、知识更新、过期/冲突状态处理</td>
+<td>supersession、stale filter、用户/Agent 反馈、成熟度和废止过滤</td>
+<td>旧事实不得覆盖新证据；冲突必须保留来源边界</td>
+</tr>
+<tr>
+<td>有状态任务闭环</td>
+<td>State-Bench task completion、pass^5、reliability、user
+experience</td>
+<td>弱意图阻断、可注入识别、防火墙 include/exclude、ContextPack
+可逆</td>
+<td>能完成任务，也要能拒绝不该注入的上下文</td>
+</tr>
+<tr>
+<td>成本与规模</td>
+<td>token / latency / storage / indexed items / scale benchmark</td>
+<td>indexed items、运行耗时、top_k、pack reversible、报告生成耗时</td>
+<td>报告必须同时给准确率和成本边界</td>
+</tr>
+</tbody>
+</table>
+<h2 id="发布规则">发布规则</h2>
+<ul>
+<li>AMH 本地指标可以直接发布，但必须带用例数、indexed items、top_k
+和运行耗时。</li>
+<li>外部 source-lock 只证明来源和入口可复核，不等于跑完外部榜单。</li>
+<li>smoke 只证明 adapter / dataset / endpoint 最小链路可跑，不能外推到
+full matrix。</li>
+<li>full matrix 必须按来源维度写清 benchmark
+family、样本范围、指标和失败类型。</li>
+<li>OpenViking、agentmemory COMPARISON、State-Bench、MemoryAgentBench
+都是评估口径来源；没有真实运行就不写外部成绩。</li>
+</ul>
+<h2 id="longmemeval-s-retrieval-loop">LongMemEval-S Retrieval Loop</h2>
+<p>这条子 loop 先对齐公开工具常用的 LongMemEval-S R@K 口径：先下载
+cleaned 数据，再做 retrieval-only smoke，最后再接 AMH ranking
+run。它不依赖 full generation / judge endpoint。</p>
+<table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<thead>
+<tr>
+<th>阶段</th>
+<th>状态</th>
+<th>门禁</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>source lock</td>
+<td>done</td>
+<td>LongMemEval cleaned 数据源锁定到 Hugging Face
+xiaowu0162/longmemeval-cleaned。</td>
+</tr>
+<tr>
+<td>dataset materialize</td>
+<td>done</td>
+<td>本地存在 longmemeval_s_cleaned.json，且文件非空。</td>
+</tr>
+<tr>
+<td>retrieval-only smoke</td>
+<td>done</td>
+<td>先跑小样本 R@5/R@10，不依赖外部 LLM judge。</td>
+</tr>
+<tr>
+<td>AMH ranking run</td>
+<td>done</td>
+<td>把 session evidence 写成 MemoryItem，再用 AMH retriever 计算
+R@K。</td>
+</tr>
+<tr>
+<td>report publish</td>
+<td>amh-ranking-published</td>
+<td>只有跑出本地可复现指标后，才能写 LongMemEval-S R@K 数字。</td>
+</tr>
+</tbody>
+</table>
+<table>
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+</colgroup>
+<thead>
+<tr>
+<th>数据</th>
+<th>状态</th>
+<th>来源</th>
+<th>本地路径</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>LongMemEval-S cleaned</td>
+<td>ready</td>
+<td>https://huggingface.co/datasets/xiaowu0162/longmemeval-cleaned/resolve/main/longmemeval_s_cleaned.json</td>
+<td><code>.cache/external/LongMemEval/data/longmemeval_s_cleaned.json</code></td>
+</tr>
+</tbody>
+</table>
+<p>一键 materialize：</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="ex">python</span> benchmarks/materialize_memory_eval_datasets.py <span class="at">--dataset</span> longmemeval-s <span class="at">--cache-root</span> .cache/external <span class="at">--memorydata-repo</span> .cache/external/MemoryData</span></code></pre></div>
+<p>Lexical smoke 结果：</p>
+<table>
+<thead>
+<tr>
+<th>指标</th>
+<th>结果</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>status</td>
+<td>passed</td>
+</tr>
+<tr>
+<td>cases</td>
+<td>5</td>
+</tr>
+<tr>
+<td>R@5</td>
+<td>100.00%</td>
+</tr>
+<tr>
+<td>R@10</td>
+<td>100.00%</td>
+</tr>
+<tr>
+<td>MRR</td>
+<td>64.00%</td>
+</tr>
+</tbody>
+</table>
+<p>AMH ranking 结果：</p>
+<table>
+<thead>
+<tr>
+<th>指标</th>
+<th>结果</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>status</td>
+<td>passed</td>
+</tr>
+<tr>
+<td>cases</td>
+<td>5</td>
+</tr>
+<tr>
+<td>R@5</td>
+<td>100.00%</td>
+</tr>
+<tr>
+<td>R@10</td>
+<td>100.00%</td>
+</tr>
+<tr>
+<td>MRR</td>
+<td>90.00%</td>
+</tr>
+<tr>
+<td>backend</td>
+<td>AMH HubIndex + Retriever BM25/RRF pipeline</td>
+</tr>
+</tbody>
+</table>
+<h2 id="memorydata-外部横评">MemoryData 外部横评</h2>
+<p><strong>执行模式</strong>：<code>smoke</code></p>
+<table>
+<thead>
+<tr>
+<th>前置项</th>
+<th>状态</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>源码</td>
+<td>ready</td>
+<td>.cache/external/MemoryData</td>
+</tr>
+<tr>
+<td>Python 依赖</td>
+<td>ready</td>
+<td>required modules importable</td>
+</tr>
+<tr>
+<td>数据集</td>
+<td>partial</td>
+<td>LoCoMo; LongBench</td>
+</tr>
+<tr>
+<td>模型 endpoint</td>
+<td>ready</td>
+<td>OPENAI_API_KEY is present</td>
+</tr>
+</tbody>
+</table>
+<table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<thead>
+<tr>
+<th>Benchmark family</th>
+<th>配置</th>
+<th>数据集状态</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>MemoryAgentBench</td>
+<td><code>benchmark/memoryagentbench/Accurate_Retrieval/config/EventQA/Eventqa_full.yaml</code></td>
+<td>ready</td>
+</tr>
+<tr>
+<td>LoCoMo</td>
+<td><code>benchmark/locomo/config/Locomo_qa_4cat_600_dist.yaml</code></td>
+<td>missing</td>
+</tr>
+<tr>
+<td>LongBench</td>
+<td><code>benchmark/longbench/config/LongBench_rep150_proportional.yaml</code></td>
+<td>missing</td>
+</tr>
+<tr>
+<td>MemBench</td>
+<td><code>benchmark/membench/config/MemBench_simple.yaml</code></td>
+<td>ready</td>
+</tr>
+</tbody>
+</table>
+<h2 id="运行记录">运行记录</h2>
+<table>
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+</colgroup>
+<thead>
+<tr>
+<th>名称</th>
+<th>状态</th>
+<th>命令 / 原因</th>
+<th>产物</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>memorydata-memoryagentbench-smoke</td>
+<td>passed</td>
+<td><code>python main.py --agent_config config/reference_simple_rag_bm25_ollama.yaml --dataset_config benchmark/memoryagentbench/Accurate_Retrieval/config/EventQA/Eventqa_full.yaml --max_test_queries_ablation 1 --artifact_root <repo>/docs/evaluation/memorydata-artifacts/smoke/memoryagentbench</code></td>
+<td>docs/evaluation/memorydata-artifacts/smoke/memoryagentbench</td>
+</tr>
+<tr>
+<td>memorydata-membench-smoke</td>
+<td>passed</td>
+<td><code>python main.py --agent_config config/reference_simple_rag_bm25_ollama.yaml --dataset_config benchmark/membench/config/MemBench_simple.yaml --max_test_queries_ablation 1 --artifact_root <repo>/docs/evaluation/memorydata-artifacts/smoke/membench</code></td>
+<td>docs/evaluation/memorydata-artifacts/smoke/membench</td>
+</tr>
+</tbody>
+</table>
+<h2 id="一键命令">一键命令</h2>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="ex">python</span> benchmarks/run_memory_benchmarks.py <span class="at">--run-longmemeval-smoke</span> <span class="at">--output-dir</span> docs/evaluation</span></code></pre></div>
+<p>如果外部数据集和 endpoint 已准备好，可以同时打开 MemoryData 外部
+smoke：</p>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="ex">python</span> benchmarks/run_memory_benchmarks.py <span class="at">--run-longmemeval-smoke</span> <span class="at">--run-memorydata-smoke</span> <span class="at">--output-dir</span> docs/evaluation</span></code></pre></div>
+</body>
+</html>

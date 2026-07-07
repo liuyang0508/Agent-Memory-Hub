@@ -1,0 +1,128 @@
+{
+  "case_count": 5,
+  "cases": [
+    {
+      "answer": "Business Administration",
+      "answer_session_ids": [
+        "answer_280352e9"
+      ],
+      "question": "What degree did I graduate with?",
+      "question_id": "e47becba",
+      "ranked_session_ids": [
+        "02bd2b90_3",
+        "f6859b48_2",
+        "5dac7cc2_1",
+        "ultrachat_214101",
+        "answer_280352e9",
+        "85a1be56_1",
+        "sharegpt_Cr2tc1f_0",
+        "52c34859_1",
+        "ultrachat_359984",
+        "sharegpt_8dJs7Ai_0"
+      ],
+      "recall_at_10": 1.0,
+      "recall_at_5": 1.0,
+      "reciprocal_rank": 0.2
+    },
+    {
+      "answer": "45 minutes each way",
+      "answer_session_ids": [
+        "answer_40a90d51"
+      ],
+      "question": "How long is my daily commute to work?",
+      "question_id": "118b2229",
+      "ranked_session_ids": [
+        "db73b7e4_4",
+        "answer_40a90d51",
+        "db50c0f6",
+        "afe04238_1",
+        "5dce60dd",
+        "ultrachat_392094",
+        "7d8b5834_1",
+        "9ee69ca6_2",
+        "5209e813_2",
+        "628c958c_7"
+      ],
+      "recall_at_10": 1.0,
+      "recall_at_5": 1.0,
+      "reciprocal_rank": 0.5
+    },
+    {
+      "answer": "Target",
+      "answer_session_ids": [
+        "answer_d61669c7"
+      ],
+      "question": "Where did I redeem a $5 coupon on coffee creamer?",
+      "question_id": "51a45a95",
+      "ranked_session_ids": [
+        "98c198fb",
+        "answer_d61669c7",
+        "217debf7",
+        "07ba9acd_2",
+        "5c44d9fe_1",
+        "8fa64936_1",
+        "ultrachat_174711",
+        "b35610f4_3",
+        "ultrachat_407934",
+        "sharegpt_CyJ3dal_0"
+      ],
+      "recall_at_10": 1.0,
+      "recall_at_5": 1.0,
+      "reciprocal_rank": 0.5
+    },
+    {
+      "answer": "The Glass Menagerie",
+      "answer_session_ids": [
+        "answer_355c48bb"
+      ],
+      "question": "What play did I attend at the local community theater?",
+      "question_id": "58bf7951",
+      "ranked_session_ids": [
+        "answer_355c48bb",
+        "08469b58",
+        "ultrachat_365156",
+        "ultrachat_268434",
+        "5b83c26e_1",
+        "sharegpt_CvVLg2J_18",
+        "sharegpt_M84blrA_53",
+        "7e17ae56_5",
+        "1587bd78_1",
+        "ultrachat_132201"
+      ],
+      "recall_at_10": 1.0,
+      "recall_at_5": 1.0,
+      "reciprocal_rank": 1.0
+    },
+    {
+      "answer": "Summer Vibes",
+      "answer_session_ids": [
+        "answer_3e012175"
+      ],
+      "question": "What is the name of the playlist I created on Spotify?",
+      "question_id": "1e043500",
+      "ranked_session_ids": [
+        "answer_3e012175",
+        "01bd9def",
+        "7b1d1f43_1",
+        "4d0d7984",
+        "sharegpt_Clr6oyu_0",
+        "8020d945_2",
+        "b28990c8_1",
+        "ultrachat_377198",
+        "ultrachat_227993",
+        "sharegpt_85Y0l0J_365"
+      ],
+      "recall_at_10": 1.0,
+      "recall_at_5": 1.0,
+      "reciprocal_rank": 1.0
+    }
+  ],
+  "dataset_file": ".cache/external/LongMemEval/data/longmemeval_s_cleaned.json",
+  "metrics": {
+    "mrr": 0.64,
+    "recall_at_10": 1.0,
+    "recall_at_5": 1.0
+  },
+  "mode": "retrieval-only lexical smoke",
+  "status": "passed"
+}

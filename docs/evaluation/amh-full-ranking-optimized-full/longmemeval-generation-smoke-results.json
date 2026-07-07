@@ -1,0 +1,151 @@
+{
+  "averaged_metrics": {
+    "exact_match": 20.0,
+    "f1": 32.57142857142857
+  },
+  "base_url": "http://127.0.0.1:11434/v1",
+  "case_count": 5,
+  "data": [
+    {
+      "answer": "Business Administration",
+      "eval_metadata": {
+        "dataset": "longmemeval_s_cleaned",
+        "qa_pair_id": "e47becba",
+        "question_id": "e47becba",
+        "question_type": "single-session-user"
+      },
+      "output": "You graduated with a degree in Business Administration.",
+      "qa_pair_id": "e47becba",
+      "query": "What degree did I graduate with?",
+      "question_id": "e47becba",
+      "question_type": "single-session-user",
+      "ranked_session_ids": [
+        "02bd2b90_3",
+        "answer_280352e9",
+        "ultrachat_214101",
+        "sharegpt_Cr2tc1f_0",
+        "f6859b48_2",
+        "5dac7cc2_1",
+        "41abc171_4",
+        "d94b721b",
+        "2ae4f277_2",
+        "e27891d3_2"
+      ]
+    },
+    {
+      "answer": "45 minutes each way",
+      "eval_metadata": {
+        "dataset": "longmemeval_s_cleaned",
+        "qa_pair_id": "118b2229",
+        "question_id": "118b2229",
+        "question_type": "single-session-user"
+      },
+      "output": "Your daily commute to work takes 45 minutes each way.",
+      "qa_pair_id": "118b2229",
+      "query": "How long is my daily commute to work?",
+      "question_id": "118b2229",
+      "question_type": "single-session-user",
+      "ranked_session_ids": [
+        "answer_40a90d51",
+        "db73b7e4_4",
+        "afe04238_1",
+        "ultrachat_392094",
+        "5dce60dd",
+        "db50c0f6",
+        "3ea9f765",
+        "d600c646",
+        "a0b8b0ad_6",
+        "ultrachat_498215"
+      ]
+    },
+    {
+      "answer": "Target",
+      "eval_metadata": {
+        "dataset": "longmemeval_s_cleaned",
+        "qa_pair_id": "51a45a95",
+        "question_id": "51a45a95",
+        "question_type": "single-session-user"
+      },
+      "output": "You redeemed a $5 coupon on coffee creamer through the Cartwheel app from Target.",
+      "qa_pair_id": "51a45a95",
+      "query": "Where did I redeem a $5 coupon on coffee creamer?",
+      "question_id": "51a45a95",
+      "question_type": "single-session-user",
+      "ranked_session_ids": [
+        "answer_d61669c7",
+        "98c198fb",
+        "217debf7",
+        "5c44d9fe_1",
+        "sharegpt_3vxz2Zr_0",
+        "07ba9acd_2",
+        "sharegpt_hChsWOp_128",
+        "ultrachat_282235",
+        "8fa64936_1",
+        "sharegpt_CyJ3dal_0"
+      ]
+    },
+    {
+      "answer": "The Glass Menagerie",
+      "eval_metadata": {
+        "dataset": "longmemeval_s_cleaned",
+        "qa_pair_id": "58bf7951",
+        "question_id": "58bf7951",
+        "question_type": "single-session-user"
+      },
+      "output": "The Glass Menagerie",
+      "qa_pair_id": "58bf7951",
+      "query": "What play did I attend at the local community theater?",
+      "question_id": "58bf7951",
+      "question_type": "single-session-user",
+      "ranked_session_ids": [
+        "answer_355c48bb",
+        "ultrachat_304942",
+        "ultrachat_268434",
+        "sharegpt_gmLF3PE_17",
+        "sharegpt_M84blrA_53",
+        "ultrachat_365156",
+        "ultrachat_221066",
+        "sharegpt_RkFlOeC_19",
+        "sharegpt_DGiqvVv_270",
+        "sharegpt_CvVLg2J_18"
+      ]
+    },
+    {
+      "answer": "Summer Vibes",
+      "eval_metadata": {
+        "dataset": "longmemeval_s_cleaned",
+        "qa_pair_id": "1e043500",
+        "question_id": "1e043500",
+        "question_type": "single-session-user"
+      },
+      "output": "The answer is not available.",
+      "qa_pair_id": "1e043500",
+      "query": "What is the name of the playlist I created on Spotify?",
+      "question_id": "1e043500",
+      "question_type": "single-session-user",
+      "ranked_session_ids": [
+        "answer_3e012175",
+        "01bd9def",
+        "ultrachat_266656",
+        "7b1d1f43_1",
+        "sharegpt_bph7DTk_7",
+        "8020d945_2",
+        "ultrachat_271928",
+        "sharegpt_Clr6oyu_0",
+        "b28990c8_1",
+        "4d0d7984"
+      ]
+    }
+  ],
+  "dataset_config": {
+    "dataset": "LongMemEval",
+    "sub_dataset": "longmemeval_s"
+  },
+  "dataset_file": ".cache/external/LongMemEval/data/longmemeval_s_cleaned.json",
+  "generated_at": "2026-07-04T03:31:12.468533+00:00",
+  "model": "gui-owl-1.5:latest",
+  "run_scope": "smoke",
+  "status": "passed",
+  "top_k_context": 5,
+  "total_available_cases": 500
+}

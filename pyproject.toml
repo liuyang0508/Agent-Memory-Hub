@@ -1,0 +1,110 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agent-memory-hub"
+description = "Markdown-based shared brain for LLM agents"
+readme = "README.md"
+license = {file = "LICENSE"}
+requires-python = ">=3.11"
+authors = [{name = "项目组"}]
+classifiers = [
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+dynamic = ["version"]
+dependencies = [
+    "pydantic>=2.7,<3",
+    "typer>=0.12,<1",
+    "mcp[cli]>=1.0,<2",
+    "sqlite-vec>=0.1.6",
+    "pyyaml>=6.0",
+    "rich>=13.7",
+]
+
+[project.optional-dependencies]
+embeddings = [
+    "sentence-transformers>=3.0,<4",
+]
+web = [
+    "fastapi>=0.111,<1",
+    "uvicorn[standard]>=0.30,<1",
+    "PyJWT>=2.8,<3",
+    "bcrypt>=4.0,<5",
+    "python-multipart>=0.0.9",
+]
+dev = [
+    "fastapi>=0.111,<1",
+    "uvicorn[standard]>=0.30,<1",
+    "PyJWT>=2.8,<3",
+    "bcrypt>=4.0,<5",
+    "python-multipart>=0.0.9",
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "ruff>=0.5",
+    "mypy>=1.10",
+]
+
+[project.scripts]
+memory = "agent_brain.interfaces.cli:app"
+memory-mcp = "agent_brain.interfaces.mcp.server:run"
+
+[tool.setuptools.dynamic]
+version = {attr = "agent_brain._version.__version__"}
+
+[tool.setuptools.packages.find]
+include = ["agent_brain*", "web*", "agent_runtime_kit", "docs"]
+
+[tool.setuptools.package-data]
+agent_runtime_kit = [
+    "*.md",
+    "hooks/*.md",
+    "hooks/*.sh",
+    "items/*.md",
+    "mcp/*.md",
+    "mcp/*.py",
+    "mcp/*.sh",
+    "schema/*.md",
+    "templates/*",
+    "tools/*.sh",
+]
+docs = ["evaluation/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+extend-ignore = [
+    "F401", # current CLI/Web modules intentionally re-export shared command context
+    "F403", # current CLI/Web modules still use compatibility star imports
+    "F405", # see F403; explicit-import cleanup is tracked separately
+]
+
+[tool.ruff.lint.per-file-ignores]
+"benchmarks/*.py" = ["E402"]
+"docs/visuals/generate_readme_diagrams.py" = ["F541", "F841"]
+"tests/**/*.py" = ["E401", "F541", "F841"]
+"web/app.py" = ["E402"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+explicit_package_bases = true
+
+[[tool.mypy.overrides]]
+module = [
+    "Foundation",
+    "litellm",
+    "objc",
+    "sqlite_vec",
+    "yaml",
+]
+ignore_missing_imports = true

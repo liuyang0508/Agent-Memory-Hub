@@ -1,0 +1,1529 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Agent Memory Hub 主页对比预览 - Octopus Mascot</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f6fbf8;
+      --bg-wash: #e7f6f1;
+      --ink: #102a2d;
+      --muted: #526d6f;
+      --soft: #789194;
+      --line: #d7e9e5;
+      --line-strong: #abcfc9;
+      --surface: #fffdf8;
+      --surface-2: #eef8f4;
+      --surface-3: #dff1ed;
+      --accent: #1aa9b5;
+      --accent-2: #62d2c9;
+      --accent-3: #b9efe5;
+      --deep: #116c76;
+      --pink: #f8a7cf;
+      --warm: #ffe9b8;
+      --shadow: 0 22px 54px rgb(38 92 90 / 0.13);
+      --shadow-soft: 0 10px 26px rgb(38 92 90 / 0.08);
+      --radius: 18px;
+      --max: 1500px;
+      --font: "IBM Plex Sans", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --mono: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+      --ease: cubic-bezier(0.2, 0, 0, 1);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+      background: var(--bg);
+    }
+
+    body {
+      margin: 0;
+      min-height: 100dvh;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 14% 18%, color-mix(in srgb, var(--warm) 52%, transparent), transparent 18rem),
+        radial-gradient(circle at 72% 28%, color-mix(in srgb, var(--accent-3) 42%, transparent), transparent 32rem),
+        radial-gradient(circle at 82% 74%, color-mix(in srgb, var(--pink) 18%, transparent), transparent 24rem),
+        linear-gradient(90deg, color-mix(in srgb, var(--line) 28%, transparent) 1px, transparent 1px),
+        linear-gradient(180deg, color-mix(in srgb, var(--line) 24%, transparent) 1px, transparent 1px),
+        var(--bg);
+      background-size: auto, auto, auto, 88px 88px, 88px 88px, auto;
+      font-family: var(--font);
+      line-height: 1.58;
+      letter-spacing: 0;
+    }
+
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      z-index: -1;
+      pointer-events: none;
+      background:
+        linear-gradient(180deg, transparent, var(--bg) 90%),
+        radial-gradient(circle at 50% 0%, color-mix(in srgb, white 60%, transparent), transparent 42rem);
+    }
+
+    a {
+      color: inherit;
+      text-decoration: none;
+    }
+
+    button {
+      font: inherit;
+    }
+
+    code,
+    pre {
+      font-family: var(--mono);
+    }
+
+    .wrap {
+      width: min(var(--max), calc(100% - 72px));
+      margin: 0 auto;
+    }
+
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 40;
+      border-bottom: 1px solid color-mix(in srgb, var(--line) 86%, transparent);
+      background: color-mix(in srgb, var(--surface) 78%, transparent);
+      backdrop-filter: blur(18px) saturate(135%);
+    }
+
+    .nav {
+      width: min(var(--max), calc(100% - 72px));
+      min-height: 76px;
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: minmax(270px, 1fr) auto minmax(72px, 1fr);
+      align-items: center;
+      gap: 28px;
+    }
+
+    .brand {
+      min-width: 0;
+      display: inline-flex;
+      align-items: center;
+      gap: 13px;
+      white-space: nowrap;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+
+    .brand-mark {
+      width: 48px;
+      height: 48px;
+      flex: 0 0 auto;
+      display: grid;
+      place-items: center;
+    }
+
+    .octo-logo {
+      width: 100%;
+      height: 100%;
+      display: block;
+      overflow: visible;
+      filter: drop-shadow(0 8px 14px color-mix(in srgb, var(--accent) 16%, transparent));
+    }
+
+    .octo-logo .sticker {
+      fill: color-mix(in srgb, var(--surface) 90%, var(--accent) 8%);
+      stroke: color-mix(in srgb, var(--accent) 28%, var(--line));
+      stroke-width: 1.5;
+    }
+
+    .octo-logo .glow {
+      fill: color-mix(in srgb, var(--accent-3) 24%, transparent);
+    }
+
+    .octo-logo .cast-shadow {
+      fill: #7d352a;
+      opacity: 0.14;
+    }
+
+    .octo-logo .body {
+      fill: url(#octo-body-grad);
+      stroke: #6f302c;
+      stroke-width: 2.15;
+      filter: drop-shadow(0 2px 1px rgb(110 48 44 / 0.2));
+    }
+
+    .octo-logo .arm-outline,
+    .octo-logo .arm-lobe {
+      fill: none;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .octo-logo .arm-outline {
+      stroke: #6f302c;
+      stroke-width: 9.2;
+      opacity: 0.96;
+    }
+
+    .octo-logo .arm-outline.front {
+      stroke-width: 8.4;
+    }
+
+    .octo-logo .arm-lobe {
+      stroke: url(#octo-arm-grad);
+      stroke-width: 5.9;
+    }
+
+    .octo-logo .arm-lobe.front {
+      stroke-width: 5.2;
+    }
+
+    .octo-logo .arm-lobe.inner {
+      stroke: url(#octo-arm-inner-grad);
+    }
+
+    .octo-logo .arm-lobe.back {
+      stroke: url(#octo-arm-back-grad);
+    }
+
+    .octo-logo .belly {
+      fill: url(#octo-belly-grad);
+      opacity: 0.34;
+    }
+
+    .octo-logo .body-rim {
+      fill: none;
+      stroke: #ffe4d5;
+      stroke-width: 2.2;
+      stroke-linecap: round;
+      opacity: 0.34;
+    }
+
+    .octo-logo .body-shade {
+      fill: url(#octo-bottom-shade);
+      opacity: 0.42;
+    }
+
+    .octo-logo .soft-line {
+      fill: none;
+      stroke: #ffe0d1;
+      stroke-width: 2.2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      opacity: 0.78;
+    }
+
+    .octo-logo .feature-line {
+      fill: none;
+      stroke: #6f302c;
+      stroke-width: 3;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .octo-logo .highlight {
+      fill: #ecfeff;
+      opacity: 0.68;
+    }
+
+    .octo-logo .highlight-soft {
+      fill: #ffffff;
+      opacity: 0.22;
+    }
+
+    .octo-logo .eye {
+      fill: #4a2726;
+    }
+
+    .octo-logo .eye-shine {
+      fill: #ffffff;
+    }
+
+    .octo-logo .cheek {
+      fill: #f7a6c9;
+      opacity: 0.82;
+    }
+
+    .octo-logo .node-line,
+    .octo-logo .node-dot {
+      stroke: #e6fffb;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .octo-logo .node-line {
+      fill: none;
+      stroke-width: 2.2;
+      opacity: 0.92;
+    }
+
+    .octo-logo .node-dot {
+      fill: #f7fffd;
+      stroke-width: 1.4;
+    }
+
+    .navlinks {
+      min-height: 46px;
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      padding: 4px;
+      border: 1px solid color-mix(in srgb, var(--line) 92%, transparent);
+      border-radius: 999px;
+      background: color-mix(in srgb, var(--surface) 84%, transparent);
+      box-shadow: 0 1px 0 rgb(255 255 255 / 0.7) inset;
+    }
+
+    .navlinks a {
+      min-height: 36px;
+      display: inline-flex;
+      align-items: center;
+      padding: 0 17px;
+      border-radius: 999px;
+      color: var(--muted);
+      font-size: 0.92rem;
+      font-weight: 600;
+      transition: color 180ms var(--ease), background 180ms var(--ease), transform 180ms var(--ease);
+    }
+
+    .navlinks a:hover {
+      color: var(--ink);
+      background: color-mix(in srgb, var(--accent) 11%, transparent);
+    }
+
+    .ledger-link {
+      justify-self: end;
+      min-width: 42px;
+      min-height: 42px;
+      display: inline-grid;
+      place-items: center;
+      border: 1px solid color-mix(in srgb, var(--line) 92%, transparent);
+      border-radius: 999px;
+      background: color-mix(in srgb, var(--surface) 86%, transparent);
+      color: var(--ink);
+      font-weight: 700;
+      transition: transform 180ms var(--ease), border-color 180ms var(--ease), background 180ms var(--ease);
+    }
+
+    .ledger-link:hover {
+      border-color: color-mix(in srgb, var(--accent) 54%, var(--line));
+      background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+    }
+
+    .hero {
+      padding: 58px 0 42px;
+    }
+
+    .hero-layout {
+      display: grid;
+      grid-template-columns: minmax(500px, 0.86fr) minmax(620px, 1.14fr);
+      gap: 56px;
+      align-items: center;
+    }
+
+    .eyebrow {
+      width: fit-content;
+      margin: 0 0 22px;
+      padding: 8px 12px;
+      border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--line));
+      border-radius: 999px;
+      background: color-mix(in srgb, var(--surface) 82%, transparent);
+      color: var(--deep);
+      font-family: var(--mono);
+      font-size: 0.75rem;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    h1,
+    h2,
+    h3 {
+      margin: 0;
+      color: var(--ink);
+      letter-spacing: -0.035em;
+    }
+
+    h1 {
+      max-width: 760px;
+      font-size: clamp(3.4rem, 4.75vw, 5.65rem);
+      line-height: 1;
+      font-weight: 700;
+    }
+
+    h1 span {
+      display: block;
+    }
+
+    .hero-copy {
+      max-width: 620px;
+      margin: 28px 0 0;
+      color: var(--muted);
+      font-size: clamp(1.03rem, 1.25vw, 1.18rem);
+      line-height: 1.72;
+    }
+
+    .hero-stats {
+      max-width: 620px;
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 30px;
+    }
+
+    .stat {
+      min-height: 94px;
+      padding: 18px;
+      border: 1px solid color-mix(in srgb, var(--line) 88%, transparent);
+      border-radius: var(--radius);
+      background: color-mix(in srgb, var(--surface) 86%, transparent);
+      box-shadow: var(--shadow-soft);
+    }
+
+    .stat b {
+      display: block;
+      color: var(--ink);
+      font-family: var(--mono);
+      font-size: 1.55rem;
+      line-height: 1;
+      font-weight: 700;
+    }
+
+    .stat span {
+      display: block;
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 0.9rem;
+      font-weight: 500;
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 30px;
+    }
+
+    .btn {
+      min-height: 48px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      padding: 0 24px;
+      border: 1px solid color-mix(in srgb, var(--line-strong) 80%, transparent);
+      border-radius: 999px;
+      background: color-mix(in srgb, var(--surface) 70%, transparent);
+      color: var(--ink);
+      font-weight: 700;
+      white-space: nowrap;
+      box-shadow: 0 1px 0 color-mix(in srgb, white 30%, transparent) inset;
+      transition: transform 180ms var(--ease), background 180ms var(--ease), border-color 180ms var(--ease), box-shadow 180ms var(--ease);
+    }
+
+    .btn.primary {
+      border-color: color-mix(in srgb, var(--accent) 72%, var(--deep));
+      background: linear-gradient(135deg, #1598a5, var(--accent-2));
+      color: #06252a;
+      box-shadow: 0 14px 28px color-mix(in srgb, var(--accent) 20%, transparent);
+    }
+
+    .btn:hover {
+      border-color: color-mix(in srgb, var(--accent) 62%, var(--line));
+      background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+      transform: translateY(-1px);
+    }
+
+    .btn.primary:hover {
+      background: linear-gradient(135deg, var(--accent-2), var(--accent-3));
+      color: #06252a;
+    }
+
+    .btn:active,
+    .navlinks a:active,
+    .ledger-link:active,
+    .copy:active,
+    .tab:active {
+      transform: scale(0.97);
+    }
+
+    .map-shell {
+      position: relative;
+      min-height: 620px;
+      padding: 30px;
+      border: 1px solid color-mix(in srgb, var(--line) 92%, transparent);
+      border-radius: 28px;
+      background:
+        radial-gradient(circle at 50% 55%, color-mix(in srgb, var(--accent-3) 28%, transparent), transparent 18rem),
+        linear-gradient(180deg, color-mix(in srgb, var(--surface) 94%, transparent), color-mix(in srgb, var(--surface-2) 78%, transparent));
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .map-shell::before {
+      content: "";
+      position: absolute;
+      inset: 18px;
+      border-radius: 22px;
+      background:
+        radial-gradient(circle, color-mix(in srgb, var(--line) 72%, transparent) 1.1px, transparent 1.2px);
+      background-size: 28px 28px;
+      opacity: 0.42;
+      pointer-events: none;
+    }
+
+    .runtime-map {
+      position: relative;
+      z-index: 1;
+      min-height: 560px;
+      display: grid;
+      grid-template-columns: minmax(220px, 255px) 152px minmax(220px, 255px);
+      justify-content: center;
+      align-items: center;
+      gap: 26px;
+    }
+
+    .map-lines {
+      position: absolute;
+      inset: 0;
+      z-index: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      overflow: visible;
+    }
+
+    .route-base,
+    .route-flow {
+      fill: none;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      vector-effect: non-scaling-stroke;
+    }
+
+    .route-base {
+      stroke: color-mix(in srgb, var(--accent) 24%, var(--line-strong));
+      stroke-width: 1.05;
+      opacity: 0.48;
+    }
+
+    .route-flow {
+      stroke: url(#routeGradient);
+      stroke-width: 1.35;
+      stroke-dasharray: 38 440;
+      animation: routeFlow 7.5s var(--ease) infinite;
+      filter: url(#softGlow);
+    }
+
+    .delay-b {
+      animation-delay: -1.1s;
+    }
+
+    .delay-c {
+      animation-delay: -2.5s;
+    }
+
+    .delay-d {
+      animation-delay: -3.9s;
+    }
+
+    .delay-e {
+      animation-delay: -5.2s;
+    }
+
+    .route-anchor {
+      fill: var(--accent-3);
+      filter: url(#softGlow);
+    }
+
+    @keyframes routeFlow {
+      from {
+        stroke-dashoffset: 478;
+      }
+      to {
+        stroke-dashoffset: 0;
+      }
+    }
+
+    .map-column {
+      position: relative;
+      z-index: 2;
+      display: grid;
+      gap: 14px;
+    }
+
+    .node {
+      min-height: 78px;
+      display: grid;
+      grid-template-columns: 38px minmax(0, 1fr);
+      align-items: center;
+      gap: 12px;
+      padding: 14px;
+      border: 1px solid color-mix(in srgb, var(--line) 90%, transparent);
+      border-radius: var(--radius);
+      background: color-mix(in srgb, var(--surface) 88%, transparent);
+      box-shadow: 0 1px 0 rgb(255 255 255 / 0.76) inset;
+      backdrop-filter: blur(10px);
+      transition: transform 180ms var(--ease), border-color 180ms var(--ease), background 180ms var(--ease), box-shadow 180ms var(--ease);
+    }
+
+    .node:hover {
+      transform: translateY(-1px);
+      border-color: color-mix(in srgb, var(--accent) 46%, var(--line));
+      background: color-mix(in srgb, var(--surface) 92%, var(--accent-3) 8%);
+      box-shadow: var(--shadow-soft);
+    }
+
+    .node.resource {
+      grid-template-columns: 1fr;
+      padding: 17px 18px;
+    }
+
+    .node-icon {
+      width: 34px;
+      height: 34px;
+      display: grid;
+      place-items: center;
+      border: 1px solid color-mix(in srgb, var(--accent) 34%, var(--line));
+      border-radius: 999px;
+      background: color-mix(in srgb, var(--accent-3) 28%, var(--surface));
+      color: var(--deep);
+      font-family: var(--mono);
+      font-size: 0.68rem;
+      font-weight: 700;
+    }
+
+    .node strong {
+      display: block;
+      color: var(--ink);
+      font-size: 0.96rem;
+      line-height: 1.18;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+    }
+
+    .node-meta {
+      display: block;
+      margin-top: 7px;
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      line-height: 1.35;
+      overflow-wrap: anywhere;
+    }
+
+    .core {
+      position: relative;
+      z-index: 3;
+      width: 152px;
+      height: 152px;
+      display: grid;
+      place-items: center;
+      justify-self: center;
+      border: 1px solid color-mix(in srgb, var(--accent) 34%, var(--line));
+      border-radius: 44px;
+      background:
+        radial-gradient(circle at 35% 18%, rgb(255 255 255 / 0.92), transparent 26%),
+        linear-gradient(145deg, color-mix(in srgb, var(--surface) 90%, var(--accent-3) 10%), color-mix(in srgb, var(--surface-2) 72%, var(--accent-3) 28%));
+      box-shadow:
+        0 0 0 16px color-mix(in srgb, var(--accent-3) 18%, transparent),
+        0 0 0 34px color-mix(in srgb, var(--accent-3) 10%, transparent),
+        var(--shadow);
+      animation: coreBreath 6s var(--ease) infinite;
+    }
+
+    .core .octo-logo {
+      width: 124px;
+      height: 124px;
+    }
+
+    @keyframes coreBreath {
+      0%, 100% {
+        transform: translateY(0) scale(1);
+      }
+      50% {
+        transform: translateY(-4px) scale(1.015);
+      }
+    }
+
+    .integrations {
+      padding: 16px 0 36px;
+    }
+
+    .chip-row {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 10px;
+    }
+
+    .chip-row span {
+      min-height: 38px;
+      display: inline-flex;
+      align-items: center;
+      padding: 0 15px;
+      border: 1px solid color-mix(in srgb, var(--line) 84%, transparent);
+      border-radius: 999px;
+      background: color-mix(in srgb, var(--surface) 70%, transparent);
+      color: var(--muted);
+      font-weight: 600;
+      box-shadow: 0 1px 0 color-mix(in srgb, white 28%, transparent) inset;
+    }
+
+    section {
+      padding: 80px 0;
+    }
+
+    .section-panel {
+      position: relative;
+      padding: clamp(26px, 4vw, 48px);
+      border: 1px solid color-mix(in srgb, var(--line) 78%, transparent);
+      border-radius: 18px;
+      background: linear-gradient(180deg, color-mix(in srgb, var(--surface) 82%, transparent), color-mix(in srgb, var(--surface-2) 60%, transparent));
+      box-shadow: var(--shadow-soft);
+      overflow: hidden;
+    }
+
+    .section-panel::before {
+      content: "";
+      position: absolute;
+      width: 24rem;
+      height: 24rem;
+      right: -10rem;
+      top: -12rem;
+      border-radius: 999px;
+      background: color-mix(in srgb, var(--accent) 9%, transparent);
+      filter: blur(48px);
+      pointer-events: none;
+    }
+
+    .section-title {
+      position: relative;
+      max-width: 760px;
+      margin-bottom: 30px;
+    }
+
+    h2 {
+      font-size: clamp(2.4rem, 4.6vw, 5rem);
+      line-height: 0.98;
+      font-weight: 700;
+    }
+
+    .section-title p {
+      max-width: 680px;
+      margin: 18px 0 0;
+      color: var(--muted);
+      font-size: 1.05rem;
+      line-height: 1.72;
+    }
+
+    .connect {
+      position: relative;
+      z-index: 1;
+      display: grid;
+      grid-template-columns: 280px minmax(0, 1fr);
+      gap: 18px;
+    }
+
+    .tabs {
+      display: grid;
+      align-content: start;
+      gap: 10px;
+    }
+
+    .tab {
+      min-height: 64px;
+      display: grid;
+      gap: 3px;
+      padding: 14px 16px;
+      border: 1px solid color-mix(in srgb, var(--line) 84%, transparent);
+      border-radius: var(--radius);
+      background: color-mix(in srgb, var(--surface) 70%, transparent);
+      color: var(--muted);
+      text-align: left;
+      cursor: pointer;
+      transition: transform 180ms var(--ease), border-color 180ms var(--ease), background 180ms var(--ease), color 180ms var(--ease);
+    }
+
+    .tab strong {
+      color: var(--ink);
+      font-weight: 700;
+    }
+
+    .tab span {
+      font-size: 0.82rem;
+    }
+
+    .tab[aria-selected="true"] {
+      border-color: color-mix(in srgb, var(--accent) 66%, var(--line));
+      background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 16%, var(--surface)), color-mix(in srgb, var(--pink) 6%, var(--surface)));
+      color: var(--ink);
+    }
+
+    .connect-panel {
+      display: none;
+      min-height: 460px;
+      padding: 24px;
+      border: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
+      border-radius: 14px;
+      background: color-mix(in srgb, var(--surface) 78%, transparent);
+      box-shadow: 0 1px 0 color-mix(in srgb, white 24%, transparent) inset;
+    }
+
+    .connect-panel.active {
+      display: block;
+    }
+
+    .steps {
+      display: grid;
+      gap: 18px;
+    }
+
+    .step {
+      display: grid;
+      grid-template-columns: 48px minmax(0, 1fr);
+      gap: 16px;
+      align-items: start;
+    }
+
+    .step-num {
+      width: 42px;
+      height: 42px;
+      display: grid;
+      place-items: center;
+      border-radius: 999px;
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      color: #f7fdff;
+      font-family: var(--mono);
+      font-weight: 700;
+      box-shadow: 0 12px 24px color-mix(in srgb, var(--accent) 22%, transparent);
+    }
+
+    .step h3 {
+      margin-bottom: 8px;
+      font-size: 1.16rem;
+      line-height: 1.25;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+    }
+
+    .step p {
+      margin: 0 0 12px;
+      color: var(--muted);
+    }
+
+    .terminal {
+      border: 1px solid #193243;
+      border-radius: 12px;
+      background: #071015;
+      color: #dff7ff;
+      overflow: hidden;
+      box-shadow: var(--shadow-soft);
+    }
+
+    .terminal-head {
+      min-height: 42px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 0 14px;
+      border-bottom: 1px solid #173040;
+      background: #0c1c25;
+      color: #9db5c3;
+      font-family: var(--mono);
+      font-size: 0.75rem;
+    }
+
+    .copy {
+      min-height: 30px;
+      padding: 0 12px;
+      border: 1px solid #285369;
+      border-radius: 999px;
+      background: #102a38;
+      color: #dff7ff;
+      cursor: pointer;
+      font-size: 0.75rem;
+      font-weight: 700;
+      transition: transform 180ms var(--ease), border-color 180ms var(--ease), background 180ms var(--ease);
+    }
+
+    .copy:hover {
+      border-color: #22d3ee;
+      background: #0e3444;
+    }
+
+    pre {
+      margin: 0;
+      padding: 18px;
+      overflow-x: auto;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      font-size: 0.86rem;
+      line-height: 1.62;
+    }
+
+    .model-grid,
+    .verify {
+      position: relative;
+      z-index: 1;
+      display: grid;
+      grid-template-columns: minmax(0, 0.95fr) minmax(420px, 1.05fr);
+      gap: 20px;
+      align-items: stretch;
+    }
+
+    .directory,
+    .panel-card,
+    .figure,
+    .number {
+      border: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
+      border-radius: var(--radius);
+      background: color-mix(in srgb, var(--surface) 74%, transparent);
+      box-shadow: 0 1px 0 color-mix(in srgb, white 24%, transparent) inset;
+    }
+
+    .directory,
+    .panel-card {
+      padding: 22px;
+    }
+
+    .path {
+      width: fit-content;
+      margin-bottom: 18px;
+      padding: 7px 11px;
+      border: 1px solid color-mix(in srgb, var(--accent) 36%, var(--line));
+      border-radius: 999px;
+      color: var(--deep);
+      font-family: var(--mono);
+      font-size: 0.78rem;
+      font-weight: 700;
+    }
+
+    .tree,
+    .objects {
+      display: grid;
+      gap: 12px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .tree li,
+    .object {
+      display: grid;
+      grid-template-columns: 172px minmax(0, 1fr);
+      gap: 16px;
+      padding: 14px;
+      border-radius: var(--radius);
+      background: color-mix(in srgb, var(--accent) 5%, transparent);
+    }
+
+    .tree li {
+      font-family: var(--mono);
+      font-size: 0.88rem;
+    }
+
+    .object {
+      grid-template-columns: 130px minmax(0, 1fr);
+    }
+
+    .tree b,
+    .object b {
+      color: var(--ink);
+      font-weight: 700;
+    }
+
+    .tree span,
+    .object p,
+    .note {
+      color: var(--muted);
+    }
+
+    .object p {
+      margin: 0;
+    }
+
+    .numbers {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 16px;
+    }
+
+    .number {
+      min-height: 126px;
+      display: grid;
+      align-content: center;
+      padding: 18px;
+    }
+
+    .number b {
+      display: block;
+      color: var(--ink);
+      font-family: var(--mono);
+      font-size: 2rem;
+      line-height: 1;
+      font-weight: 700;
+    }
+
+    .number span {
+      display: block;
+      margin-top: 10px;
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+
+    .benchmark-board {
+      display: grid;
+      gap: 18px;
+    }
+
+    .metric-table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+      overflow: hidden;
+      border: 1px solid color-mix(in srgb, var(--line) 82%, transparent);
+      border-radius: var(--radius);
+      background: color-mix(in srgb, var(--surface) 72%, transparent);
+      box-shadow: 0 1px 0 color-mix(in srgb, white 24%, transparent) inset;
+    }
+
+    .metric-table th,
+    .metric-table td {
+      padding: 11px 13px;
+      border-bottom: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
+      color: var(--muted);
+      text-align: left;
+      vertical-align: top;
+      overflow-wrap: anywhere;
+      font-size: 0.92rem;
+    }
+
+    .metric-table th {
+      color: var(--ink);
+      font-size: 0.78rem;
+      font-family: var(--mono);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      background: color-mix(in srgb, var(--accent-3) 20%, transparent);
+    }
+
+    .metric-table td:last-child {
+      color: var(--ink);
+      font-family: var(--mono);
+      font-weight: 700;
+    }
+
+    .metric-table tr:last-child td {
+      border-bottom: 0;
+    }
+
+    .status-strip {
+      display: grid;
+      gap: 10px;
+    }
+
+    .status-row {
+      display: grid;
+      grid-template-columns: 160px minmax(0, 1fr);
+      gap: 14px;
+      padding: 13px 14px;
+      border: 1px solid color-mix(in srgb, var(--line) 78%, transparent);
+      border-radius: 14px;
+      background: color-mix(in srgb, var(--accent) 5%, transparent);
+    }
+
+    .status-row b {
+      color: var(--ink);
+      font-family: var(--mono);
+      font-size: 0.84rem;
+    }
+
+    .status-row span {
+      color: var(--muted);
+      overflow-wrap: anywhere;
+    }
+
+    .note {
+      margin-top: 18px;
+    }
+
+    .footer {
+      padding: 42px 0 56px;
+    }
+
+    .footer-grid {
+      display: flex;
+      justify-content: space-between;
+      gap: 24px;
+      color: var(--muted);
+      font-size: 0.92rem;
+    }
+
+    .footer strong {
+      color: var(--ink);
+    }
+
+    :focus-visible {
+      outline: 3px solid color-mix(in srgb, var(--accent) 82%, white);
+      outline-offset: 3px;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *,
+      *::before,
+      *::after {
+        animation: none !important;
+        scroll-behavior: auto !important;
+        transition-duration: 0.01ms !important;
+      }
+
+      .route-flow {
+        opacity: 0.5;
+      }
+    }
+
+    @media (max-width: 1160px) {
+      .hero-layout,
+      .model-grid,
+      .verify {
+        grid-template-columns: 1fr;
+      }
+
+      .runtime-map {
+        min-height: 520px;
+      }
+
+      .nav {
+        grid-template-columns: 1fr auto;
+      }
+
+      .navlinks {
+        display: none;
+      }
+    }
+
+    @media (max-width: 760px) {
+      .wrap,
+      .nav {
+        width: min(var(--max), calc(100% - 28px));
+      }
+
+      .nav {
+        min-height: 64px;
+      }
+
+      .brand-mark {
+        width: 42px;
+        height: 42px;
+      }
+
+      .brand span:last-child {
+        font-size: 0.98rem;
+      }
+
+      .hero {
+        padding: 38px 0 26px;
+      }
+
+      .hero-layout {
+        gap: 32px;
+      }
+
+      h1 {
+        font-size: clamp(3rem, 13vw, 3.7rem);
+        line-height: 1.02;
+      }
+
+      .hero-copy {
+        font-size: 1rem;
+      }
+
+      .hero-stats {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .actions {
+        display: grid;
+      }
+
+      .btn {
+        width: 100%;
+      }
+
+      .map-shell {
+        min-height: auto;
+        padding: 18px;
+        border-radius: 14px;
+      }
+
+      .runtime-map {
+        min-height: auto;
+        grid-template-columns: 1fr;
+      }
+
+      .map-lines {
+        display: none;
+      }
+
+      .core {
+        order: -1;
+        width: 132px;
+        height: 132px;
+        border-radius: 28px;
+      }
+
+      .core .octo-logo {
+        width: 108px;
+        height: 108px;
+      }
+
+      section {
+        padding: 54px 0;
+      }
+
+      .section-panel {
+        padding: 20px;
+        border-radius: 14px;
+      }
+
+      .connect {
+        grid-template-columns: 1fr;
+      }
+
+      .connect-panel {
+        min-height: auto;
+        padding: 18px;
+      }
+
+      .step,
+      .tree li,
+      .object {
+        grid-template-columns: 1fr;
+      }
+
+      .numbers {
+        grid-template-columns: 1fr;
+      }
+
+      .status-row {
+        grid-template-columns: 1fr;
+      }
+
+      .footer-grid {
+        display: grid;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <nav class="nav" aria-label="页面导航">
+      <a class="brand" href="#top" aria-label="Agent Memory Hub">
+        <span class="brand-mark" aria-hidden="true">
+          <img class="octo-logo" src="agent-memory-hub-octopus-logo-a-plus-candidate.svg" alt="" loading="eager" decoding="async">
+        </span>
+        <span>Agent Memory Hub</span>
+      </a>
+      <div class="navlinks">
+        <a href="./readme-zh-pro-preview.html">原专业版</a>
+        <a href="#connect">接入</a>
+        <a href="#model">模型</a>
+        <a href="#retrieval">召回</a>
+        <a href="#verify">验证</a>
+      </div>
+      <a class="ledger-link" href="../verification/2026-06-29-readme-capability-ledger.md" aria-label="能力账本">账</a>
+    </nav>
+  </header>
+
+  <main id="top">
+    <section class="hero">
+      <div class="wrap hero-layout">
+        <div>
+          <p class="eyebrow">local first memory runtime</p>
+          <h1><span>A friendlier brain</span><span>for AI agents.</span></h1>
+          <p class="hero-copy">把决策、事实、证据和交接统一放进本地 brain pool。让不同 Agent 接上同一份可靠上下文。</p>
+          <div class="hero-stats" aria-label="当前能力快照">
+            <div class="stat"><b>11</b><span>已验证适配器</span></div>
+            <div class="stat"><b>4</b><span>可直接安装</span></div>
+            <div class="stat"><b>240</b><span>系统基准用例</span></div>
+          </div>
+          <div class="actions">
+            <a class="btn primary" href="#connect">快速入门</a>
+            <a class="btn" href="./agent-memory-hub-architecture-map.html">架构地图</a>
+          </div>
+        </div>
+
+        <div class="map-shell">
+          <div class="runtime-map" aria-label="Agent Memory Hub runtime map">
+            <svg class="map-lines" viewBox="0 0 720 560" preserveAspectRatio="none" aria-hidden="true">
+              <defs>
+                <linearGradient id="routeGradient" x1="172" y1="280" x2="548" y2="280" gradientUnits="userSpaceOnUse">
+                  <stop offset="0" stop-color="var(--accent)" stop-opacity="0"/>
+                  <stop offset="0.46" stop-color="var(--accent-3)" stop-opacity="0.95"/>
+                  <stop offset="1" stop-color="var(--accent-2)" stop-opacity="0"/>
+                </linearGradient>
+                <filter id="softGlow" x="-80%" y="-80%" width="260%" height="260%">
+                  <feGaussianBlur stdDeviation="2.6" result="blur"/>
+                  <feMerge>
+                    <feMergeNode in="blur"/>
+                    <feMergeNode in="SourceGraphic"/>
+                  </feMerge>
+                </filter>
+              </defs>
+              <path class="route-base" d="M176 88 C276 90 302 190 360 280"></path>
+              <path class="route-base" d="M176 178 C275 178 314 220 360 280"></path>
+              <path class="route-base" d="M176 280 C282 280 320 280 360 280"></path>
+              <path class="route-base" d="M176 382 C275 382 314 340 360 280"></path>
+              <path class="route-base" d="M176 472 C276 470 302 370 360 280"></path>
+              <path class="route-base" d="M360 280 C418 190 444 90 544 88"></path>
+              <path class="route-base" d="M360 280 C406 220 445 178 544 178"></path>
+              <path class="route-base" d="M360 280 C400 280 438 280 544 280"></path>
+              <path class="route-base" d="M360 280 C406 340 445 382 544 382"></path>
+              <path class="route-base" d="M360 280 C418 370 444 470 544 472"></path>
+              <path class="route-flow" d="M176 88 C276 90 302 190 360 280"></path>
+              <path class="route-flow delay-b" d="M176 178 C275 178 314 220 360 280"></path>
+              <path class="route-flow delay-c" d="M176 280 C282 280 320 280 360 280"></path>
+              <path class="route-flow delay-d" d="M176 382 C275 382 314 340 360 280"></path>
+              <path class="route-flow delay-e" d="M176 472 C276 470 302 370 360 280"></path>
+              <path class="route-flow delay-b" d="M360 280 C418 190 444 90 544 88"></path>
+              <path class="route-flow delay-c" d="M360 280 C406 220 445 178 544 178"></path>
+              <path class="route-flow delay-d" d="M360 280 C400 280 438 280 544 280"></path>
+              <path class="route-flow delay-e" d="M360 280 C406 340 445 382 544 382"></path>
+              <path class="route-flow" d="M360 280 C418 370 444 470 544 472"></path>
+              <circle class="route-anchor" cx="360" cy="280" r="4.5"/>
+            </svg>
+
+            <div class="map-column">
+              <div class="node"><span class="node-icon" aria-hidden="true">CC</span><span><strong>Claude Code</strong><span class="node-meta">CLAUDE.md / hooks / MCP</span></span></div>
+              <div class="node"><span class="node-icon" aria-hidden="true">Cx</span><span><strong>Codex CLI</strong><span class="node-meta">AGENTS.md / hooks.json / MCP</span></span></div>
+              <div class="node"><span class="node-icon" aria-hidden="true">Q</span><span><strong>QoderWork</strong><span class="node-meta">hooks / awareness / evidence</span></span></div>
+              <div class="node"><span class="node-icon" aria-hidden="true">悟</span><span><strong>Wukong</strong><span class="node-meta">scoped MCP / sidecar</span></span></div>
+              <div class="node"><span class="node-icon" aria-hidden="true">M</span><span><strong>Cursor, Cline, Continue</strong><span class="node-meta">rules / MCP config / doctor</span></span></div>
+            </div>
+
+            <div class="core" aria-label="Agent Memory Hub memory core">
+              <img class="octo-logo" src="agent-memory-hub-octopus-logo-a-plus-candidate.svg" alt="" loading="eager" decoding="async">
+            </div>
+
+            <div class="map-column">
+              <div class="node resource"><strong>多源证据</strong><span class="node-meta">sources/conversations / resources</span></div>
+              <div class="node resource"><strong>长期记忆</strong><span class="node-meta">items/mem-*.md</span></div>
+              <div class="node resource"><strong>索引召回</strong><span class="node-meta">FTS / vector / refs_graph</span></div>
+              <div class="node resource"><strong>上下文包</strong><span class="node-meta">locator / overview / detail</span></div>
+              <div class="node resource"><strong>反馈治理</strong><span class="node-meta">feedback / maturity / loop</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="integrations" aria-label="接入面">
+      <div class="wrap chip-row">
+        <span>Codex CLI</span>
+        <span>Claude Code</span>
+        <span>QoderWork</span>
+        <span>Wukong</span>
+        <span>Cursor</span>
+        <span>Cline</span>
+        <span>Continue</span>
+        <span>GitHub Copilot</span>
+      </div>
+    </section>
+
+    <section id="connect">
+      <div class="wrap section-panel">
+        <div class="section-title">
+          <h2>Quickly connect AMH.</h2>
+          <p>安装入口、doctor、自检和一次写入召回放在同一条路径里。先让本地 brain pool 跑起来，再谈多智能体协作。</p>
+        </div>
+        <div class="connect">
+          <div class="tabs" role="tablist" aria-label="接入方式">
+            <button class="tab" role="tab" data-tab="panel-codex" aria-selected="true" aria-controls="panel-codex" id="tab-codex"><strong>Codex CLI</strong><span>AGENTS.md + hooks + MCP</span></button>
+            <button class="tab" role="tab" data-tab="panel-claude" aria-selected="false" aria-controls="panel-claude" id="tab-claude"><strong>Claude Code</strong><span>CLAUDE.md + lifecycle hooks</span></button>
+            <button class="tab" role="tab" data-tab="panel-qoder" aria-selected="false" aria-controls="panel-qoder" id="tab-qoder"><strong>QoderWork</strong><span>awareness + evidence</span></button>
+            <button class="tab" role="tab" data-tab="panel-wukong" aria-selected="false" aria-controls="panel-wukong" id="tab-wukong"><strong>Wukong</strong><span>scoped MCP sidecar</span></button>
+          </div>
+          <div>
+            <div class="connect-panel active" role="tabpanel" id="panel-codex" aria-labelledby="tab-codex">
+              <div class="steps">
+                <div class="step"><span class="step-num">1</span><div><h3>安装 Codex adapter</h3><p>把 AGENTS.md、hooks.json 和 MCP 配置写入目标工程。</p><div class="terminal"><div class="terminal-head"><span>install</span><button class="copy" data-copy="memory adapter install codex">复制</button></div><pre>memory adapter install codex</pre></div></div></div>
+                <div class="step"><span class="step-num">2</span><div><h3>跑 doctor</h3><p>检查 hook 是否可执行、memory CLI 是否可用、召回结果是否受治理策略约束。</p><div class="terminal"><div class="terminal-head"><span>doctor</span><button class="copy" data-copy="memory adapter doctor codex --format json">复制</button></div><pre>memory adapter doctor codex --format json</pre></div></div></div>
+                <div class="step"><span class="step-num">3</span><div><h3>写入和召回</h3><p>把真正有复用价值的 decision、fact、artifact 写进 memory item，再由下一次 prompt 拉回上下文包。</p></div></div>
+              </div>
+            </div>
+            <div class="connect-panel" role="tabpanel" id="panel-claude" aria-labelledby="tab-claude">
+              <div class="steps">
+                <div class="step"><span class="step-num">1</span><div><h3>接入 CLAUDE.md</h3><p>SessionStart 注入记忆纪律，UserPromptSubmit 召回，Stop 导入 transcript。</p></div></div>
+                <div class="step"><span class="step-num">2</span><div><h3>治理优先</h3><p>memory 不是聊天历史。召回内容需要经过 cwd、adapter、时间和 source 边界检查。</p></div></div>
+              </div>
+            </div>
+            <div class="connect-panel" role="tabpanel" id="panel-qoder" aria-labelledby="tab-qoder">
+              <div class="steps">
+                <div class="step"><span class="step-num">1</span><div><h3>记录 awareness</h3><p>把运行时事件、证据路径和任务边界落到共享 evidence 层。</p></div></div>
+                <div class="step"><span class="step-num">2</span><div><h3>只共享结论</h3><p>完整 transcript 归 evidence，多智能体协作中可复用的判断才提炼成 MemoryItem。</p></div></div>
+              </div>
+            </div>
+            <div class="connect-panel" role="tabpanel" id="panel-wukong" aria-labelledby="tab-wukong">
+              <div class="steps">
+                <div class="step"><span class="step-num">1</span><div><h3>侧边栏入口</h3><p>通过 scoped MCP 暴露 search、brief、read、write，让工作区内 Agent 能查同一份 brain pool。</p></div></div>
+                <div class="step"><span class="step-num">2</span><div><h3>权限收敛</h3><p>本地优先，按项目、敏感度和 adapter 边界控制召回。</p></div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="model">
+      <div class="wrap section-panel">
+        <div class="section-title">
+          <h2>One local brain pool.</h2>
+          <p>AMH 把原始证据、长期记忆、索引和上下文包分层存放。Agent 看到的是经过裁剪的 context pack，不是整仓 transcript。</p>
+        </div>
+        <div class="model-grid">
+          <div class="directory">
+            <div class="path">~/.agent-memory-hub/</div>
+            <ul class="tree">
+              <li><b>items/</b><span>长期 MemoryItem</span></li>
+              <li><b>sources/</b><span>conversation evidence</span></li>
+              <li><b>indexes/</b><span>FTS / vector / refs_graph</span></li>
+              <li><b>resources/</b><span>项目文件、知识源、外部资料</span></li>
+            </ul>
+          </div>
+          <div class="panel-card">
+            <div class="path">MemoryItem</div>
+            <div class="objects">
+              <div class="object"><b>decision</b><p>非显然技术决策，必须写理由和改回去的代价。</p></div>
+              <div class="object"><b>fact</b><p>客观限制、配置、数字、API 行为，必须写来源和有效期。</p></div>
+              <div class="object"><b>artifact</b><p>PR、文档、文件、工具，必须写产出物路径和用途。</p></div>
+              <div class="object"><b>handoff</b><p>承接工作时用 brief 优先，只读取必要的 1 到 3 条正文。</p></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="retrieval">
+      <div class="wrap section-panel">
+        <div class="section-title">
+          <h2>Recall with governance.</h2>
+          <p>召回不是把所有记忆直接注入 prompt，而是先过滤项目、类型、时间、敏感度，再把 locator、overview、detail hint 组成可控上下文包。</p>
+        </div>
+        <div class="model-grid">
+          <div class="panel-card">
+            <div class="path">query_signal</div>
+            <div class="objects">
+              <div class="object"><b>1. detect</b><p>识别当前任务关键词、cwd、adapter、文件边界。</p></div>
+              <div class="object"><b>2. retrieve</b><p>先拿压缩视图，避免开局 bulk-read 吃光上下文。</p></div>
+              <div class="object"><b>3. verify</b><p>关键判断再 bounded read 正文，和当前工具证据交叉验证。</p></div>
+            </div>
+          </div>
+          <div class="terminal">
+            <div class="terminal-head"><span>memory brief</span><button class="copy" data-copy="memory brief --project agent-memory-hub --limit 8">复制</button></div>
+            <pre>memory brief --project agent-memory-hub --limit 8
+memory read mem_xxx --view detail --head 2000</pre>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="verify">
+      <div class="wrap section-panel">
+        <div class="section-title">
+          <h2>Verify the system, not the story.</h2>
+          <p>主页里的数字和能力描述要和真实测试、doctor、web surface contract 对齐。AMH 本地 system benchmark 已完成；外部记忆评估采用四源融合 loop，并优先落 LongMemEval-S retrieval + AMH ranking 子链路。</p>
+        </div>
+        <div class="verify">
+          <div class="benchmark-board">
+            <div class="numbers">
+              <div class="number"><b>240</b><span>system benchmark cases</span></div>
+              <div class="number"><b>0</b><span>failed cases</span></div>
+              <div class="number"><b>1237</b><span>indexed memory items</span></div>
+            </div>
+            <table class="metric-table" aria-label="AMH 核心评测结果">
+              <thead>
+                <tr><th>metric</th><th>result</th></tr>
+              </thead>
+              <tbody>
+                <tr><td>弱意图阻断</td><td>100%</td></tr>
+                <tr><td>可注入问题识别</td><td>100%</td></tr>
+                <tr><td>Recall@10</td><td>100%</td></tr>
+                <tr><td>MRR</td><td>99.78%</td></tr>
+                <tr><td>Firewall include / exclude</td><td>100% / 100%</td></tr>
+                <tr><td>ContextPack 可逆</td><td>100%</td></tr>
+                <tr><td>运行耗时</td><td>44.443s</td></tr>
+              </tbody>
+            </table>
+            <table class="metric-table" aria-label="四源融合记忆评估 loop">
+              <thead>
+                <tr><th>source</th><th>evaluation role</th></tr>
+              </thead>
+              <tbody>
+                <tr><td>agentmemory COMPARISON</td><td>LongMemEval、质量、规模、成本对照</td></tr>
+                <tr><td>State-Bench</td><td>task completion、pass^5、效率和用户体验</td></tr>
+                <tr><td>MemoryAgentBench</td><td>准确召回 / 测试时学习 / 长程理解 / 冲突解决</td></tr>
+                <tr><td>OpenViking</td><td>LoCoMo、tau2-bench、HotpotQA / KB QA、延迟和 token 成本</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="panel-card">
+            <div class="path">benchmark status</div>
+            <div class="status-strip">
+              <div class="status-row"><b>AMH local</b><span>PASS：query gate、retrieval、firewall、ContextPack 全链路指标已写入最新报告。</span></div>
+              <div class="status-row"><b>MemoryData</b><span>PASS_WITH_EXTERNAL_SOURCE_LOCK：OpenDataBox/MemoryData 已锁定到 e7ecdbe368426bb3b24bbb6126a57ea90eba1dfb。</span></div>
+              <div class="status-row"><b>LongMemEval-S</b><span>数据已下载；lexical smoke：5 cases，R@5/R@10=100%，MRR=64%；AMH ranking：5 cases，R@5/R@10=100%，MRR=90%。</span></div>
+              <div class="status-row"><b>四源融合</b><span>source lock -> dataset materialize -> adapter mapping -> smoke run -> full matrix -> result normalize -> report publish。</span></div>
+              <div class="status-row"><b>blocked</b><span>外部 smoke/full 仍缺 datasets、rank_bm25、四类 benchmark 数据集和 OpenAI-compatible endpoint。</span></div>
+            </div>
+            <p class="note">最新报告：docs/evaluation/latest-memory-benchmark-report.zh.md。视觉层用 Playwright 截图检查桌面和移动端；内容层用 docs truth contract 和 web surface lock 防止主页叙事超出真实能力。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="wrap footer-grid">
+      <strong>Agent Memory Hub</strong>
+      <span>Local first shared brain for AI agents.</span>
+    </div>
+  </footer>
+
+  <script>
+    const tabs = Array.from(document.querySelectorAll(".tab"));
+    const panels = Array.from(document.querySelectorAll(".connect-panel"));
+
+    tabs.forEach((tab) => {
+      tab.addEventListener("click", () => {
+        tabs.forEach((item) => item.setAttribute("aria-selected", "false"));
+        panels.forEach((panel) => panel.classList.remove("active"));
+        tab.setAttribute("aria-selected", "true");
+        document.getElementById(tab.dataset.tab).classList.add("active");
+      });
+    });
+
+    document.querySelectorAll(".copy").forEach((button) => {
+      button.addEventListener("click", async () => {
+        const original = button.textContent;
+        try {
+          await navigator.clipboard.writeText(button.dataset.copy);
+          button.textContent = "已复制";
+        } catch {
+          button.textContent = "复制失败";
+        }
+        window.setTimeout(() => {
+          button.textContent = original;
+        }, 1200);
+      });
+    });
+  </script>
+</body>
+</html>

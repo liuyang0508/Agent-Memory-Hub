@@ -1,0 +1,42 @@
+{
+  "name": "agent-memory-hub",
+  "version": "1.1.0",
+  "description": "Local-first shared memory layer for LLM agents",
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/liuyang0508/agent-memory-hub#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/liuyang0508/agent-memory-hub.git"
+  },
+  "bugs": {
+    "url": "https://github.com/liuyang0508/agent-memory-hub/issues"
+  },
+  "type": "commonjs",
+  "bin": {
+    "agent-memory-hub": "packaging/npm/bin/agent-memory-hub.js"
+  },
+  "scripts": {
+    "postinstall": "node packaging/npm/scripts/postinstall.js",
+    "pack:check": "npm pack --dry-run"
+  },
+  "files": [
+    "install.sh",
+    "install.ps1",
+    "packaging/npm/bin/",
+    "packaging/npm/scripts/",
+    "README.md",
+    "README.zh.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "ai-agent",
+    "memory",
+    "mcp",
+    "llm",
+    "codex",
+    "claude-code"
+  ]
+}

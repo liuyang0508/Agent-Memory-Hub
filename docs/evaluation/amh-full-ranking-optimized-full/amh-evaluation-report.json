@@ -1,0 +1,447 @@
+{
+  "adapter_matrix": {
+    "error": null,
+    "rows": [
+      {
+        "display_names": [
+          "aider"
+        ],
+        "integration_modes": [
+          "file"
+        ],
+        "name": "aider",
+        "runtime_observed": false,
+        "status": "ready",
+        "support_level": "verified",
+        "verification_blockers": [],
+        "verified": true
+      },
+      {
+        "display_names": [
+          "Aone Copilot",
+          "IntelliJ IDEA Aone Copilot"
+        ],
+        "integration_modes": [
+          "file"
+        ],
+        "name": "aone_copilot",
+        "runtime_observed": false,
+        "status": "ready",
+        "support_level": "verified",
+        "verification_blockers": [],
+        "verified": true
+      },
+      {
+        "display_names": [
+          "claude_code"
+        ],
+        "integration_modes": [
+          "command",
+          "hook",
+          "mcp"
+        ],
+        "name": "claude_code",
+        "runtime_observed": true,
+        "status": "ready",
+        "support_level": "verified",
+        "verification_blockers": [],
+        "verified": true
+      },
+      {
+        "display_names": [
+          "cline"
+        ],
+        "integration_modes": [
+          "mcp"
+        ],
+        "name": "cline",
+        "runtime_observed": true,
+        "status": "ready",
+        "support_level": "verified",
+        "verification_blockers": [],
+        "verified": true
+      },
+      {
+        "display_names": [
+          "Codex",
+          "Codex CLI"
+        ],
+        "integration_modes": [
+          "file",
+          "hook",
+          "mcp"
+        ],
+        "name": "codex",
+        "runtime_observed": true,
+        "status": "ready",
+        "support_level": "verified",
+        "verification_blockers": [],
+        "verified": true
+      },
+      {
+        "display_names": [
+          "continue_dev"
+        ],
+        "integration_modes": [
+          "mcp"
+        ],
+        "name": "continue_dev",
+        "runtime_observed": true,
+        "status": "ready",
+        "support_level": "verified",
+        "verification_blockers": [],
+        "verified": true
+      },
+      {
+        "display_names": [
+          "cursor"
+        ],
+        "integration_modes": [
+          "mcp",
+          "hook"
+        ],
+        "name": "cursor",
+        "runtime_observed": true,
+        "status": "ready",
+        "support_level": "verified",
+        "verification_blockers": [],
+        "verified": true
+      },
+      {
+        "display_names": [
+          "github_copilot"
+        ],
+        "integration_modes": [
+          "file"
+        ],
+        "name": "github_copilot",
+        "runtime_observed": false,
+        "status": "ready",
+        "support_level": "verified",
+        "verification_blockers": [],
+        "verified": true
+      },
+      {
+        "display_names": [
+          "hermes_agent"
+        ],
+        "integration_modes": [
+          "mcp"
+        ],
+        "name": "hermes_agent",
+        "runtime_observed": true,
+        "status": "ready",
+        "support_level": "verified",
+        "verification_blockers": [],
+        "verified": true
+      },
+      {
+        "display_names": [
+          "mulerun"
+        ],
+        "integration_modes": [
+          "file"
+        ],
+        "name": "mulerun",
+        "runtime_observed": false,
+        "status": "wip",
+        "support_level": "wip",
+        "verification_blockers": [
+          "install path not implemented"
+        ],
+        "verified": false
+      },
+      {
+        "display_names": [
+          "openclaw"
+        ],
+        "integration_modes": [
+          "command",
+          "mcp"
+        ],
+        "name": "openclaw",
+        "runtime_observed": false,
+        "status": "ready",
+        "support_level": "install-ready",
+        "verification_blockers": [
+          "evidence level is install-ready, not verified",
+          "runtime event not observed"
+        ],
+        "verified": false
+      },
+      {
+        "display_names": [
+          "openhuman"
+        ],
+        "integration_modes": [
+          "file"
+        ],
+        "name": "openhuman",
+        "runtime_observed": false,
+        "status": "ready",
+        "support_level": "verified",
+        "verification_blockers": [],
+        "verified": true
+      },
+      {
+        "display_names": [
+          "opensquilla"
+        ],
+        "integration_modes": [
+          "file",
+          "mcp"
+        ],
+        "name": "opensquilla",
+        "runtime_observed": true,
+        "status": "ready",
+        "support_level": "verified",
+        "verification_blockers": [],
+        "verified": true
+      },
+      {
+        "display_names": [
+          "qoder"
+        ],
+        "integration_modes": [
+          "file",
+          "hook",
+          "mcp"
+        ],
+        "name": "qoder",
+        "runtime_observed": true,
+        "status": "ready",
+        "support_level": "install-ready",
+        "verification_blockers": [
+          "evidence level is install-ready, not verified"
+        ],
+        "verified": false
+      },
+      {
+        "display_names": [
+          "qoder_work"
+        ],
+        "integration_modes": [
+          "file",
+          "hook",
+          "mcp"
+        ],
+        "name": "qoder_work",
+        "runtime_observed": true,
+        "status": "ready",
+        "support_level": "verified",
+        "verification_blockers": [],
+        "verified": true
+      },
+      {
+        "display_names": [
+          "wukong"
+        ],
+        "integration_modes": [
+          "file",
+          "hook",
+          "mcp"
+        ],
+        "name": "wukong",
+        "runtime_observed": true,
+        "status": "ready",
+        "support_level": "verified",
+        "verification_blockers": [],
+        "verified": true
+      }
+    ],
+    "summary": {
+      "ready": 15,
+      "runtime_observed": 10,
+      "total": 16,
+      "verified": 13
+    }
+  },
+  "benchmark_layers": [
+    {
+      "name": "public_report",
+      "purpose": "开源展示当前本地可复核结果",
+      "status_source": "system_benchmark.passed"
+    },
+    {
+      "name": "system_benchmark",
+      "purpose": "验证 query gate、retrieval、firewall、context pack 的端到端链路",
+      "status_source": "memory benchmark system"
+    },
+    {
+      "name": "release_gate",
+      "purpose": "发布前质量门禁，必须单独运行 benchmarks/release_gate.py",
+      "status_source": "benchmarks/release_gate.py"
+    },
+    {
+      "name": "relevance_benchmark",
+      "purpose": "开放式相关性基准，衡量非精确标题/locator 查询表现",
+      "status_source": "benchmarks/benchmark_relevance.py"
+    },
+    {
+      "name": "memorydata_external_loop",
+      "purpose": "外部横评 source-lock 与可执行入口；MemoryData smoke/full 需依赖、数据集和 endpoint 就绪",
+      "status_source": "docs/evaluation/latest-memory-benchmark-report.zh.md"
+    }
+  ],
+  "charts": [
+    {
+      "data": [
+        {
+          "count_label": "12 weak prompts",
+          "label": "弱意图阻断",
+          "source": "metrics.query_gate.block_accuracy",
+          "value": 100.0
+        },
+        {
+          "count_label": "228 injectable prompts",
+          "label": "可注入问题识别",
+          "source": "metrics.query_gate.inject_accuracy",
+          "value": 100.0
+        },
+        {
+          "count_label": "228 retrieval cases",
+          "label": "Recall@10",
+          "source": "metrics.retrieval.recall_at_k",
+          "value": 100.0
+        },
+        {
+          "count_label": "mean reciprocal rank",
+          "label": "MRR",
+          "source": "metrics.retrieval.mrr",
+          "value": 99.78
+        },
+        {
+          "count_label": "4 expected include",
+          "label": "Firewall include",
+          "source": "metrics.context.firewall_include_rate",
+          "value": 100.0
+        },
+        {
+          "count_label": "4 packed cases",
+          "label": "ContextPack 可逆",
+          "source": "metrics.context.pack_reversible_rate",
+          "value": 100.0
+        }
+      ],
+      "id": "completion_rate",
+      "title": "完成率指标对比",
+      "unit": "%"
+    },
+    {
+      "data": [
+        {
+          "description": "如果把命中 item 的详情全部放入上下文，benchmark 记录的 token 预算。",
+          "label": "全文详情预算",
+          "value": 129771
+        },
+        {
+          "description": "经过 locator / overview / detail_uri 分层装载后的实际注入预算。",
+          "label": "ContextPack 注入",
+          "value": 29275
+        },
+        {
+          "description": "full_tokens - packed_tokens，负数按 0 处理。",
+          "label": "节省 Token",
+          "value": 100496
+        }
+      ],
+      "id": "token_cost",
+      "summary": {
+        "compression_ratio": 0.22559,
+        "full_tokens": 129771,
+        "packed_cases": 166,
+        "packed_tokens": 29275,
+        "saved_tokens": 100496,
+        "savings_rate": 77.44
+      },
+      "title": "Token 消耗对比",
+      "unit": "tokens"
+    },
+    {
+      "data": [
+        {
+          "description": "继续、好的、确认等不应自动注入的 prompt。",
+          "label": "弱意图阻断样本",
+          "value": 12
+        },
+        {
+          "description": "进入检索后接受防火墙决策的样本。",
+          "label": "Firewall 覆盖样本",
+          "value": 228
+        },
+        {
+          "description": "目标 item 应该进入 ContextPack 的样本。",
+          "label": "应注入样本",
+          "value": 4
+        },
+        {
+          "description": "低置信、缺来源、过期或敏感 item 应被挡下的样本。",
+          "label": "应排除样本",
+          "value": 62
+        },
+        {
+          "description": "应排除样本中，防火墙确实挡下目标 item 的比例。",
+          "label": "排除正确率",
+          "value": 100.0
+        }
+      ],
+      "id": "governance",
+      "title": "治理与防火墙",
+      "unit": "cases"
+    }
+  ],
+  "report": {
+    "generated_at": "2026-07-04T05:08:23.572253+00:00",
+    "source": "memory benchmark system",
+    "source_note": "Generated from AMH local system benchmark and adapter capability records.",
+    "title": "Agent Memory Hub Evaluation Report"
+  },
+  "system_benchmark": {
+    "case_summary": {
+      "by_category": {
+        "locator_recall": 114,
+        "title_recall": 114,
+        "weak_intent_block": 12
+      },
+      "passed_by_category": {
+        "locator_recall": 114,
+        "title_recall": 114,
+        "weak_intent_block": 12
+      },
+      "total": 240
+    },
+    "detail_note": "Public report omits raw case traces and hit payloads. Use `memory benchmark system --output <path>` for full local diagnostics.",
+    "failure_count": 0,
+    "failures": [],
+    "metrics": {
+      "case_count": 240,
+      "context": {
+        "firewall_cases": 228,
+        "firewall_exclude_expected_cases": 62,
+        "firewall_exclude_rate": 1.0,
+        "firewall_include_expected_cases": 4,
+        "firewall_include_rate": 1.0,
+        "firewall_unasserted_cases": 162,
+        "pack_reversible_rate": 1.0,
+        "packed_cases": 4
+      },
+      "embedding_mode": "hashing_offline",
+      "index_build_time_s": 0.484378,
+      "items_indexed": 1361,
+      "query_gate": {
+        "block_accuracy": 1.0,
+        "inject_accuracy": 1.0,
+        "inject_cases": 228,
+        "weak_block_cases": 12
+      },
+      "retrieval": {
+        "mrr": 0.997807,
+        "recall_at_k": 1.0,
+        "retrieval_cases": 228
+      },
+      "top_k": 10,
+      "total_time_s": 82.982093
+    },
+    "passed": true
+  }
+}

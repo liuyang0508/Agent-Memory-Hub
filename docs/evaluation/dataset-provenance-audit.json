@@ -1,0 +1,271 @@
+{
+  "entries": [
+    {
+      "benchmark": "LongMemEval",
+      "id": "longmemeval_s_cleaned",
+      "industry_usage": "Used by public memory systems for LongMemEval-S retrieval and QA comparisons.",
+      "limitations": "当前只证明 retrieval loop；未跑 full answer generation 和 judge，不可写成 LongMemEval full 成绩。",
+      "local_result_status": "LongMemEval-S 500-case R@K-only full completed; generation/judge not run.",
+      "paper_or_primary_source": "LongMemEval official benchmark",
+      "primary_urls": [
+        "https://github.com/xiaowu0162/longmemeval",
+        "https://arxiv.org/abs/2410.10813"
+      ],
+      "ready": true,
+      "scope": "Retrieval smoke / AMH ranking smoke only in the current report.",
+      "source_url": "https://huggingface.co/datasets/xiaowu0162/longmemeval-cleaned/resolve/main/longmemeval_s_cleaned.json",
+      "target_path": ".cache/external/LongMemEval/data/longmemeval_s_cleaned.json",
+      "tier": "C",
+      "tier_label": "C：smoke / adapter 验证，不可当 benchmark 成绩"
+    },
+    {
+      "benchmark": "LongMemEval",
+      "id": "longmemeval_oracle",
+      "industry_usage": "Oracle-style LongMemEval splits are often used for retrieval sanity checks.",
+      "limitations": "本地未就绪；不能参与下一阶段 full 结论。",
+      "local_result_status": "No completed benchmark result in current report.",
+      "paper_or_primary_source": "LongMemEval official benchmark",
+      "primary_urls": [
+        "https://github.com/xiaowu0162/longmemeval",
+        "https://arxiv.org/abs/2410.10813"
+      ],
+      "ready": false,
+      "scope": "Not materialized in the current local run.",
+      "source_url": "https://huggingface.co/datasets/xiaowu0162/longmemeval-cleaned/resolve/main/longmemeval_oracle.json",
+      "target_path": ".cache/external/LongMemEval/data/longmemeval_oracle.json",
+      "tier": "C",
+      "tier_label": "C：smoke / adapter 验证，不可当 benchmark 成绩"
+    },
+    {
+      "benchmark": "MemoryAgentBench",
+      "id": "memoryagentbench_hf",
+      "industry_usage": "MemoryData unifies MemoryAgentBench as one of its four benchmark families.",
+      "limitations": "Core four-dimensional representative configs are complete locally; InfBench summarization LLM-as-judge remains a separate track.",
+      "local_result_status": "MemoryAgentBench AR / TTL / LRU / CR four-dimensional full completed.",
+      "paper_or_primary_source": "MemoryAgentBench official dataset and configs",
+      "primary_urls": [
+        "https://github.com/HUST-AI-HYZ/MemoryAgentBench",
+        "https://huggingface.co/datasets/ai-hyz/MemoryAgentBench"
+      ],
+      "ready": true,
+      "scope": "Four core capability tracks: AR / TTL / LRU / CR.",
+      "source_url": "https://huggingface.co/datasets/ai-hyz/MemoryAgentBench",
+      "target_path": ".cache/external/MemoryData/datasets/MemoryAgentBench/eval_dataset_collection",
+      "tier": "A",
+      "tier_label": "A：论文/官方同源 full 可比"
+    },
+    {
+      "benchmark": "LoCoMo",
+      "id": "locomo_raw",
+      "industry_usage": "LoCoMo is widely used for long-term conversational memory QA evaluation.",
+      "limitations": "Raw source only; benchmark scoring uses the derived MemoryData-compatible 4-category file.",
+      "local_result_status": "No completed benchmark result in current report.",
+      "paper_or_primary_source": "LoCoMo official locomo10 release",
+      "primary_urls": [
+        "https://github.com/snap-research/locomo",
+        "https://snap-research.github.io/locomo/"
+      ],
+      "ready": true,
+      "scope": "Official raw source for downstream LoCoMo 4-category artifact.",
+      "source_url": "https://raw.githubusercontent.com/snap-research/locomo/main/data/locomo10.json",
+      "target_path": ".cache/external/MemoryData/datasets/LoCoMo/locomo10.json",
+      "tier": "B",
+      "tier_label": "B：官方同源但有派生/子集边界"
+    },
+    {
+      "benchmark": "LoCoMo",
+      "id": "locomo_4cat_dist",
+      "industry_usage": "Common memory-tool reports use LoCoMo QA with 10 conversations and 1540 category 1-4 questions.",
+      "limitations": "官方原始数据派生：保留 category 1-4，排除 adversarial/category 5；不是重新下载的第三方私有副本。",
+      "local_result_status": "LoCoMo category 1-4 QA full completed: 1540 / 1540 QA.",
+      "paper_or_primary_source": "LoCoMo official locomo10 release",
+      "primary_urls": [
+        "https://github.com/snap-research/locomo",
+        "https://snap-research.github.io/locomo/"
+      ],
+      "ready": true,
+      "scope": "Question-answering categories 1-4 from official LoCoMo raw data.",
+      "source_url": "https://raw.githubusercontent.com/snap-research/locomo/main/data/locomo10.json",
+      "target_path": ".cache/external/MemoryData/datasets/LoCoMo/rq1_4cat_600_dist/locomo_4cat_600_dist.json",
+      "tier": "B",
+      "tier_label": "B：官方同源但有派生/子集边界"
+    },
+    {
+      "benchmark": "LongBench",
+      "id": "longbench_rep150_proportional",
+      "industry_usage": "MemoryData includes LongBench as a benchmark family for long-context reasoning.",
+      "limitations": "150-row proportional subset；不是 LongBench-v2 503-question full set。",
+      "local_result_status": "LongBench rep150 proportional full completed: 150 / 150 rows.",
+      "paper_or_primary_source": "LongBench-v2 official Hugging Face dataset",
+      "primary_urls": [
+        "https://huggingface.co/datasets/THUDM/LongBench-v2",
+        "https://arxiv.org/abs/2412.15204"
+      ],
+      "ready": true,
+      "scope": "Deterministic MemoryData-compatible 150-row proportional subset.",
+      "source_url": "https://huggingface.co/datasets/THUDM/LongBench-v2",
+      "target_path": ".cache/external/MemoryData/datasets/longBench_rep150_proportional/datasets",
+      "tier": "B",
+      "tier_label": "B：官方同源但有派生/子集边界"
+    },
+    {
+      "benchmark": "MemBench",
+      "id": "membench_firstagent",
+      "industry_usage": "MemoryData includes MemBench as a benchmark family; Letta issue trackers also reference MemBench as a standardized memory benchmark candidate.",
+      "limitations": "FirstAgent 五个 public slice 是 MemoryData-compatible full-family 口径；仍需和其他私有/扩展 MemBench 口径区分。",
+      "local_result_status": "MemBench FirstAgent five-slice full completed.",
+      "paper_or_primary_source": "MemBench public FirstAgent JSON slices",
+      "primary_urls": [
+        "https://github.com/import-myself/Membench",
+        "https://github.com/OpenDataBox/MemoryData"
+      ],
+      "ready": true,
+      "scope": "FirstAgent simple/noisy/knowledge_update/highlevel/RecMultiSession slices are present locally.",
+      "source_url": "https://raw.githubusercontent.com/import-myself/Membench/main/MemData/FirstAgent",
+      "target_path": ".cache/external/MemoryData/datasets/MemBench/MemData/FirstAgent",
+      "tier": "B",
+      "tier_label": "B：官方同源但有派生/子集边界"
+    }
+  ],
+  "generated_at": "2026-07-01T20:06:23.243661+00:00",
+  "next_stage_gate": {
+    "allowed": true,
+    "required_actions": []
+  },
+  "result_entries": [
+    {
+      "benchmark": "MemoryAgentBench",
+      "id": "memoryagentbench-ar-eventqa",
+      "limitations": "MemoryAgentBench four-dimensional full artifact.",
+      "sample_scope": "500 / 500",
+      "tier": "A",
+      "tier_label": "A：论文/官方同源 full 可比"
+    },
+    {
+      "benchmark": "MemoryAgentBench",
+      "id": "memoryagentbench-ttl-icl-banking77",
+      "limitations": "MemoryAgentBench four-dimensional full artifact.",
+      "sample_scope": "100 / 100",
+      "tier": "A",
+      "tier_label": "A：论文/官方同源 full 可比"
+    },
+    {
+      "benchmark": "MemoryAgentBench",
+      "id": "memoryagentbench-lru-detectiveqa",
+      "limitations": "MemoryAgentBench four-dimensional full artifact.",
+      "sample_scope": "71 / 71",
+      "tier": "A",
+      "tier_label": "A：论文/官方同源 full 可比"
+    },
+    {
+      "benchmark": "MemoryAgentBench",
+      "id": "memoryagentbench-cr-fact-mh-6k",
+      "limitations": "MemoryAgentBench four-dimensional full artifact.",
+      "sample_scope": "100 / 100",
+      "tier": "A",
+      "tier_label": "A：论文/官方同源 full 可比"
+    },
+    {
+      "benchmark": "LoCoMo",
+      "id": "memorydata-locomo-4cat-full",
+      "limitations": "LoCoMo official locomo10 derived category 1-4 QA; excludes adversarial/category 5.",
+      "sample_scope": "1540 / 1540 QA",
+      "tier": "B",
+      "tier_label": "B：官方同源但有派生/子集边界"
+    },
+    {
+      "benchmark": "LongBench",
+      "id": "memorydata-longbench-rep150-full",
+      "limitations": "MemoryData deterministic 150-row proportional subset; not THUDM LongBench-v2 503-question full.",
+      "sample_scope": "150 / 150 rows",
+      "tier": "B",
+      "tier_label": "B：官方同源但有派生/子集边界"
+    },
+    {
+      "benchmark": "MemBench",
+      "id": "memorydata-membench-simple-full",
+      "limitations": "MemBench public FirstAgent simple slice full.",
+      "sample_scope": "100 / 100 rows",
+      "tier": "B",
+      "tier_label": "B：官方同源但有派生/子集边界"
+    },
+    {
+      "benchmark": "MemBench",
+      "id": "memorydata-membench-noisy-full",
+      "limitations": "MemBench public FirstAgent noisy slice full.",
+      "sample_scope": "100 / 100 rows",
+      "tier": "B",
+      "tier_label": "B：官方同源但有派生/子集边界"
+    },
+    {
+      "benchmark": "MemBench",
+      "id": "memorydata-membench-knowledge-update-full",
+      "limitations": "MemBench public FirstAgent knowledge_update slice full.",
+      "sample_scope": "100 / 100 rows",
+      "tier": "B",
+      "tier_label": "B：官方同源但有派生/子集边界"
+    },
+    {
+      "benchmark": "MemBench",
+      "id": "memorydata-membench-highlevel-full",
+      "limitations": "MemBench public FirstAgent highlevel slice full.",
+      "sample_scope": "150 / 150 rows",
+      "tier": "B",
+      "tier_label": "B：官方同源但有派生/子集边界"
+    },
+    {
+      "benchmark": "MemBench",
+      "id": "memorydata-membench-recmultisession-full",
+      "limitations": "MemBench public FirstAgent RecMultiSession slice full.",
+      "sample_scope": "50 / 50 rows",
+      "tier": "B",
+      "tier_label": "B：官方同源但有派生/子集边界"
+    },
+    {
+      "benchmark": "LongMemEval",
+      "id": "longmemeval-lexical-rk-full",
+      "limitations": "LongMemEval lexical R@K full；只比较 retrieval R@K/MRR，不包含 answer generation / judge。",
+      "sample_scope": "500 / 500 cases",
+      "tier": "B",
+      "tier_label": "B：官方同源但有派生/子集边界"
+    },
+    {
+      "benchmark": "LongMemEval",
+      "id": "longmemeval-amh-ranking-rk-full",
+      "limitations": "LongMemEval AMH ranking R@K full；只比较 retrieval R@K/MRR，不包含 answer generation / judge。",
+      "sample_scope": "500 / 500 cases",
+      "tier": "B",
+      "tier_label": "B：官方同源但有派生/子集边界"
+    },
+    {
+      "benchmark": "LongMemEval",
+      "id": "longmemeval-lexical-retrieval-smoke",
+      "limitations": "LongMemEval lexical retrieval smoke；不包含 answer generation / judge。",
+      "sample_scope": "5 cases",
+      "tier": "C",
+      "tier_label": "C：smoke / adapter 验证，不可当 benchmark 成绩"
+    },
+    {
+      "benchmark": "LongMemEval",
+      "id": "longmemeval-amh-ranking-smoke",
+      "limitations": "LongMemEval AMH ranking smoke；不包含 answer generation / judge。",
+      "sample_scope": "5 cases",
+      "tier": "C",
+      "tier_label": "C：smoke / adapter 验证，不可当 benchmark 成绩"
+    }
+  ],
+  "tier_definitions": [
+    {
+      "label": "A：论文/官方同源 full 可比",
+      "tier": "A"
+    },
+    {
+      "label": "B：官方同源但有派生/子集边界",
+      "tier": "B"
+    },
+    {
+      "label": "C：smoke / adapter 验证，不可当 benchmark 成绩",
+      "tier": "C"
+    }
+  ]
+}

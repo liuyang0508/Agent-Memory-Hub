@@ -1,0 +1,959 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Agent Memory Hub 章鱼 Logo 风格候选预览</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f5f9f7;
+      --paper: #fffdf8;
+      --paper-2: #edf7f4;
+      --ink: #102a2d;
+      --muted: #586f72;
+      --line: #d4e5e0;
+      --line-strong: #a8cdc6;
+      --teal: #18aab5;
+      --mint: #9be5dc;
+      --coral: #ee765c;
+      --clay: #9f473d;
+      --gold: #f0b856;
+      --plum: #5a4168;
+      --shadow: 0 18px 44px rgb(30 84 84 / 0.12);
+      --shadow-soft: 0 10px 24px rgb(30 84 84 / 0.08);
+      --radius: 8px;
+      --font: Inter, "IBM Plex Sans", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --mono: "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      background: var(--bg);
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--ink);
+      background:
+        linear-gradient(90deg, rgb(212 229 224 / 0.34) 1px, transparent 1px),
+        linear-gradient(180deg, rgb(212 229 224 / 0.28) 1px, transparent 1px),
+        linear-gradient(180deg, #f8fcfa 0%, var(--bg) 48%, #eef6f2 100%);
+      background-size: 88px 88px, 88px 88px, auto;
+      font-family: var(--font);
+      line-height: 1.55;
+      letter-spacing: 0;
+    }
+
+    img,
+    svg {
+      display: block;
+      max-width: 100%;
+    }
+
+    .shell {
+      width: min(1440px, calc(100% - 48px));
+      margin: 0 auto;
+    }
+
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 5;
+      border-bottom: 1px solid rgb(212 229 224 / 0.9);
+      background: rgb(255 253 248 / 0.82);
+      backdrop-filter: blur(18px) saturate(125%);
+    }
+
+    .nav {
+      min-height: 70px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 24px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 0;
+      font-weight: 760;
+    }
+
+    .brand img {
+      width: 44px;
+      height: 44px;
+      flex: 0 0 auto;
+      filter: drop-shadow(0 8px 14px rgb(238 118 92 / 0.18));
+    }
+
+    .brand span {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .meta {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 0.78rem;
+      white-space: nowrap;
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--teal);
+      box-shadow: 0 0 0 4px rgb(24 170 181 / 0.12);
+    }
+
+    .hero {
+      padding: 56px 0 32px;
+      display: grid;
+      grid-template-columns: minmax(0, 0.95fr) minmax(420px, 0.72fr);
+      gap: 46px;
+      align-items: center;
+    }
+
+    h1 {
+      margin: 0;
+      max-width: 860px;
+      font-size: clamp(2.15rem, 5vw, 5.2rem);
+      line-height: 0.95;
+      letter-spacing: 0;
+    }
+
+    .lede {
+      max-width: 720px;
+      margin: 22px 0 0;
+      color: var(--muted);
+      font-size: clamp(1rem, 1.6vw, 1.18rem);
+    }
+
+    .scope {
+      margin-top: 26px;
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .scope-item {
+      min-height: 86px;
+      padding: 15px 16px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: rgb(255 253 248 / 0.78);
+      box-shadow: var(--shadow-soft);
+    }
+
+    .scope-item b {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 0.92rem;
+    }
+
+    .scope-item span {
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+
+    .hero-board {
+      padding: 18px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: color-mix(in srgb, var(--paper) 92%, var(--mint) 8%);
+      box-shadow: var(--shadow);
+    }
+
+    .board-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 14px;
+      margin-bottom: 14px;
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 0.76rem;
+    }
+
+    .board-preview {
+      min-height: 320px;
+      display: grid;
+      place-items: center;
+      border: 1px solid rgb(168 205 198 / 0.8);
+      border-radius: var(--radius);
+      background:
+        linear-gradient(90deg, rgb(255 255 255 / 0.64), rgb(237 247 244 / 0.68)),
+        radial-gradient(circle at 28% 24%, rgb(255 233 184 / 0.36), transparent 34%);
+    }
+
+    .board-preview svg {
+      width: min(260px, 74%);
+      height: auto;
+      filter: drop-shadow(0 28px 34px rgb(159 71 61 / 0.16));
+    }
+
+    .section-head {
+      margin: 26px 0 20px;
+      display: flex;
+      justify-content: space-between;
+      gap: 28px;
+      align-items: end;
+    }
+
+    .section-head h2 {
+      margin: 0;
+      font-size: clamp(1.55rem, 2.6vw, 2.4rem);
+      letter-spacing: 0;
+    }
+
+    .section-head p {
+      max-width: 620px;
+      margin: 0;
+      color: var(--muted);
+    }
+
+    .variant-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 18px;
+      padding-bottom: 34px;
+    }
+
+    .variant-card {
+      min-width: 0;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: rgb(255 253 248 / 0.9);
+      box-shadow: var(--shadow-soft);
+    }
+
+    .variant-art {
+      min-height: 290px;
+      display: grid;
+      place-items: center;
+      border-bottom: 1px solid var(--line);
+      background:
+        linear-gradient(135deg, rgb(255 255 255 / 0.72), rgb(237 247 244 / 0.8)),
+        linear-gradient(90deg, rgb(212 229 224 / 0.42) 1px, transparent 1px),
+        linear-gradient(180deg, rgb(212 229 224 / 0.38) 1px, transparent 1px);
+      background-size: auto, 32px 32px, 32px 32px;
+    }
+
+    .variant-art.dark {
+      background:
+        linear-gradient(135deg, #102a2d, #1d3d41 48%, #2a3148),
+        linear-gradient(90deg, rgb(155 229 220 / 0.12) 1px, transparent 1px),
+        linear-gradient(180deg, rgb(155 229 220 / 0.1) 1px, transparent 1px);
+      background-size: auto, 32px 32px, 32px 32px;
+    }
+
+    .variant-art img,
+    .variant-art svg {
+      width: min(178px, 62%);
+      height: auto;
+    }
+
+    .variant-copy {
+      padding: 17px 18px 18px;
+    }
+
+    .variant-kicker {
+      margin: 0 0 8px;
+      color: var(--teal);
+      font-family: var(--mono);
+      font-size: 0.76rem;
+      font-weight: 700;
+    }
+
+    .variant-copy h3 {
+      margin: 0;
+      font-size: 1.08rem;
+      letter-spacing: 0;
+    }
+
+    .variant-copy p {
+      margin: 8px 0 0;
+      color: var(--muted);
+      font-size: 0.94rem;
+    }
+
+    .fit-row {
+      margin-top: 16px;
+      display: grid;
+      grid-template-columns: 48px 32px 24px minmax(0, 1fr);
+      gap: 12px;
+      align-items: center;
+    }
+
+    .mini {
+      display: grid;
+      place-items: center;
+      border: 1px solid rgb(212 229 224 / 0.9);
+      border-radius: var(--radius);
+      background: #fff;
+    }
+
+    .mini.size-48 {
+      width: 48px;
+      height: 48px;
+    }
+
+    .mini.size-32 {
+      width: 32px;
+      height: 32px;
+    }
+
+    .mini.size-24 {
+      width: 24px;
+      height: 24px;
+    }
+
+    .mini svg,
+    .mini img {
+      width: 100%;
+      height: 100%;
+    }
+
+    .nav-test {
+      min-width: 0;
+      padding: 10px 11px;
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      border: 1px solid rgb(212 229 224 / 0.9);
+      border-radius: var(--radius);
+      background: #f8fcfa;
+      font-weight: 720;
+      font-size: 0.82rem;
+      white-space: nowrap;
+      overflow: hidden;
+    }
+
+    .nav-test svg,
+    .nav-test img {
+      width: 24px;
+      height: 24px;
+      flex: 0 0 auto;
+    }
+
+    .nav-test span {
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .notes {
+      margin-top: 15px;
+      display: grid;
+      gap: 7px;
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+
+    .notes div {
+      display: grid;
+      grid-template-columns: 78px minmax(0, 1fr);
+      gap: 10px;
+    }
+
+    .notes b {
+      color: var(--ink);
+      font-family: var(--mono);
+      font-size: 0.74rem;
+      text-transform: uppercase;
+    }
+
+    .comparison {
+      margin: 0 0 56px;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: rgb(255 253 248 / 0.92);
+      box-shadow: var(--shadow-soft);
+    }
+
+    .comparison table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+    }
+
+    .comparison th,
+    .comparison td {
+      padding: 14px 15px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+      overflow-wrap: anywhere;
+    }
+
+    .comparison th {
+      background: var(--paper-2);
+      font-family: var(--mono);
+      font-size: 0.76rem;
+      text-transform: uppercase;
+    }
+
+    .comparison tr:last-child td {
+      border-bottom: 0;
+    }
+
+    .comparison td {
+      color: var(--muted);
+      font-size: 0.92rem;
+    }
+
+    .comparison td:first-child {
+      color: var(--ink);
+      font-weight: 760;
+    }
+
+    .footer {
+      padding: 28px 0 46px;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 0.92rem;
+    }
+
+    .footer code {
+      color: var(--ink);
+      font-size: 0.86em;
+    }
+
+    .mark-symbols {
+      position: absolute;
+      width: 0;
+      height: 0;
+      overflow: hidden;
+    }
+
+    @media (max-width: 1120px) {
+      .hero {
+        grid-template-columns: 1fr;
+      }
+
+      .hero-board {
+        max-width: 680px;
+      }
+
+      .variant-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 760px) {
+      .shell {
+        width: min(100% - 28px, 1440px);
+      }
+
+      .nav {
+        min-height: 64px;
+      }
+
+      .meta {
+        display: none;
+      }
+
+      .hero {
+        padding-top: 36px;
+        gap: 28px;
+      }
+
+      .scope {
+        grid-template-columns: 1fr;
+      }
+
+      .section-head {
+        display: block;
+      }
+
+      .section-head p {
+        margin-top: 10px;
+      }
+
+      .variant-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .variant-art {
+        min-height: 250px;
+      }
+
+      .fit-row {
+        grid-template-columns: 48px 32px 24px;
+      }
+
+      .nav-test {
+        grid-column: 1 / -1;
+      }
+
+      .comparison {
+        overflow-x: auto;
+      }
+
+      .comparison table {
+        min-width: 760px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <svg class="mark-symbols" aria-hidden="true" focusable="false">
+    <defs>
+      <radialGradient id="hero-body" cx="34%" cy="25%" r="74%">
+        <stop offset="0%" stop-color="#ffd7b8"/>
+        <stop offset="44%" stop-color="#ff9674"/>
+        <stop offset="78%" stop-color="#e96d55"/>
+        <stop offset="100%" stop-color="#9f473d"/>
+      </radialGradient>
+      <linearGradient id="hero-arm" x1="25" y1="58" x2="72" y2="82" gradientUnits="userSpaceOnUse">
+        <stop offset="0%" stop-color="#ffb08b"/>
+        <stop offset="54%" stop-color="#ec765c"/>
+        <stop offset="100%" stop-color="#9f473d"/>
+      </linearGradient>
+      <linearGradient id="hero-mint" x1="38" y1="22" x2="58" y2="38" gradientUnits="userSpaceOnUse">
+        <stop stop-color="#ecfffb"/>
+        <stop offset="1" stop-color="#9be5dc"/>
+      </linearGradient>
+
+      <radialGradient id="soft-body" cx="34%" cy="24%" r="78%">
+        <stop offset="0%" stop-color="#ffe2c7"/>
+        <stop offset="40%" stop-color="#ff9d79"/>
+        <stop offset="72%" stop-color="#e8775d"/>
+        <stop offset="100%" stop-color="#a84f43"/>
+      </radialGradient>
+      <linearGradient id="soft-arm" x1="20" y1="56" x2="76" y2="84" gradientUnits="userSpaceOnUse">
+        <stop offset="0%" stop-color="#f3a17f"/>
+        <stop offset="52%" stop-color="#e86e58"/>
+        <stop offset="100%" stop-color="#98453c"/>
+      </linearGradient>
+      <linearGradient id="soft-shine" x1="30" y1="20" x2="65" y2="68" gradientUnits="userSpaceOnUse">
+        <stop stop-color="#ffffff" stop-opacity="0.68"/>
+        <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+      </linearGradient>
+
+      <radialGradient id="compact-body" cx="32%" cy="22%" r="84%">
+        <stop stop-color="#ffe9d7"/>
+        <stop offset="0.5" stop-color="#f07f61"/>
+        <stop offset="1" stop-color="#8e4039"/>
+      </radialGradient>
+      <linearGradient id="compact-node" x1="36" y1="19" x2="59" y2="41" gradientUnits="userSpaceOnUse">
+        <stop stop-color="#f8fffc"/>
+        <stop offset="1" stop-color="#44c4c0"/>
+      </linearGradient>
+
+      <linearGradient id="line-ink" x1="18" y1="12" x2="78" y2="84" gradientUnits="userSpaceOnUse">
+        <stop stop-color="#18aab5"/>
+        <stop offset="0.52" stop-color="#24484e"/>
+        <stop offset="1" stop-color="#9f473d"/>
+      </linearGradient>
+
+      <radialGradient id="badge-body" cx="35%" cy="25%" r="82%">
+        <stop stop-color="#ffdabd"/>
+        <stop offset="0.45" stop-color="#ee795f"/>
+        <stop offset="1" stop-color="#963f39"/>
+      </radialGradient>
+      <linearGradient id="badge-ring" x1="16" y1="14" x2="80" y2="82" gradientUnits="userSpaceOnUse">
+        <stop stop-color="#f6c665"/>
+        <stop offset="0.46" stop-color="#19a9b5"/>
+        <stop offset="1" stop-color="#5a4168"/>
+      </linearGradient>
+
+      <radialGradient id="glass-body" cx="30%" cy="20%" r="76%">
+        <stop stop-color="#ffffff" stop-opacity="0.96"/>
+        <stop offset="0.34" stop-color="#a9f2e8" stop-opacity="0.86"/>
+        <stop offset="0.68" stop-color="#ef826b" stop-opacity="0.72"/>
+        <stop offset="1" stop-color="#5a4168" stop-opacity="0.96"/>
+      </radialGradient>
+      <linearGradient id="glass-arm" x1="18" y1="57" x2="78" y2="81" gradientUnits="userSpaceOnUse">
+        <stop stop-color="#a6eee6" stop-opacity="0.88"/>
+        <stop offset="0.5" stop-color="#f18a71" stop-opacity="0.82"/>
+        <stop offset="1" stop-color="#5a4168" stop-opacity="0.95"/>
+      </linearGradient>
+    </defs>
+
+    <symbol id="mark-hero" viewBox="0 0 96 96">
+      <circle cx="48" cy="48" r="39" fill="#fffdf8" stroke="#a8cdc6" stroke-width="1.4"/>
+      <ellipse cx="48" cy="76" rx="27" ry="8.5" fill="#7b352d" opacity="0.13"/>
+      <path fill="none" stroke="#74302c" stroke-width="9.4" stroke-linecap="round" d="M28.5 57.4C20.2 58.2 17.6 65.6 23.4 71.4"/>
+      <path fill="none" stroke="#74302c" stroke-width="9.4" stroke-linecap="round" d="M36.6 62.1C30.8 67.3 31.8 75.2 38.5 77.6"/>
+      <path fill="none" stroke="#74302c" stroke-width="9.4" stroke-linecap="round" d="M59.4 62.1C65.2 67.3 64.2 75.2 57.5 77.6"/>
+      <path fill="none" stroke="#74302c" stroke-width="9.4" stroke-linecap="round" d="M67.5 57.4C75.8 58.2 78.4 65.6 72.6 71.4"/>
+      <path fill="none" stroke="url(#hero-arm)" stroke-width="5.9" stroke-linecap="round" d="M28.5 57.4C20.2 58.2 17.6 65.6 23.4 71.4"/>
+      <path fill="none" stroke="url(#hero-arm)" stroke-width="5.9" stroke-linecap="round" d="M36.6 62.1C30.8 67.3 31.8 75.2 38.5 77.6"/>
+      <path fill="none" stroke="url(#hero-arm)" stroke-width="5.9" stroke-linecap="round" d="M59.4 62.1C65.2 67.3 64.2 75.2 57.5 77.6"/>
+      <path fill="none" stroke="url(#hero-arm)" stroke-width="5.9" stroke-linecap="round" d="M67.5 57.4C75.8 58.2 78.4 65.6 72.6 71.4"/>
+      <path d="M48 13.8c-16.5 0-28.5 11.7-28.5 27.4C19.5 57.6 30.8 67 48 67s28.5-9.4 28.5-25.8C76.5 25.5 64.5 13.8 48 13.8Z" fill="url(#hero-body)" stroke="#74302c" stroke-width="2.2"/>
+      <path d="M28.8 56.8C34 64.5 41.1 68.3 48 68.3s14-3.8 19.2-11.5C64.4 66.8 57.5 72.2 48 72.2s-16.4-5.4-19.2-15.4Z" fill="#74302c" opacity="0.19"/>
+      <path fill="none" stroke="#74302c" stroke-width="8.2" stroke-linecap="round" d="M39.2 64.6C33 70.5 34.2 78.4 42 82.2"/>
+      <path fill="none" stroke="#74302c" stroke-width="8.2" stroke-linecap="round" d="M45.2 66.4C42.2 73.1 43.2 81.2 46.5 84"/>
+      <path fill="none" stroke="#74302c" stroke-width="8.2" stroke-linecap="round" d="M50.8 66.4C53.8 73.1 52.8 81.2 49.5 84"/>
+      <path fill="none" stroke="#74302c" stroke-width="8.2" stroke-linecap="round" d="M56.8 64.6C63 70.5 61.8 78.4 54 82.2"/>
+      <path fill="none" stroke="url(#hero-arm)" stroke-width="5.1" stroke-linecap="round" d="M39.2 64.6C33 70.5 34.2 78.4 42 82.2"/>
+      <path fill="none" stroke="url(#hero-arm)" stroke-width="5.1" stroke-linecap="round" d="M45.2 66.4C42.2 73.1 43.2 81.2 46.5 84"/>
+      <path fill="none" stroke="url(#hero-arm)" stroke-width="5.1" stroke-linecap="round" d="M50.8 66.4C53.8 73.1 52.8 81.2 49.5 84"/>
+      <path fill="none" stroke="url(#hero-arm)" stroke-width="5.1" stroke-linecap="round" d="M56.8 64.6C63 70.5 61.8 78.4 54 82.2"/>
+      <path d="M33 23.8c-5.3 3.1-8.1 8-8.1 13.8 0 2.6.7 4.1 2 4.2 1.1.1 1.8-1.1 2.3-3.4 1-4.6 3.6-8 8.2-10.5 2-1.1 2.5-2.4 1.6-3.2-.8-.8-3.1-1-6-.9Z" fill="#fff" opacity="0.36"/>
+      <path d="M48 23.2v7.3M41.5 34.5 48 30.5l6.5 4" fill="none" stroke="url(#hero-mint)" stroke-width="2.3" stroke-linecap="round"/>
+      <circle cx="48" cy="23.2" r="2.6" fill="#f6fffd" stroke="#bdf3ec" stroke-width="1.3"/>
+      <circle cx="41.5" cy="34.5" r="2" fill="#f6fffd" stroke="#bdf3ec" stroke-width="1.3"/>
+      <circle cx="54.5" cy="34.5" r="2" fill="#f6fffd" stroke="#bdf3ec" stroke-width="1.3"/>
+      <circle cx="39.1" cy="46.8" r="4.1" fill="#4a2726"/>
+      <circle cx="56.9" cy="46.8" r="4.1" fill="#4a2726"/>
+      <circle cx="37.9" cy="45.4" r="1.1" fill="#fff"/>
+      <circle cx="55.7" cy="45.4" r="1.1" fill="#fff"/>
+      <ellipse cx="31.6" cy="53.1" rx="2.7" ry="1.7" fill="#f7a6c9" opacity="0.72"/>
+      <ellipse cx="64.4" cy="53.1" rx="2.7" ry="1.7" fill="#f7a6c9" opacity="0.72"/>
+      <path d="M43.2 56.3c2.5 2.4 7.1 2.4 9.6 0" fill="none" stroke="#6f302c" stroke-width="3" stroke-linecap="round"/>
+    </symbol>
+
+    <symbol id="mark-soft" viewBox="0 0 96 96">
+      <circle cx="48" cy="48" r="39" fill="#fffdf8" stroke="#95d5ce" stroke-width="1.5"/>
+      <circle cx="48" cy="50" r="31" fill="#9be5dc" opacity="0.18"/>
+      <ellipse cx="48" cy="77" rx="27" ry="8.5" fill="#78342d" opacity="0.13"/>
+      <path fill="none" stroke="#6f302c" stroke-width="8.8" stroke-linecap="round" d="M29 59c-8.8 1.5-10.7 8.8-4.7 13.2"/>
+      <path fill="none" stroke="#6f302c" stroke-width="8.8" stroke-linecap="round" d="M36.4 62.6c-5.7 4.8-4.9 12.7 1.6 15.1"/>
+      <path fill="none" stroke="#6f302c" stroke-width="8.8" stroke-linecap="round" d="M59.6 62.6c5.7 4.8 4.9 12.7-1.6 15.1"/>
+      <path fill="none" stroke="#6f302c" stroke-width="8.8" stroke-linecap="round" d="M67 59c8.8 1.5 10.7 8.8 4.7 13.2"/>
+      <path fill="none" stroke="url(#soft-arm)" stroke-width="5.4" stroke-linecap="round" d="M29 59c-8.8 1.5-10.7 8.8-4.7 13.2"/>
+      <path fill="none" stroke="url(#soft-arm)" stroke-width="5.4" stroke-linecap="round" d="M36.4 62.6c-5.7 4.8-4.9 12.7 1.6 15.1"/>
+      <path fill="none" stroke="url(#soft-arm)" stroke-width="5.4" stroke-linecap="round" d="M59.6 62.6c5.7 4.8 4.9 12.7-1.6 15.1"/>
+      <path fill="none" stroke="url(#soft-arm)" stroke-width="5.4" stroke-linecap="round" d="M67 59c8.8 1.5 10.7 8.8 4.7 13.2"/>
+      <path d="M48 14.2c-16.1 0-27.8 11.2-27.8 26.8 0 16.2 11.2 25.7 27.8 25.7S75.8 57.2 75.8 41C75.8 25.4 64.1 14.2 48 14.2Z" fill="url(#soft-body)" stroke="#6f302c" stroke-width="2.1"/>
+      <path d="M31.2 24.5c-4 3.3-6.1 7.4-6.1 12.3 0 2.2.6 3.5 1.8 3.6 1 .1 1.6-.9 2-2.9.9-4.1 3.1-7.1 6.9-9.4 1.7-1 2-2.1 1.3-2.9-.8-.8-2.8-.9-5.9-.7Z" fill="#fff" opacity="0.32"/>
+      <ellipse cx="38" cy="30" rx="9" ry="14" transform="rotate(38 38 30)" fill="url(#soft-shine)"/>
+      <path d="M48 22.7v7.5M41.7 34.8 48 30.2l6.3 4.6" fill="none" stroke="#eafffb" stroke-width="2.25" stroke-linecap="round"/>
+      <circle cx="48" cy="22.7" r="2.7" fill="#f7fffd" stroke="#c7f5ef" stroke-width="1.4"/>
+      <circle cx="41.7" cy="34.8" r="2" fill="#f7fffd" stroke="#c7f5ef" stroke-width="1.4"/>
+      <circle cx="54.3" cy="34.8" r="2" fill="#f7fffd" stroke="#c7f5ef" stroke-width="1.4"/>
+      <path d="M29.4 57.2C34.6 65.5 41.5 69.4 48 69.4s13.4-3.9 18.6-12.2C64.4 68.5 57.3 73.6 48 73.6s-16.4-5.1-18.6-16.4Z" fill="#6f302c" opacity="0.15"/>
+      <path fill="none" stroke="#6f302c" stroke-width="7.7" stroke-linecap="round" d="M39.4 64.4c-6.3 5.6-4.5 13.7 2.9 17.2"/>
+      <path fill="none" stroke="#6f302c" stroke-width="7.7" stroke-linecap="round" d="M45.1 66.1c-2.8 6.4-1.6 14.2 1.5 17.4"/>
+      <path fill="none" stroke="#6f302c" stroke-width="7.7" stroke-linecap="round" d="M50.9 66.1c2.8 6.4 1.6 14.2-1.5 17.4"/>
+      <path fill="none" stroke="#6f302c" stroke-width="7.7" stroke-linecap="round" d="M56.6 64.4c6.3 5.6 4.5 13.7-2.9 17.2"/>
+      <path fill="none" stroke="url(#soft-arm)" stroke-width="4.8" stroke-linecap="round" d="M39.4 64.4c-6.3 5.6-4.5 13.7 2.9 17.2"/>
+      <path fill="none" stroke="url(#soft-arm)" stroke-width="4.8" stroke-linecap="round" d="M45.1 66.1c-2.8 6.4-1.6 14.2 1.5 17.4"/>
+      <path fill="none" stroke="url(#soft-arm)" stroke-width="4.8" stroke-linecap="round" d="M50.9 66.1c2.8 6.4 1.6 14.2-1.5 17.4"/>
+      <path fill="none" stroke="url(#soft-arm)" stroke-width="4.8" stroke-linecap="round" d="M56.6 64.4c6.3 5.6 4.5 13.7-2.9 17.2"/>
+      <circle cx="39.2" cy="46.8" r="4" fill="#4a2726"/>
+      <circle cx="56.8" cy="46.8" r="4" fill="#4a2726"/>
+      <circle cx="38.1" cy="45.3" r="1.05" fill="#fff"/>
+      <circle cx="55.7" cy="45.3" r="1.05" fill="#fff"/>
+      <path d="M43.4 56.5c2.5 2.1 6.7 2.1 9.2 0" fill="none" stroke="#6f302c" stroke-width="2.8" stroke-linecap="round"/>
+    </symbol>
+
+    <symbol id="mark-compact" viewBox="0 0 96 96">
+      <rect x="10" y="10" width="76" height="76" rx="22" fill="#fffdf8" stroke="#a8cdc6" stroke-width="1.6"/>
+      <path d="M27 62c-5.2 4.6-3.3 12.8 4.9 13.8M38 65c-3.5 7.2-.5 14.2 5.5 14.8M58 65c3.5 7.2.5 14.2-5.5 14.8M69 62c5.2 4.6 3.3 12.8-4.9 13.8" fill="none" stroke="#72312d" stroke-width="9" stroke-linecap="round"/>
+      <path d="M27 62c-5.2 4.6-3.3 12.8 4.9 13.8M38 65c-3.5 7.2-.5 14.2 5.5 14.8M58 65c3.5 7.2.5 14.2-5.5 14.8M69 62c5.2 4.6 3.3 12.8-4.9 13.8" fill="none" stroke="#ef8267" stroke-width="5.5" stroke-linecap="round"/>
+      <path d="M48 17.3c-15.7 0-26.2 10.4-26.2 25.4 0 15.8 9.9 25.9 26.2 25.9s26.2-10.1 26.2-25.9c0-15-10.5-25.4-26.2-25.4Z" fill="url(#compact-body)" stroke="#72312d" stroke-width="2.4"/>
+      <path d="M30.2 55.8c4.9 7.8 11.1 11.8 17.8 11.8s12.9-4 17.8-11.8C63.4 67 56.6 72 48 72s-15.4-5-17.8-16.2Z" fill="#72312d" opacity="0.18"/>
+      <path d="M48 25.5v9M40.4 38.6 48 34.5l7.6 4.1" fill="none" stroke="url(#compact-node)" stroke-width="3" stroke-linecap="round"/>
+      <circle cx="48" cy="25.5" r="3.2" fill="#f8fffd" stroke="#90e2da" stroke-width="1.4"/>
+      <circle cx="40.4" cy="38.6" r="2.35" fill="#f8fffd" stroke="#90e2da" stroke-width="1.4"/>
+      <circle cx="55.6" cy="38.6" r="2.35" fill="#f8fffd" stroke="#90e2da" stroke-width="1.4"/>
+      <circle cx="39.3" cy="49.4" r="3.6" fill="#402625"/>
+      <circle cx="56.7" cy="49.4" r="3.6" fill="#402625"/>
+      <path d="M43.4 58c2.6 1.8 6.6 1.8 9.2 0" fill="none" stroke="#402625" stroke-width="2.8" stroke-linecap="round"/>
+      <path d="M33 28.2c-3.5 2.7-5.4 6.1-5.4 10.3 0 2 .6 3.1 1.7 3.1 1 .1 1.5-.9 1.9-2.7.8-3.4 2.7-5.9 5.9-7.7 1.5-.9 1.7-1.8 1.1-2.5-.7-.7-2.5-.8-5.2-.5Z" fill="#fff" opacity="0.3"/>
+    </symbol>
+
+    <symbol id="mark-line" viewBox="0 0 96 96">
+      <circle cx="48" cy="48" r="38.5" fill="#fffdf8" stroke="#d6e8e3" stroke-width="1.5"/>
+      <path d="M48 17.4c-16.6 0-27.8 11.1-27.8 27.3 0 15.6 10.5 25.1 27.8 25.1s27.8-9.5 27.8-25.1c0-16.2-11.2-27.3-27.8-27.3Z" fill="#fffdf8" stroke="url(#line-ink)" stroke-width="3.5" stroke-linejoin="round"/>
+      <path d="M31.4 60.2c-8.8 1.4-11.1 8.4-5 13.8M37.7 64.2c-6.2 5.1-5.3 13.5 1.9 16.2M44.9 66.2c-3.6 6.6-2.5 14.4 1.5 17.1M51.1 66.2c3.6 6.6 2.5 14.4-1.5 17.1M58.3 64.2c6.2 5.1 5.3 13.5-1.9 16.2M64.6 60.2c8.8 1.4 11.1 8.4 5 13.8" fill="none" stroke="url(#line-ink)" stroke-width="5.2" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M48 23.3v9.2M39.2 37.1 48 32.5l8.8 4.6" fill="none" stroke="#18aab5" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+      <circle cx="48" cy="23.3" r="3.2" fill="#fffdf8" stroke="#18aab5" stroke-width="2"/>
+      <circle cx="39.2" cy="37.1" r="2.5" fill="#fffdf8" stroke="#18aab5" stroke-width="2"/>
+      <circle cx="56.8" cy="37.1" r="2.5" fill="#fffdf8" stroke="#18aab5" stroke-width="2"/>
+      <circle cx="39.5" cy="49.2" r="3.2" fill="#102a2d"/>
+      <circle cx="56.5" cy="49.2" r="3.2" fill="#102a2d"/>
+      <path d="M43.7 58.2c2.3 1.9 6.3 1.9 8.6 0" fill="none" stroke="#102a2d" stroke-width="2.7" stroke-linecap="round"/>
+      <path d="M29.4 29.4c-2.8 2.8-4.3 6.1-4.5 10" fill="none" stroke="#18aab5" stroke-width="2.2" stroke-linecap="round" opacity="0.58"/>
+    </symbol>
+
+    <symbol id="mark-badge" viewBox="0 0 96 96">
+      <circle cx="48" cy="48" r="40.5" fill="#fffdf8" stroke="url(#badge-ring)" stroke-width="4"/>
+      <circle cx="48" cy="48" r="34.4" fill="#f9fbf7" stroke="#d8ebe5" stroke-width="1.4" stroke-dasharray="3 4"/>
+      <ellipse cx="48" cy="77" rx="24" ry="7" fill="#7d352a" opacity="0.12"/>
+      <path d="M30.2 58.3c-7.4.9-10.2 7.7-4.6 12.9M37 62.8c-5.2 4.7-4.1 11.8 2.2 14.4M59 62.8c5.2 4.7 4.1 11.8-2.2 14.4M65.8 58.3c7.4.9 10.2 7.7 4.6 12.9" fill="none" stroke="#6e302c" stroke-width="8.8" stroke-linecap="round"/>
+      <path d="M30.2 58.3c-7.4.9-10.2 7.7-4.6 12.9M37 62.8c-5.2 4.7-4.1 11.8 2.2 14.4M59 62.8c5.2 4.7 4.1 11.8-2.2 14.4M65.8 58.3c7.4.9 10.2 7.7 4.6 12.9" fill="none" stroke="#e9795e" stroke-width="5.3" stroke-linecap="round"/>
+      <path d="M48 16.6c-15.4 0-26.7 10.8-26.7 25.7 0 15.4 10.8 24.8 26.7 24.8s26.7-9.4 26.7-24.8c0-14.9-11.3-25.7-26.7-25.7Z" fill="url(#badge-body)" stroke="#6e302c" stroke-width="2.1"/>
+      <path d="M31.2 56.8c5.1 7.2 10.8 10.3 16.8 10.3s11.7-3.1 16.8-10.3C62.9 66 56.5 70.6 48 70.6S33.1 66 31.2 56.8Z" fill="#6e302c" opacity="0.17"/>
+      <path d="M48 24.1v7.9M41.3 36.3 48 32l6.7 4.3" fill="none" stroke="#edfffb" stroke-width="2.3" stroke-linecap="round"/>
+      <circle cx="48" cy="24.1" r="2.7" fill="#f8fffd" stroke="#bdeee8" stroke-width="1.4"/>
+      <circle cx="41.3" cy="36.3" r="2" fill="#f8fffd" stroke="#bdeee8" stroke-width="1.4"/>
+      <circle cx="54.7" cy="36.3" r="2" fill="#f8fffd" stroke="#bdeee8" stroke-width="1.4"/>
+      <circle cx="39.6" cy="48.1" r="3.7" fill="#452827"/>
+      <circle cx="56.4" cy="48.1" r="3.7" fill="#452827"/>
+      <path d="M43.7 56.8c2.5 2 6.1 2 8.6 0" fill="none" stroke="#452827" stroke-width="2.7" stroke-linecap="round"/>
+      <path d="M33.4 24.9c-4.2 2.8-6.5 6.8-6.5 12 0 2.2.6 3.5 1.7 3.6 1 .1 1.6-1 2.1-3 .9-3.8 3-6.7 6.8-8.9 1.5-.9 1.8-1.9 1.1-2.6-.8-.8-2.8-.9-5.2-1.1Z" fill="#fff" opacity="0.3"/>
+      <path d="M22.3 24.4 27 20M69 20l4.7 4.4M20.6 70.2l4.4 4.4M71 74.6l4.4-4.4" fill="none" stroke="#f0b856" stroke-width="2.2" stroke-linecap="round"/>
+    </symbol>
+
+    <symbol id="mark-glass" viewBox="0 0 96 96">
+      <circle cx="48" cy="48" r="39" fill="#f9fffd" stroke="#a8cdc6" stroke-width="1.4"/>
+      <circle cx="48" cy="50" r="31.5" fill="#18aab5" opacity="0.08"/>
+      <ellipse cx="48" cy="76.5" rx="27" ry="8.5" fill="#162b35" opacity="0.15"/>
+      <path d="M28.8 59c-8.4 1-10.6 8.4-4.4 13.5M36.1 63.2c-5.6 5-4.4 12.7 2.3 15.2M59.9 63.2c5.6 5 4.4 12.7-2.3 15.2M67.2 59c8.4 1 10.6 8.4 4.4 13.5" fill="none" stroke="#26334c" stroke-width="8.8" stroke-linecap="round"/>
+      <path d="M28.8 59c-8.4 1-10.6 8.4-4.4 13.5M36.1 63.2c-5.6 5-4.4 12.7 2.3 15.2M59.9 63.2c5.6 5 4.4 12.7-2.3 15.2M67.2 59c8.4 1 10.6 8.4 4.4 13.5" fill="none" stroke="url(#glass-arm)" stroke-width="5.2" stroke-linecap="round"/>
+      <path d="M48 14.4c-16.2 0-27.9 11.3-27.9 27.2 0 16 10.9 25.5 27.9 25.5s27.9-9.5 27.9-25.5c0-15.9-11.7-27.2-27.9-27.2Z" fill="url(#glass-body)" stroke="#26334c" stroke-width="2.05"/>
+      <path d="M31.2 56.5c5.1 7.4 11 10.7 16.8 10.7s11.7-3.3 16.8-10.7C62.2 67.4 56.1 72.8 48 72.8s-14.2-5.4-16.8-16.3Z" fill="#26334c" opacity="0.18"/>
+      <path d="M33 24c-4.7 3-7.3 7.6-7.3 13 0 2.4.7 3.8 1.9 3.9 1 .1 1.7-1 2.2-3.2.9-4.2 3.3-7.3 7.5-9.7 1.8-1 2.2-2.1 1.4-2.9-.8-.8-3.1-1-5.7-1.1Z" fill="#fff" opacity="0.54"/>
+      <ellipse cx="38.5" cy="30.4" rx="8.8" ry="14.6" transform="rotate(38 38.5 30.4)" fill="#fff" opacity="0.2"/>
+      <path d="M48 22.8v7.8M41.4 35.1 48 30.6l6.6 4.5" fill="none" stroke="#f4fffd" stroke-width="2.5" stroke-linecap="round"/>
+      <circle cx="48" cy="22.8" r="2.8" fill="#f8fffd" stroke="#93e8df" stroke-width="1.4"/>
+      <circle cx="41.4" cy="35.1" r="2.1" fill="#f8fffd" stroke="#93e8df" stroke-width="1.4"/>
+      <circle cx="54.6" cy="35.1" r="2.1" fill="#f8fffd" stroke="#93e8df" stroke-width="1.4"/>
+      <circle cx="39.5" cy="47.9" r="3.8" fill="#202334"/>
+      <circle cx="56.5" cy="47.9" r="3.8" fill="#202334"/>
+      <circle cx="38.4" cy="46.5" r="1" fill="#fff"/>
+      <circle cx="55.4" cy="46.5" r="1" fill="#fff"/>
+      <path d="M43.6 56.8c2.4 1.8 6.4 1.8 8.8 0" fill="none" stroke="#202334" stroke-width="2.7" stroke-linecap="round"/>
+      <path d="M23 68.7c-.8-1.9-.1-3.5 1.7-4.9M71.3 63.8c1.8 1.4 2.5 3 1.7 4.9" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" opacity="0.56"/>
+    </symbol>
+  </svg>
+
+  <header class="topbar">
+    <div class="shell nav">
+      <div class="brand">
+        <img src="agent-memory-hub-octopus-logo.svg" alt="">
+        <span>Agent Memory Hub</span>
+      </div>
+      <div class="meta"><span class="dot"></span><span>logo exploration / no replacement</span></div>
+    </div>
+  </header>
+
+  <main class="shell">
+    <section class="hero">
+      <div>
+        <h1>多智能体共享第二大脑：章鱼 Logo 风格候选</h1>
+        <p class="lede">这页只做选择预览，不替换现有 SVG，也不改 README 入口。候选重点围绕“章鱼、共享记忆、多智能体协作、可爱但不幼稚、小尺寸能识别”。</p>
+        <div class="scope" aria-label="本轮边界">
+          <div class="scope-item"><b>保留语义</b><span>章鱼主体、八爪外扩、头顶 memory node 仍是核心识别。</span></div>
+          <div class="scope-item"><b>避开旧坑</b><span>不走大白眼、脚趾式触手、全青色圆球、过度降饱和路线。</span></div>
+          <div class="scope-item"><b>先选风格</b><span>确认方向后再单独精修路径、比例、导出和替换策略。</span></div>
+        </div>
+      </div>
+      <aside class="hero-board" aria-label="推荐候选大图">
+        <div class="board-top"><span>recommended starting point</span><span>B / soft mascot polish</span></div>
+        <div class="board-preview">
+          <svg viewBox="0 0 96 96" role="img" aria-label="柔和吉祥物精修候选">
+            <use href="#mark-soft"></use>
+          </svg>
+        </div>
+      </aside>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <h2>6 个风格方向</h2>
+        <p>每张卡都包含大图、48/32/24 小尺寸和导航位测试。A 是现状基线；B-F 是可选方向，不会自动替换。</p>
+      </div>
+
+      <div class="variant-grid">
+        <article class="variant-card">
+          <div class="variant-art">
+            <img src="agent-memory-hub-octopus-logo.svg" alt="当前章鱼 Logo 基线">
+          </div>
+          <div class="variant-copy">
+            <p class="variant-kicker">A / current baseline</p>
+            <h3>现有暖色可爱章鱼</h3>
+            <p>作为对照保留。优点是亲和、表达明确；缺点是贴纸感偏强，大尺寸时略显卡通。</p>
+            <div class="fit-row">
+              <div class="mini size-48"><img src="agent-memory-hub-octopus-logo.svg" alt=""></div>
+              <div class="mini size-32"><img src="agent-memory-hub-octopus-logo.svg" alt=""></div>
+              <div class="mini size-24"><img src="agent-memory-hub-octopus-logo.svg" alt=""></div>
+              <div class="nav-test"><img src="agent-memory-hub-octopus-logo.svg" alt=""><span>Agent Memory Hub</span></div>
+            </div>
+            <div class="notes">
+              <div><b>适合</b><span>如果只做很小幅局部美化。</span></div>
+              <div><b>风险</b><span>品牌高级感提升空间有限。</span></div>
+            </div>
+          </div>
+        </article>
+
+        <article class="variant-card">
+          <div class="variant-art">
+            <svg viewBox="0 0 96 96" role="img" aria-label="柔和吉祥物精修">
+              <use href="#mark-soft"></use>
+            </svg>
+          </div>
+          <div class="variant-copy">
+            <p class="variant-kicker">B / soft mascot polish</p>
+            <h3>保守精修：更圆润、更稳</h3>
+            <p>不推翻现有方向，只收敛触手粗细、轮廓和光源。仍是可爱 mascot，但比当前更干净。</p>
+            <div class="fit-row">
+              <div class="mini size-48"><svg viewBox="0 0 96 96"><use href="#mark-soft"></use></svg></div>
+              <div class="mini size-32"><svg viewBox="0 0 96 96"><use href="#mark-soft"></use></svg></div>
+              <div class="mini size-24"><svg viewBox="0 0 96 96"><use href="#mark-soft"></use></svg></div>
+              <div class="nav-test"><svg viewBox="0 0 96 96"><use href="#mark-soft"></use></svg><span>Agent Memory Hub</span></div>
+            </div>
+            <div class="notes">
+              <div><b>适合</b><span>README、官网首屏、产品图标统一使用。</span></div>
+              <div><b>风险</b><span>变化保守，不会一下子显得很“企业级”。</span></div>
+            </div>
+          </div>
+        </article>
+
+        <article class="variant-card">
+          <div class="variant-art">
+            <svg viewBox="0 0 96 96" role="img" aria-label="产品图标化章鱼">
+              <use href="#mark-compact"></use>
+            </svg>
+          </div>
+          <div class="variant-copy">
+            <p class="variant-kicker">C / compact app icon</p>
+            <h3>产品图标化：更适合小尺寸</h3>
+            <p>把章鱼压进更稳定的圆角图标轮廓，memory node 更突出，适合 favicon、桌面图标、工具入口。</p>
+            <div class="fit-row">
+              <div class="mini size-48"><svg viewBox="0 0 96 96"><use href="#mark-compact"></use></svg></div>
+              <div class="mini size-32"><svg viewBox="0 0 96 96"><use href="#mark-compact"></use></svg></div>
+              <div class="mini size-24"><svg viewBox="0 0 96 96"><use href="#mark-compact"></use></svg></div>
+              <div class="nav-test"><svg viewBox="0 0 96 96"><use href="#mark-compact"></use></svg><span>Agent Memory Hub</span></div>
+            </div>
+            <div class="notes">
+              <div><b>适合</b><span>CLI docs、浏览器扩展、桌面入口等密集界面。</span></div>
+              <div><b>风险</b><span>吉祥物外扩感会弱一点。</span></div>
+            </div>
+          </div>
+        </article>
+
+        <article class="variant-card">
+          <div class="variant-art">
+            <svg viewBox="0 0 96 96" role="img" aria-label="线稿章鱼 Logo">
+              <use href="#mark-line"></use>
+            </svg>
+          </div>
+          <div class="variant-copy">
+            <p class="variant-kicker">D / line system mark</p>
+            <h3>线稿系统感：更像工程品牌</h3>
+            <p>用线条讲“连接、检索、共享上下文”，减少软 3D 体积。适合文档页、架构图和黑白印刷。</p>
+            <div class="fit-row">
+              <div class="mini size-48"><svg viewBox="0 0 96 96"><use href="#mark-line"></use></svg></div>
+              <div class="mini size-32"><svg viewBox="0 0 96 96"><use href="#mark-line"></use></svg></div>
+              <div class="mini size-24"><svg viewBox="0 0 96 96"><use href="#mark-line"></use></svg></div>
+              <div class="nav-test"><svg viewBox="0 0 96 96"><use href="#mark-line"></use></svg><span>Agent Memory Hub</span></div>
+            </div>
+            <div class="notes">
+              <div><b>适合</b><span>技术白皮书、架构图、水印和单色版本。</span></div>
+              <div><b>风险</b><span>情绪价值比 mascot 方向弱。</span></div>
+            </div>
+          </div>
+        </article>
+
+        <article class="variant-card">
+          <div class="variant-art">
+            <svg viewBox="0 0 96 96" role="img" aria-label="章鱼徽章 Logo">
+              <use href="#mark-badge"></use>
+            </svg>
+          </div>
+          <div class="variant-copy">
+            <p class="variant-kicker">E / community badge</p>
+            <h3>品牌徽章化：更有社区感</h3>
+            <p>保留章鱼，同时增加徽章边界和轻量“缝线”感，更像开源项目的识别章，不只是一个贴纸。</p>
+            <div class="fit-row">
+              <div class="mini size-48"><svg viewBox="0 0 96 96"><use href="#mark-badge"></use></svg></div>
+              <div class="mini size-32"><svg viewBox="0 0 96 96"><use href="#mark-badge"></use></svg></div>
+              <div class="mini size-24"><svg viewBox="0 0 96 96"><use href="#mark-badge"></use></svg></div>
+              <div class="nav-test"><svg viewBox="0 0 96 96"><use href="#mark-badge"></use></svg><span>Agent Memory Hub</span></div>
+            </div>
+            <div class="notes">
+              <div><b>适合</b><span>GitHub README、release badge、社群头像。</span></div>
+              <div><b>风险</b><span>边框细节在 24px 会损失。</span></div>
+            </div>
+          </div>
+        </article>
+
+        <article class="variant-card">
+          <div class="variant-art dark">
+            <svg viewBox="0 0 96 96" role="img" aria-label="玻璃感神经章鱼 Logo">
+              <use href="#mark-glass"></use>
+            </svg>
+          </div>
+          <div class="variant-copy">
+            <p class="variant-kicker">F / glass neural hub</p>
+            <h3>轻未来感：透明脑池章鱼</h3>
+            <p>用更通透的玻璃质感连接“第二大脑”和“神经节点”。比 B 更现代，但也更依赖渲染细节。</p>
+            <div class="fit-row">
+              <div class="mini size-48"><svg viewBox="0 0 96 96"><use href="#mark-glass"></use></svg></div>
+              <div class="mini size-32"><svg viewBox="0 0 96 96"><use href="#mark-glass"></use></svg></div>
+              <div class="mini size-24"><svg viewBox="0 0 96 96"><use href="#mark-glass"></use></svg></div>
+              <div class="nav-test"><svg viewBox="0 0 96 96"><use href="#mark-glass"></use></svg><span>Agent Memory Hub</span></div>
+            </div>
+            <div class="notes">
+              <div><b>适合</b><span>更偏产品化、未来感的首屏视觉。</span></div>
+              <div><b>风险</b><span>小尺寸和 SVG 维护成本更高。</span></div>
+            </div>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section class="comparison" aria-label="候选选择建议">
+      <table>
+        <thead>
+          <tr>
+            <th>候选</th>
+            <th>视觉性格</th>
+            <th>我建议的用途</th>
+            <th>下一步精修重点</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>A 现状基线</td>
+            <td>可爱、亲切、贴纸感强</td>
+            <td>继续作为回退版本，不做替换风险</td>
+            <td>只修边缘、阴影和小尺寸导出</td>
+          </tr>
+          <tr>
+            <td>B 保守精修</td>
+            <td>友好、耐看、最接近现有资产</td>
+            <td>默认推荐，适合作为下一版主 Logo</td>
+            <td>微调触手层级、眼睛间距、24px 识别</td>
+          </tr>
+          <tr>
+            <td>C 产品图标</td>
+            <td>紧凑、工具化、小尺寸强</td>
+            <td>适合作为 app icon / favicon 分支</td>
+            <td>确认圆角容器是否进入主品牌</td>
+          </tr>
+          <tr>
+            <td>D 线稿系统</td>
+            <td>工程、克制、文档友好</td>
+            <td>适合作为辅助单色版，不一定做主标</td>
+            <td>准备深色、浅色、单色三套 stroke</td>
+          </tr>
+          <tr>
+            <td>E 社区徽章</td>
+            <td>开源、社区、纪念章</td>
+            <td>适合 README 顶图、release、周边感物料</td>
+            <td>简化徽章细节，避免 24px 糊成圆环</td>
+          </tr>
+          <tr>
+            <td>F 玻璃神经</td>
+            <td>现代、第二大脑、产品感更强</td>
+            <td>适合首屏大图，主标需谨慎</td>
+            <td>降复杂度，做扁平 fallback</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="shell">预览文件：<code>docs/visuals/agent-memory-hub-octopus-logo-variants-preview.html</code>。确认方向后再单独改正式 SVG 和 README inline logo。</div>
+  </footer>
+</body>
+</html>

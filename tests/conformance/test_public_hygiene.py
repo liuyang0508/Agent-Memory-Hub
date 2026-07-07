@@ -1,0 +1,155 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+
+def test_public_hygiene_scanner_catches_local_and_internal_literals() -> None:
+    from agent_brain.evaluation.public_hygiene import scan_text
+
+    user = "sarah" + "chen"
+    domain = "gitlab." + "acme-corp." + "dev"
+    rank = "618" + "234"
+    findings = scan_text(
+        f"repo=/Users/{user}/Desktop/example-project\n"
+        f"mirror={domain}/team/repo\n"
+        f"candidate rank={rank}\n",
+        path="fixture.txt",
+        identity_terms=(user,),
+    )
+
+    assert {finding.rule for finding in findings} == {
+        "personal_absolute_path",
+        "personal_handle",
+        "private_code_host_domain",
+        "contextual_rank",
+    }
+
+
+def test_public_hygiene_scanner_uses_categories_not_fixed_literals() -> None:
+    from agent_brain.evaluation.public_hygiene import scan_text
+
+    user = "morgan" + "wu"
+    domain = "code." + "orion-platform." + "dev"
+    rank = "734" + "567"
+    secret = "sk_live_" + "abcdefghijklmnopqrstuvwxyz123456"
+    findings = scan_text(
+        f"encoded=Users-{user}--Desktop--repo\n"
+        f"remote={domain}/scm/repo\n"
+        f"score=612 rank={rank}\n"
+        f"api_key='{secret}'\n",
+        path="fixture.txt",
+        identity_terms=(user,),
+    )
+
+    assert {finding.rule for finding in findings} == {
+        "encoded_personal_path",
+        "personal_handle",
+        "private_code_host_domain",
+        "score_rank_pair",
+        "secret_assignment",
+    }
+
+
+def test_public_hygiene_scanner_uses_risk_features_beyond_named_examples() -> None:
+    from agent_brain.evaluation.public_hygiene import scan_text
+
+    jwt = "eyJhbGciOiJIUzI1NiJ9." + "eyJzdWIiOiJvcmdfMTIzNDU2Nzg5In0." + "signaturepart"
+    uuid = "018f47d2" + "-1d7c-7a98-8b1d-" + "28a25d6e4c31"
+    secretish = "p9V4mN2xQ7rS8tU3wY6zA1bC5dE0fG"
+    ip = "10.24" + ".5.6"
+    uri = "https://" + "svc:realpassw0rd" + "@" + ip + ":8443/api"
+    email = "release.operator" + "@" + "orion-platform.dev"
+    findings = scan_text(
+        f"endpoint={uri}\n"
+        f"Authorization: Bearer {jwt}\n"
+        f"owner={email}\n"
+        f"tenant_id={uuid}\n"
+        f"session_material='{secretish}'\n",
+        path="fixture.txt",
+    )
+
+    assert {finding.rule for finding in findings} >= {
+        "credentialed_uri",
+        "private_network_address",
+        "auth_header_secret",
+        "jwt_literal",
+        "email_address",
+        "contextual_identifier",
+        "high_entropy_secret",
+    }
+
+
+def test_public_hygiene_redacts_report_text() -> None:
+    from agent_brain.evaluation.public_hygiene import public_path, redact_public_text
+
+    root = Path("/tmp/example-repo")
+    user = "sarah" + "chen"
+    domain = "code." + "acme-corp." + "dev"
+    rank = "618" + "234"
+    text = (
+        "/tmp/example-repo/docs/evaluation/report.json "
+        f"/Users/{user}/.codex/config.toml "
+        f"{domain}/project "
+        f"rank={rank}"
+    )
+
+    assert redact_public_text(text, root=root) == (
+        "<repo>/docs/evaluation/report.json "
+        "~/.codex/config.toml "
+        "example.internal/project "
+        "rank=<rank>"
+    )
+    assert public_path(root / "docs/evaluation/report.json", root=root) == "docs/evaluation/report.json"
+
+
+def test_public_hygiene_redacts_feature_based_risks() -> None:
+    from agent_brain.evaluation.public_hygiene import redact_public_text
+
+    jwt = "eyJhbGciOiJIUzI1NiJ9." + "eyJzdWIiOiJvcmdfMTIzNDU2Nzg5In0." + "signaturepart"
+    uuid = "018f47d2" + "-1d7c-7a98-8b1d-" + "28a25d6e4c31"
+    secretish = "p9V4mN2xQ7rS8tU3wY6zA1bC5dE0fG"
+    ip = "10.24" + ".5.6"
+    uri = "https://" + "svc:realpassw0rd" + "@" + ip + ":8443/api"
+    email = "release.operator" + "@" + "orion-platform.dev"
+
+    redacted = redact_public_text(
+        f"endpoint={uri}\n"
+        f"Authorization: Bearer {jwt}\n"
+        f"owner={email}\n"
+        f"tenant_id={uuid}\n"
+        f"session_material='{secretish}'\n"
+    )
+
+    assert redacted == (
+        "endpoint=https://<user>:<secret>@<private-ip>:8443/api\n"
+        "Authorization: Bearer <secret>\n"
+        "owner=user@example.com\n"
+        "tenant_id=<id>\n"
+        "session_material='<secret>'\n"
+    )
+
+
+def test_public_hygiene_preserves_json_when_email_follows_backslash_escape() -> None:
+    from agent_brain.evaluation.public_hygiene import redact_public_text
+
+    email = "release.operator" + "@" + "orion-platform.dev"
+    source = rf'{{"context":"latex=\{email}"}}'
+    redacted = redact_public_text(source)
+
+    assert json.loads(redacted)["context"] == r"latex=\user@example.com"
+
+    home_path = "/" + "home" + "/" + "alpt"
+    path_source = json.dumps({"context": f'node = tree.get_node("{home_path}")'})
+    path_redacted = redact_public_text(path_source)
+
+    assert json.loads(path_redacted)["context"] == 'node = tree.get_node("~")'
+
+
+def test_git_tracked_public_surface_has_no_sensitive_literals() -> None:
+    from agent_brain.evaluation.public_hygiene import format_findings, scan_git_public_surface
+
+    root = Path(__file__).resolve().parents[2]
+    findings = scan_git_public_surface(root)
+
+    assert findings == [], format_findings(findings)

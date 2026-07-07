@@ -1,0 +1,888 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Agent Memory Hub A+ 章鱼 Logo 工程化预览</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f5f9f7;
+      --paper: #fffdf8;
+      --paper-2: #edf7f4;
+      --ink: #102a2d;
+      --muted: #5d7274;
+      --line: #d4e6e1;
+      --line-strong: #9fcfc8;
+      --teal: #18aab5;
+      --mint: #a6e9e1;
+      --coral: #ee765c;
+      --clay: #8f3b35;
+      --gold: #edb84f;
+      --plum: #544364;
+      --shadow: 0 16px 38px rgb(34 88 86 / 0.1);
+      --radius: 8px;
+      --font: Inter, "IBM Plex Sans", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --mono: "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      background: var(--bg);
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--ink);
+      background:
+        linear-gradient(90deg, rgb(212 230 225 / 0.34) 1px, transparent 1px),
+        linear-gradient(180deg, rgb(212 230 225 / 0.28) 1px, transparent 1px),
+        linear-gradient(180deg, #fbfefd 0%, var(--bg) 46%, #eef7f3 100%);
+      background-size: 84px 84px, 84px 84px, auto;
+      font-family: var(--font);
+      line-height: 1.55;
+      letter-spacing: 0;
+    }
+
+    img,
+    svg {
+      display: block;
+      max-width: 100%;
+    }
+
+    code {
+      font-family: var(--mono);
+    }
+
+    .symbols {
+      position: absolute;
+      width: 0;
+      height: 0;
+      overflow: hidden;
+    }
+
+    .shell {
+      width: min(1420px, calc(100% - 48px));
+      margin: 0 auto;
+    }
+
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 5;
+      border-bottom: 1px solid rgb(212 230 225 / 0.92);
+      background: rgb(255 253 248 / 0.84);
+      backdrop-filter: blur(18px) saturate(120%);
+    }
+
+    .nav {
+      min-height: 70px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 22px;
+    }
+
+    .brand {
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-weight: 760;
+    }
+
+    .brand img {
+      width: 44px;
+      height: 44px;
+      flex: 0 0 auto;
+    }
+
+    .brand span {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .status {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 0.78rem;
+      white-space: nowrap;
+    }
+
+    .status i {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--teal);
+      box-shadow: 0 0 0 4px rgb(24 170 181 / 0.12);
+    }
+
+    .hero {
+      padding: 58px 0 32px;
+      display: grid;
+      grid-template-columns: minmax(0, 0.95fr) minmax(420px, 0.72fr);
+      gap: 46px;
+      align-items: center;
+    }
+
+    h1 {
+      margin: 0;
+      max-width: 920px;
+      font-size: clamp(2.1rem, 5vw, 5.2rem);
+      line-height: 0.95;
+      letter-spacing: 0;
+    }
+
+    .lede {
+      max-width: 760px;
+      margin: 22px 0 0;
+      color: var(--muted);
+      font-size: clamp(1rem, 1.45vw, 1.15rem);
+    }
+
+    .hero-actions {
+      margin-top: 26px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .chip {
+      padding: 9px 11px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: rgb(255 253 248 / 0.84);
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 0.78rem;
+      box-shadow: 0 8px 20px rgb(34 88 86 / 0.06);
+    }
+
+    .hero-stage {
+      padding: 18px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: color-mix(in srgb, var(--paper) 92%, var(--mint) 8%);
+      box-shadow: var(--shadow);
+    }
+
+    .stage-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 14px;
+      margin-bottom: 14px;
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 0.76rem;
+    }
+
+    .stage-art {
+      min-height: 344px;
+      display: grid;
+      place-items: center;
+      border: 1px solid rgb(159 207 200 / 0.78);
+      border-radius: var(--radius);
+      background:
+        linear-gradient(90deg, rgb(255 255 255 / 0.7), rgb(237 247 244 / 0.72)),
+        linear-gradient(90deg, rgb(212 230 225 / 0.42) 1px, transparent 1px),
+        linear-gradient(180deg, rgb(212 230 225 / 0.38) 1px, transparent 1px);
+      background-size: auto, 32px 32px, 32px 32px;
+    }
+
+    .stage-art img {
+      width: min(270px, 72%);
+      filter: drop-shadow(0 24px 30px rgb(143 59 53 / 0.14));
+    }
+
+    .section-head {
+      margin: 28px 0 18px;
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 28px;
+    }
+
+    .section-head h2 {
+      margin: 0;
+      font-size: clamp(1.45rem, 2.4vw, 2.25rem);
+      letter-spacing: 0;
+    }
+
+    .section-head p {
+      max-width: 620px;
+      margin: 0;
+      color: var(--muted);
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 18px;
+    }
+
+    .card {
+      min-width: 0;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: rgb(255 253 248 / 0.9);
+      box-shadow: 0 12px 30px rgb(34 88 86 / 0.07);
+    }
+
+    .card-pad {
+      padding: 18px;
+    }
+
+    .card h3 {
+      margin: 0;
+      font-size: 1.05rem;
+      letter-spacing: 0;
+    }
+
+    .card p {
+      margin: 8px 0 0;
+      color: var(--muted);
+      font-size: 0.94rem;
+    }
+
+    .compare {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      border-top: 1px solid var(--line);
+    }
+
+    .compare-item {
+      min-height: 266px;
+      display: grid;
+      place-items: center;
+      padding: 22px;
+      border-right: 1px solid var(--line);
+      background:
+        linear-gradient(90deg, rgb(212 230 225 / 0.38) 1px, transparent 1px),
+        linear-gradient(180deg, rgb(212 230 225 / 0.32) 1px, transparent 1px),
+        #fbfefd;
+      background-size: 28px 28px, 28px 28px, auto;
+    }
+
+    .compare-item:last-child {
+      border-right: 0;
+    }
+
+    .compare-item img {
+      width: min(170px, 78%);
+    }
+
+    .compare-label {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      border-top: 1px solid var(--line);
+    }
+
+    .compare-label div {
+      padding: 12px 14px;
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 0.76rem;
+      border-right: 1px solid var(--line);
+    }
+
+    .compare-label div:last-child {
+      border-right: 0;
+    }
+
+    .size-grid {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+      gap: 12px;
+      align-items: end;
+    }
+
+    .size-box {
+      min-height: 128px;
+      padding: 12px 8px;
+      display: grid;
+      place-items: center;
+      align-content: center;
+      gap: 10px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: #fbfefd;
+    }
+
+    .size-box b {
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 0.74rem;
+    }
+
+    .size-16 img { width: 16px; height: 16px; }
+    .size-24 img { width: 24px; height: 24px; }
+    .size-32 img { width: 32px; height: 32px; }
+    .size-48 img { width: 48px; height: 48px; }
+    .size-96 img { width: 96px; height: 96px; }
+    .size-192 img { width: 112px; height: 112px; }
+
+    .surface-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .surface {
+      min-height: 182px;
+      display: grid;
+      place-items: center;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+
+    .surface img,
+    .surface svg {
+      width: 112px;
+      height: 112px;
+    }
+
+    .surface.light {
+      background: #fbfefd;
+    }
+
+    .surface.dark {
+      background: linear-gradient(135deg, #102a2d, #24364a);
+    }
+
+    .surface.warm {
+      background: linear-gradient(135deg, #fff2dd, #f5d19f);
+    }
+
+    .surface.checker {
+      background:
+        linear-gradient(45deg, #dfeae6 25%, transparent 25%),
+        linear-gradient(-45deg, #dfeae6 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, #dfeae6 75%),
+        linear-gradient(-45deg, transparent 75%, #dfeae6 75%),
+        #fff;
+      background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+      background-size: 16px 16px;
+    }
+
+    .contexts {
+      display: grid;
+      gap: 12px;
+    }
+
+    .context {
+      min-width: 0;
+      padding: 13px 14px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: #fbfefd;
+    }
+
+    .context img,
+    .context svg {
+      width: 36px;
+      height: 36px;
+      flex: 0 0 auto;
+    }
+
+    .context strong {
+      display: block;
+      font-size: 0.92rem;
+    }
+
+    .context span {
+      display: block;
+      color: var(--muted);
+      font-size: 0.84rem;
+    }
+
+    .button-demo {
+      margin-top: 12px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .btn {
+      min-height: 42px;
+      padding: 0 13px;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      border: 1px solid #7fcac2;
+      border-radius: var(--radius);
+      background: #f8fffd;
+      color: var(--ink);
+      font-weight: 720;
+    }
+
+    .btn img,
+    .btn svg {
+      width: 24px;
+      height: 24px;
+    }
+
+    .btn.dark {
+      border-color: #39585f;
+      background: #102a2d;
+      color: #f8fffd;
+    }
+
+    .kit-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .kit-item {
+      min-height: 178px;
+      padding: 14px;
+      display: grid;
+      align-content: center;
+      justify-items: center;
+      gap: 10px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: #fbfefd;
+      text-align: center;
+    }
+
+    .kit-item svg,
+    .kit-item img {
+      width: 80px;
+      height: 80px;
+    }
+
+    .kit-item b {
+      font-size: 0.9rem;
+    }
+
+    .kit-item span {
+      color: var(--muted);
+      font-size: 0.82rem;
+    }
+
+    .spec-table {
+      margin: 18px 0 52px;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: rgb(255 253 248 / 0.9);
+      box-shadow: 0 12px 30px rgb(34 88 86 / 0.07);
+    }
+
+    .spec-table table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+    }
+
+    .spec-table th,
+    .spec-table td {
+      padding: 14px 15px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+      overflow-wrap: anywhere;
+    }
+
+    .spec-table th {
+      background: var(--paper-2);
+      font-family: var(--mono);
+      font-size: 0.76rem;
+      text-transform: uppercase;
+    }
+
+    .spec-table tr:last-child td {
+      border-bottom: 0;
+    }
+
+    .spec-table td {
+      color: var(--muted);
+      font-size: 0.92rem;
+    }
+
+    .spec-table td:first-child {
+      color: var(--ink);
+      font-weight: 760;
+    }
+
+    .footer {
+      padding: 28px 0 46px;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 0.92rem;
+    }
+
+    .footer code {
+      color: var(--ink);
+      font-size: 0.86em;
+    }
+
+    @media (max-width: 1120px) {
+      .hero {
+        grid-template-columns: 1fr;
+      }
+
+      .grid {
+        grid-template-columns: 1fr;
+      }
+
+      .kit-grid,
+      .surface-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 760px) {
+      .shell {
+        width: min(100% - 28px, 1420px);
+      }
+
+      .nav {
+        min-height: 64px;
+      }
+
+      .status {
+        display: none;
+      }
+
+      .hero {
+        padding-top: 36px;
+      }
+
+      .section-head {
+        display: block;
+      }
+
+      .section-head p {
+        margin-top: 10px;
+      }
+
+      .compare,
+      .compare-label {
+        grid-template-columns: 1fr;
+      }
+
+      .compare-item,
+      .compare-label div {
+        border-right: 0;
+      }
+
+      .compare-item:first-child,
+      .compare-label div:first-child {
+        border-bottom: 1px solid var(--line);
+      }
+
+      .size-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+
+      .surface-grid,
+      .kit-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .spec-table {
+        overflow-x: auto;
+      }
+
+      .spec-table table {
+        min-width: 760px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <svg class="symbols" aria-hidden="true" focusable="false">
+    <defs>
+      <radialGradient id="small-body" cx="32%" cy="22%" r="82%">
+        <stop offset="0%" stop-color="#ffe1c4"/>
+        <stop offset="48%" stop-color="#ee765c"/>
+        <stop offset="100%" stop-color="#8f3b35"/>
+      </radialGradient>
+      <linearGradient id="small-node" x1="38" y1="22" x2="58" y2="40" gradientUnits="userSpaceOnUse">
+        <stop stop-color="#ffffff"/>
+        <stop offset="1" stop-color="#8fece3"/>
+      </linearGradient>
+      <linearGradient id="mono-grad" x1="16" y1="14" x2="80" y2="84" gradientUnits="userSpaceOnUse">
+        <stop stop-color="#18aab5"/>
+        <stop offset="0.5" stop-color="#102a2d"/>
+        <stop offset="1" stop-color="#8f3b35"/>
+      </linearGradient>
+    </defs>
+
+    <symbol id="mark-small" viewBox="0 0 96 96">
+      <circle cx="48" cy="48" r="39" fill="#fffdf8" stroke="#9bd9d2" stroke-width="1.8"/>
+      <path d="M30 59c-8.2 1.4-9.8 8.5-4.1 13.5M37 63.2c-5.3 4.8-4.1 12.1 2.4 14.7M59 63.2c5.3 4.8 4.1 12.1-2.4 14.7M66 59c8.2 1.4 9.8 8.5 4.1 13.5" fill="none" stroke="#6f302c" stroke-width="9" stroke-linecap="round"/>
+      <path d="M30 59c-8.2 1.4-9.8 8.5-4.1 13.5M37 63.2c-5.3 4.8-4.1 12.1 2.4 14.7M59 63.2c5.3 4.8 4.1 12.1-2.4 14.7M66 59c8.2 1.4 9.8 8.5 4.1 13.5" fill="none" stroke="#ee765c" stroke-width="5.4" stroke-linecap="round"/>
+      <path d="M48 16.2c-16 0-27.2 10.9-27.2 26.1 0 15.8 10.6 25.2 27.2 25.2s27.2-9.4 27.2-25.2C75.2 27.1 64 16.2 48 16.2Z" fill="url(#small-body)" stroke="#6f302c" stroke-width="2.5"/>
+      <path d="M32 56.6c4.9 7.1 10.3 10.1 16 10.1s11.1-3 16-10.1C61.8 66 56 70.8 48 70.8S34.2 66 32 56.6Z" fill="#6f302c" opacity="0.17"/>
+      <path d="M48 24.8v8M41 37.2l7-4.4 7 4.4" fill="none" stroke="url(#small-node)" stroke-width="2.7" stroke-linecap="round"/>
+      <circle cx="48" cy="24.8" r="3" fill="#f8fffd" stroke="#a4f1e8" stroke-width="1.4"/>
+      <circle cx="41" cy="37.2" r="2.2" fill="#f8fffd" stroke="#a4f1e8" stroke-width="1.4"/>
+      <circle cx="55" cy="37.2" r="2.2" fill="#f8fffd" stroke="#a4f1e8" stroke-width="1.4"/>
+      <circle cx="39.5" cy="48.5" r="3.6" fill="#452827"/>
+      <circle cx="56.5" cy="48.5" r="3.6" fill="#452827"/>
+      <path d="M43.6 57.5c2.5 1.9 6.3 1.9 8.8 0" fill="none" stroke="#452827" stroke-width="2.8" stroke-linecap="round"/>
+      <path d="M33.5 25.5c-4 2.8-6.2 6.6-6.2 11.3 0 2.1.6 3.4 1.7 3.4 1 .1 1.5-1 2-2.9.9-3.7 3-6.5 6.6-8.6 1.6-.9 1.8-1.9 1.1-2.6-.8-.7-2.8-.8-5.2-.6Z" fill="#fff" opacity="0.32"/>
+    </symbol>
+
+    <symbol id="mark-flat" viewBox="0 0 96 96">
+      <circle cx="48" cy="48" r="39" fill="#fffdf8" stroke="#9bd9d2" stroke-width="1.8"/>
+      <path d="M30 59c-8.2 1.4-9.8 8.5-4.1 13.5M37 63.2c-5.3 4.8-4.1 12.1 2.4 14.7M59 63.2c5.3 4.8 4.1 12.1-2.4 14.7M66 59c8.2 1.4 9.8 8.5 4.1 13.5" fill="none" stroke="#6f302c" stroke-width="8.8" stroke-linecap="round"/>
+      <path d="M30 59c-8.2 1.4-9.8 8.5-4.1 13.5M37 63.2c-5.3 4.8-4.1 12.1 2.4 14.7M59 63.2c5.3 4.8 4.1 12.1-2.4 14.7M66 59c8.2 1.4 9.8 8.5 4.1 13.5" fill="none" stroke="#ee765c" stroke-width="5.2" stroke-linecap="round"/>
+      <path d="M48 16.2c-16 0-27.2 10.9-27.2 26.1 0 15.8 10.6 25.2 27.2 25.2s27.2-9.4 27.2-25.2C75.2 27.1 64 16.2 48 16.2Z" fill="#ee765c" stroke="#6f302c" stroke-width="2.5"/>
+      <path d="M48 24.8v8M41 37.2l7-4.4 7 4.4" fill="none" stroke="#e9fffb" stroke-width="2.8" stroke-linecap="round"/>
+      <circle cx="48" cy="24.8" r="3" fill="#f8fffd"/>
+      <circle cx="41" cy="37.2" r="2.2" fill="#f8fffd"/>
+      <circle cx="55" cy="37.2" r="2.2" fill="#f8fffd"/>
+      <circle cx="39.5" cy="48.5" r="3.6" fill="#452827"/>
+      <circle cx="56.5" cy="48.5" r="3.6" fill="#452827"/>
+      <path d="M43.6 57.5c2.5 1.9 6.3 1.9 8.8 0" fill="none" stroke="#452827" stroke-width="2.8" stroke-linecap="round"/>
+    </symbol>
+
+    <symbol id="mark-mono" viewBox="0 0 96 96">
+      <circle cx="48" cy="48" r="39" fill="#fffdf8" stroke="currentColor" stroke-width="2"/>
+      <path d="M30 59c-8.2 1.4-9.8 8.5-4.1 13.5M37 63.2c-5.3 4.8-4.1 12.1 2.4 14.7M59 63.2c5.3 4.8 4.1 12.1-2.4 14.7M66 59c8.2 1.4 9.8 8.5 4.1 13.5" fill="none" stroke="currentColor" stroke-width="8" stroke-linecap="round"/>
+      <path d="M48 16.2c-16 0-27.2 10.9-27.2 26.1 0 15.8 10.6 25.2 27.2 25.2s27.2-9.4 27.2-25.2C75.2 27.1 64 16.2 48 16.2Z" fill="#fffdf8" stroke="currentColor" stroke-width="3"/>
+      <path d="M48 24.8v8M41 37.2l7-4.4 7 4.4" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+      <circle cx="48" cy="24.8" r="3" fill="currentColor"/>
+      <circle cx="41" cy="37.2" r="2.2" fill="currentColor"/>
+      <circle cx="55" cy="37.2" r="2.2" fill="currentColor"/>
+      <circle cx="39.5" cy="48.5" r="3.5" fill="currentColor"/>
+      <circle cx="56.5" cy="48.5" r="3.5" fill="currentColor"/>
+      <path d="M43.6 57.5c2.5 1.9 6.3 1.9 8.8 0" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round"/>
+    </symbol>
+
+    <symbol id="mark-gradient-mono" viewBox="0 0 96 96">
+      <g color="#102a2d">
+        <circle cx="48" cy="48" r="39" fill="#fffdf8" stroke="url(#mono-grad)" stroke-width="2"/>
+        <path d="M30 59c-8.2 1.4-9.8 8.5-4.1 13.5M37 63.2c-5.3 4.8-4.1 12.1 2.4 14.7M59 63.2c5.3 4.8 4.1 12.1-2.4 14.7M66 59c8.2 1.4 9.8 8.5 4.1 13.5" fill="none" stroke="url(#mono-grad)" stroke-width="8" stroke-linecap="round"/>
+        <path d="M48 16.2c-16 0-27.2 10.9-27.2 26.1 0 15.8 10.6 25.2 27.2 25.2s27.2-9.4 27.2-25.2C75.2 27.1 64 16.2 48 16.2Z" fill="#fffdf8" stroke="url(#mono-grad)" stroke-width="3"/>
+        <path d="M48 24.8v8M41 37.2l7-4.4 7 4.4" fill="none" stroke="#18aab5" stroke-width="3" stroke-linecap="round"/>
+        <circle cx="48" cy="24.8" r="3" fill="#18aab5"/>
+        <circle cx="41" cy="37.2" r="2.2" fill="#18aab5"/>
+        <circle cx="55" cy="37.2" r="2.2" fill="#18aab5"/>
+        <circle cx="39.5" cy="48.5" r="3.5" fill="#102a2d"/>
+        <circle cx="56.5" cy="48.5" r="3.5" fill="#102a2d"/>
+        <path d="M43.6 57.5c2.5 1.9 6.3 1.9 8.8 0" fill="none" stroke="#102a2d" stroke-width="2.8" stroke-linecap="round"/>
+      </g>
+    </symbol>
+  </svg>
+
+  <header class="topbar">
+    <div class="shell nav">
+      <div class="brand">
+        <img src="agent-memory-hub-octopus-logo-a-plus-candidate.svg" alt="">
+        <span>Agent Memory Hub</span>
+      </div>
+      <div class="status"><i></i><span>A style locked / engineering preview</span></div>
+    </div>
+  </header>
+
+  <main class="shell">
+    <section class="hero">
+      <div>
+        <h1>A 风格继续，但升级成可交付 Logo 系统</h1>
+        <p class="lede">方向不再发散：保留 A 的暖色、黑豆眼、脸红、外扩八爪和贴纸亲和感。升级点放在矢量质感、缩放清晰、小尺寸 fallback、深浅背景、零动画依赖和导出规范。</p>
+        <div class="hero-actions" aria-label="工程约束">
+          <span class="chip">static SVG</span>
+          <span class="chip">no JS</span>
+          <span class="chip">no runtime animation</span>
+          <span class="chip">vector gradients</span>
+          <span class="chip">16-512px scale test</span>
+          <span class="chip">small / flat / mono variants</span>
+        </div>
+      </div>
+      <aside class="hero-stage" aria-label="A+ 高保真候选">
+        <div class="stage-head"><span>primary candidate</span><span>SVG / 96 viewBox</span></div>
+        <div class="stage-art">
+          <img src="agent-memory-hub-octopus-logo-a-plus-candidate.svg" alt="A+ 高保真章鱼 Logo 候选">
+        </div>
+      </aside>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <h2>相对 A，只做质感升级</h2>
+        <p>左侧是现有 A 基线，右侧是 A+ 候选。重点不是换性格，而是把材质、光源、边缘和小尺寸可读性做得更像正式资产。</p>
+      </div>
+      <div class="card">
+        <div class="compare">
+          <div class="compare-item">
+            <img src="agent-memory-hub-octopus-logo.svg" alt="当前 A 风格基线">
+          </div>
+          <div class="compare-item">
+            <img src="agent-memory-hub-octopus-logo-a-plus-candidate.svg" alt="A+ 高保真候选">
+          </div>
+        </div>
+        <div class="compare-label">
+          <div>A / current baseline</div>
+          <div>A+ / material polish candidate</div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <h2>缩放测试</h2>
+        <p>SVG 本身任意缩放不糊；16-24px 场景仍建议使用小尺寸优化版或 PNG 导出，避免高光细节挤在一起。</p>
+      </div>
+      <div class="card card-pad">
+        <div class="size-grid">
+          <div class="size-box size-16"><img src="agent-memory-hub-octopus-logo-a-plus-candidate.svg" alt=""><b>16px</b></div>
+          <div class="size-box size-24"><img src="agent-memory-hub-octopus-logo-a-plus-candidate.svg" alt=""><b>24px</b></div>
+          <div class="size-box size-32"><img src="agent-memory-hub-octopus-logo-a-plus-candidate.svg" alt=""><b>32px</b></div>
+          <div class="size-box size-48"><img src="agent-memory-hub-octopus-logo-a-plus-candidate.svg" alt=""><b>48px</b></div>
+          <div class="size-box size-96"><img src="agent-memory-hub-octopus-logo-a-plus-candidate.svg" alt=""><b>96px</b></div>
+          <div class="size-box size-192"><img src="agent-memory-hub-octopus-logo-a-plus-candidate.svg" alt=""><b>192px+</b></div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <h2>任意背景适配</h2>
+        <p>主标保留贴纸外圈，保证浅色、深色、暖色和透明棋盘背景都不会丢边缘。</p>
+      </div>
+      <div class="card card-pad">
+        <div class="surface-grid">
+          <div class="surface light"><img src="agent-memory-hub-octopus-logo-a-plus-candidate.svg" alt=""></div>
+          <div class="surface dark"><img src="agent-memory-hub-octopus-logo-a-plus-candidate.svg" alt=""></div>
+          <div class="surface warm"><img src="agent-memory-hub-octopus-logo-a-plus-candidate.svg" alt=""></div>
+          <div class="surface checker"><img src="agent-memory-hub-octopus-logo-a-plus-candidate.svg" alt=""></div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <h2>Logo Kit 形态</h2>
+        <p>真正可落地的 logo 不应只有一张大图。这里把主标、小尺寸、扁平和单色版本一起预览，后续确认后再导出正式文件。</p>
+      </div>
+      <div class="card card-pad">
+        <div class="kit-grid">
+          <div class="kit-item">
+            <img src="agent-memory-hub-octopus-logo-a-plus-candidate.svg" alt="">
+            <b>Primary SVG</b>
+            <span>官网、README、展示图</span>
+          </div>
+          <div class="kit-item">
+            <svg viewBox="0 0 96 96" role="img" aria-label="小尺寸优化版"><use href="#mark-small"></use></svg>
+            <b>Small Mark</b>
+            <span>16/24/32px、favicon</span>
+          </div>
+          <div class="kit-item">
+            <svg viewBox="0 0 96 96" role="img" aria-label="扁平备用版"><use href="#mark-flat"></use></svg>
+            <b>Flat Fallback</b>
+            <span>低对比、低成本渲染</span>
+          </div>
+          <div class="kit-item">
+            <svg viewBox="0 0 96 96" role="img" aria-label="单色备用版" style="color:#102a2d"><use href="#mark-mono"></use></svg>
+            <b>Mono Mark</b>
+            <span>印刷、水印、禁用色彩</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <h2>真实使用位</h2>
+        <p>导航、按钮、列表头像和深色按钮都用同一套静态资源，不依赖帧动画，因此不存在运行时掉帧问题。</p>
+      </div>
+      <div class="grid">
+        <article class="card card-pad">
+          <h3>导航和产品入口</h3>
+          <div class="contexts" style="margin-top:14px">
+            <div class="context"><img src="agent-memory-hub-octopus-logo-a-plus-candidate.svg" alt=""><div><strong>Agent Memory Hub</strong><span>A shared second brain for multi-agent systems</span></div></div>
+            <div class="context"><svg viewBox="0 0 96 96"><use href="#mark-small"></use></svg><div><strong>Memory Brief</strong><span>resume with bounded context</span></div></div>
+            <div class="context"><svg viewBox="0 0 96 96"><use href="#mark-gradient-mono"></use></svg><div><strong>Search Memory</strong><span>retrieve decisions and artifacts</span></div></div>
+          </div>
+        </article>
+        <article class="card card-pad">
+          <h3>按钮和工具条</h3>
+          <div class="button-demo">
+            <div class="btn"><img src="agent-memory-hub-octopus-logo-a-plus-candidate.svg" alt=""><span>Open Brain</span></div>
+            <div class="btn"><svg viewBox="0 0 96 96"><use href="#mark-small"></use></svg><span>Brief</span></div>
+            <div class="btn dark"><svg viewBox="0 0 96 96"><use href="#mark-flat"></use></svg><span>Write Memory</span></div>
+          </div>
+          <p>按钮内使用 24px 小尺寸资源，边缘比直接压缩复杂主标更稳。</p>
+        </article>
+        <article class="card card-pad">
+          <h3>favicon / app icon 思路</h3>
+          <div class="surface-grid" style="grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top:14px">
+            <div class="surface light" style="min-height:118px"><svg viewBox="0 0 96 96" style="width:56px;height:56px"><use href="#mark-small"></use></svg></div>
+            <div class="surface dark" style="min-height:118px"><svg viewBox="0 0 96 96" style="width:56px;height:56px"><use href="#mark-flat"></use></svg></div>
+            <div class="surface checker" style="min-height:118px"><svg viewBox="0 0 96 96" style="width:56px;height:56px;color:#102a2d"><use href="#mark-mono"></use></svg></div>
+          </div>
+          <p>确认主方向后，favicon 应独立导出 `.ico` 和 16/32 PNG，而不是让浏览器临时缩放大图。</p>
+        </article>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <h2>工程化交付标准</h2>
+        <p>这不是视觉口号，而是后续替换前可以验收的文件和检查项。</p>
+      </div>
+      <div class="spec-table">
+        <table>
+          <thead>
+            <tr>
+              <th>能力</th>
+              <th>本轮候选怎么满足</th>
+              <th>确认后正式交付</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>高保真</td>
+              <td>用矢量渐变、轮廓、阴影椭圆和高光路径增加质感，不靠位图贴图。</td>
+              <td>主 SVG、压缩 SVG、透明 PNG 512/256/128/64/32/16。</td>
+            </tr>
+            <tr>
+              <td>不掉帧</td>
+              <td>静态 SVG；无 JS、无 CSS animation、无 requestAnimationFrame、无视频或 canvas。</td>
+              <td>如需动效，另做 Lottie/MP4，不混入主 logo 文件。</td>
+            </tr>
+            <tr>
+              <td>任意地方可用</td>
+              <td>主标带贴纸外圈；另有 small、flat、mono 三种 fallback。</td>
+              <td>light/dark/mono/favicon/app-icon/README inline 全套文件。</td>
+            </tr>
+            <tr>
+              <td>缩放不糊</td>
+              <td>SVG 96 viewBox 全矢量；小尺寸另用简化路径减少细节挤压。</td>
+              <td>Playwright 截图 + PNG pixel export 检查 16-512px。</td>
+            </tr>
+            <tr>
+              <td>维护友好</td>
+              <td>候选 SVG 独立文件，未替换正式资产；预览页可直接对比。</td>
+              <td>确认后再同步独立 SVG、README inline logo 和测试契约。</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="shell">预览页：<code>docs/visuals/agent-memory-hub-octopus-logo-a-plus-preview.html</code>。候选 SVG：<code>docs/visuals/agent-memory-hub-octopus-logo-a-plus-candidate.svg</code>。当前正式 logo 未替换。</div>
+  </footer>
+</body>
+</html>

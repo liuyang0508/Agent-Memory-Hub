@@ -1,0 +1,588 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Agent Memory Hub 共享第二大脑 Hero 预览</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --paper: #f7f3ea;
+      --paper-strong: #fffdf7;
+      --ink: #20292a;
+      --muted: #63706d;
+      --line: #d6ccba;
+      --line-strong: #8d826d;
+      --blue: #2f68a2;
+      --blue-soft: #dbeaf7;
+      --green: #567d46;
+      --green-soft: #e0edd8;
+      --purple: #7357a8;
+      --purple-soft: #e8e0f6;
+      --amber: #bd7b2a;
+      --amber-soft: #f3dfbd;
+      --red: #a95648;
+      --red-soft: #efd8d0;
+      --teal: #24736e;
+      --teal-soft: #d7ebe7;
+      --shadow: 0 18px 55px rgba(58, 46, 25, 0.13);
+      --mono: "SFMono-Regular", "Menlo", "Consolas", monospace;
+      --sans: "Avenir Next", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      --serif: "Iowan Old Style", "Songti SC", "STSong", "Times New Roman", serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      background: var(--paper);
+    }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      background:
+        linear-gradient(90deg, rgba(32, 41, 42, 0.035) 1px, transparent 1px),
+        linear-gradient(180deg, rgba(32, 41, 42, 0.035) 1px, transparent 1px),
+        var(--paper);
+      background-size: 36px 36px;
+      font-family: var(--sans);
+      font-size: 15px;
+      line-height: 1.65;
+    }
+
+    a {
+      color: inherit;
+    }
+
+    .shell {
+      width: min(1180px, calc(100% - 40px));
+      margin: 0 auto;
+      padding: 34px 0 64px;
+    }
+
+    .preview-top {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 24px;
+      padding: 0 0 20px;
+      border-bottom: 1px solid var(--line);
+      margin-bottom: 28px;
+    }
+
+    .preview-kicker {
+      margin: 0 0 8px;
+      color: var(--teal);
+      font-family: var(--mono);
+      font-size: 12px;
+      text-transform: uppercase;
+    }
+
+    .preview-top h1 {
+      margin: 0;
+      font-family: var(--serif);
+      font-size: 38px;
+      line-height: 1.08;
+      letter-spacing: 0;
+    }
+
+    .preview-top p {
+      width: min(420px, 100%);
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .readme-sheet {
+      background: var(--paper-strong);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .readme-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      min-height: 46px;
+      padding: 0 16px;
+      border-bottom: 1px solid var(--line);
+      background: #fbf7ee;
+    }
+
+    .window-dots {
+      display: flex;
+      gap: 7px;
+    }
+
+    .window-dots span {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      border: 1px solid rgba(32, 41, 42, 0.24);
+    }
+
+    .window-dots span:nth-child(1) { background: var(--red-soft); }
+    .window-dots span:nth-child(2) { background: var(--amber-soft); }
+    .window-dots span:nth-child(3) { background: var(--green-soft); }
+
+    .file-path {
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 12px;
+      overflow-wrap: anywhere;
+    }
+
+    .readme-body {
+      max-width: 980px;
+      margin: 0 auto;
+      padding: 42px 30px 52px;
+    }
+
+    .readme-title {
+      margin: 0;
+      font-size: 34px;
+      line-height: 1.18;
+      letter-spacing: 0;
+      font-weight: 760;
+    }
+
+    .tagline {
+      margin: 16px 0 0;
+      padding-left: 18px;
+      border-left: 4px solid var(--line);
+      color: #3b4544;
+      font-size: 15px;
+    }
+
+    .tagline strong {
+      display: block;
+      color: var(--ink);
+      font-size: 17px;
+    }
+
+    .links {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin: 18px 0 14px;
+      color: var(--blue);
+      font-size: 13px;
+    }
+
+    .badges {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 7px;
+      margin-bottom: 26px;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      min-height: 24px;
+      padding: 2px 8px;
+      border: 1px solid var(--line);
+      border-radius: 5px;
+      background: #ffffff;
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 11px;
+      white-space: nowrap;
+    }
+
+    .hero-art-frame {
+      width: 100%;
+      margin: 26px auto 18px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #faf8f1;
+      overflow: hidden;
+      box-shadow: 0 14px 38px rgba(48, 39, 23, 0.10);
+    }
+
+    .hero-art {
+      display: block;
+      width: 100%;
+      height: auto;
+    }
+
+    .node-line {
+      fill: none;
+      stroke: #75827e;
+      stroke-width: 3;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      stroke-dasharray: 10 13;
+      opacity: 0.72;
+      animation: drift 12s linear infinite;
+    }
+
+    .solid-line {
+      fill: none;
+      stroke: #4c5f5d;
+      stroke-width: 3.6;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      opacity: 0.78;
+    }
+
+    .pulse {
+      animation: pulse 4.8s ease-in-out infinite;
+      transform-origin: center;
+    }
+
+    .float-a {
+      animation: float-a 7s ease-in-out infinite;
+    }
+
+    .float-b {
+      animation: float-b 8s ease-in-out infinite;
+    }
+
+    .glyph-line {
+      fill: #d9e2df;
+    }
+
+    .caption-row {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 16px;
+    }
+
+    .caption-item {
+      min-height: 78px;
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fffaf1;
+    }
+
+    .caption-item b {
+      display: block;
+      margin-bottom: 3px;
+      font-size: 13px;
+    }
+
+    .caption-item span {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .next-section {
+      margin-top: 34px;
+      padding-top: 26px;
+      border-top: 1px solid var(--line);
+    }
+
+    .next-section h2 {
+      margin: 0 0 14px;
+      font-size: 24px;
+      letter-spacing: 0;
+    }
+
+    .demo-strip {
+      height: 148px;
+      border: 1px dashed var(--line-strong);
+      border-radius: 8px;
+      background:
+        linear-gradient(90deg, rgba(47, 104, 162, 0.08), transparent 32%),
+        linear-gradient(180deg, #ffffff, #f7f0e2);
+      display: grid;
+      place-items: center;
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 12px;
+    }
+
+    .notes {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 16px;
+      margin-top: 22px;
+    }
+
+    .note {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 14px;
+      background: rgba(255, 253, 247, 0.76);
+    }
+
+    .note h3 {
+      margin: 0 0 8px;
+      font-size: 15px;
+    }
+
+    .note p,
+    .note pre {
+      margin: 0;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .note pre {
+      overflow: auto;
+      padding: 10px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #fffaf1;
+      font-family: var(--mono);
+      line-height: 1.55;
+    }
+
+    @keyframes drift {
+      from { stroke-dashoffset: 0; }
+      to { stroke-dashoffset: -92; }
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 0.58; transform: scale(1); }
+      50% { opacity: 0.9; transform: scale(1.018); }
+    }
+
+    @keyframes float-a {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-8px); }
+    }
+
+    @keyframes float-b {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(7px); }
+    }
+
+    @media (max-width: 760px) {
+      .shell {
+        width: min(100% - 20px, 1180px);
+        padding-top: 16px;
+      }
+
+      .preview-top,
+      .notes {
+        display: block;
+      }
+
+      .preview-top p,
+      .note + .note {
+        margin-top: 12px;
+      }
+
+      .readme-body {
+        padding: 28px 16px 36px;
+      }
+
+      .readme-title {
+        font-size: 28px;
+      }
+
+      .caption-row {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header class="preview-top">
+      <div>
+        <p class="preview-kicker">HTML preview</p>
+        <h1>AMH README 共享第二大脑 Hero</h1>
+      </div>
+      <p>这是 README 顶部视觉图的静态预览。真实 PNG 生成前，先用 inline SVG 检查构图、信息层级和文档接入位置。</p>
+    </header>
+
+    <article class="readme-sheet" aria-label="README hero preview">
+      <div class="readme-toolbar">
+        <div class="window-dots" aria-hidden="true">
+          <span></span>
+          <span></span>
+          <span></span>
+        </div>
+        <div class="file-path">README.md / README.zh.md hero insertion preview</div>
+      </div>
+
+      <div class="readme-body">
+        <h2 class="readme-title">Agent Memory Hub</h2>
+        <blockquote class="tagline">
+          <strong>Your AI tools are coworkers. They should onboard like real ones.</strong>
+          A local-first, Markdown-based shared brain for Claude Code, Codex CLI, Cursor, Qoder, Wukong, GitHub Copilot, and any MCP-aware agent.
+        </blockquote>
+
+        <div class="links" aria-label="README links">
+          <span>中文版</span>
+          <span>|</span>
+          <span>Strategy</span>
+          <span>|</span>
+          <span>Roadmap</span>
+          <span>|</span>
+          <span>Architecture Notes</span>
+        </div>
+
+        <div class="badges" aria-label="README badges">
+          <span class="badge">License Apache 2.0</span>
+          <span class="badge">tests</span>
+          <span class="badge">Python 3.11+</span>
+          <span class="badge">protocol MCP</span>
+          <span class="badge">storage local Markdown</span>
+        </div>
+
+        <figure class="hero-art-frame">
+          <svg class="hero-art" viewBox="0 0 1536 1024" role="img" aria-label="多智能体共享第二大脑视觉图预览">
+            <defs>
+              <filter id="softShadow" x="-20%" y="-20%" width="140%" height="140%">
+                <feDropShadow dx="0" dy="18" stdDeviation="18" flood-color="#2b2418" flood-opacity="0.16"/>
+              </filter>
+              <filter id="paperTexture" x="-10%" y="-10%" width="120%" height="120%">
+                <feTurbulence type="fractalNoise" baseFrequency="0.82" numOctaves="2" seed="17" result="noise"/>
+                <feColorMatrix type="saturate" values="0"/>
+                <feComponentTransfer>
+                  <feFuncA type="table" tableValues="0 0.045"/>
+                </feComponentTransfer>
+                <feBlend in="SourceGraphic" mode="multiply"/>
+              </filter>
+              <linearGradient id="sheetGrad" x1="0" x2="1" y1="0" y2="1">
+                <stop offset="0" stop-color="#fffdf8"/>
+                <stop offset="1" stop-color="#f4ecdc"/>
+              </linearGradient>
+              <linearGradient id="coreGrad" x1="0" x2="1" y1="0" y2="1">
+                <stop offset="0" stop-color="#f9fff5"/>
+                <stop offset="0.45" stop-color="#dfeff9"/>
+                <stop offset="1" stop-color="#efe5f8"/>
+              </linearGradient>
+              <linearGradient id="panelGrad" x1="0" x2="1" y1="0" y2="1">
+                <stop offset="0" stop-color="#ffffff"/>
+                <stop offset="1" stop-color="#f1eadb"/>
+              </linearGradient>
+            </defs>
+
+            <rect width="1536" height="1024" fill="#fbf8ef"/>
+            <rect x="54" y="50" width="1428" height="924" rx="34" fill="url(#sheetGrad)" filter="url(#paperTexture)"/>
+
+            <g opacity="0.55">
+              <path d="M204 220H1332M204 370H1332M204 520H1332M204 670H1332M204 820H1332" stroke="#e5d9c5" stroke-width="2"/>
+              <path d="M318 144V884M548 144V884M778 144V884M1008 144V884M1238 144V884" stroke="#eadfce" stroke-width="2"/>
+            </g>
+
+            <path class="node-line" d="M386 230 C520 296 576 350 652 454"/>
+            <path class="node-line" d="M1138 228 C1024 308 966 370 884 454"/>
+            <path class="node-line" d="M337 792 C500 690 594 650 664 580"/>
+            <path class="node-line" d="M1195 782 C1034 706 948 642 872 582"/>
+            <path class="solid-line" d="M533 511 C600 510 642 510 684 510"/>
+            <path class="solid-line" d="M1004 511 C936 510 894 510 852 510"/>
+
+            <g class="float-a" filter="url(#softShadow)">
+              <rect x="164" y="126" width="320" height="214" rx="18" fill="url(#panelGrad)" stroke="#cbbfae" stroke-width="2"/>
+              <rect x="164" y="126" width="320" height="42" rx="18" fill="#e2ecf5"/>
+              <rect x="190" y="190" width="214" height="13" rx="6" class="glyph-line"/>
+              <rect x="190" y="222" width="250" height="13" rx="6" class="glyph-line"/>
+              <rect x="190" y="254" width="170" height="13" rx="6" class="glyph-line"/>
+              <path d="M424 287l22 22 42-60" fill="none" stroke="#567d46" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+            </g>
+
+            <g class="float-b" filter="url(#softShadow)">
+              <rect x="1050" y="122" width="322" height="218" rx="18" fill="url(#panelGrad)" stroke="#cbbfae" stroke-width="2"/>
+              <rect x="1078" y="154" width="92" height="28" rx="7" fill="#e8e0f6"/>
+              <rect x="1078" y="208" width="244" height="12" rx="6" class="glyph-line"/>
+              <rect x="1078" y="242" width="196" height="12" rx="6" class="glyph-line"/>
+              <rect x="1078" y="276" width="228" height="12" rx="6" class="glyph-line"/>
+              <path d="M1288 165h36v36h-36zM1238 165h28v28h-28z" fill="#dbeaf7" stroke="#2f68a2" stroke-width="3"/>
+            </g>
+
+            <g class="float-b" filter="url(#softShadow)">
+              <rect x="150" y="664" width="348" height="214" rx="18" fill="url(#panelGrad)" stroke="#cbbfae" stroke-width="2"/>
+              <rect x="182" y="700" width="64" height="64" rx="12" fill="#f3dfbd" stroke="#bd7b2a" stroke-width="3"/>
+              <rect x="270" y="708" width="176" height="13" rx="6" class="glyph-line"/>
+              <rect x="270" y="742" width="134" height="13" rx="6" class="glyph-line"/>
+              <rect x="182" y="798" width="264" height="14" rx="7" fill="#d7ebe7"/>
+              <rect x="182" y="830" width="204" height="14" rx="7" fill="#e0edd8"/>
+            </g>
+
+            <g class="float-a" filter="url(#softShadow)">
+              <rect x="1038" y="660" width="348" height="218" rx="18" fill="url(#panelGrad)" stroke="#cbbfae" stroke-width="2"/>
+              <path d="M1106 716h170M1106 750h220M1106 784h156" stroke="#d9e2df" stroke-width="14" stroke-linecap="round"/>
+              <path d="M1303 738l42 25-42 25z" fill="#dbeaf7" stroke="#2f68a2" stroke-width="3"/>
+              <rect x="1106" y="826" width="216" height="16" rx="8" fill="#efd8d0"/>
+            </g>
+
+            <g filter="url(#softShadow)">
+              <ellipse class="pulse" cx="768" cy="512" rx="244" ry="178" fill="#dbeaf7" opacity="0.48"/>
+              <ellipse cx="768" cy="512" rx="210" ry="150" fill="url(#coreGrad)" stroke="#9fb7c6" stroke-width="2.5"/>
+              <path d="M628 436c0-27 280-27 280 0v134c0 27-280 27-280 0z" fill="#ffffff" stroke="#b9c9c4" stroke-width="3"/>
+              <path d="M628 436c0 27 280 27 280 0M628 480c0 27 280 27 280 0M628 524c0 27 280 27 280 0" fill="none" stroke="#b9c9c4" stroke-width="3"/>
+
+              <g transform="translate(681 348) rotate(-8)">
+                <rect x="0" y="0" width="154" height="210" rx="14" fill="#fffdf8" stroke="#cabda8" stroke-width="3"/>
+                <path d="M28 48h92M28 82h76M28 116h98M28 150h54" stroke="#d7d0c2" stroke-width="11" stroke-linecap="round"/>
+              </g>
+              <g transform="translate(725 326) rotate(6)">
+                <rect x="0" y="0" width="156" height="218" rx="14" fill="#fffaf1" stroke="#cabda8" stroke-width="3"/>
+                <path d="M30 50h90M30 84h60M30 118h100M30 152h72" stroke="#d7d0c2" stroke-width="11" stroke-linecap="round"/>
+                <path d="M116 0v44h40" fill="none" stroke="#cabda8" stroke-width="3"/>
+              </g>
+
+              <path d="M768 646c-82-36-132-106-132-194v-58l132-54 132 54v58c0 88-50 158-132 194z" fill="rgba(255,255,255,0.52)" stroke="#567d46" stroke-width="5"/>
+              <path d="M714 482l36 38 82-96" fill="none" stroke="#567d46" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+            </g>
+
+            <g opacity="0.9">
+              <rect x="530" y="222" width="54" height="54" rx="9" fill="#e0edd8" stroke="#567d46" stroke-width="3"/>
+              <rect x="952" y="224" width="54" height="54" rx="9" fill="#e8e0f6" stroke="#7357a8" stroke-width="3"/>
+              <rect x="516" y="730" width="54" height="54" rx="9" fill="#f3dfbd" stroke="#bd7b2a" stroke-width="3"/>
+              <rect x="966" y="730" width="54" height="54" rx="9" fill="#d7ebe7" stroke="#24736e" stroke-width="3"/>
+            </g>
+          </svg>
+        </figure>
+
+        <div class="caption-row" aria-label="视觉表达重点">
+          <div class="caption-item">
+            <b>多智能体接入</b>
+            <span>四周抽象终端和 IDE 面板接入同一个中心记忆核心。</span>
+          </div>
+          <div class="caption-item">
+            <b>Markdown 事实源</b>
+            <span>中心纸张堆栈表达本地、可审计、可迁移的记忆条目。</span>
+          </div>
+          <div class="caption-item">
+            <b>索引可重建</b>
+            <span>数据库层表示 SQLite / vector index 是派生物。</span>
+          </div>
+          <div class="caption-item">
+            <b>治理先行</b>
+            <span>盾牌表达召回前过滤低质、过期、冲突或危险记忆。</span>
+          </div>
+        </div>
+
+        <section class="next-section" aria-label="README next section preview">
+          <h2>Demo</h2>
+          <div class="demo-strip">benchmarks/demo.gif placeholder</div>
+        </section>
+      </div>
+    </article>
+
+    <section class="notes" aria-label="生成说明">
+      <div class="note">
+        <h3>预览边界</h3>
+        <p>这个 HTML 是构图预览，不是最终 `gpt-image-2` 输出。最终 README 图仍建议生成 PNG 后引用，现有 SVG 技术图保持不变。</p>
+      </div>
+      <div class="note">
+        <h3>真实生成命令</h3>
+        <pre>python ~/.codex/skills/.system/imagegen/scripts/image_gen.py generate \
+  --model gpt-image-2 \
+  --prompt-file docs/visuals/agent-memory-hub-shared-brain-hero.prompt.txt \
+  --size 1536x1024 \
+  --quality high \
+  --out docs/visuals/agent-memory-hub-shared-brain-hero.png \
+  --no-augment \
+  --force</pre>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

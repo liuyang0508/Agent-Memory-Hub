@@ -1,0 +1,198 @@
+{
+  "case_count": 5,
+  "cases": [
+    {
+      "answer": "Business Administration",
+      "answer_session_ids": [
+        "answer_280352e9"
+      ],
+      "question": "What degree did I graduate with?",
+      "question_id": "e47becba",
+      "ranked_item_ids": [
+        "mem-20260701-000000-longmemeval-0001-0049",
+        "mem-20260701-000000-longmemeval-0001-0052",
+        "mem-20260701-000000-longmemeval-0001-0037",
+        "mem-20260701-000000-longmemeval-0001-0004",
+        "mem-20260701-000000-longmemeval-0001-0006",
+        "mem-20260701-000000-longmemeval-0001-0018",
+        "mem-20260701-000000-longmemeval-0001-0017",
+        "mem-20260701-000000-longmemeval-0001-0043",
+        "mem-20260701-000000-longmemeval-0001-0023",
+        "mem-20260701-000000-longmemeval-0001-0050"
+      ],
+      "ranked_session_ids": [
+        "02bd2b90_3",
+        "answer_280352e9",
+        "ultrachat_214101",
+        "sharegpt_Cr2tc1f_0",
+        "f6859b48_2",
+        "5dac7cc2_1",
+        "41abc171_4",
+        "d94b721b",
+        "2ae4f277_2",
+        "e27891d3_2"
+      ],
+      "recall_at_10": 1.0,
+      "recall_at_5": 1.0,
+      "reciprocal_rank": 0.5
+    },
+    {
+      "answer": "45 minutes each way",
+      "answer_session_ids": [
+        "answer_40a90d51"
+      ],
+      "question": "How long is my daily commute to work?",
+      "question_id": "118b2229",
+      "ranked_item_ids": [
+        "mem-20260701-000000-longmemeval-0002-0008",
+        "mem-20260701-000000-longmemeval-0002-0001",
+        "mem-20260701-000000-longmemeval-0002-0021",
+        "mem-20260701-000000-longmemeval-0002-0014",
+        "mem-20260701-000000-longmemeval-0002-0025",
+        "mem-20260701-000000-longmemeval-0002-0016",
+        "mem-20260701-000000-longmemeval-0002-0045",
+        "mem-20260701-000000-longmemeval-0002-0039",
+        "mem-20260701-000000-longmemeval-0002-0005",
+        "mem-20260701-000000-longmemeval-0002-0036"
+      ],
+      "ranked_session_ids": [
+        "answer_40a90d51",
+        "db73b7e4_4",
+        "afe04238_1",
+        "ultrachat_392094",
+        "5dce60dd",
+        "db50c0f6",
+        "3ea9f765",
+        "d600c646",
+        "a0b8b0ad_6",
+        "ultrachat_498215"
+      ],
+      "recall_at_10": 1.0,
+      "recall_at_5": 1.0,
+      "reciprocal_rank": 1.0
+    },
+    {
+      "answer": "Target",
+      "answer_session_ids": [
+        "answer_d61669c7"
+      ],
+      "question": "Where did I redeem a $5 coupon on coffee creamer?",
+      "question_id": "51a45a95",
+      "ranked_item_ids": [
+        "mem-20260701-000000-longmemeval-0003-0043",
+        "mem-20260701-000000-longmemeval-0003-0037",
+        "mem-20260701-000000-longmemeval-0003-0049",
+        "mem-20260701-000000-longmemeval-0003-0019",
+        "mem-20260701-000000-longmemeval-0003-0034",
+        "mem-20260701-000000-longmemeval-0003-0011",
+        "mem-20260701-000000-longmemeval-0003-0027",
+        "mem-20260701-000000-longmemeval-0003-0006",
+        "mem-20260701-000000-longmemeval-0003-0039",
+        "mem-20260701-000000-longmemeval-0003-0014"
+      ],
+      "ranked_session_ids": [
+        "answer_d61669c7",
+        "98c198fb",
+        "217debf7",
+        "5c44d9fe_1",
+        "sharegpt_3vxz2Zr_0",
+        "07ba9acd_2",
+        "sharegpt_hChsWOp_128",
+        "ultrachat_282235",
+        "8fa64936_1",
+        "sharegpt_CyJ3dal_0"
+      ],
+      "recall_at_10": 1.0,
+      "recall_at_5": 1.0,
+      "reciprocal_rank": 1.0
+    },
+    {
+      "answer": "The Glass Menagerie",
+      "answer_session_ids": [
+        "answer_355c48bb"
+      ],
+      "question": "What play did I attend at the local community theater?",
+      "question_id": "58bf7951",
+      "ranked_item_ids": [
+        "mem-20260701-000000-longmemeval-0004-0030",
+        "mem-20260701-000000-longmemeval-0004-0040",
+        "mem-20260701-000000-longmemeval-0004-0053",
+        "mem-20260701-000000-longmemeval-0004-0017",
+        "mem-20260701-000000-longmemeval-0004-0005",
+        "mem-20260701-000000-longmemeval-0004-0038",
+        "mem-20260701-000000-longmemeval-0004-0021",
+        "mem-20260701-000000-longmemeval-0004-0042",
+        "mem-20260701-000000-longmemeval-0004-0022",
+        "mem-20260701-000000-longmemeval-0004-0004"
+      ],
+      "ranked_session_ids": [
+        "answer_355c48bb",
+        "ultrachat_304942",
+        "ultrachat_268434",
+        "sharegpt_gmLF3PE_17",
+        "sharegpt_M84blrA_53",
+        "ultrachat_365156",
+        "ultrachat_221066",
+        "sharegpt_RkFlOeC_19",
+        "sharegpt_DGiqvVv_270",
+        "sharegpt_CvVLg2J_18"
+      ],
+      "recall_at_10": 1.0,
+      "recall_at_5": 1.0,
+      "reciprocal_rank": 1.0
+    },
+    {
+      "answer": "Summer Vibes",
+      "answer_session_ids": [
+        "answer_3e012175"
+      ],
+      "question": "What is the name of the playlist I created on Spotify?",
+      "question_id": "1e043500",
+      "ranked_item_ids": [
+        "mem-20260701-000000-longmemeval-0005-0014",
+        "mem-20260701-000000-longmemeval-0005-0006",
+        "mem-20260701-000000-longmemeval-0005-0015",
+        "mem-20260701-000000-longmemeval-0005-0011",
+        "mem-20260701-000000-longmemeval-0005-0033",
+        "mem-20260701-000000-longmemeval-0005-0031",
+        "mem-20260701-000000-longmemeval-0005-0039",
+        "mem-20260701-000000-longmemeval-0005-0029",
+        "mem-20260701-000000-longmemeval-0005-0045",
+        "mem-20260701-000000-longmemeval-0005-0020"
+      ],
+      "ranked_session_ids": [
+        "answer_3e012175",
+        "01bd9def",
+        "ultrachat_266656",
+        "7b1d1f43_1",
+        "sharegpt_bph7DTk_7",
+        "8020d945_2",
+        "ultrachat_271928",
+        "sharegpt_Clr6oyu_0",
+        "b28990c8_1",
+        "4d0d7984"
+      ],
+      "recall_at_10": 1.0,
+      "recall_at_5": 1.0,
+      "reciprocal_rank": 1.0
+    }
+  ],
+  "dataset_file": ".cache/external/LongMemEval/data/longmemeval_s_cleaned.json",
+  "metrics": {
+    "mrr": 0.9,
+    "recall_at_10": 1.0,
+    "recall_at_5": 1.0
+  },
+  "mode": "amh-ranking",
+  "ranking_backend": "AMH HubIndex + Retriever BM25/RRF pipeline",
+  "retriever_config": {
+    "apply_decay": false,
+    "bm25_weight": 1.0,
+    "query_expansion": true,
+    "record_access": false,
+    "vector_weight": 0.0
+  },
+  "run_workspace_dir": ".cache/external/LongMemEval/amh-ranking-workspace-smoke/run-20260701T080920012681Z-c94ba8a3",
+  "status": "passed",
+  "workspace_dir": ".cache/external/LongMemEval/amh-ranking-workspace-smoke"
+}

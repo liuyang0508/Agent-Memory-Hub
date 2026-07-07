@@ -1,0 +1,5442 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Agent Memory Hub 官网</title>
+  <link rel="icon" type="image/svg+xml" href="agent-memory-hub-octopus-logo.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #f6fbff;
+      --bg-2: #eaf5fc;
+      --ink: #071522;
+      --muted: #496273;
+      --soft: #6f8493;
+      --line: #cfe0ea;
+      --line-strong: #93b1c3;
+      --surface: #ffffff;
+      --surface-2: #edf7fc;
+      --surface-3: #dff0f8;
+      --accent: #0891b2;
+      --accent-2: #0ea5e9;
+      --accent-3: #22d3ee;
+      --deep: #0c4a6e;
+      --navy: #082f49;
+      --shadow: 0 20px 50px rgb(8 47 73 / 0.14);
+      --shadow-soft: 0 8px 24px rgb(8 47 73 / 0.10);
+      --radius: 8px;
+      --max: 1500px;
+      --font: "IBM Plex Sans", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --mono: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+      --ease: cubic-bezier(0.2, 0, 0, 1);
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #071015;
+        --bg-2: #0a151c;
+        --ink: #eef9ff;
+        --muted: #9db5c3;
+        --soft: #718b9b;
+        --line: #18303d;
+        --line-strong: #285369;
+        --surface: #0d1a22;
+        --surface-2: #10232e;
+        --surface-3: #153040;
+        --accent: #22d3ee;
+        --accent-2: #38bdf8;
+        --accent-3: #a5f3fc;
+        --deep: #0ea5e9;
+        --navy: #e0f2fe;
+        --shadow: 0 24px 70px rgb(0 0 0 / 0.36);
+        --shadow-soft: 0 10px 32px rgb(0 0 0 / 0.26);
+      }
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+      background: var(--bg);
+    }
+
+    body {
+      margin: 0;
+      min-height: 100dvh;
+      color: var(--ink);
+      background:
+        linear-gradient(90deg, color-mix(in srgb, var(--line) 56%, transparent) 1px, transparent 1px),
+        linear-gradient(180deg, color-mix(in srgb, var(--line) 48%, transparent) 1px, transparent 1px),
+        radial-gradient(circle at 72% 22%, color-mix(in srgb, var(--accent-2) 16%, transparent), transparent 34rem),
+        radial-gradient(circle at 16% 68%, color-mix(in srgb, var(--accent) 12%, transparent), transparent 30rem),
+        var(--bg);
+      background-size: 76px 76px, 76px 76px, auto, auto, auto;
+      font-family: var(--font);
+      line-height: 1.58;
+      letter-spacing: 0;
+    }
+
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      z-index: -1;
+      pointer-events: none;
+      background:
+        linear-gradient(180deg, color-mix(in srgb, var(--bg) 0%, transparent), var(--bg) 86%),
+        radial-gradient(circle at 50% 0%, color-mix(in srgb, var(--accent-3) 9%, transparent), transparent 40rem);
+    }
+
+    a {
+      color: inherit;
+      text-decoration: none;
+    }
+
+    button {
+      font: inherit;
+    }
+
+    code,
+    pre {
+      font-family: var(--mono);
+    }
+
+    .wrap {
+      width: min(var(--max), calc(100% - 72px));
+      margin: 0 auto;
+    }
+
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 30;
+      border-bottom: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
+      background: color-mix(in srgb, var(--bg) 83%, transparent);
+      backdrop-filter: blur(18px) saturate(150%);
+    }
+
+    .nav {
+      width: min(var(--max), calc(100% - 72px));
+      min-height: 76px;
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: minmax(260px, 1fr) auto minmax(72px, 1fr);
+      align-items: center;
+      gap: 28px;
+    }
+
+    .brand {
+      min-width: 0;
+      display: inline-flex;
+      align-items: center;
+      gap: 13px;
+      white-space: nowrap;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+
+    .brand-mark {
+      width: 38px;
+      height: 38px;
+      flex: 0 0 auto;
+      display: grid;
+      place-items: center;
+      border: 1px solid color-mix(in srgb, var(--line) 82%, transparent);
+      border-radius: 10px;
+      background: color-mix(in srgb, var(--surface) 78%, transparent);
+      box-shadow: 0 1px 0 color-mix(in srgb, white 28%, transparent) inset;
+    }
+
+    .brand-monogram {
+      color: var(--deep);
+      font: 800 0.82rem var(--mono);
+      letter-spacing: 0.04em;
+    }
+
+    .hub-logo {
+      width: 100%;
+      height: 100%;
+      display: block;
+      overflow: visible;
+      filter: drop-shadow(0 10px 18px color-mix(in srgb, var(--accent) 22%, transparent));
+    }
+
+    .hub-logo .logo-plate {
+      fill: color-mix(in srgb, var(--accent) 86%, #08202c);
+      stroke: color-mix(in srgb, var(--accent-3) 46%, transparent);
+      stroke-width: 1.7;
+    }
+
+    .hub-logo .logo-field {
+      fill: color-mix(in srgb, var(--surface) 84%, #031119);
+      opacity: 0.88;
+    }
+
+    .hub-logo .logo-path {
+      fill: none;
+      stroke: color-mix(in srgb, var(--accent-3) 88%, #f0feff);
+      stroke-width: 4.4;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .hub-logo .logo-path.soft {
+      stroke-width: 3.1;
+      opacity: 0.72;
+    }
+
+    .hub-logo .logo-node {
+      fill: #e9feff;
+      stroke: color-mix(in srgb, var(--accent) 70%, #083344);
+      stroke-width: 2;
+    }
+
+    .hub-logo .logo-node.muted {
+      fill: color-mix(in srgb, var(--accent-3) 76%, #f8ffff);
+      opacity: 0.82;
+    }
+
+    .navlinks {
+      min-height: 46px;
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      padding: 4px;
+      border: 1px solid color-mix(in srgb, var(--line) 78%, transparent);
+      border-radius: 999px;
+      background: color-mix(in srgb, var(--surface) 74%, transparent);
+      box-shadow: 0 1px 0 color-mix(in srgb, white 30%, transparent) inset;
+    }
+
+    .navlinks a {
+      min-height: 36px;
+      display: inline-flex;
+      align-items: center;
+      padding: 0 17px;
+      border-radius: 999px;
+      color: var(--muted);
+      font-size: 0.92rem;
+      font-weight: 600;
+      transition: color 180ms var(--ease), background 180ms var(--ease), transform 180ms var(--ease);
+    }
+
+    .navlinks a:hover {
+      color: var(--ink);
+      background: color-mix(in srgb, var(--accent) 11%, transparent);
+    }
+
+    .ledger-link {
+      justify-self: end;
+      min-width: 42px;
+      min-height: 42px;
+      display: inline-grid;
+      place-items: center;
+      border: 1px solid color-mix(in srgb, var(--line) 84%, transparent);
+      border-radius: 999px;
+      background: color-mix(in srgb, var(--surface) 78%, transparent);
+      color: var(--ink);
+      font-weight: 700;
+      transition: transform 180ms var(--ease), border-color 180ms var(--ease), background 180ms var(--ease);
+    }
+
+    .ledger-link:hover {
+      border-color: color-mix(in srgb, var(--accent) 54%, var(--line));
+      background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+    }
+
+    .hero {
+      padding: 62px 0 42px;
+    }
+
+    .hero-layout {
+      display: grid;
+      grid-template-columns: minmax(500px, 0.86fr) minmax(620px, 1.14fr);
+      gap: 56px;
+      align-items: center;
+    }
+
+    .eyebrow {
+      width: fit-content;
+      margin: 0 0 22px;
+      padding: 8px 12px;
+      border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--line));
+      border-radius: 999px;
+      background: color-mix(in srgb, var(--surface) 62%, transparent);
+      color: var(--deep);
+      font-family: var(--mono);
+      font-size: 0.75rem;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    h1,
+    h2,
+    h3 {
+      margin: 0;
+      color: var(--ink);
+      letter-spacing: -0.035em;
+    }
+
+    h1 {
+      max-width: 760px;
+      font-size: clamp(4.2rem, 6.2vw, 7rem);
+      line-height: 0.96;
+      font-weight: 700;
+    }
+
+    h1 span {
+      display: block;
+    }
+
+    .hero-copy {
+      max-width: 640px;
+      margin: 28px 0 0;
+      color: var(--muted);
+      font-size: clamp(1.06rem, 1.4vw, 1.24rem);
+      line-height: 1.76;
+    }
+
+    .hero-stats {
+      max-width: 620px;
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 30px;
+    }
+
+    .stat {
+      min-height: 94px;
+      padding: 18px;
+      border: 1px solid color-mix(in srgb, var(--line) 82%, transparent);
+      border-radius: var(--radius);
+      background: color-mix(in srgb, var(--surface) 70%, transparent);
+      box-shadow: var(--shadow-soft);
+    }
+
+    .stat b {
+      display: block;
+      color: var(--ink);
+      font-family: var(--mono);
+      font-size: 1.55rem;
+      line-height: 1;
+      font-weight: 700;
+    }
+
+    .stat span {
+      display: block;
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 0.9rem;
+      font-weight: 500;
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 30px;
+    }
+
+    .btn {
+      min-height: 48px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      padding: 0 24px;
+      border: 1px solid color-mix(in srgb, var(--line-strong) 80%, transparent);
+      border-radius: 999px;
+      background: color-mix(in srgb, var(--surface) 70%, transparent);
+      color: var(--ink);
+      font-weight: 700;
+      white-space: nowrap;
+      box-shadow: 0 1px 0 color-mix(in srgb, white 30%, transparent) inset;
+      transition: transform 180ms var(--ease), background 180ms var(--ease), border-color 180ms var(--ease), box-shadow 180ms var(--ease);
+    }
+
+    .btn.primary {
+      border-color: color-mix(in srgb, var(--accent) 72%, var(--deep));
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      color: #f7fdff;
+      box-shadow: 0 16px 34px color-mix(in srgb, var(--accent) 28%, transparent);
+    }
+
+    .btn:hover {
+      border-color: color-mix(in srgb, var(--accent) 62%, var(--line));
+      background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+      transform: translateY(-1px);
+    }
+
+    .btn.primary:hover {
+      background: linear-gradient(135deg, var(--accent-2), var(--accent-3));
+      color: #03131a;
+    }
+
+    .btn:active,
+    .navlinks a:active,
+    .ledger-link:active,
+    .copy:active,
+    .tab:active {
+      transform: scale(0.97);
+    }
+
+    .map-shell {
+      position: relative;
+      min-height: 620px;
+      padding: 30px;
+      border: 1px solid color-mix(in srgb, var(--line) 76%, transparent);
+      border-radius: 18px;
+      background:
+        linear-gradient(180deg, color-mix(in srgb, var(--surface) 78%, transparent), color-mix(in srgb, var(--surface-2) 58%, transparent)),
+        radial-gradient(circle at 50% 50%, color-mix(in srgb, var(--accent) 13%, transparent), transparent 17rem);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .map-shell::before {
+      content: "";
+      position: absolute;
+      inset: 18px;
+      border-radius: 12px;
+      background:
+        linear-gradient(90deg, color-mix(in srgb, var(--line) 44%, transparent) 1px, transparent 1px),
+        linear-gradient(180deg, color-mix(in srgb, var(--line) 38%, transparent) 1px, transparent 1px);
+      background-size: 48px 48px;
+      opacity: 0.55;
+      pointer-events: none;
+    }
+
+    .runtime-map {
+      position: relative;
+      z-index: 1;
+      min-height: 560px;
+      display: grid;
+      grid-template-columns: minmax(220px, 255px) 146px minmax(220px, 255px);
+      justify-content: center;
+      align-items: center;
+      gap: 26px;
+    }
+
+    .map-lines {
+      position: absolute;
+      inset: 0;
+      z-index: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      overflow: visible;
+    }
+
+    .route-base,
+    .route-flow {
+      fill: none;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      vector-effect: non-scaling-stroke;
+    }
+
+    .route-base {
+      stroke: color-mix(in srgb, var(--accent) 30%, var(--line-strong));
+      stroke-width: 1.05;
+      opacity: 0.38;
+    }
+
+    .route-flow {
+      stroke: url(#routeGradient);
+      stroke-width: 1.6;
+      stroke-dasharray: 38 440;
+      animation: routeFlow 7.5s var(--ease) infinite;
+      filter: url(#softGlow);
+    }
+
+    .delay-b {
+      animation-delay: -1.1s;
+    }
+
+    .delay-c {
+      animation-delay: -2.5s;
+    }
+
+    .delay-d {
+      animation-delay: -3.9s;
+    }
+
+    .delay-e {
+      animation-delay: -5.2s;
+    }
+
+    .route-anchor {
+      fill: var(--accent-3);
+      filter: url(#softGlow);
+    }
+
+    @keyframes routeFlow {
+      from {
+        stroke-dashoffset: 478;
+      }
+      to {
+        stroke-dashoffset: 0;
+      }
+    }
+
+    .map-column {
+      position: relative;
+      z-index: 2;
+      display: grid;
+      gap: 14px;
+    }
+
+    .node {
+      min-height: 78px;
+      display: grid;
+      grid-template-columns: 38px minmax(0, 1fr);
+      align-items: center;
+      gap: 12px;
+      padding: 14px;
+      border: 1px solid color-mix(in srgb, var(--line) 82%, transparent);
+      border-radius: var(--radius);
+      background: color-mix(in srgb, var(--surface) 76%, transparent);
+      box-shadow: 0 1px 0 color-mix(in srgb, white 26%, transparent) inset;
+      backdrop-filter: blur(10px);
+      transition: transform 180ms var(--ease), border-color 180ms var(--ease), background 180ms var(--ease), box-shadow 180ms var(--ease);
+    }
+
+    .node:hover {
+      transform: translateY(-1px);
+      border-color: color-mix(in srgb, var(--accent) 46%, var(--line));
+      background: color-mix(in srgb, var(--surface) 90%, var(--accent) 5%);
+      box-shadow: var(--shadow-soft);
+    }
+
+    .node.resource {
+      grid-template-columns: 1fr;
+      padding: 17px 18px;
+    }
+
+    .node-icon {
+      width: 34px;
+      height: 34px;
+      display: grid;
+      place-items: center;
+      border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--line));
+      border-radius: 999px;
+      background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+      color: var(--deep);
+      font-family: var(--mono);
+      font-size: 0.68rem;
+      font-weight: 700;
+    }
+
+    .node strong {
+      display: block;
+      color: var(--ink);
+      font-size: 0.96rem;
+      line-height: 1.18;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+    }
+
+    .node-meta {
+      display: block;
+      margin-top: 7px;
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      line-height: 1.35;
+      overflow-wrap: anywhere;
+    }
+
+    .core {
+      position: relative;
+      z-index: 3;
+      width: 146px;
+      height: 146px;
+      display: grid;
+      place-items: center;
+      justify-self: center;
+      border: 1px solid color-mix(in srgb, var(--accent) 56%, var(--line));
+      border-radius: 28px;
+      background:
+        radial-gradient(circle at 34% 20%, color-mix(in srgb, white 64%, transparent), transparent 26%),
+        linear-gradient(145deg, color-mix(in srgb, var(--surface) 76%, var(--accent) 12%), color-mix(in srgb, var(--surface-3) 80%, var(--accent) 16%));
+      box-shadow:
+        0 0 0 16px color-mix(in srgb, var(--accent) 8%, transparent),
+        0 0 0 34px color-mix(in srgb, var(--accent) 5%, transparent),
+        var(--shadow);
+      animation: coreBreath 6s var(--ease) infinite;
+    }
+
+    .core .hub-logo {
+      width: 100px;
+      height: 100px;
+    }
+
+    @keyframes coreBreath {
+      0%, 100% {
+        transform: translateY(0) scale(1);
+      }
+      50% {
+        transform: translateY(-4px) scale(1.015);
+      }
+    }
+
+    .integrations {
+      padding: 16px 0 36px;
+    }
+
+    .chip-row {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 10px;
+    }
+
+    .chip-row span {
+      min-height: 38px;
+      display: inline-flex;
+      align-items: center;
+      padding: 0 15px;
+      border: 1px solid color-mix(in srgb, var(--line) 84%, transparent);
+      border-radius: 999px;
+      background: color-mix(in srgb, var(--surface) 70%, transparent);
+      color: var(--muted);
+      font-weight: 600;
+      box-shadow: 0 1px 0 color-mix(in srgb, white 28%, transparent) inset;
+    }
+
+    section {
+      padding: 80px 0;
+    }
+
+    .section-panel {
+      position: relative;
+      padding: clamp(26px, 4vw, 48px);
+      border: 1px solid color-mix(in srgb, var(--line) 78%, transparent);
+      border-radius: 18px;
+      background:
+        linear-gradient(180deg, color-mix(in srgb, var(--surface) 82%, transparent), color-mix(in srgb, var(--surface-2) 60%, transparent));
+      box-shadow: var(--shadow-soft);
+      overflow: hidden;
+    }
+
+    .section-panel::before {
+      content: "";
+      position: absolute;
+      width: 24rem;
+      height: 24rem;
+      right: -10rem;
+      top: -12rem;
+      border-radius: 999px;
+      background: color-mix(in srgb, var(--accent) 9%, transparent);
+      filter: blur(48px);
+      pointer-events: none;
+    }
+
+    .section-title {
+      position: relative;
+      max-width: 760px;
+      margin-bottom: 30px;
+    }
+
+    h2 {
+      font-size: clamp(2.4rem, 4.6vw, 5rem);
+      line-height: 0.98;
+      font-weight: 700;
+    }
+
+    .section-title p {
+      max-width: 680px;
+      margin: 18px 0 0;
+      color: var(--muted);
+      font-size: 1.05rem;
+      line-height: 1.72;
+    }
+
+    .connect {
+      position: relative;
+      z-index: 1;
+      display: grid;
+      grid-template-columns: 280px minmax(0, 1fr);
+      gap: 18px;
+    }
+
+    .tabs {
+      display: grid;
+      align-content: start;
+      gap: 10px;
+    }
+
+    .tab {
+      min-height: 64px;
+      display: grid;
+      gap: 3px;
+      padding: 14px 16px;
+      border: 1px solid color-mix(in srgb, var(--line) 84%, transparent);
+      border-radius: var(--radius);
+      background: color-mix(in srgb, var(--surface) 70%, transparent);
+      color: var(--muted);
+      text-align: left;
+      cursor: pointer;
+      transition: transform 180ms var(--ease), border-color 180ms var(--ease), background 180ms var(--ease), color 180ms var(--ease);
+    }
+
+    .tab strong {
+      color: var(--ink);
+      font-weight: 700;
+    }
+
+    .tab span {
+      font-size: 0.82rem;
+    }
+
+    .tab[aria-selected="true"] {
+      border-color: color-mix(in srgb, var(--accent) 66%, var(--line));
+      background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 16%, var(--surface)), color-mix(in srgb, var(--accent-2) 8%, var(--surface)));
+      color: var(--ink);
+    }
+
+    .connect-panel {
+      display: none;
+      min-height: 520px;
+      padding: 24px;
+      border: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
+      border-radius: 14px;
+      background: color-mix(in srgb, var(--surface) 78%, transparent);
+      box-shadow: 0 1px 0 color-mix(in srgb, white 24%, transparent) inset;
+    }
+
+    .connect-panel.active {
+      display: block;
+    }
+
+    .steps {
+      display: grid;
+      gap: 18px;
+    }
+
+    .step {
+      display: grid;
+      grid-template-columns: 48px minmax(0, 1fr);
+      gap: 16px;
+      align-items: start;
+    }
+
+    .step-num {
+      width: 42px;
+      height: 42px;
+      display: grid;
+      place-items: center;
+      border-radius: 999px;
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      color: #f7fdff;
+      font-family: var(--mono);
+      font-weight: 700;
+      box-shadow: 0 12px 24px color-mix(in srgb, var(--accent) 22%, transparent);
+    }
+
+    .step h3 {
+      margin-bottom: 8px;
+      font-size: 1.16rem;
+      line-height: 1.25;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+    }
+
+    .step p {
+      margin: 0 0 12px;
+      color: var(--muted);
+    }
+
+    .terminal {
+      border: 1px solid #193243;
+      border-radius: 12px;
+      background: #071015;
+      color: #dff7ff;
+      overflow: hidden;
+      box-shadow: var(--shadow-soft);
+    }
+
+    .terminal-head {
+      min-height: 42px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 0 14px;
+      border-bottom: 1px solid #173040;
+      background: #0c1c25;
+      color: #9db5c3;
+      font-family: var(--mono);
+      font-size: 0.75rem;
+    }
+
+    .copy {
+      min-height: 30px;
+      padding: 0 12px;
+      border: 1px solid #285369;
+      border-radius: 999px;
+      background: #102a38;
+      color: #dff7ff;
+      cursor: pointer;
+      font-size: 0.75rem;
+      font-weight: 700;
+      transition: transform 180ms var(--ease), border-color 180ms var(--ease), background 180ms var(--ease);
+    }
+
+    .copy:hover {
+      border-color: #22d3ee;
+      background: #0e3444;
+    }
+
+    pre {
+      margin: 0;
+      padding: 18px;
+      overflow-x: auto;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      font-size: 0.86rem;
+      line-height: 1.62;
+    }
+
+    .model-grid,
+    .verify {
+      position: relative;
+      z-index: 1;
+      display: grid;
+      grid-template-columns: minmax(0, 0.95fr) minmax(420px, 1.05fr);
+      gap: 20px;
+      align-items: stretch;
+    }
+
+    .directory,
+    .panel-card,
+    .figure,
+    .number {
+      border: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
+      border-radius: var(--radius);
+      background: color-mix(in srgb, var(--surface) 74%, transparent);
+      box-shadow: 0 1px 0 color-mix(in srgb, white 24%, transparent) inset;
+    }
+
+    .directory,
+    .panel-card {
+      padding: 22px;
+    }
+
+    .path {
+      width: fit-content;
+      margin-bottom: 18px;
+      padding: 7px 11px;
+      border: 1px solid color-mix(in srgb, var(--accent) 36%, var(--line));
+      border-radius: 999px;
+      color: var(--deep);
+      font-family: var(--mono);
+      font-size: 0.78rem;
+      font-weight: 700;
+    }
+
+    .tree,
+    .objects {
+      display: grid;
+      gap: 12px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .tree li,
+    .object {
+      display: grid;
+      grid-template-columns: 172px minmax(0, 1fr);
+      gap: 16px;
+      padding: 14px;
+      border-radius: var(--radius);
+      background: color-mix(in srgb, var(--accent) 5%, transparent);
+    }
+
+    .tree li {
+      font-family: var(--mono);
+      font-size: 0.88rem;
+    }
+
+    .object {
+      grid-template-columns: 130px minmax(0, 1fr);
+    }
+
+    .tree b,
+    .object b {
+      color: var(--ink);
+      font-weight: 700;
+    }
+
+    .tree span,
+    .object p,
+    .note {
+      color: var(--muted);
+    }
+
+    .object p {
+      margin: 0;
+    }
+
+    .visual-pair,
+    .numbers {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+    }
+
+    .figure {
+      min-height: 300px;
+      padding: 18px;
+      overflow: hidden;
+    }
+
+    .figure h3 {
+      margin-bottom: 16px;
+      font-size: 1.12rem;
+      font-weight: 700;
+    }
+
+    .mini-diagram {
+      min-height: 220px;
+      display: grid;
+      place-items: center;
+      border: 1px solid color-mix(in srgb, var(--line) 66%, transparent);
+      border-radius: var(--radius);
+      background:
+        radial-gradient(circle at 50% 50%, color-mix(in srgb, var(--accent) 10%, transparent), transparent 12rem),
+        color-mix(in srgb, var(--surface-2) 62%, transparent);
+    }
+
+    .mini-diagram svg {
+      width: min(420px, 92%);
+      height: auto;
+    }
+
+    .numbers {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .number {
+      min-height: 126px;
+      display: grid;
+      align-content: center;
+      padding: 18px;
+    }
+
+    .number b {
+      display: block;
+      color: var(--ink);
+      font-family: var(--mono);
+      font-size: 2rem;
+      line-height: 1;
+      font-weight: 700;
+    }
+
+    .number span {
+      display: block;
+      margin-top: 10px;
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+
+    .note {
+      margin-top: 18px;
+    }
+
+    .footer {
+      padding: 42px 0 56px;
+    }
+
+    .footer-grid {
+      display: flex;
+      justify-content: space-between;
+      gap: 24px;
+      color: var(--muted);
+      font-size: 0.92rem;
+    }
+
+    .footer strong {
+      color: var(--ink);
+    }
+
+    :focus-visible {
+      outline: 3px solid color-mix(in srgb, var(--accent) 82%, white);
+      outline-offset: 3px;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *,
+      *::before,
+      *::after {
+        animation: none !important;
+        scroll-behavior: auto !important;
+        transition-duration: 0.01ms !important;
+      }
+
+      .route-flow {
+        opacity: 0.5;
+      }
+    }
+
+    @media (max-width: 1160px) {
+      .hero-layout,
+      .model-grid,
+      .verify {
+        grid-template-columns: 1fr;
+      }
+
+      .runtime-map {
+        min-height: 520px;
+      }
+
+      .nav {
+        grid-template-columns: 1fr auto;
+      }
+
+      .navlinks {
+        display: none;
+      }
+    }
+
+    @media (max-width: 760px) {
+      .wrap,
+      .nav {
+        width: min(var(--max), calc(100% - 28px));
+      }
+
+      .nav {
+        min-height: 64px;
+      }
+
+      .brand-mark {
+        width: 38px;
+        height: 38px;
+      }
+
+      .brand span:last-child {
+        font-size: 0.98rem;
+      }
+
+      .hero {
+        padding: 38px 0 26px;
+      }
+
+      .hero-layout {
+        gap: 32px;
+      }
+
+      h1 {
+        font-size: clamp(3rem, 13vw, 3.7rem);
+        line-height: 1.02;
+      }
+
+      .hero-copy {
+        font-size: 1rem;
+      }
+
+      .hero-stats {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .actions {
+        display: grid;
+      }
+
+      .btn {
+        width: 100%;
+      }
+
+      .map-shell {
+        min-height: auto;
+        padding: 18px;
+        border-radius: 14px;
+      }
+
+      .runtime-map {
+        min-height: auto;
+        grid-template-columns: 1fr;
+      }
+
+      .map-lines {
+        display: none;
+      }
+
+      .core {
+        order: -1;
+        width: 126px;
+        height: 126px;
+        border-radius: 24px;
+      }
+
+      .core .hub-logo {
+        width: 88px;
+        height: 88px;
+      }
+
+      section {
+        padding: 54px 0;
+      }
+
+      .section-panel {
+        padding: 20px;
+        border-radius: 14px;
+      }
+
+      .connect {
+        grid-template-columns: 1fr;
+      }
+
+      .connect-panel {
+        min-height: auto;
+        padding: 18px;
+      }
+
+      .step,
+      .tree li,
+      .object {
+        grid-template-columns: 1fr;
+      }
+
+      .visual-pair,
+      .numbers {
+        grid-template-columns: 1fr;
+      }
+
+      .footer-grid {
+        display: grid;
+      }
+    }
+
+    /* integrated product page additions */
+    :root {
+      --green: #16a34a;
+      --amber: #f59e0b;
+      --rose: #e11d48;
+      --violet: #7c3aed;
+      --green-soft: #dcfce7;
+      --amber-soft: #fef3c7;
+      --rose-soft: #ffe4e6;
+      --violet-soft: #ede9fe;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --green-soft: #063b22;
+        --amber-soft: #3b2705;
+        --rose-soft: #3b0711;
+        --violet-soft: #241244;
+      }
+    }
+
+    .brand,
+    .brand small,
+    .navlinks a,
+    .product-hero h1,
+    .section-title,
+    .paper-card h3,
+    .diagram-card h3 {
+      letter-spacing: 0 !important;
+    }
+
+    .brand small {
+      display: block;
+      color: var(--soft);
+      font-size: 0.72rem;
+      font-weight: 600;
+      line-height: 1.15;
+    }
+
+    .defs-only {
+      position: absolute;
+      width: 0;
+      height: 0;
+      overflow: hidden;
+    }
+
+    .product-main {
+      overflow: hidden;
+    }
+
+    .product-hero {
+      min-height: calc(100svh - 76px);
+      display: grid;
+      grid-template-columns: minmax(0, 0.82fr) minmax(520px, 1.18fr);
+      align-items: center;
+      gap: clamp(36px, 6vw, 92px);
+      padding: clamp(58px, 7vw, 104px) 0 54px;
+    }
+
+    .product-hero > *,
+    .hero-copy,
+    .hero-tools,
+    .command-panel,
+    .wide-panel {
+      min-width: 0;
+    }
+
+    .hero-tools {
+      grid-column: 1;
+      align-self: start;
+      margin-top: -22px;
+    }
+
+    .eyebrow-line {
+      display: inline-flex;
+      align-items: center;
+      gap: 9px;
+      min-height: 34px;
+      padding: 0 13px;
+      border: 1px solid color-mix(in srgb, var(--accent) 34%, var(--line));
+      border-radius: 999px;
+      background: color-mix(in srgb, var(--surface) 76%, transparent);
+      color: var(--deep);
+      font-size: 0.84rem;
+      font-weight: 700;
+    }
+
+    .eyebrow-line::before {
+      content: "";
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--green);
+      box-shadow: 0 0 0 5px color-mix(in srgb, var(--green) 14%, transparent);
+    }
+
+    .product-hero h1 {
+      margin: 20px 0 20px;
+      max-width: 780px;
+      font-size: 5.35rem;
+      line-height: 1;
+      font-weight: 700;
+    }
+
+    .product-hero h1 .hero-line {
+      display: block;
+      white-space: nowrap;
+    }
+
+    .hero-lede {
+      max-width: 760px;
+      color: var(--muted);
+      font-size: 1.22rem;
+      line-height: 1.68;
+    }
+
+    .hero-lede strong {
+      color: var(--ink);
+    }
+
+    .hero-tagline {
+      position: relative;
+      display: inline-grid;
+      grid-template-columns: 3px minmax(0, max-content);
+      align-items: center;
+      column-gap: 16px;
+      max-width: 100%;
+      margin: -2px 0 22px;
+      padding: 10px 0 12px;
+      color: var(--ink);
+      font-size: clamp(1.12rem, 1.42vw, 1.42rem);
+      line-height: 1.24;
+      font-weight: 780;
+    }
+
+    .hero-tagline::before {
+      content: "";
+      width: 3px;
+      height: 54px;
+      border-radius: 999px;
+      background: linear-gradient(
+        180deg,
+        color-mix(in srgb, var(--accent) 8%, transparent),
+        color-mix(in srgb, var(--accent) 76%, var(--green)),
+        color-mix(in srgb, var(--green) 72%, var(--accent)),
+        color-mix(in srgb, var(--accent) 8%, transparent)
+      );
+      box-shadow: 0 0 0 1px color-mix(in srgb, var(--surface) 82%, transparent);
+    }
+
+    .tagline-text {
+      display: inline-grid;
+      gap: 2px;
+    }
+
+    .tagline-line {
+      display: block;
+      white-space: nowrap;
+    }
+
+    .tagline-line:first-child {
+      color: var(--deep);
+    }
+
+    .tagline-line:last-child {
+      color: color-mix(in srgb, var(--ink) 86%, var(--accent));
+    }
+
+    .hero-signature {
+      margin: 18px 0 0;
+      display: inline-flex;
+      align-items: center;
+      gap: 11px;
+      color: var(--deep);
+      font: 700 0.94rem var(--mono);
+    }
+
+    .hero-signature::before {
+      content: "";
+      width: 34px;
+      height: 1px;
+      background: color-mix(in srgb, var(--accent) 72%, var(--line));
+    }
+
+    .hero-actions,
+    .badge-row,
+    .chip-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .hero-actions {
+      margin-top: 28px;
+    }
+
+    .btn-primary,
+    .btn-secondary {
+      min-height: 48px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0 18px;
+      border-radius: 999px;
+      border: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
+      font-weight: 700;
+      transition: transform 180ms var(--ease), border-color 180ms var(--ease), background 180ms var(--ease);
+    }
+
+    .btn-primary {
+      background: var(--ink);
+      color: var(--bg);
+      border-color: var(--ink);
+    }
+
+    .btn-secondary {
+      background: color-mix(in srgb, var(--surface) 76%, transparent);
+      color: var(--ink);
+    }
+
+    .btn-primary:hover,
+    .btn-secondary:hover {
+      transform: translateY(-2px);
+      border-color: color-mix(in srgb, var(--accent) 58%, var(--line));
+    }
+
+    .command-panel,
+    .wide-panel,
+    .info-card,
+    .paper-card,
+    .diagram-card,
+    .truth-card,
+    .surface-card,
+    .chain-card,
+    .evidence-item {
+      border: 1px solid color-mix(in srgb, var(--line) 82%, transparent);
+      border-radius: var(--radius);
+      background: color-mix(in srgb, var(--surface) 80%, transparent);
+      box-shadow: 0 1px 0 color-mix(in srgb, white 32%, transparent) inset;
+    }
+
+    .command-panel {
+      margin-top: 30px;
+      box-shadow: var(--shadow-soft);
+      overflow: hidden;
+    }
+
+    .command-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 14px 16px;
+      border-bottom: 1px solid color-mix(in srgb, var(--line) 82%, transparent);
+      color: var(--soft);
+      font-size: 0.84rem;
+      font-weight: 700;
+    }
+
+    .cmd-row {
+      display: grid;
+      grid-template-columns: 34px minmax(0, 1fr) 34px;
+      align-items: center;
+      gap: 12px;
+      padding: 14px 16px;
+      border-bottom: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+    }
+
+    .cmd-row:last-child {
+      border-bottom: 0;
+    }
+
+    .cmd-index {
+      width: 30px;
+      height: 30px;
+      display: inline-grid;
+      place-items: center;
+      border-radius: 50%;
+      background: color-mix(in srgb, var(--accent) 13%, var(--surface));
+      color: var(--deep);
+      font: 700 0.84rem var(--mono);
+    }
+
+    .cmd-row code {
+      min-width: 0;
+      display: block;
+      overflow-x: visible;
+      color: var(--ink);
+      font-size: clamp(0.78rem, 1vw, 0.95rem);
+      white-space: normal;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+      scrollbar-width: thin;
+    }
+
+    .copy-btn {
+      width: 34px;
+      height: 34px;
+      border: 1px solid color-mix(in srgb, var(--line) 84%, transparent);
+      border-radius: 50%;
+      background: color-mix(in srgb, var(--surface) 80%, transparent);
+      color: var(--muted);
+      cursor: pointer;
+    }
+
+    .copy-btn:hover {
+      color: var(--ink);
+      border-color: color-mix(in srgb, var(--accent) 52%, var(--line));
+    }
+
+    .metric-strip {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 18px;
+    }
+
+    .metric {
+      min-height: 88px;
+      padding: 14px;
+      border: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
+      border-radius: var(--radius);
+      background: color-mix(in srgb, var(--surface) 74%, transparent);
+    }
+
+    .metric strong {
+      display: block;
+      font-size: clamp(1.25rem, 2vw, 1.88rem);
+      line-height: 1.1;
+    }
+
+    .metric span {
+      display: block;
+      margin-top: 5px;
+      color: var(--soft);
+      font-size: 0.84rem;
+      line-height: 1.35;
+    }
+
+    .runtime-lattice {
+      position: relative;
+      min-height: 680px;
+      border: 1px solid color-mix(in srgb, var(--line) 76%, transparent);
+      border-radius: var(--radius);
+      background:
+        linear-gradient(90deg, color-mix(in srgb, var(--line) 42%, transparent) 1px, transparent 1px),
+        linear-gradient(180deg, color-mix(in srgb, var(--line) 38%, transparent) 1px, transparent 1px),
+        color-mix(in srgb, var(--surface) 80%, transparent);
+      background-size: 44px 44px;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .demo-stage {
+      position: relative;
+      padding: 16px;
+      border: 1px solid color-mix(in srgb, var(--line) 76%, transparent);
+      border-radius: var(--radius);
+      background:
+        linear-gradient(90deg, color-mix(in srgb, var(--line) 35%, transparent) 1px, transparent 1px),
+        linear-gradient(180deg, color-mix(in srgb, var(--line) 32%, transparent) 1px, transparent 1px),
+        color-mix(in srgb, var(--surface) 80%, transparent);
+      background-size: 44px 44px;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .demo-stage::before {
+      content: "";
+      position: absolute;
+      inset: -18% -14% auto 22%;
+      height: 52%;
+      background: radial-gradient(circle, color-mix(in srgb, var(--accent-3) 18%, transparent), transparent 62%);
+      pointer-events: none;
+    }
+
+    .demo-frame {
+      position: relative;
+      overflow: hidden;
+      border: 1px solid color-mix(in srgb, var(--accent) 42%, var(--line));
+      border-radius: var(--radius);
+      background: #050b12;
+      box-shadow: 0 24px 70px rgb(0 0 0 / 0.26);
+      aspect-ratio: 2 / 1;
+    }
+
+    .demo-frame img {
+      width: 100%;
+      height: 100%;
+      display: block;
+      object-fit: cover;
+    }
+
+    .demo-caption {
+      position: relative;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 14px;
+      align-items: center;
+      margin-top: 14px;
+      padding: 14px 2px 2px;
+    }
+
+    .demo-caption strong {
+      display: block;
+      margin-bottom: 3px;
+      color: var(--ink);
+      font-size: 1rem;
+    }
+
+    .demo-caption span {
+      display: block;
+      color: var(--muted);
+      font-size: 0.9rem;
+      line-height: 1.48;
+    }
+
+    .demo-links {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+
+    .demo-pill {
+      min-height: 32px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0 12px;
+      border: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
+      border-radius: 999px;
+      background: color-mix(in srgb, var(--surface) 78%, transparent);
+      color: var(--ink);
+      font-size: 0.8rem;
+      font-weight: 700;
+    }
+
+    .demo-pill.primary {
+      background: color-mix(in srgb, var(--accent) 14%, var(--surface));
+      border-color: color-mix(in srgb, var(--accent) 42%, var(--line));
+      color: var(--deep);
+    }
+
+    .runtime-lattice .core {
+      position: absolute;
+      left: 50%;
+      top: 47%;
+      z-index: 1;
+      transform: translate(-50%, -50%);
+      width: 188px;
+      height: 188px;
+      padding: 28px;
+    }
+
+    .runtime-ring {
+      position: absolute;
+      inset: 78px;
+      z-index: 0;
+      border: 1px dashed color-mix(in srgb, var(--accent) 36%, var(--line));
+      border-radius: 50%;
+      opacity: 0.86;
+    }
+
+    .runtime-node {
+      position: absolute;
+      z-index: 2;
+      width: min(176px, 31%);
+      min-height: 78px;
+      padding: 12px 13px;
+      border: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
+      border-radius: var(--radius);
+      background: color-mix(in srgb, var(--surface) 88%, transparent);
+      box-shadow: var(--shadow-soft);
+    }
+
+    .runtime-node strong,
+    .info-card h3,
+    .truth-card h3,
+    .surface-card h3,
+    .chain-card h3,
+    .diagram-card h3,
+    .paper-card h3 {
+      display: block;
+      margin: 0 0 10px;
+      font-size: 1.02rem;
+    }
+
+    .runtime-node span,
+    .info-card p,
+    .truth-card p,
+    .surface-card p,
+    .chain-card p,
+    .diagram-card p,
+    .evidence-item p {
+      display: block;
+      margin: 0;
+      color: var(--muted);
+      font-size: 0.9rem;
+      line-height: 1.58;
+    }
+
+    .runtime-node.n1 { left: 6%; top: 8%; }
+    .runtime-node.n2 { right: 7%; top: 10%; }
+    .runtime-node.n3 { left: 4%; top: 43%; }
+    .runtime-node.n4 { right: 5%; top: 43%; }
+    .runtime-node.n5 { left: 11%; bottom: 9%; }
+    .runtime-node.n6 { right: 9%; bottom: 8%; }
+
+    .flow-rail {
+      position: absolute;
+      left: 50%;
+      bottom: 30px;
+      width: min(82%, 640px);
+      transform: translateX(-50%);
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .flow-rail span,
+    .chip,
+    .status-pill {
+      min-height: 28px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0 10px;
+      border: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
+      border-radius: 999px;
+      background: color-mix(in srgb, var(--surface-2) 72%, transparent);
+      color: var(--muted);
+      font-size: 0.76rem;
+      font-weight: 700;
+      text-align: center;
+      white-space: nowrap;
+    }
+
+    .flow-rail span {
+      min-height: 44px;
+      white-space: normal;
+    }
+
+    .status-pill.ok {
+      color: color-mix(in srgb, var(--green) 80%, var(--ink));
+      background: color-mix(in srgb, var(--green-soft) 78%, transparent);
+      border-color: color-mix(in srgb, var(--green) 32%, var(--line));
+    }
+
+    .status-pill.warn {
+      color: color-mix(in srgb, var(--amber) 80%, var(--ink));
+      background: color-mix(in srgb, var(--amber-soft) 76%, transparent);
+      border-color: color-mix(in srgb, var(--amber) 34%, var(--line));
+    }
+
+    .product-section {
+      padding: clamp(72px, 9vw, 126px) 0;
+      border-top: 1px solid color-mix(in srgb, var(--line) 64%, transparent);
+    }
+
+    .section-grid {
+      display: grid;
+      grid-template-columns: minmax(280px, 0.78fr) minmax(0, 1.22fr);
+      gap: clamp(32px, 5vw, 78px);
+      align-items: start;
+    }
+
+    .section-kicker {
+      margin: 0 0 12px;
+      color: var(--deep);
+      font: 700 0.83rem var(--mono);
+      text-transform: uppercase;
+    }
+
+    .section-title {
+      margin: 0;
+      max-width: 900px;
+      font-size: 2.82rem;
+      line-height: 1.08;
+      font-weight: 700;
+    }
+
+    .section-lede {
+      margin: 20px 0 0;
+      max-width: 780px;
+      color: var(--muted);
+      font-size: 1.06rem;
+      line-height: 1.72;
+    }
+
+    .card-grid,
+    .diagram-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .surface-grid,
+    .evidence-list {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .evidence-list {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .info-card,
+    .truth-card,
+    .surface-card,
+    .chain-card,
+    .paper-card,
+    .diagram-card,
+    .evidence-item {
+      padding: 18px;
+    }
+
+    .info-card {
+      min-height: 184px;
+    }
+
+    .surface-card.primary,
+    .evidence-item.primary {
+      grid-column: span 2;
+      background:
+        linear-gradient(135deg, color-mix(in srgb, var(--accent) 10%, var(--surface)), color-mix(in srgb, var(--green-soft) 52%, var(--surface)));
+      border-color: color-mix(in srgb, var(--accent) 34%, var(--line));
+    }
+
+    .surface-card.primary h3,
+    .evidence-item.primary b {
+      color: var(--deep);
+    }
+
+    .wide-panel {
+      margin-top: 28px;
+      padding: clamp(20px, 3vw, 32px);
+      box-shadow: var(--shadow-soft);
+    }
+
+    .brand-system-grid {
+      display: grid;
+      grid-template-columns: minmax(280px, 0.74fr) minmax(0, 1.26fr);
+      gap: clamp(28px, 5vw, 72px);
+      align-items: center;
+    }
+
+    .brand-showcase {
+      position: relative;
+      padding: clamp(24px, 4vw, 42px);
+      border: 1px solid color-mix(in srgb, var(--line) 78%, transparent);
+      border-radius: 22px;
+      background:
+        linear-gradient(135deg, color-mix(in srgb, white 78%, transparent), color-mix(in srgb, var(--surface) 86%, transparent)),
+        radial-gradient(circle at 16% 18%, color-mix(in srgb, var(--accent) 12%, transparent), transparent 36%);
+      box-shadow: var(--shadow-soft);
+      overflow: hidden;
+    }
+
+    .brand-showcase::before {
+      content: "";
+      position: absolute;
+      inset: 18px;
+      border: 1px solid color-mix(in srgb, var(--line) 54%, transparent);
+      border-radius: 16px;
+      pointer-events: none;
+    }
+
+    .brand-lockup {
+      position: relative;
+      display: grid;
+      place-items: center;
+      min-height: 196px;
+      padding: 18px;
+    }
+
+    .brand-lockup img {
+      width: min(520px, 100%);
+      height: auto;
+      display: block;
+    }
+
+    .brand-quote {
+      position: relative;
+      margin: 8px 0 0;
+      display: flex;
+      justify-content: center;
+      color: var(--deep);
+      font-size: clamp(1.18rem, 2vw, 1.78rem);
+      line-height: 1.28;
+      font-weight: 760;
+      text-align: center;
+    }
+
+    .brand-caption {
+      position: relative;
+      margin: 14px auto 0;
+      max-width: 560px;
+      color: var(--muted);
+      font-size: 0.96rem;
+      line-height: 1.7;
+      text-align: center;
+    }
+
+    .truth-table {
+      display: grid;
+      grid-template-columns: 0.86fr 1.15fr 1.05fr;
+      border: 1px solid color-mix(in srgb, var(--line) 82%, transparent);
+      border-radius: var(--radius);
+      overflow: hidden;
+      background: color-mix(in srgb, var(--surface) 82%, transparent);
+    }
+
+    .truth-table > div {
+      padding: 14px 16px;
+      border-right: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
+      border-bottom: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
+      color: var(--muted);
+      font-size: 0.92rem;
+      line-height: 1.48;
+    }
+
+    .truth-table > div:nth-child(3n) { border-right: 0; }
+    .truth-table .head {
+      color: var(--ink);
+      font-weight: 700;
+      background: color-mix(in srgb, var(--surface-2) 82%, transparent);
+    }
+    .truth-table strong { color: var(--ink); }
+
+    .path-svg,
+    .diagram-card svg {
+      width: 100%;
+      height: auto;
+      display: block;
+      overflow: visible;
+    }
+
+    .diagram-card p {
+      margin-top: 12px;
+    }
+
+    .diagram-showcase {
+      display: grid;
+      gap: 18px;
+    }
+
+    .diagram-card.featured {
+      display: grid;
+      grid-template-columns: minmax(0, 1.12fr) minmax(280px, 0.88fr);
+      gap: 22px;
+      align-items: center;
+    }
+
+    .diagram-figure {
+      overflow: hidden;
+      border: 1px solid color-mix(in srgb, var(--line) 78%, transparent);
+      border-radius: var(--radius);
+      background: #fffdf8;
+    }
+
+    .diagram-figure img {
+      width: 100%;
+      display: block;
+    }
+
+    .diagram-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 14px;
+    }
+
+    .diagram-meta span {
+      min-height: 28px;
+      display: inline-flex;
+      align-items: center;
+      padding: 0 10px;
+      border: 1px solid color-mix(in srgb, var(--line) 78%, transparent);
+      border-radius: 999px;
+      color: var(--muted);
+      background: color-mix(in srgb, var(--surface-2) 70%, transparent);
+      font: 700 0.74rem var(--mono);
+    }
+
+    .chain-list,
+    .paper-stack {
+      display: grid;
+      gap: 13px;
+    }
+
+    .chain-card {
+      display: grid;
+      grid-template-columns: 126px minmax(0, 1fr);
+      gap: 16px;
+      align-items: start;
+    }
+
+    .chain-label {
+      min-height: 34px;
+      display: inline-grid;
+      place-items: center;
+      border-radius: 999px;
+      border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--line));
+      background: color-mix(in srgb, var(--accent) 10%, transparent);
+      color: var(--deep);
+      font: 700 0.78rem var(--mono);
+    }
+
+    .paper-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .paper-field {
+      min-height: 88px;
+      padding: 12px;
+      border: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
+      border-radius: var(--radius);
+      background: color-mix(in srgb, var(--surface-2) 52%, transparent);
+    }
+
+    .paper-field b {
+      display: block;
+      margin-bottom: 5px;
+      color: var(--ink);
+      font: 700 0.76rem var(--mono);
+      text-transform: uppercase;
+    }
+
+    .paper-field span {
+      color: var(--muted);
+      font-size: 0.88rem;
+      line-height: 1.48;
+    }
+
+    .formula {
+      grid-column: 1 / -1;
+      padding: 15px;
+      border-radius: var(--radius);
+      border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--line));
+      background: color-mix(in srgb, var(--surface) 84%, transparent);
+      color: var(--ink);
+      font: 600 0.84rem var(--mono);
+      overflow-x: auto;
+      white-space: normal;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
+
+    .evidence-item b {
+      display: block;
+      margin-bottom: 8px;
+    }
+
+    .product-footer {
+      padding: 36px 0 56px;
+      border-top: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+      color: var(--soft);
+      font-size: 0.9rem;
+    }
+
+    .product-footer .wrap {
+      display: flex;
+      justify-content: space-between;
+      gap: 20px;
+      flex-wrap: wrap;
+    }
+
+    .svg-label { fill: var(--ink); font: 700 14px var(--font); }
+    .svg-small { fill: var(--muted); font: 500 11px var(--font); }
+    .svg-box { fill: color-mix(in srgb, var(--surface) 88%, transparent); stroke: color-mix(in srgb, var(--line) 86%, transparent); stroke-width: 1.2; }
+    .svg-box.accent { fill: color-mix(in srgb, var(--accent) 10%, var(--surface)); stroke: color-mix(in srgb, var(--accent) 48%, var(--line)); }
+    .svg-box.green { fill: color-mix(in srgb, var(--green-soft) 80%, var(--surface)); stroke: color-mix(in srgb, var(--green) 38%, var(--line)); }
+    .svg-box.amber { fill: color-mix(in srgb, var(--amber-soft) 78%, var(--surface)); stroke: color-mix(in srgb, var(--amber) 40%, var(--line)); }
+    .svg-box.violet { fill: color-mix(in srgb, var(--violet-soft) 78%, var(--surface)); stroke: color-mix(in srgb, var(--violet) 36%, var(--line)); }
+    .svg-line { fill: none; stroke: color-mix(in srgb, var(--accent) 68%, var(--line)); stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+    .svg-line.muted { stroke: color-mix(in srgb, var(--line-strong) 72%, transparent); stroke-dasharray: 6 7; }
+
+    @media (max-width: 1080px) {
+      .product-hero,
+      .section-grid,
+      .brand-system-grid { grid-template-columns: 1fr; }
+      .product-hero h1 { font-size: 4.7rem; }
+      .section-title { font-size: 2.48rem; }
+      .runtime-lattice { min-height: 600px; }
+      .surface-grid,
+      .evidence-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+
+    @media (max-width: 760px) {
+      html,
+      body {
+        max-width: 100vw;
+        overflow-x: hidden;
+      }
+      .wrap,
+      .nav { width: min(var(--max), calc(100vw - 32px)); }
+      .nav { grid-template-columns: 1fr auto; min-height: 66px; }
+      .navlinks { display: none; }
+      .product-main *,
+      .product-main *::before,
+      .product-main *::after {
+        box-sizing: border-box;
+      }
+      .product-hero {
+        width: calc(100vw - 32px) !important;
+        max-width: calc(100vw - 32px) !important;
+        min-width: 0 !important;
+      }
+      .product-hero > *,
+      .hero-copy,
+      .hero-tools,
+      .demo-stage,
+      .demo-frame,
+      .command-panel {
+        width: 100% !important;
+        max-width: calc(100vw - 32px) !important;
+        min-width: 0 !important;
+      }
+      .product-hero h1 {
+        max-width: 100%;
+        font-size: 2.72rem;
+        line-height: 1.02;
+      }
+      .product-hero h1 .hero-line {
+        white-space: normal;
+      }
+      .hero-lede {
+        width: 100% !important;
+        max-width: calc(100vw - 32px) !important;
+        font-size: 1rem;
+        overflow-wrap: anywhere;
+        word-break: break-all;
+      }
+      .hero-lede *,
+      .demo-caption *,
+      .surface-card *,
+      .info-card *,
+      .evidence-item * {
+        overflow-wrap: anywhere;
+        word-break: break-all;
+      }
+      .section-title { font-size: 2.05rem; }
+      .hero-actions {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 10px;
+      }
+      .hero-actions a {
+        width: 100%;
+        min-width: 0;
+        padding: 0 12px;
+        text-align: center;
+        white-space: normal;
+      }
+      .demo-stage {
+        padding: 10px;
+      }
+      .hero-tools {
+        margin-top: 0;
+      }
+      .demo-caption {
+        grid-template-columns: 1fr;
+      }
+      .demo-links {
+        justify-content: flex-start;
+      }
+      .metric-strip,
+      .card-grid,
+      .diagram-grid,
+      .diagram-card.featured,
+      .paper-grid,
+      .surface-grid,
+      .evidence-list { grid-template-columns: 1fr; }
+      .surface-card.primary,
+      .evidence-item.primary { grid-column: auto; }
+      .truth-table { grid-template-columns: 1fr; }
+      .truth-table > div,
+      .truth-table > div:nth-child(3n) { border-right: 0; }
+      .runtime-lattice { min-height: 760px; }
+      .runtime-lattice .core { top: 40%; width: 152px; height: 152px; }
+      .runtime-ring { inset: 126px 40px 210px; border-radius: var(--radius); }
+      .runtime-node { width: calc(50% - 26px); }
+      .runtime-node.n1 { left: 16px; top: 18px; }
+      .runtime-node.n2 { right: 16px; top: 18px; }
+      .runtime-node.n3 { left: 16px; top: 166px; }
+      .runtime-node.n4 { right: 16px; top: 166px; }
+      .runtime-node.n5 { left: 16px; bottom: 120px; }
+      .runtime-node.n6 { right: 16px; bottom: 120px; }
+      .flow-rail { grid-template-columns: 1fr; bottom: 18px; }
+      .chain-card { grid-template-columns: 1fr; }
+      .cmd-row { grid-template-columns: 30px minmax(0, 1fr) 34px; padding: 13px 12px; }
+      .cmd-row code {
+        white-space: normal;
+        overflow-wrap: anywhere;
+        word-break: break-word;
+      }
+      .command-panel,
+      .command-panel * {
+        min-width: 0;
+      }
+    }
+
+    /* QoderWork visual skin + OpenViking content rhythm redesign. */
+    body > .topbar,
+    body > .product-main,
+    body > .product-footer,
+    body > .defs-only {
+      display: none !important;
+    }
+
+    :root {
+      --qw-bg: #090d11;
+      --qw-bg-2: #0d1218;
+      --qw-panel: #111820;
+      --qw-panel-2: #151d27;
+      --qw-border: #2b3542;
+      --qw-border-strong: #3b4655;
+      --qw-ink: #f6f2ea;
+      --qw-muted: #b8b0a5;
+      --qw-dim: #756f66;
+      --qw-cyan: #78e4de;
+      --qw-cyan-2: #9cf7ef;
+      --qw-green: #a7f05f;
+      --qw-orange: #ff845e;
+      --qw-blue: #8fb6ff;
+      --qw-grid: rgba(145, 159, 176, 0.12);
+      --qw-font: Inter, "IBM Plex Sans", "PingFang SC", "Microsoft YaHei", sans-serif;
+      --qw-mono: "JetBrains Mono", "IBM Plex Mono", monospace;
+    }
+
+    html {
+      background: var(--qw-bg);
+    }
+
+    body {
+      background: var(--qw-bg);
+      color: var(--qw-ink);
+      font-family: var(--qw-font);
+    }
+
+    .site-redesign {
+      min-height: 100vh;
+      overflow: hidden;
+      color: var(--qw-ink);
+      background:
+        radial-gradient(circle at 50% 6%, rgba(120, 228, 222, 0.10), transparent 34rem),
+        radial-gradient(circle at 12% 42%, rgba(255, 132, 94, 0.08), transparent 30rem),
+        linear-gradient(180deg, #0a0f14 0%, #070a0e 46%, #090d11 100%);
+    }
+
+    .site-redesign * {
+      box-sizing: border-box;
+    }
+
+    body > .topbar,
+    body > .product-main,
+    body > .product-footer {
+      display: none;
+    }
+
+    .redesign-wrap {
+      width: min(1200px, calc(100% - 48px));
+      margin: 0 auto;
+    }
+
+    .redesign-nav {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      border-bottom: 1px solid rgba(85,185,255,0.16);
+      background: rgba(255,255,255,0.78);
+      backdrop-filter: blur(18px);
+    }
+
+    .redesign-nav-inner {
+      min-height: 72px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 24px;
+    }
+
+    .redesign-brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      color: var(--qw-ink);
+      font-weight: 760;
+    }
+
+    .redesign-mark {
+      width: 34px;
+      height: 34px;
+      display: grid;
+      place-items: center;
+      border: 1px solid rgba(85,185,255,0.20);
+      background: #fff;
+    }
+
+    .redesign-mark img {
+      width: 24px;
+      height: 24px;
+      object-fit: contain;
+    }
+
+    .redesign-links {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px;
+      border: 1px solid rgba(85,185,255,0.14);
+      background: rgba(255,255,255,0.62);
+    }
+
+    .redesign-links a,
+    .redesign-cta {
+      min-height: 34px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0 14px;
+      color: var(--qw-muted);
+      font-size: 0.88rem;
+      font-weight: 650;
+      transition: color 160ms var(--ease), background 160ms var(--ease), transform 160ms var(--ease);
+    }
+
+    .redesign-links a:hover {
+      color: var(--qw-ink);
+      background: linear-gradient(90deg, rgba(232,247,255,0.86), rgba(255,242,249,0.68));
+    }
+
+    .redesign-cta {
+      border: 1px solid rgba(85,185,255,0.22);
+      background: linear-gradient(90deg, rgba(232,247,255,0.92), rgba(255,242,249,0.74));
+      color: #0f8d74;
+    }
+
+    .redesign-cta:hover {
+      transform: translateY(-1px);
+      background: linear-gradient(90deg, rgba(255,242,249,0.86), rgba(232,247,255,0.94));
+    }
+
+    .redesign-hero {
+      position: relative;
+      display: grid;
+      grid-template-columns: minmax(360px, 0.86fr) minmax(560px, 1.14fr);
+      gap: clamp(36px, 6vw, 86px);
+      align-items: center;
+      min-height: calc(100svh - 72px);
+      padding: clamp(56px, 7vw, 92px) 0 56px;
+    }
+
+    .redesign-hero::before {
+      content: "";
+      position: absolute;
+      inset: 0 -20vw;
+      z-index: 0;
+      pointer-events: none;
+      background:
+        linear-gradient(90deg, var(--qw-grid) 1px, transparent 1px),
+        linear-gradient(180deg, var(--qw-grid) 1px, transparent 1px);
+      background-size: 64px 64px;
+      mask-image: radial-gradient(circle at 62% 42%, black 0 44%, transparent 78%);
+    }
+
+    .redesign-copy,
+    .signal-map {
+      position: relative;
+      z-index: 1;
+    }
+
+    .redesign-kicker {
+      width: fit-content;
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      min-height: 34px;
+      padding: 0 12px;
+      border: 1px solid rgba(120,228,222,0.24);
+      background: rgba(120,228,222,0.08);
+      color: var(--qw-cyan-2);
+      font: 700 0.78rem var(--qw-mono);
+      text-transform: uppercase;
+    }
+
+    .redesign-kicker::before {
+      content: "";
+      width: 7px;
+      height: 7px;
+      background: var(--qw-green);
+      box-shadow: 0 0 18px rgba(167,240,95,0.72);
+    }
+
+    .redesign-copy h1 {
+      margin: 22px 0 20px;
+      max-width: 760px;
+      color: var(--qw-ink);
+      font-size: clamp(3.1rem, 7.2vw, 6.6rem);
+      line-height: 0.94;
+      font-weight: 780;
+    }
+
+    .redesign-copy h1 span {
+      display: block;
+    }
+
+    .redesign-lede {
+      max-width: 640px;
+      margin: 0;
+      color: var(--qw-muted);
+      font-size: clamp(1.04rem, 1.42vw, 1.24rem);
+      line-height: 1.72;
+    }
+
+    .redesign-lede strong {
+      color: var(--qw-ink);
+      font-weight: 760;
+    }
+
+    .redesign-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 28px;
+    }
+
+    .redesign-button {
+      min-height: 48px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0 18px;
+      border: 1px solid var(--qw-border-strong);
+      background: rgba(255,255,255,0.04);
+      color: var(--qw-ink);
+      font-weight: 720;
+    }
+
+    .redesign-button.primary {
+      border-color: rgba(120,228,222,0.48);
+      background: linear-gradient(180deg, rgba(120,228,222,0.20), rgba(120,228,222,0.08));
+      color: var(--qw-cyan-2);
+    }
+
+    .redesign-metrics {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 34px;
+    }
+
+    .redesign-metric {
+      min-height: 92px;
+      padding: 14px;
+      border: 1px solid rgba(255,255,255,0.08);
+      background: rgba(255,255,255,0.035);
+    }
+
+    .redesign-metric strong {
+      display: block;
+      font: 700 1.35rem var(--qw-mono);
+      color: var(--qw-ink);
+    }
+
+    .redesign-metric span {
+      display: block;
+      margin-top: 7px;
+      color: var(--qw-dim);
+      font-size: 0.82rem;
+      line-height: 1.42;
+    }
+
+    .signal-map {
+      min-height: 660px;
+      border: 1px solid var(--qw-border);
+      background:
+        linear-gradient(90deg, rgba(145,159,176,0.13) 1px, transparent 1px),
+        linear-gradient(180deg, rgba(145,159,176,0.11) 1px, transparent 1px),
+        radial-gradient(circle at 50% 46%, rgba(120,228,222,0.11), transparent 15rem),
+        rgba(12, 18, 24, 0.72);
+      background-size: 64px 64px, 64px 64px, auto, auto;
+      box-shadow: 0 32px 90px rgba(0,0,0,0.34);
+      overflow: hidden;
+    }
+
+    .signal-map::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      background:
+        linear-gradient(180deg, rgba(255,255,255,0.04), transparent 22%),
+        radial-gradient(circle at 50% 48%, transparent 0 13rem, rgba(9,13,17,0.08) 13.2rem, transparent 18rem);
+    }
+
+    .connection-layer {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      overflow: visible;
+    }
+
+    .wire {
+      fill: none;
+      stroke: rgba(120, 228, 222, 0.22);
+      stroke-width: 2.2;
+      stroke-linecap: round;
+    }
+
+    .beam {
+      fill: none;
+      stroke: url(#beamGradient);
+      stroke-width: 3.6;
+      stroke-linecap: round;
+      stroke-dasharray: 72 620;
+      animation: dashFlow 4.6s linear infinite;
+      filter: drop-shadow(0 0 7px rgba(120,228,222,0.62));
+    }
+
+    .beam.b2 { animation-delay: -0.6s; }
+    .beam.b3 { animation-delay: -1.2s; }
+    .beam.b4 { animation-delay: -1.8s; }
+    .beam.b5 { animation-delay: -2.4s; }
+    .beam.b6 { animation-delay: -3s; }
+    .beam.b7 { animation-delay: -3.6s; }
+    .beam.b8 { animation-delay: -4.2s; }
+    .beam.b9 { animation-delay: -2.1s; }
+    .beam.b10 { animation-delay: -2.7s; }
+    .beam.b11 { animation-delay: -0.35s; }
+    .beam.b12 { animation-delay: -0.95s; }
+    .beam.b13 { animation-delay: -1.55s; }
+    .beam.b14 { animation-delay: -2.15s; }
+    .beam.b15 { animation-delay: -2.75s; }
+    .beam.b16 { animation-delay: -3.35s; }
+    .beam.b17 { animation-delay: -3.95s; }
+    .beam.b18 { animation-delay: -4.55s; }
+
+    @keyframes dashFlow {
+      to { stroke-dashoffset: -692; }
+    }
+
+    .hub-core {
+      position: absolute;
+      left: 50%;
+      top: 49%;
+      z-index: 3;
+      width: 188px;
+      height: 188px;
+      transform: translate(-50%, -50%);
+      display: grid;
+      place-items: center;
+      border: 1px solid rgba(120,228,222,0.20);
+      border-radius: 50%;
+      background:
+        radial-gradient(circle at 50% 32%, rgba(143,182,255,0.18), transparent 42%),
+        #080c11;
+      box-shadow:
+        0 0 0 22px rgba(120,228,222,0.06),
+        0 0 0 42px rgba(143,182,255,0.05),
+        0 0 0 64px rgba(255,255,255,0.035),
+        0 28px 70px rgba(0,0,0,0.50);
+    }
+
+    .hub-core img {
+      width: 104px;
+      height: 104px;
+      object-fit: contain;
+      filter: drop-shadow(0 0 20px rgba(143,182,255,0.45));
+      animation: coreFloat 5.8s ease-in-out infinite;
+    }
+
+    @keyframes coreFloat {
+      0%, 100% { transform: translateY(0) rotate(-2deg); }
+      50% { transform: translateY(-6px) rotate(3deg); }
+    }
+
+    .signal-card {
+      position: absolute;
+      z-index: 4;
+      min-height: 86px;
+      display: grid;
+      align-items: center;
+      border: 1px solid var(--qw-border-strong);
+      background: linear-gradient(180deg, rgba(22,30,40,0.94), rgba(14,20,28,0.94));
+      box-shadow: 0 18px 48px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.04);
+    }
+
+    .signal-card.agent {
+      left: 6%;
+      width: 30%;
+      grid-template-columns: 54px minmax(0, 1fr);
+      gap: 18px;
+      padding: 0 26px;
+    }
+
+    .signal-card.target {
+      right: 5%;
+      width: 33%;
+      padding: 20px 28px;
+    }
+
+    .signal-card.a1 { top: 8%; }
+    .signal-card.a2 { top: 24%; }
+    .signal-card.a3 { top: 40%; }
+    .signal-card.a4 { top: 56%; }
+    .signal-card.a5 { top: 72%; }
+    .signal-card.t1 { top: 8%; min-height: 112px; }
+    .signal-card.t2 { top: 28%; min-height: 112px; }
+    .signal-card.t3 { top: 49%; min-height: 112px; }
+    .signal-card.t4 { top: 70%; min-height: 112px; }
+
+    .agent-icon {
+      width: 42px;
+      height: 42px;
+      object-fit: contain;
+    }
+
+    .agent-icon[src*="codex.png"] {
+      filter: none;
+      opacity: 0.95;
+    }
+
+    .mcp-icon {
+      width: 42px;
+      height: 42px;
+      display: grid;
+      place-items: center;
+      color: var(--qw-ink);
+      font: 800 0.85rem var(--qw-mono);
+      border: 1px solid rgba(255,255,255,0.14);
+    }
+
+    .signal-card strong {
+      color: var(--qw-ink);
+      font-size: clamp(1.05rem, 1.8vw, 1.62rem);
+      line-height: 1.12;
+      font-weight: 760;
+      letter-spacing: 0 !important;
+    }
+
+    .signal-card code {
+      display: block;
+      margin-top: 16px;
+      color: #c9bfb2;
+      font: 600 clamp(0.86rem, 1.28vw, 1.08rem) var(--qw-mono);
+      letter-spacing: 0;
+    }
+
+    .redesign-section {
+      padding: clamp(76px, 9vw, 126px) 0;
+      border-top: 1px solid rgba(255,255,255,0.08);
+    }
+
+    .section-split {
+      display: grid;
+      grid-template-columns: minmax(280px, 0.76fr) minmax(0, 1.24fr);
+      gap: clamp(36px, 6vw, 90px);
+      align-items: start;
+    }
+
+    .section-label {
+      margin: 0 0 14px;
+      color: var(--qw-cyan);
+      font: 740 0.78rem var(--qw-mono);
+      text-transform: uppercase;
+    }
+
+    .redesign-section h2 {
+      margin: 0;
+      max-width: 820px;
+      font-size: clamp(2.2rem, 4.2vw, 4.4rem);
+      line-height: 1.02;
+      font-weight: 770;
+      letter-spacing: 0 !important;
+    }
+
+    .section-copy {
+      margin: 22px 0 0;
+      max-width: 680px;
+      color: var(--qw-muted);
+      font-size: 1.05rem;
+      line-height: 1.76;
+    }
+
+    .context-grid,
+    .lod-grid,
+    .loop-grid,
+    .proof-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .context-card,
+    .lod-card,
+    .loop-step,
+    .proof-card,
+    .command-box {
+      border: 1px solid rgba(255,255,255,0.10);
+      background: linear-gradient(180deg, rgba(255,255,255,0.055), rgba(255,255,255,0.025));
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
+    }
+
+    .context-card,
+    .lod-card,
+    .loop-step,
+    .proof-card {
+      min-height: 188px;
+      padding: 22px;
+    }
+
+    .context-card.primary,
+    .proof-card.primary {
+      grid-column: span 2;
+      background:
+        linear-gradient(135deg, rgba(120,228,222,0.14), rgba(255,255,255,0.03)),
+        linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02));
+      border-color: rgba(120,228,222,0.26);
+    }
+
+    .context-card h3,
+    .lod-card h3,
+    .loop-step h3,
+    .proof-card h3 {
+      margin: 0 0 12px;
+      color: var(--qw-ink);
+      font-size: 1.14rem;
+      letter-spacing: 0 !important;
+    }
+
+    .context-card p,
+    .lod-card p,
+    .loop-step p,
+    .proof-card p {
+      margin: 0;
+      color: var(--qw-muted);
+      font-size: 0.95rem;
+      line-height: 1.62;
+    }
+
+    .tag-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 18px;
+    }
+
+    .tag {
+      min-height: 28px;
+      display: inline-flex;
+      align-items: center;
+      padding: 0 10px;
+      border: 1px solid rgba(255,255,255,0.10);
+      background: rgba(255,255,255,0.04);
+      color: var(--qw-muted);
+      font: 700 0.72rem var(--qw-mono);
+    }
+
+    .tag.hot {
+      border-color: rgba(167,240,95,0.28);
+      color: var(--qw-green);
+      background: rgba(167,240,95,0.08);
+    }
+
+    .lod-card {
+      position: relative;
+      overflow: hidden;
+    }
+
+    .lod-card::before {
+      content: attr(data-level);
+      position: absolute;
+      right: 18px;
+      top: 14px;
+      color: rgba(255,255,255,0.10);
+      font: 800 4.2rem/1 var(--qw-mono);
+    }
+
+    .loop-grid {
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+    }
+
+    .loop-step {
+      min-height: 210px;
+    }
+
+    .loop-index {
+      width: 34px;
+      height: 34px;
+      display: grid;
+      place-items: center;
+      margin-bottom: 18px;
+      border: 1px solid rgba(120,228,222,0.28);
+      color: var(--qw-cyan);
+      font: 700 0.86rem var(--qw-mono);
+    }
+
+    .command-box {
+      margin-top: 28px;
+      overflow: hidden;
+    }
+
+    .command-row {
+      display: grid;
+      grid-template-columns: 112px minmax(0, 1fr);
+      gap: 18px;
+      padding: 18px 20px;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+    }
+
+    .command-row:last-child {
+      border-bottom: 0;
+    }
+
+    .command-row span {
+      color: var(--qw-cyan);
+      font: 760 0.78rem var(--qw-mono);
+      text-transform: uppercase;
+    }
+
+    .command-row code {
+      color: #e7dfd4;
+      font: 600 0.92rem var(--qw-mono);
+      white-space: normal;
+      overflow-wrap: anywhere;
+    }
+
+    .redesign-footer {
+      padding: 34px 0 48px;
+      border-top: 1px solid rgba(255,255,255,0.08);
+      color: var(--qw-dim);
+      font-size: 0.9rem;
+    }
+
+    .redesign-footer .redesign-wrap {
+      display: flex;
+      justify-content: space-between;
+      gap: 18px;
+      flex-wrap: wrap;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .beam,
+      .hub-core img {
+        animation: none;
+      }
+    }
+
+    @media (max-width: 1100px) {
+      .redesign-hero,
+      .section-split {
+        grid-template-columns: 1fr;
+      }
+      .signal-map {
+        min-height: 620px;
+      }
+      .loop-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 760px) {
+      .redesign-wrap {
+        width: min(100% - 28px, 1200px);
+      }
+      .redesign-links {
+        display: none;
+      }
+      .redesign-hero {
+        min-height: auto;
+        padding-top: 42px;
+      }
+      .redesign-copy h1 {
+        font-size: 3.05rem;
+      }
+      .redesign-metrics,
+      .context-grid,
+      .lod-grid,
+      .proof-grid,
+      .loop-grid {
+        grid-template-columns: 1fr;
+      }
+      .context-card.primary,
+      .proof-card.primary {
+        grid-column: auto;
+      }
+      .signal-map {
+        min-height: 760px;
+      }
+      .hub-core {
+        top: 42%;
+        width: 142px;
+        height: 142px;
+      }
+      .hub-core img {
+        width: 78px;
+        height: 78px;
+      }
+      .signal-card.agent,
+      .signal-card.target {
+        width: calc(50% - 22px);
+        min-height: 72px;
+        padding: 10px 12px;
+      }
+      .signal-card.agent {
+        grid-template-columns: 34px minmax(0, 1fr);
+        gap: 10px;
+        left: 14px;
+      }
+      .signal-card.target {
+        right: 14px;
+      }
+      .agent-icon,
+      .mcp-icon {
+        width: 30px;
+        height: 30px;
+      }
+      .signal-card strong {
+        font-size: 0.92rem;
+      }
+      .signal-card code {
+        margin-top: 7px;
+        font-size: 0.66rem;
+      }
+      .command-row {
+        grid-template-columns: 1fr;
+        gap: 8px;
+      }
+    }
+
+    /* Correction: visual skin follows QoderWork. OpenViking remains the content rhythm. */
+    :root {
+      --qw-page: #f6f6f6;
+      --qw-page-2: #eef6ff;
+      --qw-sky: #97cffc;
+      --qw-sky-soft: #d9edff;
+      --qw-black: #050505;
+      --qw-text: #080808;
+      --qw-text-2: #4b5560;
+      --qw-text-3: #9a9a9a;
+      --qw-card: #ffffff;
+      --qw-card-2: #f8fbff;
+      --qw-line: #e5e7eb;
+      --qw-green-brand: #98eaa4;
+      --qw-teal: #60d8d0;
+      --qw-orange-soft: #ff7d5d;
+    }
+
+    html,
+    body {
+      background: var(--qw-page);
+      color: var(--qw-text);
+    }
+
+    .site-redesign {
+      color: var(--qw-text);
+      background: var(--qw-page);
+    }
+
+    .redesign-wrap {
+      width: min(1280px, calc(100% - 80px));
+    }
+
+    .redesign-nav {
+      border-bottom: 1px solid rgba(85,185,255,0.16);
+      background: rgba(255,255,255,0.82);
+      backdrop-filter: blur(18px);
+      box-shadow: 0 10px 34px rgba(45,103,148,0.06);
+    }
+
+    .redesign-nav-inner {
+      min-height: 65px;
+    }
+
+    .redesign-brand {
+      color: #050505;
+      font-size: 1rem;
+      font-weight: 720;
+    }
+
+    .redesign-mark {
+      width: 30px;
+      height: 30px;
+      border: 1px solid rgba(85,185,255,0.22);
+      border-radius: 50%;
+      background: #fff;
+      overflow: hidden;
+      box-shadow: 0 8px 18px rgba(45,103,148,0.08);
+    }
+
+    .redesign-mark img {
+      width: 27px;
+      height: 27px;
+    }
+
+    .redesign-links {
+      border: 1px solid rgba(85,185,255,0.14);
+      border-radius: 999px;
+      background: rgba(255,255,255,0.66);
+      gap: 8px;
+      padding: 5px;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.86);
+    }
+
+    .redesign-links a {
+      padding: 0 13px;
+      border-radius: 999px;
+      color: rgba(18,42,62,0.58);
+      font-size: 0.93rem;
+      font-weight: 680;
+    }
+
+    .redesign-links a:hover {
+      color: #050505;
+      background: linear-gradient(90deg, rgba(232,247,255,0.92), rgba(255,242,249,0.74));
+    }
+
+    .redesign-cta {
+      min-width: 108px;
+      min-height: 36px;
+      border: 1px solid rgba(85,185,255,0.20);
+      border-radius: 999px;
+      background: linear-gradient(90deg, rgba(255,255,255,0.96), rgba(232,247,255,0.90));
+      color: #050505;
+      font-size: 0.92rem;
+      font-weight: 720;
+      box-shadow: 0 12px 28px rgba(45,103,148,0.08), inset 0 1px 0 rgba(255,255,255,0.9);
+    }
+
+    .redesign-cta:hover {
+      background: linear-gradient(90deg, rgba(232,247,255,0.96), rgba(255,242,249,0.84));
+      transform: translateY(-1px);
+    }
+
+    .redesign-hero {
+      width: 100%;
+      min-height: auto;
+      display: block;
+      padding: 0 0 74px;
+      overflow: visible;
+      text-align: center;
+    }
+
+    .redesign-hero::before {
+      inset: 0 50%;
+      width: 150vw;
+      height: 720px;
+      transform: translateX(-50%);
+      background:
+        radial-gradient(circle at 50% 100%, transparent 0 19.5%, rgba(255,255,255,0.42) 19.7% 20%, transparent 20.3%),
+        radial-gradient(circle at 50% 100%, transparent 0 32%, rgba(255,255,255,0.34) 32.2% 32.6%, transparent 32.9%),
+        radial-gradient(circle at 50% 100%, transparent 0 44%, rgba(255,255,255,0.27) 44.2% 44.6%, transparent 44.9%),
+        radial-gradient(circle at 42% 74%, rgba(236,137,193,0.16), transparent 24rem),
+        radial-gradient(circle at 62% 92%, rgba(244,255,207,0.72), transparent 30rem),
+        linear-gradient(180deg, #dff3ff 0%, #bce3ff 37%, #cff3ee 70%, #f7ffd7 100%);
+      mask-image: none;
+      opacity: 1;
+    }
+
+    .redesign-copy {
+      width: min(900px, 100%);
+      margin: 0 auto;
+      padding-top: 82px;
+    }
+
+    .redesign-kicker {
+      display: none;
+    }
+
+    .redesign-copy h1 {
+      margin: 0 auto 20px;
+      max-width: 900px;
+      color: var(--qw-text);
+      font-size: clamp(3rem, 4.6vw, 4.45rem);
+      line-height: 1.01;
+      font-weight: 650;
+    }
+
+    .redesign-copy h1 span {
+      display: block;
+    }
+
+    .redesign-copy h1 span + span::before {
+      content: "";
+    }
+
+    .redesign-copy h1 .hero-word {
+      display: inline-block;
+      color: transparent;
+      background: linear-gradient(112deg, #e879b4 0%, #55b9ff 52%, #119d85 100%);
+      -webkit-background-clip: text;
+      background-clip: text;
+      text-shadow: 0 10px 24px rgba(83, 178, 236, 0.14);
+    }
+
+    .redesign-copy h1 .hero-word.next {
+      background-image: linear-gradient(112deg, #111 0%, #55b9ff 44%, #e879b4 100%);
+    }
+
+    .redesign-lede {
+      max-width: 720px;
+      margin: 0 auto;
+      color: rgba(14,30,45,0.64);
+      font-size: 1.03rem;
+      line-height: 1.62;
+      display: grid;
+      justify-items: center;
+      gap: 12px;
+    }
+
+    .hero-intro,
+    .hero-detail {
+      max-width: 690px;
+      margin: 0;
+    }
+
+    .hero-intro {
+      color: rgba(18, 42, 62, 0.72);
+      font-size: 1.08rem;
+      font-weight: 520;
+    }
+
+    .hero-detail {
+      color: rgba(18, 42, 62, 0.62);
+      font-size: 0.99rem;
+    }
+
+    .lede-terms {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 7px;
+    }
+
+    .lede-term {
+      display: inline-flex;
+      align-items: center;
+      min-height: 32px;
+      padding: 0 12px;
+      border: 1px solid rgba(89, 184, 255, 0.22);
+      border-radius: 999px;
+      background:
+        linear-gradient(90deg, rgba(255, 242, 249, 0.82), rgba(232, 247, 255, 0.92));
+      box-shadow: 0 8px 20px rgba(64, 164, 230, 0.10), inset 0 1px 0 rgba(255,255,255,0.78);
+      color: #1291c9;
+      font-weight: 680;
+      white-space: nowrap;
+    }
+
+    .lede-highlight {
+      color: transparent;
+      background: linear-gradient(90deg, #e879b4, #4db7ff);
+      -webkit-background-clip: text;
+      background-clip: text;
+      font-weight: 760;
+      white-space: nowrap;
+      text-shadow: 0 8px 20px rgba(86, 178, 244, 0.14);
+    }
+
+    .lede-quiet {
+      color: #18354a;
+      font-weight: 680;
+    }
+
+    .lede-noise {
+      color: #6b5f4f;
+      font-weight: 660;
+    }
+
+    .hero-outcome {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 8px;
+      margin: 2px 0 0;
+    }
+
+    .hero-outcome span {
+      min-height: 30px;
+      display: inline-flex;
+      align-items: center;
+      padding: 0 12px;
+      border-radius: 999px;
+      background: rgba(255, 242, 249, 0.42);
+      color: #d66fa8;
+      font-size: 0.92rem;
+      font-weight: 680;
+    }
+
+    .hero-outcome span + span {
+      background: rgba(231, 247, 255, 0.48);
+      color: #43aef2;
+    }
+
+    .redesign-actions {
+      justify-content: center;
+      margin-top: 26px;
+    }
+
+    .redesign-button {
+      min-height: 44px;
+      gap: 0;
+      padding: 0 26px;
+      border: 0;
+      border-radius: 999px;
+      background:
+        linear-gradient(180deg, rgba(255,255,255,0.98), rgba(248,252,255,0.92)),
+        #fff;
+      color: #111;
+      box-shadow: 0 12px 26px rgba(13,68,120,0.10), inset 0 1px 0 rgba(255,255,255,0.9);
+      font-weight: 690;
+    }
+
+    .redesign-button.primary {
+      border: 0;
+      background:
+        linear-gradient(180deg, rgba(255,255,255,0.99), rgba(246,255,250,0.92)),
+        #fff;
+      color: #111;
+    }
+
+    .redesign-button::before {
+      content: none;
+    }
+
+    .redesign-metrics {
+      display: none;
+    }
+
+    .redesign-metric {
+      min-height: 96px;
+      border: 1px solid rgba(0,0,0,0.06);
+      border-radius: 22px;
+      background: rgba(255,255,255,0.72);
+      box-shadow: 0 24px 50px rgba(58,126,182,0.10);
+    }
+
+    .redesign-metric strong {
+      color: var(--qw-text);
+      font-family: var(--qw-font);
+      font-size: 1.16rem;
+      font-weight: 720;
+    }
+
+    .redesign-metric span {
+      color: rgba(0,0,0,0.48);
+    }
+
+    .signal-map {
+      width: min(1120px, calc(100vw - 72px));
+      min-height: 640px;
+      margin: 58px auto 0;
+      border: 0;
+      border-radius: 32px;
+      background:
+        radial-gradient(circle at 50% 45%, rgba(152,234,164,0.22), transparent 15rem),
+        linear-gradient(90deg, rgba(64,133,196,0.16) 1px, transparent 1px),
+        linear-gradient(180deg, rgba(64,133,196,0.14) 1px, transparent 1px),
+        rgba(255,255,255,0.42);
+      background-size: auto, 56px 56px, 56px 56px, auto;
+      box-shadow: 0 36px 90px rgba(35,116,190,0.18);
+    }
+
+    .signal-map::after {
+      background:
+        linear-gradient(180deg, rgba(255,255,255,0.52), transparent 32%),
+        radial-gradient(circle at 50% 48%, transparent 0 9rem, rgba(255,255,255,0.28) 9.3rem, transparent 14rem);
+    }
+
+    .wire {
+      stroke: rgba(28, 124, 145, 0.28);
+      stroke-width: 2;
+    }
+
+    .beam {
+      stroke: url(#beamGradient);
+      stroke-width: 4;
+      stroke-dasharray: 80 590;
+      filter: drop-shadow(0 0 8px rgba(96,216,208,0.66));
+    }
+
+    .hub-core {
+      width: 152px;
+      height: 152px;
+      background:
+        radial-gradient(circle at 52% 36%, rgba(255,255,255,0.9), rgba(255,255,255,0.18) 42%, transparent 44%),
+        linear-gradient(145deg, #98eaa4, #7fd4ff);
+      border: 7px solid #fff;
+      box-shadow:
+        0 0 0 24px rgba(255,255,255,0.36),
+        0 0 0 48px rgba(117,196,255,0.18),
+        0 26px 64px rgba(52,117,170,0.24);
+    }
+
+    .hub-core img {
+      width: 106px;
+      height: 106px;
+      filter: drop-shadow(0 10px 18px rgba(0,0,0,0.16));
+    }
+
+    .signal-card {
+      border: 1px solid rgba(0,0,0,0.07);
+      border-radius: 18px;
+      background: rgba(255,255,255,0.88);
+      box-shadow: 0 18px 42px rgba(45,103,148,0.12), inset 0 1px 0 rgba(255,255,255,0.9);
+    }
+
+    .fs-root {
+      position: absolute;
+      left: 50%;
+      top: 22px;
+      z-index: 5;
+      transform: translateX(-50%);
+      min-height: 32px;
+      display: inline-flex;
+      align-items: center;
+      padding: 0 14px;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.74);
+      box-shadow: 0 14px 34px rgba(45,103,148,0.10), inset 0 1px 0 rgba(255,255,255,0.9);
+      color: rgba(0,0,0,0.58);
+      font: 700 0.78rem var(--qw-mono);
+    }
+
+    .signal-card.agent {
+      width: 27%;
+      min-height: 48px;
+      grid-template-columns: 34px minmax(0, 1fr);
+      gap: 12px;
+      padding: 0 14px;
+      border-radius: 15px;
+    }
+
+    .signal-card.target {
+      width: 34%;
+      min-height: 58px;
+      padding: 10px 16px;
+      border-radius: 15px;
+    }
+
+    .signal-card.a1 { top: 5%; }
+    .signal-card.a2 { top: 14%; }
+    .signal-card.a3 { top: 23%; }
+    .signal-card.a4 { top: 32%; }
+    .signal-card.a5 { top: 41%; }
+    .signal-card.a6 { top: 50%; }
+    .signal-card.a7 { top: 59%; }
+    .signal-card.a8 { top: 68%; }
+    .signal-card.a9 { top: 77%; }
+    .signal-card.a10 { top: 86%; }
+    .signal-card.t1 { top: 5%; }
+    .signal-card.t2 { top: 16.5%; }
+    .signal-card.t3 { top: 28%; }
+    .signal-card.t4 { top: 39.5%; }
+    .signal-card.t5 { top: 51%; }
+    .signal-card.t6 { top: 62.5%; }
+    .signal-card.t7 { top: 74%; }
+    .signal-card.t8 { top: 85%; }
+
+    .signal-card strong {
+      color: #090909;
+      font-size: clamp(1rem, 1.45vw, 1.34rem);
+      font-weight: 720;
+    }
+
+    .signal-card.agent strong {
+      font-size: clamp(0.78rem, 1.08vw, 0.98rem);
+      line-height: 1.1;
+    }
+
+    .signal-card.target strong {
+      display: block;
+      font-size: clamp(0.76rem, 1.02vw, 0.92rem);
+      line-height: 1.08;
+      font-family: var(--qw-mono);
+    }
+
+    .signal-card code {
+      margin-top: 10px;
+      color: rgba(0,0,0,0.54);
+      font-size: clamp(0.76rem, 1.05vw, 0.94rem);
+    }
+
+    .signal-card.target code {
+      margin-top: 4px;
+      color: rgba(0,0,0,0.56);
+      font-size: clamp(0.58rem, 0.78vw, 0.72rem);
+      line-height: 1.18;
+      overflow-wrap: anywhere;
+    }
+
+    .signal-card .node-note {
+      display: block;
+      margin-top: 3px;
+      color: rgba(0,0,0,0.40);
+      font-size: clamp(0.56rem, 0.72vw, 0.68rem);
+      line-height: 1.2;
+    }
+
+    .agent-icon {
+      width: 30px;
+      height: 30px;
+    }
+
+    .mcp-icon {
+      border-color: rgba(0,0,0,0.10);
+      border-radius: 10px;
+      color: #111;
+      background: #fff;
+      width: 30px;
+      height: 30px;
+      font-size: 0.68rem;
+    }
+
+    .redesign-section {
+      background: #f6f6f6;
+      border-top: 0;
+      padding: clamp(76px, 9vw, 128px) 0;
+    }
+
+    .redesign-section:nth-of-type(even) {
+      background: #fff;
+    }
+
+    .section-split {
+      grid-template-columns: minmax(280px, 0.72fr) minmax(0, 1.28fr);
+    }
+
+    .section-label {
+      color: rgba(0,0,0,0.42);
+      font-family: var(--qw-font);
+      font-size: 0.95rem;
+      font-weight: 580;
+      text-transform: none;
+    }
+
+    .redesign-section h2 {
+      color: #050505;
+      font-size: clamp(2.4rem, 4.9vw, 5.2rem);
+      line-height: 1.02;
+      font-weight: 720;
+    }
+
+    .section-copy {
+      color: rgba(0,0,0,0.58);
+      font-size: 1.08rem;
+    }
+
+    #quick-access {
+      background:
+        radial-gradient(circle at 14% 4%, rgba(232, 121, 180, 0.16), transparent 20rem),
+        radial-gradient(circle at 84% 18%, rgba(85, 185, 255, 0.16), transparent 22rem),
+        linear-gradient(180deg, #f9fdff 0%, #f3fff3 48%, #fff8fc 100%);
+    }
+
+    #quick-access .section-label {
+      color: #118dbf;
+      font-size: 0.82rem;
+      font-weight: 760;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+    }
+
+    .install-title {
+      max-width: 900px;
+    }
+
+    .install-title .title-line {
+      display: block;
+    }
+
+    .install-title .accent {
+      width: fit-content;
+      background: linear-gradient(90deg, #4fb4ff 0%, #e879b4 46%, #1aa678 100%);
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+    }
+
+    .install-copy {
+      max-width: 820px;
+      color: rgba(15, 42, 58, 0.62);
+    }
+
+    .install-copy strong {
+      color: #0f8d74;
+      font-weight: 760;
+    }
+
+    .context-card,
+    .lod-card,
+    .loop-step,
+    .proof-card,
+    .command-box {
+      border: 1px solid rgba(0,0,0,0.06);
+      border-radius: 24px;
+      background: #fff;
+      box-shadow: 0 16px 40px rgba(0,0,0,0.04);
+    }
+
+    .context-card.primary,
+    .proof-card.primary {
+      border-color: rgba(89,201,154,0.28);
+      background: linear-gradient(135deg, #e9ffef, #ffffff 56%);
+    }
+
+    .context-card h3,
+    .lod-card h3,
+    .loop-step h3,
+    .proof-card h3 {
+      color: #050505;
+      font-size: 1.2rem;
+    }
+
+    .context-card p,
+    .lod-card p,
+    .loop-step p,
+    .proof-card p {
+      color: rgba(0,0,0,0.58);
+    }
+
+    .tag {
+      border: 0;
+      border-radius: 999px;
+      background: #f2f2f2;
+      color: rgba(0,0,0,0.54);
+    }
+
+    .tag.hot {
+      color: #1e7c44;
+      background: #dff9e5;
+    }
+
+    .lod-card::before {
+      color: rgba(0,0,0,0.055);
+    }
+
+    .loop-index {
+      border: 0;
+      border-radius: 50%;
+      background: #e9f8ed;
+      color: #1c7d42;
+      font-family: var(--qw-font);
+    }
+
+    .command-box {
+      overflow: hidden;
+      background: #111;
+      color: #fff;
+    }
+
+    .command-row {
+      border-bottom-color: rgba(255,255,255,0.10);
+    }
+
+    .command-row span {
+      color: #98eaa4;
+    }
+
+    .command-row code {
+      color: rgba(255,255,255,0.88);
+    }
+
+    .access-flow,
+    .storage-map,
+    .capability-grid,
+    .eval-grid,
+    .welcome-panel,
+    .footer-columns {
+      display: grid;
+      gap: 16px;
+    }
+
+    .access-flow {
+      grid-template-columns: minmax(280px, 0.72fr) minmax(0, 1.28fr);
+      align-items: start;
+    }
+
+    .access-step,
+    .storage-node,
+    .capability-card,
+    .eval-card {
+      border: 1px solid rgba(0,0,0,0.06);
+      border-radius: 24px;
+      background: #fff;
+      box-shadow: 0 18px 44px rgba(0,0,0,0.045);
+    }
+
+    .access-step {
+      min-height: 224px;
+      padding: 22px;
+    }
+
+    .access-flow.install-panel {
+      display: block;
+      margin-top: 34px;
+    }
+
+    .install-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 12px;
+    }
+
+    .install-card {
+      position: relative;
+      display: grid;
+      grid-template-columns: minmax(180px, 0.34fr) minmax(0, 1fr);
+      align-items: center;
+      gap: 18px;
+      min-height: 0;
+      padding: 18px 20px;
+      border: 1px solid rgba(0,0,0,0.055);
+      border-radius: 22px;
+      background: rgba(255,255,255,0.88);
+      box-shadow: 0 18px 44px rgba(45,103,148,0.07), inset 0 1px 0 rgba(255,255,255,0.9);
+    }
+
+    .install-card::before {
+      content: attr(data-step);
+      position: absolute;
+      top: 18px;
+      right: 18px;
+      color: rgba(17,141,191,0.34);
+      font: 760 0.72rem var(--qw-mono);
+    }
+
+    .install-card.featured {
+      background:
+        linear-gradient(90deg, rgba(255,242,249,0.80), rgba(232,247,255,0.90)),
+        #fff;
+    }
+
+    .install-card.danger {
+      border-color: rgba(232,121,180,0.14);
+      background: linear-gradient(135deg, rgba(255,247,251,0.96), #fff);
+    }
+
+    .install-card h3 {
+      grid-column: 1;
+      grid-row: 1;
+      margin: 0 0 8px;
+      padding-right: 34px;
+      color: #050505;
+      font-size: 1.04rem;
+      line-height: 1.2;
+      font-weight: 740;
+    }
+
+    .install-card p {
+      grid-column: 1;
+      grid-row: 2;
+      margin: 0;
+      color: rgba(18,42,62,0.58);
+      font-size: 0.88rem;
+      line-height: 1.48;
+    }
+
+    .install-command {
+      grid-column: 2;
+      grid-row: 1 / span 2;
+      min-width: 0;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 10px;
+      align-items: stretch;
+    }
+
+    .install-card code {
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      min-height: 56px;
+      margin: 0;
+      padding: 13px 15px;
+      border: 1px solid rgba(85,185,255,0.22);
+      border-radius: 14px;
+      background: linear-gradient(90deg, rgba(232,247,255,0.94), rgba(255,242,249,0.70));
+      color: #18364a;
+      font: 650 0.75rem var(--qw-mono);
+      line-height: 1.48;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.88), 0 10px 24px rgba(67,126,165,0.08);
+    }
+
+    .install-card.featured code {
+      background: linear-gradient(90deg, rgba(255,242,249,0.88), rgba(232,247,255,0.94));
+    }
+
+    .install-copy-button {
+      min-width: 76px;
+      min-height: 56px;
+      padding: 0 18px;
+      border: 1px solid rgba(17,141,191,0.20);
+      border-radius: 999px;
+      background: linear-gradient(180deg, rgba(255,255,255,0.96), rgba(231,247,255,0.94));
+      color: #0f8d74;
+      font: 760 0.86rem var(--qw-font);
+      cursor: pointer;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.9), 0 14px 32px rgba(60, 134, 180, 0.08);
+      transition: transform 160ms ease, border-color 160ms ease, color 160ms ease;
+    }
+
+    .install-copy-button:hover {
+      transform: translateY(-1px);
+      border-color: rgba(232,121,180,0.32);
+      color: #1291c9;
+    }
+
+    .access-step b {
+      width: 38px;
+      height: 38px;
+      display: grid;
+      place-items: center;
+      margin-bottom: 20px;
+      border-radius: 50%;
+      background: #e9f8ed;
+      color: #1c7d42;
+      font-weight: 760;
+    }
+
+    .access-step h3,
+    .storage-node h3,
+    .capability-card h3,
+    .eval-card h3 {
+      margin: 0 0 10px;
+      color: #050505;
+      font-size: 1.16rem;
+      font-weight: 720;
+    }
+
+    .access-step p,
+    .storage-node p,
+    .capability-card p,
+    .eval-card p {
+      margin: 0;
+      color: rgba(0,0,0,0.58);
+      font-size: 0.95rem;
+      line-height: 1.58;
+    }
+
+    .access-step code,
+    .storage-node code,
+    .capability-card code,
+    .eval-card code {
+      display: block;
+      margin-top: 14px;
+      padding: 10px 12px;
+      border-radius: 14px;
+      background: #f4f6f8;
+      color: #242424;
+      font: 650 0.78rem var(--qw-mono);
+      overflow-wrap: anywhere;
+    }
+
+    .storage-map {
+      position: relative;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      padding: 20px;
+      border: 1px solid rgba(0,0,0,0.06);
+      border-radius: 32px;
+      background:
+        linear-gradient(90deg, rgba(80,150,210,0.12) 1px, transparent 1px),
+        linear-gradient(180deg, rgba(80,150,210,0.10) 1px, transparent 1px),
+        #f3faff;
+      background-size: 52px 52px;
+    }
+
+    .storage-node.primary {
+      grid-column: span 2;
+      background: linear-gradient(135deg, #e8fff0, #fff);
+      border-color: rgba(79,202,132,0.28);
+    }
+
+    .storage-node {
+      min-height: 168px;
+      padding: 20px;
+    }
+
+    .capability-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .capability-card {
+      min-height: 310px;
+      padding: 24px;
+      overflow: hidden;
+    }
+
+    .capability-card.featured {
+      background: linear-gradient(135deg, #e9ffef, #fff 58%);
+    }
+
+    .capability-tagline {
+      display: inline-flex;
+      align-items: center;
+      min-height: 28px;
+      margin-bottom: 16px;
+      padding: 0 10px;
+      border-radius: 999px;
+      background: #eef7ff;
+      color: rgba(0,0,0,0.58);
+      font-size: 0.78rem;
+      font-weight: 680;
+    }
+
+    .mini-flow {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+      margin-top: 18px;
+    }
+
+    .mini-flow span {
+      min-height: 42px;
+      display: grid;
+      place-items: center;
+      padding: 0 8px;
+      border-radius: 14px;
+      background: #f4f6f8;
+      color: rgba(0,0,0,0.62);
+      font-size: 0.78rem;
+      font-weight: 680;
+      text-align: center;
+    }
+
+    #capabilities {
+      background:
+        radial-gradient(circle at 16% 0%, rgba(232, 121, 180, 0.16), transparent 22rem),
+        radial-gradient(circle at 82% 10%, rgba(85, 185, 255, 0.18), transparent 24rem),
+        linear-gradient(180deg, #f8fdff 0%, #f2fff4 48%, #fff8fc 100%);
+    }
+
+    #capabilities .section-label {
+      color: #118dbf;
+      font-size: 0.82rem;
+      font-weight: 760;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+    }
+
+    #capabilities h2 {
+      max-width: 1060px;
+      color: #050505;
+    }
+
+    #capabilities h2 span {
+      display: block;
+    }
+
+    #capabilities h2 span:nth-child(2),
+    #capabilities h2 span:nth-child(3) {
+      width: fit-content;
+      background: linear-gradient(90deg, #4fb4ff 0%, #e879b4 48%, #1aa678 100%);
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+    }
+
+    #capabilities .section-copy {
+      max-width: 860px;
+      color: rgba(15,42,58,0.62);
+    }
+
+    .capability-lab {
+      position: relative;
+      margin-top: 36px;
+      padding: 24px;
+      overflow: hidden;
+      border: 1px solid rgba(89, 184, 255, 0.20);
+      border-radius: 34px;
+      background:
+        linear-gradient(90deg, rgba(89,184,255,0.12) 1px, transparent 1px),
+        linear-gradient(180deg, rgba(89,184,255,0.10) 1px, transparent 1px),
+        linear-gradient(135deg, rgba(255,255,255,0.86), rgba(232,247,255,0.68));
+      background-size: 54px 54px;
+      box-shadow: 0 28px 80px rgba(67, 126, 165, 0.13), inset 0 1px 0 rgba(255,255,255,0.88);
+    }
+
+    .capability-lab::before {
+      content: "";
+      position: absolute;
+      inset: -20% 22% auto auto;
+      width: 420px;
+      height: 420px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(232,121,180,0.16), transparent 68%);
+      pointer-events: none;
+    }
+
+    .cap-tabs,
+    .cap-stage {
+      position: relative;
+      z-index: 1;
+    }
+
+    .cap-tabs {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      margin-bottom: 18px;
+    }
+
+    .cap-tab {
+      min-height: 126px;
+      padding: 18px;
+      border: 1px solid rgba(0,0,0,0.055);
+      border-radius: 22px;
+      background: rgba(255,255,255,0.82);
+      color: rgba(18,42,62,0.70);
+      box-shadow: 0 16px 36px rgba(45,103,148,0.06), inset 0 1px 0 rgba(255,255,255,0.9);
+    }
+
+    .cap-tab.active {
+      border-color: rgba(85,185,255,0.42);
+      background: linear-gradient(135deg, rgba(232,247,255,0.96), rgba(255,242,249,0.72));
+    }
+
+    .cap-tab span {
+      display: inline-flex;
+      margin-bottom: 14px;
+      color: #1291c9;
+      font: 760 0.72rem var(--qw-mono);
+      letter-spacing: 0.04em;
+    }
+
+    .cap-tab h3 {
+      margin: 0 0 8px;
+      color: #050505;
+      font-size: 1.1rem;
+      font-weight: 740;
+    }
+
+    .cap-tab p {
+      margin: 0;
+      color: rgba(18,42,62,0.56);
+      font-size: 0.88rem;
+      line-height: 1.5;
+    }
+
+    .cap-stage {
+      display: grid;
+      grid-template-columns: minmax(320px, 0.9fr) minmax(0, 1.26fr);
+      overflow: hidden;
+      border: 1px solid rgba(0,0,0,0.055);
+      border-radius: 28px;
+      background: rgba(255,255,255,0.72);
+      box-shadow: 0 22px 60px rgba(45,103,148,0.08), inset 0 1px 0 rgba(255,255,255,0.9);
+    }
+
+    .cap-tree {
+      min-height: 650px;
+      padding: 26px;
+      border-right: 1px solid rgba(89,184,255,0.16);
+      background:
+        linear-gradient(90deg, rgba(89,184,255,0.07) 1px, transparent 1px),
+        linear-gradient(180deg, rgba(89,184,255,0.06) 1px, transparent 1px),
+        rgba(255,255,255,0.78);
+      background-size: 42px 42px;
+    }
+
+    .tree-head {
+      margin-bottom: 18px;
+      padding: 0 4px 18px;
+      border-bottom: 1px solid rgba(0,0,0,0.06);
+    }
+
+    .tree-head span {
+      display: block;
+      margin-bottom: 7px;
+      color: #1291c9;
+      font: 720 0.72rem var(--qw-mono);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+
+    .tree-head strong {
+      color: #050505;
+      font: 700 1.02rem var(--qw-mono);
+      overflow-wrap: anywhere;
+    }
+
+    .tree-row {
+      --depth: 0;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 12px;
+      align-items: center;
+      margin-left: calc(var(--depth) * 18px);
+      min-height: 42px;
+      padding: 8px 10px;
+      border-radius: 13px;
+      color: rgba(18,42,62,0.72);
+      font-family: var(--qw-mono);
+      font-size: 0.78rem;
+    }
+
+    .tree-row.active {
+      border: 1px solid rgba(85,185,255,0.30);
+      background: linear-gradient(90deg, rgba(232,247,255,0.86), rgba(255,242,249,0.55));
+      color: #050505;
+    }
+
+    .tree-row span {
+      min-width: 0;
+      overflow-wrap: anywhere;
+    }
+
+    .tree-row code {
+      display: block;
+      margin-top: 4px;
+      color: rgba(18,42,62,0.42);
+      font: 640 0.66rem var(--qw-mono);
+      line-height: 1.35;
+      overflow-wrap: anywhere;
+    }
+
+    .tree-row b {
+      align-self: start;
+      padding: 4px 7px;
+      border: 1px solid rgba(85,185,255,0.28);
+      border-radius: 8px;
+      color: #1291c9;
+      font: 760 0.66rem var(--qw-mono);
+      white-space: nowrap;
+    }
+
+    .cap-panel {
+      padding: clamp(24px, 3.2vw, 36px);
+      background:
+        radial-gradient(circle at 84% 14%, rgba(232,121,180,0.14), transparent 18rem),
+        rgba(255,255,255,0.72);
+    }
+
+    .cap-eyebrow {
+      display: inline-flex;
+      align-items: center;
+      min-height: 30px;
+      padding: 0 12px;
+      border-radius: 999px;
+      background: linear-gradient(90deg, rgba(255,242,249,0.90), rgba(232,247,255,0.94));
+      color: #1291c9;
+      font-size: 0.82rem;
+      font-weight: 760;
+    }
+
+    .cap-panel h3 {
+      max-width: 760px;
+      margin: 18px 0 10px;
+      color: #050505;
+      font-size: clamp(1.7rem, 3vw, 3rem);
+      line-height: 1.08;
+      font-weight: 760;
+    }
+
+    .cap-panel > p {
+      max-width: 760px;
+      margin: 0;
+      color: rgba(18,42,62,0.62);
+      font-size: 1rem;
+      line-height: 1.68;
+    }
+
+    .cap-pipeline {
+      display: grid;
+      gap: 12px;
+      margin-top: 24px;
+    }
+
+    .cap-lane {
+      display: grid;
+      grid-template-columns: 96px minmax(0, 1fr) auto;
+      gap: 12px;
+      align-items: center;
+      padding: 14px;
+      border: 1px solid rgba(85,185,255,0.20);
+      border-radius: 18px;
+      background: linear-gradient(90deg, rgba(255,255,255,0.86), rgba(232,247,255,0.72));
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.92), 0 12px 28px rgba(45,103,148,0.06);
+    }
+
+    .cap-lane span {
+      color: #1291c9;
+      font: 760 0.74rem var(--qw-mono);
+      text-transform: uppercase;
+    }
+
+    .cap-lane code {
+      color: #18364a;
+      font: 650 0.78rem var(--qw-mono);
+      line-height: 1.45;
+      overflow-wrap: anywhere;
+    }
+
+    .cap-lane b {
+      padding: 7px 9px;
+      border: 1px solid rgba(17,141,191,0.16);
+      border-radius: 10px;
+      background: rgba(255,255,255,0.84);
+      color: #0f8d74;
+      font-size: 0.72rem;
+      white-space: nowrap;
+    }
+
+    .cap-result-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 18px;
+    }
+
+    .cap-result-card {
+      min-height: 112px;
+      padding: 14px;
+      border: 1px solid rgba(0,0,0,0.055);
+      border-radius: 18px;
+      background: rgba(255,255,255,0.78);
+      box-shadow: 0 14px 30px rgba(45,103,148,0.05), inset 0 1px 0 rgba(255,255,255,0.9);
+    }
+
+    .cap-result-card strong {
+      display: block;
+      margin-bottom: 8px;
+      color: #050505;
+      font-size: 0.92rem;
+      font-weight: 740;
+    }
+
+    .cap-result-card p {
+      margin: 0;
+      color: rgba(18,42,62,0.52);
+      font-size: 0.78rem;
+      line-height: 1.46;
+    }
+
+    .eval-grid {
+      grid-template-columns: 1.15fr repeat(3, minmax(0, 0.95fr));
+      align-items: stretch;
+    }
+
+    .eval-card {
+      min-height: 178px;
+      padding: 22px;
+    }
+
+    .eval-card.hero {
+      grid-row: span 2;
+      background: linear-gradient(135deg, #e3f4ff, #fff);
+    }
+
+    .eval-card strong {
+      display: block;
+      margin-bottom: 8px;
+      color: #050505;
+      font-size: clamp(1.9rem, 3.4vw, 3.8rem);
+      line-height: 1;
+      font-weight: 760;
+    }
+
+    .eval-card small {
+      display: block;
+      margin-top: 14px;
+      color: rgba(0,0,0,0.44);
+      line-height: 1.5;
+    }
+
+    .benchmark-figure {
+      margin: 34px 0 0;
+      padding: clamp(10px, 1.3vw, 18px);
+      border: 1px solid rgba(85,185,255,0.18);
+      border-radius: 30px;
+      background:
+        radial-gradient(circle at 12% 0%, rgba(232,121,180,0.10), transparent 20rem),
+        radial-gradient(circle at 88% 4%, rgba(85,185,255,0.12), transparent 22rem),
+        rgba(255,255,255,0.86);
+      box-shadow: 0 28px 70px rgba(45,103,148,0.10), inset 0 1px 0 rgba(255,255,255,0.92);
+    }
+
+    .benchmark-figure img {
+      width: 100%;
+      height: auto;
+      display: block;
+      border: 1px solid rgba(0,0,0,0.045);
+      border-radius: 20px;
+      background: #fff;
+      box-shadow: 0 16px 36px rgba(45,103,148,0.055);
+    }
+
+    .benchmark-reference {
+      width: fit-content;
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      min-height: 38px;
+      margin-top: 14px;
+      padding: 0 14px;
+      border: 1px solid rgba(85,185,255,0.20);
+      border-radius: 999px;
+      background: linear-gradient(90deg, rgba(232,247,255,0.92), rgba(255,242,249,0.78));
+      color: rgba(18,42,62,0.58);
+      font-size: 0.92rem;
+      font-weight: 680;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.88), 0 12px 28px rgba(45,103,148,0.06);
+    }
+
+    .benchmark-reference span {
+      color: #1291c9;
+      font-weight: 760;
+    }
+
+    .benchmark-reference a {
+      color: #0f8d74;
+      font-weight: 760;
+      text-decoration: none;
+    }
+
+    .welcome-panel {
+      position: relative;
+      overflow: hidden;
+      grid-template-columns: minmax(460px, 0.98fr) minmax(0, 1.02fr);
+      align-items: stretch;
+      gap: clamp(20px, 3vw, 34px);
+      padding: clamp(24px, 3.6vw, 42px);
+      border: 1px solid rgba(85,185,255,0.18);
+      border-radius: 34px;
+      background:
+        linear-gradient(90deg, rgba(89,184,255,0.11) 1px, transparent 1px),
+        linear-gradient(180deg, rgba(89,184,255,0.09) 1px, transparent 1px),
+        radial-gradient(circle at 12% 18%, rgba(232,121,180,0.14), transparent 22rem),
+        radial-gradient(circle at 88% 4%, rgba(85,185,255,0.16), transparent 24rem),
+        linear-gradient(135deg, rgba(255,255,255,0.92), rgba(232,247,255,0.68));
+      background-size: 54px 54px, 54px 54px, auto, auto, auto;
+      box-shadow: 0 30px 80px rgba(45,103,148,0.11), inset 0 1px 0 rgba(255,255,255,0.92);
+    }
+
+    .welcome-panel::before {
+      content: "";
+      position: absolute;
+      right: -90px;
+      top: -110px;
+      width: 330px;
+      height: 330px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(244,255,207,0.72), rgba(244,255,207,0) 66%);
+      pointer-events: none;
+    }
+
+    .co-create-copy,
+    .co-create-board {
+      position: relative;
+      z-index: 1;
+    }
+
+    .co-create-copy {
+      display: flex;
+      flex-direction: column;
+      min-height: 100%;
+    }
+
+    .welcome-panel .section-label {
+      color: #118dbf;
+      font-size: 0.82rem;
+      font-weight: 760;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+    }
+
+    .welcome-panel h2 {
+      max-width: 760px;
+      margin-top: 12px;
+      color: #050505;
+      font-size: clamp(2.28rem, 3.15vw, 3.58rem);
+      line-height: 0.98;
+      font-weight: 760;
+    }
+
+    .welcome-panel h2 span {
+      display: block;
+      width: fit-content;
+      letter-spacing: 0;
+      white-space: nowrap;
+    }
+
+    .welcome-panel h2 .co-title-second {
+      margin-top: 8px;
+      margin-left: clamp(18px, 2.1vw, 30px);
+      font-size: 0.86em;
+      color: transparent;
+      background: linear-gradient(96deg, #050505 0%, #18364a 48%, #1291c9 100%);
+      -webkit-background-clip: text;
+      background-clip: text;
+      text-shadow: 0 18px 32px rgba(45,103,148,0.08);
+    }
+
+    .welcome-panel p {
+      color: rgba(18,42,62,0.62);
+      opacity: 1;
+      line-height: 1.72;
+    }
+
+    .co-create-loop {
+      display: grid;
+      gap: 10px;
+      margin-top: auto;
+      padding-top: 24px;
+    }
+
+    .loop-step {
+      display: grid;
+      grid-template-columns: 74px minmax(0, 1fr);
+      gap: 12px;
+      align-items: center;
+      min-height: 54px;
+      padding: 10px 12px;
+      border: 1px solid rgba(85,185,255,0.18);
+      border-radius: 17px;
+      background: rgba(255,255,255,0.72);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.88), 0 12px 28px rgba(45,103,148,0.05);
+    }
+
+    .loop-step b {
+      color: #1291c9;
+      font: 760 0.72rem var(--qw-mono);
+      text-transform: uppercase;
+    }
+
+    .loop-step span {
+      color: rgba(18,42,62,0.70);
+      font-size: 0.92rem;
+      line-height: 1.4;
+    }
+
+    .co-create-board {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 12px;
+    }
+
+    .contribution-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .contribution-card,
+    .governance-card {
+      border: 1px solid rgba(0,0,0,0.055);
+      border-radius: 22px;
+      background: rgba(255,255,255,0.78);
+      box-shadow: 0 16px 36px rgba(45,103,148,0.06), inset 0 1px 0 rgba(255,255,255,0.9);
+    }
+
+    .contribution-card {
+      min-height: 158px;
+      padding: 16px;
+    }
+
+    .contribution-card i {
+      width: 34px;
+      height: 34px;
+      display: grid;
+      place-items: center;
+      margin-bottom: 14px;
+      border-radius: 13px;
+      background:
+        radial-gradient(circle at 36% 28%, rgba(255,255,255,0.92), rgba(255,255,255,0) 42%),
+        linear-gradient(145deg, #e8f7ff, #84d6ff 52%, #42a4e8);
+      color: #0e6fb2;
+      font: 760 0.72rem var(--qw-mono);
+      font-style: normal;
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.76), 0 10px 18px rgba(58,151,222,0.14);
+    }
+
+    .contribution-card:nth-child(2) i {
+      background:
+        radial-gradient(circle at 36% 28%, rgba(255,255,255,0.94), rgba(255,255,255,0) 42%),
+        linear-gradient(145deg, #fff1f6, #f6a6cb 54%, #e879b4);
+      color: #b64b74;
+    }
+
+    .contribution-card:nth-child(3) i {
+      background:
+        radial-gradient(circle at 36% 28%, rgba(255,255,255,0.92), rgba(255,255,255,0) 42%),
+        linear-gradient(145deg, #dffbea, #84e7a8 48%, #28b884);
+      color: #118d74;
+    }
+
+    .contribution-card strong {
+      display: block;
+      margin-bottom: 8px;
+      color: #050505;
+      font-size: 0.98rem;
+      font-weight: 750;
+    }
+
+    .contribution-card p {
+      margin: 0;
+      color: rgba(18,42,62,0.55);
+      font-size: 0.82rem;
+      line-height: 1.5;
+    }
+
+    .governance-card {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 18px;
+      align-items: center;
+      min-height: 170px;
+      padding: 20px;
+      background:
+        radial-gradient(circle at 8% 0%, rgba(232,121,180,0.10), transparent 18rem),
+        linear-gradient(135deg, rgba(255,255,255,0.88), rgba(232,247,255,0.78));
+    }
+
+    .governance-card strong {
+      display: block;
+      margin-bottom: 8px;
+      color: #050505;
+      font-size: clamp(1.35rem, 2vw, 2rem);
+      line-height: 1.18;
+      font-weight: 760;
+    }
+
+    .governance-card p {
+      max-width: 620px;
+      margin: 0;
+      color: rgba(18,42,62,0.58);
+      font-size: 0.92rem;
+    }
+
+    .governance-meter {
+      width: min(180px, 28vw);
+      aspect-ratio: 1;
+      display: grid;
+      place-items: center;
+      border: 1px solid rgba(85,185,255,0.22);
+      border-radius: 50%;
+      background:
+        conic-gradient(from 220deg, #55b9ff 0 34%, #e879b4 34% 66%, #84e7a8 66% 100%);
+      box-shadow: inset 0 0 0 18px rgba(255,255,255,0.78), 0 20px 42px rgba(45,103,148,0.10);
+    }
+
+    .governance-meter span {
+      width: 58%;
+      aspect-ratio: 1;
+      display: grid;
+      place-items: center;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.92);
+      color: #18364a;
+      font: 760 0.74rem var(--qw-mono);
+      text-align: center;
+      line-height: 1.25;
+      box-shadow: 0 10px 24px rgba(45,103,148,0.08);
+    }
+
+    .welcome-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      justify-content: flex-start;
+    }
+
+    .welcome-actions a {
+      min-height: 44px;
+      display: inline-flex;
+      align-items: center;
+      padding: 0 17px;
+      border: 1px solid rgba(85,185,255,0.18);
+      border-radius: 999px;
+      background:
+        linear-gradient(180deg, rgba(255,255,255,0.96), rgba(248,252,255,0.92)),
+        #fff;
+      color: #18364a;
+      font-weight: 720;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.9), 0 12px 28px rgba(45,103,148,0.06);
+    }
+
+    .welcome-actions a.secondary {
+      background: rgba(255,255,255,0.58);
+      color: #1291c9;
+    }
+
+    .redesign-footer {
+      position: relative;
+      overflow: hidden;
+      padding: clamp(62px, 8vw, 96px) 0 34px;
+      background:
+        linear-gradient(90deg, rgba(89,184,255,0.10) 1px, transparent 1px),
+        linear-gradient(180deg, rgba(89,184,255,0.08) 1px, transparent 1px),
+        radial-gradient(circle at 14% 8%, rgba(232,121,180,0.14), transparent 22rem),
+        radial-gradient(circle at 86% 0%, rgba(85,185,255,0.16), transparent 24rem),
+        linear-gradient(180deg, #f7fdff 0%, #f3fff4 52%, #fff8fc 100%);
+      background-size: 54px 54px, 54px 54px, auto, auto, auto;
+      border-top: 1px solid rgba(85,185,255,0.16);
+      color: rgba(18,42,62,0.62);
+    }
+
+    .redesign-footer::before {
+      content: "";
+      position: absolute;
+      inset: 28px 5vw auto;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, rgba(85,185,255,0.34), rgba(232,121,180,0.22), transparent);
+      pointer-events: none;
+    }
+
+    .redesign-footer .redesign-wrap {
+      display: block;
+    }
+
+    .footer-columns {
+      grid-template-columns: 1.5fr repeat(2, minmax(180px, 0.7fr)) 1fr;
+      align-items: start;
+      gap: 14px;
+    }
+
+    .footer-columns > div {
+      min-height: 184px;
+      padding: 22px;
+      border: 1px solid rgba(85,185,255,0.17);
+      border-radius: 24px;
+      background: rgba(255,255,255,0.72);
+      box-shadow: 0 18px 44px rgba(45,103,148,0.07), inset 0 1px 0 rgba(255,255,255,0.88);
+      backdrop-filter: blur(8px);
+    }
+
+    .footer-brand {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      color: #050505;
+      font-size: 1.18rem;
+      font-weight: 720;
+    }
+
+    .footer-brand img {
+      width: 46px;
+      height: 46px;
+    }
+
+    .footer-columns h3 {
+      margin: 0 0 18px;
+      color: #050505;
+      font-size: 1rem;
+      font-weight: 760;
+    }
+
+    .footer-columns p,
+    .footer-columns a,
+    .footer-bottom {
+      color: rgba(18,42,62,0.62);
+      font-size: 0.95rem;
+      line-height: 1.62;
+    }
+
+    .footer-columns a {
+      display: block;
+      margin: 8px 0;
+      transition: color 160ms ease, transform 160ms ease;
+    }
+
+    .footer-columns a:hover {
+      color: #1291c9;
+      transform: translateX(2px);
+    }
+
+    .footer-social {
+      display: block;
+    }
+
+    .github-repo-link {
+      position: relative;
+      overflow: hidden;
+      width: 58px;
+      height: 58px;
+      display: grid;
+      place-items: center;
+      margin-top: 12px;
+      border: 1px solid rgba(85,185,255,0.22);
+      border-radius: 18px;
+      background:
+        linear-gradient(180deg, rgba(255,255,255,0.96), rgba(232,247,255,0.78)),
+        #fff;
+      color: #050505;
+      box-shadow: 0 16px 34px rgba(45,103,148,0.10), inset 0 1px 0 rgba(255,255,255,0.92);
+      transition: border-color 160ms ease, background 160ms ease, transform 160ms ease, box-shadow 160ms ease;
+    }
+
+    .github-repo-link::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      border-radius: inherit;
+      background:
+        radial-gradient(circle at 24% 18%, rgba(232,121,180,0.18), transparent 46%),
+        radial-gradient(circle at 82% 84%, rgba(85,185,255,0.18), transparent 48%);
+      opacity: 0.9;
+      pointer-events: none;
+    }
+
+    .github-repo-link:hover {
+      transform: translateY(-1px);
+      border-color: rgba(232,121,180,0.30);
+      background:
+        linear-gradient(180deg, rgba(255,255,255,0.98), rgba(232,247,255,0.88)),
+        #fff;
+      color: #050505;
+      box-shadow: 0 18px 38px rgba(45,103,148,0.14), inset 0 1px 0 rgba(255,255,255,0.96);
+    }
+
+    .github-repo-mark {
+      position: relative;
+      z-index: 1;
+      width: 28px;
+      height: 28px;
+      display: grid;
+      place-items: center;
+      color: #050505;
+    }
+
+    .github-repo-mark svg {
+      width: 28px;
+      height: 28px;
+      display: block;
+      fill: currentColor;
+      opacity: 0.92;
+    }
+
+    .footer-bottom {
+      width: fit-content;
+      margin: 18px auto 0;
+      padding: 10px 16px;
+      border: 1px solid rgba(85,185,255,0.14);
+      border-radius: 999px;
+      background: rgba(255,255,255,0.62);
+      text-align: center;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.86), 0 12px 28px rgba(45,103,148,0.05);
+    }
+
+    .redesign-footer {
+      color: rgba(18,42,62,0.62);
+    }
+
+    @media (max-width: 1100px) {
+      .redesign-metrics {
+        display: none;
+      }
+      .signal-map {
+        margin-top: 42px;
+        width: min(100%, 920px);
+      }
+      .access-flow,
+      .storage-map,
+      .capability-grid,
+      .cap-tabs,
+      .cap-result-grid,
+      .contribution-grid,
+      .eval-grid,
+      .welcome-panel,
+      .footer-columns {
+        grid-template-columns: 1fr 1fr;
+      }
+      .footer-columns > div:first-child {
+        grid-column: span 2;
+      }
+      .cap-stage {
+        grid-template-columns: 1fr;
+      }
+      .cap-tree {
+        min-height: 0;
+        border-right: 0;
+        border-bottom: 1px solid rgba(89,184,255,0.16);
+      }
+      .access-flow.install-panel {
+        grid-template-columns: 1fr;
+      }
+      .eval-card.hero,
+      .storage-node.primary {
+        grid-column: span 2;
+      }
+    }
+
+    @media (max-width: 760px) {
+      .redesign-wrap {
+        width: min(100% - 28px, 1280px);
+      }
+      .redesign-copy {
+        padding-top: 46px;
+      }
+      .redesign-copy h1 {
+        font-size: 2.78rem;
+      }
+      .redesign-copy h1 span {
+        display: block;
+      }
+      .redesign-copy h1 span + span::before {
+        content: "";
+      }
+      .redesign-metrics {
+        display: none;
+      }
+      .signal-map {
+        min-height: 1280px;
+        margin-top: 28px;
+        border-radius: 24px;
+      }
+      .hub-core {
+        top: 50%;
+      }
+      .signal-card.agent,
+      .signal-card.target {
+        width: calc(50% - 24px);
+      }
+      .signal-card.a1 { top: 5%; }
+      .signal-card.a2 { top: 15%; }
+      .signal-card.a3 { top: 25%; }
+      .signal-card.a4 { top: 35%; }
+      .signal-card.a5 { top: 45%; }
+      .signal-card.a6 { top: 55%; }
+      .signal-card.a7 { top: 65%; }
+      .signal-card.a8 { top: 75%; }
+      .signal-card.a9 { top: 85%; }
+      .signal-card.a10 { top: 93%; }
+      .signal-card.t1 { top: 7%; }
+      .signal-card.t2 { top: 19%; }
+      .signal-card.t3 { top: 31%; }
+      .signal-card.t4 { top: 43%; }
+      .signal-card.t5 { top: 55%; }
+      .signal-card.t6 { top: 67%; }
+      .signal-card.t7 { top: 79%; }
+      .signal-card.t8 { top: 91%; }
+      .section-split {
+        grid-template-columns: 1fr;
+      }
+      .redesign-section h2 {
+        font-size: 2.6rem;
+      }
+      #capabilities h2 {
+        font-size: 2.25rem;
+        line-height: 1.05;
+      }
+      .welcome-panel h2 {
+        font-size: clamp(2rem, 8.7vw, 2.85rem);
+        line-height: 1.02;
+      }
+      .welcome-panel h2 .co-title-second {
+        margin-left: 10px;
+      }
+      .access-flow,
+      .storage-map,
+      .capability-grid,
+      .cap-tabs,
+      .cap-stage,
+      .cap-result-grid,
+      .contribution-grid,
+      .eval-grid,
+      .welcome-panel,
+      .footer-columns {
+        grid-template-columns: 1fr;
+      }
+      .footer-columns > div:first-child {
+        grid-column: auto;
+      }
+      .capability-lab {
+        padding: 14px;
+        border-radius: 24px;
+      }
+      .cap-tab {
+        min-height: 0;
+      }
+      .cap-tree,
+      .cap-panel {
+        padding: 18px;
+      }
+      .tree-row {
+        margin-left: min(calc(var(--depth) * 12px), 24px);
+        grid-template-columns: minmax(0, 1fr);
+      }
+      .tree-row b {
+        width: fit-content;
+      }
+      .cap-lane {
+        grid-template-columns: 1fr;
+        align-items: start;
+      }
+      .cap-lane b {
+        width: fit-content;
+      }
+      .governance-card {
+        grid-template-columns: 1fr;
+      }
+      .governance-meter {
+        width: 150px;
+        justify-self: center;
+      }
+      .install-grid {
+        grid-template-columns: 1fr;
+      }
+      .install-card {
+        grid-template-columns: 1fr;
+        gap: 12px;
+        padding: 17px;
+      }
+      .install-card h3,
+      .install-card p,
+      .install-command {
+        grid-column: auto;
+        grid-row: auto;
+      }
+      .install-command {
+        grid-template-columns: minmax(0, 1fr) 66px;
+        align-items: center;
+      }
+      .install-copy-button {
+        min-width: 66px;
+        min-height: 56px;
+        padding: 0 12px;
+      }
+      .install-card.featured {
+        grid-column: auto;
+      }
+      .install-card.danger {
+        grid-column: auto;
+      }
+      .eval-card.hero,
+      .storage-node.primary {
+        grid-column: auto;
+      }
+      .benchmark-figure {
+        margin-top: 24px;
+        padding: 8px;
+        border-radius: 22px;
+        overflow-x: auto;
+      }
+      .benchmark-figure img {
+        width: 980px;
+        max-width: none;
+        border-radius: 16px;
+      }
+      .benchmark-reference {
+        width: 100%;
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 4px;
+        min-height: 0;
+        padding: 10px 12px;
+        border-radius: 18px;
+        line-height: 1.45;
+      }
+      .mini-flow {
+        grid-template-columns: 1fr 1fr;
+      }
+      .welcome-actions {
+        justify-content: flex-start;
+      }
+    }
+
+  </style>
+</head>
+<body>
+  <div class="site-redesign">
+    <header class="redesign-nav">
+      <div class="redesign-wrap redesign-nav-inner">
+        <a class="redesign-brand" href="#top" aria-label="Agent Memory Hub">
+          <span class="redesign-mark"><img src="agent-memory-hub-octopus-logo.svg" alt=""></span>
+          <span>Agent Memory Hub</span>
+        </a>
+        <nav class="redesign-links" aria-label="Page sections">
+          <a href="#quick-access">快速接入</a>
+          <a href="#capabilities">核心能力</a>
+          <a href="#benchmark">评测报告</a>
+          <a href="#co-create">欢迎共创</a>
+        </nav>
+        <a class="redesign-cta" href="#quick-access">Start</a>
+      </div>
+    </header>
+
+    <main id="top">
+      <section class="redesign-wrap redesign-hero">
+        <div class="redesign-copy">
+          <span class="redesign-kicker">Agent Memory Hub · local context filesystem</span>
+          <h1><span>让每一次<span class="hero-word">沉淀</span></span><span>成为下一次<span class="hero-word next">出发</span></span></h1>
+          <div class="redesign-lede">
+            <p class="hero-intro">Agent Memory Hub 把上下文收束成本地文件系统</p>
+            <div class="lede-terms" aria-label="Agent Memory Hub context layers">
+              <span class="lede-term">Memory</span>
+              <span class="lede-term">Resources</span>
+              <span class="lede-term">Skills</span>
+              <span class="lede-term">Evidence</span>
+              <span class="lede-term">Loop</span>
+            </div>
+            <p class="hero-detail">基于 Hopfield 式联想召回、可治理的遗忘曲线和证据门禁，让你的 AI Agent 工具共享同一份<span class="lede-highlight">可信事实层</span></p>
+            <p class="hero-outcome"><span>告别数据孤岛</span><span>降低上下文噪音</span></p>
+          </div>
+          <div class="redesign-actions">
+            <a class="redesign-button primary" href="#quick-access">
+              <span>快速接入</span>
+            </a>
+            <a class="redesign-button" href="#capabilities">
+              <span>核心能力</span>
+            </a>
+            <a class="redesign-button" href="#benchmark">
+              <span>评测报告</span>
+            </a>
+          </div>
+          <div class="redesign-metrics" aria-label="AMH current proof points">
+            <div class="redesign-metric"><strong>可信事实层</strong><span>记忆、资源、技能、证据都落回本机。</span></div>
+            <div class="redesign-metric"><strong>合理遗忘</strong><span>过期、冲突、重复和低价值上下文进入治理。</span></div>
+            <div class="redesign-metric"><strong>接力协作</strong><span>多个 Agent 通过同一 brain pool 延续工作。</span></div>
+          </div>
+        </div>
+
+        <div class="signal-map" aria-label="Animated AMH context routing map">
+          <svg class="connection-layer" viewBox="0 0 760 660" preserveAspectRatio="none" aria-hidden="true">
+            <defs>
+              <linearGradient id="beamGradient" x1="0%" x2="100%" y1="0%" y2="0%">
+                <stop offset="0%" stop-color="rgba(120,228,222,0)"/>
+                <stop offset="42%" stop-color="#78e4de"/>
+                <stop offset="58%" stop-color="#9cf7ef"/>
+                <stop offset="100%" stop-color="rgba(120,228,222,0)"/>
+              </linearGradient>
+            </defs>
+            <path class="wire" d="M258 54 C330 58 338 230 380 294"/>
+            <path class="wire" d="M258 113 C328 114 342 248 380 306"/>
+            <path class="wire" d="M258 172 C330 174 342 267 380 316"/>
+            <path class="wire" d="M258 231 C328 232 342 286 380 324"/>
+            <path class="wire" d="M258 290 C318 292 342 304 380 331"/>
+            <path class="wire" d="M258 349 C330 348 342 338 380 338"/>
+            <path class="wire" d="M258 408 C330 407 342 362 380 348"/>
+            <path class="wire" d="M258 467 C330 464 342 386 380 356"/>
+            <path class="wire" d="M258 526 C330 522 342 410 380 366"/>
+            <path class="wire" d="M258 585 C330 578 342 436 380 376"/>
+            <path class="wire" d="M502 62 C456 84 456 248 424 294"/>
+            <path class="wire" d="M502 138 C462 150 458 274 424 308"/>
+            <path class="wire" d="M502 214 C468 220 462 294 424 320"/>
+            <path class="wire" d="M502 290 C466 290 462 313 424 330"/>
+            <path class="wire" d="M502 366 C466 362 462 342 424 340"/>
+            <path class="wire" d="M502 442 C466 430 462 368 424 352"/>
+            <path class="wire" d="M502 518 C462 500 458 396 424 364"/>
+            <path class="wire" d="M502 594 C456 570 456 424 424 376"/>
+            <path class="beam b1" d="M258 54 C330 58 338 230 380 294"/>
+            <path class="beam b2" d="M258 113 C328 114 342 248 380 306"/>
+            <path class="beam b3" d="M258 172 C330 174 342 267 380 316"/>
+            <path class="beam b4" d="M258 231 C328 232 342 286 380 324"/>
+            <path class="beam b5" d="M258 290 C318 292 342 304 380 331"/>
+            <path class="beam b6" d="M258 349 C330 348 342 338 380 338"/>
+            <path class="beam b7" d="M258 408 C330 407 342 362 380 348"/>
+            <path class="beam b8" d="M258 467 C330 464 342 386 380 356"/>
+            <path class="beam b9" d="M258 526 C330 522 342 410 380 366"/>
+            <path class="beam b10" d="M258 585 C330 578 342 436 380 376"/>
+            <path class="beam b11" d="M502 62 C456 84 456 248 424 294"/>
+            <path class="beam b12" d="M502 138 C462 150 458 274 424 308"/>
+            <path class="beam b13" d="M502 214 C468 220 462 294 424 320"/>
+            <path class="beam b14" d="M502 290 C466 290 462 313 424 330"/>
+            <path class="beam b15" d="M502 366 C466 362 462 342 424 340"/>
+            <path class="beam b16" d="M502 442 C466 430 462 368 424 352"/>
+            <path class="beam b17" d="M502 518 C462 500 458 396 424 364"/>
+            <path class="beam b18" d="M502 594 C456 570 456 424 424 376"/>
+          </svg>
+
+          <div class="hub-core"><img src="agent-memory-hub-octopus-logo.svg" alt="Agent Memory Hub"></div>
+
+          <div class="signal-card agent a1"><img class="agent-icon" src="../../web/static/agent-logos/claude-code.svg" alt=""><strong>Claude Code</strong></div>
+          <div class="signal-card agent a2"><img class="agent-icon" src="../../web/static/agent-logos/codex.png" alt=""><strong>Codex</strong></div>
+          <div class="signal-card agent a3"><img class="agent-icon" src="../../web/static/agent-logos/hermes-agent-logo.png" alt=""><strong>Hermes</strong></div>
+          <div class="signal-card agent a4"><img class="agent-icon" src="../../web/static/agent-logos/openclaw-readme.svg" alt=""><strong>OpenClaw</strong></div>
+          <div class="signal-card agent a5"><img class="agent-icon" src="../../web/static/agent-logos/openhuman.png" alt=""><strong>OpenHuman</strong></div>
+          <div class="signal-card agent a6"><img class="agent-icon" src="../../web/static/agent-logos/opensquilla.png" alt=""><strong>OpenSquilla</strong></div>
+          <div class="signal-card agent a7"><img class="agent-icon" src="../../web/static/agent-logos/qoder.svg" alt=""><strong>Qoder</strong></div>
+          <div class="signal-card agent a8"><img class="agent-icon" src="../../web/static/agent-logos/qoder-work.svg" alt=""><strong>QoderWork</strong></div>
+          <div class="signal-card agent a9"><img class="agent-icon" src="../../web/static/agent-logos/wukong-brand-logo.png" alt=""><strong>Wukong</strong></div>
+          <div class="signal-card agent a10"><img class="agent-icon" src="../../web/static/agent-logos/aone-copilot.png" alt=""><strong>Aone Copilot</strong></div>
+
+          <div class="fs-root">~/.agent-memory-hub/</div>
+          <div class="signal-card target t1"><strong>items/</strong><code>MemoryItem Markdown</code><span class="node-note">长期事实源</span></div>
+          <div class="signal-card target t2"><strong>sources/conversations/</strong><code>messages.jsonl</code><span class="node-note">原始对话证据</span></div>
+          <div class="signal-card target t3"><strong>sources/writes/</strong><code>write ledger</code><span class="node-note">写入来源账本</span></div>
+          <div class="signal-card target t4"><strong>resources/</strong><code>file · URL · multimodal</code><span class="node-note">资源记录</span></div>
+          <div class="signal-card target t5"><strong>extractions/</strong><code>parsed text</code><span class="node-note">文本抽取/资源解析</span></div>
+          <div class="signal-card target t6"><strong>runtime/*.jsonl</strong><code>adapter · injection · recall</code><span class="node-note">运行证据账本</span></div>
+          <div class="signal-card target t7"><strong>runtime/loops/</strong><code>LoopRun</code><span class="node-note">目标与验证闭环</span></div>
+          <div class="signal-card target t8"><strong>pending/ · index.db</strong><code>.index-dirty · FTS/vector</code><span class="node-note">待重放与派生索引</span></div>
+        </div>
+      </section>
+
+      <section class="redesign-section" id="quick-access">
+        <div class="redesign-wrap">
+          <p class="section-label">Quick start</p>
+          <h2 class="install-title"><span class="title-line">快速接入</span><span class="title-line accent">Agent Memory Hub</span></h2>
+          <p class="section-copy install-copy">选择你熟悉的安装入口，把 CLI、本地后管和 Agent runtime 一次装好。所有路径都会回到同一个 <strong>~/.agent-memory-hub/</strong>，先跑起来，再接入你的 AI Agent 工具。</p>
+          <div class="access-flow install-panel" aria-label="Agent Memory Hub install commands">
+            <div class="install-grid">
+              <article class="install-card featured" data-step="01">
+                <h3>macOS / Linux</h3>
+                <p>推荐入口。适合远程安装、更新和后续一键卸载。</p>
+                <div class="install-command"><code>curl -fsSL https://github.com/liuyang0508/agent-memory-hub/releases/latest/download/install.sh | sh</code><button class="install-copy-button" type="button" data-copy="curl -fsSL https://github.com/liuyang0508/agent-memory-hub/releases/latest/download/install.sh | sh" aria-label="复制 macOS / Linux 安装命令">复制</button></div>
+              </article>
+              <article class="install-card" data-step="02">
+                <h3>Windows PowerShell</h3>
+                <p>在 PowerShell 中执行，安装 Windows 侧 CLI 与本地后管入口。</p>
+                <div class="install-command"><code>powershell -ExecutionPolicy ByPass -c "irm https://github.com/liuyang0508/agent-memory-hub/releases/latest/download/install.ps1 | iex"</code><button class="install-copy-button" type="button" data-copy='powershell -ExecutionPolicy ByPass -c "irm https://github.com/liuyang0508/agent-memory-hub/releases/latest/download/install.ps1 | iex"' aria-label="复制 Windows PowerShell 安装命令">复制</button></div>
+              </article>
+              <article class="install-card" data-step="03">
+                <h3>Homebrew</h3>
+                <p>适合习惯用 brew 管理桌面工具和命令行入口的 macOS 用户。</p>
+                <div class="install-command"><code>brew install --cask liuyang0508/agent-memory-hub/agent-memory-hub</code><button class="install-copy-button" type="button" data-copy="brew install --cask liuyang0508/agent-memory-hub/agent-memory-hub" aria-label="复制 Homebrew 安装命令">复制</button></div>
+              </article>
+              <article class="install-card" data-step="04">
+                <h3>npm</h3>
+                <p>适合 Node 工具链用户，快速获得全局 memory 命令。</p>
+                <div class="install-command"><code>npm install -g agent-memory-hub</code><button class="install-copy-button" type="button" data-copy="npm install -g agent-memory-hub" aria-label="复制 npm 安装命令">复制</button></div>
+              </article>
+              <article class="install-card" data-step="05">
+                <h3>启动本地后管</h3>
+                <p>打开 Web Admin，查看 Agent、运行证据、本机历史源和记忆草稿。</p>
+                <div class="install-command"><code>memory serve --port 8765 --open</code><button class="install-copy-button" type="button" data-copy="memory serve --port 8765 --open" aria-label="复制启动本地后管命令">复制</button></div>
+              </article>
+              <article class="install-card danger" data-step="06">
+                <h3>一键卸载</h3>
+                <p>如果它对你造成了烦恼，可以用同一个远程入口卸载。</p>
+                <div class="install-command"><code>curl -fsSL https://github.com/liuyang0508/agent-memory-hub/releases/latest/download/install.sh | sh -s -- --uninstall</code><button class="install-copy-button" type="button" data-copy="curl -fsSL https://github.com/liuyang0508/agent-memory-hub/releases/latest/download/install.sh | sh -s -- --uninstall" aria-label="复制一键卸载命令">复制</button></div>
+              </article>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="redesign-section" id="capabilities">
+        <div class="redesign-wrap">
+          <p class="section-label">Core capabilities</p>
+          <h2><span>核心能力</span><span>像目录一样可浏览，</span><span>像链路一样可追溯</span></h2>
+          <p class="section-copy">维护、召回、治理和评估不是四张孤立卡片。AMH 把每一次写入、检索、注入和验证落到本地路径，再让 Agent 在同一份事实层上继续工作。</p>
+
+          <div class="capability-lab" aria-label="Agent Memory Hub core capability console">
+            <div class="cap-tabs" aria-label="Capability categories">
+              <article class="cap-tab active"><span>01</span><h3>记忆维护</h3><p>从 evidence 到 MemoryItem，写入有来源、有类型、有成熟度。</p></article>
+              <article class="cap-tab"><span>02</span><h3>记忆召回</h3><p>FTS、向量、RRF、MMR 与联想召回共同生成 ContextPack。</p></article>
+              <article class="cap-tab"><span>03</span><h3>记忆治理</h3><p>遗忘曲线、冲突替换、敏感门禁和反馈账本挡住噪音。</p></article>
+              <article class="cap-tab"><span>04</span><h3>记忆评估</h3><p>doctor、benchmark、recall gap 和 task outcome 回到同一证据口径。</p></article>
+            </div>
+
+            <div class="cap-stage">
+              <div class="cap-tree" aria-label="Agent Memory Hub filesystem tree">
+                <div class="tree-head"><span>local fact layer</span><strong>~/.agent-memory-hub/</strong></div>
+                <div class="tree-row active" style="--depth:0"><span>items/<code>mem-*.md · fact / decision / episode / artifact</code></span><b>L0</b></div>
+                <div class="tree-row" style="--depth:0"><span>sources/<code>raw evidence ledger</code></span><b>Evidence</b></div>
+                <div class="tree-row" style="--depth:1"><span>conversations/<code>messages.jsonl · original transcript source</code></span><b>L1</b></div>
+                <div class="tree-row" style="--depth:1"><span>writes/<code>write source ledger</code></span><b>L1</b></div>
+                <div class="tree-row active" style="--depth:0"><span>resources/<code>files · urls · multimodal records</code></span><b>L2</b></div>
+                <div class="tree-row" style="--depth:0"><span>extractions/<code>OCR · ASR · VLM · parsed text</code></span><b>L2</b></div>
+                <div class="tree-row active" style="--depth:0"><span>runtime/<code>adapter-events · recall-gaps · task-outcomes</code></span><b>Ledger</b></div>
+                <div class="tree-row" style="--depth:1"><span>loops/<code>LoopRun · checkpoint · completion evidence</code></span><b>Loop</b></div>
+                <div class="tree-row" style="--depth:0"><span>pending/<code>replay queue · manual review</code></span><b>Repair</b></div>
+                <div class="tree-row" style="--depth:0"><span>index.db<code>FTS · vectors · metadata · refs_graph</code></span><b>Index</b></div>
+              </div>
+
+              <div class="cap-panel">
+                <span class="cap-eyebrow">memory maintenance · recall · governance · eval</span>
+                <h3>把上下文变成可维护的事实层，再按任务需要取回。</h3>
+                <p>Agent 不再把所有历史都塞进 prompt。AMH 先沉淀来源，再用检索与门禁生成最小可用上下文；每一次召回失败、治理动作和任务结果都会回写账本，形成闭环。</p>
+
+                <div class="cap-pipeline" aria-label="Capability execution pipeline">
+                  <div class="cap-lane"><span>write</span><code>conversation / resource / extraction -> WriteService -> items/mem-*.md</code><b>带证据写入</b></div>
+                  <div class="cap-lane"><span>recall</span><code>query -> FTS5 + vector -> RRF -> MMR / Hopfield-style associative recall -> ContextPack</code><b>预算内召回</b></div>
+                  <div class="cap-lane"><span>gate</span><code>ContextFirewall -> sensitivity / freshness / conflict / low-value filters -> prompt injection</code><b>证据门禁</b></div>
+                  <div class="cap-lane"><span>loop</span><code>adapter-events.jsonl + recall-gaps.jsonl + task-outcomes.jsonl -> evaluation report</code><b>持续评估</b></div>
+                </div>
+
+                <div class="cap-result-grid" aria-label="Capability output results">
+                  <article class="cap-result-card"><strong>Memory</strong><p>长期事实源可审计、可替换、可链接。</p></article>
+                  <article class="cap-result-card"><strong>Resources</strong><p>网页、仓库、文档和多模态材料像目录一样进入本地层。</p></article>
+                  <article class="cap-result-card"><strong>Skills</strong><p>能力说明和调用边界可被检索、复用和治理。</p></article>
+                  <article class="cap-result-card"><strong>Evidence</strong><p>原始来源不混进长期记忆，评估和追溯有据可查。</p></article>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="redesign-section" id="benchmark">
+        <div class="redesign-wrap">
+          <p class="section-label">Evaluation snapshot</p>
+          <h2>评测报告</h2>
+          <div class="benchmark-reference"><span>参考</span><a href="https://arxiv.org/abs/2606.24775" target="_blank" rel="noopener" title="Are We Ready For An Agent-Native Memory System?">论文地址 · arXiv 2606.24775</a></div>
+          <figure class="benchmark-figure" aria-label="AMH evaluation benchmark comparison charts">
+            <img src="amh-evaluation-benchmark-grid.png" alt="AMH evaluation benchmark comparison across LongMemEval, LoCoMo and DB-Bench metrics">
+          </figure>
+        </div>
+      </section>
+
+      <section class="redesign-section" id="co-create">
+        <div class="redesign-wrap welcome-panel">
+          <div class="co-create-copy">
+            <p class="section-label">Co-create</p>
+            <h2><span>欢迎把它用坏</span><span class="co-title-second">也欢迎一起把它修好</span></h2>
+            <p>Agent Memory Hub 还不是“万能记忆答案”，它更像一套本地优先、证据优先的上下文基础设施。谢谢每一个真实工作流、失败案例、评测样本、adapter 证据和治理建议。它们会变成下一版更安静、更可靠的大脑。</p>
+            <div class="co-create-loop" aria-label="Co-create feedback loop">
+              <div class="loop-step"><b>collect</b><span>保留真实失败样本、链路日志、adapter 证据。</span></div>
+              <div class="loop-step"><b>verify</b><span>复现问题，写进 recall gap、benchmark 和 doctor。</span></div>
+              <div class="loop-step"><b>ship</b><span>把修复沉淀成可回归的策略、报告和能力边界。</span></div>
+            </div>
+          </div>
+          <div class="co-create-board">
+            <div class="contribution-grid" aria-label="Contribution input channels">
+              <article class="contribution-card">
+                <i>01</i>
+                <strong>真实工作流</strong>
+                <p>多 Agent 接力、历史同步、弱 prompt、跨窗口承接和本地文件证据。</p>
+              </article>
+              <article class="contribution-card">
+                <i>02</i>
+                <strong>失败案例</strong>
+                <p>误召回、漏召回、噪声注入、过期事实和无法解释的链路输出。</p>
+              </article>
+              <article class="contribution-card">
+                <i>03</i>
+                <strong>评测样本</strong>
+                <p>可以复跑的 query、期望 memory、source 边界和判定理由。</p>
+              </article>
+            </div>
+            <div class="governance-card" aria-label="Co-create governance output">
+              <div>
+                <strong>每个问题都应该回到证据账本，而不是停在感觉上。</strong>
+                <p>AMH 会把共创反馈落到运行事件、recall gap、task outcome、文档真值和 benchmark 报告里，后续改动必须能被重新验证。</p>
+              </div>
+              <div class="governance-meter" aria-hidden="true"><span>feedback<br>loop</span></div>
+            </div>
+            <div class="welcome-actions">
+              <a href="#quick-access">快速接入</a>
+              <a class="secondary" href="readme-zh-preview.html">阅读 README</a>
+              <a class="secondary" href="https://github.com/liuyang0508/agent-memory-hub/blob/main/docs/evaluation/amh-full-ranking-optimized-full/latest-memory-benchmark-report.zh.md">评测报告</a>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="redesign-footer">
+      <div class="redesign-wrap">
+        <div class="footer-columns">
+          <div>
+            <div class="footer-brand"><img src="agent-memory-hub-octopus-logo.svg" alt=""><span>Agent Memory Hub</span></div>
+            <p>为 AI Agent 打造的本地上下文数据库。记忆、资源、技能、证据，一切皆文件。</p>
+          </div>
+          <div>
+            <h3>开源</h3>
+            <a href="readme-zh-preview.html">Agent Memory Hub</a>
+            <a href="https://github.com/liuyang0508/agent-memory-hub/blob/main/README.zh.md">README</a>
+            <a href="https://github.com/liuyang0508/agent-memory-hub/tree/main/docs">Docs</a>
+          </div>
+          <div>
+            <h3>资源</h3>
+            <a href="#quick-access">快速接入</a>
+            <a href="https://github.com/liuyang0508/agent-memory-hub/blob/main/docs/evaluation/amh-full-ranking-optimized-full/latest-memory-benchmark-report.zh.md">评测报告</a>
+            <a href="#capabilities">Obsidian / Wiki</a>
+          </div>
+          <div>
+            <h3>社区与入口</h3>
+            <div class="footer-social">
+              <a class="github-repo-link" href="https://github.com/liuyang0508/agent-memory-hub/" aria-label="GitHub repository: liuyang0508/agent-memory-hub">
+                <span class="github-repo-mark" aria-hidden="true">
+                  <svg viewBox="0 0 16 16" role="img">
+                    <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/>
+                  </svg>
+                </span>
+              </a>
+            </div>
+          </div>
+        </div>
+        <div class="footer-bottom">© 2026 Agent Memory Hub. 感谢每一位把真实问题带进来的人</div>
+      </div>
+    </footer>
+  </div>
+
+  <svg class="defs-only" aria-hidden="true" focusable="false">
+    <defs>
+      <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 10 5 0 10z" fill="currentColor"/></marker>
+    </defs>
+  </svg>
+
+  <header class="topbar">
+    <nav class="nav" aria-label="Primary navigation">
+      <a class="brand" href="#quickstart" aria-label="Agent Memory Hub home">
+        <span class="brand-mark" aria-hidden="true"><span class="brand-monogram">AMH</span></span>
+        <span>Agent Memory Hub<small>multi-agent shared fact layer</small></span>
+      </a>
+      <div class="navlinks" aria-label="Page sections">
+        <a href="#quickstart">快速试用</a>
+        <a href="#why">痛点</a>
+        <a href="#ecommerce-story">案例</a>
+        <a href="#path">路径</a>
+        <a href="#deep">系统链路</a>
+        <a href="#algorithms">算法</a>
+        <a href="#evidence">证据</a>
+      </div>
+      <a class="ledger-link" href="../audit/2026-06-21-codebase-capability-deep-analysis.md" title="能力真值账本">账</a>
+    </nav>
+  </header>
+
+  <main class="product-main">
+    <section class="wrap product-hero" id="quickstart">
+      <div class="hero-copy">
+        <span class="eyebrow-line">Shared second brain for multi-agent work</span>
+        <h1><span class="hero-line">多智能体共享</span><span class="hero-line">第二大脑。</span></h1>
+        <p class="hero-signature">让每一次沉淀，成为下一次出发。</p>
+        <p class="hero-lede">Agent Memory Hub 把不同 Agent 和不同角色沉淀的可复用结论，整理成同一份<strong>本地可信事实层</strong>。原始对话先进 Evidence，长期知识写成 MemoryItem，召回候选经过 ContextFirewall，最后以可追溯的 ContextPack 分层注入。</p>
+        <div class="hero-actions">
+          <a class="btn-primary" href="#commands">三步启动</a>
+          <a class="btn-secondary" href="#algorithms">看算法边界</a>
+          <a class="btn-secondary" href="readme-zh-article-preview.html">读完整 README</a>
+        </div>
+      </div>
+
+      <aside class="demo-stage" aria-label="AMH animated demo">
+        <div class="demo-frame">
+          <img src="../../benchmarks/demo.gif" alt="演示：30 秒看懂多智能体共享事实层">
+        </div>
+        <div class="demo-caption">
+          <div>
+            <strong>30 秒动图保留在首屏。</strong>
+            <span>它是 README 正式引用的多智能体共享事实层演示；完整动态架构 storyboard 仍保留可编辑 HTML/SVG 源。</span>
+          </div>
+          <div class="demo-links">
+            <a class="demo-pill primary" href="../../benchmarks/demo.gif">打开 GIF</a>
+            <a class="demo-pill" href="amh-animated-diagrams-preview.html">动态架构图</a>
+          </div>
+        </div>
+      </aside>
+
+      <div class="hero-tools">
+        <div class="command-panel" id="commands" aria-label="Quick start commands">
+          <div class="command-head"><span>安装 / doctor / 搜索</span><span>copy-ready</span></div>
+          <div class="cmd-row"><span class="cmd-index">1</span><code>curl -fsSL https://github.com/liuyang0508/agent-memory-hub/releases/latest/download/install.sh | sh</code><button class="copy-btn" type="button" data-copy="curl -fsSL https://github.com/liuyang0508/agent-memory-hub/releases/latest/download/install.sh | sh" title="复制安装命令">⧉</button></div>
+          <div class="cmd-row"><span class="cmd-index">2</span><code>memory doctor &amp;&amp; memory adapter doctor codex --format json</code><button class="copy-btn" type="button" data-copy="memory doctor && memory adapter doctor codex --format json" title="复制 doctor 命令">⧉</button></div>
+          <div class="cmd-row"><span class="cmd-index">3</span><code>memory search "README 维护 召回 叙事顺序" --context-firewall --format text</code><button class="copy-btn" type="button" data-copy="memory search &quot;README 维护 召回 叙事顺序&quot; --context-firewall --format text" title="复制搜索命令">⧉</button></div>
+        </div>
+        <div class="metric-strip" aria-label="Current verified boundaries">
+          <div class="metric"><strong>11 / 4 / 1</strong><span>当前快照：verified / install-ready / wip；新机器需重跑 doctor。</span></div>
+          <div class="metric"><strong>240 cases</strong><span>system benchmark 覆盖 query gate、retrieval、firewall、ContextPack。</span></div>
+          <div class="metric"><strong>100%</strong><span>ContextPack 可逆性是门禁指标；不是未来所有 prompt 的数学保证。</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="product-section" id="why">
+      <div class="wrap section-grid">
+        <div>
+          <p class="section-kicker">Why it matters</p>
+          <h2 class="section-title">一个 Agent 沉淀的事实，另一个 Agent 默认拿不到。</h2>
+          <p class="section-lede">AMH 解决的不是“多存一份聊天记录”，而是把调研、产品、运营、客服、销售、研发和复盘里值得复用的结论放到同一层可信上下文。工具可以切换，事实、来源、有效期和注入边界不能丢。</p>
+        </div>
+        <div class="card-grid">
+          <article class="info-card"><h3>跨工具断层</h3><p>Claude Code、Codex、Qoder、Cursor 等工具各有上下文边界。AMH 把可复用结论写成 MemoryItem，让下一棒 Agent 不再从零理解背景。</p><div class="badge-row"><span class="chip">Claude Code</span><span class="chip">Codex</span><span class="chip">Qoder</span></div></article>
+          <article class="info-card"><h3>跨角色断层</h3><p>产品、运营、客服、销售、研发会留下不同粒度的事实。AMH 把客户背景、商品口径、技术边界和复盘结论放到同一事实层。</p><div class="badge-row"><span class="chip">product</span><span class="chip">ops</span><span class="chip">support</span><span class="chip">dev</span></div></article>
+          <article class="info-card"><h3>原始对话不是记忆</h3><p>transcript 里混着噪声、隐私、过期状态和被否定过的建议。AMH 先保存 Evidence，再通过 WriteService 提炼长期记忆。</p><div class="badge-row"><span class="chip">Evidence</span><span class="chip">WriteService</span><span class="chip">MemoryItem</span></div></article>
+          <article class="info-card"><h3>召回和注入分开</h3><p>BM25、向量、RRF、decay、feedback、MMR、Hopfield 和图谱扩展只服务候选排序；能不能进入 prompt 由 ContextFirewall 和 ContextPack 决定。</p><div class="badge-row"><span class="chip">RRF</span><span class="chip">Firewall</span><span class="chip">ContextPack</span></div></article>
+        </div>
+      </div>
+
+      <div class="wrap wide-panel" id="not-transcript">
+        <p class="section-kicker">Not a transcript warehouse</p>
+        <h2 class="section-title">对象边界清楚，才不会把聊天噪声当长期事实。</h2>
+        <div class="truth-table" role="table" aria-label="AMH object boundaries">
+          <div class="head">对象</div><div class="head">它是什么</div><div class="head">边界</div>
+          <div><strong>Evidence</strong></div><div>live prompt、transcript、resource、multimodal sidecar、runtime event。</div><div>保存来源和证据；默认不直接进入 prompt。</div>
+          <div><strong>MemoryItem</strong></div><div>长期事实单元，Markdown 是 source of truth，经 WriteService 写入。</div><div>索引失败不回滚事实；dirty index 和 pending 可以 repair。</div>
+          <div><strong>RetrievedItem</strong></div><div>query gate、SearchFilter、BM25/FTS5、vector、RRF 和后处理产出的候选。</div><div>排序分数不是信任分数，也不是注入许可。</div>
+          <div><strong>ContextPack</strong></div><div>经 ContextFirewall 通过后的 locator / overview / detail 分层上下文。</div><div>prompt 收到压缩视图，完整 detail 仍可按 retrieve hint 读取。</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="product-section" id="brand-assets">
+      <div class="wrap brand-system-grid">
+        <div>
+          <p class="section-kicker">Brand assets</p>
+          <h2 class="section-title">完整 logo 和标语，放在读者已经理解 AMH 之后。</h2>
+          <p class="section-lede">首屏负责讲清“多 Agent 共享第二大脑”和三步启动；品牌资产区负责留下稳定识别。完整 lockup 用于官网、分享页和技术材料；README 顶部只保留克制文本，避免压过快速试用和能力边界。</p>
+        </div>
+        <div class="brand-showcase">
+          <div class="brand-lockup">
+            <img src="agent-memory-hub-logo-lockup-a-plus-candidate.svg" alt="Agent Memory Hub logo lockup">
+          </div>
+          <p class="brand-quote">让每一次沉淀，成为下一次出发。</p>
+          <p class="brand-caption">Shared memory for the next agent loop. 这句话作为品牌签名出现，不替代产品定位，也不抢首屏任务入口。</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="product-section" id="ecommerce-story">
+      <div class="wrap section-grid">
+        <div>
+          <p class="section-kicker">Domain story</p>
+          <h2 class="section-title">电商团队的一次大促，可以被同一份记忆接住。</h2>
+          <p class="section-lede">商品上线不是单个研发任务。商品、交易、库存、支付、履约、售后、营销、客服和复盘都会产生长期上下文；这些上下文如果锁在各自 Agent 的会话里，下一棒就只能重新解释。AMH 把可复用结论写成 MemoryItem，让不同角色和不同 Agent 围绕同一份事实继续工作。</p>
+        </div>
+        <div class="wide-panel" style="margin-top:0">
+          <div class="truth-table" role="table" aria-label="E-commerce multi-agent story">
+            <div class="head">阶段</div><div class="head">沉淀的记忆</div><div class="head">下一棒如何复用</div>
+            <div><strong>商品规划</strong><br>产品 / 运营 / 渠道销售</div><div>目标 SKU、价格带、库存约束、活动节奏、指标口径、禁售/限购规则。</div><div>研发、客服和营销召回同一套商品口径，不再各自解释背景。</div>
+            <div><strong>交易能力建设</strong><br>研发 Agent</div><div>商品详情、购物车、下单、库存预占、支付回调的接口边界、幂等规则和验证结果。</div><div>某个 Agent 故障或额度不足时，另一 Agent 可继续退款、退单、物流回传等后续能力。</div>
+            <div><strong>履约售后</strong><br>客服 / 履约 / 研发</div><div>物流状态映射、售后时限、退款规则、客服解释口径、高频异常。</div><div>客服回答用户和运营复盘售后问题时，使用同一份事实来源。</div>
+            <div><strong>营销分析</strong><br>运营 / 渠道销售</div><div>SKU 销量、转化率、客单价、优惠券效果、库存周转、异常渠道。</div><div>Codex 额度不足时，Qoder Work 或其他 Agent 继续制定下个季度策略，不丢前面分析。</div>
+            <div><strong>经营复盘</strong><br>跨角色协作</div><div>采纳/拒绝的策略、废止的活动规则、冲突口径、下一轮目标和风险。</div><div>ContextFirewall 只注入未废止、来源可信、预算内的上下文，避免旧策略污染新任务。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="product-section" id="path">
+      <div class="wrap section-grid">
+        <div>
+          <p class="section-kicker">Real usage path</p>
+          <h2 class="section-title">真实使用时，分层加载由三道门触发。</h2>
+          <p class="section-lede">第一道门是 query signal：低信息轮次不查记忆。第二道门是召回排序：BM25、向量、RRF 和后处理只产出候选。第三道门是 ContextFirewall：只有通过时效、来源、反馈和预算检查的候选，才会被 ContextPack 装成 locator、overview 或 detail。</p>
+        </div>
+        <div class="wide-panel" style="margin-top:0">
+          <svg class="path-svg" viewBox="0 0 920 360" role="img" aria-label="真实使用路径">
+            <rect class="svg-box accent" x="24" y="36" width="154" height="88" rx="8"/><text class="svg-label" x="48" y="72">User Prompt</text><text class="svg-small" x="48" y="96">真实问题 / 任务上下文</text>
+            <path class="svg-line" d="M178 80H282" marker-end="url(#arrow)"/><rect class="svg-box" x="282" y="36" width="154" height="88" rx="8"/><text class="svg-label" x="306" y="72">Query Signal</text><text class="svg-small" x="306" y="96">弱意图阻断 / gap evidence</text>
+            <path class="svg-line" d="M436 80H540" marker-end="url(#arrow)"/><rect class="svg-box green" x="540" y="36" width="154" height="88" rx="8"/><text class="svg-label" x="566" y="72">Retrieval</text><text class="svg-small" x="566" y="96">BM25 + vector + RRF</text>
+            <path class="svg-line" d="M694 80H796" marker-end="url(#arrow)"/><rect class="svg-box amber" x="746" y="36" width="150" height="88" rx="8"/><text class="svg-label" x="770" y="72">Firewall</text><text class="svg-small" x="770" y="96">注入许可 / token budget</text>
+            <path class="svg-line muted" d="M360 124v70H104v48" marker-end="url(#arrow)"/><rect class="svg-box" x="32" y="242" width="144" height="76" rx="8"/><text class="svg-label" x="68" y="274">No Inject</text><text class="svg-small" x="58" y="298">低信息 / 过期 / 冲突</text>
+            <path class="svg-line" d="M820 124v74H660" marker-end="url(#arrow)"/><rect class="svg-box violet" x="496" y="192" width="164" height="92" rx="8"/><text class="svg-label" x="526" y="228">ContextPack</text><text class="svg-small" x="528" y="252">locator / overview / detail</text>
+            <path class="svg-line" d="M496 238H348" marker-end="url(#arrow)"/><rect class="svg-box accent" x="194" y="192" width="154" height="92" rx="8"/><text class="svg-label" x="232" y="228">Agent</text><text class="svg-small" x="218" y="252">带 retrieve hint 工作</text>
+            <path class="svg-line muted" d="M270 284v42H702v-42" marker-end="url(#arrow)"/><text class="svg-small" x="418" y="346">feedback / cohort / outcome 反哺治理</text>
+          </svg>
+        </div>
+      </div>
+
+      <div class="wrap wide-panel" id="legacy-capabilities">
+        <p class="section-kicker">Capability map</p>
+        <h2 class="section-title">能力地图按数据链路读，不按营销分类读。</h2>
+        <div class="card-grid">
+          <article class="info-card"><h3>维护链路</h3><p>UserPromptSubmit、Stop transcript ingest、conversation/resource/multimodal sidecar、harvest、WriteService、Markdown source of truth、pending replay、dirty index repair。</p></article>
+          <article class="info-card"><h3>证据与资源</h3><p>ResourceStore、resources/*.json、extractions/*.json、OCR/ASR/VLM/PDF 提取、resource promote-extraction、Obsidian/export；外部证据不绕过 WriteService。</p></article>
+          <article class="info-card"><h3>派生投影</h3><p>items_meta、items_fts、items_vec、refs_graph、Memory Profile、hierarchy sidecar 都是 derived surface；坏了可以重建，不改写 Markdown truth。</p></article>
+          <article class="info-card"><h3>召回链路</h3><p>query signal gate、SearchFilter、FTS5/BM25、vector、RRF、metadata phrase boost、optional rerank、decay、feedback value、status/handoff、runtime evidence、temporal/supersession。</p></article>
+          <article class="info-card"><h3>注入链路</h3><p>ContextFirewall、duplicate cluster、cohort coverage、item cap、token budget、ContextPack locator/overview/detail、detail_uri、retrieve hint、injection cohort ledger。</p></article>
+          <article class="info-card"><h3>治理链路</h3><p>feedback、drift、duplicates、review、maturity、conversation hot/warm/cold/frozen tiering、semantic proactive candidates、auto governance、evolve。</p></article>
+          <article class="info-card"><h3>Loop Contract</h3><p>loop run、contract validate、verify、feedback、gate open/approve/reject、budget、checkpoint、artifact/outcome evidence；AMH 记录和验证 loop，不替代执行器。</p></article>
+          <article class="info-card"><h3>可选扩展</h3><p>MMR、Hopfield expansion、refs_graph expansion、cross-encoder rerank、Headroom-style compression 和 GraphRAG 类能力都要受 benchmark gate 控制。</p></article>
+          <article class="info-card"><h3>接入面</h3><p>CLI / MCP / SDK / Web Admin / hooks / adapter install / doctor / verify / install-verify / uninstall，入口不同，能力以 doctor 和 docs contract 为准。</p></article>
+          <article class="info-card"><h3>Web 与观测</h3><p>memory-lineage、data-flow cockpit、runtime ledger、injection cohorts、recall gaps、evolution_control、install/uninstall actions 和 web surface lock 共同约束本地管理台。</p></article>
+          <article class="info-card"><h3>评测门禁</h3><p>retrieval-gate、compression-gate、system few-shot gate、ml-advisory-gate、docs truth contract、web surface lock；PASS 只说明当前矩阵，不保证未来所有 prompt。</p></article>
+          <article class="info-card"><h3>Profile 派生出口</h3><p>Memory Profile 可渲染 AMH-managed `CLAUDE.md`、`AGENTS.md`、Cursor rules；这些是派生配置面，不是新的事实源。</p></article>
+        </div>
+      </div>
+    </section>
+
+    <section class="product-section" id="deep">
+      <div class="wrap section-grid">
+        <div>
+          <p class="section-kicker">System internals</p>
+          <h2 class="section-title">深水区：每条链路都有 source of truth 和 gate。</h2>
+          <p class="section-lede">AMH 把事实的产生、写入、召回、注入、反馈和复核拆成独立边界。每一层都有可解释证据，未来智能体只能使用通过边界的那部分。</p>
+        </div>
+        <div class="chain-list">
+          <article class="chain-card"><span class="chain-label">MAINTAIN</span><div><h3>维护先于召回</h3><p>Evidence 先保留原始来源，再经过 candidate、audit、WriteService 写成 MemoryItem。pending 是 repair queue，不是第二事实源；poison records 达到重试上限后进入 pending/dead。</p></div></article>
+          <article class="chain-card"><span class="chain-label">RECALL</span><div><h3>召回是候选排序，不是授权</h3><p>BM25/FTS5 与 vector 并行，RRF 融合，再经过 metadata phrase、rerank、decay、feedback、runtime/status、temporal/supersession。MMR、Hopfield、graph 是可选 knob。</p></div></article>
+          <article class="chain-card"><span class="chain-label">INJECT</span><div><h3>注入由防火墙和预算决定</h3><p>ContextFirewall 可以因敏感度、废止、低置信、负反馈、source requirement、重复、cohort 或 token budget 拒绝整组候选。通过后才生成可逆 ContextPack。</p></div></article>
+          <article class="chain-card"><span class="chain-label">GOVERN</span><div><h3>治理不是后台装饰</h3><p>drift、duplicates、review、maturity、tiering、auto governance、evolve 负责维护记忆质量；maturity 是治理建议，不是 live retrieval multiplier。</p></div></article>
+          <article class="chain-card"><span class="chain-label">LOOP</span><div><h3>Loop 是目标和证据账本</h3><p>LoopRun 记录 goal、budget、checkpoint、verification、artifact、outcome 和 event。它帮助跨会话承接，但不自动执行外部 Agent、不替用户创建分支或跳过验证。</p></div></article>
+          <article class="chain-card"><span class="chain-label">ADAPTER</span><div><h3>adapter 只说已验证的事</h3><p>capability record 包含 support level、hooks、MCP、runtime evidence、verification evidence、blockers 和 limitations。install-ready 不是 verified。</p></div></article>
+          <article class="chain-card"><span class="chain-label">PROFILE</span><div><h3>Profile 是派生配置面</h3><p>Memory Profile 可以生成 managed CLAUDE.md、AGENTS.md 和 Cursor rules 块，帮助不同 Agent 读同一组高置信记忆；Profile 可重建，事实仍在 MemoryItem。</p></div></article>
+          <article class="chain-card"><span class="chain-label">OBSERVE</span><div><h3>Web Admin 串起运行证据</h3><p>memory-lineage、data-flow cockpit、runtime ledger、injection cohorts、recall gaps、evolution_control 和 Web surface lock 把写入、召回、注入、治理的证据串起来。</p></div></article>
+          <article class="chain-card"><span class="chain-label">GATES</span><div><h3>默认行为由门禁控制</h3><p>retrieval、compression、system few-shot、ML/DL advisory、docs truth 和 web surface lock gate 都是发布边界；可选 rerank、Hopfield、graph、compression 不能绕过门禁变成默认。</p></div></article>
+        </div>
+      </div>
+    </section>
+
+    <section class="product-section" id="diagrams">
+      <div class="wrap">
+        <p class="section-kicker">Unified diagrams</p>
+        <h2 class="section-title">图示统一成同一套视觉系统，箭头只表达真实流向。</h2>
+        <p class="section-lede">每张图都保持可编辑 SVG 源文件，箭头只表达真实数据或控制流；计划、旁路和外部评测边界会在图注里说清楚，不用装饰性连线制造复杂感。</p>
+        <div class="diagram-showcase wide-panel">
+          <article class="diagram-card featured">
+            <div class="diagram-figure"><img src="amh-loop-layered-architecture.zh.svg" alt="AMH 可信上下文生命周期图：接入、维护、召回、治理与评估"></div>
+            <div>
+              <h3>生命周期图：五层能力面</h3>
+              <p>从 Agent 接入、证据维护、候选召回、反馈治理到评估门禁分层展开。已去掉容易误导的竖向回流线，只保留层间默认流向和底部能力导航。</p>
+              <div class="diagram-meta"><span>source of truth</span><span>local-first</span><span>editable SVG</span></div>
+            </div>
+          </article>
+          <div class="diagram-grid">
+            <article class="diagram-card"><div class="diagram-figure"><img src="amh-operating-loop.zh.svg" alt="AMH 总控图：可信上下文操作回路"></div><h3>总控图</h3><p>把 Query Signal、Evidence、MemoryItem、Index、Retrieval、Firewall、ContextPack 和 Loop 放在一条操作回路里。</p><div class="diagram-meta"><span>operating loop</span><span>boundary first</span></div></article>
+            <article class="diagram-card"><div class="diagram-figure"><img src="technical-architecture.zh.svg" alt="技术架构图：接入、运行时、脑内核与本地数据"></div><h3>技术架构图</h3><p>按 agent_integrations、agent_runtime_kit、agent_brain 和 ~/.agent-memory-hub 数据层拆清代码边界。</p><div class="diagram-meta"><span>runtime</span><span>storage</span></div></article>
+            <article class="diagram-card"><div class="diagram-figure"><img src="memory-lifecycle-sequence.zh.svg" alt="维护 + 召回一体时序链路图"></div><h3>维护 + 召回时序图</h3><p>维护链路先固化 MemoryItem、Index Projection 和 Runtime Ledger；召回链路只读取这个交接面。</p><div class="diagram-meta"><span>sequence</span><span>handoff point</span></div></article>
+            <article class="diagram-card"><div class="diagram-figure"><img src="data-flow.zh.svg" alt="数据链路图：Evidence 到 ContextPack"></div><h3>数据链路图</h3><p>清楚区分 Evidence、MemoryItem、RetrievedItem、RankedItem、FirewalledItem、ContextPack 和 FeedbackEvent。</p><div class="diagram-meta"><span>data objects</span><span>traceable</span></div></article>
+            <article class="diagram-card"><div class="diagram-figure"><img src="retrieval-algorithm-stack.zh.svg" alt="检索算法栈图：从召回到注入许可"></div><h3>算法栈图</h3><p>BM25/向量、RRF、metadata phrase、rerank、decay、feedback、MMR、Hopfield、graph 与防火墙按真实顺序呈现。</p><div class="diagram-meta"><span>RRF</span><span>MMR</span><span>ContextFirewall</span></div></article>
+            <article class="diagram-card"><div class="diagram-figure"><img src="amh-adapter-capability-boundary.zh.svg" alt="智能体接入边界图"></div><h3>Adapter 边界图</h3><p>把 install、doctor、runtime event、MCP probe 和 context effectiveness 分开，不把 install-ready 写成 verified。</p><div class="diagram-meta"><span>adapter truth</span><span>doctor</span></div></article>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="product-section" id="algorithms">
+      <div class="wrap section-grid">
+        <div>
+          <p class="section-kicker">Algorithm notes</p>
+          <h2 class="section-title">算法按论文式模板解释，不把排序分当可信度。</h2>
+          <p class="section-lede">每个公式都说明它解决哪一段问题、接收什么输入、提供什么保证，以及在哪些条件下不能被误读。RRF、decay、feedback、MMR、Hopfield 和 ContextPack budget 都按同一模板展开。</p>
+        </div>
+        <div class="paper-stack">
+          <article class="paper-card"><h3>Query Signal Gate</h3><div class="paper-grid"><div class="paper-field"><b>Problem</b><span>不是每个 prompt 都该触发记忆召回。</span></div><div class="paper-field"><b>Input</b><span>用户问题 q、意图特征、adapter/cwd/session。</span></div><div class="paper-field"><b>Method</b><span>抽取可注入关键词，低信息轮次阻断并可记录 gap。</span></div><div class="formula">\sigma(q) &lt; \tau \Rightarrow \mathcal{R} = \varnothing; \quad \sigma(q) \ge \tau \Rightarrow \operatorname{SearchFilter}(q)</div><div class="paper-field"><b>Guarantee</b><span>减少寒暄、单词和弱意图带来的噪声注入。</span></div><div class="paper-field"><b>Boundary</b><span>它是 hook 自动门禁；CLI/SDK 仍可显式搜索。</span></div></div></article>
+          <article class="paper-card"><h3>RRF Fusion</h3><div class="paper-grid"><div class="paper-field"><b>Problem</b><span>BM25 与向量召回的分数尺度不同。</span></div><div class="paper-field"><b>Input</b><span>BM25 rank list B、vector rank list V、权重 w。</span></div><div class="paper-field"><b>Method</b><span>用 reciprocal rank fusion 合并候选排名。</span></div><div class="formula">s_i = \sum_{\ell \in \{B,V\}} \frac{w_\ell}{k + \operatorname{rank}_\ell(i)} , \quad k \approx 60</div><div class="paper-field"><b>Guarantee</b><span>候选既能命中字面关键词，也能覆盖语义相近事实。</span></div><div class="paper-field"><b>Boundary</b><span>RRF 只是候选分，不是可信度，也不是注入许可。</span></div></div></article>
+          <article class="paper-card"><h3>Forgetting / Decay / Feedback</h3><div class="paper-grid"><div class="paper-field"><b>Problem</b><span>记忆会过期，但也会因为访问、支持和收益变得更值得信任。</span></div><div class="paper-field"><b>Input</b><span>候选分 s、confidence c、访问时间、支持/反驳/收益。</span></div><div class="paper-field"><b>Method</b><span>先算 Ebbinghaus-style retention，再乘有界衰减与反馈乘子。</span></div><div class="formula">\rho(\Delta t)=0.5^{\Delta t / h};\quad S_{\mathrm{eff}} = s \cdot c \cdot \operatorname{clip}(\rho a u g r, 0.01, 1.35)</div><div class="paper-field"><b>Guarantee</b><span>新鲜、复用、被支持的记忆更容易留下，矛盾或陈旧信号会降权。</span></div><div class="paper-field"><b>Boundary</b><span>decay 不能压过所有相关性；feedback multiplier 也被限定在有界范围。</span></div></div></article>
+          <article class="paper-card"><h3>Status / Runtime / Supersession</h3><div class="paper-grid"><div class="paper-field"><b>Problem</b><span>用户问的是运行状态、adapter 证据或旧结论是否仍有效。</span></div><div class="paper-field"><b>Input</b><span>query risk terms、adapter tags、runtime-evidence、stale/superseded metadata。</span></div><div class="paper-field"><b>Method</b><span>status/handoff 和 runtime evidence 只在对应意图下加权；temporal 与 supersession 再过滤。</span></div><div class="formula">s' = s + \mathbf{1}_{runtime} b_r + \mathbf{1}_{handoff} b_h;\quad \operatorname{superseded}(i)\Rightarrow i\notin R</div><div class="paper-field"><b>Guarantee</b><span>状态类问题优先读运行证据，并避免旧 handoff 冒充当前事实。</span></div><div class="paper-field"><b>Boundary</b><span>审计调用可以显式包含 stale state；默认注入不能。</span></div></div></article>
+          <article class="paper-card"><h3>MMR / Hopfield / Graph Expansion</h3><div class="paper-grid"><div class="paper-field"><b>Problem</b><span>候选过于相似，或需要从高信号候选扩展邻近知识。</span></div><div class="paper-field"><b>Input</b><span>候选集合 R、已选集合 S、embedding、refs graph。</span></div><div class="paper-field"><b>Method</b><span>MMR 做多样性重排；Hopfield 和 graph 做可选扩展。</span></div><div class="formula">i^* = \arg\max_{i \in R \setminus S} [\lambda\operatorname{rel}(i,q) - (1-\lambda)\max_{j\in S}\operatorname{sim}(i,j)]</div><div class="paper-field"><b>Guarantee</b><span>减少重复候选，必要时补全相关邻域。</span></div><div class="paper-field"><b>Boundary</b><span>MMR、Hopfield、graph 都是可选设置，不保证每次搜索运行。</span></div></div></article>
+          <article class="paper-card"><h3>ContextPack Budget + Compression</h3><div class="paper-grid"><div class="paper-field"><b>Problem</b><span>命中的记忆可能很多，prompt 预算有限，detail 又必须可回读。</span></div><div class="paper-field"><b>Input</b><span>防火墙通过的候选 C、视图集合 P、预算 B、CCR/headroom-style compression policy。</span></div><div class="paper-field"><b>Method</b><span>每条候选选择 locator / overview / detail，必要时保留 detail_uri；压缩必须通过 few-shot gate。</span></div><div class="formula">\sum_{p \in \mathcal{P}} \operatorname{tokens}(v_p) \le B, \quad v_p \in \{\operatorname{locator},\operatorname{overview},\operatorname{detail}\}</div><div class="paper-field"><b>Guarantee</b><span>prompt 获得紧凑上下文，同时保留 retrieve hint 回读全文。</span></div><div class="paper-field"><b>Boundary</b><span>压缩视图不是完整原文；关键判断要按 retrieve hint 读取 detail。</span></div></div></article>
+        </div>
+      </div>
+    </section>
+
+    <section class="product-section" id="adapters">
+      <div class="wrap section-grid">
+        <div>
+          <p class="section-kicker">Adapter truth contract</p>
+          <h2 class="section-title">适配器能力按证据等级讲，不用安装路径冒充真实可用。</h2>
+          <p class="section-lede">README 和 capability ledger 的口径是：当前快照 11 verified、4 install-ready、1 wip。verified 仍只代表当前机器和当前版本证据，新机器、新 CLI、新 hook payload 都要重跑 doctor/runtime/context-effectiveness。</p>
+        </div>
+        <div class="card-grid">
+          <article class="truth-card"><h3>Verified snapshot</h3><p>Codex CLI、QoderWork，以及 Aider、Aone Copilot、Cline、Continue、Cursor、GitHub Copilot、Hermes Agent、OpenHuman、OpenSquilla 等当前快照内有 verified 记录。</p><div class="chip-row"><span class="status-pill ok">verified evidence</span></div></article>
+          <article class="truth-card"><h3>Install-ready snapshot</h3><p>Claude Code、Qoder、Wukong、OpenClaw 有安装/doctor/runtime 相关证据，但不能说成当前 verified；需要本地 runtime 或 context-effectiveness 证明。</p><div class="chip-row"><span class="status-pill warn">install-ready boundary</span></div></article>
+          <article class="truth-card"><h3>Adapter responsibilities</h3><p>agent_integrations 负责不同 Agent 的配置位置、adapter capability record、AMH-owned block、uninstall、doctor、verify；不在 prompt-time 实现检索或防火墙。</p><div class="chip-row"><span class="chip">install</span><span class="chip">doctor</span><span class="chip">verify</span></div></article>
+          <article class="truth-card"><h3>Runtime responsibilities</h3><p>agent_runtime_kit 负责 hooks、MCP launcher、工具脚本、记忆纪律和 handoff 模板；agent_brain 负责 WriteService、Retriever、ContextFirewall、ContextPack、Web 和 benchmark。</p><div class="chip-row"><span class="chip">hooks</span><span class="chip">MCP</span><span class="chip">WriteService</span></div></article>
+        </div>
+      </div>
+    </section>
+
+    <section class="product-section" id="surfaces">
+      <div class="wrap">
+        <p class="section-kicker">Surfaces</p>
+        <h2 class="section-title">同一大脑，四类入口，但能力不偷换。</h2>
+        <p class="section-lede">CLI、MCP、SDK、Web、Profile 和 benchmark API 读写同一份本地事实层，但每个入口都有自己的职责边界。安装、自检和批处理优先走 CLI；Agent 集成优先看 MCP / hooks；人工诊断、证据浏览和治理建议优先看 Web Admin。</p>
+        <div class="surface-grid wide-panel">
+          <article class="surface-card primary"><h3>CLI</h3><p>install、doctor、search、read、sync-pending、conversation、resource promote-extraction、govern hierarchy/auto、benchmark、adapter install-verify、loop gate 和 loop complete。它是安装、自检、维护和验证的主入口。</p></article>
+          <article class="surface-card"><h3>MCP</h3><p>给支持 MCP 的 Agent 提供工具入口；可配合 hooks 做 prompt-time 检索、读取和 runtime evidence。</p></article>
+          <article class="surface-card"><h3>SDK</h3><p>Python 接口可用于应用内读写、检索、资源 sidecar、诊断和评测接入。</p></article>
+          <article class="surface-card primary"><h3>Web Admin</h3><p>本地管理台查看记忆、资源、运行账本、memory-lineage、data-flow cockpit、recall gaps、evolution_control、adapter 证据和演化建议。它是人工复核、诊断和可视化治理的主入口。</p></article>
+          <article class="surface-card"><h3>Profile Export</h3><p>Memory Profile 将高置信 MemoryItems 派生成 CLAUDE.md、AGENTS.md、Cursor rules 等 managed block，方便不同 Agent 共享同一事实面。</p></article>
+          <article class="surface-card"><h3>Benchmark APIs</h3><p>Web /api/retrieval-gate、/api/compression-gate、/api/ml-advisory-gate 和 system benchmark 把默认能力变更收束到可验收门禁。</p></article>
+        </div>
+      </div>
+    </section>
+
+    <section class="product-section" id="evidence">
+      <div class="wrap section-grid">
+        <div>
+          <p class="section-kicker">Evidence and boundaries</p>
+          <h2 class="section-title">能力和边界都要能回到证据。</h2>
+          <p class="section-lede">这页的能力覆盖以当前 README.zh.md 和 docs/evaluation/latest-memory-benchmark-report.zh.md 为准；OpenViking 只作为 context database、L0/L1/L2 tiered loading、recursive retrieval、retrieval trajectory 的设计参考。</p>
+        </div>
+        <div class="evidence-list">
+          <article class="evidence-item primary"><b>Capability coverage audit</b><p>本页按 tests/unit/test_docs_truth_contract.py 对 README 和 capability ledger 做覆盖审计，不再靠单轮反馈补词。能力覆盖必须回到代码、命令、测试或验证账本。</p></article>
+          <article class="evidence-item primary"><b>System benchmark gate</b><p>memory benchmark system --max-cases 240 覆盖 query gate、retrieval、Recall@10、MRR、block / inject、firewall、pack 等门禁；PASS 是当前矩阵结果，不证明未来所有 prompt 都会正确召回。</p></article>
+          <article class="evidence-item"><b>Retrieval / compression / ML advisory gates</b><p>retrieval-gate 看 recall@1、recall@k、MRR；compression-gate 看 must-keep anchors、noise removal、token savings 和 reversibility；ml-advisory-gate 阻止未通过隐私/延迟/证据审查的模型增强直接默认上线。</p></article>
+          <article class="evidence-item"><b>Docs truth contract</b><p>tests/unit/test_docs_truth_contract.py 和 web surface lock 用来防止 README、预览、adapter 边界和图示说明静默漂移。</p></article>
+          <article class="evidence-item"><b>External benchmarks</b><p>MemoryData / OpenDataBox source-lock 与入口已经说明；外部 smoke/full 依赖 datasets、rank_bm25、MemoryAgentBench / LoCoMo / LongBench / MemBench 数据集和 OpenAI-compatible endpoint，不填无法复核的榜单数字。</p></article>
+          <article class="evidence-item"><b>Resource and multimodal</b><p>ResourceStore、resources/*.json、extractions/*.json、OCR/ASR/VLM/PDF 提取和 promote-extraction 已有路径；主链路融合和更完整导入仍按 README 的边界推进。</p></article>
+          <article class="evidence-item"><b>Raw conversation governance</b><p>memory conversation ingest/list/read/rebalance 和 MCP conversation tools 支持 message-level evidence、access_count 与 hot/warm/cold/frozen tiering；conversation 仍是 evidence source。</p></article>
+          <article class="evidence-item"><b>Semantic and hierarchy sidecars</b><p>semantic proactive v2 写 review/proactive-candidates.jsonl 等待批准；L2/L3 hierarchy sidecar 写 derived/hierarchical-memory.json，不直接修改 items/。</p></article>
+          <article class="evidence-item"><b>Obsidian / export</b><p>导出和外部知识库属于入口/同步能力，不替代 WriteService 和 Markdown MemoryItem source of truth。</p></article>
+          <article class="evidence-item"><b>Layered loading reality</b><p>locator、overview、detail 的选择发生在 ContextPack budget 内；用户真实使用时是否注入由 hook、检索结果、防火墙和预算共同决定。</p></article>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="product-footer">
+    <div class="wrap"><span>Agent Memory Hub · local-first shared fact layer for multi-agent collaboration</span><span>Source of truth: README.zh.md + capability ledger + fresh doctor / benchmark evidence</span></div>
+  </footer>
+
+  <script>
+    document.querySelectorAll('[data-copy]').forEach((button) => {
+      button.addEventListener('click', async () => {
+        const text = button.getAttribute('data-copy') || '';
+        let copied = false;
+        try {
+          await navigator.clipboard.writeText(text);
+          copied = true;
+        } catch (_error) {
+          const textarea = document.createElement('textarea');
+          textarea.value = text;
+          textarea.setAttribute('readonly', '');
+          textarea.style.position = 'fixed';
+          textarea.style.left = '-9999px';
+          document.body.appendChild(textarea);
+          textarea.select();
+          try {
+            copied = document.execCommand('copy');
+          } catch (_fallbackError) {
+            copied = false;
+          } finally {
+            textarea.remove();
+          }
+        }
+        if (!copied) {
+          const code = button.parentElement && button.parentElement.querySelector('code');
+          if (code) {
+            const range = document.createRange();
+            range.selectNodeContents(code);
+            const selection = window.getSelection();
+            selection.removeAllRanges();
+            selection.addRange(range);
+          }
+        }
+        const old = button.textContent;
+        button.textContent = copied ? '已复制' : '已选中';
+        window.setTimeout(() => { button.textContent = old; }, 1200);
+      });
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,957 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Agent Memory Hub 指标 / 治理 / 协作能力地图</title>
+  <style>
+    :root {
+      --bg: #f6f2e8;
+      --panel: #fffdf8;
+      --panel-2: #f8f3e9;
+      --ink: #24292f;
+      --muted: #5f6a66;
+      --line: #d8d0c2;
+      --line-strong: #b9ab95;
+      --teal: #2b8c84;
+      --teal-soft: #e6f4f1;
+      --blue: #386fa4;
+      --blue-soft: #e7f0fa;
+      --amber: #a96f16;
+      --amber-soft: #f7ead0;
+      --green: #4f8a58;
+      --green-soft: #e8f4e9;
+      --red: #b85d4e;
+      --red-soft: #f6e5df;
+      --paper: #fffaf0;
+      --shadow: 0 14px 34px rgba(52, 44, 29, 0.09);
+      --sans: "Avenir Next", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      --mono: "SFMono-Regular", Menlo, Consolas, monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      margin: 0;
+      min-height: 100%;
+      overflow-x: hidden;
+      color: var(--ink);
+      background:
+        linear-gradient(90deg, rgba(36, 41, 47, 0.035) 1px, transparent 1px),
+        linear-gradient(180deg, rgba(36, 41, 47, 0.03) 1px, transparent 1px),
+        var(--bg);
+      background-size: 34px 34px, 34px 34px, auto;
+      font-family: var(--sans);
+      letter-spacing: 0;
+    }
+
+    body {
+      padding: clamp(18px, 2vw, 32px);
+    }
+
+    .page {
+      width: min(1760px, 100%);
+      margin: 0 auto;
+    }
+
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 24px;
+      align-items: end;
+      margin: 0 0 18px;
+      padding: 10px 2px 0;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      width: fit-content;
+      min-height: 28px;
+      padding: 4px 11px;
+      border: 1px solid var(--line-strong);
+      border-radius: 999px;
+      background: var(--panel);
+      color: var(--teal);
+      font-family: var(--mono);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    .eyebrow::before {
+      content: "";
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--teal);
+    }
+
+    h1 {
+      max-width: 1180px;
+      margin: 14px 0 10px;
+      color: var(--ink);
+      font-size: clamp(32px, 4vw, 58px);
+      line-height: 1.06;
+      font-weight: 780;
+      letter-spacing: 0;
+    }
+
+    .lead {
+      max-width: 980px;
+      margin: 0;
+      color: var(--muted);
+      font-size: clamp(15px, 1.25vw, 18px);
+      line-height: 1.75;
+    }
+
+    .stamp {
+      width: min(280px, 30vw);
+      padding: 15px 16px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      box-shadow: var(--shadow);
+    }
+
+    .stamp strong {
+      display: block;
+      color: var(--ink);
+      font-family: var(--mono);
+      font-size: 13px;
+      font-weight: 760;
+    }
+
+    .stamp span {
+      display: block;
+      margin-top: 6px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.55;
+    }
+
+    .canvas {
+      position: relative;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--panel);
+      box-shadow: var(--shadow);
+    }
+
+    .canvas::before {
+      content: "";
+      position: absolute;
+      inset: 24px;
+      pointer-events: none;
+      border: 1px solid rgba(216, 208, 194, 0.62);
+      border-radius: 8px;
+    }
+
+    .map {
+      position: relative;
+      min-height: 1160px;
+      padding: 36px;
+    }
+
+    .connector-svg {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 1;
+    }
+
+    .connector {
+      fill: none;
+      stroke-width: 1.8;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      opacity: 0.62;
+    }
+
+    .connector.blue { stroke: var(--blue); }
+    .connector.green { stroke: var(--green); }
+    .connector.teal { stroke: var(--teal); }
+    .connector.amber { stroke: var(--amber); }
+    .connector.red { stroke: var(--red); }
+    .connector.dashed,
+    .flow {
+      stroke-dasharray: 9 9;
+    }
+
+    .node,
+    .lane,
+    .legend,
+    .truth {
+      position: relative;
+      z-index: 2;
+    }
+
+    .side-rail {
+      position: absolute;
+      top: 126px;
+      width: 248px;
+      display: grid;
+      gap: 12px;
+      z-index: 2;
+    }
+
+    .side-rail.left { left: 36px; }
+    .side-rail.right { right: 36px; }
+
+    .rail-title {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-height: 34px;
+      color: var(--ink);
+      font-size: 18px;
+      font-weight: 760;
+    }
+
+    .rail-title .mark {
+      display: grid;
+      place-items: center;
+      width: 31px;
+      height: 31px;
+      border: 1px solid var(--line-strong);
+      border-radius: 7px;
+      color: #ffffff;
+      font-family: var(--mono);
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .left .mark { background: var(--blue); }
+    .right .mark { background: var(--amber); }
+
+    .rail-note {
+      margin: -5px 0 4px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.55;
+    }
+
+    .node {
+      min-height: 72px;
+      padding: 12px 13px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      box-shadow: 0 8px 20px rgba(52, 44, 29, 0.055);
+    }
+
+    .node h3,
+    .node h4 {
+      margin: 0;
+      color: var(--ink);
+      font-size: 14px;
+      line-height: 1.28;
+      font-weight: 760;
+    }
+
+    .node p {
+      margin: 6px 0 0;
+      color: var(--muted);
+      font-size: 11.5px;
+      line-height: 1.52;
+    }
+
+    .node.blue {
+      border-color: #a8cff2;
+      background: linear-gradient(180deg, var(--blue-soft), var(--panel));
+    }
+
+    .node.green {
+      border-color: #a8d8b5;
+      background: linear-gradient(180deg, var(--green-soft), var(--panel));
+    }
+
+    .node.teal {
+      border-color: #95dcd6;
+      background: linear-gradient(180deg, var(--teal-soft), var(--panel));
+    }
+
+    .node.amber {
+      border-color: #e7c34e;
+      background: linear-gradient(180deg, var(--amber-soft), var(--panel));
+    }
+
+    .node.red {
+      border-color: #efbda9;
+      background: linear-gradient(180deg, var(--red-soft), var(--panel));
+    }
+
+    .main-stage {
+      position: absolute;
+      left: 320px;
+      right: 320px;
+      top: 72px;
+      z-index: 2;
+      display: grid;
+      gap: 22px;
+    }
+
+    .stage-heading {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 18px;
+      align-items: end;
+    }
+
+    .stage-heading h2 {
+      margin: 0;
+      color: var(--ink);
+      font-size: clamp(25px, 2.5vw, 38px);
+      line-height: 1.16;
+      font-weight: 780;
+      letter-spacing: 0;
+    }
+
+    .stage-heading p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.58;
+    }
+
+    .badges {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      justify-content: flex-end;
+    }
+
+    .badge {
+      min-height: 28px;
+      padding: 5px 10px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: var(--panel-2);
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 11px;
+      white-space: nowrap;
+    }
+
+    .lane {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--panel);
+      overflow: hidden;
+      box-shadow: 0 10px 28px rgba(52, 44, 29, 0.07);
+    }
+
+    .lane-head {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      gap: 12px;
+      align-items: center;
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--line);
+      background: var(--panel-2);
+    }
+
+    .lane-index {
+      display: grid;
+      place-items: center;
+      width: 35px;
+      height: 35px;
+      border-radius: 7px;
+      color: #ffffff;
+      font-family: var(--mono);
+      font-weight: 850;
+    }
+
+    .maintenance .lane-index { background: var(--green); }
+    .retrieval .lane-index { background: var(--teal); }
+
+    .lane-head h3 {
+      margin: 0;
+      color: var(--ink);
+      font-size: 18px;
+      font-weight: 780;
+    }
+
+    .lane-head p {
+      margin: 2px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    .lane-tag {
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 11px;
+      white-space: nowrap;
+    }
+
+    .steps {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+      gap: 10px;
+      padding: 16px;
+    }
+
+    .retrieval .steps {
+      grid-template-columns: repeat(8, minmax(0, 1fr));
+    }
+
+    .step {
+      position: relative;
+      min-height: 132px;
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fffefb;
+    }
+
+    .step::after {
+      content: "";
+      position: absolute;
+      top: 50%;
+      right: -13px;
+      width: 13px;
+      height: 1px;
+      background: var(--line-strong);
+    }
+
+    .step:last-child::after { display: none; }
+
+    .step strong {
+      display: block;
+      color: var(--ink);
+      font-size: 13px;
+      line-height: 1.3;
+      font-weight: 780;
+    }
+
+    .step span {
+      display: block;
+      margin-top: 7px;
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.48;
+    }
+
+    .step .chip {
+      display: inline-flex;
+      margin-bottom: 8px;
+      padding: 3px 7px;
+      border-radius: 999px;
+      color: #ffffff;
+      font-family: var(--mono);
+      font-size: 10px;
+      font-weight: 800;
+      background: var(--muted);
+    }
+
+    .maintenance .step .chip { background: var(--green); }
+    .retrieval .step .chip { background: var(--teal); }
+
+    .truth {
+      display: grid;
+      grid-template-columns: minmax(240px, 0.78fr) repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      align-items: stretch;
+      padding: 16px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--panel-2);
+    }
+
+    .truth .core {
+      display: grid;
+      align-content: center;
+      min-height: 138px;
+      padding: 16px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+    }
+
+    .truth .core h3 {
+      margin: 0;
+      color: var(--ink);
+      font-size: 20px;
+      line-height: 1.15;
+      font-weight: 830;
+    }
+
+    .truth .core p {
+      margin: 9px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.55;
+    }
+
+    .truth-card {
+      min-height: 138px;
+      padding: 13px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+    }
+
+    .truth-card strong {
+      display: block;
+      color: var(--ink);
+      font-size: 13px;
+      line-height: 1.3;
+    }
+
+    .truth-card span {
+      display: block;
+      margin-top: 7px;
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.48;
+    }
+
+    .legend {
+      position: absolute;
+      left: 36px;
+      right: 36px;
+      bottom: 30px;
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      padding: 13px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: rgba(255, 253, 248, 0.96);
+    }
+
+    .legend-item {
+      display: grid;
+      grid-template-columns: 38px minmax(0, 1fr);
+      gap: 10px;
+      align-items: center;
+      color: var(--muted);
+      font-size: 11.5px;
+      line-height: 1.4;
+    }
+
+    .sample-line {
+      height: 2px;
+      border-radius: 999px;
+      background: var(--teal);
+    }
+
+    .sample-line.green { background: var(--green); }
+    .sample-line.amber { background: var(--amber); }
+    .sample-line.dashed {
+      height: 0;
+      border-top: 2px dashed var(--red);
+      background: transparent;
+    }
+
+    .mobile-stack {
+      display: none;
+    }
+
+    @media (max-width: 1320px) {
+      .map {
+        min-height: auto;
+        padding: 24px;
+      }
+
+      .connector-svg,
+      .side-rail,
+      .main-stage,
+      .legend {
+        display: none;
+      }
+
+      .mobile-stack {
+        display: grid;
+        gap: 16px;
+      }
+
+      .mobile-panel {
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        background: var(--panel);
+        overflow: hidden;
+      }
+
+      .mobile-panel h2 {
+        margin: 0;
+        padding: 16px;
+        border-bottom: 1px solid var(--line);
+        color: var(--ink);
+        font-size: 21px;
+      }
+
+      .mobile-panel .nodes {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+        padding: 14px;
+      }
+
+      .stage-heading,
+      .hero {
+        grid-template-columns: 1fr;
+      }
+
+      .stamp {
+        width: 100%;
+      }
+
+      .steps,
+      .retrieval .steps,
+      .truth {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .step::after {
+        display: none;
+      }
+    }
+
+    @media (max-width: 720px) {
+      body {
+        padding: 12px;
+      }
+
+      .canvas {
+        border-radius: 9px;
+      }
+
+      .map {
+        padding: 14px;
+      }
+
+      .mobile-panel .nodes,
+      .steps,
+      .retrieval .steps,
+      .truth {
+        grid-template-columns: 1fr;
+      }
+
+      .lane-head {
+        grid-template-columns: auto minmax(0, 1fr);
+      }
+
+      .lane-tag {
+        grid-column: 2;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header class="hero">
+      <div>
+        <div class="eyebrow">Agent Memory Hub Capability Map</div>
+        <h1>AMH 指标 / 治理 / 协作能力地图</h1>
+        <p class="lead">
+          这张图把 AMH 表达为本地优先的跨智能体可信上下文操作系统：协作入口产生证据和候选，治理层先维护共享事实源，指标层持续观测质量与风险，召回链路再按需把分层上下文注入给 Agent。
+        </p>
+      </div>
+      <aside class="stamp">
+        <strong>边界口径</strong>
+        <span>raw conversation、MemoryItem、evidence、derived index、context view 和 adapter capability 分开画，避免把系统说成单一 RAG 或 transcript 仓库。</span>
+      </aside>
+    </header>
+
+    <section class="canvas" aria-label="Agent Memory Hub 指标、治理、协作能力地图">
+      <div class="map">
+        <svg class="connector-svg" viewBox="0 0 1760 1060" preserveAspectRatio="none" aria-hidden="true">
+          <defs>
+            <marker id="arrow-blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="#386fa4"></path>
+            </marker>
+            <marker id="arrow-green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="#4f8a58"></path>
+            </marker>
+            <marker id="arrow-teal" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="#2b8c84"></path>
+            </marker>
+            <marker id="arrow-amber" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="#a96f16"></path>
+            </marker>
+            <marker id="arrow-red" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="#b85d4e"></path>
+            </marker>
+          </defs>
+          <path class="connector blue flow" marker-end="url(#arrow-blue)" d="M 270 190 C 360 190, 390 210, 455 250"></path>
+          <path class="connector blue flow" marker-end="url(#arrow-blue)" d="M 270 314 C 360 328, 388 342, 455 360"></path>
+          <path class="connector green flow" marker-end="url(#arrow-green)" d="M 890 370 C 890 415, 890 438, 890 488"></path>
+          <path class="connector green flow" marker-end="url(#arrow-green)" d="M 1064 488 C 1138 454, 1250 438, 1382 310"></path>
+          <path class="connector amber flow" marker-end="url(#arrow-amber)" d="M 1488 360 C 1376 468, 1260 511, 1095 584"></path>
+          <path class="connector teal flow" marker-end="url(#arrow-teal)" d="M 455 732 C 350 700, 312 642, 270 520"></path>
+          <path class="connector teal flow" marker-end="url(#arrow-teal)" d="M 1090 732 C 1228 716, 1325 665, 1488 518"></path>
+          <path class="connector red dashed" marker-end="url(#arrow-red)" d="M 1072 333 C 1198 350, 1290 371, 1382 462"></path>
+          <path class="connector amber dashed" marker-end="url(#arrow-amber)" d="M 1488 252 C 1378 205, 1247 166, 1075 150"></path>
+        </svg>
+
+        <aside class="side-rail left">
+          <div>
+            <div class="rail-title"><span class="mark">C</span>协作层</div>
+            <p class="rail-note">不同 Agent 和工具不需要互相直连，统一通过本地共享大脑和受控接口复用上下文。</p>
+          </div>
+          <article class="node blue">
+            <h3>Agent adapters</h3>
+            <p>Codex、Claude Code、Qoder、Wukong、Hermes 等按 adapter truth contract 暴露能力边界。</p>
+          </article>
+          <article class="node blue">
+            <h3>MCP / CLI / SDK / Web</h3>
+            <p>读写、brief、search、doctor、review、Cockpit 和候选审批走统一工具面。</p>
+          </article>
+          <article class="node blue">
+            <h3>Lifecycle hooks</h3>
+            <p>SessionStart、UserPromptSubmit、Stop、PreCompact、SubagentStart 等记录运行证据。</p>
+          </article>
+          <article class="node blue">
+            <h3>Resume & handoff</h3>
+            <p>memory brief、开放 signal、最近 handoff 和关键 decision 支撑新会话承接。</p>
+          </article>
+          <article class="node blue">
+            <h3>Awareness injection</h3>
+            <p>AGENTS.md、CLAUDE.md、rules、sidecar 让不同客户端理解同一套记忆纪律。</p>
+          </article>
+        </aside>
+
+        <aside class="side-rail right">
+          <div>
+            <div class="rail-title"><span class="mark">M</span>指标层</div>
+            <p class="rail-note">指标不是装饰面板，而是治理动作的输入和协作可信度的证据。</p>
+          </div>
+          <article class="node amber">
+            <h3>Health / govern metrics</h3>
+            <p>memory health、govern plan、category counts、maturity、retention 和 decay 风险。</p>
+          </article>
+          <article class="node amber">
+            <h3>Retrieval trace</h3>
+            <p>search --explain、trace、context_firewall reason 解释为什么取、为什么不注入。</p>
+          </article>
+          <article class="node amber">
+            <h3>Data-flow read model</h3>
+            <p>GET /api/data-flow 聚合 adapter events、verification、loop、gap、outcome、cohort。</p>
+          </article>
+          <article class="node amber">
+            <h3>Adapter verification</h3>
+            <p>adapter doctor、install-verify、runtime evidence 和 verification record 分层判定。</p>
+          </article>
+          <article class="node amber">
+            <h3>Loop engineering ledger</h3>
+            <p>runtime/loop-events.jsonl 记录目标、检查点、失败、验证和完成事件。</p>
+          </article>
+        </aside>
+
+        <div class="main-stage">
+          <header class="stage-heading">
+            <div>
+              <h2>治理先行的共享大脑闭环</h2>
+              <p>维护链路先决定什么可以进入、如何成熟、何时降权或复核；召回链路再按用户问题把可信上下文分层注入。</p>
+            </div>
+            <div class="badges" aria-label="architecture badges">
+              <span class="badge">source-of-truth: Markdown MemoryItem</span>
+              <span class="badge">indexes: rebuildable projection</span>
+              <span class="badge">risky actions: review gate</span>
+            </div>
+          </header>
+
+          <section class="lane maintenance" aria-label="维护完整链路">
+            <div class="lane-head">
+              <span class="lane-index">01</span>
+              <div>
+                <h3>维护完整链路</h3>
+                <p>把协作过程中的证据、候选和质量信号转成可审计、可回滚、可复核的长期知识。</p>
+              </div>
+              <span class="lane-tag">governance / maintenance</span>
+            </div>
+            <div class="steps">
+              <article class="step">
+                <span class="chip">input</span>
+                <strong>证据进入</strong>
+                <span>conversation、resource、runtime event、feedback、adapter verification 进入证据层。</span>
+              </article>
+              <article class="step">
+                <span class="chip">gate</span>
+                <strong>写入漏斗</strong>
+                <span>WriteService 统一执行 schema、audit gate、字段补全和质量 warning。</span>
+              </article>
+              <article class="step">
+                <span class="chip">truth</span>
+                <strong>MemoryItem 落盘</strong>
+                <span>items/mem-*.md 是长期事实源；raw transcript 不直接等于记忆。</span>
+              </article>
+              <article class="step">
+                <span class="chip">index</span>
+                <strong>派生索引</strong>
+                <span>SQLite、FTS、vector、refs_graph、context view 是可重建投影。</span>
+              </article>
+              <article class="step">
+                <span class="chip">plan</span>
+                <strong>维护计划</strong>
+                <span>govern plan / anti-drift 发现过期、摘要过长、漂移、矛盾、引用腐烂。</span>
+              </article>
+              <article class="step">
+                <span class="chip">apply</span>
+                <strong>安全执行 / 复核</strong>
+                <span>summary rewrite 等低风险动作可 dry-run、snapshot、rollback；archive/delete/merge 进 review。</span>
+              </article>
+            </div>
+          </section>
+
+          <section class="truth" aria-label="共享事实层">
+            <div class="core">
+              <h3>Shared Brain<br>可信事实层</h3>
+              <p>AMH 的核心不是“多塞上下文”，而是把证据、长期知识、派生索引、治理状态和注入视图分层管理。</p>
+            </div>
+            <article class="truth-card">
+              <strong>Raw conversation</strong>
+              <span>message 级原始证据，默认不自动注入 prompt。</span>
+            </article>
+            <article class="truth-card">
+              <strong>Evidence / provenance</strong>
+              <span>refs、resource、extraction、commit、URL、memory link 支撑溯源。</span>
+            </article>
+            <article class="truth-card">
+              <strong>Derived indexes</strong>
+              <span>FTS、vector、graph、runtime ledger 用来加速读取和观测。</span>
+            </article>
+            <article class="truth-card">
+              <strong>Context views</strong>
+              <span>locator、overview、detail、context_pack 控制注入粒度。</span>
+            </article>
+          </section>
+
+          <section class="lane retrieval" aria-label="召回时序链路">
+            <div class="lane-head">
+              <span class="lane-index">02</span>
+              <div>
+                <h3>召回时序链路</h3>
+                <p>不是一句“召回”带过，而是从问题到过滤、融合、重排、扩展、防火墙和上下文注入的真实读取顺序。</p>
+              </div>
+              <span class="lane-tag">retrieval / injection</span>
+            </div>
+            <div class="steps">
+              <article class="step">
+                <span class="chip">Q</span>
+                <strong>用户问题</strong>
+                <span>query signal 先判断是否适合注入、有哪些强锚点。</span>
+              </article>
+              <article class="step">
+                <span class="chip">filter</span>
+                <strong>元数据过滤</strong>
+                <span>project、type、tenant、tag、scope、sensitivity、status 先收窄候选。</span>
+              </article>
+              <article class="step">
+                <span class="chip">parallel</span>
+                <strong>全文 + 向量</strong>
+                <span>BM25/FTS 与 vector 并行；向量退化时回到 BM25-only。</span>
+              </article>
+              <article class="step">
+                <span class="chip">RRF</span>
+                <strong>融合排序</strong>
+                <span>RRF 融合多路候选，降低单一路径误召回风险。</span>
+              </article>
+              <article class="step">
+                <span class="chip">score</span>
+                <strong>重排与衰减</strong>
+                <span>rerank、maturity、confidence、feedback、freshness、遗忘衰减参与评分。</span>
+              </article>
+              <article class="step">
+                <span class="chip">expand</span>
+                <strong>多样化 / 关联</strong>
+                <span>MMR、Hopfield、graph expansion 负责去冗余和关联扩展。</span>
+              </article>
+              <article class="step">
+                <span class="chip">firewall</span>
+                <strong>ContextFirewall</strong>
+                <span>按来源、时效、敏感、预算、反馈、cohort 覆盖裁决 include/demote/exclude。</span>
+              </article>
+              <article class="step">
+                <span class="chip">pack</span>
+                <strong>分层上下文注入</strong>
+                <span>context_pack 带 locator/overview/detail_uri/retrieve hint，不默认倾倒全文。</span>
+              </article>
+            </div>
+          </section>
+        </div>
+
+        <section class="legend" aria-label="图例">
+          <div class="legend-item"><span class="sample-line green"></span><span>绿色实线：治理和维护写回主路径。</span></div>
+          <div class="legend-item"><span class="sample-line"></span><span>青色实线：召回、过滤和上下文注入路径。</span></div>
+          <div class="legend-item"><span class="sample-line amber"></span><span>琥珀实线：指标观测反哺维护计划。</span></div>
+          <div class="legend-item"><span class="sample-line dashed"></span><span>虚线：需要复核、门禁或条件启用的路径。</span></div>
+        </section>
+
+        <div class="mobile-stack" aria-label="移动端能力地图">
+          <section class="mobile-panel">
+            <h2>协作层</h2>
+            <div class="nodes">
+              <article class="node blue"><h3>Agent adapters</h3><p>Codex、Claude Code、Qoder、Wukong、Hermes 等按 truth contract 接入。</p></article>
+              <article class="node blue"><h3>MCP / CLI / SDK / Web</h3><p>统一工具面承载读写、brief、search、doctor、review 和 Cockpit。</p></article>
+              <article class="node blue"><h3>Lifecycle hooks</h3><p>SessionStart、UserPromptSubmit、Stop、PreCompact、SubagentStart 记录证据。</p></article>
+              <article class="node blue"><h3>Resume & handoff</h3><p>memory brief、开放 signal、最近 handoff、关键 decision 支撑承接。</p></article>
+            </div>
+          </section>
+
+          <section class="lane maintenance">
+            <div class="lane-head">
+              <span class="lane-index">01</span>
+              <div><h3>维护完整链路</h3><p>证据进入后先治理、写入、索引、计划、执行或复核。</p></div>
+              <span class="lane-tag">governance / maintenance</span>
+            </div>
+            <div class="steps">
+              <article class="step"><span class="chip">input</span><strong>证据进入</strong><span>conversation、resource、runtime event、feedback、adapter verification。</span></article>
+              <article class="step"><span class="chip">gate</span><strong>写入漏斗</strong><span>WriteService 执行 schema、audit gate、补全和 warning。</span></article>
+              <article class="step"><span class="chip">truth</span><strong>MemoryItem 落盘</strong><span>items/mem-*.md 是长期事实源。</span></article>
+              <article class="step"><span class="chip">index</span><strong>派生索引</strong><span>SQLite、FTS、vector、graph、context view 可重建。</span></article>
+              <article class="step"><span class="chip">plan</span><strong>维护计划</strong><span>发现过期、摘要过长、漂移、矛盾、引用腐烂。</span></article>
+              <article class="step"><span class="chip">apply</span><strong>安全执行 / 复核</strong><span>低风险可 dry-run/snapshot/rollback，高风险进 review。</span></article>
+            </div>
+          </section>
+
+          <section class="truth">
+            <div class="core"><h3>Shared Brain<br>可信事实层</h3><p>证据、长期知识、派生索引、治理状态和注入视图分层管理。</p></div>
+            <article class="truth-card"><strong>Raw conversation</strong><span>message 级原始证据，默认不自动注入。</span></article>
+            <article class="truth-card"><strong>Evidence / provenance</strong><span>refs、resource、extraction、commit、URL、memory link。</span></article>
+            <article class="truth-card"><strong>Derived indexes</strong><span>FTS、vector、graph、runtime ledger。</span></article>
+            <article class="truth-card"><strong>Context views</strong><span>locator、overview、detail、context_pack。</span></article>
+          </section>
+
+          <section class="lane retrieval">
+            <div class="lane-head">
+              <span class="lane-index">02</span>
+              <div><h3>召回时序链路</h3><p>从用户问题到防火墙和分层上下文注入的真实读取顺序。</p></div>
+              <span class="lane-tag">retrieval / injection</span>
+            </div>
+            <div class="steps">
+              <article class="step"><span class="chip">Q</span><strong>用户问题</strong><span>query signal 判断是否适合注入。</span></article>
+              <article class="step"><span class="chip">filter</span><strong>元数据过滤</strong><span>project、type、tenant、tag、scope、sensitivity。</span></article>
+              <article class="step"><span class="chip">parallel</span><strong>全文 + 向量</strong><span>BM25/FTS 与 vector 并行。</span></article>
+              <article class="step"><span class="chip">RRF</span><strong>融合排序</strong><span>RRF 融合多路候选。</span></article>
+              <article class="step"><span class="chip">score</span><strong>重排与衰减</strong><span>rerank、maturity、confidence、feedback、freshness。</span></article>
+              <article class="step"><span class="chip">expand</span><strong>多样化 / 关联</strong><span>MMR、Hopfield、graph expansion。</span></article>
+              <article class="step"><span class="chip">firewall</span><strong>ContextFirewall</strong><span>按来源、时效、敏感、预算、反馈裁决。</span></article>
+              <article class="step"><span class="chip">pack</span><strong>分层上下文注入</strong><span>context_pack 带 detail_uri 和 retrieve hint。</span></article>
+            </div>
+          </section>
+
+          <section class="mobile-panel">
+            <h2>指标层</h2>
+            <div class="nodes">
+              <article class="node amber"><h3>Health / govern metrics</h3><p>health、govern plan、category counts、maturity、retention、decay。</p></article>
+              <article class="node amber"><h3>Retrieval trace</h3><p>search --explain、trace、context_firewall reason。</p></article>
+              <article class="node amber"><h3>Data-flow read model</h3><p>GET /api/data-flow 聚合 events、verification、loop、gap、outcome、cohort。</p></article>
+              <article class="node amber"><h3>Loop engineering ledger</h3><p>runtime/loop-events.jsonl 记录目标、检查点、失败、验证和完成。</p></article>
+            </div>
+          </section>
+        </div>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

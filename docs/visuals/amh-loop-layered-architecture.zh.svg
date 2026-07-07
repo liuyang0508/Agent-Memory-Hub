@@ -1,0 +1,626 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="928" viewBox="0 0 1500 928" role="img" aria-labelledby="title desc" style="max-width:100%;height:auto;">
+  <title id="title">AMH 可信上下文生命周期图：接入、维护、召回、治理与评估</title>
+  <desc id="desc">AMH 可信上下文生命周期图：接入、维护、召回、治理与评估</desc>
+  <defs>
+
+    <linearGradient id="qoderPageBg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#fffdfb"/>
+      <stop offset="48%" stop-color="#fbfaf8"/>
+      <stop offset="100%" stop-color="#f7fbff"/>
+    </linearGradient>
+    <linearGradient id="qoderSheetBg" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#fff3fa"/>
+      <stop offset="45%" stop-color="#fbfdff"/>
+      <stop offset="100%" stop-color="#f0f8e9"/>
+    </linearGradient>
+    <filter id="qoderSheetShadow" x="-8%" y="-8%" width="116%" height="116%">
+      <feDropShadow dx="0" dy="26" stdDeviation="30" flood-color="#2a231c" flood-opacity="0.085"/>
+    </filter>
+
+    <marker id="arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#57606a"/>
+    </marker>
+    <filter id="paper" x="-8%" y="-8%" width="116%" height="116%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.78" numOctaves="2" seed="11" result="noise"/>
+      <feColorMatrix type="saturate" values="0"/>
+      <feComponentTransfer>
+        <feFuncA type="table" tableValues="0 0.035"/>
+      </feComponentTransfer>
+      <feBlend in="SourceGraphic" mode="multiply"/>
+    </filter>
+    <filter id="softShadow" x="-15%" y="-15%" width="130%" height="130%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#1f2328" flood-opacity="0.08"/>
+    </filter>
+    <style>
+      .bg { fill: url(#qoderPageBg); }
+      .sheet { fill: url(#qoderSheetBg); filter: url(#qoderSheetShadow); }
+      .ink { fill: #24292f; }
+      .muted { fill: #57606a; }
+      .title { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 34px; font-weight: 850; fill: #24292f; }
+      .subtitle { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 17px; fill: #57606a; }
+      .section { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 17px; font-weight: 800; fill: #57606a; text-transform: uppercase; }
+      .card-title { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 20px; font-weight: 820; fill: #24292f; }
+      .card-line { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 15px; fill: #24292f; }
+      .small { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 13px; fill: #57606a; }
+      .tiny { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 10px; fill: #6e7781; }
+      .num { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 22px; font-weight: 900; }
+      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; font-size: 13px; fill: #24292f; }
+      .mono-small { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; font-size: 12px; fill: #57606a; }
+      .panel { fill: #ffffff; stroke: #d8dee4; stroke-width: 1.4; filter: url(#softShadow); }
+      .card { stroke-width: 1.8; filter: url(#softShadow); }
+      .thin-card { stroke-width: 1.2; }
+      .arrow { fill: none; stroke: #57606a; stroke-width: 2.1; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrow); }
+      .soft-arrow { fill: none; stroke: #8c959f; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 6 7; marker-end: url(#arrow); }
+      .flow-line { stroke-dasharray: 14 10; animation: flowDash 1.8s linear infinite; }
+      .planned-line { stroke-dasharray: 8 8; }
+      .flow-dot { fill: #1f6f78; filter: url(#softShadow); }
+      .breath { animation: breath 2.8s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+      .breath-slow { animation: breath 4.2s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+      .blink { animation: blink 1.7s ease-in-out infinite; }
+      .rail { fill: none; stroke: #d0d7de; stroke-width: 1.3; stroke-dasharray: 5 8; }
+      .branch { fill: none; stroke: #d0d7de; stroke-width: 1.3; stroke-linecap: round; stroke-linejoin: round; }
+      .icon { fill: none; stroke-width: 3.5; stroke-linecap: round; stroke-linejoin: round; }
+      @keyframes flowDash {
+        to { stroke-dashoffset: -24; }
+      }
+      @keyframes breath {
+        0%, 100% { opacity: 0.88; transform: scale(1); }
+        50% { opacity: 1; transform: scale(1.035); }
+      }
+      @keyframes blink {
+        0%, 100% { opacity: 0.42; }
+        50% { opacity: 1; }
+      }
+    </style>
+  </defs>
+  <rect class="bg" width="1500" height="928"/>
+  <rect x="28" y="28" width="1444" height="872" rx="36" fill="#ffffff" opacity="0.62"/>
+  <rect class="sheet" x="20" y="20" width="1460" height="888" rx="34" stroke="#ffffff" stroke-opacity="0.86" stroke-width="1.2"/>
+  <g>
+    <image href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2MjAgMTYwIiByb2xlPSJpbWciIGFyaWEtbGFiZWxsZWRieT0idGl0bGUgZGVzYyIgc2hhcGUtcmVuZGVyaW5nPSJnZW9tZXRyaWNQcmVjaXNpb24iIGNvbG9yLXJlbmRlcmluZz0ic1JHQiI+CiAgPHRpdGxlIGlkPSJ0aXRsZSI+QWdlbnQgTWVtb3J5IEh1YiBsb2dvIGxvY2t1cDwvdGl0bGU+CiAgPGRlc2MgaWQ9ImRlc2MiPkEgaG9yaXpvbnRhbCBsb2dvIGxvY2t1cCBjb21iaW5pbmcgdGhlIGhpZ2gtZmlkZWxpdHkgb2N0b3B1cyBtYXJrLCB0aGUgQWdlbnQgTWVtb3J5IEh1YiB3b3JkbWFyaywgYW5kIGEgY29uY2lzZSBFbmdsaXNoIHRhZ2xpbmUuPC9kZXNjPgogIDxkZWZzPgogICAgPHJhZGlhbEdyYWRpZW50IGlkPSJsb2NrdXAtc3RpY2tlci1maWxsIiBjeD0iMzYlIiBjeT0iMjQlIiByPSI4MCUiPgogICAgICA8c3RvcCBvZmZzZXQ9IjAlIiBzdG9wLWNvbG9yPSIjZmZmZmZmIi8+CiAgICAgIDxzdG9wIG9mZnNldD0iNTUlIiBzdG9wLWNvbG9yPSIjZmZmZGY4Ii8+CiAgICAgIDxzdG9wIG9mZnNldD0iMTAwJSIgc3RvcC1jb2xvcj0iI2VlZjlmNiIvPgogICAgPC9yYWRpYWxHcmFkaWVudD4KICAgIDxyYWRpYWxHcmFkaWVudCBpZD0ibG9ja3VwLWJvZHktZmlsbCIgY3g9IjMyJSIgY3k9IjIyJSIgcj0iODIlIj4KICAgICAgPHN0b3Agb2Zmc2V0PSIwJSIgc3RvcC1jb2xvcj0iI2ZmZTFjNCIvPgogICAgICA8c3RvcCBvZmZzZXQ9IjM0JSIgc3RvcC1jb2xvcj0iI2ZmYWQ4NyIvPgogICAgICA8c3RvcCBvZmZzZXQ9IjYzJSIgc3RvcC1jb2xvcj0iI2VjNzc1ZSIvPgogICAgICA8c3RvcCBvZmZzZXQ9Ijg2JSIgc3RvcC1jb2xvcj0iI2M2NTg0OCIvPgogICAgICA8c3RvcCBvZmZzZXQ9IjEwMCUiIHN0b3AtY29sb3I9IiM4ZjNiMzUiLz4KICAgIDwvcmFkaWFsR3JhZGllbnQ+CiAgICA8bGluZWFyR3JhZGllbnQgaWQ9ImxvY2t1cC1ib2R5LXJpbSIgeDE9IjI0IiB5MT0iMTkiIHgyPSI3MyIgeTI9IjY4IiBncmFkaWVudFVuaXRzPSJ1c2VyU3BhY2VPblVzZSI+CiAgICAgIDxzdG9wIG9mZnNldD0iMCUiIHN0b3AtY29sb3I9IiNmZmYyZTgiIHN0b3Atb3BhY2l0eT0iMC44MiIvPgogICAgICA8c3RvcCBvZmZzZXQ9IjQ2JSIgc3RvcC1jb2xvcj0iI2YwOTI3MiIgc3RvcC1vcGFjaXR5PSIwLjI2Ii8+CiAgICAgIDxzdG9wIG9mZnNldD0iMTAwJSIgc3RvcC1jb2xvcj0iIzZmMzAyYyIgc3RvcC1vcGFjaXR5PSIwLjgyIi8+CiAgICA8L2xpbmVhckdyYWRpZW50PgogICAgPGxpbmVhckdyYWRpZW50IGlkPSJsb2NrdXAtYXJtLWZpbGwiIHgxPSIxNyIgeTE9IjU1IiB4Mj0iNzgiIHkyPSI4NCIgZ3JhZGllbnRVbml0cz0idXNlclNwYWNlT25Vc2UiPgogICAgICA8c3RvcCBvZmZzZXQ9IjAlIiBzdG9wLWNvbG9yPSIjZjdhMDdhIi8+CiAgICAgIDxzdG9wIG9mZnNldD0iNDQlIiBzdG9wLWNvbG9yPSIjZWI3MzU5Ii8+CiAgICAgIDxzdG9wIG9mZnNldD0iNzQlIiBzdG9wLWNvbG9yPSIjYzk1NzQ3Ii8+CiAgICAgIDxzdG9wIG9mZnNldD0iMTAwJSIgc3RvcC1jb2xvcj0iIzhjMzkzMyIvPgogICAgPC9saW5lYXJHcmFkaWVudD4KICAgIDxsaW5lYXJHcmFkaWVudCBpZD0ibG9ja3VwLWFybS1mcm9udC1maWxsIiB4MT0iMzQiIHkxPSI2MyIgeDI9IjYyIiB5Mj0iODQiIGdyYWRpZW50VW5pdHM9InVzZXJTcGFjZU9uVXNlIj4KICAgICAgPHN0b3Agb2Zmc2V0PSIwJSIgc3RvcC1jb2xvcj0iI2ZmYjM4ZCIvPgogICAgICA8c3RvcCBvZmZzZXQ9IjQ4JSIgc3RvcC1jb2xvcj0iI2VlNzY1YyIvPgogICAgICA8c3RvcCBvZmZzZXQ9IjEwMCUiIHN0b3AtY29sb3I9IiNhMzQ0M2IiLz4KICAgIDwvbGluZWFyR3JhZGllbnQ+CiAgICA8bGluZWFyR3JhZGllbnQgaWQ9ImxvY2t1cC1tZW1vcnktc3Ryb2tlIiB4MT0iNDEiIHkxPSIyMiIgeDI9IjU1IiB5Mj0iMzYiIGdyYWRpZW50VW5pdHM9InVzZXJTcGFjZU9uVXNlIj4KICAgICAgPHN0b3Agb2Zmc2V0PSIwJSIgc3RvcC1jb2xvcj0iI2Y3ZmZmZCIvPgogICAgICA8c3RvcCBvZmZzZXQ9IjEwMCUiIHN0b3AtY29sb3I9IiM5MWVjZTMiLz4KICAgIDwvbGluZWFyR3JhZGllbnQ+CiAgICA8cmFkaWFsR3JhZGllbnQgaWQ9ImxvY2t1cC1ub2RlLWZpbGwiIGN4PSIzNCUiIGN5PSIyNiUiIHI9IjgyJSI+CiAgICAgIDxzdG9wIG9mZnNldD0iMCUiIHN0b3AtY29sb3I9IiNmZmZmZmYiLz4KICAgICAgPHN0b3Agb2Zmc2V0PSI1OCUiIHN0b3AtY29sb3I9IiNlOGZmZmIiLz4KICAgICAgPHN0b3Agb2Zmc2V0PSIxMDAlIiBzdG9wLWNvbG9yPSIjOWNlZmU2Ii8+CiAgICA8L3JhZGlhbEdyYWRpZW50PgogICAgPGxpbmVhckdyYWRpZW50IGlkPSJsb2NrdXAtc2hhZGUtZmlsbCIgeDE9IjQ4IiB5MT0iNTIiIHgyPSI0OCIgeTI9IjczIiBncmFkaWVudFVuaXRzPSJ1c2VyU3BhY2VPblVzZSI+CiAgICAgIDxzdG9wIG9mZnNldD0iMCUiIHN0b3AtY29sb3I9IiM2ZjMwMmMiIHN0b3Atb3BhY2l0eT0iMCIvPgogICAgICA8c3RvcCBvZmZzZXQ9IjEwMCUiIHN0b3AtY29sb3I9IiM1ZDI1MWYiIHN0b3Atb3BhY2l0eT0iMC40MiIvPgogICAgPC9saW5lYXJHcmFkaWVudD4KICAgIDxsaW5lYXJHcmFkaWVudCBpZD0ibG9ja3VwLXNoaW5lLWZpbGwiIHgxPSIyNyIgeTE9IjIwIiB4Mj0iNTQiIHkyPSI0OCIgZ3JhZGllbnRVbml0cz0idXNlclNwYWNlT25Vc2UiPgogICAgICA8c3RvcCBvZmZzZXQ9IjAlIiBzdG9wLWNvbG9yPSIjZmZmZmZmIiBzdG9wLW9wYWNpdHk9IjAuNjgiLz4KICAgICAgPHN0b3Agb2Zmc2V0PSI1OCUiIHN0b3AtY29sb3I9IiNmZmZmZmYiIHN0b3Atb3BhY2l0eT0iMC4yIi8+CiAgICAgIDxzdG9wIG9mZnNldD0iMTAwJSIgc3RvcC1jb2xvcj0iI2ZmZmZmZiIgc3RvcC1vcGFjaXR5PSIwIi8+CiAgICA8L2xpbmVhckdyYWRpZW50PgogICAgPGxpbmVhckdyYWRpZW50IGlkPSJsb2NrdXAtd29yZC1hY2NlbnQiIHgxPSIxNTAiIHkxPSIxMDAiIHgyPSI0MjQiIHkyPSIxMDAiIGdyYWRpZW50VW5pdHM9InVzZXJTcGFjZU9uVXNlIj4KICAgICAgPHN0b3Agb2Zmc2V0PSIwJSIgc3RvcC1jb2xvcj0iIzE4YWFiNSIvPgogICAgICA8c3RvcCBvZmZzZXQ9IjEwMCUiIHN0b3AtY29sb3I9IiM5MWQ4ZDAiLz4KICAgIDwvbGluZWFyR3JhZGllbnQ+CiAgPC9kZWZzPgoKICA8ZyB0cmFuc2Zvcm09InRyYW5zbGF0ZSgyMiAyNSkgc2NhbGUoMS4wOCkiPgogICAgPGNpcmNsZSBjeD0iNDgiIGN5PSI0OCIgcj0iNDMiIGZpbGw9InVybCgjbG9ja3VwLXN0aWNrZXItZmlsbCkiIHN0cm9rZT0iIzliZDlkMiIgc3Ryb2tlLXdpZHRoPSIxLjU1Ii8+CiAgICA8Y2lyY2xlIGN4PSI0OCIgY3k9IjUwLjYiIHI9IjMwLjgiIGZpbGw9IiNiOWVmZTUiIG9wYWNpdHk9IjAuMiIvPgogICAgPGVsbGlwc2UgY3g9IjQ4IiBjeT0iNzYuNyIgcng9IjI3LjQiIHJ5PSI4LjgiIGZpbGw9IiM2ZjMwMmMiIG9wYWNpdHk9IjAuMTMiLz4KCiAgICA8ZyBmaWxsPSJub25lIiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPgogICAgICA8cGF0aCBkPSJNMjguNiA1Ny41QzE5LjYgNTguOSAxNy4xIDY2LjUgMjMuNiA3MS45IiBzdHJva2U9IiM2ZjMwMmMiIHN0cm9rZS13aWR0aD0iOS40Ii8+CiAgICAgIDxwYXRoIGQ9Ik0zNi4xIDYxLjlDMzAuMiA2Ni45IDMxIDc1LjIgMzguMyA3Ny41IiBzdHJva2U9IiM2ZjMwMmMiIHN0cm9rZS13aWR0aD0iOS40Ii8+CiAgICAgIDxwYXRoIGQ9Ik01OS45IDYxLjlDNjUuOCA2Ni45IDY1IDc1LjIgNTcuNyA3Ny41IiBzdHJva2U9IiM2ZjMwMmMiIHN0cm9rZS13aWR0aD0iOS40Ii8+CiAgICAgIDxwYXRoIGQ9Ik02Ny40IDU3LjVDNzYuNCA1OC45IDc4LjkgNjYuNSA3Mi40IDcxLjkiIHN0cm9rZT0iIzZmMzAyYyIgc3Ryb2tlLXdpZHRoPSI5LjQiLz4KICAgICAgPHBhdGggZD0iTTI4LjYgNTcuNUMxOS42IDU4LjkgMTcuMSA2Ni41IDIzLjYgNzEuOSIgc3Ryb2tlPSJ1cmwoI2xvY2t1cC1hcm0tZmlsbCkiIHN0cm9rZS13aWR0aD0iNS44NSIvPgogICAgICA8cGF0aCBkPSJNMzYuMSA2MS45QzMwLjIgNjYuOSAzMSA3NS4yIDM4LjMgNzcuNSIgc3Ryb2tlPSJ1cmwoI2xvY2t1cC1hcm0tZmlsbCkiIHN0cm9rZS13aWR0aD0iNS44NSIvPgogICAgICA8cGF0aCBkPSJNNTkuOSA2MS45QzY1LjggNjYuOSA2NSA3NS4yIDU3LjcgNzcuNSIgc3Ryb2tlPSJ1cmwoI2xvY2t1cC1hcm0tZmlsbCkiIHN0cm9rZS13aWR0aD0iNS44NSIvPgogICAgICA8cGF0aCBkPSJNNjcuNCA1Ny41Qzc2LjQgNTguOSA3OC45IDY2LjUgNzIuNCA3MS45IiBzdHJva2U9InVybCgjbG9ja3VwLWFybS1maWxsKSIgc3Ryb2tlLXdpZHRoPSI1Ljg1Ii8+CiAgICA8L2c+CgogICAgPHBhdGggZD0iTTQ4IDEzLjhjLTE2LjYgMC0yOC43IDExLjctMjguNyAyNy41QzE5LjMgNTcuOSAzMC43IDY3IDQ4IDY3czI4LjctOS4xIDI4LjctMjUuN0M3Ni43IDI1LjUgNjQuNiAxMy44IDQ4IDEzLjhaIiBmaWxsPSJ1cmwoI2xvY2t1cC1ib2R5LWZpbGwpIiBzdHJva2U9IiM2ZjMwMmMiIHN0cm9rZS13aWR0aD0iMi4xOCIvPgogICAgPHBhdGggZD0iTTQ4IDEzLjhjLTE2LjYgMC0yOC43IDExLjctMjguNyAyNy41QzE5LjMgNTcuOSAzMC43IDY3IDQ4IDY3czI4LjctOS4xIDI4LjctMjUuN0M3Ni43IDI1LjUgNjQuNiAxMy44IDQ4IDEzLjhaIiBmaWxsPSJub25lIiBzdHJva2U9InVybCgjbG9ja3VwLWJvZHktcmltKSIgc3Ryb2tlLXdpZHRoPSIxLjA1Ii8+CiAgICA8cGF0aCBkPSJNMjkuMyA1Ny4zQzM0LjQgNjQgNDAuNyA2Ny4xIDQ4IDY3LjFzMTMuNi0zLjEgMTguNy05LjhDNjMuOSA2Ny43IDU3IDcyLjMgNDggNzIuM3MtMTUuOS00LjYtMTguNy0xNVoiIGZpbGw9InVybCgjbG9ja3VwLXNoYWRlLWZpbGwpIiBvcGFjaXR5PSIwLjgiLz4KICAgIDxwYXRoIGQ9Ik0zMy4xIDIzLjljLTUuMiAzLjEtOCA4LTggMTMuOSAwIDIuNS43IDQgMiA0LjEgMS4xLjEgMS43LTEuMSAyLjItMy40IDEtNC43IDMuNy04LjIgOC4zLTEwLjYgMi0xLjEgMi41LTIuMyAxLjctMy4xLS45LS45LTMuNC0xLTYuMi0uOVoiIGZpbGw9IiNmZmZmZmYiIG9wYWNpdHk9IjAuMzgiLz4KICAgIDxlbGxpcHNlIGN4PSIzOC4yIiBjeT0iMzAuNSIgcng9IjkuNCIgcnk9IjE1LjEiIHRyYW5zZm9ybT0icm90YXRlKDM5IDM4LjIgMzAuNSkiIGZpbGw9InVybCgjbG9ja3VwLXNoaW5lLWZpbGwpIi8+CiAgICA8cGF0aCBkPSJNNjYuMiAyNS43YzQuNyA0LjEgNyA5LjcgNyAxNi43IiBmaWxsPSJub25lIiBzdHJva2U9IiNmZmU2ZDgiIHN0cm9rZS13aWR0aD0iMi4wNSIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBvcGFjaXR5PSIwLjM2Ii8+CgogICAgPGcgZmlsbD0ibm9uZSIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIj4KICAgICAgPHBhdGggZD0iTTM5LjMgNjQuNUMzMi40IDcwLjcgMzQuMyA3OS4yIDQyLjIgODIuNSIgc3Ryb2tlPSIjNmYzMDJjIiBzdHJva2Utd2lkdGg9IjguNCIvPgogICAgICA8cGF0aCBkPSJNNDUuMSA2Ni4zQzQxLjcgNzMuMiA0Mi43IDgyIDQ2LjQgODQuMSIgc3Ryb2tlPSIjNmYzMDJjIiBzdHJva2Utd2lkdGg9IjguNCIvPgogICAgICA8cGF0aCBkPSJNNTAuOSA2Ni4zQzU0LjMgNzMuMiA1My4zIDgyIDQ5LjYgODQuMSIgc3Ryb2tlPSIjNmYzMDJjIiBzdHJva2Utd2lkdGg9IjguNCIvPgogICAgICA8cGF0aCBkPSJNNTYuNyA2NC41QzYzLjYgNzAuNyA2MS43IDc5LjIgNTMuOCA4Mi41IiBzdHJva2U9IiM2ZjMwMmMiIHN0cm9rZS13aWR0aD0iOC40Ii8+CiAgICAgIDxwYXRoIGQ9Ik0zOS4zIDY0LjVDMzIuNCA3MC43IDM0LjMgNzkuMiA0Mi4yIDgyLjUiIHN0cm9rZT0idXJsKCNsb2NrdXAtYXJtLWZyb250LWZpbGwpIiBzdHJva2Utd2lkdGg9IjUuMTIiLz4KICAgICAgPHBhdGggZD0iTTQ1LjEgNjYuM0M0MS43IDczLjIgNDIuNyA4MiA0Ni40IDg0LjEiIHN0cm9rZT0idXJsKCNsb2NrdXAtYXJtLWZyb250LWZpbGwpIiBzdHJva2Utd2lkdGg9IjUuMTIiLz4KICAgICAgPHBhdGggZD0iTTUwLjkgNjYuM0M1NC4zIDczLjIgNTMuMyA4MiA0OS42IDg0LjEiIHN0cm9rZT0idXJsKCNsb2NrdXAtYXJtLWZyb250LWZpbGwpIiBzdHJva2Utd2lkdGg9IjUuMTIiLz4KICAgICAgPHBhdGggZD0iTTU2LjcgNjQuNUM2My42IDcwLjcgNjEuNyA3OS4yIDUzLjggODIuNSIgc3Ryb2tlPSJ1cmwoI2xvY2t1cC1hcm0tZnJvbnQtZmlsbCkiIHN0cm9rZS13aWR0aD0iNS4xMiIvPgogICAgPC9nPgoKICAgIDxnIG9wYWNpdHk9IjAuODgiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI2ZmZTFkMiIgc3Ryb2tlLXdpZHRoPSIxLjg1IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPgogICAgICA8cGF0aCBkPSJNMjEuOSA2Ni4xYy0uNS0xLjcuMS0zLjIgMS43LTQuNSIvPgogICAgICA8cGF0aCBkPSJNMzYuMiA3Mi41Yy0xLTEuNC0uOC0zLjEuNi00LjgiLz4KICAgICAgPHBhdGggZD0iTTQ1LjcgNzUuNmMtLjMgMS45LS4xIDMuNy41IDUuMyIvPgogICAgICA8cGF0aCBkPSJNNTAuMyA3NS42Yy4zIDEuOS4xIDMuNy0uNSA1LjMiLz4KICAgICAgPHBhdGggZD0iTTU5LjggNzIuNWMxLTEuNC44LTMuMS0uNi00LjgiLz4KICAgICAgPHBhdGggZD0iTTc0LjEgNjYuMWMuNS0xLjctLjEtMy4yLTEuNy00LjUiLz4KICAgIDwvZz4KCiAgICA8ZyBmaWxsPSJub25lIiBzdHJva2U9InVybCgjbG9ja3VwLW1lbW9yeS1zdHJva2UpIiBzdHJva2Utd2lkdGg9IjIuMjUiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCI+CiAgICAgIDxwYXRoIGQ9Ik00OCAyMi44djcuNSIvPgogICAgICA8cGF0aCBkPSJNNDEuNSAzNC44IDQ4IDMwLjNsNi41IDQuNSIvPgogICAgPC9nPgogICAgPGcgc3Ryb2tlPSIjZDlmZmY5IiBzdHJva2Utd2lkdGg9IjEuMzUiPgogICAgICA8Y2lyY2xlIGN4PSI0OCIgY3k9IjIyLjgiIHI9IjIuNyIgZmlsbD0idXJsKCNsb2NrdXAtbm9kZS1maWxsKSIvPgogICAgICA8Y2lyY2xlIGN4PSI0MS41IiBjeT0iMzQuOCIgcj0iMi4wNSIgZmlsbD0idXJsKCNsb2NrdXAtbm9kZS1maWxsKSIvPgogICAgICA8Y2lyY2xlIGN4PSI1NC41IiBjeT0iMzQuOCIgcj0iMi4wNSIgZmlsbD0idXJsKCNsb2NrdXAtbm9kZS1maWxsKSIvPgogICAgPC9nPgogICAgPGNpcmNsZSBjeD0iNDgiIGN5PSIyMi44IiByPSI1LjIiIGZpbGw9IiNiOWVmZTUiIG9wYWNpdHk9IjAuMTMiLz4KCiAgICA8Y2lyY2xlIGN4PSIzOS4xIiBjeT0iNDYuOCIgcj0iNC4wOCIgZmlsbD0iIzRhMjcyNiIvPgogICAgPGNpcmNsZSBjeD0iNTYuOSIgY3k9IjQ2LjgiIHI9IjQuMDgiIGZpbGw9IiM0YTI3MjYiLz4KICAgIDxjaXJjbGUgY3g9IjM3LjgiIGN5PSI0NS4zIiByPSIxLjEiIGZpbGw9IiNmZmZmZmYiLz4KICAgIDxjaXJjbGUgY3g9IjU1LjYiIGN5PSI0NS4zIiByPSIxLjEiIGZpbGw9IiNmZmZmZmYiLz4KICAgIDxlbGxpcHNlIGN4PSIzMS42IiBjeT0iNTMuMiIgcng9IjIuNjUiIHJ5PSIxLjc0IiBmaWxsPSIjZjdhNmM5IiBvcGFjaXR5PSIwLjc2Ii8+CiAgICA8ZWxsaXBzZSBjeD0iNjQuNCIgY3k9IjUzLjIiIHJ4PSIyLjY1IiByeT0iMS43NCIgZmlsbD0iI2Y3YTZjOSIgb3BhY2l0eT0iMC43NiIvPgogICAgPHBhdGggZD0iTTQzLjEgNTYuMmMyLjUgMi4zIDcuMyAyLjMgOS44IDAiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzZmMzAyYyIgc3Ryb2tlLXdpZHRoPSIyLjk1IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiLz4KICA8L2c+CgogIDxnIGZvbnQtZmFtaWx5PSJJbnRlciwgSUJNIFBsZXggU2FucywgUGluZ0ZhbmcgU0MsIEhpcmFnaW5vIFNhbnMgR0IsIE1pY3Jvc29mdCBZYUhlaSwgQXJpYWwsIHNhbnMtc2VyaWYiPgogICAgPHRleHQgeD0iMTUwIiB5PSI2OCIgZmlsbD0iIzEwMmEyZCIgZm9udC1zaXplPSI0MiIgZm9udC13ZWlnaHQ9Ijc4MCIgbGV0dGVyLXNwYWNpbmc9IjAiPkFnZW50IE1lbW9yeSBIdWI8L3RleHQ+CiAgICA8cmVjdCB4PSIxNTIiIHk9Ijg0IiB3aWR0aD0iMzg2IiBoZWlnaHQ9IjMuMiIgcng9IjEuNiIgZmlsbD0idXJsKCNsb2NrdXAtd29yZC1hY2NlbnQpIiBvcGFjaXR5PSIwLjgyIi8+CiAgICA8dGV4dCB4PSIxNTIiIHk9IjExNSIgZmlsbD0iIzViNzI3NCIgZm9udC1zaXplPSIxNy41IiBmb250LXdlaWdodD0iNTcwIiBsZXR0ZXItc3BhY2luZz0iMCIgdGV4dExlbmd0aD0iMzg2IiBsZW5ndGhBZGp1c3Q9InNwYWNpbmdBbmRHbHlwaHMiPkEgc2hhcmVkIHNlY29uZCBicmFpbiBmb3IgbXVsdGktYWdlbnQgc3lzdGVtczwvdGV4dD4KICA8L2c+Cjwvc3ZnPgo=" x="70" y="50" width="252" height="65" preserveAspectRatio="xMinYMid meet"/>
+    <text x="87" y="132" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="12" font-weight="760" fill="#0a4f9e">让每一次沉淀，成为下一次出发。</text>
+  </g>
+  <text x="70" y="188" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="45" font-weight="880" fill="#24292f">可信上下文</text>
+  <text x="70" y="244" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="45" font-weight="880" fill="#0969da">生命周期全景</text>
+  <text x="72" y="328" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="15" font-weight="650" fill="#57606a">把不同 AI Agent 产生的事实、决策、经验、产物与交接，</text>
+  <text x="72" y="348" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="15" font-weight="650" fill="#57606a">沉淀成同一层本地可信上下文。</text>
+  <g>
+    <rect x="70" y="376" width="370" height="326" rx="12" fill="#fffdf8" stroke="#c9d8eb" stroke-width="1.05"/>
+    <path d="M70 418 H440" stroke="#dbeafe" stroke-width="1"/>
+    <text x="88" y="400" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="16" font-weight="880" fill="#24292f">核心能力地图</text>
+    <text x="422" y="400" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="7.5" font-weight="720" fill="#8c959f" text-anchor="end">SHARED SECOND BRAIN</text>
+    <text x="88" y="434" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="10.5" font-weight="680" fill="#57606a">不是聊天仓库，而是跨 Agent 可复用的上下文闭环。</text>
+    <g>
+      <rect x="88" y="452" width="162" height="55" rx="9" fill="#f8fbff" stroke="#b8d6fb" stroke-width="1"/>
+      <rect x="98" y="462" width="24" height="15" rx="7.5" fill="#e7f1ff" stroke="#0969da" stroke-width="0.9"/>
+      <text x="110" y="473" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="7.5" font-weight="800" fill="#0969da" text-anchor="middle">01</text>
+      <text x="130" y="474" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="11.2" font-weight="850" fill="#24292f">共享事实层</text>
+      <text x="100" y="490" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="8" font-weight="650" fill="#57606a">多 Agent / 多角色 / 多会话</text>
+    </g>
+    <g>
+      <rect x="260" y="452" width="162" height="55" rx="9" fill="#f8fbff" stroke="#b8d6fb" stroke-width="1"/>
+      <rect x="270" y="462" width="24" height="15" rx="7.5" fill="#e7f1ff" stroke="#0969da" stroke-width="0.9"/>
+      <text x="282" y="473" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="7.5" font-weight="800" fill="#0969da" text-anchor="middle">02</text>
+      <text x="302" y="474" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="11.2" font-weight="850" fill="#24292f">证据维护</text>
+      <text x="272" y="490" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="8" font-weight="650" fill="#57606a">live prompt / transcript</text>
+      <text x="272" y="500" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="8" font-weight="650" fill="#57606a">WriteService</text>
+    </g>
+    <g>
+      <rect x="88" y="515" width="162" height="55" rx="9" fill="#f8fbff" stroke="#b8d6fb" stroke-width="1"/>
+      <rect x="98" y="525" width="24" height="15" rx="7.5" fill="#e7f1ff" stroke="#0969da" stroke-width="0.9"/>
+      <text x="110" y="536" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="7.5" font-weight="800" fill="#0969da" text-anchor="middle">03</text>
+      <text x="130" y="537" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="11.2" font-weight="850" fill="#24292f">召回排序</text>
+      <text x="100" y="553" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="8" font-weight="650" fill="#57606a">BM25 / 向量 / RRF</text>
+      <text x="100" y="563" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="8" font-weight="650" fill="#57606a">MMR-Hopfield</text>
+    </g>
+    <g>
+      <rect x="260" y="515" width="162" height="55" rx="9" fill="#f8fbff" stroke="#b8d6fb" stroke-width="1"/>
+      <rect x="270" y="525" width="24" height="15" rx="7.5" fill="#e7f1ff" stroke="#0969da" stroke-width="0.9"/>
+      <text x="282" y="536" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="7.5" font-weight="800" fill="#0969da" text-anchor="middle">04</text>
+      <text x="302" y="537" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="11.2" font-weight="850" fill="#24292f">分层装载</text>
+      <text x="272" y="553" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="8" font-weight="650" fill="#57606a">Firewall / locator</text>
+      <text x="272" y="563" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="8" font-weight="650" fill="#57606a">overview / detail</text>
+    </g>
+    <g>
+      <rect x="88" y="578" width="162" height="55" rx="9" fill="#f8fbff" stroke="#b8d6fb" stroke-width="1"/>
+      <rect x="98" y="588" width="24" height="15" rx="7.5" fill="#e7f1ff" stroke="#0969da" stroke-width="0.9"/>
+      <text x="110" y="599" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="7.5" font-weight="800" fill="#0969da" text-anchor="middle">05</text>
+      <text x="130" y="600" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="11.2" font-weight="850" fill="#24292f">反馈治理</text>
+      <text x="100" y="616" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="8" font-weight="650" fill="#57606a">support / contradict</text>
+      <text x="100" y="626" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="8" font-weight="650" fill="#57606a">gain / maturity</text>
+    </g>
+    <g>
+      <rect x="260" y="578" width="162" height="55" rx="9" fill="#f8fbff" stroke="#b8d6fb" stroke-width="1"/>
+      <rect x="270" y="588" width="24" height="15" rx="7.5" fill="#e7f1ff" stroke="#0969da" stroke-width="0.9"/>
+      <text x="282" y="599" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="7.5" font-weight="800" fill="#0969da" text-anchor="middle">06</text>
+      <text x="302" y="600" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="11.2" font-weight="850" fill="#24292f">接入生态</text>
+      <text x="272" y="616" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="8" font-weight="650" fill="#57606a">Adapter / hooks / MCP</text>
+      <text x="272" y="626" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="8" font-weight="650" fill="#57606a">CLI / SDK / Web</text>
+    </g>
+    <g>
+      <rect x="88" y="641" width="162" height="55" rx="9" fill="#f8fbff" stroke="#b8d6fb" stroke-width="1"/>
+      <rect x="98" y="651" width="24" height="15" rx="7.5" fill="#e7f1ff" stroke="#0969da" stroke-width="0.9"/>
+      <text x="110" y="662" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="7.5" font-weight="800" fill="#0969da" text-anchor="middle">07</text>
+      <text x="130" y="663" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="11.2" font-weight="850" fill="#24292f">Loop 账本</text>
+      <text x="100" y="679" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="8" font-weight="650" fill="#57606a">goal / budget / verifier</text>
+      <text x="100" y="689" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="8" font-weight="650" fill="#57606a">artifact</text>
+    </g>
+    <g>
+      <rect x="260" y="641" width="162" height="55" rx="9" fill="#f8fbff" stroke="#b8d6fb" stroke-width="1"/>
+      <rect x="270" y="651" width="24" height="15" rx="7.5" fill="#e7f1ff" stroke="#0969da" stroke-width="0.9"/>
+      <text x="282" y="662" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="7.5" font-weight="800" fill="#0969da" text-anchor="middle">08</text>
+      <text x="302" y="663" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="11.2" font-weight="850" fill="#24292f">评估门禁</text>
+      <text x="272" y="679" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="8" font-weight="650" fill="#57606a">doctor / benchmark</text>
+      <text x="272" y="689" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="8" font-weight="650" fill="#57606a">docs lock / screenshots</text>
+    </g>
+  </g>
+  <g opacity="0.55">
+    <line x1="516" y1="74" x2="1422" y2="74" stroke="#c9d8eb" stroke-width="0.9"/>
+    <line x1="516" y1="790" x2="1422" y2="790" stroke="#c9d8eb" stroke-width="0.9"/>
+    <line x1="516" y1="74" x2="516" y2="790" stroke="#c9d8eb" stroke-width="0.9"/>
+    <line x1="1422" y1="74" x2="1422" y2="790" stroke="#c9d8eb" stroke-width="0.9"/>
+    <text x="530" y="34" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="9.5" font-weight="700" fill="#8c959f">记忆生命周期五层：接入 -&gt; 维护 -&gt; 召回 -&gt; 治理 -&gt; 评估</text>
+    <text x="1370" y="803" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="9" fill="#8c959f">LOCAL-FIRST</text>
+  </g>
+  <g>
+    <polygon points="580,80 1320,80 1320,94 580,94" fill="#d9ecff" fill-opacity="0.46" stroke="#0969da" stroke-opacity="0.32" stroke-width="1"/>
+    <polygon points="580,80 530,172 530,186 580,94" fill="#d9ecff" fill-opacity="0.54" stroke="#0969da" stroke-opacity="0.38" stroke-width="1"/>
+    <polygon points="1320,80 1370,172 1370,186 1320,94" fill="#d9ecff" fill-opacity="0.54" stroke="#0969da" stroke-opacity="0.38" stroke-width="1"/>
+    <polygon points="530,172 1370,172 1370,186 530,186" fill="#d9ecff" fill-opacity="0.62" stroke="#0969da" stroke-opacity="0.5" stroke-width="1"/>
+    <polygon points="580,94 1320,94 1370,186 530,186" fill="none" stroke="#0969da" stroke-opacity="0.5" stroke-width="1.1"/>
+    <polygon points="580,80 1320,80 1370,172 530,172" fill="#eef6ff" stroke="#0969da" stroke-opacity="0.82" stroke-width="1.4" filter="url(#softShadow)"/>
+    <line x1="630" y1="87" x2="592" y2="165" stroke="#c9d8eb" stroke-opacity="0.32" stroke-width="0.75"/>
+    <line x1="720" y1="87" x2="682" y2="165" stroke="#c9d8eb" stroke-opacity="0.32" stroke-width="0.75"/>
+    <line x1="810" y1="87" x2="772" y2="165" stroke="#c9d8eb" stroke-opacity="0.32" stroke-width="0.75"/>
+    <line x1="900" y1="87" x2="862" y2="165" stroke="#c9d8eb" stroke-opacity="0.32" stroke-width="0.75"/>
+    <line x1="990" y1="87" x2="952" y2="165" stroke="#c9d8eb" stroke-opacity="0.32" stroke-width="0.75"/>
+    <line x1="1080" y1="87" x2="1042" y2="165" stroke="#c9d8eb" stroke-opacity="0.32" stroke-width="0.75"/>
+    <line x1="1170" y1="87" x2="1132" y2="165" stroke="#c9d8eb" stroke-opacity="0.32" stroke-width="0.75"/>
+  <g>
+    <rect x="575" y="94" width="102" height="22" rx="6" fill="#fffdf8" stroke="#0969da" stroke-opacity="0.72" stroke-width="1.25"/>
+    <text x="626" y="108.5" text-anchor="middle" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="9.0" font-weight="760" fill="#24292f">Claude Code</text>
+  </g>
+  <g>
+    <rect x="683" y="94" width="102" height="22" rx="6" fill="#fffdf8" stroke="#0969da" stroke-opacity="0.72" stroke-width="1.25"/>
+    <text x="734" y="108.5" text-anchor="middle" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="9.0" font-weight="760" fill="#24292f">Codex</text>
+  </g>
+  <g>
+    <rect x="791" y="94" width="102" height="22" rx="6" fill="#fffdf8" stroke="#0969da" stroke-opacity="0.72" stroke-width="1.25"/>
+    <text x="842" y="108.5" text-anchor="middle" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="9.0" font-weight="760" fill="#24292f">Cursor</text>
+  </g>
+  <g>
+    <rect x="899" y="94" width="102" height="22" rx="6" fill="#fffdf8" stroke="#0969da" stroke-opacity="0.72" stroke-width="1.25"/>
+    <text x="950" y="108.5" text-anchor="middle" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="9.0" font-weight="760" fill="#24292f">Hermes Agent</text>
+  </g>
+  <g>
+    <rect x="1007" y="94" width="102" height="22" rx="6" fill="#fffdf8" stroke="#0969da" stroke-opacity="0.72" stroke-width="1.25"/>
+    <text x="1058" y="108.5" text-anchor="middle" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="9.0" font-weight="760" fill="#24292f">OpenClaw</text>
+  </g>
+  <g>
+    <rect x="1115" y="94" width="102" height="22" rx="6" fill="#fffdf8" stroke="#0969da" stroke-opacity="0.72" stroke-width="1.25"/>
+    <text x="1166" y="108.5" text-anchor="middle" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="9.0" font-weight="760" fill="#24292f">OpenHuman</text>
+  </g>
+  <g>
+    <rect x="1223" y="94" width="102" height="22" rx="6" fill="#fffdf8" stroke="#0969da" stroke-opacity="0.72" stroke-width="1.25"/>
+    <text x="1274" y="108.5" text-anchor="middle" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="9.0" font-weight="760" fill="#24292f">OpenSquilla</text>
+  </g>
+  <g>
+    <rect x="575" y="121" width="102" height="22" rx="6" fill="#fffdf8" stroke="#0969da" stroke-opacity="0.72" stroke-width="1.25"/>
+    <text x="626" y="135.5" text-anchor="middle" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="9.0" font-weight="760" fill="#24292f">Aone Copilot</text>
+  </g>
+  <g>
+    <rect x="683" y="121" width="102" height="22" rx="6" fill="#fffdf8" stroke="#0969da" stroke-opacity="0.72" stroke-width="1.25"/>
+    <text x="734" y="135.5" text-anchor="middle" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="9.0" font-weight="760" fill="#24292f">Qoder</text>
+  </g>
+  <g>
+    <rect x="791" y="121" width="102" height="22" rx="6" fill="#fffdf8" stroke="#0969da" stroke-opacity="0.72" stroke-width="1.25"/>
+    <text x="842" y="135.5" text-anchor="middle" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="9.0" font-weight="760" fill="#24292f">Qoder Work</text>
+  </g>
+  <g>
+    <rect x="899" y="121" width="102" height="22" rx="6" fill="#fffdf8" stroke="#0969da" stroke-opacity="0.72" stroke-width="1.25"/>
+    <text x="950" y="135.5" text-anchor="middle" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="9.0" font-weight="760" fill="#24292f">Wukong</text>
+  </g>
+  <g>
+    <rect x="1007" y="121" width="102" height="22" rx="6" fill="#fffdf8" stroke="#0969da" stroke-opacity="0.72" stroke-width="1.25"/>
+    <text x="1058" y="135.5" text-anchor="middle" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="9.0" font-weight="760" fill="#24292f">MuleRun</text>
+  </g>
+  <g>
+    <rect x="1115" y="121" width="102" height="22" rx="6" fill="#fffdf8" stroke="#0969da" stroke-opacity="0.72" stroke-width="1.25"/>
+    <text x="1166" y="135.5" text-anchor="middle" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="9.0" font-weight="760" fill="#24292f">WorkBuddy</text>
+  </g>
+  <g>
+    <rect x="1223" y="121" width="102" height="22" rx="6" fill="#fffdf8" stroke="#0969da" stroke-opacity="0.72" stroke-width="1.25"/>
+    <text x="1274" y="135.5" text-anchor="middle" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="9.0" font-weight="760" fill="#24292f">…</text>
+  </g>
+    <text x="566" y="157" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="8" font-weight="650" fill="#57606a">接入层只表达入口顺序；是否通过验证由自检、运行证据和上下文有效性证明。</text>
+    <text x="548" y="182" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="760" fill="#6e7781">L1 记忆接入</text>
+  </g>
+  <g>
+    <line x1="1374" y1="133" x2="1398" y2="133" stroke="#0969da" stroke-width="1.25"/>
+    <circle cx="1374" cy="133" r="4" fill="#0969da"/>
+    <text x="1408" y="127" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="16" font-weight="850" fill="#0a4f9e">记忆接入层</text>
+    <text x="1408" y="147" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="12" fill="#57606a">Agent入口</text>
+  </g>
+  <g>
+    <polygon points="580,228 1320,228 1320,242 580,242" fill="#d9ecff" fill-opacity="0.46" stroke="#0969da" stroke-opacity="0.32" stroke-width="1"/>
+    <polygon points="580,228 530,320 530,334 580,242" fill="#d9ecff" fill-opacity="0.54" stroke="#0969da" stroke-opacity="0.38" stroke-width="1"/>
+    <polygon points="1320,228 1370,320 1370,334 1320,242" fill="#d9ecff" fill-opacity="0.54" stroke="#0969da" stroke-opacity="0.38" stroke-width="1"/>
+    <polygon points="530,320 1370,320 1370,334 530,334" fill="#d9ecff" fill-opacity="0.62" stroke="#0969da" stroke-opacity="0.5" stroke-width="1"/>
+    <polygon points="580,242 1320,242 1370,334 530,334" fill="none" stroke="#0969da" stroke-opacity="0.5" stroke-width="1.1"/>
+    <polygon points="580,228 1320,228 1370,320 530,320" fill="#eef6ff" stroke="#0969da" stroke-opacity="0.82" stroke-width="1.4" filter="url(#softShadow)"/>
+    <line x1="630" y1="235" x2="592" y2="313" stroke="#c9d8eb" stroke-opacity="0.32" stroke-width="0.75"/>
+    <line x1="720" y1="235" x2="682" y2="313" stroke="#c9d8eb" stroke-opacity="0.32" stroke-width="0.75"/>
+    <line x1="810" y1="235" x2="772" y2="313" stroke="#c9d8eb" stroke-opacity="0.32" stroke-width="0.75"/>
+    <line x1="900" y1="235" x2="862" y2="313" stroke="#c9d8eb" stroke-opacity="0.32" stroke-width="0.75"/>
+    <line x1="990" y1="235" x2="952" y2="313" stroke="#c9d8eb" stroke-opacity="0.32" stroke-width="0.75"/>
+    <line x1="1080" y1="235" x2="1042" y2="313" stroke="#c9d8eb" stroke-opacity="0.32" stroke-width="0.75"/>
+    <line x1="1170" y1="235" x2="1132" y2="313" stroke="#c9d8eb" stroke-opacity="0.32" stroke-width="0.75"/>
+  <g>
+    <rect x="575" y="242" width="102" height="22" rx="6" fill="#fffdf8" stroke="#0969da" stroke-opacity="0.72" stroke-width="1.25"/>
+    <text x="626" y="256.5" text-anchor="middle" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="9.0" font-weight="760" fill="#24292f">入口证据</text>
+  </g>
+  <g>
+    <rect x="683" y="242" width="102" height="22" rx="6" fill="#fffdf8" stroke="#0969da" stroke-opacity="0.72" stroke-width="1.25"/>
+    <text x="734" y="256.5" text-anchor="middle" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="9.0" font-weight="760" fill="#24292f">候选提炼</text>
+  </g>
+  <g>
+    <rect x="791" y="242" width="102" height="22" rx="6" fill="#fffdf8" stroke="#0969da" stroke-opacity="0.72" stroke-width="1.25"/>
+    <text x="842" y="256.5" text-anchor="middle" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="9.0" font-weight="760" fill="#24292f">写入审计</text>
+  </g>
+  <g>
+    <rect x="899" y="242" width="102" height="22" rx="6" fill="#fffdf8" stroke="#0969da" stroke-opacity="0.72" stroke-width="1.25"/>
+    <text x="950" y="256.5" text-anchor="middle" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="9.0" font-weight="760" fill="#24292f">MemoryItem</text>
+  </g>
+  <g>
+    <rect x="1007" y="242" width="102" height="22" rx="6" fill="#fffdf8" stroke="#0969da" stroke-opacity="0.72" stroke-width="1.25"/>
+    <text x="1058" y="256.5" text-anchor="middle" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="9.0" font-weight="760" fill="#24292f">来源/资源库</text>
+  </g>
+  <g>
+    <rect x="1115" y="242" width="102" height="22" rx="6" fill="#fffdf8" stroke="#0969da" stroke-opacity="0.72" stroke-width="1.25"/>
+    <text x="1166" y="256.5" text-anchor="middle" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="9.0" font-weight="760" fill="#24292f">抽取库</text>
+  </g>
+  <g>
+    <rect x="1223" y="242" width="102" height="22" rx="6" fill="#fffdf8" stroke="#0969da" stroke-opacity="0.72" stroke-width="1.25"/>
+    <text x="1274" y="256.5" text-anchor="middle" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="9.0" font-weight="760" fill="#24292f">索引/向量投影</text>
+  </g>
+  <g>
+    <rect x="575" y="269" width="102" height="22" rx="6" fill="#fffdf8" stroke="#0969da" stroke-opacity="0.72" stroke-width="1.25"/>
+    <text x="626" y="283.5" text-anchor="middle" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="9.0" font-weight="760" fill="#24292f">运行/反馈账本</text>
+  </g>
+  <g>
+    <rect x="683" y="269" width="102" height="22" rx="6" fill="#fffdf8" stroke="#0969da" stroke-opacity="0.72" stroke-width="1.25"/>
+    <text x="734" y="283.5" text-anchor="middle" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="9.0" font-weight="760" fill="#24292f">层级Sidecar</text>
+  </g>
+  <g>
+    <rect x="791" y="269" width="102" height="22" rx="6" fill="#fffdf8" stroke="#0969da" stroke-opacity="0.72" stroke-width="1.25"/>
+    <text x="842" y="283.5" text-anchor="middle" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="9.0" font-weight="760" fill="#24292f">Profile派生</text>
+  </g>
+  <g>
+    <rect x="899" y="269" width="102" height="22" rx="6" fill="#fffdf8" stroke="#0969da" stroke-opacity="0.72" stroke-width="1.25"/>
+    <text x="950" y="283.5" text-anchor="middle" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="9.0" font-weight="760" fill="#24292f">待重放</text>
+  </g>
+  <g>
+    <rect x="1007" y="269" width="102" height="22" rx="6" fill="#fffdf8" stroke="#0969da" stroke-opacity="0.72" stroke-width="1.25"/>
+    <text x="1058" y="283.5" text-anchor="middle" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="9.0" font-weight="760" fill="#24292f">时效/废止</text>
+  </g>
+    <text x="566" y="305" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="8" font-weight="650" fill="#57606a">原始对话只是证据；长期事实是 MemoryItem，索引、向量、反馈和运行时都是可重建投影。</text>
+    <text x="566" y="315" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="8" font-weight="650" fill="#57606a">维护层负责提炼、审计、重放、时效和废止，不直接决定 prompt 注入。</text>
+    <text x="548" y="330" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="760" fill="#6e7781">L2 事实维护</text>
+  </g>
+  <g>
+    <line x1="1374" y1="281" x2="1398" y2="281" stroke="#0969da" stroke-width="1.25"/>
+    <circle cx="1374" cy="281" r="4" fill="#0969da"/>
+    <text x="1408" y="275" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="16" font-weight="850" fill="#0a4f9e">记忆维护层</text>
+    <text x="1408" y="295" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="12" fill="#57606a">证据成事实</text>
+  </g>
+  <g>
+    <polygon points="580,376 1320,376 1320,390 580,390" fill="#d9ecff" fill-opacity="0.46" stroke="#0969da" stroke-opacity="0.32" stroke-width="1"/>
+    <polygon points="580,376 530,468 530,482 580,390" fill="#d9ecff" fill-opacity="0.54" stroke="#0969da" stroke-opacity="0.38" stroke-width="1"/>
+    <polygon points="1320,376 1370,468 1370,482 1320,390" fill="#d9ecff" fill-opacity="0.54" stroke="#0969da" stroke-opacity="0.38" stroke-width="1"/>
+    <polygon points="530,468 1370,468 1370,482 530,482" fill="#d9ecff" fill-opacity="0.62" stroke="#0969da" stroke-opacity="0.5" stroke-width="1"/>
+    <polygon points="580,390 1320,390 1370,482 530,482" fill="none" stroke="#0969da" stroke-opacity="0.5" stroke-width="1.1"/>
+    <polygon points="580,376 1320,376 1370,468 530,468" fill="#eef6ff" stroke="#0969da" stroke-opacity="0.82" stroke-width="1.4" filter="url(#softShadow)"/>
+    <line x1="630" y1="383" x2="592" y2="461" stroke="#c9d8eb" stroke-opacity="0.32" stroke-width="0.75"/>
+    <line x1="720" y1="383" x2="682" y2="461" stroke="#c9d8eb" stroke-opacity="0.32" stroke-width="0.75"/>
+    <line x1="810" y1="383" x2="772" y2="461" stroke="#c9d8eb" stroke-opacity="0.32" stroke-width="0.75"/>
+    <line x1="900" y1="383" x2="862" y2="461" stroke="#c9d8eb" stroke-opacity="0.32" stroke-width="0.75"/>
+    <line x1="990" y1="383" x2="952" y2="461" stroke="#c9d8eb" stroke-opacity="0.32" stroke-width="0.75"/>
+    <line x1="1080" y1="383" x2="1042" y2="461" stroke="#c9d8eb" stroke-opacity="0.32" stroke-width="0.75"/>
+    <line x1="1170" y1="383" x2="1132" y2="461" stroke="#c9d8eb" stroke-opacity="0.32" stroke-width="0.75"/>
+  <g>
+    <rect x="573" y="390" width="89" height="22" rx="6" fill="#fffdf8" stroke="#0969da" stroke-opacity="0.72" stroke-width="1.25"/>
+    <text x="618" y="404.5" text-anchor="middle" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="9.0" font-weight="760" fill="#24292f">查询/结构过滤</text>
+  </g>
+  <g>
+    <rect x="668" y="390" width="89" height="22" rx="6" fill="#fffdf8" stroke="#0969da" stroke-opacity="0.72" stroke-width="1.25"/>
+    <text x="712" y="404.5" text-anchor="middle" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="9.0" font-weight="760" fill="#24292f">词频/BM25投影</text>
+  </g>
+  <g>
+    <rect x="763" y="390" width="89" height="22" rx="6" fill="#fffdf8" stroke="#0969da" stroke-opacity="0.72" stroke-width="1.25"/>
+    <text x="808" y="404.5" text-anchor="middle" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="9.0" font-weight="760" fill="#24292f">向量召回</text>
+  </g>
+  <g>
+    <rect x="858" y="390" width="89" height="22" rx="6" fill="#fffdf8" stroke="#0969da" stroke-opacity="0.72" stroke-width="1.25"/>
+    <text x="902" y="404.5" text-anchor="middle" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="9.0" font-weight="760" fill="#24292f">RRF融合</text>
+  </g>
+  <g>
+    <rect x="953" y="390" width="89" height="22" rx="6" fill="#fffdf8" stroke="#0969da" stroke-opacity="0.72" stroke-width="1.25"/>
+    <text x="998" y="404.5" text-anchor="middle" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="9.0" font-weight="760" fill="#24292f">元数据短语提升</text>
+  </g>
+  <g>
+    <rect x="1048" y="390" width="89" height="22" rx="6" fill="#fffdf8" stroke="#0969da" stroke-opacity="0.72" stroke-width="1.25"/>
+    <text x="1092" y="404.5" text-anchor="middle" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="9.0" font-weight="760" fill="#24292f">模型重排</text>
+  </g>
+  <g>
+    <rect x="1143" y="390" width="89" height="22" rx="6" fill="#fffdf8" stroke="#0969da" stroke-opacity="0.72" stroke-width="1.25"/>
+    <text x="1188" y="404.5" text-anchor="middle" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="9.0" font-weight="760" fill="#24292f">遗忘曲线</text>
+  </g>
+  <g>
+    <rect x="1238" y="390" width="89" height="22" rx="6" fill="#fffdf8" stroke="#0969da" stroke-opacity="0.72" stroke-width="1.25"/>
+    <text x="1282" y="404.5" text-anchor="middle" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="9.0" font-weight="760" fill="#24292f">衰减系数</text>
+  </g>
+  <g>
+    <rect x="573" y="417" width="89" height="22" rx="6" fill="#fffdf8" stroke="#0969da" stroke-opacity="0.72" stroke-width="1.25"/>
+    <text x="618" y="431.5" text-anchor="middle" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="9.0" font-weight="760" fill="#24292f">反馈价值乘子</text>
+  </g>
+  <g>
+    <rect x="668" y="417" width="89" height="22" rx="6" fill="#fffdf8" stroke="#0969da" stroke-opacity="0.72" stroke-width="1.25"/>
+    <text x="712" y="431.5" text-anchor="middle" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="9.0" font-weight="760" fill="#24292f">运行证据加权</text>
+  </g>
+  <g>
+    <rect x="763" y="417" width="89" height="22" rx="6" fill="#fffdf8" stroke="#0969da" stroke-opacity="0.72" stroke-width="1.25"/>
+    <text x="808" y="431.5" text-anchor="middle" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="9.0" font-weight="760" fill="#24292f">时效过滤</text>
+  </g>
+  <g>
+    <rect x="858" y="417" width="89" height="22" rx="6" fill="#fffdf8" stroke="#0969da" stroke-opacity="0.72" stroke-width="1.25"/>
+    <text x="902" y="431.5" text-anchor="middle" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="9.0" font-weight="760" fill="#24292f">废止过滤</text>
+  </g>
+  <g>
+    <rect x="953" y="417" width="89" height="22" rx="6" fill="#fffdf8" stroke="#0969da" stroke-opacity="0.72" stroke-width="1.25"/>
+    <text x="998" y="431.5" text-anchor="middle" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="9.0" font-weight="760" fill="#24292f">多样性重排</text>
+  </g>
+  <g>
+    <rect x="1048" y="417" width="89" height="22" rx="6" fill="#fffdf8" stroke="#0969da" stroke-opacity="0.72" stroke-width="1.25"/>
+    <text x="1092" y="431.5" text-anchor="middle" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="9.0" font-weight="760" fill="#24292f">联想扩展</text>
+  </g>
+  <g>
+    <rect x="1143" y="417" width="89" height="22" rx="6" fill="#fffdf8" stroke="#0969da" stroke-opacity="0.72" stroke-width="1.25"/>
+    <text x="1188" y="431.5" text-anchor="middle" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="9.0" font-weight="760" fill="#24292f">图谱扩展</text>
+  </g>
+  <g>
+    <rect x="1238" y="417" width="89" height="22" rx="6" fill="#fffdf8" stroke="#0969da" stroke-opacity="0.72" stroke-width="1.25"/>
+    <text x="1282" y="431.5" text-anchor="middle" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="9.0" font-weight="760" fill="#24292f">防火墙/分层注入</text>
+  </g>
+    <text x="566" y="453" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="8" font-weight="650" fill="#57606a">RRF=Σ权重/(k+排名+1) · 有效分=分数×置信度×衰减系数 · 反馈价值∈[0.25,2.0]</text>
+    <text x="566" y="463" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="8" font-weight="650" fill="#57606a">MMR=λ相关性-(1-λ)相似度 · Hopfield吸引子→邻居 · 可选扩展需过评测门禁</text>
+    <text x="548" y="478" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="760" fill="#6e7781">L3 候选召回</text>
+  </g>
+  <g>
+    <line x1="1374" y1="429" x2="1398" y2="429" stroke="#0969da" stroke-width="1.25"/>
+    <circle cx="1374" cy="429" r="4" fill="#0969da"/>
+    <text x="1408" y="423" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="16" font-weight="850" fill="#0a4f9e">记忆召回层</text>
+    <text x="1408" y="443" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="12" fill="#57606a">候选排序</text>
+  </g>
+  <g>
+    <polygon points="580,524 1320,524 1320,538 580,538" fill="#d9ecff" fill-opacity="0.46" stroke="#0969da" stroke-opacity="0.32" stroke-width="1"/>
+    <polygon points="580,524 530,616 530,630 580,538" fill="#d9ecff" fill-opacity="0.54" stroke="#0969da" stroke-opacity="0.38" stroke-width="1"/>
+    <polygon points="1320,524 1370,616 1370,630 1320,538" fill="#d9ecff" fill-opacity="0.54" stroke="#0969da" stroke-opacity="0.38" stroke-width="1"/>
+    <polygon points="530,616 1370,616 1370,630 530,630" fill="#d9ecff" fill-opacity="0.62" stroke="#0969da" stroke-opacity="0.5" stroke-width="1"/>
+    <polygon points="580,538 1320,538 1370,630 530,630" fill="none" stroke="#0969da" stroke-opacity="0.5" stroke-width="1.1"/>
+    <polygon points="580,524 1320,524 1370,616 530,616" fill="#eef6ff" stroke="#0969da" stroke-opacity="0.82" stroke-width="1.4" filter="url(#softShadow)"/>
+    <line x1="630" y1="531" x2="592" y2="609" stroke="#c9d8eb" stroke-opacity="0.32" stroke-width="0.75"/>
+    <line x1="720" y1="531" x2="682" y2="609" stroke="#c9d8eb" stroke-opacity="0.32" stroke-width="0.75"/>
+    <line x1="810" y1="531" x2="772" y2="609" stroke="#c9d8eb" stroke-opacity="0.32" stroke-width="0.75"/>
+    <line x1="900" y1="531" x2="862" y2="609" stroke="#c9d8eb" stroke-opacity="0.32" stroke-width="0.75"/>
+    <line x1="990" y1="531" x2="952" y2="609" stroke="#c9d8eb" stroke-opacity="0.32" stroke-width="0.75"/>
+    <line x1="1080" y1="531" x2="1042" y2="609" stroke="#c9d8eb" stroke-opacity="0.32" stroke-width="0.75"/>
+    <line x1="1170" y1="531" x2="1132" y2="609" stroke="#c9d8eb" stroke-opacity="0.32" stroke-width="0.75"/>
+  <g>
+    <rect x="575" y="538" width="102" height="22" rx="6" fill="#fffdf8" stroke="#0969da" stroke-opacity="0.72" stroke-width="1.25"/>
+    <text x="626" y="552.5" text-anchor="middle" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="9.0" font-weight="760" fill="#24292f">用户/Agent反馈</text>
+  </g>
+  <g>
+    <rect x="683" y="538" width="102" height="22" rx="6" fill="#fffdf8" stroke="#0969da" stroke-opacity="0.72" stroke-width="1.25"/>
+    <text x="734" y="552.5" text-anchor="middle" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="9.0" font-weight="760" fill="#24292f">访问次数</text>
+  </g>
+  <g>
+    <rect x="791" y="538" width="102" height="22" rx="6" fill="#fffdf8" stroke="#0969da" stroke-opacity="0.72" stroke-width="1.25"/>
+    <text x="842" y="552.5" text-anchor="middle" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="9.0" font-weight="760" fill="#24292f">采用/拒绝/忽略</text>
+  </g>
+  <g>
+    <rect x="899" y="538" width="102" height="22" rx="6" fill="#fffdf8" stroke="#0969da" stroke-opacity="0.72" stroke-width="1.25"/>
+    <text x="950" y="552.5" text-anchor="middle" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="9.0" font-weight="760" fill="#24292f">支持/反驳/收益</text>
+  </g>
+  <g>
+    <rect x="1007" y="538" width="102" height="22" rx="6" fill="#fffdf8" stroke="#0969da" stroke-opacity="0.72" stroke-width="1.25"/>
+    <text x="1058" y="552.5" text-anchor="middle" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="9.0" font-weight="760" fill="#24292f">成熟度</text>
+  </g>
+  <g>
+    <rect x="1115" y="538" width="102" height="22" rx="6" fill="#fffdf8" stroke="#0969da" stroke-opacity="0.72" stroke-width="1.25"/>
+    <text x="1166" y="552.5" text-anchor="middle" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="9.0" font-weight="760" fill="#24292f">重复/冲突审计</text>
+  </g>
+  <g>
+    <rect x="1223" y="538" width="102" height="22" rx="6" fill="#fffdf8" stroke="#0969da" stroke-opacity="0.72" stroke-width="1.25"/>
+    <text x="1274" y="552.5" text-anchor="middle" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="9.0" font-weight="760" fill="#24292f">漂移检测</text>
+  </g>
+  <g>
+    <rect x="575" y="565" width="102" height="22" rx="6" fill="#fffdf8" stroke="#0969da" stroke-opacity="0.72" stroke-width="1.25"/>
+    <text x="626" y="579.5" text-anchor="middle" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="9.0" font-weight="760" fill="#24292f">会话冷热分层</text>
+  </g>
+  <g>
+    <rect x="683" y="565" width="102" height="22" rx="6" fill="#fffdf8" stroke="#0969da" stroke-opacity="0.72" stroke-width="1.25"/>
+    <text x="734" y="579.5" text-anchor="middle" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="9.0" font-weight="760" fill="#24292f">主动候选</text>
+  </g>
+  <g>
+    <rect x="791" y="565" width="102" height="22" rx="6" fill="#fffdf8" stroke="#0969da" stroke-opacity="0.72" stroke-width="1.25"/>
+    <text x="842" y="579.5" text-anchor="middle" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="9.0" font-weight="760" fill="#24292f">维护计划</text>
+  </g>
+  <g>
+    <rect x="899" y="565" width="102" height="22" rx="6" fill="#fffdf8" stroke="#0969da" stroke-opacity="0.72" stroke-width="1.25"/>
+    <text x="950" y="579.5" text-anchor="middle" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="9.0" font-weight="760" fill="#24292f">自动治理</text>
+  </g>
+  <g>
+    <rect x="1007" y="565" width="102" height="22" rx="6" fill="#fffdf8" stroke="#0969da" stroke-opacity="0.72" stroke-width="1.25"/>
+    <text x="1058" y="579.5" text-anchor="middle" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="9.0" font-weight="760" fill="#24292f">演化控制</text>
+  </g>
+  <g>
+    <rect x="1115" y="565" width="102" height="22" rx="6" fill="#fffdf8" stroke="#0969da" stroke-opacity="0.72" stroke-width="1.25"/>
+    <text x="1166" y="579.5" text-anchor="middle" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="9.0" font-weight="760" fill="#24292f">演化复核闭环</text>
+  </g>
+    <text x="566" y="601" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="8" font-weight="650" fill="#57606a">ignored 不是负反馈；access_count、adopt/reject、support/contradict/gain 共同影响治理建议。</text>
+    <text x="566" y="611" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="8" font-weight="650" fill="#57606a">成熟度是 raw/consolidated/skill 的资产建议，不是绕过召回和防火墙的 live multiplier。</text>
+    <text x="548" y="626" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="760" fill="#6e7781">L4 反馈治理</text>
+  </g>
+  <g>
+    <line x1="1374" y1="577" x2="1398" y2="577" stroke="#0969da" stroke-width="1.25"/>
+    <circle cx="1374" cy="577" r="4" fill="#0969da"/>
+    <text x="1408" y="571" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="16" font-weight="850" fill="#0a4f9e">记忆治理层</text>
+    <text x="1408" y="591" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="12" fill="#57606a">反馈与演化</text>
+  </g>
+  <g>
+    <polygon points="580,672 1320,672 1320,686 580,686" fill="#d9ecff" fill-opacity="0.46" stroke="#0969da" stroke-opacity="0.32" stroke-width="1"/>
+    <polygon points="580,672 530,764 530,778 580,686" fill="#d9ecff" fill-opacity="0.54" stroke="#0969da" stroke-opacity="0.38" stroke-width="1"/>
+    <polygon points="1320,672 1370,764 1370,778 1320,686" fill="#d9ecff" fill-opacity="0.54" stroke="#0969da" stroke-opacity="0.38" stroke-width="1"/>
+    <polygon points="530,764 1370,764 1370,778 530,778" fill="#d9ecff" fill-opacity="0.62" stroke="#0969da" stroke-opacity="0.5" stroke-width="1"/>
+    <polygon points="580,686 1320,686 1370,778 530,778" fill="none" stroke="#0969da" stroke-opacity="0.5" stroke-width="1.1"/>
+    <polygon points="580,672 1320,672 1370,764 530,764" fill="#eef6ff" stroke="#0969da" stroke-opacity="0.82" stroke-width="1.4" filter="url(#softShadow)"/>
+    <line x1="630" y1="679" x2="592" y2="757" stroke="#c9d8eb" stroke-opacity="0.32" stroke-width="0.75"/>
+    <line x1="720" y1="679" x2="682" y2="757" stroke="#c9d8eb" stroke-opacity="0.32" stroke-width="0.75"/>
+    <line x1="810" y1="679" x2="772" y2="757" stroke="#c9d8eb" stroke-opacity="0.32" stroke-width="0.75"/>
+    <line x1="900" y1="679" x2="862" y2="757" stroke="#c9d8eb" stroke-opacity="0.32" stroke-width="0.75"/>
+    <line x1="990" y1="679" x2="952" y2="757" stroke="#c9d8eb" stroke-opacity="0.32" stroke-width="0.75"/>
+    <line x1="1080" y1="679" x2="1042" y2="757" stroke="#c9d8eb" stroke-opacity="0.32" stroke-width="0.75"/>
+    <line x1="1170" y1="679" x2="1132" y2="757" stroke="#c9d8eb" stroke-opacity="0.32" stroke-width="0.75"/>
+  <g>
+    <rect x="573" y="686" width="89" height="22" rx="6" fill="#fffdf8" stroke="#0969da" stroke-opacity="0.72" stroke-width="1.25"/>
+    <text x="618" y="700.5" text-anchor="middle" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="9.0" font-weight="760" fill="#24292f">AMH本地基准</text>
+  </g>
+  <g>
+    <rect x="668" y="686" width="89" height="22" rx="6" fill="#fffdf8" stroke="#0969da" stroke-opacity="0.72" stroke-width="1.25"/>
+    <text x="712" y="700.5" text-anchor="middle" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="9.0" font-weight="760" fill="#24292f">MemoryData</text>
+  </g>
+  <g>
+    <rect x="763" y="686" width="89" height="22" rx="6" fill="#fffdf8" stroke="#0969da" stroke-opacity="0.72" stroke-width="1.25"/>
+    <text x="808" y="700.5" text-anchor="middle" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="9.0" font-weight="760" fill="#24292f">外部横评</text>
+  </g>
+  <g>
+    <rect x="858" y="686" width="89" height="22" rx="6" fill="#fffdf8" stroke="#0969da" stroke-opacity="0.72" stroke-width="1.25"/>
+    <text x="902" y="700.5" text-anchor="middle" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="9.0" font-weight="760" fill="#24292f">弱意图阻断</text>
+  </g>
+  <g>
+    <rect x="953" y="686" width="89" height="22" rx="6" fill="#fffdf8" stroke="#0969da" stroke-opacity="0.72" stroke-width="1.25"/>
+    <text x="998" y="700.5" text-anchor="middle" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="9.0" font-weight="760" fill="#24292f">可注入识别</text>
+  </g>
+  <g>
+    <rect x="1048" y="686" width="89" height="22" rx="6" fill="#fffdf8" stroke="#0969da" stroke-opacity="0.72" stroke-width="1.25"/>
+    <text x="1092" y="700.5" text-anchor="middle" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="9.0" font-weight="760" fill="#24292f">Recall@K</text>
+  </g>
+  <g>
+    <rect x="1143" y="686" width="89" height="22" rx="6" fill="#fffdf8" stroke="#0969da" stroke-opacity="0.72" stroke-width="1.25"/>
+    <text x="1188" y="700.5" text-anchor="middle" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="9.0" font-weight="760" fill="#24292f">MRR</text>
+  </g>
+  <g>
+    <rect x="1238" y="686" width="89" height="22" rx="6" fill="#fffdf8" stroke="#0969da" stroke-opacity="0.72" stroke-width="1.25"/>
+    <text x="1282" y="700.5" text-anchor="middle" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="9.0" font-weight="760" fill="#24292f">防火墙/可逆</text>
+  </g>
+  <g>
+    <rect x="573" y="713" width="89" height="22" rx="6" fill="#fffdf8" stroke="#0969da" stroke-opacity="0.72" stroke-width="1.25"/>
+    <text x="618" y="727.5" text-anchor="middle" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="9.0" font-weight="760" fill="#24292f">Token预算</text>
+  </g>
+  <g>
+    <rect x="668" y="713" width="89" height="22" rx="6" fill="#fffdf8" stroke="#0969da" stroke-opacity="0.72" stroke-width="1.25"/>
+    <text x="712" y="727.5" text-anchor="middle" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="9.0" font-weight="760" fill="#24292f">发布门禁</text>
+  </g>
+  <g>
+    <rect x="763" y="713" width="89" height="22" rx="6" fill="#fffdf8" stroke="#0969da" stroke-opacity="0.72" stroke-width="1.25"/>
+    <text x="808" y="727.5" text-anchor="middle" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="9.0" font-weight="760" fill="#24292f">压缩门禁</text>
+  </g>
+  <g>
+    <rect x="858" y="713" width="89" height="22" rx="6" fill="#fffdf8" stroke="#0969da" stroke-opacity="0.72" stroke-width="1.25"/>
+    <text x="902" y="727.5" text-anchor="middle" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="9.0" font-weight="760" fill="#24292f">ML/DL门禁</text>
+  </g>
+  <g>
+    <rect x="953" y="713" width="89" height="22" rx="6" fill="#fffdf8" stroke="#0969da" stroke-opacity="0.72" stroke-width="1.25"/>
+    <text x="998" y="727.5" text-anchor="middle" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="9.0" font-weight="760" fill="#24292f">系统Few-shot</text>
+  </g>
+  <g>
+    <rect x="1048" y="713" width="89" height="22" rx="6" fill="#fffdf8" stroke="#0969da" stroke-opacity="0.72" stroke-width="1.25"/>
+    <text x="1092" y="727.5" text-anchor="middle" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="9.0" font-weight="760" fill="#24292f">文档契约</text>
+  </g>
+  <g>
+    <rect x="1143" y="713" width="89" height="22" rx="6" fill="#fffdf8" stroke="#0969da" stroke-opacity="0.72" stroke-width="1.25"/>
+    <text x="1188" y="727.5" text-anchor="middle" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="9.0" font-weight="760" fill="#24292f">截图验收</text>
+  </g>
+    <text x="566" y="749" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="8" font-weight="650" fill="#57606a">本地 system benchmark 已完成；MemoryData / AgentMemory-Bench 横评未完成前只展示 loop，不写外部结论。</text>
+    <text x="566" y="759" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="8" font-weight="650" fill="#57606a">指标证明当前样本集表现，不承诺未来所有 prompt 都一定正确。</text>
+    <text x="548" y="774" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="760" fill="#6e7781">L5 评估门禁</text>
+  </g>
+  <g>
+    <line x1="1374" y1="725" x2="1398" y2="725" stroke="#0969da" stroke-width="1.25"/>
+    <circle cx="1374" cy="725" r="4" fill="#0969da"/>
+    <text x="1408" y="719" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="16" font-weight="850" fill="#0a4f9e">记忆评估层</text>
+    <text x="1408" y="739" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="12" fill="#57606a">测试与门禁</text>
+  </g>
+  <g opacity="0.78">
+    <line x1="963" y1="198.2" x2="963" y2="215.8" stroke="#0a4f9e" stroke-width="2.1" stroke-opacity="0.62" stroke-linecap="round"/>
+    <line x1="973" y1="198.2" x2="973" y2="215.8" stroke="#0a4f9e" stroke-width="2.1" stroke-opacity="0.62" stroke-linecap="round"/>
+  </g>
+  <g opacity="0.78">
+    <line x1="963" y1="346.2" x2="963" y2="363.8" stroke="#0a4f9e" stroke-width="2.1" stroke-opacity="0.62" stroke-linecap="round"/>
+    <line x1="973" y1="346.2" x2="973" y2="363.8" stroke="#0a4f9e" stroke-width="2.1" stroke-opacity="0.62" stroke-linecap="round"/>
+  </g>
+  <g opacity="0.78">
+    <line x1="963" y1="494.2" x2="963" y2="511.8" stroke="#0a4f9e" stroke-width="2.1" stroke-opacity="0.62" stroke-linecap="round"/>
+    <line x1="973" y1="494.2" x2="973" y2="511.8" stroke="#0a4f9e" stroke-width="2.1" stroke-opacity="0.62" stroke-linecap="round"/>
+  </g>
+  <g opacity="0.78">
+    <line x1="963" y1="642.2" x2="963" y2="659.8" stroke="#0a4f9e" stroke-width="2.1" stroke-opacity="0.62" stroke-linecap="round"/>
+    <line x1="973" y1="642.2" x2="973" y2="659.8" stroke="#0a4f9e" stroke-width="2.1" stroke-opacity="0.62" stroke-linecap="round"/>
+  </g>
+  <rect x="62" y="838" width="1376" height="66" rx="0" fill="#fffdf8" stroke="#d0d7de" stroke-width="1.1"/>
+  <g>
+    <g>
+      <rect x="100" y="860" width="28" height="28" rx="4" fill="none" stroke="#0969da" stroke-width="1.55" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M106 868 H122 M106 874 H118 M106 880 H114 M117 883 l4 4 l8 -10" fill="none" stroke="#0969da" stroke-width="1.55" stroke-linecap="round" stroke-linejoin="round"/>
+    </g>
+    <text x="148" y="878" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="16" font-weight="850" fill="#24292f">维护事实</text>
+  </g>
+  <line x1="337" y1="838" x2="337" y2="904" stroke="#d0d7de" stroke-width="1"/>
+  <g>
+    <g>
+      <circle cx="382" cy="869" r="8.5" fill="none" stroke="#0969da" stroke-width="1.55" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M388 875 l7 7 M398 863 H407 M398 871 H405 M398 879 H402" fill="none" stroke="#0969da" stroke-width="1.55" stroke-linecap="round" stroke-linejoin="round"/>
+      <circle cx="394" cy="863" r="1.2" fill="#0969da"/>
+      <circle cx="394" cy="871" r="1.2" fill="#0969da"/>
+      <circle cx="394" cy="879" r="1.2" fill="#0969da"/>
+    </g>
+    <text x="423" y="878" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="16" font-weight="850" fill="#24292f">召回排序</text>
+  </g>
+  <line x1="612" y1="838" x2="612" y2="904" stroke="#d0d7de" stroke-width="1"/>
+  <g>
+    <g>
+      <rect x="646" y="860" width="17" height="6" rx="2" fill="none" stroke="#0969da" stroke-width="1.55" stroke-linecap="round" stroke-linejoin="round"/>
+      <rect x="646" y="870" width="17" height="6" rx="2" fill="none" stroke="#0969da" stroke-width="1.55" stroke-linecap="round" stroke-linejoin="round"/>
+      <rect x="646" y="880" width="17" height="6" rx="2" fill="none" stroke="#0969da" stroke-width="1.55" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M666 873 H676 m-4 -5 l5 5 -5 5 M680 861 h5 v25 h-5" fill="none" stroke="#0969da" stroke-width="1.55" stroke-linecap="round" stroke-linejoin="round"/>
+    </g>
+    <text x="698" y="878" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="16" font-weight="850" fill="#24292f">分层注入</text>
+  </g>
+  <line x1="887" y1="838" x2="887" y2="904" stroke="#d0d7de" stroke-width="1"/>
+  <g>
+    <g>
+      <path d="M925 862 h26 a5 5 0 0 1 5 5 v15 a5 5 0 0 1 -5 5 H937 l-7 6 v-6 H930 a5 5 0 0 1 -5 -5 V867 a5 5 0 0 1 5 -5" fill="none" stroke="#0969da" stroke-width="1.55" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M932 870 H947 M932 876 H941 M942 881 l3 3 l7 -9" fill="none" stroke="#0969da" stroke-width="1.55" stroke-linecap="round" stroke-linejoin="round"/>
+    </g>
+    <text x="973" y="878" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="16" font-weight="850" fill="#24292f">反馈治理</text>
+  </g>
+  <line x1="1162" y1="838" x2="1162" y2="904" stroke="#d0d7de" stroke-width="1"/>
+  <g>
+    <g>
+      <path d="M1199 887 V865 H1229 V887 M1199 874 H1229 M1214 865 V887" fill="none" stroke="#0969da" stroke-width="1.55" stroke-linecap="round" stroke-linejoin="round"/>
+      <circle cx="1223" cy="869" r="7" fill="#fffdf8" stroke="#0969da" stroke-width="1.55"/>
+      <path d="M1219 869 l3 3 l6 -7" fill="none" stroke="#0969da" stroke-width="1.55" stroke-linecap="round" stroke-linejoin="round"/>
+    </g>
+    <text x="1248" y="878" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif' font-size="16" font-weight="850" fill="#24292f">评估门禁</text>
+  </g>
+</svg>

@@ -1,0 +1,3 @@
+{"type":"user","message":{"role":"user","content":"fix the failing test_cli_version"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"The CLI reported 1.0.1 because the editable install pointed at a stale worktree; reinstalling with pip install -e . fixed it."}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Decision: chose mechanical-first harvesting over pure LLM so it works offline."}]}}

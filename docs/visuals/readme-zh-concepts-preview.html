@@ -1,0 +1,1912 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Agent Memory Hub 概念与原理全链路详解</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --paper: #f4efe4;
+      --paper-2: #fffaf1;
+      --paper-3: #eadfce;
+      --ink: #202724;
+      --muted: #65706b;
+      --line: #d2c4ad;
+      --line-2: #b9a88e;
+      --teal: #0f766e;
+      --teal-dark: #134e4a;
+      --rust: #9d4128;
+      --amber: #9a6700;
+      --green: #4d7c0f;
+      --red: #9b342f;
+      --blue: #245b7a;
+      --mono: "SFMono-Regular", "Cascadia Code", "Menlo", "Consolas", monospace;
+      --sans: "Avenir Next", "PingFang SC", "Hiragino Sans GB", "Source Han Sans SC", "Noto Sans CJK SC", sans-serif;
+      --serif: "Iowan Old Style", "Songti SC", "Source Han Serif SC", "Noto Serif CJK SC", serif;
+      --max: 1240px;
+      --shadow: 0 18px 45px rgba(80, 67, 45, 0.12);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+      background: var(--paper);
+    }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      font-family: var(--sans);
+      line-height: 1.72;
+      background:
+        linear-gradient(90deg, rgba(32, 39, 36, 0.035) 1px, transparent 1px) 0 0 / 34px 34px,
+        linear-gradient(rgba(32, 39, 36, 0.025) 1px, transparent 1px) 0 0 / 34px 34px,
+        var(--paper);
+    }
+
+    a {
+      color: var(--teal-dark);
+      text-decoration-color: rgba(15, 118, 110, 0.35);
+      text-underline-offset: 3px;
+    }
+
+    code {
+      font-family: var(--mono);
+      font-size: 0.92em;
+      padding: 0.08rem 0.32rem;
+      color: #283330;
+      background: #eee3d1;
+      border: 1px solid rgba(185, 168, 142, 0.65);
+      border-radius: 5px;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
+
+    pre {
+      margin: 0;
+      padding: 1rem;
+      overflow-x: auto;
+      border: 1px solid #433a2d;
+      border-radius: 8px;
+      color: #f7ebd7;
+      background: #29251e;
+      line-height: 1.52;
+    }
+
+    pre code {
+      display: block;
+      padding: 0;
+      color: inherit;
+      background: transparent;
+      border: 0;
+      white-space: pre;
+      overflow-wrap: normal;
+      word-break: normal;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 280px minmax(0, 1fr);
+      min-height: 100vh;
+    }
+
+    aside {
+      position: sticky;
+      top: 0;
+      align-self: start;
+      height: 100vh;
+      overflow: auto;
+      padding: 1.15rem;
+      border-right: 1px solid var(--line);
+      background: rgba(255, 250, 241, 0.9);
+      backdrop-filter: blur(12px);
+    }
+
+    .brand {
+      padding-bottom: 1rem;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .brand strong {
+      display: block;
+      font-family: var(--serif);
+      font-size: 1.08rem;
+      line-height: 1.25;
+    }
+
+    .brand small {
+      display: block;
+      margin-top: 0.35rem;
+      color: var(--muted);
+      line-height: 1.45;
+    }
+
+    nav {
+      display: grid;
+      gap: 0.1rem;
+      margin-top: 1rem;
+    }
+
+    nav a {
+      display: block;
+      padding: 0.45rem 0.55rem;
+      border-radius: 6px;
+      color: #33423e;
+      font-size: 0.92rem;
+      text-decoration: none;
+    }
+
+    nav a:hover {
+      background: #efe4d2;
+      color: var(--teal-dark);
+    }
+
+    main {
+      min-width: 0;
+    }
+
+    .wrap {
+      width: min(var(--max), calc(100vw - 280px - 2.2rem));
+      margin: 0 auto;
+    }
+
+    header.hero {
+      padding: 3rem 0 2rem;
+      border-bottom: 1px solid var(--line);
+      background: linear-gradient(180deg, rgba(255, 250, 241, 0.72), rgba(244, 239, 228, 0.08));
+    }
+
+    .kicker {
+      color: var(--rust);
+      font-family: var(--mono);
+      font-size: 0.78rem;
+      font-weight: 800;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    h1, h2, h3, h4 {
+      margin: 0;
+      color: var(--ink);
+      letter-spacing: 0;
+      line-height: 1.18;
+    }
+
+    h1 {
+      max-width: 1020px;
+      margin-top: 0.85rem;
+      font-family: var(--serif);
+      font-size: clamp(2.25rem, 5vw, 5rem);
+      font-weight: 780;
+    }
+
+    .subtitle {
+      max-width: 980px;
+      margin: 1rem 0 0;
+      color: #3f4b47;
+      font-size: clamp(1.02rem, 1.7vw, 1.24rem);
+    }
+
+    section {
+      padding: 2.45rem 0;
+      border-bottom: 1px solid rgba(210, 196, 173, 0.78);
+    }
+
+    .section-head {
+      display: grid;
+      grid-template-columns: minmax(0, 0.55fr) minmax(0, 0.45fr);
+      gap: 1.2rem;
+      align-items: end;
+      margin-bottom: 1.15rem;
+    }
+
+    h2 {
+      margin-top: 0.35rem;
+      font-family: var(--serif);
+      font-size: clamp(1.7rem, 3.4vw, 3rem);
+    }
+
+    .lead {
+      margin: 0;
+      color: #45534f;
+      font-size: 1rem;
+    }
+
+    .hero-grid,
+    .grid.two,
+    .grid.three,
+    .grid.four {
+      display: grid;
+      gap: 0.9rem;
+    }
+
+    .hero-grid {
+      grid-template-columns: minmax(0, 1.15fr) minmax(330px, 0.85fr);
+      margin-top: 1.5rem;
+    }
+
+    .grid.two {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .grid.three {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .grid.four {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+
+    .card {
+      min-width: 0;
+      padding: 1rem;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--paper-2);
+      box-shadow: 0 8px 24px rgba(88, 72, 48, 0.07);
+    }
+
+    .card h3 {
+      margin-bottom: 0.5rem;
+      font-size: 1.08rem;
+    }
+
+    .card p {
+      margin: 0;
+      color: #46534f;
+    }
+
+    .card ul,
+    .card ol {
+      margin: 0.65rem 0 0;
+      padding-left: 1.2rem;
+      color: #4b5854;
+    }
+
+    .card li + li {
+      margin-top: 0.32rem;
+    }
+
+    .pill-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.45rem;
+      margin-top: 0.8rem;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      min-height: 1.45rem;
+      padding: 0.05rem 0.48rem;
+      border: 1px solid var(--line-2);
+      border-radius: 999px;
+      background: #fff7e8;
+      color: #554736;
+      font-size: 0.78rem;
+      font-weight: 750;
+      white-space: nowrap;
+    }
+
+    .big-note {
+      padding: 1rem;
+      border-left: 4px solid var(--teal);
+      border-radius: 0 8px 8px 0;
+      background: #edf7f2;
+      color: #2f4742;
+    }
+
+    .warning {
+      padding: 1rem;
+      border-left: 4px solid var(--amber);
+      border-radius: 0 8px 8px 0;
+      background: #fff4dc;
+      color: #4d4030;
+    }
+
+    .danger {
+      padding: 1rem;
+      border-left: 4px solid var(--red);
+      border-radius: 0 8px 8px 0;
+      background: #fae7e2;
+      color: #4b302d;
+    }
+
+    .flow {
+      display: grid;
+      gap: 0.55rem;
+      grid-template-columns: repeat(10, minmax(130px, 1fr));
+      overflow-x: auto;
+      padding-bottom: 0.2rem;
+    }
+
+    .flow .node {
+      position: relative;
+      min-height: 132px;
+      padding: 0.8rem;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fffaf1;
+    }
+
+    .flow .node:not(:last-child)::after {
+      content: "";
+      position: absolute;
+      top: 50%;
+      right: -0.48rem;
+      width: 0.44rem;
+      height: 0.44rem;
+      border-top: 2px solid var(--line-2);
+      border-right: 2px solid var(--line-2);
+      background: var(--paper);
+      transform: translateY(-50%) rotate(45deg);
+      z-index: 1;
+    }
+
+    .node b {
+      display: inline-grid;
+      place-items: center;
+      width: 1.55rem;
+      height: 1.55rem;
+      margin-bottom: 0.5rem;
+      border-radius: 50%;
+      color: #503b22;
+      background: #e7d6ba;
+      font-family: var(--mono);
+      font-size: 0.78rem;
+    }
+
+    .node strong {
+      display: block;
+      line-height: 1.32;
+    }
+
+    .node span {
+      display: block;
+      margin-top: 0.35rem;
+      color: var(--muted);
+      font-size: 0.84rem;
+      line-height: 1.45;
+    }
+
+    .table-wrap {
+      overflow-x: auto;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--paper-2);
+      box-shadow: 0 8px 24px rgba(88, 72, 48, 0.07);
+    }
+
+    table {
+      width: 100%;
+      min-width: 880px;
+      border-collapse: collapse;
+      font-size: 0.94rem;
+    }
+
+    th, td {
+      padding: 0.78rem 0.86rem;
+      vertical-align: top;
+      border-bottom: 1px solid rgba(210, 196, 173, 0.82);
+      text-align: left;
+    }
+
+    th {
+      color: #394743;
+      background: #eadfce;
+      font-size: 0.78rem;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    tr:last-child td {
+      border-bottom: 0;
+    }
+
+    td:first-child {
+      color: #26322e;
+      font-weight: 760;
+    }
+
+    details {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--paper-2);
+      overflow: hidden;
+    }
+
+    details + details {
+      margin-top: 0.75rem;
+    }
+
+    summary {
+      cursor: pointer;
+      padding: 0.9rem 1rem;
+      background: #eadfce;
+      color: #27332f;
+      font-weight: 780;
+    }
+
+    details[open] summary {
+      border-bottom: 1px solid var(--line);
+    }
+
+    .detail-body {
+      padding: 1rem;
+    }
+
+    .detail-body > *:first-child {
+      margin-top: 0;
+    }
+
+    .detail-body > *:last-child {
+      margin-bottom: 0;
+    }
+
+    .formula {
+      margin: 0.8rem 0;
+      padding: 0.9rem;
+      border: 1px solid #c4b08e;
+      border-radius: 8px;
+      background: #fff6e4;
+    }
+
+    .formula .label {
+      display: block;
+      margin-bottom: 0.45rem;
+      color: var(--rust);
+      font-family: var(--mono);
+      font-size: 0.78rem;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    .compare {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 0.75rem;
+    }
+
+    .good {
+      border-left: 4px solid var(--green);
+    }
+
+    .bad {
+      border-left: 4px solid var(--red);
+    }
+
+    .source-map {
+      display: grid;
+      gap: 0.5rem;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .source-map li {
+      padding: 0.55rem 0.65rem;
+      border: 1px solid rgba(210, 196, 173, 0.85);
+      border-radius: 7px;
+      background: rgba(255, 250, 241, 0.75);
+    }
+
+    .section-tag {
+      display: inline-block;
+      margin: 0 0.25rem 0.25rem 0;
+      padding: 0.05rem 0.38rem;
+      border: 1px solid rgba(185, 168, 142, 0.75);
+      border-radius: 5px;
+      color: #574837;
+      background: #f2e6d3;
+      font-size: 0.76rem;
+      font-weight: 750;
+    }
+
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.55rem;
+      margin-top: 0.75rem;
+      color: var(--muted);
+      font-size: 0.85rem;
+    }
+
+    .dot {
+      display: inline-block;
+      width: 0.65rem;
+      height: 0.65rem;
+      margin-right: 0.25rem;
+      border-radius: 50%;
+      vertical-align: middle;
+    }
+
+    .dot.source { background: var(--teal); }
+    .dot.derived { background: var(--blue); }
+    .dot.risk { background: var(--amber); }
+    .dot.block { background: var(--red); }
+
+    footer {
+      padding: 2rem 0 3rem;
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+
+    @media (max-width: 1120px) {
+      .layout {
+        grid-template-columns: 1fr;
+      }
+
+      aside {
+        position: relative;
+        height: auto;
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
+      }
+
+      nav {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+      }
+
+      .wrap {
+        width: min(var(--max), calc(100vw - 2.2rem));
+      }
+
+      .hero-grid,
+      .section-head,
+      .compare {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 760px) {
+      aside {
+        padding: 0.85rem;
+      }
+
+      nav {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+
+      nav a {
+        padding: 0.32rem 0.38rem;
+        font-size: 0.82rem;
+      }
+
+      .wrap {
+        width: min(100% - 1.1rem, var(--max));
+      }
+
+      header.hero {
+        padding: 1.8rem 0 1.5rem;
+      }
+
+      h1 {
+        font-size: clamp(2rem, 10vw, 2.65rem);
+      }
+
+      section {
+        padding: 2rem 0;
+      }
+
+      .grid.two,
+      .grid.three,
+      .grid.four {
+        grid-template-columns: 1fr;
+      }
+
+      .flow {
+        grid-template-columns: 1fr;
+        overflow: visible;
+      }
+
+      .flow .node:not(:last-child)::after {
+        top: auto;
+        right: 50%;
+        bottom: -0.46rem;
+        transform: translateX(50%) rotate(135deg);
+      }
+
+      pre code {
+        white-space: pre-wrap;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <aside>
+      <div class="brand">
+        <strong>AMH 概念与原理全链路详解</strong>
+        <small>用于补充 README 专业版：解释每个环节、名词、公式和边界。</small>
+      </div>
+      <nav aria-label="目录">
+        <a href="#overview">总览</a>
+        <a href="#objects">对象</a>
+        <a href="#maintenance">维护链路</a>
+        <a href="#recall">召回链路</a>
+        <a href="#context">上下文装载</a>
+        <a href="#firewall">防火墙</a>
+        <a href="#algorithms">算法公式</a>
+        <a href="#feedback">反馈治理</a>
+        <a href="#loop">Loop</a>
+        <a href="#terms">术语字典</a>
+        <a href="#misunderstanding">易混点</a>
+        <a href="#sources">源码映射</a>
+      </nav>
+    </aside>
+
+    <main>
+      <header class="hero" id="overview">
+        <div class="wrap">
+          <div class="kicker">Concept Manual / Source-backed</div>
+          <h1>把 Agent Memory Hub 的每个环节、每个名词、每条公式讲清楚。</h1>
+          <p class="subtitle">
+            这份页面不是宣传页，而是“读源码后的概念说明书”。它按真实数据流解释 AMH：
+            证据怎么进来，MemoryItem 怎么形成，索引怎么投影，召回怎么排序，防火墙怎么阻断，分层上下文怎么装载，反馈和 Loop 怎么把下一轮变得更可靠。
+          </p>
+
+          <div class="hero-grid">
+            <div class="card">
+              <h3>先抓住一个总模型</h3>
+              <pre><code>原始证据 Evidence
+  -> 候选 Candidate / Pending / Review
+  -> WriteService 写入漏斗
+  -> MemoryItem 长期事实源
+  -> Index / Graph / Runtime 派生投影
+  -> Retrieval 候选召回
+  -> Context Firewall 注入前门禁
+  -> ContextPack 分层装载
+  -> Feedback / Governance / Loop 回写治理</code></pre>
+              <div class="pill-row">
+                <span class="pill">证据不等于记忆</span>
+                <span class="pill">索引不等于事实源</span>
+                <span class="pill">召回不等于注入</span>
+                <span class="pill">完成不等于有证据</span>
+              </div>
+            </div>
+            <div class="card">
+              <h3>这份详解解决什么困惑</h3>
+              <ul>
+                <li>为什么召回前要先讲维护。</li>
+                <li>召回出来的到底是 item、正文、摘要，还是路径。</li>
+                <li>FTS、BM25、向量、RRF、MMR、rerank、Hopfield 各自负责什么。</li>
+                <li>confidence、decay、maturity、feedback 的来源和公式。</li>
+                <li>Loop 在系统里不是排序算法，而是复杂任务账本。</li>
+                <li>哪些能力是事实源，哪些只是派生读模型或候选。</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <section>
+        <div class="wrap">
+          <div class="section-head">
+            <div>
+              <div class="kicker">00 / One Sentence</div>
+              <h2>AMH 的核心不是“存”和“搜”，而是“可信上下文闭环”。</h2>
+            </div>
+            <p class="lead">
+              如果只说“记忆召回”，读者会自然理解成一个 RAG 小工具。AMH 的复杂度在于它把来源、写入、索引、召回、注入、反馈、治理和任务账本连在一起。
+            </p>
+          </div>
+
+          <div class="flow" aria-label="全链路总览">
+            <div class="node"><b>1</b><strong>Evidence</strong><span>prompt、transcript、文件、资源、运行事件。</span></div>
+            <div class="node"><b>2</b><strong>Candidate</strong><span>候选、pending、review，暂不等于事实。</span></div>
+            <div class="node"><b>3</b><strong>WriteService</strong><span>审计、字段增强、质量检查、证据 sidecar。</span></div>
+            <div class="node"><b>4</b><strong>MemoryItem</strong><span>长期可复用结论，落在 <code>items/</code>。</span></div>
+            <div class="node"><b>5</b><strong>Index</strong><span>FTS、向量、metadata、refs_graph。</span></div>
+            <div class="node"><b>6</b><strong>Maintenance</strong><span>maturity、drift、summary rewrite、repair。</span></div>
+            <div class="node"><b>7</b><strong>Retrieval</strong><span>SearchFilter、BM25、vector、RRF、rerank。</span></div>
+            <div class="node"><b>8</b><strong>Firewall</strong><span>include、demote、exclude。</span></div>
+            <div class="node"><b>9</b><strong>ContextPack</strong><span>locator、overview、detail、detail_uri。</span></div>
+            <div class="node"><b>10</b><strong>Feedback</strong><span>adopted/rejected、Loop、治理回写。</span></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="objects">
+        <div class="wrap">
+          <div class="section-head">
+            <div>
+              <div class="kicker">01 / Object Model</div>
+              <h2>先分清系统里的对象，否则后面所有链路都会混。</h2>
+            </div>
+            <p class="lead">
+              AMH 里最重要的不是某个算法，而是对象边界。原始证据、长期记忆、索引投影、运行账本、候选队列、上下文包分别承担不同责任。
+            </p>
+          </div>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>对象</th>
+                  <th>一句话定义</th>
+                  <th>作用</th>
+                  <th>不是</th>
+                  <th>常见位置</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Evidence</td>
+                  <td>原始发生过的事实材料。</td>
+                  <td>回答“这件事有没有来源，来源在哪”。</td>
+                  <td>不是长期可复用结论。</td>
+                  <td><code>sources/</code>、<code>resources/</code>、<code>extractions/</code></td>
+                </tr>
+                <tr>
+                  <td>Conversation</td>
+                  <td>原始对话消息 JSONL。</td>
+                  <td>保留 message id、hash、offset、agent、session、cwd、sensitivity、tier。</td>
+                  <td>不是默认注入 prompt 的记忆正文。</td>
+                  <td><code>sources/conversations/*/messages.jsonl</code></td>
+                </tr>
+                <tr>
+                  <td>MemoryItem</td>
+                  <td>长期可复用的结构化结论。</td>
+                  <td>多智能体共享、检索、治理、注入的核心单位。</td>
+                  <td>不是 transcript，也不是 index row。</td>
+                  <td><code>items/mem-*.md</code></td>
+                </tr>
+                <tr>
+                  <td>Body</td>
+                  <td>MemoryItem 的 Markdown 正文。</td>
+                  <td>detail 视图读取时使用。</td>
+                  <td>不是 frontmatter 字段。</td>
+                  <td><code>items/mem-*.md</code> frontmatter 之后</td>
+                </tr>
+                <tr>
+                  <td>ContextViews</td>
+                  <td>同一个 item 的三档加载视图。</td>
+                  <td>让注入从短到长渐进加载。</td>
+                  <td>不是三份不同记忆。</td>
+                  <td><code>context_views.locator/overview/detail_uri</code></td>
+                </tr>
+                <tr>
+                  <td>Index</td>
+                  <td>为了检索和排序建立的可重建投影。</td>
+                  <td>提供 metadata 过滤、FTS、向量、graph、反馈统计。</td>
+                  <td>不是事实源。</td>
+                  <td><code>index.db</code></td>
+                </tr>
+                <tr>
+                  <td>RetrievedItem</td>
+                  <td>召回阶段的候选引用。</td>
+                  <td>只告诉后续阶段 item id、score、BM25/向量排名和 trace。</td>
+                  <td>不是完整 MemoryItem。</td>
+                  <td><code>id, score, bm25_rank, vector_rank</code></td>
+                </tr>
+                <tr>
+                  <td>ContextCandidate</td>
+                  <td>防火墙评估用的候选。</td>
+                  <td>把 MemoryItem、body、score、source、cluster_key 放在一起。</td>
+                  <td>不是最终注入文本。</td>
+                  <td><code>context_firewall_types.py</code></td>
+                </tr>
+                <tr>
+                  <td>ContextPack</td>
+                  <td>真正准备注入 prompt 的上下文包。</td>
+                  <td>包含 selected_view、text、detail_uri、retrieve_hint、token 估算、CCR 信息。</td>
+                  <td>不是新的记忆。</td>
+                  <td><code>context_packing.py</code></td>
+                </tr>
+                <tr>
+                  <td>Runtime Ledger</td>
+                  <td>运行时事件账本。</td>
+                  <td>记录 adapter、loop、feedback、recall gap、data flow。</td>
+                  <td>不是长期结论本身。</td>
+                  <td><code>runtime/*.jsonl</code></td>
+                </tr>
+                <tr>
+                  <td>Review Candidate</td>
+                  <td>待审批候选记忆。</td>
+                  <td>隔离 proactive/semantic 生成内容，避免未验证内容污染事实源。</td>
+                  <td>不是 MemoryItem。</td>
+                  <td><code>review/proactive-candidates.jsonl</code></td>
+                </tr>
+                <tr>
+                  <td>Pending</td>
+                  <td>写入失败或 hook 兜底队列。</td>
+                  <td>保证临时不可写时可以后续 sync-pending 重放。</td>
+                  <td>不是写入成功。</td>
+                  <td><code>pending/*.jsonl</code></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="warning" style="margin-top:1rem">
+            最容易混淆的一句话：<strong>召回阶段返回的是 <code>RetrievedItem</code>，不是完整正文；分层上下文装载阶段才根据 id 读取 <code>MemoryItem + body</code>，再选择 locator、overview 或 detail。</strong>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <div class="wrap">
+          <div class="section-head">
+            <div>
+              <div class="kicker">02 / MemoryItem Anatomy</div>
+              <h2>MemoryItem 里面每个字段承担什么责任。</h2>
+            </div>
+            <p class="lead">
+              这一层是 AMH 最核心的数据合同。字段不是装饰，后续的过滤、排序、衰减、防火墙、装载、治理都在读这些字段。
+            </p>
+          </div>
+
+          <div class="grid three">
+            <div class="card">
+              <h3>身份与范围</h3>
+              <ul>
+                <li><code>id</code>：唯一 id，格式 <code>mem-YYYYMMDD-HHMMSS-...</code>。</li>
+                <li><code>type</code>：fact、episode、decision、artifact、signal、handoff、policy、skill。</li>
+                <li><code>project</code> / <code>tenant_id</code>：项目和租户过滤边界。</li>
+                <li><code>agent</code> / <code>session</code>：谁写的，哪个会话写的。</li>
+              </ul>
+            </div>
+            <div class="card">
+              <h3>检索与展示</h3>
+              <ul>
+                <li><code>title</code>：人读标题，也是索引文本的一部分。</li>
+                <li><code>summary</code>：短摘要，默认也会进入 locator。</li>
+                <li><code>tags</code>：结构过滤、boost、adapter 证据识别。</li>
+                <li><code>context_views</code>：locator、overview、detail_uri。</li>
+              </ul>
+            </div>
+            <div class="card">
+              <h3>可信度与治理</h3>
+              <ul>
+                <li><code>confidence</code>：默认 0.7，召回中直接乘进有效分。</li>
+                <li><code>retention</code>：last_accessed、access_count、decay_class。</li>
+                <li><code>support_count</code> / <code>contradict_count</code> / <code>gain_score</code>：反馈价值和治理信号。</li>
+                <li><code>maturity</code> / <code>abstraction</code>：raw/L0、consolidated/L1、skill/L2。</li>
+              </ul>
+            </div>
+            <div class="card">
+              <h3>来源与证据</h3>
+              <ul>
+                <li><code>refs.files</code>：本地文件证据。</li>
+                <li><code>refs.urls</code>：外部 URL 证据。</li>
+                <li><code>refs.commits</code>：代码提交证据。</li>
+                <li><code>refs.resources</code> / <code>refs.extractions</code>：资源和抽取 sidecar。</li>
+                <li><code>refs.mems</code>：引用其他 memory。</li>
+              </ul>
+            </div>
+            <div class="card">
+              <h3>时效与适用边界</h3>
+              <ul>
+                <li><code>validity.observed_at</code>：何时观察到。</li>
+                <li><code>validity.ttl_hours</code>：有效期。</li>
+                <li><code>validity.cwd/repo/branch/os/adapter</code>：适用范围。</li>
+                <li>防火墙会用这些字段判断 scope mismatch 和 stale state。</li>
+              </ul>
+            </div>
+            <div class="card">
+              <h3>演化链</h3>
+              <ul>
+                <li><code>evolved_from</code>：由哪些旧记忆演化而来。</li>
+                <li><code>superseded_by</code>：被哪条新记忆替代。</li>
+                <li><code>version</code>：版本号。</li>
+                <li>召回和防火墙会阻断 superseded item，除非显式允许。</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="maintenance">
+        <div class="wrap">
+          <div class="section-head">
+            <div>
+              <div class="kicker">03 / Maintenance Chain</div>
+              <h2>维护链路：把“发生过”变成“可信可复用”。</h2>
+            </div>
+            <p class="lead">
+              维护链路是 AMH 的前半条命。没有维护，召回只能把脏数据找得更快。维护负责判断什么能写、怎么写、怎么补证据、怎么修索引、怎么处理过期、重复、漂移和候选。
+            </p>
+          </div>
+
+          <div class="flow" aria-label="维护链路">
+            <div class="node"><b>1</b><strong>维护信号</strong><span>用户写入、hook、transcript、resource、Loop、feedback。</span></div>
+            <div class="node"><b>2</b><strong>入口归一</strong><span>CLI/MCP/Web/SDK/hook 尽量收敛到统一写入语义。</span></div>
+            <div class="node"><b>3</b><strong>候选隔离</strong><span>proactive、semantic、pending、review 都不直接污染事实源。</span></div>
+            <div class="node"><b>4</b><strong>审计门</strong><span>critical/high 风险 fail-close。</span></div>
+            <div class="node"><b>5</b><strong>字段增强</strong><span>补默认 confidence、retention、context_views、decay_class。</span></div>
+            <div class="node"><b>6</b><strong>证据 sidecar</strong><span>resources/extractions/write ledger。</span></div>
+            <div class="node"><b>7</b><strong>事实源写入</strong><span><code>items/mem-*.md</code> append 成功才算写入成功。</span></div>
+            <div class="node"><b>8</b><strong>索引投影</strong><span>items_meta、items_fts、items_vec、refs_graph。</span></div>
+            <div class="node"><b>9</b><strong>修复治理</strong><span>reindex、sync-pending、maturity、drift、summary rewrite。</span></div>
+            <div class="node"><b>10</b><strong>演化复核</strong><span>evolve/dream/proactive 批准后再回写。</span></div>
+          </div>
+
+          <details open>
+            <summary>维护链路逐环节解释</summary>
+            <div class="detail-body">
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>环节</th>
+                      <th>概念</th>
+                      <th>作用</th>
+                      <th>为什么重要</th>
+                      <th>边界</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td>UserPromptSubmit</td>
+                      <td>当前用户 prompt 的防丢证据。</td>
+                      <td>进程异常或 adapter 没有 transcript 时，至少不丢用户输入。</td>
+                      <td>保证原始输入可追溯。</td>
+                      <td>不是 MemoryItem，不是完整会话。</td>
+                    </tr>
+                    <tr>
+                      <td>Stop transcript</td>
+                      <td>完整 transcript 导入。</td>
+                      <td>把完整会话写到 <code>sources/conversations</code>。</td>
+                      <td>这是原始对话权威证据。</td>
+                      <td>不会默认注入 prompt。</td>
+                    </tr>
+                    <tr>
+                      <td>write-memory / memory write</td>
+                      <td>显式写长期记忆。</td>
+                      <td>把用户或 Agent 提炼出的长期结论写成 MemoryItem。</td>
+                      <td>长期复用必须靠提炼，不靠 transcript 垃圾堆。</td>
+                      <td>应走 WriteService。</td>
+                    </tr>
+                    <tr>
+                      <td>Harvest</td>
+                      <td>从原始对话中抽取候选。</td>
+                      <td>用 watermark 和 span hash 做断点续跑、去重。</td>
+                      <td>避免重复归档同一段 transcript。</td>
+                      <td>抽取候选仍不是长期事实。</td>
+                    </tr>
+                    <tr>
+                      <td>Resource / Extraction</td>
+                      <td>文件和抽取片段证据层。</td>
+                      <td>保存资源 metadata 和抽取结果，可以后续 promote。</td>
+                      <td>让文件证据可追溯。</td>
+                      <td>资源本身不等于 MemoryItem。</td>
+                    </tr>
+                    <tr>
+                      <td>WriteService</td>
+                      <td>写入漏斗。</td>
+                      <td>统一审计、字段增强、质量检查、证据 sidecar、写入账本、索引更新。</td>
+                      <td>避免各入口乱写文件导致语义不一致。</td>
+                      <td>索引失败不回滚 Markdown 事实源。</td>
+                    </tr>
+                    <tr>
+                      <td>Index dirty</td>
+                      <td>索引失败标记。</td>
+                      <td>index/embedder 失败时标记后续修复。</td>
+                      <td>保障“事实源写入”和“查询投影”解耦。</td>
+                      <td>dirty 不等于写入失败。</td>
+                    </tr>
+                    <tr>
+                      <td>Maturity governance</td>
+                      <td>成熟度评分。</td>
+                      <td>判断 item 是否仍是 raw，还是可以 consolidated/skill。</td>
+                      <td>防止低证据内容被包装成高层知识。</td>
+                      <td>是建议，不是随意自动改写。</td>
+                    </tr>
+                    <tr>
+                      <td>Summary rewrite</td>
+                      <td>摘要重写治理。</td>
+                      <td>处理 summary 过长、影响检索和注入的问题。</td>
+                      <td>摘要太长会污染 locator 和 FTS。</td>
+                      <td>需要 snapshot / dry-run / rollback。</td>
+                    </tr>
+                    <tr>
+                      <td>Auto governance</td>
+                      <td>自动治理循环。</td>
+                      <td>扫描 maturity、drift、conversation tier、index drift、evolve proposals。</td>
+                      <td>让大脑不会无限积累噪声。</td>
+                      <td>高风险动作进入 review_required 或 blocked。</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </details>
+        </div>
+      </section>
+
+      <section id="recall">
+        <div class="wrap">
+          <div class="section-head">
+            <div>
+              <div class="kicker">04 / Recall Chain</div>
+              <h2>召回链路：从用户问题到候选排序。</h2>
+            </div>
+            <p class="lead">
+              召回不是“搜一下向量库”。AMH 的召回分成结构过滤、FTS/BM25、向量检索、RRF 融合、候选策略阶段、过滤和扩展。它产出的仍是候选 item 引用，下一步才是防火墙和上下文装载。
+            </p>
+          </div>
+
+          <div class="flow" aria-label="召回链路">
+            <div class="node"><b>1</b><strong>Query</strong><span>用户问题。</span></div>
+            <div class="node"><b>2</b><strong>SearchFilter</strong><span>type、project、tags、tenant、since_days、superseded。</span></div>
+            <div class="node"><b>3</b><strong>Query Expansion</strong><span>CJK/ASCII token、同义词、FTS5 安全转义。</span></div>
+            <div class="node"><b>4</b><strong>FTS/BM25</strong><span>SQLite FTS5 MATCH + bm25。</span></div>
+            <div class="node"><b>5</b><strong>Vector</strong><span>embedding 检索；degraded 时跳过。</span></div>
+            <div class="node"><b>6</b><strong>RRF</strong><span>按排名倒数融合。</span></div>
+            <div class="node"><b>7</b><strong>Policy Stages</strong><span>rerank、decay、feedback、boost、filter。</span></div>
+            <div class="node"><b>8</b><strong>MMR</strong><span>去重复，保多样性。</span></div>
+            <div class="node"><b>9</b><strong>Hopfield / Graph</strong><span>联想扩展、引用扩展。</span></div>
+            <div class="node"><b>10</b><strong>RetrievedItem</strong><span>id、score、rank、trace。</span></div>
+          </div>
+
+          <details open>
+            <summary>召回链路逐环节解释</summary>
+            <div class="detail-body">
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>环节</th>
+                      <th>概念</th>
+                      <th>输入</th>
+                      <th>输出</th>
+                      <th>意义</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td>SearchFilter</td>
+                      <td>结构过滤器。</td>
+                      <td>type、project、tags、exclude_tags、since_days、tenant_id。</td>
+                      <td>allowed_ids。</td>
+                      <td>先缩小范围，避免语义相似但项目错误。</td>
+                    </tr>
+                    <tr>
+                      <td>Query Expansion</td>
+                      <td>FTS 查询构造。</td>
+                      <td>用户自然语言。</td>
+                      <td>FTS5 安全 query。</td>
+                      <td>把中文、英文、数字、下划线词、安全转义和同义词整理成可检索表达式。</td>
+                    </tr>
+                    <tr>
+                      <td>FTS/BM25</td>
+                      <td>全文检索排名。</td>
+                      <td>title、locator、overview 的 FTS 索引文本。</td>
+                      <td>BM25 hit list。</td>
+                      <td>对路径、命令、错误码、函数名、adapter 名称最可靠。</td>
+                    </tr>
+                    <tr>
+                      <td>Vector Search</td>
+                      <td>语义向量检索。</td>
+                      <td>query embedding。</td>
+                      <td>vector hit list。</td>
+                      <td>找表达不同但语义相近的记忆。</td>
+                    </tr>
+                    <tr>
+                      <td>Degraded guard</td>
+                      <td>退化保护。</td>
+                      <td>embedder 状态。</td>
+                      <td>BM25-only。</td>
+                      <td>如果 embedder 是 degraded fallback，避免融合垃圾向量邻居。</td>
+                    </tr>
+                    <tr>
+                      <td>RRF</td>
+                      <td>倒数排名融合。</td>
+                      <td>BM25 hits + vector hits。</td>
+                      <td>初始候选分 S0。</td>
+                      <td>不同检索器的原始分不可比，按排名融合更稳。</td>
+                    </tr>
+                    <tr>
+                      <td>Cross-encoder rerank</td>
+                      <td>可选重排。</td>
+                      <td>query 和候选全文 pair。</td>
+                      <td>sigmoid 后的相关性分。</td>
+                      <td>在小候选池上用更贵模型做精排。</td>
+                    </tr>
+                    <tr>
+                      <td>Decay</td>
+                      <td>遗忘衰减。</td>
+                      <td>confidence、decay_class、last_accessed、access/support/contradict/gain。</td>
+                      <td>时间和反馈修正后的分。</td>
+                      <td>旧状态自然降权，常用且被支持的记忆保活。</td>
+                    </tr>
+                    <tr>
+                      <td>Feedback value</td>
+                      <td>价值乘子。</td>
+                      <td>support_count、contradict_count、gain_score。</td>
+                      <td>bounded multiplier。</td>
+                      <td>让真实采用过的记忆升温，被拒绝的降权。</td>
+                    </tr>
+                    <tr>
+                      <td>Status / Runtime boost</td>
+                      <td>场景化 boost。</td>
+                      <td>query terms 和 item tags/type。</td>
+                      <td>乘子提升。</td>
+                      <td>handoff/status/runtime 相关问题优先拉真实状态证据。</td>
+                    </tr>
+                    <tr>
+                      <td>Temporal / Supersession filter</td>
+                      <td>旧状态过滤。</td>
+                      <td>candidate metadata。</td>
+                      <td>过滤后的 candidates。</td>
+                      <td>避免过期状态和被替代记忆进入下一阶段。</td>
+                    </tr>
+                    <tr>
+                      <td>MMR</td>
+                      <td>最大边际相关性。</td>
+                      <td>候选分和候选 embedding。</td>
+                      <td>相关但不重复的候选列表。</td>
+                      <td>避免上下文里出现一堆重复记忆。</td>
+                    </tr>
+                    <tr>
+                      <td>Hopfield expand</td>
+                      <td>联想式扩展。</td>
+                      <td>当前候选 embedding 和分数。</td>
+                      <td>围绕 attractor 的向量邻居。</td>
+                      <td>补齐第一跳没搜到但与候选群相关的记忆。</td>
+                    </tr>
+                    <tr>
+                      <td>Graph expand</td>
+                      <td>引用图扩展。</td>
+                      <td>top candidates 和 refs_graph。</td>
+                      <td>邻居 item。</td>
+                      <td>把相关证据、上下游决策和引用链带进候选池。</td>
+                    </tr>
+                    <tr>
+                      <td>Trace / Access</td>
+                      <td>召回轨迹和访问记录。</td>
+                      <td>每阶段 before/after rank/score。</td>
+                      <td>RetrievalTrace、access_count。</td>
+                      <td>解释为什么这条 item 被选中，并给 retention 提供访问数据。</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </details>
+        </div>
+      </section>
+
+      <section id="context">
+        <div class="wrap">
+          <div class="section-head">
+            <div>
+              <div class="kicker">05 / Context Loading</div>
+              <h2>分层上下文装载：从 item 候选到真正注入的文本。</h2>
+            </div>
+            <p class="lead">
+              召回拿到的是 item id 和分数。上下文装载才决定“给模型多少”。AMH 用 locator、overview、detail 和 detail_uri 做渐进式加载。
+            </p>
+          </div>
+
+          <div class="grid three">
+            <div class="card">
+              <h3>locator</h3>
+              <p>最短定位视图，默认等于 summary。作用是让 Agent 知道“有这条记忆”，但不把正文塞进上下文。</p>
+              <div class="pill-row"><span class="pill">低成本</span><span class="pill">默认起点</span><span class="pill">适合 brief</span></div>
+            </div>
+            <div class="card">
+              <h3>overview</h3>
+              <p>结构化概览。适合 fact、decision、signal、handoff 或带 refs/validity 边界的 item。</p>
+              <div class="pill-row"><span class="pill">中等成本</span><span class="pill">解释边界</span><span class="pill">可为空</span></div>
+            </div>
+            <div class="card">
+              <h3>detail</h3>
+              <p>完整正文 body。只有显式请求、raw 直接证据、预算允许或强相关时才加载。可通过 detail_uri 或 retrieve_hint 再读。</p>
+              <div class="pill-row"><span class="pill">高成本</span><span class="pill">完整正文</span><span class="pill">可逆读取</span></div>
+            </div>
+          </div>
+
+          <details open>
+            <summary>自动选择规则</summary>
+            <div class="detail-body">
+              <pre><code>requested != "auto":
+  直接尊重 locator / overview / detail
+
+auto:
+  默认 locator
+
+  如果 item 是 raw + L0 + 有直接证据 refs + body 存在:
+    升级 detail
+
+  否则如果有 overview，并且满足以下任一条件:
+    type 是 fact / decision
+    type 是 signal / handoff
+    有 refs 或 validity 边界
+    firewall 决策是 demote
+    升级 overview
+
+预算不够:
+  detail -> overview -> locator 逐级降级</code></pre>
+              <div class="big-note">
+                关键语义：<strong>压缩视图不是原文。关键判断必须通过 <code>detail_uri</code>、MCP <code>read_memory(... view='detail')</code> 或 CLI <code>memory read --view detail</code> 读取 canonical body。</strong>
+              </div>
+            </div>
+          </details>
+
+          <details>
+            <summary>ContextPack 里包含什么</summary>
+            <div class="detail-body">
+              <ul>
+                <li><code>item_id</code>：对应 MemoryItem。</li>
+                <li><code>selected_view</code>：locator、overview 或 detail。</li>
+                <li><code>text</code>：真正准备注入 prompt 的文本。</li>
+                <li><code>detail_uri</code>：完整正文地址。</li>
+                <li><code>retrieve_hint</code>：MCP 读取提示。</li>
+                <li><code>cli_retrieve_hint</code>：CLI 读取提示。</li>
+                <li><code>packed_tokens</code> / <code>full_tokens</code>：压缩前后 token 估算。</li>
+                <li><code>compressed</code> / <code>reversible</code>：是否压缩，是否可逆追溯。</li>
+                <li><code>ccr_key</code> / <code>ccr_marker</code>：压缩旁路信息。</li>
+              </ul>
+            </div>
+          </details>
+        </div>
+      </section>
+
+      <section id="firewall">
+        <div class="wrap">
+          <div class="section-head">
+            <div>
+              <div class="kicker">06 / Context Firewall</div>
+              <h2>上下文防火墙：把“搜得到”变成“能不能注入”。</h2>
+            </div>
+            <p class="lead">
+              防火墙不是召回算法，而是注入前策略门。它会对每个候选做 include、demote、exclude，再对整个 cohort 做覆盖率检查和预算约束。
+            </p>
+          </div>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>规则</th>
+                  <th>触发条件</th>
+                  <th>结果</th>
+                  <th>意义</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>sensitivity gate</td>
+                  <td>sensitivity 不在 <code>public/internal</code>。</td>
+                  <td>exclude</td>
+                  <td>默认不注入 private/secret。</td>
+                </tr>
+                <tr>
+                  <td>superseded gate</td>
+                  <td><code>superseded_by</code> 存在。</td>
+                  <td>exclude</td>
+                  <td>被新记忆替代的旧记忆不能继续误导。</td>
+                </tr>
+                <tr>
+                  <td>review gate</td>
+                  <td>tags 含 needs-review / requires-review / review-rejected / unverified-boundary。</td>
+                  <td>exclude</td>
+                  <td>未复核边界不能进 prompt。</td>
+                </tr>
+                <tr>
+                  <td>query mismatch</td>
+                  <td>query signal 可注入但候选不覆盖任何 query term。</td>
+                  <td>exclude</td>
+                  <td>避免无关记忆被带入。</td>
+                </tr>
+                <tr>
+                  <td>very low confidence</td>
+                  <td><code>confidence &lt; 0.2</code>。</td>
+                  <td>exclude</td>
+                  <td>极低可信度直接阻断。</td>
+                </tr>
+                <tr>
+                  <td>negative feedback</td>
+                  <td><code>contradict_count >= 3</code> 且 <code>gain_score <= -0.5</code> 且 contradict 大于 support。</td>
+                  <td>exclude</td>
+                  <td>被多次否定的记忆不能再注入。</td>
+                </tr>
+                <tr>
+                  <td>missing source</td>
+                  <td>fact/decision 缺 refs 来源。</td>
+                  <td>exclude</td>
+                  <td>事实和决策必须可追溯。</td>
+                </tr>
+                <tr>
+                  <td>stale signal</td>
+                  <td>signal 创建超过 14 天。</td>
+                  <td>exclude</td>
+                  <td>临时信号不能长期误导。</td>
+                </tr>
+                <tr>
+                  <td>stale handoff</td>
+                  <td>handoff 创建超过 30 天。</td>
+                  <td>exclude</td>
+                  <td>旧交接不能覆盖当前状态。</td>
+                </tr>
+                <tr>
+                  <td>scope mismatch / stale temporal</td>
+                  <td>validity 与当前 cwd/repo/branch/os/adapter 不匹配或 TTL 过期。</td>
+                  <td>exclude</td>
+                  <td>带环境边界的状态必须按环境判断。</td>
+                </tr>
+                <tr>
+                  <td>contested</td>
+                  <td>tags 含 contested / contradiction / conflict。</td>
+                  <td>demote，分数乘 0.35</td>
+                  <td>有争议内容降级，只给更少上下文。</td>
+                </tr>
+                <tr>
+                  <td>low confidence</td>
+                  <td><code>confidence &lt; 0.4</code>。</td>
+                  <td>demote，分数乘 0.5</td>
+                  <td>低可信但未到阻断阈值。</td>
+                </tr>
+                <tr>
+                  <td>L0 evidence only</td>
+                  <td>L0 且缺直接证据和 validity 边界。</td>
+                  <td>demote，分数乘 0.2</td>
+                  <td>原始低层抽象且证据弱，不应详细注入。</td>
+                </tr>
+                <tr>
+                  <td>duplicate cluster</td>
+                  <td>同 cluster 超过 <code>max_per_duplicate_cluster=1</code>。</td>
+                  <td>保留最高，其他 exclude</td>
+                  <td>防止重复内容占满上下文。</td>
+                </tr>
+                <tr>
+                  <td>cohort strong anchor</td>
+                  <td>strong_terms 覆盖率低于 1.0。</td>
+                  <td>reject cohort</td>
+                  <td>如果整体候选没有覆盖强锚点，就整组拒绝。</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section id="algorithms">
+        <div class="wrap">
+          <div class="section-head">
+            <div>
+              <div class="kicker">07 / Algorithms</div>
+              <h2>所有关键算法和公式。</h2>
+            </div>
+            <p class="lead">
+              这里严格区分“源码里有明确公式”和“调用底层库完成”。比如 BM25 由 SQLite FTS5 计算，AMH 自己只负责查询构造、结果取负和后续融合。
+            </p>
+          </div>
+
+          <details open>
+            <summary>FTS / BM25</summary>
+            <div class="detail-body">
+              <p><strong>概念：</strong>FTS 是 Full Text Search，全文检索。AMH 用 SQLite FTS5 的虚拟表 <code>items_fts</code>，字段是 <code>id, title, summary, body</code>。</p>
+              <p><strong>写入索引时：</strong>AMH 把 CJK 字符前后插空格，让 unicode61 tokenizer 能发出单字 token。写入 FTS 的文本是 <code>title</code>、<code>context_views.locator</code>、<code>context_views.overview</code>，展示时仍从 Markdown 事实源读。</p>
+              <p><strong>查询时：</strong>用户 query 会被切成 ASCII/CJK token，token 会被引号包裹以防 FTS5 语法注入，同义词会扩展，默认用 OR 连接。</p>
+              <div class="formula">
+                <span class="label">AMH 实现口径</span>
+                <pre><code>SELECT id, bm25(items_fts) AS score
+FROM items_fts
+WHERE items_fts MATCH ?
+ORDER BY score
+LIMIT ?
+
+# SQLite FTS5 bm25(): lower is better
+# AMH returns: Hit(score = -sqlite_bm25_score)
+# 后续统一成 higher is better</code></pre>
+              </div>
+              <p><strong>意义：</strong>FTS/BM25 负责精确词命中，尤其适合路径、命令、错误码、项目名、adapter 名称。</p>
+            </div>
+          </details>
+
+          <details open>
+            <summary>Vector Search</summary>
+            <div class="detail-body">
+              <p><strong>概念：</strong>向量检索把 query 和 item 表示成 embedding，查语义邻居。</p>
+              <p><strong>作用：</strong>补足 FTS 找不到的“表达不同但意思相近”的记忆。</p>
+              <p><strong>边界：</strong>如果 embedder 处于 degraded fallback，AMH 会跳过 vector hits，走 BM25-only，避免把无意义向量邻居融合进来。</p>
+            </div>
+          </details>
+
+          <details open>
+            <summary>RRF 倒数排名融合</summary>
+            <div class="detail-body">
+              <p><strong>概念：</strong>RRF 解决 BM25 分数和向量分数不可直接比较的问题。它不看原始分，只看排名。</p>
+              <div class="formula">
+                <span class="label">源码公式</span>
+                <pre><code># rank0 从 0 开始
+score = weight / (rrf_k + rank0 + 1)
+
+# 用 rank1 理解
+score = weight / (rrf_k + rank1)
+
+S0 =
+  bm25_weight  / (rrf_k + bm25_rank1)
++ vector_weight / (rrf_k + vector_rank1)</code></pre>
+              </div>
+              <p><strong>默认：</strong><code>rrf_k=60</code>，<code>bm25_weight=1.0</code>，<code>vector_weight=1.0</code>。</p>
+              <p><strong>例子：</strong>BM25 第 1，向量第 3：</p>
+              <pre><code>S0 = 1/(60+1) + 1/(60+3)
+   = 0.01639 + 0.01587
+   = 0.03226</code></pre>
+            </div>
+          </details>
+
+          <details open>
+            <summary>Cross-encoder rerank</summary>
+            <div class="detail-body">
+              <p><strong>概念：</strong>rerank 是精排。先用 BM25/vector/RRF 找候选，再把 top candidates 交给 cross-encoder 判断 query 和 item text 的匹配度。</p>
+              <p><strong>模型：</strong><code>cross-encoder/ms-marco-MiniLM-L-6-v2</code>。</p>
+              <p><strong>启用：</strong><code>RERANK_ENABLED=1/true/yes</code>。</p>
+              <div class="formula">
+                <span class="label">得分归一化</span>
+                <pre><code>rerank_score = sigmoid(logit)
+             = 1 / (1 + exp(-logit))</code></pre>
+              </div>
+              <p><strong>边界：</strong>这是可选增强，不是默认不可缺少的核心链路。</p>
+            </div>
+          </details>
+
+          <details open>
+            <summary>Confidence</summary>
+            <div class="detail-body">
+              <p><strong>概念：</strong>MemoryItem 的可信度字段，范围 0 到 1，默认 0.7。</p>
+              <div class="formula">
+                <span class="label">更新规则</span>
+                <pre><code>confirm        -> confidence = 0.9
+on_access      -> confidence += 0.01, cap = 0.95
+on_reaffirm    -> support_count += 1
+                -> gain_score += 0.1
+                -> confidence += 0.02, cap = 0.95
+on_reject      -> contradict_count += 1
+                -> gain_score -= 0.2
+                -> confidence -= 0.15
+contradiction  -> confidence -= 0.15
+supersede      -> confidence -= 0.15</code></pre>
+              </div>
+              <p><strong>召回中：</strong><code>confidence</code> 会乘进有效分。</p>
+            </div>
+          </details>
+
+          <details open>
+            <summary>Decay 遗忘衰减</summary>
+            <div class="detail-body">
+              <p><strong>概念：</strong>decay 让旧记忆自然降权，但允许常用、被支持、有收益的记忆保活。</p>
+              <div class="formula">
+                <span class="label">基础半衰期</span>
+                <pre><code>retention = 0.5 ** (days_since_reference / half_life)</code></pre>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>decay_class</th>
+                      <th>half_life</th>
+                      <th>type 映射</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr><td>architecture</td><td>180 天</td><td>artifact、skill</td></tr>
+                    <tr><td>decision</td><td>90 天</td><td>decision、policy</td></tr>
+                    <tr><td>fact</td><td>60 天</td><td>fact</td></tr>
+                    <tr><td>episode</td><td>30 天</td><td>episode</td></tr>
+                    <tr><td>ephemeral</td><td>7 天</td><td>signal、handoff</td></tr>
+                  </tbody>
+                </table>
+              </div>
+              <div class="formula">
+                <span class="label">综合衰减系数</span>
+                <pre><code>access_multiplier =
+  1 + min(0.35, log1p(access_count) * 0.08)
+
+support_multiplier =
+  1 + min(0.18, support_count * 0.03)
+
+gain_multiplier =
+  1 + clamp(gain_score * 0.12, -0.15, 0.15)
+
+contradiction_multiplier =
+  1 - min(0.45, contradict_count * 0.08)
+
+decay_coefficient =
+  retention
+* access_multiplier
+* support_multiplier
+* gain_multiplier
+* contradiction_multiplier
+
+decay_coefficient bounded to [0.01, 1.35]</code></pre>
+              </div>
+              <div class="formula">
+                <span class="label">召回有效分</span>
+                <pre><code>effective = candidate.score * confidence * decay_coefficient</code></pre>
+              </div>
+            </div>
+          </details>
+
+          <details open>
+            <summary>Feedback value</summary>
+            <div class="detail-body">
+              <p><strong>概念：</strong>feedback value 是召回排序中的“历史使用价值”乘子。</p>
+              <div class="formula">
+                <span class="label">反馈写回</span>
+                <pre><code>adopted:
+  support_count += 1
+  gain_score += 0.1
+  confidence += 0.02
+
+rejected:
+  contradict_count += 1
+  gain_score -= 0.2
+  confidence -= 0.15
+
+ignored:
+  no change</code></pre>
+              </div>
+              <div class="formula">
+                <span class="label">召回乘子</span>
+                <pre><code>raw =
+  1.0
++ support_count * 0.03
+- contradict_count * 0.10
++ gain_score * 0.50
+
+feedback_value_multiplier = clamp(raw, 0.25, 2.0)
+
+score = score * feedback_value_multiplier</code></pre>
+              </div>
+            </div>
+          </details>
+
+          <details open>
+            <summary>Maturity 成熟度</summary>
+            <div class="detail-body">
+              <p><strong>概念：</strong>maturity 是治理和装载信号，不是当前召回主链里的直接乘法项。它判断一个 item 是否从 raw/L0 成熟到 consolidated/L1 或 skill/L2。</p>
+              <div class="formula">
+                <span class="label">成熟度评分</span>
+                <pre><code>maturity_score =
+  0.28 * source_completeness
++ 0.22 * confidence
++ min(0.18, support_count * 0.03)
++ min(0.12, access_count * 0.02)
++ min(0.12, len(refs.mems) * 0.04)
++ validation_evidence_score
++ 0.08 if overview exists
++ min(0.10, gain_score * 0.10)
+- min(0.35, contradict_count * 0.07)
+- 0.18 if stale/superseded</code></pre>
+              </div>
+              <pre><code>source_completeness:
+  1.00 = has direct refs: files/urls/commits/resources/extractions
+  0.55 = has refs.mems
+  0.00 = no refs
+
+validation_evidence_score:
+  0.07 = tests/eval/benchmark/source evidence path
+  0.04 = commit refs
+  0.00 = none
+
+classification:
+  score >= 0.80 and (type=skill or abstraction=L2) -> skill / L2
+  score >= 0.65 -> consolidated / L1
+  else -> raw / L0</code></pre>
+            </div>
+          </details>
+
+          <details open>
+            <summary>MMR 多样性重排</summary>
+            <div class="detail-body">
+              <p><strong>概念：</strong>MMR 避免一堆相似 item 同时进入候选前列。</p>
+              <div class="formula">
+                <span class="label">公式</span>
+                <pre><code>MMR(candidate) =
+  lambda * relevance
+- (1 - lambda) * max_similarity_to_selected
+
+relevance = candidate.score / max_score
+similarity = cosine(candidate_embedding, selected_embedding)</code></pre>
+              </div>
+              <p><code>lambda</code> 越接近 1 越重视相关性，越接近 0 越重视多样性。</p>
+            </div>
+          </details>
+
+          <details>
+            <summary>Status / Runtime boost、Graph、Hopfield</summary>
+            <div class="detail-body">
+              <div class="formula">
+                <span class="label">status/handoff boost</span>
+                <pre><code>当 query 是 stale/outdated/reorient/handoff + memory/project/status/trust/current:
+  type == signal -> multiplier += 0.25
+  tags 有 handoff/status/current/next-step -> multiplier += 0.15</code></pre>
+              </div>
+              <div class="formula">
+                <span class="label">adapter runtime evidence boost</span>
+                <pre><code>当 query 提到 runtime/hook/observed 且命中 adapter tag:
+  adapter tag + runtime-evidence -> multiplier += 0.75
+  hooks 或 real-config tag       -> multiplier += 0.25
+  type == fact                  -> multiplier += 0.15</code></pre>
+              </div>
+              <div class="formula">
+                <span class="label">graph expansion</span>
+                <pre><code>neighbor_score = candidates[-1].score * 0.5</code></pre>
+              </div>
+              <div class="formula">
+                <span class="label">Hopfield expansion</span>
+                <pre><code>seed_weight = softmax(candidate.score)
+query = weighted_sum(seed_embeddings, seed_weight)
+attractor = HopfieldMemory.recall(query)
+similarity = 1 / (1 + distance)
+expanded_score = max_score * 0.85 * similarity</code></pre>
+              </div>
+            </div>
+          </details>
+        </div>
+      </section>
+
+      <section id="feedback">
+        <div class="wrap">
+          <div class="section-head">
+            <div>
+              <div class="kicker">08 / Feedback & Governance</div>
+              <h2>反馈不是点赞，而是改变未来召回和治理的信号。</h2>
+            </div>
+            <p class="lead">
+              AMH 只把明确 adopted/rejected 当成强反馈。retrieved 不等于 adopted，injected 不等于 adopted，ignored 不升温。
+            </p>
+          </div>
+
+          <div class="compare">
+            <div class="card good">
+              <h3>正确反馈</h3>
+              <ul>
+                <li>这条记忆被 Agent 明确采用：adopted。</li>
+                <li>这条记忆导致错误或被用户否定：rejected。</li>
+                <li>任务结果明确列出 adopted_ids / rejected_ids。</li>
+                <li>隐式正反馈只有严格条件下才会应用：任务成功、高置信、只有一个 injected memory、信号在 allow-list。</li>
+              </ul>
+            </div>
+            <div class="card bad">
+              <h3>错误理解</h3>
+              <ul>
+                <li>搜出来了就说明有用。</li>
+                <li>注入了就说明采用。</li>
+                <li>没被提到就自动升温。</li>
+                <li>多条 memory 同时注入后，只凭任务成功就全部加分。</li>
+              </ul>
+            </div>
+          </div>
+
+          <details open>
+            <summary>反馈如何进入治理闭环</summary>
+            <div class="detail-body">
+              <ol>
+                <li>注入 cohort 记录了哪些 item 被注入。</li>
+                <li>用户或任务结果明确指出 adopted_ids / rejected_ids。</li>
+                <li><code>InjectionFeedback</code> 校验反馈 id 必须属于 injected cohort，且不能同时 adopted 和 rejected。</li>
+                <li>adopted 调 <code>on_reaffirm</code>，更新 support、gain、confidence。</li>
+                <li>rejected 调 <code>on_reject</code>，更新 contradict、gain、confidence。</li>
+                <li>后续召回通过 decay 和 feedback value 读取这些字段。</li>
+                <li>成熟度评分、漂移检测、演化建议也会读取这些字段。</li>
+              </ol>
+            </div>
+          </details>
+        </div>
+      </section>
+
+      <section id="loop">
+        <div class="wrap">
+          <div class="section-head">
+            <div>
+              <div class="kicker">09 / Loop Engineering</div>
+              <h2>Loop 是复杂任务账本，不是召回排序算法。</h2>
+            </div>
+            <p class="lead">
+              Loop 记录一次复杂任务的目标、上下文、预算、检查点、验证计划、验证结果、产物和结果。它让“做了什么”和“凭什么说完成”可追踪、可交接、可复盘。
+            </p>
+          </div>
+
+          <div class="flow" aria-label="Loop 生命周期">
+            <div class="node"><b>1</b><strong>create</strong><span>创建 goal、project、cwd、adapter、session、budget、verification_plan。</span></div>
+            <div class="node"><b>2</b><strong>running</strong><span>start 或第一次 checkpoint 后进入运行。</span></div>
+            <div class="node"><b>3</b><strong>checkpoint</strong><span>追加阶段进展和 artifact。</span></div>
+            <div class="node"><b>4</b><strong>verification</strong><span>记录验证计划和验证结果。</span></div>
+            <div class="node"><b>5</b><strong>complete</strong><span>必须有 completion evidence。</span></div>
+            <div class="node"><b>6</b><strong>fail</strong><span>记录失败原因和证据。</span></div>
+            <div class="node"><b>7</b><strong>data-flow</strong><span>loop event 进入运行观测。</span></div>
+            <div class="node"><b>8</b><strong>evolution</strong><span>failed loops 触发 inspect_failed_loops 建议。</span></div>
+            <div class="node"><b>9</b><strong>handoff</strong><span>下个 Agent 可按 loop 状态承接。</span></div>
+            <div class="node"><b>10</b><strong>memory</strong><span>有价值结论再沉淀为 artifact/episode/handoff。</span></div>
+          </div>
+
+          <div class="grid two" style="margin-top:1rem">
+            <div class="card">
+              <h3>LoopRun 字段</h3>
+              <ul>
+                <li><code>loop_id</code>、<code>created_at</code>、<code>updated_at</code>、<code>status</code></li>
+                <li><code>goal</code>、<code>trigger</code>、<code>project</code>、<code>cwd</code>、<code>adapter</code>、<code>session_id</code></li>
+                <li><code>budget</code>、<code>context</code></li>
+                <li><code>verification_plan</code>、<code>verification_results</code></li>
+                <li><code>checkpoints</code>、<code>artifacts</code>、<code>outcome</code></li>
+                <li><code>memory_candidates</code>、<code>sensitivity</code></li>
+              </ul>
+            </div>
+            <div class="card">
+              <h3>状态机</h3>
+              <pre><code>created -> running / failed / cancelled
+running -> blocked / failed / completed / cancelled
+blocked -> running / failed / cancelled
+failed  -> running
+completed -> none
+cancelled -> none
+
+complete:
+  requires verification evidence</code></pre>
+            </div>
+          </div>
+
+          <details open>
+            <summary>Loop 的价值</summary>
+            <div class="detail-body">
+              <ol>
+                <li><strong>防止假完成：</strong><code>complete</code> 没有 evidence 会失败。</li>
+                <li><strong>支持长任务承接：</strong>下个 Agent 能读 goal、checkpoint、artifact、verification。</li>
+                <li><strong>把过程和结论分开：</strong>Loop 是 runtime 账本，MemoryItem 是长期结论。</li>
+                <li><strong>给治理提供负反馈：</strong>failed loop 进入 evolution control，触发 review_required 建议。</li>
+                <li><strong>让评估闭环有证据：</strong>任务成功或失败不再只有聊天口头描述。</li>
+              </ol>
+            </div>
+          </details>
+        </div>
+      </section>
+
+      <section id="terms">
+        <div class="wrap">
+          <div class="section-head">
+            <div>
+              <div class="kicker">10 / Glossary</div>
+              <h2>术语字典：看到一个词就知道它在链路里的位置。</h2>
+            </div>
+            <p class="lead">
+              这一节按“概念、作用、进入点、流向”解释常见名词。适合以后直接拆进 README 或架构文档。
+            </p>
+          </div>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>术语</th>
+                  <th>定义</th>
+                  <th>作用</th>
+                  <th>进入下一环节</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><td>Brain pool</td><td>共享大脑目录。</td><td>多个 Agent 共用同一套 items/sources/index/runtime。</td><td>所有读写入口。</td></tr>
+                <tr><td>L1 discipline</td><td>注入给 Agent 的记忆纪律。</td><td>告诉 Agent 何时写、何时不写、如何查。</td><td>Agent 行为约束。</td></tr>
+                <tr><td>L2 read</td><td>UserPromptSubmit 自动读取。</td><td>每次 prompt 前拉相关 memory candidates。</td><td>context pack。</td></tr>
+                <tr><td>L2 write</td><td>Stop hook 可选写 session-end signal。</td><td>给下次归档或承接提示。</td><td>候选或 MemoryItem。</td></tr>
+                <tr><td>L3 remember</td><td>用户显式触发智能扫描。</td><td>LLM 回顾会话、列计划、等用户确认后写入。</td><td>WriteService。</td></tr>
+                <tr><td>live-prompt</td><td>当前 prompt 防丢证据。</td><td>防止异常退出导致输入丢失。</td><td>sources，不直接进 items。</td></tr>
+                <tr><td>transcript</td><td>完整原始会话。</td><td>权威原始证据。</td><td>conversation store、harvest。</td></tr>
+                <tr><td>MemoryItem</td><td>长期记忆单元。</td><td>跨智能体复用。</td><td>index、retrieval、governance、context。</td></tr>
+                <tr><td>candidate</td><td>候选记忆。</td><td>等待 review 或写入漏斗处理。</td><td>approve 后 WriteService。</td></tr>
+                <tr><td>pending</td><td>写入兜底队列。</td><td>核心链路不可用时暂存。</td><td>sync-pending 重放。</td></tr>
+                <tr><td>sidecar</td><td>旁路证据文件。</td><td>保存 resource/extraction/CCR 等辅助材料。</td><td>refs 或 context retrieve。</td></tr>
+                <tr><td>FTS</td><td>全文检索。</td><td>精确关键词召回。</td><td>BM25 hit list。</td></tr>
+                <tr><td>BM25</td><td>FTS5 排名函数。</td><td>根据全文匹配质量排序。</td><td>RRF。</td></tr>
+                <tr><td>Vector</td><td>语义向量检索。</td><td>找语义近邻。</td><td>RRF。</td></tr>
+                <tr><td>RRF</td><td>倒数排名融合。</td><td>融合 BM25 和向量排名。</td><td>初始候选分。</td></tr>
+                <tr><td>rerank</td><td>cross-encoder 精排。</td><td>在 top candidates 上更精细判断相关性。</td><td>候选重排。</td></tr>
+                <tr><td>decay</td><td>遗忘衰减。</td><td>时间降权，访问/支持/收益保活，矛盾惩罚。</td><td>有效分。</td></tr>
+                <tr><td>feedback value</td><td>历史使用价值乘子。</td><td>采用升温，拒绝降权。</td><td>有效分。</td></tr>
+                <tr><td>maturity</td><td>成熟度。</td><td>治理判断 raw/consolidated/skill。</td><td>治理和 context loading。</td></tr>
+                <tr><td>MMR</td><td>多样性重排。</td><td>减少重复候选。</td><td>候选列表。</td></tr>
+                <tr><td>Hopfield</td><td>联想扩展。</td><td>围绕候选 attractor 找近邻。</td><td>扩展候选。</td></tr>
+                <tr><td>refs_graph</td><td>记忆引用图。</td><td>连接相关 memory。</td><td>graph expansion。</td></tr>
+                <tr><td>Firewall</td><td>注入前门禁。</td><td>阻断敏感、过期、缺证据、低可信、重复内容。</td><td>ContextPack。</td></tr>
+                <tr><td>locator</td><td>最短定位视图。</td><td>低成本提示有这条记忆。</td><td>prompt。</td></tr>
+                <tr><td>overview</td><td>概览视图。</td><td>给结构化上下文和边界。</td><td>prompt。</td></tr>
+                <tr><td>detail</td><td>完整正文。</td><td>关键判断时读取。</td><td>prompt 或按需读取。</td></tr>
+                <tr><td>detail_uri</td><td>详情路径。</td><td>让压缩视图可逆追溯到正文。</td><td>read_memory / memory read。</td></tr>
+                <tr><td>CCR</td><td>压缩上下文旁路 key。</td><td>保存可逆压缩的上下文线索。</td><td>headroom retrieve。</td></tr>
+                <tr><td>LoopRun</td><td>复杂任务运行账本。</td><td>记录目标、预算、验证、产物和结果。</td><td>data-flow、evolution、handoff。</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section id="misunderstanding">
+        <div class="wrap">
+          <div class="section-head">
+            <div>
+              <div class="kicker">11 / Common Confusions</div>
+              <h2>最容易误解的地方。</h2>
+            </div>
+            <p class="lead">
+              这部分可以直接变成 README 的“不要误读”小节。它专门处理你刚才问到的那些概念混乱。
+            </p>
+          </div>
+
+          <div class="grid two">
+            <div class="card bad">
+              <h3>误解：召回出来就是完整记忆正文</h3>
+              <p>实际：召回出来的是 <code>RetrievedItem</code> 候选引用，只有 id、score、rank、trace。正文要在 context loading 阶段按 id 读取。</p>
+            </div>
+            <div class="card bad">
+              <h3>误解：summary、overview、detail 是三条记忆</h3>
+              <p>实际：它们是同一条 MemoryItem 的不同视图。locator 默认常来自 summary；detail 是 canonical body。</p>
+            </div>
+            <div class="card bad">
+              <h3>误解：向量检索就是核心</h3>
+              <p>实际：向量只是候选来源之一。FTS/BM25、RRF、decay、feedback、firewall、context loading 共同决定最终注入。</p>
+            </div>
+            <div class="card bad">
+              <h3>误解：maturity 是召回分乘子</h3>
+              <p>实际：当前 maturity 主要用于治理和装载策略，不是召回主链里的直接乘法项。</p>
+            </div>
+            <div class="card bad">
+              <h3>误解：注入了就代表被采用</h3>
+              <p>实际：只有明确 adopted 才升温；rejected 降权；ignored 不改变。</p>
+            </div>
+            <div class="card bad">
+              <h3>误解：Loop 是 memory item</h3>
+              <p>实际：Loop 是 runtime 任务账本。它可以成为写 episode/artifact/handoff 的证据，但本身不等于长期记忆。</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="sources">
+        <div class="wrap">
+          <div class="section-head">
+            <div>
+              <div class="kicker">12 / Source Map</div>
+              <h2>每个解释点对应的源码位置。</h2>
+            </div>
+            <p class="lead">
+              这份页面里的概念、链路和公式都从这些源码入口取证。后续如果代码变了，这些也是更新 README 叙事时要优先核对的文件。
+            </p>
+          </div>
+
+          <ul class="source-map">
+            <li><code>agent_brain/contracts/memory_item.py</code>：MemoryItem、Retention、Refs、Validity、ContextViews。</li>
+            <li><code>agent_brain/contracts/memory_enums.py</code>：MemoryType、Maturity、DecayClass、half-life、type 到 decay_class 映射。</li>
+            <li><code>agent_brain/memory/store/write_service.py</code>：写入漏斗、审计、字段增强、sidecar、index dirty。</li>
+            <li><code>agent_brain/platform/indexing/index_schema.py</code>：items_meta、items_fts、items_vec、refs_graph。</li>
+            <li><code>agent_brain/platform/indexing/index_writer.py</code>：FTS 写入文本、CJK segment、refs_graph upsert。</li>
+            <li><code>agent_brain/platform/indexing/index.py</code>：BM25 搜索、向量搜索、metadata/filter/feedback/access 接口。</li>
+            <li><code>agent_brain/memory/recall/query_expansion.py</code>：FTS5 安全 query 构造、token、同义词扩展。</li>
+            <li><code>agent_brain/memory/recall/retrieval.py</code>：召回主 pipeline、candidate stages、trace、access recorder。</li>
+            <li><code>agent_brain/memory/recall/retrieval_fusion.py</code>：RRF 融合公式。</li>
+            <li><code>agent_brain/memory/recall/retrieval_decay.py</code>：retention、decay coefficient、effective score。</li>
+            <li><code>agent_brain/memory/recall/retrieval_value.py</code>：feedback value multiplier。</li>
+            <li><code>agent_brain/memory/recall/retrieval_rerank.py</code>：cross-encoder rerank 和 sigmoid。</li>
+            <li><code>agent_brain/memory/recall/retrieval_mmr.py</code>：MMR 公式。</li>
+            <li><code>agent_brain/memory/recall/retrieval_hopfield.py</code>：Hopfield attractor 扩展。</li>
+            <li><code>agent_brain/memory/recall/retrieval_graph.py</code>：graph neighbor expansion。</li>
+            <li><code>agent_brain/memory/context/context_firewall*.py</code>：include/demote/exclude、防火墙阈值和规则。</li>
+            <li><code>agent_brain/memory/context/context_loading.py</code>：locator/overview/detail 自动选择。</li>
+            <li><code>agent_brain/memory/context/context_packing.py</code>：ContextPack、retrieve_hint、token budget、CCR。</li>
+            <li><code>agent_brain/memory/governance/maturity_scoring.py</code>：maturity score 公式。</li>
+            <li><code>agent_brain/memory/governance/feedback.py</code>：confidence、support、contradict、gain 更新。</li>
+            <li><code>agent_brain/memory/context/injection_feedback.py</code>：adopted/rejected/ignored 语义。</li>
+            <li><code>agent_brain/memory/governance/outcome_feedback.py</code>：任务结果反馈应用边界。</li>
+            <li><code>agent_brain/memory/loops/*.py</code>：LoopRun、LoopEvent、状态机、completion evidence gate。</li>
+          </ul>
+        </div>
+      </section>
+
+      <footer>
+        <div class="wrap">
+          <p>
+            本页是 <code>readme-zh-pro-preview.html</code> 的概念详解 companion，目标是先把 AMH 的真实术语和原理讲清楚，再决定如何拆回 README、architecture 文档和图示。
+          </p>
+        </div>
+      </footer>
+    </main>
+  </div>
+</body>
+</html>

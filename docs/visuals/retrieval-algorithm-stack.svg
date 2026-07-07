@@ -1,0 +1,197 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1660" height="820" viewBox="0 0 1660 820" role="img" aria-labelledby="title desc" style="max-width:100%;height:auto;">
+  <title id="title">Retrieval Algorithm Stack: From Recall To Injection Permission</title>
+  <desc id="desc">Retrieval Algorithm Stack: From Recall To Injection Permission</desc>
+  <defs>
+
+    <linearGradient id="qoderPageBg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#fffdfb"/>
+      <stop offset="48%" stop-color="#fbfaf8"/>
+      <stop offset="100%" stop-color="#f7fbff"/>
+    </linearGradient>
+    <linearGradient id="qoderSheetBg" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#fff3fa"/>
+      <stop offset="45%" stop-color="#fbfdff"/>
+      <stop offset="100%" stop-color="#f0f8e9"/>
+    </linearGradient>
+    <filter id="qoderSheetShadow" x="-8%" y="-8%" width="116%" height="116%">
+      <feDropShadow dx="0" dy="26" stdDeviation="30" flood-color="#2a231c" flood-opacity="0.085"/>
+    </filter>
+
+    <marker id="arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#57606a"/>
+    </marker>
+    <filter id="paper" x="-8%" y="-8%" width="116%" height="116%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.78" numOctaves="2" seed="11" result="noise"/>
+      <feColorMatrix type="saturate" values="0"/>
+      <feComponentTransfer>
+        <feFuncA type="table" tableValues="0 0.035"/>
+      </feComponentTransfer>
+      <feBlend in="SourceGraphic" mode="multiply"/>
+    </filter>
+    <filter id="softShadow" x="-15%" y="-15%" width="130%" height="130%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#1f2328" flood-opacity="0.08"/>
+    </filter>
+    <style>
+      .bg { fill: url(#qoderPageBg); }
+      .sheet { fill: url(#qoderSheetBg); filter: url(#qoderSheetShadow); }
+      .ink { fill: #24292f; }
+      .muted { fill: #57606a; }
+      .title { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 34px; font-weight: 850; fill: #24292f; }
+      .subtitle { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 17px; fill: #57606a; }
+      .section { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 17px; font-weight: 800; fill: #57606a; text-transform: uppercase; }
+      .card-title { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 20px; font-weight: 820; fill: #24292f; }
+      .card-line { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 15px; fill: #24292f; }
+      .small { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 13px; fill: #57606a; }
+      .tiny { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 10px; fill: #6e7781; }
+      .num { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 22px; font-weight: 900; }
+      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; font-size: 13px; fill: #24292f; }
+      .mono-small { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; font-size: 12px; fill: #57606a; }
+      .panel { fill: #ffffff; stroke: #d8dee4; stroke-width: 1.4; filter: url(#softShadow); }
+      .card { stroke-width: 1.8; filter: url(#softShadow); }
+      .thin-card { stroke-width: 1.2; }
+      .arrow { fill: none; stroke: #57606a; stroke-width: 2.1; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrow); }
+      .soft-arrow { fill: none; stroke: #8c959f; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 6 7; marker-end: url(#arrow); }
+      .flow-line { stroke-dasharray: 14 10; animation: flowDash 1.8s linear infinite; }
+      .planned-line { stroke-dasharray: 8 8; }
+      .flow-dot { fill: #1f6f78; filter: url(#softShadow); }
+      .breath { animation: breath 2.8s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+      .breath-slow { animation: breath 4.2s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+      .blink { animation: blink 1.7s ease-in-out infinite; }
+      .rail { fill: none; stroke: #d0d7de; stroke-width: 1.3; stroke-dasharray: 5 8; }
+      .branch { fill: none; stroke: #d0d7de; stroke-width: 1.3; stroke-linecap: round; stroke-linejoin: round; }
+      .icon { fill: none; stroke-width: 3.5; stroke-linecap: round; stroke-linejoin: round; }
+      @keyframes flowDash {
+        to { stroke-dashoffset: -24; }
+      }
+      @keyframes breath {
+        0%, 100% { opacity: 0.88; transform: scale(1); }
+        50% { opacity: 1; transform: scale(1.035); }
+      }
+      @keyframes blink {
+        0%, 100% { opacity: 0.42; }
+        50% { opacity: 1; }
+      }
+    </style>
+  </defs>
+  <rect class="bg" width="1660" height="820"/>
+  <rect x="28" y="28" width="1604" height="764" rx="36" fill="#ffffff" opacity="0.62"/>
+  <rect class="sheet" x="20" y="20" width="1620" height="780" rx="34" stroke="#ffffff" stroke-opacity="0.86" stroke-width="1.2"/>
+  <text class="title" x="70" y="76">Retrieval Algorithm Stack: From Recall To Injection Permission</text>
+  <text class="subtitle" x="72" y="105">Every ranking factor sits on one recomputable chain: RRF fuses candidates; firewall decides injection permission.</text>
+  <g>
+    <rect class="card" x="54" y="164" width="202" height="132" rx="16" fill="#edf9ef" stroke="#a8d8b5"/>
+  <text class="card-title" x="70" y="196">01 BM25 rank</text>
+  <text class="card-line" x="70" y="220">FTS / keyword</text>
+  <text class="card-line" x="70" y="238">rank_bm25</text>
+  </g>
+  <path class="arrow flow-line" d="M256 230 L328 230">
+    <animate attributeName="stroke-dashoffset" values="0;-24" dur="1.8s" repeatCount="indefinite"/>
+  </path>
+  <g>
+    <rect class="card" x="328" y="164" width="202" height="132" rx="16" fill="#edf6ff" stroke="#a8cff2"/>
+  <text class="card-title" x="344" y="196">02 Vector rank</text>
+  <text class="card-line" x="344" y="220">locator + overview</text>
+  <text class="card-line" x="344" y="238">semantic nearest</text>
+  </g>
+  <path class="arrow flow-line" d="M530 230 L602 230">
+    <animate attributeName="stroke-dashoffset" values="0;-24" dur="1.8s" repeatCount="indefinite"/>
+  </path>
+  <g>
+    <rect class="card" x="602" y="164" width="202" height="132" rx="16" fill="#fff1df" stroke="#efb770"/>
+  <text class="card-title" x="618" y="196">03 RRF</text>
+  <text class="card-line" x="618" y="220">Σ w/(k+rank)</text>
+  <text class="card-line" x="618" y="238">candidate fusion</text>
+  </g>
+  <path class="arrow flow-line" d="M804 230 L876 230">
+    <animate attributeName="stroke-dashoffset" values="0;-24" dur="1.8s" repeatCount="indefinite"/>
+  </path>
+  <g>
+    <rect class="card" x="876" y="164" width="202" height="132" rx="16" fill="#e7fbf8" stroke="#95dcd6"/>
+  <text class="card-title" x="892" y="196">04 Phrase boost</text>
+  <text class="card-line" x="892" y="220">metadata phrase</text>
+  <text class="card-line" x="892" y="238">phrase hit</text>
+  </g>
+  <path class="arrow flow-line" d="M1078 230 L1150 230">
+    <animate attributeName="stroke-dashoffset" values="0;-24" dur="1.8s" repeatCount="indefinite"/>
+  </path>
+  <g>
+    <rect class="card" x="1150" y="164" width="202" height="132" rx="16" fill="#f5efff" stroke="#cfb9f3"/>
+  <text class="card-title" x="1166" y="196">05 Rerank</text>
+  <text class="card-line" x="1166" y="220">optional cross-encoder</text>
+  <text class="card-line" x="1166" y="238">can be disabled</text>
+  </g>
+  <path class="arrow flow-line" d="M1352 230 L1424 230">
+    <animate attributeName="stroke-dashoffset" values="0;-24" dur="1.8s" repeatCount="indefinite"/>
+  </path>
+  <g>
+    <rect class="card" x="1424" y="164" width="202" height="132" rx="16" fill="#fff7cc" stroke="#e7c34e"/>
+  <text class="card-title" x="1440" y="196">06 Confidence</text>
+  <text class="card-line" x="1440" y="220">source quality</text>
+  <text class="card-line" x="1440" y="238">item confidence</text>
+  </g>
+  <g>
+    <rect class="card" x="54" y="394" width="202" height="132" rx="16" fill="#fff1eb" stroke="#efbda9"/>
+  <text class="card-title" x="70" y="426">07 Forgetting /</text>
+  <text class="card-title" x="70" y="448">Decay</text>
+  <text class="card-line" x="70" y="472">time_retention</text>
+  <text class="card-line" x="70" y="490">decay coefficient</text>
+  </g>
+  <path class="arrow flow-line" d="M256 460 L328 460">
+    <animate attributeName="stroke-dashoffset" values="0;-24" dur="1.8s" repeatCount="indefinite"/>
+  </path>
+  <g>
+    <rect class="card" x="328" y="394" width="202" height="132" rx="16" fill="#fff0f6" stroke="#efb4d7"/>
+  <text class="card-title" x="344" y="426">08 Feedback</text>
+  <text class="card-line" x="344" y="450">adopted / rejected</text>
+  <text class="card-line" x="344" y="468">ignored does not heat</text>
+  <text class="card-line" x="344" y="486">up</text>
+  </g>
+  <path class="arrow flow-line" d="M530 460 L602 460">
+    <animate attributeName="stroke-dashoffset" values="0;-24" dur="1.8s" repeatCount="indefinite"/>
+  </path>
+  <g>
+    <rect class="card" x="602" y="394" width="202" height="132" rx="16" fill="#f1efff" stroke="#c0b0ee"/>
+  <text class="card-title" x="618" y="426">09 Runtime /</text>
+  <text class="card-title" x="618" y="448">Status</text>
+  <text class="card-line" x="618" y="472">handoff / signal</text>
+  <text class="card-line" x="618" y="490">runtime evidence</text>
+  </g>
+  <path class="arrow flow-line" d="M804 460 L876 460">
+    <animate attributeName="stroke-dashoffset" values="0;-24" dur="1.8s" repeatCount="indefinite"/>
+  </path>
+  <g>
+    <rect class="card" x="876" y="394" width="202" height="132" rx="16" fill="#fff1eb" stroke="#efbda9"/>
+  <text class="card-title" x="892" y="426">10 Freshness gates</text>
+  <text class="card-line" x="892" y="450">stale</text>
+  <text class="card-line" x="892" y="468">supersession</text>
+  </g>
+  <path class="arrow flow-line" d="M1078 460 L1150 460">
+    <animate attributeName="stroke-dashoffset" values="0;-24" dur="1.8s" repeatCount="indefinite"/>
+  </path>
+  <g>
+    <rect class="card" x="1150" y="394" width="202" height="132" rx="16" fill="#f5efff" stroke="#cfb9f3"/>
+  <text class="card-title" x="1166" y="426">11 Diversity /</text>
+  <text class="card-title" x="1166" y="448">Association</text>
+  <text class="card-line" x="1166" y="472">MMR / Hopfield</text>
+  <text class="card-line" x="1166" y="490">refs_graph expansion</text>
+  </g>
+  <path class="arrow flow-line" d="M1352 460 L1424 460">
+    <animate attributeName="stroke-dashoffset" values="0;-24" dur="1.8s" repeatCount="indefinite"/>
+  </path>
+  <g>
+    <rect class="card" x="1424" y="394" width="202" height="132" rx="16" fill="#f6f8fa" stroke="#c9d1d9"/>
+  <text class="card-title" x="1440" y="426">12 Firewall +</text>
+  <text class="card-title" x="1440" y="448">Loading</text>
+  <text class="card-line" x="1440" y="472">include/demote/</text>
+  <text class="card-line" x="1440" y="490">exclude</text>
+  </g>
+  <path class="arrow flow-line" d="M1525 296 C 2210 296, -530 394, 155 394">
+    <animate attributeName="stroke-dashoffset" values="0;-24" dur="1.8s" repeatCount="indefinite"/>
+  </path>
+  <g>
+    <rect x="230" y="664" width="1040" height="104" rx="18" fill="#f6f8fa" stroke="#c9d1d9" stroke-width="1.5"/>
+    <text class="card-title" x="254" y="698" fill="#57606a">A-E sample scoring chain</text>
+  <text class="card-line" x="254" y="726">A README artifact: RRF 0.03252 -&gt; phrase 3.60 -&gt; conf 0.70 -&gt; decay 0.96 -&gt; feedback 1.12 -&gt; include overview</text>
+  <text class="card-line" x="254" y="745">E stale preview: phrase 2.90 -&gt; conf 0.55 -&gt; decay 0.41 -&gt; supersession/stale demote or filter</text>
+  </g>
+</svg>

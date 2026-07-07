@@ -1,0 +1,271 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1180" height="900" viewBox="0 0 1180 900" role="img" aria-labelledby="title desc" style="max-width:100%;height:auto;">
+  <title id="title">智能体接入边界</title>
+  <desc id="desc">智能体接入边界</desc>
+  <defs>
+
+    <linearGradient id="qoderPageBg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#fffdfb"/>
+      <stop offset="48%" stop-color="#fbfaf8"/>
+      <stop offset="100%" stop-color="#f7fbff"/>
+    </linearGradient>
+    <linearGradient id="qoderSheetBg" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#fff3fa"/>
+      <stop offset="45%" stop-color="#fbfdff"/>
+      <stop offset="100%" stop-color="#f0f8e9"/>
+    </linearGradient>
+    <filter id="qoderSheetShadow" x="-8%" y="-8%" width="116%" height="116%">
+      <feDropShadow dx="0" dy="26" stdDeviation="30" flood-color="#2a231c" flood-opacity="0.085"/>
+    </filter>
+
+    <marker id="arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#57606a"/>
+    </marker>
+    <filter id="paper" x="-8%" y="-8%" width="116%" height="116%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.78" numOctaves="2" seed="11" result="noise"/>
+      <feColorMatrix type="saturate" values="0"/>
+      <feComponentTransfer>
+        <feFuncA type="table" tableValues="0 0.035"/>
+      </feComponentTransfer>
+      <feBlend in="SourceGraphic" mode="multiply"/>
+    </filter>
+    <filter id="softShadow" x="-15%" y="-15%" width="130%" height="130%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#1f2328" flood-opacity="0.08"/>
+    </filter>
+    <style>
+      .bg { fill: url(#qoderPageBg); }
+      .sheet { fill: url(#qoderSheetBg); filter: url(#qoderSheetShadow); }
+      .ink { fill: #24292f; }
+      .muted { fill: #57606a; }
+      .title { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 34px; font-weight: 850; fill: #24292f; }
+      .subtitle { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 17px; fill: #57606a; }
+      .section { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 17px; font-weight: 800; fill: #57606a; text-transform: uppercase; }
+      .card-title { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 20px; font-weight: 820; fill: #24292f; }
+      .card-line { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 15px; fill: #24292f; }
+      .small { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 13px; fill: #57606a; }
+      .tiny { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 10px; fill: #6e7781; }
+      .num { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 22px; font-weight: 900; }
+      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; font-size: 13px; fill: #24292f; }
+      .mono-small { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; font-size: 12px; fill: #57606a; }
+      .panel { fill: #ffffff; stroke: #d8dee4; stroke-width: 1.4; filter: url(#softShadow); }
+      .card { stroke-width: 1.8; filter: url(#softShadow); }
+      .thin-card { stroke-width: 1.2; }
+      .arrow { fill: none; stroke: #57606a; stroke-width: 2.1; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrow); }
+      .soft-arrow { fill: none; stroke: #8c959f; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 6 7; marker-end: url(#arrow); }
+      .flow-line { stroke-dasharray: 14 10; animation: flowDash 1.8s linear infinite; }
+      .planned-line { stroke-dasharray: 8 8; }
+      .flow-dot { fill: #1f6f78; filter: url(#softShadow); }
+      .breath { animation: breath 2.8s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+      .breath-slow { animation: breath 4.2s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+      .blink { animation: blink 1.7s ease-in-out infinite; }
+      .rail { fill: none; stroke: #d0d7de; stroke-width: 1.3; stroke-dasharray: 5 8; }
+      .branch { fill: none; stroke: #d0d7de; stroke-width: 1.3; stroke-linecap: round; stroke-linejoin: round; }
+      .icon { fill: none; stroke-width: 3.5; stroke-linecap: round; stroke-linejoin: round; }
+      @keyframes flowDash {
+        to { stroke-dashoffset: -24; }
+      }
+      @keyframes breath {
+        0%, 100% { opacity: 0.88; transform: scale(1); }
+        50% { opacity: 1; transform: scale(1.035); }
+      }
+      @keyframes blink {
+        0%, 100% { opacity: 0.42; }
+        50% { opacity: 1; }
+      }
+    </style>
+  </defs>
+  <rect class="bg" width="1180" height="900"/>
+  <rect x="28" y="28" width="1124" height="844" rx="36" fill="#ffffff" opacity="0.62"/>
+  <rect class="sheet" x="20" y="20" width="1140" height="860" rx="34" stroke="#ffffff" stroke-opacity="0.86" stroke-width="1.2"/>
+  <text class="title" x="70" y="76">智能体接入边界</text>
+  <text class="subtitle" x="72" y="105">不同 Agent 的接入能力不相同：hooks、MCP、file context、provider、verified evidence 需要分层展示。</text>
+  <g class="breath">
+    <animate attributeName="opacity" values="0.92;1;0.92" dur="2.8s" repeatCount="indefinite"/>
+    <rect class="card" x="50" y="130" width="310" height="136" rx="16" fill="#edf9ef" stroke="#a8d8b5" stroke-width="1.8"/>
+    <circle cx="94" cy="174" r="27" fill="#ffffff" opacity="0.62"/>
+    <path class="icon" stroke="#2f7d32" d="M84 163v10M104 163v10M81 173h26v8c0 8-5 14-13 14s-13-6-13-14zM94 195v-9M107 181h8"/>
+  <text class="card-title" x="134" y="164">Codex CLI</text>
+  <text class="card-line" x="134" y="190">AGENTS.md</text>
+  <g>
+    <rect x="238" y="224" width="120" height="28" rx="14" fill="#edf9ef" stroke="#a8d8b5" stroke-width="1.1"/>
+    <circle class="blink" cx="253" cy="238" r="4" fill="#2f7d32"/>
+    <text class="small" x="265" y="242" fill="#2f7d32">hooks+MCP</text>
+  </g>
+  </g>
+  <g>
+    <rect x="151" y="282" width="109" height="28" rx="14" fill="#edf9ef" stroke="#a8d8b5" stroke-width="1.2"/>
+    <text class="small" x="165" y="300" fill="#2f7d32">hooks + MCP</text>
+  </g>
+  <g class="breath">
+    <animate attributeName="opacity" values="0.92;1;0.92" dur="2.8s" repeatCount="indefinite"/>
+    <rect class="card" x="435" y="130" width="310" height="136" rx="16" fill="#fff7cc" stroke="#e7c34e" stroke-width="1.8"/>
+    <circle cx="479" cy="174" r="27" fill="#ffffff" opacity="0.62"/>
+    <path class="icon" stroke="#8a6200" d="M469 163v10M489 163v10M466 173h26v8c0 8-5 14-13 14s-13-6-13-14zM479 195v-9M492 181h8"/>
+  <text class="card-title" x="519" y="164">Claude Code</text>
+  <text class="card-line" x="519" y="190">7 个生命周期 hooks</text>
+  <g>
+    <rect x="592" y="224" width="151" height="28" rx="14" fill="#fff7cc" stroke="#e7c34e" stroke-width="1.1"/>
+    <circle class="blink" cx="607" cy="238" r="4" fill="#8a6200"/>
+    <text class="small" x="619" y="242" fill="#8a6200">install-ready</text>
+  </g>
+  </g>
+  <g>
+    <rect x="536" y="282" width="109" height="28" rx="14" fill="#fff7cc" stroke="#e7c34e" stroke-width="1.2"/>
+    <text class="small" x="550" y="300" fill="#8a6200">hooks + MCP</text>
+  </g>
+  <g class="breath">
+    <animate attributeName="opacity" values="0.92;1;0.92" dur="2.8s" repeatCount="indefinite"/>
+    <rect class="card" x="820" y="130" width="310" height="136" rx="16" fill="#fff7cc" stroke="#e7c34e" stroke-width="1.8"/>
+    <circle cx="864" cy="174" r="27" fill="#ffffff" opacity="0.62"/>
+    <path class="icon" stroke="#8a6200" d="M854 163v10M874 163v10M851 173h26v8c0 8-5 14-13 14s-13-6-13-14zM864 195v-9M877 181h8"/>
+  <text class="card-title" x="904" y="164">Qoder</text>
+  <text class="card-line" x="904" y="190">hooks settings</text>
+  <g>
+    <rect x="977" y="224" width="151" height="28" rx="14" fill="#fff7cc" stroke="#e7c34e" stroke-width="1.1"/>
+    <circle class="blink" cx="992" cy="238" r="4" fill="#8a6200"/>
+    <text class="small" x="1004" y="242" fill="#8a6200">install-ready</text>
+  </g>
+  </g>
+  <g>
+    <rect x="927" y="282" width="96" height="28" rx="14" fill="#fff7cc" stroke="#e7c34e" stroke-width="1.2"/>
+    <text class="small" x="941" y="300" fill="#8a6200">hooks</text>
+  </g>
+  <g class="breath">
+    <animate attributeName="opacity" values="0.92;1;0.92" dur="2.8s" repeatCount="indefinite"/>
+    <rect class="card" x="50" y="310" width="310" height="136" rx="16" fill="#edf9ef" stroke="#a8d8b5" stroke-width="1.8"/>
+    <circle cx="94" cy="354" r="27" fill="#ffffff" opacity="0.62"/>
+    <path class="icon" stroke="#2f7d32" d="M84 343v10M104 343v10M81 353h26v8c0 8-5 14-13 14s-13-6-13-14zM94 375v-9M107 361h8"/>
+  <text class="card-title" x="134" y="344">QoderWork</text>
+  <text class="card-line" x="134" y="370">awareness/main + MCP</text>
+  <g>
+    <rect x="245" y="404" width="113" height="28" rx="14" fill="#edf9ef" stroke="#a8d8b5" stroke-width="1.1"/>
+    <circle class="blink" cx="260" cy="418" r="4" fill="#2f7d32"/>
+    <text class="small" x="272" y="422" fill="#2f7d32">verified</text>
+  </g>
+  </g>
+  <g>
+    <rect x="155" y="462" width="100" height="28" rx="14" fill="#edf9ef" stroke="#a8d8b5" stroke-width="1.2"/>
+    <text class="small" x="169" y="480" fill="#2f7d32">hooks+MCP</text>
+  </g>
+  <g class="breath">
+    <animate attributeName="opacity" values="0.92;1;0.92" dur="2.8s" repeatCount="indefinite"/>
+    <rect class="card" x="435" y="310" width="310" height="136" rx="16" fill="#fff7cc" stroke="#e7c34e" stroke-width="1.8"/>
+    <circle cx="479" cy="354" r="27" fill="#ffffff" opacity="0.62"/>
+    <path class="icon" stroke="#8a6200" d="M469 343v10M489 343v10M466 353h26v8c0 8-5 14-13 14s-13-6-13-14zM479 375v-9M492 361h8"/>
+  <text class="card-title" x="519" y="344">OpenClaw</text>
+  <text class="card-line" x="519" y="370">MCP registry</text>
+  <g>
+    <rect x="592" y="404" width="151" height="28" rx="14" fill="#fff7cc" stroke="#e7c34e" stroke-width="1.1"/>
+    <circle class="blink" cx="607" cy="418" r="4" fill="#8a6200"/>
+    <text class="small" x="619" y="422" fill="#8a6200">install-ready</text>
+  </g>
+  </g>
+  <g>
+    <rect x="530" y="462" width="120" height="28" rx="14" fill="#fff7cc" stroke="#e7c34e" stroke-width="1.2"/>
+    <text class="small" x="544" y="480" fill="#8a6200">MCP registry</text>
+  </g>
+  <g class="breath">
+    <animate attributeName="opacity" values="0.92;1;0.92" dur="2.8s" repeatCount="indefinite"/>
+    <rect class="card" x="820" y="310" width="310" height="136" rx="16" fill="#fff7cc" stroke="#e7c34e" stroke-width="1.8"/>
+    <circle cx="864" cy="354" r="27" fill="#ffffff" opacity="0.62"/>
+    <path class="icon" stroke="#8a6200" d="M854 343v10M874 343v10M851 353h26v8c0 8-5 14-13 14s-13-6-13-14zM864 375v-9M877 361h8"/>
+  <text class="card-title" x="904" y="344">Wukong</text>
+  <text class="card-line" x="904" y="370">wukong-cli MCP</text>
+  <g>
+    <rect x="977" y="404" width="151" height="28" rx="14" fill="#fff7cc" stroke="#e7c34e" stroke-width="1.1"/>
+    <circle class="blink" cx="992" cy="418" r="4" fill="#8a6200"/>
+    <text class="small" x="1004" y="422" fill="#8a6200">install-ready</text>
+  </g>
+  </g>
+  <g>
+    <rect x="923" y="462" width="105" height="28" rx="14" fill="#fff7cc" stroke="#e7c34e" stroke-width="1.2"/>
+    <text class="small" x="937" y="480" fill="#8a6200">scoped MCP</text>
+  </g>
+  <g class="breath">
+    <animate attributeName="opacity" values="0.92;1;0.92" dur="2.8s" repeatCount="indefinite"/>
+    <rect class="card" x="50" y="490" width="310" height="136" rx="16" fill="#edf6ff" stroke="#a8cff2" stroke-width="1.8"/>
+    <circle cx="94" cy="534" r="27" fill="#ffffff" opacity="0.62"/>
+    <path class="icon" stroke="#0969da" d="M79 521h15v15H79zM99 521h15v15H99zM86 536v12h20M106 548h9"/>
+  <text class="card-title" x="134" y="524">Hermes</text>
+  <text class="card-line" x="134" y="550">记忆 provider</text>
+  <g>
+    <rect x="245" y="584" width="113" height="28" rx="14" fill="#edf6ff" stroke="#a8cff2" stroke-width="1.1"/>
+    <circle class="blink" cx="260" cy="598" r="4" fill="#0969da"/>
+    <text class="small" x="272" y="602" fill="#0969da">provider</text>
+  </g>
+  </g>
+  <g>
+    <rect x="157" y="642" width="96" height="28" rx="14" fill="#edf6ff" stroke="#a8cff2" stroke-width="1.2"/>
+    <text class="small" x="171" y="660" fill="#0969da">provider</text>
+  </g>
+  <g class="breath">
+    <animate attributeName="opacity" values="0.92;1;0.92" dur="2.8s" repeatCount="indefinite"/>
+    <rect class="card" x="435" y="490" width="310" height="136" rx="16" fill="#edf9ef" stroke="#a8d8b5" stroke-width="1.8"/>
+    <circle cx="479" cy="534" r="27" fill="#ffffff" opacity="0.62"/>
+    <path class="icon" stroke="#2f7d32" d="M469 523v10M489 523v10M466 533h26v8c0 8-5 14-13 14s-13-6-13-14zM479 555v-9M492 541h8"/>
+  <text class="card-title" x="519" y="524">OpenHuman</text>
+  <text class="card-line" x="519" y="550">agentmemory 后端</text>
+  <g>
+    <rect x="630" y="584" width="113" height="28" rx="14" fill="#edf9ef" stroke="#a8d8b5" stroke-width="1.1"/>
+    <circle class="blink" cx="645" cy="598" r="4" fill="#2f7d32"/>
+    <text class="small" x="657" y="602" fill="#2f7d32">verified</text>
+  </g>
+  </g>
+  <g>
+    <rect x="533" y="642" width="115" height="28" rx="14" fill="#edf9ef" stroke="#a8d8b5" stroke-width="1.2"/>
+    <text class="small" x="547" y="660" fill="#2f7d32">agentmemory</text>
+  </g>
+  <g class="breath">
+    <animate attributeName="opacity" values="0.92;1;0.92" dur="2.8s" repeatCount="indefinite"/>
+    <rect class="card" x="820" y="490" width="310" height="136" rx="16" fill="#edf9ef" stroke="#a8d8b5" stroke-width="1.8"/>
+    <circle cx="864" cy="534" r="27" fill="#ffffff" opacity="0.62"/>
+    <path class="icon" stroke="#2f7d32" d="M854 523v10M874 523v10M851 533h26v8c0 8-5 14-13 14s-13-6-13-14zM864 555v-9M877 541h8"/>
+  <text class="card-title" x="904" y="524">OpenSquilla</text>
+  <text class="card-line" x="904" y="550">TOML MCP server</text>
+  <g>
+    <rect x="1015" y="584" width="113" height="28" rx="14" fill="#edf9ef" stroke="#a8d8b5" stroke-width="1.1"/>
+    <circle class="blink" cx="1030" cy="598" r="4" fill="#2f7d32"/>
+    <text class="small" x="1042" y="602" fill="#2f7d32">verified</text>
+  </g>
+  </g>
+  <g>
+    <rect x="927" y="642" width="96" height="28" rx="14" fill="#edf9ef" stroke="#a8d8b5" stroke-width="1.2"/>
+    <text class="small" x="941" y="660" fill="#2f7d32">TOML MCP</text>
+  </g>
+  <g>
+    <rect x="50" y="680" width="1080" height="74" rx="18" fill="#ffffff" stroke="#d0d7de" stroke-width="1.2" opacity="0.92"/>
+    <text class="small" x="72" y="702" fill="#57606a">AMH 自有 hook 词表</text>
+  </g>
+  <g>
+    <rect x="62" y="714" width="123" height="32" rx="16" fill="#edf9ef" stroke="#a8d8b5" stroke-width="1.2"/>
+    <text class="small" x="76" y="734" fill="#2f7d32">SessionStart</text>
+  </g>
+  <g>
+    <rect x="197" y="714" width="153" height="32" rx="16" fill="#edf6ff" stroke="#a8cff2" stroke-width="1.2"/>
+    <text class="small" x="211" y="734" fill="#0969da">UserPromptSubmit</text>
+  </g>
+  <g>
+    <rect x="362" y="714" width="82" height="32" rx="16" fill="#fff1df" stroke="#efb770" stroke-width="1.2"/>
+    <text class="small" x="376" y="734" fill="#bc6c00">Stop</text>
+  </g>
+  <g>
+    <rect x="456" y="714" width="108" height="32" rx="16" fill="#f5efff" stroke="#cfb9f3" stroke-width="1.2"/>
+    <text class="small" x="470" y="734" fill="#8250df">PreCompact</text>
+  </g>
+  <g>
+    <rect x="576" y="714" width="115" height="32" rx="16" fill="#e7fbf8" stroke="#95dcd6" stroke-width="1.2"/>
+    <text class="small" x="590" y="734" fill="#1f6f78">PostCompact</text>
+  </g>
+  <g>
+    <rect x="703" y="714" width="131" height="32" rx="16" fill="#fff7cc" stroke="#e7c34e" stroke-width="1.2"/>
+    <text class="small" x="717" y="734" fill="#8a6200">SubagentStart</text>
+  </g>
+  <g>
+    <rect x="846" y="714" width="123" height="32" rx="16" fill="#fff0f6" stroke="#efb4d7" stroke-width="1.2"/>
+    <text class="small" x="860" y="734" fill="#bf3989">SubagentStop</text>
+  </g>
+  <g>
+    <rect x="80" y="780" width="1020" height="82" rx="18" fill="#f6f8fa" stroke="#c9d1d9" stroke-width="1.5"/>
+    <text class="card-title" x="104" y="814" fill="#57606a">真实性合同</text>
+  <text class="card-line" x="104" y="842">当前 AMH 自有生命周期钩子：SessionStart、UserPromptSubmit、Stop、PreCompact、PostCompact、SubagentStart、SubagentStop。</text>
+  </g>
+</svg>

@@ -1,0 +1,678 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Agent Memory Hub Logo + 标语预览</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f5f9f7;
+      --paper: #fffdf8;
+      --paper-2: #edf7f4;
+      --ink: #102a2d;
+      --muted: #5b7274;
+      --line: #d4e6e1;
+      --teal: #18aab5;
+      --mint: #9fe8df;
+      --coral: #ee765c;
+      --shadow: 0 16px 38px rgb(34 88 86 / 0.1);
+      --radius: 8px;
+      --font: Inter, "IBM Plex Sans", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --mono: "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      background: var(--bg);
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--ink);
+      background:
+        linear-gradient(90deg, rgb(212 230 225 / 0.34) 1px, transparent 1px),
+        linear-gradient(180deg, rgb(212 230 225 / 0.28) 1px, transparent 1px),
+        linear-gradient(180deg, #fbfefd 0%, var(--bg) 46%, #eef7f3 100%);
+      background-size: 84px 84px, 84px 84px, auto;
+      font-family: var(--font);
+      line-height: 1.55;
+      letter-spacing: 0;
+    }
+
+    img,
+    svg {
+      display: block;
+      max-width: 100%;
+    }
+
+    code {
+      font-family: var(--mono);
+    }
+
+    .shell {
+      width: min(1380px, calc(100% - 48px));
+      margin: 0 auto;
+    }
+
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 5;
+      border-bottom: 1px solid rgb(212 230 225 / 0.92);
+      background: rgb(255 253 248 / 0.84);
+      backdrop-filter: blur(18px) saturate(120%);
+    }
+
+    .nav {
+      min-height: 70px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 22px;
+    }
+
+    .brand {
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-weight: 760;
+    }
+
+    .brand img {
+      width: 44px;
+      height: 44px;
+      flex: 0 0 auto;
+    }
+
+    .brand span {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .status {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 0.78rem;
+      white-space: nowrap;
+    }
+
+    .status i {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--teal);
+      box-shadow: 0 0 0 4px rgb(24 170 181 / 0.12);
+    }
+
+    .hero {
+      padding: 58px 0 32px;
+      display: grid;
+      grid-template-columns: minmax(0, 0.88fr) minmax(480px, 0.82fr);
+      gap: 46px;
+      align-items: center;
+    }
+
+    h1 {
+      margin: 0;
+      max-width: 900px;
+      font-size: clamp(2.1rem, 5vw, 5rem);
+      line-height: 0.96;
+      letter-spacing: 0;
+    }
+
+    .lede {
+      max-width: 760px;
+      margin: 22px 0 0;
+      color: var(--muted);
+      font-size: clamp(1rem, 1.45vw, 1.15rem);
+    }
+
+    .chips {
+      margin-top: 26px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .chip {
+      padding: 9px 11px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: rgb(255 253 248 / 0.84);
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 0.78rem;
+      box-shadow: 0 8px 20px rgb(34 88 86 / 0.06);
+    }
+
+    .stage {
+      padding: 18px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: color-mix(in srgb, var(--paper) 92%, var(--mint) 8%);
+      box-shadow: var(--shadow);
+    }
+
+    .stage-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 14px;
+      margin-bottom: 14px;
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 0.76rem;
+    }
+
+    .stage-art {
+      min-height: 300px;
+      display: grid;
+      place-items: center;
+      border: 1px solid rgb(159 207 200 / 0.78);
+      border-radius: var(--radius);
+      background:
+        linear-gradient(90deg, rgb(255 255 255 / 0.72), rgb(237 247 244 / 0.72)),
+        linear-gradient(90deg, rgb(212 230 225 / 0.42) 1px, transparent 1px),
+        linear-gradient(180deg, rgb(212 230 225 / 0.38) 1px, transparent 1px);
+      background-size: auto, 32px 32px, 32px 32px;
+    }
+
+    .stage-art img {
+      width: min(560px, 88%);
+    }
+
+    .section-head {
+      margin: 30px 0 18px;
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 28px;
+    }
+
+    .section-head h2 {
+      margin: 0;
+      font-size: clamp(1.45rem, 2.4vw, 2.25rem);
+      letter-spacing: 0;
+    }
+
+    .section-head p {
+      max-width: 620px;
+      margin: 0;
+      color: var(--muted);
+    }
+
+    .card {
+      min-width: 0;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: rgb(255 253 248 / 0.9);
+      box-shadow: 0 12px 30px rgb(34 88 86 / 0.07);
+    }
+
+    .card-pad {
+      padding: 18px;
+    }
+
+    .size-grid {
+      display: grid;
+      grid-template-columns: 1.35fr 1fr 0.78fr 0.55fr;
+      gap: 12px;
+      align-items: center;
+    }
+
+    .size-box {
+      min-height: 148px;
+      padding: 18px;
+      display: grid;
+      place-items: center;
+      align-content: center;
+      gap: 12px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: #fbfefd;
+    }
+
+    .size-box b {
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 0.74rem;
+    }
+
+    .lockup-lg img { width: 520px; }
+    .lockup-md img { width: 360px; }
+    .lockup-sm img { width: 250px; }
+    .lockup-xs img { width: 176px; }
+
+    .surface-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .surface {
+      min-height: 210px;
+      display: grid;
+      place-items: center;
+      padding: 18px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+
+    .surface img {
+      width: min(500px, 90%);
+    }
+
+    .surface.light {
+      background: #fbfefd;
+    }
+
+    .surface.warm {
+      background: linear-gradient(135deg, #fff2dd, #f5d19f);
+    }
+
+    .surface.checker {
+      background:
+        linear-gradient(45deg, #dfeae6 25%, transparent 25%),
+        linear-gradient(-45deg, #dfeae6 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, #dfeae6 75%),
+        linear-gradient(-45deg, transparent 75%, #dfeae6 75%),
+        #fff;
+      background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+      background-size: 16px 16px;
+    }
+
+    .usage-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 18px;
+    }
+
+    .usage {
+      min-height: 258px;
+      padding: 18px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: rgb(255 253 248 / 0.9);
+      box-shadow: 0 12px 30px rgb(34 88 86 / 0.07);
+    }
+
+    .usage h3 {
+      margin: 0;
+      font-size: 1.02rem;
+      letter-spacing: 0;
+    }
+
+    .usage p {
+      margin: 8px 0 0;
+      color: var(--muted);
+      font-size: 0.92rem;
+    }
+
+    .mock-nav {
+      margin-top: 18px;
+      padding: 13px 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: #fbfefd;
+    }
+
+    .mock-nav img {
+      width: 238px;
+      flex: 0 1 auto;
+    }
+
+    .primary-mini {
+      min-width: 0;
+      width: 100%;
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--ink);
+      font-weight: 780;
+      font-size: 1.02rem;
+      white-space: nowrap;
+    }
+
+    .primary-mini img {
+      width: 36px;
+      height: 36px;
+      flex: 0 0 auto;
+    }
+
+    .primary-mini span {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .nav-dots {
+      display: flex;
+      gap: 7px;
+      flex: 0 0 auto;
+    }
+
+    .nav-dots span {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #cfe4df;
+    }
+
+    .readme-card {
+      margin-top: 18px;
+      padding: 22px;
+      display: grid;
+      place-items: center;
+      gap: 14px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background:
+        linear-gradient(90deg, rgb(212 230 225 / 0.34) 1px, transparent 1px),
+        linear-gradient(180deg, rgb(212 230 225 / 0.28) 1px, transparent 1px),
+        #fbfefd;
+      background-size: 30px 30px;
+      text-align: center;
+    }
+
+    .readme-card img {
+      width: min(390px, 96%);
+    }
+
+    .hero-mock {
+      margin-top: 18px;
+      min-height: 160px;
+      padding: 22px;
+      display: grid;
+      align-content: center;
+      border: 1px solid #264b50;
+      border-radius: var(--radius);
+      background: linear-gradient(135deg, #102a2d, #20394b);
+      color: #f8fffd;
+    }
+
+    .hero-mock img {
+      width: min(380px, 94%);
+      padding: 12px 14px;
+      border-radius: var(--radius);
+      background: rgb(255 253 248 / 0.95);
+    }
+
+    .spec-table {
+      margin: 18px 0 52px;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: rgb(255 253 248 / 0.9);
+      box-shadow: 0 12px 30px rgb(34 88 86 / 0.07);
+    }
+
+    .spec-table table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+    }
+
+    .spec-table th,
+    .spec-table td {
+      padding: 14px 15px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+      overflow-wrap: anywhere;
+    }
+
+    .spec-table th {
+      background: var(--paper-2);
+      font-family: var(--mono);
+      font-size: 0.76rem;
+      text-transform: uppercase;
+    }
+
+    .spec-table tr:last-child td {
+      border-bottom: 0;
+    }
+
+    .spec-table td {
+      color: var(--muted);
+      font-size: 0.92rem;
+    }
+
+    .spec-table td:first-child {
+      color: var(--ink);
+      font-weight: 760;
+    }
+
+    .footer {
+      padding: 28px 0 46px;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 0.92rem;
+    }
+
+    .footer code {
+      color: var(--ink);
+      font-size: 0.86em;
+    }
+
+    @media (max-width: 1120px) {
+      .hero {
+        grid-template-columns: 1fr;
+      }
+
+      .size-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .surface-grid,
+      .usage-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 760px) {
+      .shell {
+        width: min(100% - 28px, 1380px);
+      }
+
+      .status {
+        display: none;
+      }
+
+      .hero {
+        padding-top: 36px;
+      }
+
+      .section-head {
+        display: block;
+      }
+
+      .section-head p {
+        margin-top: 10px;
+      }
+
+      .size-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .mock-nav {
+        align-items: start;
+        flex-direction: column;
+      }
+
+      .mock-nav img {
+        width: min(100%, 238px);
+      }
+
+      .mock-nav .primary-mini img {
+        width: 36px;
+        height: 36px;
+      }
+
+      .spec-table {
+        overflow-x: auto;
+      }
+
+      .spec-table table {
+        min-width: 760px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="shell nav">
+      <div class="brand">
+        <img src="agent-memory-hub-octopus-logo-a-plus-candidate.svg" alt="">
+        <span>Agent Memory Hub</span>
+      </div>
+      <div class="status"><i></i><span>responsive logo system</span></div>
+    </div>
+  </header>
+
+  <main class="shell">
+    <section class="hero">
+      <div>
+        <h1>收敛成更克制的 Logo 系统</h1>
+        <p class="lede">常规主标只保留 A+ 章鱼和 `Agent Memory Hub`。标语版只放英文 “A shared second brain for multi-agent systems”。中文“多智能体共享第二大脑”保留在页面标题、副标题或 README 正文里，不嵌进常规 logo。</p>
+        <div class="chips" aria-label="组合标约束">
+          <span class="chip">Agent Memory Hub</span>
+          <span class="chip">A shared second brain for multi-agent systems</span>
+          <span class="chip">中文标语用于页面文案</span>
+          <span class="chip">horizontal lockup</span>
+          <span class="chip">transparent SVG</span>
+          <span class="chip">no animation</span>
+        </div>
+      </div>
+      <aside class="stage" aria-label="组合标候选">
+        <div class="stage-head"><span>tagline lockup candidate</span><span>620 x 160 viewBox</span></div>
+        <div class="stage-art">
+          <img src="agent-memory-hub-logo-lockup-a-plus-candidate.svg" alt="Agent Memory Hub logo with tagline">
+        </div>
+      </aside>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <h2>缩放预览</h2>
+        <p>横版标语版不适合压到极小尺寸；低于 180px 宽时应切回单独章鱼 icon，或使用“章鱼 + Agent Memory Hub”的无标语主标。</p>
+      </div>
+      <div class="card card-pad">
+        <div class="size-grid">
+          <div class="size-box lockup-lg"><img src="agent-memory-hub-logo-lockup-a-plus-candidate.svg" alt=""><b>520px wide</b></div>
+          <div class="size-box lockup-md"><img src="agent-memory-hub-logo-lockup-a-plus-candidate.svg" alt=""><b>360px wide</b></div>
+          <div class="size-box lockup-sm"><img src="agent-memory-hub-logo-lockup-a-plus-candidate.svg" alt=""><b>250px wide</b></div>
+          <div class="size-box lockup-xs"><img src="agent-memory-hub-logo-lockup-a-plus-candidate.svg" alt=""><b>176px wide</b></div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <h2>背景适配</h2>
+        <p>当前候选是浅底/透明物料优先。深色首屏可以先放在浅色容器中使用，确认后再单独导出反白版。</p>
+      </div>
+      <div class="card card-pad">
+        <div class="surface-grid">
+          <div class="surface light"><img src="agent-memory-hub-logo-lockup-a-plus-candidate.svg" alt=""></div>
+          <div class="surface warm"><img src="agent-memory-hub-logo-lockup-a-plus-candidate.svg" alt=""></div>
+          <div class="surface checker"><img src="agent-memory-hub-logo-lockup-a-plus-candidate.svg" alt=""></div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <h2>使用位</h2>
+        <p>标语版主要服务“第一眼说明这是什么”，不替代 16/24/32px 的单独章鱼 icon，也不替代导航里的简洁主标。</p>
+      </div>
+      <div class="usage-grid">
+        <article class="usage">
+          <h3>官网导航</h3>
+          <p>导航位推荐使用“章鱼 + Agent Memory Hub”的无标语主标；空间不够时切回单独章鱼 icon。</p>
+          <div class="mock-nav">
+            <div class="primary-mini">
+              <img src="agent-memory-hub-octopus-logo-a-plus-candidate.svg" alt="">
+              <span>Agent Memory Hub</span>
+            </div>
+            <div class="nav-dots"><span></span><span></span><span></span></div>
+          </div>
+        </article>
+        <article class="usage">
+          <h3>README 顶部</h3>
+          <p>适合作为仓库顶部主视觉，让 “A shared second brain for multi-agent systems” 承担英文定位。</p>
+          <div class="readme-card">
+            <img src="agent-memory-hub-logo-lockup-a-plus-candidate.svg" alt="">
+          </div>
+        </article>
+        <article class="usage">
+          <h3>深色首屏</h3>
+          <p>当前浅底候选可以放进浅色承载层；反白版后续可单独生成。</p>
+          <div class="hero-mock">
+            <img src="agent-memory-hub-logo-lockup-a-plus-candidate.svg" alt="">
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <h2>交付边界</h2>
+        <p>这次新增的是组合标候选，不会覆盖主章鱼图标。</p>
+      </div>
+      <div class="spec-table">
+        <table>
+          <thead>
+            <tr>
+              <th>项目</th>
+              <th>当前处理</th>
+              <th>确认后可补</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>品牌文字</td>
+              <td>使用空格版 `Agent Memory Hub`，不使用 `Agent-Memory-Hub`。</td>
+              <td>如需工程 slug，仍可在文件名和包名中使用 hyphen。</td>
+            </tr>
+            <tr>
+              <td>标语</td>
+              <td>Logo 内只使用英文 “A shared second brain for multi-agent systems”。中文“多智能体共享第二大脑”用于页面文案。</td>
+              <td>可再导出无标语主标、英文标语版、深色反白版。</td>
+            </tr>
+            <tr>
+              <td>资产形态</td>
+              <td>透明 SVG 横版标语组合标，主章鱼图形自包含。</td>
+              <td>压缩 SVG、PNG 2x/3x、深色反白版、无标语短版。</td>
+            </tr>
+            <tr>
+              <td>使用建议</td>
+              <td>README 顶图、官网首屏、PPT 封面、社交分享图。</td>
+              <td>导航、小按钮和 favicon 继续用无标语主标或单独章鱼 icon。</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="shell">预览页：<code>docs/visuals/agent-memory-hub-logo-lockup-a-plus-preview.html</code>。组合标 SVG：<code>docs/visuals/agent-memory-hub-logo-lockup-a-plus-candidate.svg</code>。正式入口未替换。</div>
+  </footer>
+</body>
+</html>

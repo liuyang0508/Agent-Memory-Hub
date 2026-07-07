@@ -1,0 +1,185 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1180" height="760" viewBox="0 0 1180 760" role="img" aria-labelledby="title desc">
+  <title id="title">AMH 追加到 MemoryData 论文评测报告的指标快照</title>
+  <desc id="desc">这张图概览 AMH 本机系统门禁、MemoryData 同 runner 复现产物和论文图口径边界；它是 README 可渲染的报告快照，完整报告仍以 Markdown 和 HTML 审计报告为准。</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#f8fbff"/>
+      <stop offset="54%" stop-color="#f3f8fb"/>
+      <stop offset="100%" stop-color="#fff7ed"/>
+    </linearGradient>
+    <linearGradient id="gate" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#0f766e"/>
+      <stop offset="100%" stop-color="#14b8a6"/>
+    </linearGradient>
+    <linearGradient id="runner" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#2563eb"/>
+      <stop offset="100%" stop-color="#60a5fa"/>
+    </linearGradient>
+    <linearGradient id="paper" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#ea580c"/>
+      <stop offset="100%" stop-color="#fb923c"/>
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="130%">
+      <feDropShadow dx="0" dy="12" stdDeviation="14" flood-color="#0f172a" flood-opacity="0.10"/>
+    </filter>
+    <style>
+      .title { font: 700 30px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #0f172a; }
+      .subtitle { font: 500 15px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #475569; }
+      .section-title { font: 700 18px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #0f172a; }
+      .label { font: 600 13px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #334155; }
+      .small { font: 500 12px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #64748b; }
+      .tiny { font: 500 11px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #64748b; }
+      .value { font: 800 14px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #0f172a; }
+      .metric { font: 800 28px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #0f172a; }
+      .badge { font: 700 12px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #0f766e; }
+      .warn { fill: #9a3412; }
+      .card { fill: rgba(255,255,255,0.92); stroke: #dbe6ef; stroke-width: 1; }
+      .track { fill: #e2e8f0; }
+      .axis { stroke: #cbd5e1; stroke-width: 1; stroke-dasharray: 4 7; }
+      .divider { stroke: #dbe6ef; stroke-width: 1; }
+    </style>
+  </defs>
+
+  <rect width="1180" height="760" rx="30" fill="url(#bg)"/>
+  <circle cx="1090" cy="90" r="92" fill="#dbeafe" opacity="0.42"/>
+  <circle cx="98" cy="680" r="118" fill="#ccfbf1" opacity="0.32"/>
+
+  <text x="54" y="66" class="title">AMH 评测报告快照：论文图下方追加本机复现指标</text>
+  <text x="54" y="94" class="subtitle">README 直接展示这张图；完整明细仍在 latest-memory-benchmark-report.zh.md 与 HTML 审计报告。</text>
+  <g transform="translate(858 48)">
+    <rect x="0" y="0" width="268" height="42" rx="21" fill="#ecfeff" stroke="#67e8f9"/>
+    <text x="22" y="27" class="badge">PASS_WITH_MEMORYDATA_FULL</text>
+  </g>
+
+  <g transform="translate(54 126)" filter="url(#shadow)">
+    <rect class="card" width="320" height="238" rx="18"/>
+    <text x="24" y="38" class="section-title">论文图口径边界</text>
+    <text x="24" y="66" class="small">MemoryData 原论文/代码的统一方法矩阵</text>
+    <g transform="translate(24 92)">
+      <rect x="0" y="0" width="126" height="72" rx="14" fill="#fff7ed" stroke="#fed7aa"/>
+      <text x="18" y="34" class="metric" fill="#c2410c">22</text>
+      <text x="18" y="56" class="small warn">method presets</text>
+    </g>
+    <g transform="translate(166 92)">
+      <rect x="0" y="0" width="126" height="72" rx="14" fill="#ecfdf5" stroke="#99f6e4"/>
+      <text x="18" y="34" class="metric" fill="#0f766e">+ AMH</text>
+      <text x="18" y="56" class="small">追加评测对象</text>
+    </g>
+    <line x1="24" y1="184" x2="296" y2="184" class="divider"/>
+    <text x="24" y="209" class="small">只比较同 runner / 同 dataset / 同 metric。</text>
+    <text x="24" y="230" class="small">DB-Bench 仍缺本机 runner/data，不写成 AMH 分数。</text>
+  </g>
+
+  <g transform="translate(404 126)" filter="url(#shadow)">
+    <rect class="card" width="342" height="238" rx="18"/>
+    <text x="24" y="38" class="section-title">AMH 本机系统门禁</text>
+    <text x="24" y="66" class="small">240 cases · 0 failures · top_k=10 · indexed=1361</text>
+    <g transform="translate(24 92)">
+      <text x="0" y="14" class="label">弱意图阻断</text>
+      <rect x="128" y="2" width="150" height="14" rx="7" class="track"/>
+      <rect x="128" y="2" width="150" height="14" rx="7" fill="url(#gate)"/>
+      <text x="290" y="15" class="value">100%</text>
+    </g>
+    <g transform="translate(24 121)">
+      <text x="0" y="14" class="label">可注入识别</text>
+      <rect x="128" y="2" width="150" height="14" rx="7" class="track"/>
+      <rect x="128" y="2" width="150" height="14" rx="7" fill="url(#gate)"/>
+      <text x="290" y="15" class="value">100%</text>
+    </g>
+    <g transform="translate(24 150)">
+      <text x="0" y="14" class="label">Recall@10</text>
+      <rect x="128" y="2" width="150" height="14" rx="7" class="track"/>
+      <rect x="128" y="2" width="150" height="14" rx="7" fill="url(#gate)"/>
+      <text x="290" y="15" class="value">100%</text>
+    </g>
+    <g transform="translate(24 179)">
+      <text x="0" y="14" class="label">MRR</text>
+      <rect x="128" y="2" width="150" height="14" rx="7" class="track"/>
+      <rect x="128" y="2" width="149.7" height="14" rx="7" fill="url(#gate)"/>
+      <text x="290" y="15" class="value">99.78%</text>
+    </g>
+    <g transform="translate(24 208)">
+      <text x="0" y="14" class="label">Firewall / Pack</text>
+      <rect x="128" y="2" width="150" height="14" rx="7" class="track"/>
+      <rect x="128" y="2" width="150" height="14" rx="7" fill="url(#gate)"/>
+      <text x="290" y="15" class="value">100%</text>
+    </g>
+  </g>
+
+  <g transform="translate(776 126)" filter="url(#shadow)">
+    <rect class="card" width="350" height="238" rx="18"/>
+    <text x="24" y="38" class="section-title">外部横评状态</text>
+    <text x="24" y="66" class="small">同一 MemoryData 入口下的本机 artifact</text>
+    <g transform="translate(24 94)">
+      <rect x="0" y="0" width="302" height="42" rx="12" fill="#eff6ff" stroke="#bfdbfe"/>
+      <text x="16" y="26" class="label">MemoryAgentBench 四维</text>
+      <text x="256" y="26" class="value">full</text>
+    </g>
+    <g transform="translate(24 146)">
+      <rect x="0" y="0" width="302" height="42" rx="12" fill="#f0fdfa" stroke="#99f6e4"/>
+      <text x="16" y="26" class="label">MemoryData full-family</text>
+      <text x="238" y="26" class="value">passed</text>
+    </g>
+    <g transform="translate(24 198)">
+      <rect x="0" y="0" width="302" height="20" rx="10" fill="#fff7ed" stroke="#fed7aa"/>
+      <text x="16" y="14" class="tiny warn">MemoryData 论文原图嵌入 HTML，README 用本图承接追加指标。</text>
+    </g>
+  </g>
+
+  <g transform="translate(54 400)" filter="url(#shadow)">
+    <rect class="card" width="1072" height="286" rx="18"/>
+    <text x="24" y="40" class="section-title">AMH 已复现指标快照</text>
+    <text x="24" y="68" class="small">不是跨 benchmark 总榜；每一行都保留 workload、metric 和可比边界。</text>
+
+    <line x1="330" y1="94" x2="330" y2="248" class="axis"/>
+    <line x1="500" y1="94" x2="500" y2="248" class="axis"/>
+    <line x1="670" y1="94" x2="670" y2="248" class="axis"/>
+    <line x1="840" y1="94" x2="840" y2="248" class="axis"/>
+    <text x="326" y="270" class="tiny">25%</text>
+    <text x="496" y="270" class="tiny">50%</text>
+    <text x="666" y="270" class="tiny">75%</text>
+    <text x="836" y="270" class="tiny">100%</text>
+
+    <g transform="translate(24 92)">
+      <text x="0" y="15" class="label">LongMemEval-S R@5</text>
+      <rect x="224" y="2" width="680" height="16" rx="8" class="track"/>
+      <rect x="224" y="2" width="662.3" height="16" rx="8" fill="url(#runner)"/>
+      <text x="924" y="16" class="value">97.4%</text>
+    </g>
+    <g transform="translate(24 120)">
+      <text x="0" y="15" class="label">MemBench simple EM</text>
+      <rect x="224" y="2" width="680" height="16" rx="8" class="track"/>
+      <rect x="224" y="2" width="618.8" height="16" rx="8" fill="url(#runner)"/>
+      <text x="924" y="16" class="value">91.0%</text>
+    </g>
+    <g transform="translate(24 148)">
+      <text x="0" y="15" class="label">MemoryAgentBench TTL EM</text>
+      <rect x="224" y="2" width="680" height="16" rx="8" class="track"/>
+      <rect x="224" y="2" width="408.0" height="16" rx="8" fill="url(#runner)"/>
+      <text x="924" y="16" class="value">60.0%</text>
+    </g>
+    <g transform="translate(24 176)">
+      <text x="0" y="15" class="label">MemoryAgentBench AR EM</text>
+      <rect x="224" y="2" width="680" height="16" rx="8" class="track"/>
+      <rect x="224" y="2" width="326.4" height="16" rx="8" fill="url(#runner)"/>
+      <text x="924" y="16" class="value">48.0%</text>
+    </g>
+    <g transform="translate(24 204)">
+      <text x="0" y="15" class="label">LoCoMo 4cat Answer F1</text>
+      <rect x="224" y="2" width="680" height="16" rx="8" class="track"/>
+      <rect x="224" y="2" width="245.1" height="16" rx="8" fill="url(#runner)"/>
+      <text x="924" y="16" class="value">36.05%</text>
+    </g>
+    <g transform="translate(24 232)">
+      <text x="0" y="15" class="label">LongBench-v2 Accuracy</text>
+      <rect x="224" y="2" width="680" height="16" rx="8" class="track"/>
+      <rect x="224" y="2" width="219.0" height="16" rx="8" fill="url(#runner)"/>
+      <text x="924" y="16" class="value">32.21%</text>
+    </g>
+  </g>
+
+  <g transform="translate(54 712)">
+    <rect x="0" y="-24" width="1072" height="36" rx="18" fill="#0f172a" opacity="0.92"/>
+    <text x="22" y="-2" fill="#e2e8f0" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="13" font-weight="600">发布边界：论文原图分数、AMH 本机分数、竞品公开分数和缺口项分层展示；跨来源数字不合并成无依据总榜。</text>
+  </g>
+</svg>

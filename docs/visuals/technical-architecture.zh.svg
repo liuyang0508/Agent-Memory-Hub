@@ -1,0 +1,167 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="1214" viewBox="0 0 1280 1214" role="img" aria-labelledby="title desc" style="max-width:100%;height:auto;">
+  <title id="title">技术架构图：接入、运行时、脑内核与本地数据</title>
+  <desc id="desc">技术架构图：接入、运行时、脑内核与本地数据</desc>
+  <defs>
+
+    <linearGradient id="qoderPageBg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#fffdfb"/>
+      <stop offset="48%" stop-color="#fbfaf8"/>
+      <stop offset="100%" stop-color="#f7fbff"/>
+    </linearGradient>
+    <linearGradient id="qoderSheetBg" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#fff3fa"/>
+      <stop offset="45%" stop-color="#fbfdff"/>
+      <stop offset="100%" stop-color="#f0f8e9"/>
+    </linearGradient>
+    <filter id="qoderSheetShadow" x="-8%" y="-8%" width="116%" height="116%">
+      <feDropShadow dx="0" dy="26" stdDeviation="30" flood-color="#2a231c" flood-opacity="0.085"/>
+    </filter>
+
+    <marker id="arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#57606a"/>
+    </marker>
+    <filter id="paper" x="-8%" y="-8%" width="116%" height="116%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.78" numOctaves="2" seed="11" result="noise"/>
+      <feColorMatrix type="saturate" values="0"/>
+      <feComponentTransfer>
+        <feFuncA type="table" tableValues="0 0.035"/>
+      </feComponentTransfer>
+      <feBlend in="SourceGraphic" mode="multiply"/>
+    </filter>
+    <filter id="softShadow" x="-15%" y="-15%" width="130%" height="130%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#1f2328" flood-opacity="0.08"/>
+    </filter>
+    <style>
+      .bg { fill: url(#qoderPageBg); }
+      .sheet { fill: url(#qoderSheetBg); filter: url(#qoderSheetShadow); }
+      .ink { fill: #24292f; }
+      .muted { fill: #57606a; }
+      .title { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 34px; font-weight: 850; fill: #24292f; }
+      .subtitle { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 17px; fill: #57606a; }
+      .section { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 17px; font-weight: 800; fill: #57606a; text-transform: uppercase; }
+      .card-title { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 20px; font-weight: 820; fill: #24292f; }
+      .card-line { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 15px; fill: #24292f; }
+      .small { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 13px; fill: #57606a; }
+      .tiny { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 10px; fill: #6e7781; }
+      .num { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 22px; font-weight: 900; }
+      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; font-size: 13px; fill: #24292f; }
+      .mono-small { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; font-size: 12px; fill: #57606a; }
+      .panel { fill: #ffffff; stroke: #d8dee4; stroke-width: 1.4; filter: url(#softShadow); }
+      .card { stroke-width: 1.8; filter: url(#softShadow); }
+      .thin-card { stroke-width: 1.2; }
+      .arrow { fill: none; stroke: #57606a; stroke-width: 2.1; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrow); }
+      .soft-arrow { fill: none; stroke: #8c959f; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 6 7; marker-end: url(#arrow); }
+      .flow-line { stroke-dasharray: 14 10; animation: flowDash 1.8s linear infinite; }
+      .planned-line { stroke-dasharray: 8 8; }
+      .flow-dot { fill: #1f6f78; filter: url(#softShadow); }
+      .breath { animation: breath 2.8s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+      .breath-slow { animation: breath 4.2s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+      .blink { animation: blink 1.7s ease-in-out infinite; }
+      .rail { fill: none; stroke: #d0d7de; stroke-width: 1.3; stroke-dasharray: 5 8; }
+      .branch { fill: none; stroke: #d0d7de; stroke-width: 1.3; stroke-linecap: round; stroke-linejoin: round; }
+      .icon { fill: none; stroke-width: 3.5; stroke-linecap: round; stroke-linejoin: round; }
+      @keyframes flowDash {
+        to { stroke-dashoffset: -24; }
+      }
+      @keyframes breath {
+        0%, 100% { opacity: 0.88; transform: scale(1); }
+        50% { opacity: 1; transform: scale(1.035); }
+      }
+      @keyframes blink {
+        0%, 100% { opacity: 0.42; }
+        50% { opacity: 1; }
+      }
+    </style>
+  </defs>
+  <rect class="bg" width="1280" height="1214"/>
+  <rect x="28" y="28" width="1224" height="1158" rx="36" fill="#ffffff" opacity="0.62"/>
+  <rect class="sheet" x="20" y="20" width="1240" height="1174" rx="34" stroke="#ffffff" stroke-opacity="0.86" stroke-width="1.2"/>
+  <text class="title" x="70" y="76">技术架构图：接入、运行时、脑内核与本地数据</text>
+  <text class="subtitle" x="72" y="105">按真实 ownership 分层：接入适配、运行时外壳、核心服务、派生读模型、治理门禁和本地事实源。</text>
+  <rect x="64" y="138" width="1152" height="92" rx="20" fill="#edf6ff" stroke="#a8cff2" stroke-width="1.6"/>
+  <text class="card-title" x="92" y="174" fill="#0969da">Agent Integrations</text>
+  <text class="mono-small" x="92" y="199" fill="#0969da">L1</text>
+  <rect x="322" y="153" width="420" height="62" rx="14" fill="#ffffff" stroke="#a8cff2" stroke-width="1.1"/>
+  <text class="card-title" x="340" y="177">Codex / Claude / Qoder</text>
+  <text class="small" x="340" y="199">hook/MCP/file/provider</text>
+  <rect x="764" y="153" width="420" height="62" rx="14" fill="#ffffff" stroke="#a8cff2" stroke-width="1.1"/>
+  <text class="card-title" x="782" y="177">Wukong / Hermes / Open*</text>
+  <text class="small" x="782" y="199">install / doctor / verify</text>
+  <path class="arrow flow-line" d="M640 230 L640 300">
+    <animate attributeName="stroke-dashoffset" values="0;-24" dur="1.8s" repeatCount="indefinite"/>
+  </path>
+  <rect x="64" y="300" width="1152" height="92" rx="20" fill="#e7fbf8" stroke="#95dcd6" stroke-width="1.6"/>
+  <text class="card-title" x="92" y="336" fill="#1f6f78">Agent Runtime Kit</text>
+  <text class="mono-small" x="92" y="361" fill="#1f6f78">L2</text>
+  <rect x="322" y="315" width="420" height="62" rx="14" fill="#ffffff" stroke="#95dcd6" stroke-width="1.1"/>
+  <text class="card-title" x="340" y="339">hooks + tools</text>
+  <text class="small" x="340" y="361">shell fallback + context inject</text>
+  <rect x="764" y="315" width="420" height="62" rx="14" fill="#ffffff" stroke="#95dcd6" stroke-width="1.1"/>
+  <text class="card-title" x="782" y="339">MCP launcher</text>
+  <text class="small" x="782" y="361">portable startup surface</text>
+  <path class="arrow flow-line" d="M640 392 L640 462">
+    <animate attributeName="stroke-dashoffset" values="0;-24" dur="1.8s" repeatCount="indefinite"/>
+  </path>
+  <rect x="64" y="462" width="1152" height="92" rx="20" fill="#edf9ef" stroke="#a8d8b5" stroke-width="1.6"/>
+  <text class="card-title" x="92" y="498" fill="#2f7d32">Agent Brain Core</text>
+  <text class="mono-small" x="92" y="523" fill="#2f7d32">L3</text>
+  <rect x="322" y="477" width="282" height="62" rx="14" fill="#ffffff" stroke="#a8d8b5" stroke-width="1.1"/>
+  <text class="card-title" x="340" y="501">WriteService</text>
+  <text class="small" x="340" y="523">single external write funnel</text>
+  <rect x="626" y="477" width="282" height="62" rx="14" fill="#ffffff" stroke="#a8d8b5" stroke-width="1.1"/>
+  <text class="card-title" x="644" y="501">RetrievalService</text>
+  <text class="small" x="644" y="523">BM25/vector/RRF + trace</text>
+  <rect x="930" y="477" width="282" height="62" rx="14" fill="#ffffff" stroke="#a8d8b5" stroke-width="1.1"/>
+  <text class="card-title" x="948" y="501">ContextService</text>
+  <text class="small" x="948" y="523">firewall + context_pack</text>
+  <path class="arrow flow-line" d="M640 554 L640 624">
+    <animate attributeName="stroke-dashoffset" values="0;-24" dur="1.8s" repeatCount="indefinite"/>
+  </path>
+  <rect x="64" y="624" width="1152" height="92" rx="20" fill="#fff1df" stroke="#efb770" stroke-width="1.6"/>
+  <text class="card-title" x="92" y="660" fill="#bc6c00">Read Models</text>
+  <text class="mono-small" x="92" y="685" fill="#bc6c00">L4</text>
+  <rect x="322" y="639" width="282" height="62" rx="14" fill="#ffffff" stroke="#efb770" stroke-width="1.1"/>
+  <text class="card-title" x="340" y="663">HubIndex</text>
+  <text class="small" x="340" y="685">meta / FTS / vector / graph</text>
+  <rect x="626" y="639" width="282" height="62" rx="14" fill="#ffffff" stroke="#efb770" stroke-width="1.1"/>
+  <text class="card-title" x="644" y="663">ResourceStore</text>
+  <text class="small" x="644" y="685">resources / extractions sidecar</text>
+  <rect x="930" y="639" width="282" height="62" rx="14" fill="#ffffff" stroke="#efb770" stroke-width="1.1"/>
+  <text class="card-title" x="948" y="663">Runtime ledger</text>
+  <text class="small" x="948" y="685">adapter events + feedback</text>
+  <path class="arrow flow-line" d="M640 716 L640 786">
+    <animate attributeName="stroke-dashoffset" values="0;-24" dur="1.8s" repeatCount="indefinite"/>
+  </path>
+  <rect x="64" y="786" width="1152" height="92" rx="20" fill="#f5efff" stroke="#cfb9f3" stroke-width="1.6"/>
+  <text class="card-title" x="92" y="822" fill="#8250df">Governance Gates</text>
+  <text class="mono-small" x="92" y="847" fill="#8250df">L5</text>
+  <rect x="322" y="801" width="282" height="62" rx="14" fill="#ffffff" stroke="#cfb9f3" stroke-width="1.1"/>
+  <text class="card-title" x="340" y="825">Review candidates</text>
+  <text class="small" x="340" y="847">approve 才写入</text>
+  <rect x="626" y="801" width="282" height="62" rx="14" fill="#ffffff" stroke="#cfb9f3" stroke-width="1.1"/>
+  <text class="card-title" x="644" y="825">Compression / ML advisory</text>
+  <text class="small" x="644" y="847">benchmark gate</text>
+  <rect x="930" y="801" width="282" height="62" rx="14" fill="#ffffff" stroke="#cfb9f3" stroke-width="1.1"/>
+  <text class="card-title" x="948" y="825">Truth contract</text>
+  <text class="small" x="948" y="847">docs + tests lock</text>
+  <path class="arrow flow-line" d="M640 878 L640 948">
+    <animate attributeName="stroke-dashoffset" values="0;-24" dur="1.8s" repeatCount="indefinite"/>
+  </path>
+  <rect x="64" y="948" width="1152" height="92" rx="20" fill="#fff7cc" stroke="#e7c34e" stroke-width="1.6"/>
+  <text class="card-title" x="92" y="984" fill="#8a6200">Local Storage</text>
+  <text class="mono-small" x="92" y="1009" fill="#8a6200">L6</text>
+  <rect x="322" y="963" width="282" height="62" rx="14" fill="#ffffff" stroke="#e7c34e" stroke-width="1.1"/>
+  <text class="card-title" x="340" y="987">Markdown items</text>
+  <text class="small" x="340" y="1009">authoritative truth</text>
+  <rect x="626" y="963" width="282" height="62" rx="14" fill="#ffffff" stroke="#e7c34e" stroke-width="1.1"/>
+  <text class="card-title" x="644" y="987">index.db</text>
+  <text class="small" x="644" y="1009">rebuildable projection</text>
+  <rect x="930" y="963" width="282" height="62" rx="14" fill="#ffffff" stroke="#e7c34e" stroke-width="1.1"/>
+  <text class="card-title" x="948" y="987">jsonl sidecars</text>
+  <text class="small" x="948" y="1009">review / pending / runtime</text>
+  <g>
+    <rect x="150" y="1120" width="980" height="66" rx="18" fill="#f6f8fa" stroke="#c9d1d9" stroke-width="1.5"/>
+    <text class="card-title" x="174" y="1154" fill="#57606a">事实源边界</text>
+  <text class="card-line" x="174" y="1182">技术不变量：Markdown item 是权威事实源；index.db、vector、runtime、review、resource 都是派生层或证据旁路，不能反向覆盖事实源。</text>
+  </g>
+</svg>

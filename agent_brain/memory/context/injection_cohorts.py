@@ -1,0 +1,166 @@
+"""Runtime records for memory items actually injected into context.
+
+This log is deliberately mechanical: it records item IDs and adapter/session
+metadata, but never prompt text, memory bodies, summaries, or titles.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import uuid
+from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Iterator
+
+
+INJECTION_COHORTS_RELATIVE_PATH = "runtime/injection-cohorts.jsonl"
+
+
+@dataclass(frozen=True)
+class InjectionCohort:
+    cohort_id: str
+    timestamp: str
+    item_ids: tuple[str, ...]
+    adapter: str = "unknown"
+    session_id: str | None = None
+    cwd: str | None = None
+    source: str = "search"
+    query_sha256: str | None = None
+    pack_metrics: dict[str, object] | None = None
+
+    def to_dict(self) -> dict[str, object]:
+        data = asdict(self)
+        data["item_ids"] = list(self.item_ids)
+        if self.pack_metrics is None:
+            data.pop("pack_metrics", None)
+        return data
+
+
+def injection_cohorts_path(brain_dir: Path) -> Path:
+    return Path(brain_dir) / INJECTION_COHORTS_RELATIVE_PATH
+
+
+def record_injection_cohort(
+    brain_dir: Path,
+    *,
+    item_ids: list[str] | tuple[str, ...],
+    adapter: str = "unknown",
+    session_id: str | None = None,
+    cwd: str | None = None,
+    query: str | None = None,
+    source: str = "search",
+    now: datetime | None = None,
+    pack_metrics: dict[str, object] | None = None,
+) -> InjectionCohort:
+    deduped = _dedupe(item_ids)
+    if not deduped:
+        raise ValueError("cannot record empty injection cohort")
+    timestamp = _timestamp(now)
+    cohort = InjectionCohort(
+        cohort_id=_cohort_id(timestamp),
+        timestamp=timestamp,
+        item_ids=deduped,
+        adapter=adapter or "unknown",
+        session_id=session_id or None,
+        cwd=cwd or None,
+        source=source,
+        query_sha256=_query_hash(query),
+        pack_metrics=pack_metrics,
+    )
+    path = injection_cohorts_path(brain_dir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(cohort.to_dict(), ensure_ascii=False, sort_keys=True) + "\n")
+    return cohort
+
+
+def iter_injection_cohorts(
+    brain_dir: Path,
+    *,
+    adapter: str | None = None,
+    session_id: str | None = None,
+    limit: int | None = None,
+) -> Iterator[InjectionCohort]:
+    path = injection_cohorts_path(brain_dir)
+    if not path.exists():
+        return iter(())
+    cohorts: list[InjectionCohort] = []
+    with path.open("r", encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                data = json.loads(line)
+                cohort = InjectionCohort(
+                    cohort_id=str(data["cohort_id"]),
+                    timestamp=str(data["timestamp"]),
+                    item_ids=tuple(str(item_id) for item_id in data["item_ids"]),
+                    adapter=str(data.get("adapter") or "unknown"),
+                    session_id=data.get("session_id"),
+                    cwd=data.get("cwd"),
+                    source=str(data.get("source") or "search"),
+                    query_sha256=data.get("query_sha256"),
+                    pack_metrics=data.get("pack_metrics"),
+                )
+            except (KeyError, TypeError, json.JSONDecodeError):
+                continue
+            if adapter and cohort.adapter != adapter:
+                continue
+            if session_id and cohort.session_id != session_id:
+                continue
+            cohorts.append(cohort)
+    if limit is not None:
+        cohorts = cohorts[-limit:]
+    return iter(cohorts)
+
+
+def latest_injection_cohort(
+    brain_dir: Path,
+    *,
+    adapter: str | None = None,
+    session_id: str | None = None,
+) -> InjectionCohort | None:
+    cohorts = list(iter_injection_cohorts(brain_dir, adapter=adapter, session_id=session_id))
+    return cohorts[-1] if cohorts else None
+
+
+def _dedupe(item_ids: list[str] | tuple[str, ...]) -> tuple[str, ...]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for item_id in item_ids:
+        if item_id in seen:
+            continue
+        seen.add(item_id)
+        result.append(item_id)
+    return tuple(result)
+
+
+def _timestamp(now: datetime | None) -> str:
+    value = now or datetime.now(timezone.utc)
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc).isoformat()
+
+
+def _cohort_id(timestamp: str) -> str:
+    compact = timestamp.replace("-", "").replace(":", "").split(".")[0]
+    return f"inj-{compact}-{uuid.uuid4().hex[:8]}"
+
+
+def _query_hash(query: str | None) -> str | None:
+    if not query:
+        return None
+    return hashlib.sha256(query.encode("utf-8")).hexdigest()
+
+
+__all__ = [
+    "INJECTION_COHORTS_RELATIVE_PATH",
+    "InjectionCohort",
+    "injection_cohorts_path",
+    "iter_injection_cohorts",
+    "latest_injection_cohort",
+    "record_injection_cohort",
+]

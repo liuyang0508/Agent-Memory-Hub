@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Agent Memory Hub 动态架构图预览</title>
+  <link rel="stylesheet" href="readme-preview.css">
+  <style>
+    .diagram-index td:first-child,
+    .diagram-index td:last-child {
+      white-space: nowrap;
+    }
+    figcaption {
+      margin-top: -8px;
+      color: var(--muted);
+      font-size: 14px;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+<h1>Agent Memory Hub</h1>
+
+<blockquote>
+  <p><strong>让每一次智能协作，都沉淀为下一次出发。</strong></p>
+  <p>一个本地优先、可追溯、可治理的跨智能体可信上下文操作系统。 给 Claude Code、Codex CLI、Cursor、Hermes、Qoder、Wukong、GitHub Copilot 和任何支持 MCP / CLI / hooks 的智能体工具共用。</p>
+</blockquote>
+
+<p><a href="../../README.md">English</a> | <a href="../../STRATEGY.md">战略</a> | <a href="../../ROADMAP.md">路线图</a> | <a href="./agent-memory-hub-architecture-map.html">架构图谱</a> | <a href="../architecture.md">架构说明</a></p>
+
+<p><a href="../../LICENSE"><img src="https://img.shields.io/badge/%E8%AE%B8%E5%8F%AF%E8%AF%81-Apache%202.0-blue.svg" alt="许可证：Apache 2.0"></a> <a href="../../.github/workflows/python-tests.yml"><img src="https://img.shields.io/github/actions/workflow/status/%3Cowner%3E/agent-memory-hub/python-tests.yml?branch=main&amp;label=%E6%B5%8B%E8%AF%95" alt="测试"></a> <a href="../../pyproject.toml"><img src="https://img.shields.io/badge/python-3.11%2B-blue" alt="Python"></a> <a href="https://modelcontextprotocol.io"><img src="https://img.shields.io/badge/%E5%8D%8F%E8%AE%AE-MCP-purple" alt="协议：MCP"></a> <a href="../../README.zh.md#data-model"><img src="https://img.shields.io/badge/%E5%AD%98%E5%82%A8-%E6%9C%AC%E5%9C%B0%20Markdown-green" alt="本地优先"></a></p>
+
+<h2>动态架构图谱</h2>
+<p>这个 HTML 页面按 README 中文预览的首屏和排版节奏展示可编辑 SVG 图谱；图谱源文件仍在 <code>docs/visuals/</code> 下维护。</p>
+
+<h3>本轮事实核准</h3>
+<table>
+<thead>
+<tr><th>事实</th><th>证据/对象</th><th>图中表达边界</th></tr>
+</thead>
+<tbody>
+<tr>
+<td>接口能力面</td>
+<td><code>MCP 28 tools</code>、<code>Web API/WS 89 locked routes</code></td>
+<td>Web route surface lock 包含 Cockpit、data-flow、memory-lineage、adapter onboarding、memory candidates、Headroom/CCR、compression gate 和 ML/DL advisory gate。</td>
+</tr>
+<tr>
+<td>写入与证据边界</td>
+<td><code>WriteService</code> + <code>ResourceStore</code></td>
+<td>MemoryItem 走写漏斗；conversation/resource/extraction 是证据旁路，不能画成默认注入事实。</td>
+</tr>
+<tr>
+<td>候选记忆链路</td>
+<td><code>review/proactive-candidates.jsonl</code></td>
+<td>generate 只建候选；approve 经 WriteService 写入；reject 只更新 review sidecar。</td>
+</tr>
+<tr>
+<td>适配器真实性</td>
+<td><code>16 adapters / 11 verified / 4 install-ready / 1 wip</code></td>
+<td>Claude Code、OpenClaw、Qoder、Wukong 仍为 install-ready；QoderWork 已有 GUI context-effective 证据；MuleRun 仍为 wip。</td>
+</tr>
+<tr>
+<td>检索与上下文经济</td>
+<td><code>retrieval trace</code>、<code>context_pack</code>、<code>Headroom/CCR</code>、<code>context firewall</code></td>
+<td>压缩和 ML/DL advisory 都走门禁或旁路，不能直接改默认注入链路。</td>
+</tr>
+</tbody>
+</table>
+
+<h3>图谱索引</h3>
+<table class="diagram-index">
+<thead>
+<tr><th>序号</th><th>图谱</th><th>源文件</th><th>画布</th></tr>
+</thead>
+<tbody>
+<tr>
+<td>00</td>
+<td>AMH 可信上下文生命周期图：接入、维护、召回、治理与评估</td>
+<td><a href="./amh-loop-layered-architecture.zh.svg">amh-loop-layered-architecture.zh.svg</a></td>
+<td><code>1500 / 880</code></td>
+</tr>
+<tr>
+<td>01</td>
+<td>AMH 总控图：可信上下文操作回路</td>
+<td><a href="./amh-operating-loop.zh.svg">amh-operating-loop.zh.svg</a></td>
+<td><code>1500 / 980</code></td>
+</tr>
+<tr>
+<td>02</td>
+<td>产品架构图：从协作痛点到可信上下文</td>
+<td><a href="./product-architecture.zh.svg">product-architecture.zh.svg</a></td>
+<td><code>1500 / 820</code></td>
+</tr>
+<tr>
+<td>03</td>
+<td>技术架构图：接入、运行时、脑内核与本地数据</td>
+<td><a href="./technical-architecture.zh.svg">technical-architecture.zh.svg</a></td>
+<td><code>1280 / 950</code></td>
+</tr>
+<tr>
+<td>04</td>
+<td>维护 + 召回一体时序链路图</td>
+<td><a href="./memory-lifecycle-sequence.zh.svg">memory-lifecycle-sequence.zh.svg</a></td>
+<td><code>1500 / 820</code></td>
+</tr>
+<tr>
+<td>05</td>
+<td>数据链路图：Evidence 到 ContextPack</td>
+<td><a href="./data-flow.zh.svg">data-flow.zh.svg</a></td>
+<td><code>1500 / 860</code></td>
+</tr>
+<tr>
+<td>06</td>
+<td>召回完整链路图：从问题到 ContextPack</td>
+<td><a href="./retrieval-complete-flow.zh.svg">retrieval-complete-flow.zh.svg</a></td>
+<td><code>1560 / 760</code></td>
+</tr>
+<tr>
+<td>07</td>
+<td>可信上下文操作系统能力地图</td>
+<td><a href="./readme-structure-map.zh.svg">readme-structure-map.zh.svg</a></td>
+<td><code>1460 / 1120</code></td>
+</tr>
+<tr>
+<td>08</td>
+<td>检索评分公式</td>
+<td><a href="./retrieval-score-waterfall.zh.svg">retrieval-score-waterfall.zh.svg</a></td>
+<td><code>1280 / 760</code></td>
+</tr>
+<tr>
+<td>09</td>
+<td>智能体接入边界</td>
+<td><a href="./amh-adapter-capability-boundary.zh.svg">amh-adapter-capability-boundary.zh.svg</a></td>
+<td><code>1180 / 900</code></td>
+</tr>
+</tbody>
+</table>
+
+<h2>图谱预览</h2>
+<h3 id="diagram-00">00 AMH 可信上下文生命周期图：接入、维护、召回、治理与评估</h3>
+<p><a href="./amh-loop-layered-architecture.zh.svg">amh-loop-layered-architecture.zh.svg</a> · <code>1500 / 880</code></p>
+<figure>
+  <img src="./amh-loop-layered-architecture.zh.svg" alt="AMH 可信上下文生命周期图：接入、维护、召回、治理与评估">
+  <figcaption>AMH 可信上下文生命周期图：接入、维护、召回、治理与评估，可编辑 SVG 源文件。</figcaption>
+</figure>
+<h3 id="diagram-01">01 AMH 总控图：可信上下文操作回路</h3>
+<p><a href="./amh-operating-loop.zh.svg">amh-operating-loop.zh.svg</a> · <code>1500 / 980</code></p>
+<figure>
+  <img src="./amh-operating-loop.zh.svg" alt="AMH 总控图：可信上下文操作回路">
+  <figcaption>AMH 总控图：可信上下文操作回路，可编辑 SVG 源文件。</figcaption>
+</figure>
+<h3 id="diagram-02">02 产品架构图：从协作痛点到可信上下文</h3>
+<p><a href="./product-architecture.zh.svg">product-architecture.zh.svg</a> · <code>1500 / 820</code></p>
+<figure>
+  <img src="./product-architecture.zh.svg" alt="产品架构图：从协作痛点到可信上下文">
+  <figcaption>产品架构图：从协作痛点到可信上下文，可编辑 SVG 源文件。</figcaption>
+</figure>
+<h3 id="diagram-03">03 技术架构图：接入、运行时、脑内核与本地数据</h3>
+<p><a href="./technical-architecture.zh.svg">technical-architecture.zh.svg</a> · <code>1280 / 950</code></p>
+<figure>
+  <img src="./technical-architecture.zh.svg" alt="技术架构图：接入、运行时、脑内核与本地数据">
+  <figcaption>技术架构图：接入、运行时、脑内核与本地数据，可编辑 SVG 源文件。</figcaption>
+</figure>
+<h3 id="diagram-04">04 维护 + 召回一体时序链路图</h3>
+<p><a href="./memory-lifecycle-sequence.zh.svg">memory-lifecycle-sequence.zh.svg</a> · <code>1500 / 820</code></p>
+<figure>
+  <img src="./memory-lifecycle-sequence.zh.svg" alt="维护 + 召回一体时序链路图">
+  <figcaption>维护 + 召回一体时序链路图，可编辑 SVG 源文件。</figcaption>
+</figure>
+<h3 id="diagram-05">05 数据链路图：Evidence 到 ContextPack</h3>
+<p><a href="./data-flow.zh.svg">data-flow.zh.svg</a> · <code>1500 / 860</code></p>
+<figure>
+  <img src="./data-flow.zh.svg" alt="数据链路图：Evidence 到 ContextPack">
+  <figcaption>数据链路图：Evidence 到 ContextPack，可编辑 SVG 源文件。</figcaption>
+</figure>
+<h3 id="diagram-06">06 召回完整链路图：从问题到 ContextPack</h3>
+<p><a href="./retrieval-complete-flow.zh.svg">retrieval-complete-flow.zh.svg</a> · <code>1560 / 760</code></p>
+<figure>
+  <img src="./retrieval-complete-flow.zh.svg" alt="召回完整链路图：从问题到 ContextPack">
+  <figcaption>召回完整链路图：从问题到 ContextPack，可编辑 SVG 源文件。</figcaption>
+</figure>
+<h3 id="diagram-07">07 可信上下文操作系统能力地图</h3>
+<p><a href="./readme-structure-map.zh.svg">readme-structure-map.zh.svg</a> · <code>1460 / 1120</code></p>
+<figure>
+  <img src="./readme-structure-map.zh.svg" alt="可信上下文操作系统能力地图">
+  <figcaption>可信上下文操作系统能力地图，可编辑 SVG 源文件。</figcaption>
+</figure>
+<h3 id="diagram-08">08 检索评分公式</h3>
+<p><a href="./retrieval-score-waterfall.zh.svg">retrieval-score-waterfall.zh.svg</a> · <code>1280 / 760</code></p>
+<figure>
+  <img src="./retrieval-score-waterfall.zh.svg" alt="检索评分公式">
+  <figcaption>检索评分公式，可编辑 SVG 源文件。</figcaption>
+</figure>
+<h3 id="diagram-09">09 智能体接入边界</h3>
+<p><a href="./amh-adapter-capability-boundary.zh.svg">amh-adapter-capability-boundary.zh.svg</a> · <code>1180 / 900</code></p>
+<figure>
+  <img src="./amh-adapter-capability-boundary.zh.svg" alt="智能体接入边界">
+  <figcaption>智能体接入边界，可编辑 SVG 源文件。</figcaption>
+</figure>
+
+<h2>维护边界</h2>
+<ul>
+  <li>图谱不把系统画成原始 transcript 仓库；原始对话、证据指针、MemoryItem、索引和上下文注入分层表达。</li>
+  <li><code>resources/</code> 与 <code>extractions/</code> 是已实现 sidecar store；图中表达 storage 能力，不用旧样例数量充当当前事实。</li>
+  <li><code>refs.commits</code> 只表达 schema/governance provenance，不表达自动维护能力。</li>
+  <li>Claude Code, OpenClaw, Qoder, and Wukong remain install-ready until their current blockers clear; QoderWork is verified only because GUI context-effective AMH evidence exists in the current snapshot.</li>
+</ul>
+</body>
+</html>

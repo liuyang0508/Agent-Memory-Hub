@@ -1,0 +1,174 @@
+[
+  {
+    "prompt": "继续",
+    "expected_decision": "block",
+    "expected_keywords": "",
+    "description": "Bare continuation should not start automatic recall."
+  },
+  {
+    "prompt": "为什么",
+    "expected_decision": "block",
+    "expected_keywords": "",
+    "description": "Bare question word has no recall anchor."
+  },
+  {
+    "prompt": "为什么召回链路没有进入后处理",
+    "expected_decision": "block",
+    "expected_keywords": "",
+    "expected_anchors": [],
+    "description": "Unanchored domain-looking prose should not start automatic recall without metadata."
+  },
+  {
+    "prompt": "优化一下 query_signal.py",
+    "expected_decision": "inject_allowed",
+    "expected_keywords": "query_signal.py",
+    "expected_anchors": ["file_or_module"],
+    "description": "File/module anchor is specific enough for recall."
+  },
+  {
+    "prompt": "继续优化 Loop Engineering 特性",
+    "seed_items": [
+      {
+        "id": "mem-20260628-122000-loop-engineering-readme",
+        "type": "artifact",
+        "title": "AMH README Loop Engineering 特性打磨",
+        "summary": "README.zh.md 解释 Loop Engineering 在维护、召回、治理中的使用点。",
+        "tags": ["agent-memory-hub", "readme"]
+      }
+    ],
+    "expected_decision": "inject_allowed",
+    "expected_keywords_prefix": "loop|engineering",
+    "expected_anchors": ["metadata_phrase"],
+    "description": "Metadata phrase anchors turn weak continuation into specific recall."
+  },
+  {
+    "prompt": "关于多智能体共享第二单的深度叙事和算法解释二次打磨，都做了什么",
+    "seed_items": [
+      {
+        "id": "mem-20260628-021045-readme-runtime-model",
+        "type": "artifact",
+        "title": "AMH README 渐进叙事与算法/运行时协作模型重构",
+        "summary": "README.zh.md 增加 agent_runtime_kit 与 agent_integrations 协作模型，重写检索算法解释。",
+        "tags": ["agent-memory-hub", "readme"]
+      },
+      {
+        "id": "mem-20260628-023227-readme-deep-polish",
+        "type": "artifact",
+        "title": "AMH README 深度叙事和算法解释二次打磨",
+        "summary": "README.zh.md 调整阅读路线、运行时接入、维护链路、召回链路、Loop Engineering 和算法公式。",
+        "tags": ["agent-memory-hub", "readme"]
+      }
+    ],
+    "expected_decision": "inject_allowed",
+    "expected_keywords_prefix": "深度叙事和算法解释二次打磨",
+    "expected_anchors": ["metadata_phrase"],
+    "description": "The real README polish prompt should recover metadata-backed Chinese phrases."
+  },
+  {
+    "prompt": "继续召回矩阵场景验证",
+    "seed_items": [
+      {
+        "id": "mem-20260628-122001-recall-matrix-fact",
+        "type": "fact",
+        "title": "召回矩阵 fact 场景",
+        "summary": "fact 类型的召回矩阵验证。",
+        "tags": ["recall-matrix", "fact"]
+      },
+      {
+        "id": "mem-20260628-122002-recall-matrix-decision",
+        "type": "decision",
+        "title": "召回矩阵 decision 场景",
+        "summary": "decision 类型的召回矩阵验证。",
+        "tags": ["recall-matrix", "decision"]
+      },
+      {
+        "id": "mem-20260628-122003-recall-matrix-signal",
+        "type": "signal",
+        "title": "召回矩阵 signal 场景",
+        "summary": "signal 类型的召回矩阵验证。",
+        "tags": ["recall-matrix", "signal"]
+      },
+      {
+        "id": "mem-20260628-122004-recall-matrix-handoff",
+        "type": "handoff",
+        "title": "召回矩阵 handoff 场景",
+        "summary": "handoff 类型的召回矩阵验证。",
+        "tags": ["recall-matrix", "handoff"]
+      },
+      {
+        "id": "mem-20260628-122005-recall-matrix-artifact",
+        "type": "artifact",
+        "title": "召回矩阵 artifact 场景",
+        "summary": "artifact 类型的召回矩阵验证。",
+        "tags": ["recall-matrix", "artifact"]
+      }
+    ],
+    "expected_decision": "inject_allowed",
+    "expected_keywords_prefix": "召回矩阵",
+    "expected_anchors": ["metadata_phrase"],
+    "description": "Metadata anchoring should not depend on one memory type."
+  },
+  {
+    "prompt": "先帮我配置js环境",
+    "seed_items": [
+      {
+        "id": "mem-20260702-000000-js-runtime",
+        "type": "fact",
+        "title": "JS runtime setup guide",
+        "summary": "Node.js runtime setup for local tools.",
+        "tags": ["js", "runtime"]
+      }
+    ],
+    "expected_decision": "inject_allowed",
+    "expected_keywords": "js",
+    "expected_anchors": ["metadata_entity"],
+    "description": "Short ASCII anchors are promoted only when memory metadata proves the entity."
+  },
+  {
+    "prompt": "about Alpha capability matrix, I want a generic follow up",
+    "seed_items": [
+      {
+        "id": "mem-20260702-000001-alpha-capability",
+        "type": "artifact",
+        "title": "Alpha capability matrix",
+        "summary": "Public synthetic capability matrix.",
+        "tags": ["alpha-capability", "matrix"]
+      }
+    ],
+    "expected_decision": "inject_allowed",
+    "expected_keywords": "alpha|capability|matrix",
+    "expected_anchors": ["metadata_phrase"],
+    "description": "Generic prose must be narrowed to metadata-backed phrases."
+  },
+  {
+    "prompt": "多Agent共享第二大脑",
+    "seed_items": [
+      {
+        "id": "mem-20260703-010531-agent-memory-metrics",
+        "type": "artifact",
+        "title": "AMH agent-memory metrics evaluation report",
+        "summary": "Evaluate agent memory metrics and benchmark readiness.",
+        "tags": ["agent", "memory", "metrics"]
+      }
+    ],
+    "expected_decision": "inject_allowed",
+    "expected_keywords": "多agent共享第二大脑",
+    "expected_anchors": ["keyphrase"],
+    "description": "Mixed CJK/ASCII topic should keep the compound phrase instead of degrading to generic agent."
+  },
+  {
+    "prompt": "多Agent",
+    "seed_items": [
+      {
+        "id": "mem-20260703-010532-agent-memory-metrics",
+        "type": "artifact",
+        "title": "AMH agent-memory metrics evaluation report",
+        "summary": "Evaluate agent memory metrics and benchmark readiness.",
+        "tags": ["agent", "memory", "metrics"]
+      }
+    ],
+    "expected_decision": "block",
+    "expected_keywords": "",
+    "description": "A generic singleton embedded in a short mixed prompt should not be promoted by metadata alone."
+  }
+]

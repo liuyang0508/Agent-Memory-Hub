@@ -1,0 +1,280 @@
+# Architecture
+
+How Agent Memory Hub is layered, and the invariants that keep a shared brain
+pool durable and inspectable across many agents.
+
+## Two layers
+
+| Layer | Path | Role |
+|---|---|---|
+| **Runtime bootstrap** | `agent_runtime_kit/` | What agents and shells touch directly: memory **hooks** (`SessionStart`, `UserPromptSubmit`, `Stop`), lifecycle evidence **hooks** (`PreCompact`, `PostCompact`, `SubagentStart`, `SubagentStop`), the **MCP launcher**, write/search shell **tools**, the discipline doc, schema docs, and the harvest daemon. Shell entry points call the Python package and degrade to a pending fallback when Python is unavailable. |
+| **Core package** | `agent_brain/` | The source of truth. `interfaces/` owns CLI/MCP/SDK entry points, `contracts/` owns schemas, `platform/` owns technical primitives, `memory/` owns store/recall/context/governance/evidence capabilities, and `agent_integrations/` owns adapter implementations. |
+
+`agent_runtime_kit/tools/write-memory.sh` prefers the Python CLI and, on any failure (or when
+forced), appends a **pending** record instead of losing the write — so the bootstrap
+layer never silently drops a memory even if the core package can't run.
+
+## The one write funnel — `agent_brain/memory/store/write_service.py`
+
+Every write entry point goes through `WriteService`:
+
+```
+MCP write_memory ─┐
+CLI memory write ─┤
+hook write shim  ─┼─► WriteService.write(item, body, allow_unsafe)
+pending replay   ─┤        1. audit gate (fail-closed on critical/high unless allow_unsafe)
+harvester        ─┘        2. md append   ← the ONLY thing that means "written"
+                           3. index upsert ← best-effort; failure degrades, never blocks
+```
+
+Invariant: **the markdown append is the only verdict for "written."** Embedding +
+sqlite index upsert are best-effort; if they fail (offline, missing model, locked
+db) the write still returns `written` with a `degraded` flag, and the derived index
+is repaired later by `memory sync-pending` / `memory reindex`.
+
+## Markdown is the source of truth; the index is derived
+
+`items/mem-*.md` frontmatter is the durable artifact. SQLite FTS5 + sqlite-vec is a
+**rebuildable** index over it — never authoritative. This is why a degraded write is
+still a real write, and why `reindex` can reconstruct everything from the md alone.
+
+## Durability ladder (Stage B / C) — `agent_brain/memory/store/pending.py`
+
+- **Stage B (degrade):** index/embedder unavailable → md still written, item flagged
+  `degraded`, recorded for later index repair.
+- **Stage C (buffer):** the whole core write path unavailable (or `MEMORY_HUB_FORCE_PENDING=1`)
+  → the record is appended to `$BRAIN_DIR/pending/`. `memory sync-pending` replays the
+  queue through the same `WriteService` funnel; repeatedly-failing records park under
+  `pending/dead/`. `memory doctor --offline` grades embedder tier + pending depth +
+  local MCP reachability and returns a graded exit code.
+
+## Raw conversation evidence — `agent_brain/memory/evidence/conversation_store.py`
+
+AMH now owns a first-class raw conversation evidence layer:
+
+- path: `~/.agent-memory-hub/sources/conversations/<conversation_id>/messages.jsonl`
+- record: `ConversationMessageRecord`
+- fields: role, text, `content_sha256`, source path/URI, byte offsets, source agent, session,
+  project, sensitivity, retention metadata, and hot/warm/cold/frozen tier
+- access: CLI `memory conversation ingest/list/read/rebalance`, MCP `list_conversations` /
+  `read_conversation`, and automatic snapshot during `memory harvest`
+- governance: `conversation_governance.py` computes an Ebbinghaus-style retention
+  score from half-life, access count, importance, and age; rebalance persists the
+  derived tier back to `messages.jsonl`.
+
+Invariant: **raw conversation messages are evidence, not MemoryItems.** They are
+not indexed for automatic prompt injection by default. Extractors can turn spans
+into `MemoryItem` candidates with provenance, but `items/` remains the knowledge
+layer and `sources/conversations/` remains the evidence layer.
+
+## Context packing — `agent_brain/memory/context/context_packing.py`
+
+AMH's before-inject path uses a reversible context pack instead of dumping full
+memory bodies into the prompt:
+
+```
+MemoryItem + body
+    │
+    ├─► select_context_view(locator | overview | detail)
+    │
+    └─► context_pack {
+          text, selected_view, load_reason,
+          packed_tokens, full_tokens,
+          detail_uri,
+          read_memory(id, head=2000, view='detail')
+        }
+```
+
+Invariant: **`context_pack` is an injection-time derived object, not a new source
+of truth.** It can always be rebuilt from `context_views` plus the Markdown body.
+Automatic UserPromptSubmit injection and MCP `search_memory(..., verbosity="auto")`
+send the compact `text` and retrieve hint first; agents deep-read the canonical
+body only after the compact view proves relevant.
+
+## Loop Contract — `agent_brain/memory/loops/`
+
+Loop Engineering uses a contract plus runtime ledger instead of prompt-only
+control. `LoopContract` defines goal / state / action / feedback / verifier / budget / stop condition / human gate. `LoopRun` stores contract metadata, required verifiers, structured feedback, and readiness evidence.
+`LoopOrchestrator` is the high-level non-LLM controller behind `memory loop run --contract`:
+it validates the contract, creates the runtime ledger, runs allowlisted verifiers,
+opens required human gates, and completes or blocks the loop from evidence.
+
+Invariant: **AMH is the loop fact layer, verification layer, and governance
+layer, not an automatic runner.** High-risk actions remain human-gated, verifier
+commands stay allowlisted, and long-term memory writes still go through
+`WriteService` or review boundaries.
+
+## Retrieval trace — `agent_brain/memory/recall/retrieval_trace.py`
+
+`Retriever.search(..., explain=True)` attaches an optional trace to final hits:
+initial BM25/vector ranks, RRF score, named pipeline stage effects, final rank,
+and compact signals. CLI `memory search --explain` and MCP
+`search_memory(include_trace=True)` expose this only when requested, so automatic
+hook injection stays on the short `context_pack` path.
+
+Invariant: **trace is observational.** It must not change ranking, access
+recording, Markdown source data, MCP tool count, or default search output.
+
+## Exact retrieval order — `agent_brain/memory/recall/retrieval.py`
+
+AMH retrieval is a staged pipeline, not a single "semantic search" call:
+
+```
+user question / search call / UserPromptSubmit
+  -> query signal + SearchFilter
+  -> metadata filter: type, project, tags, exclude tags, tenant, age, supersession
+  -> BM25 full-text recall and vector recall over allowed ids
+  -> RRF fusion
+  -> status/handoff supplement
+  -> optional cross-encoder rerank
+  -> confidence + retention decay
+  -> feedback value weighting
+  -> status/handoff boost and adapter runtime evidence boost
+  -> temporal-state filter and Markdown supersession filter
+  -> optional MMR
+  -> optional Hopfield expansion
+  -> optional refs_graph expansion
+  -> access recording
+  -> ContextFirewall
+  -> locator / overview / detail context loading
+  -> reversible context_pack injection
+```
+
+Scoring invariants:
+
+- BM25 and vector recall are fused by reciprocal rank fusion:
+  `RRF(d)=Σ_s w_s/(k+rank_s(d)+1)`.
+- Decay is applied as `S_effective=S_rrf×confidence×decay_coefficient`.
+- `decay_coefficient` is bounded and combines retention, access, support,
+  gain, and contradiction signals.
+- `maturity` is currently governance/context-loading metadata. It is computed
+  by maturity governance and can be written back to item frontmatter, but it is
+  not a direct multiplier inside `SearchEngine.search()`.
+
+Invariant: **retrieved does not mean injected.** The retrieval pipeline produces
+candidates; `ContextFirewall` still decides include, demote, or exclude before
+any hook or MCP response uses those candidates as context.
+
+## Exact maintenance order — store, evidence, governance, and evolution
+
+AMH maintenance is not one "cleanup" command. It is the write, evidence,
+repair, feedback, governance, and evolution path that keeps the brain pool
+auditable:
+
+```
+write signal / candidate / raw transcript / task outcome
+  -> entry normalization or pending fallback
+  -> candidate quarantine and review
+  -> WriteService audit, enrichment, quality checks, evidence sidecars
+  -> ItemsStore Markdown append
+  -> sources/writes ledger
+  -> resources/extractions evidence sidecars
+  -> HubIndex meta/FTS/vector/refs_graph projection
+  -> .index-dirty / pending repair through verify, reindex, sync-pending
+  -> raw conversation harvest, watermarking, span dedup, tier rebalance
+  -> runtime ledgers: adapter events, injection cohorts, recall gaps, task outcomes
+  -> feedback: adopted/rejected only; ignored injected ids stay unchanged
+  -> governance scans: duplicate, noise, TTL, quality, drift, maturity, index drift
+  -> AutoGovernance safe_apply or review_required / blocked actions
+  -> evolve / dream proposals behind audit gates
+  -> approved candidates or audited execution paths update the truth layer
+  -> data-flow and memory-lineage read models expose redacted observability
+```
+
+Maintenance invariants:
+
+- **Candidate is not memory.** Proactive and semantic candidates stay in
+  `review/proactive-candidates.jsonl` until approved. Boundary-weak harvested
+  items are marked `needs-review` / `unverified-boundary` and low confidence.
+- **Markdown remains authoritative.** `ItemsStore.write()` defines durable
+  success. `sources/writes`, `resources`, `extractions`, `index.db`, `runtime`,
+  `review`, and `derived` are ledgers, sidecars, projections, or candidates.
+- **Feedback is explicit.** `InjectionFeedback` reinforces adopted ids and
+  penalizes rejected ids. Injected-but-unmentioned ids stay unchanged, so
+  exposure alone cannot make an item hotter.
+- **Safe apply is narrow.** `AutoGovernanceCycle` can apply low-risk maturity,
+  index repair, and conversation-tier changes. Archive, delete, consolidate,
+  supersede, and skill synthesis remain review-required or blocked.
+- **Evolution is gated.** `EvolveEngine` audits the real payload before
+  execution. Some executor paths intentionally use `ItemsStore` directly after
+  audit; README marks bulk import and internal governance writes as a P0
+  convergence/allow-list boundary rather than pretending every mutation already
+  re-enters `WriteService`.
+
+## Transcript harvester (Stage A) — `agent_brain/memory/evidence/harvest/`
+
+Offline-first capture of Claude Code transcripts into the pool:
+
+```
+discover_transcripts ─► ConversationStore.ingest_transcript(...)
+                          │  snapshot raw message evidence, idempotent by message id
+                          ▼
+                    read_spans (resume from watermark)
+                          │
+                          ▼
+                    extract_candidates (mechanical, zero-model, secret-redacting)
+                          │   dedup by span_hash (sha256 of normalized span)
+                          ▼
+                    WriteService.write(...)  ← same durable funnel
+                          │
+                          ▼
+                    watermark.set_offset(...)   ← idempotent, resumable
+```
+
+- `transcript_reader.py` — streams CC jsonl into `TranscriptSpan`s with byte offsets.
+- `watermark.py` — per-transcript resumable byte offset; re-runs harvest nothing-new.
+- `extractor.py` — conservative regex/keyword rules → raw (L0) candidates; redacts
+  secrets before emitting.
+- `dedup.py` — span-level hash so the same transcript region never archives twice.
+- `harvester.py` — orchestrator; snapshots raw messages, then `memory harvest [--enrich]`
+  writes structured L0 memory candidates.
+- `enricher.py` — **optional** LLM upgrade of raw → distilled. If no model is reachable
+  (`MEMORY_HUB_NO_MODEL`, or import/probe fails) it is a clean no-op returning 0. The
+  mechanical layer already persisted the raw record, so enrichment is pure gravy.
+- `agent_runtime_kit/tools/harvest-daemon.sh` — periodic enrich pass when a model is reachable.
+
+The Stop hook (`agent_runtime_kit/hooks/session-end-signal.sh`) tags each session's transcript
+`harvest-queue` once (deduped per session) so it can be picked up by `memory harvest`.
+
+## Surfaces
+
+- **CLI** — `agent_brain/interfaces/cli/` package. `cli/_app.py` owns the root Typer app + sub-typers
+  (audit/govern/tier/entity/adapter/recall-drift/review/conversation/profile/benchmark/headroom/loop); `cli/commands/*` modules
+  hold the command bodies (decorators kept → self-register on import); `cli/_shared.py` holds
+  helpers + the import surface. Entry point: `memory = agent_brain.interfaces.cli:app`.
+- **MCP** — `agent_brain/interfaces/mcp/` package. `mcp/server.py` owns the FastMCP instance +
+  `register_all()`; `mcp/tools/{core,governance,evolve,io,graph,conversation}.py` register the **27**
+  operation tools by tier, and onboarding registers one additional `get_usage_guide`
+  fallback tool for clients that do not surface prompts/resources; `mcp/tools/_shared.py`
+  holds helpers + `_components_cache`.
+  `agent_brain/interfaces/mcp/server.py` is the canonical module for `python -m
+  agent_brain.interfaces.mcp.server` and the `memory-mcp` console script.
+- **Web admin** — `web/app.py` (FastAPI) mounts routers from `web/api/routes/*`.
+  The stable API/WS surface is locked by `tests/conformance/test_web_surface_lock.py`.
+  `GET /api/memory-lineage` is part of that locked surface, so future route
+  additions or deletions must update implementation, tests, README, and diagram
+  docs together.
+
+### MCP tool tiers (the one true count)
+
+| Tier | Count | Tools |
+|---|---|---|
+| **core** (stable) | 10 | write / search / read / update / confirm / stats / list_recent / tag_suggest / delete / brief |
+| governance | 6 | audit_skill / audit_outbound / drift_check / govern / batch_confirm / batch_archive |
+| io | 5 | export / import / obsidian_export / obsidian_import / gc |
+| graph | 3 | graph_memory / link / unlink |
+| evolve | 1 | evolve_memory |
+| conversation | 2 | list_conversations / read_conversation |
+| **operation total** | **27** | guarded by `tests/conformance/test_public_surface_lock.py` |
+
+`brief` (budgeted resume briefing) is core because resuming work is a stable, first-class
+operation. README / STRATEGY / ROADMAP must agree with this table; the surface-lock test
+also asserts the registered MCP tool count is 28 after adding the onboarding guide fallback.
+
+## Abstraction axis (orthogonal to type/storage)
+
+`L0` raw MemoryItem (agent- or harvester-written) → `L1` consolidated (mechanical merge
+of same project/tag raw facts) → `L2` distilled (reviewed principle/SOP). This is a
+MemoryItem abstraction axis, not a raw transcript hierarchy. Raw conversation text
+lives one layer lower in `sources/conversations/`; extractors may cite it, but it is
+not injected automatically.

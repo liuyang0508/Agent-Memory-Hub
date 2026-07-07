@@ -1,0 +1,189 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="730" viewBox="0 0 1500 730" role="img" aria-labelledby="title desc" style="max-width:100%;height:auto;">
+  <title id="title">Maintenance Sequence Chain</title>
+  <desc id="desc">Maintenance Sequence Chain</desc>
+  <defs>
+
+    <linearGradient id="qoderPageBg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#fffdfb"/>
+      <stop offset="48%" stop-color="#fbfaf8"/>
+      <stop offset="100%" stop-color="#f7fbff"/>
+    </linearGradient>
+    <linearGradient id="qoderSheetBg" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#fff3fa"/>
+      <stop offset="45%" stop-color="#fbfdff"/>
+      <stop offset="100%" stop-color="#f0f8e9"/>
+    </linearGradient>
+    <filter id="qoderSheetShadow" x="-8%" y="-8%" width="116%" height="116%">
+      <feDropShadow dx="0" dy="26" stdDeviation="30" flood-color="#2a231c" flood-opacity="0.085"/>
+    </filter>
+
+    <marker id="arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#57606a"/>
+    </marker>
+    <filter id="paper" x="-8%" y="-8%" width="116%" height="116%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.78" numOctaves="2" seed="11" result="noise"/>
+      <feColorMatrix type="saturate" values="0"/>
+      <feComponentTransfer>
+        <feFuncA type="table" tableValues="0 0.035"/>
+      </feComponentTransfer>
+      <feBlend in="SourceGraphic" mode="multiply"/>
+    </filter>
+    <filter id="softShadow" x="-15%" y="-15%" width="130%" height="130%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#1f2328" flood-opacity="0.08"/>
+    </filter>
+    <style>
+      .bg { fill: url(#qoderPageBg); }
+      .sheet { fill: url(#qoderSheetBg); filter: url(#qoderSheetShadow); }
+      .ink { fill: #24292f; }
+      .muted { fill: #57606a; }
+      .title { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 34px; font-weight: 850; fill: #24292f; }
+      .subtitle { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 17px; fill: #57606a; }
+      .section { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 17px; font-weight: 800; fill: #57606a; text-transform: uppercase; }
+      .card-title { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 20px; font-weight: 820; fill: #24292f; }
+      .card-line { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 15px; fill: #24292f; }
+      .small { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 13px; fill: #57606a; }
+      .tiny { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 10px; fill: #6e7781; }
+      .num { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 22px; font-weight: 900; }
+      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; font-size: 13px; fill: #24292f; }
+      .mono-small { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; font-size: 12px; fill: #57606a; }
+      .panel { fill: #ffffff; stroke: #d8dee4; stroke-width: 1.4; filter: url(#softShadow); }
+      .card { stroke-width: 1.8; filter: url(#softShadow); }
+      .thin-card { stroke-width: 1.2; }
+      .arrow { fill: none; stroke: #57606a; stroke-width: 2.1; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrow); }
+      .soft-arrow { fill: none; stroke: #8c959f; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 6 7; marker-end: url(#arrow); }
+      .flow-line { stroke-dasharray: 14 10; animation: flowDash 1.8s linear infinite; }
+      .planned-line { stroke-dasharray: 8 8; }
+      .flow-dot { fill: #1f6f78; filter: url(#softShadow); }
+      .breath { animation: breath 2.8s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+      .breath-slow { animation: breath 4.2s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+      .blink { animation: blink 1.7s ease-in-out infinite; }
+      .rail { fill: none; stroke: #d0d7de; stroke-width: 1.3; stroke-dasharray: 5 8; }
+      .branch { fill: none; stroke: #d0d7de; stroke-width: 1.3; stroke-linecap: round; stroke-linejoin: round; }
+      .icon { fill: none; stroke-width: 3.5; stroke-linecap: round; stroke-linejoin: round; }
+      @keyframes flowDash {
+        to { stroke-dashoffset: -24; }
+      }
+      @keyframes breath {
+        0%, 100% { opacity: 0.88; transform: scale(1); }
+        50% { opacity: 1; transform: scale(1.035); }
+      }
+      @keyframes blink {
+        0%, 100% { opacity: 0.42; }
+        50% { opacity: 1; }
+      }
+    </style>
+  </defs>
+  <rect class="bg" width="1500" height="730"/>
+  <rect x="28" y="28" width="1444" height="674" rx="36" fill="#ffffff" opacity="0.62"/>
+  <rect class="sheet" x="20" y="20" width="1460" height="690" rx="34" stroke="#ffffff" stroke-opacity="0.86" stroke-width="1.2"/>
+  <text class="title" x="70" y="76">Maintenance Sequence Chain</text>
+  <text class="subtitle" x="72" y="105">先把证据变成可信 MemoryItem，再投影索引和运行账本；召回只能读取这个交接面，不能直接读原始噪声。</text>
+  <text class="small" x="72" y="134">solid = current implemented path</text>
+  <text class="small" x="330" y="134">dashed / review = gated side path</text>
+  <g class="breath-slow">
+    <rect class="card" x="70" y="164" width="260" height="140" rx="18" fill="#e7fbf8" stroke="#95dcd6" stroke-width="1.6"/>
+    <circle cx="111" cy="206" r="26" fill="#ffffff" opacity="0.66"/>
+    <path class="icon" stroke="#1f6f78" d="M99 191h18l8 8v17H99zM117 191v10h8M105 205h12M116 219a8 8 0 1 0 0.1 0M122 225l8 8"/>
+    <rect x="278" y="180" width="34" height="24" rx="12" fill="#ffffff" stroke="#95dcd6" stroke-width="1.1"/>
+    <text class="tiny" x="287" y="196" fill="#1f6f78">01</text>
+  <text class="card-title" x="146" y="199">Evidence signal</text>
+  <text class="small" x="146" y="239">write / hook / harvest</text>
+  <text class="small" x="146" y="257">task outcome / source</text>
+  </g>
+  <g class="breath-slow">
+    <rect class="card" x="420" y="164" width="260" height="140" rx="18" fill="#f5efff" stroke="#cfb9f3" stroke-width="1.6"/>
+    <circle cx="461" cy="206" r="26" fill="#ffffff" opacity="0.66"/>
+    <path class="icon" stroke="#8250df" d="M461 190l17 7v11c0 13-7 22-17 27-10-5-17-14-17-27V197zM453 212l7 7 13-15"/>
+    <rect x="628" y="180" width="34" height="24" rx="12" fill="#ffffff" stroke="#cfb9f3" stroke-width="1.1"/>
+    <text class="tiny" x="637" y="196" fill="#8250df">02</text>
+  <text class="card-title" x="496" y="199">Candidate</text>
+  <text class="card-title" x="496" y="219">isolation</text>
+  <text class="small" x="496" y="258">proactive / semantic</text>
+  </g>
+  <g class="breath-slow">
+    <rect class="card" x="770" y="164" width="260" height="140" rx="18" fill="#fff1df" stroke="#efb770" stroke-width="1.6"/>
+    <circle cx="811" cy="206" r="26" fill="#ffffff" opacity="0.66"/>
+    <path class="icon" stroke="#bc6c00" d="M796 197c0-9 30-9 30 0v20c0 9-30 9-30 0zM796 197c0 9 30 9 30 0M796 210c0 9 30 9 30 0"/>
+    <rect x="978" y="180" width="34" height="24" rx="12" fill="#ffffff" stroke="#efb770" stroke-width="1.1"/>
+    <text class="tiny" x="987" y="196" fill="#bc6c00">03</text>
+  <text class="card-title" x="846" y="199">Write funnel</text>
+  <text class="small" x="846" y="239">WriteService</text>
+  <text class="small" x="846" y="257">audit + enrich</text>
+  </g>
+  <g class="breath-slow">
+    <rect class="card" x="1120" y="164" width="260" height="140" rx="18" fill="#edf9ef" stroke="#a8d8b5" stroke-width="1.6"/>
+    <circle cx="1161" cy="206" r="26" fill="#ffffff" opacity="0.66"/>
+    <path class="icon" stroke="#2f7d32" d="M1147 195h31v27H1147zM1153 201h19M1153 209h19M1153 217h12"/>
+    <rect x="1328" y="180" width="34" height="24" rx="12" fill="#ffffff" stroke="#a8d8b5" stroke-width="1.1"/>
+    <text class="tiny" x="1337" y="196" fill="#2f7d32">04</text>
+  <text class="card-title" x="1196" y="199">Truth source</text>
+  <text class="small" x="1196" y="239">items/mem-*.md</text>
+  <text class="small" x="1196" y="257">MemoryItem</text>
+  </g>
+  <g class="breath-slow">
+    <rect class="card" x="1120" y="416" width="260" height="140" rx="18" fill="#edf6ff" stroke="#a8cff2" stroke-width="1.6"/>
+    <circle cx="1161" cy="458" r="26" fill="#ffffff" opacity="0.66"/>
+    <path class="icon" stroke="#0969da" d="M1146 445h15v15H1146zM1166 445h15v15H1166zM1153 460v12h20M1173 472h9"/>
+    <rect x="1328" y="432" width="34" height="24" rx="12" fill="#ffffff" stroke="#a8cff2" stroke-width="1.1"/>
+    <text class="tiny" x="1337" y="448" fill="#0969da">05</text>
+  <text class="card-title" x="1196" y="451">Index projectio</text>
+  <text class="card-title" x="1196" y="471">n</text>
+  <text class="small" x="1196" y="510">FTS / vector / graph</text>
+  </g>
+  <g class="breath-slow">
+    <rect class="card" x="770" y="416" width="260" height="140" rx="18" fill="#fff7cc" stroke="#e7c34e" stroke-width="1.6"/>
+    <circle cx="811" cy="458" r="26" fill="#ffffff" opacity="0.66"/>
+    <path class="icon" stroke="#8a6200" d="M796 447h34v24H796zM805 479h16M813 471v8M802 460h7l4-7 5 13 4-6h6"/>
+    <rect x="978" y="432" width="34" height="24" rx="12" fill="#ffffff" stroke="#e7c34e" stroke-width="1.1"/>
+    <text class="tiny" x="987" y="448" fill="#8a6200">06</text>
+  <text class="card-title" x="846" y="451">Runtime ledger</text>
+  <text class="small" x="846" y="491">adapter events</text>
+  <text class="small" x="846" y="509">feedback/status</text>
+  </g>
+  <g class="breath-slow">
+    <rect class="card" x="420" y="416" width="260" height="140" rx="18" fill="#fff1eb" stroke="#efbda9" stroke-width="1.6"/>
+    <circle cx="461" cy="458" r="26" fill="#ffffff" opacity="0.66"/>
+    <path class="icon" stroke="#d1242f" d="M461 442l17 7v11c0 13-7 22-17 27-10-5-17-14-17-27V449zM453 464l7 7 13-15"/>
+    <rect x="628" y="432" width="34" height="24" rx="12" fill="#ffffff" stroke="#efbda9" stroke-width="1.1"/>
+    <text class="tiny" x="637" y="448" fill="#d1242f">07</text>
+  <text class="card-title" x="496" y="451">Governance</text>
+  <text class="card-title" x="496" y="471">advice</text>
+  <text class="small" x="496" y="510">maturity / drift / TTL</text>
+  </g>
+  <g class="breath-slow">
+    <rect class="card" x="70" y="416" width="260" height="140" rx="18" fill="#f1efff" stroke="#c0b0ee" stroke-width="1.6"/>
+    <circle cx="111" cy="458" r="26" fill="#ffffff" opacity="0.66"/>
+    <path class="icon" stroke="#6639ba" d="M111 442l17 7v11c0 13-7 22-17 27-10-5-17-14-17-27V449zM103 464l7 7 13-15"/>
+    <rect x="278" y="432" width="34" height="24" rx="12" fill="#ffffff" stroke="#c0b0ee" stroke-width="1.1"/>
+    <text class="tiny" x="287" y="448" fill="#6639ba">08</text>
+  <text class="card-title" x="146" y="451">Review exit</text>
+  <text class="small" x="146" y="491">safe_apply low risk</text>
+  <text class="small" x="146" y="509">archive/merge review</text>
+  </g>
+  <path class="arrow flow-line" d="M340 234 L410 234">
+    <animate attributeName="stroke-dashoffset" values="0;-24" dur="1.8s" repeatCount="indefinite"/>
+  </path>
+  <path class="arrow flow-line" d="M690 234 L760 234">
+    <animate attributeName="stroke-dashoffset" values="0;-24" dur="1.8s" repeatCount="indefinite"/>
+  </path>
+  <path class="arrow flow-line" d="M1040 234 L1110 234">
+    <animate attributeName="stroke-dashoffset" values="0;-24" dur="1.8s" repeatCount="indefinite"/>
+  </path>
+  <path class="arrow flow-line" d="M1250 312 L1250 408">
+    <animate attributeName="stroke-dashoffset" values="0;-24" dur="1.8s" repeatCount="indefinite"/>
+  </path>
+  <path class="soft-arrow flow-line" d="M1110 486 L1040 486">
+    <animate attributeName="stroke-dashoffset" values="0;-24" dur="1.8s" repeatCount="indefinite"/>
+  </path>
+  <path class="soft-arrow flow-line" d="M760 486 L690 486">
+    <animate attributeName="stroke-dashoffset" values="0;-24" dur="1.8s" repeatCount="indefinite"/>
+  </path>
+  <path class="soft-arrow flow-line" d="M410 486 L340 486">
+    <animate attributeName="stroke-dashoffset" values="0;-24" dur="1.8s" repeatCount="indefinite"/>
+  </path>
+  <g>
+    <rect x="190" y="612" width="1120" height="72" rx="18" fill="#f6f8fa" stroke="#c9d1d9" stroke-width="1.5"/>
+    <text class="card-title" x="214" y="646" fill="#57606a">Key policy</text>
+  <text class="card-line" x="214" y="674">Handoff surface: MemoryItem is truth, Index Projection is rebuildable read model, Runtime Ledger is ranking/feedback evidence.</text>
+  </g>
+</svg>

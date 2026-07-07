@@ -1,0 +1,1073 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Agent Memory Hub 竞品流程差异地图</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #101214;
+      --panel: #181b1d;
+      --panel-2: #202428;
+      --line: #363c41;
+      --line-strong: #59626a;
+      --text: #ece7dc;
+      --muted: #a9afa9;
+      --faint: #767d78;
+      --amber: #d5a947;
+      --cyan: #66c6bd;
+      --green: #88b56f;
+      --red: #df6d68;
+      --blue: #7aa5d8;
+      --ink: #111315;
+      --shadow: 0 18px 60px rgba(0, 0, 0, .32);
+      --radius: 8px;
+    }
+
+    * { box-sizing: border-box; }
+
+    html {
+      background: var(--bg);
+      scroll-behavior: smooth;
+      overflow-x: hidden;
+    }
+
+    body {
+      margin: 0;
+      color: var(--text);
+      background:
+        linear-gradient(rgba(255,255,255,.025) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,.02) 1px, transparent 1px),
+        var(--bg);
+      background-size: 34px 34px;
+      font-family: ui-monospace, "SFMono-Regular", "Cascadia Code", "Menlo", monospace;
+      letter-spacing: 0;
+      overflow-x: hidden;
+    }
+
+    a { color: inherit; }
+
+    code {
+      color: var(--text);
+      background: rgba(255,255,255,.07);
+      border: 1px solid rgba(255,255,255,.1);
+      border-radius: 5px;
+      padding: 1px 4px;
+      font-size: .92em;
+    }
+
+    .shell {
+      max-width: 1460px;
+      margin: 0 auto;
+      padding: 30px 26px 60px;
+    }
+
+    .topbar {
+      display: grid;
+      grid-template-columns: minmax(0, 1.25fr) minmax(300px, .75fr);
+      gap: 22px;
+      align-items: end;
+      border-bottom: 1px solid var(--line);
+      padding-bottom: 22px;
+      margin-bottom: 24px;
+    }
+
+    .topbar > * { min-width: 0; }
+
+    .eyebrow {
+      color: var(--cyan);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      margin-bottom: 10px;
+    }
+
+    h1 {
+      font-size: clamp(30px, 5vw, 68px);
+      line-height: .96;
+      margin: 0;
+      max-width: 900px;
+      font-weight: 760;
+      overflow-wrap: anywhere;
+      text-wrap: balance;
+    }
+
+    .lead {
+      margin: 16px 0 0;
+      color: var(--muted);
+      max-width: 930px;
+      line-height: 1.7;
+      font-size: 15px;
+      overflow-wrap: anywhere;
+    }
+
+    .stamp {
+      justify-self: end;
+      width: min(100%, 420px);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: rgba(24, 27, 29, .82);
+      padding: 16px;
+      box-shadow: var(--shadow);
+    }
+
+    .stamp .row {
+      display: flex;
+      justify-content: space-between;
+      gap: 18px;
+      padding: 7px 0;
+      border-bottom: 1px dashed rgba(255,255,255,.12);
+      font-size: 12px;
+    }
+
+    .stamp .row > * { min-width: 0; }
+
+    .stamp .row:last-child { border-bottom: 0; }
+    .stamp b { color: var(--text); font-weight: 720; }
+    .stamp span { color: var(--muted); text-align: right; overflow-wrap: anywhere; }
+
+    .nav {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin: 0 0 24px;
+      padding: 10px 0;
+      background: linear-gradient(180deg, rgba(16,18,20,.96), rgba(16,18,20,.78));
+      backdrop-filter: blur(8px);
+    }
+
+    .nav a, .filter-btn {
+      border: 1px solid var(--line);
+      color: var(--muted);
+      background: #15181a;
+      padding: 8px 11px;
+      border-radius: 999px;
+      text-decoration: none;
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    .filter-btn.active,
+    .nav a:hover,
+    .filter-btn:hover {
+      border-color: var(--amber);
+      color: var(--text);
+    }
+
+    section {
+      margin: 34px 0 0;
+    }
+
+    .section-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: end;
+      gap: 18px;
+      margin-bottom: 14px;
+    }
+
+    h2 {
+      margin: 0;
+      font-size: clamp(22px, 3vw, 36px);
+      line-height: 1.1;
+      font-weight: 760;
+    }
+
+    .note {
+      color: var(--muted);
+      line-height: 1.6;
+      max-width: 760px;
+      font-size: 13px;
+    }
+
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      justify-content: flex-end;
+      min-width: 260px;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 5px 8px;
+      color: var(--muted);
+      font-size: 11px;
+      white-space: nowrap;
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: var(--faint);
+      display: inline-block;
+    }
+
+    .dot.win { background: var(--green); }
+    .dot.borrow { background: var(--amber); }
+    .dot.risk { background: var(--red); }
+    .dot.gap { background: var(--blue); }
+
+    .workflow {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: rgba(24, 27, 29, .9);
+      overflow: auto;
+      box-shadow: var(--shadow);
+    }
+
+    .workflow-grid {
+      min-width: 1180px;
+      display: grid;
+      grid-template-columns: 170px repeat(7, minmax(128px, 1fr));
+    }
+
+    .head-cell, .label-cell, .stage-cell {
+      border-right: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+      min-height: 78px;
+      padding: 10px;
+    }
+
+    .head-cell {
+      position: sticky;
+      top: 0;
+      background: #121517;
+      color: var(--muted);
+      min-height: 54px;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: .07em;
+      z-index: 1;
+    }
+
+    .head-cell:first-child {
+      left: 0;
+      z-index: 3;
+    }
+
+    .label-cell {
+      position: sticky;
+      left: 0;
+      z-index: 2;
+      background: #141719;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      border-right: 1px solid var(--line-strong);
+    }
+
+    .label-cell strong {
+      font-size: 14px;
+      line-height: 1.25;
+    }
+
+    .label-cell small {
+      color: var(--muted);
+      line-height: 1.45;
+      font-size: 11px;
+    }
+
+    .stage-cell {
+      background: rgba(32, 36, 40, .55);
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .stage-cell strong {
+      display: block;
+      color: var(--text);
+      margin-bottom: 4px;
+      font-size: 12px;
+    }
+
+    .stage-cell.win { background: rgba(136, 181, 111, .13); border-top: 2px solid rgba(136,181,111,.75); }
+    .stage-cell.borrow { background: rgba(213, 169, 71, .12); border-top: 2px solid rgba(213,169,71,.75); }
+    .stage-cell.risk { background: rgba(223, 109, 104, .12); border-top: 2px solid rgba(223,109,104,.75); }
+    .stage-cell.gap { background: rgba(122, 165, 216, .12); border-top: 2px solid rgba(122,165,216,.75); }
+    .stage-cell.empty { color: #6e746f; }
+
+    .our-row .label-cell {
+      background: linear-gradient(135deg, rgba(213,169,71,.16), #141719 72%);
+    }
+
+    .our-row .stage-cell {
+      background: rgba(213,169,71,.1);
+    }
+
+    .axis {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .axis-card,
+    .integration-card,
+    .competitor-card,
+    .road-card,
+    .principle {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: rgba(24, 27, 29, .92);
+      padding: 16px;
+      box-shadow: var(--shadow);
+    }
+
+    .axis-card h3,
+    .integration-card h3,
+    .competitor-card h3,
+    .road-card h3,
+    .principle h3 {
+      margin: 0 0 10px;
+      font-size: 15px;
+      line-height: 1.3;
+    }
+
+    .axis-card p,
+    .integration-card p,
+    .competitor-card p,
+    .road-card p,
+    .principle p {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.6;
+      font-size: 12px;
+    }
+
+    .axis-card {
+      min-height: 172px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .axis-card::after {
+      content: attr(data-num);
+      position: absolute;
+      right: 10px;
+      bottom: -14px;
+      font-size: 68px;
+      color: rgba(255,255,255,.055);
+      font-weight: 900;
+    }
+
+    .integration-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .integration-card {
+      min-height: 190px;
+      border-top: 3px solid var(--cyan);
+    }
+
+    .integration-card:nth-child(2) { border-top-color: var(--amber); }
+    .integration-card:nth-child(3) { border-top-color: var(--green); }
+
+    .integration-card .flow-strip {
+      grid-template-columns: 1fr;
+    }
+
+    .integration-card .flow-step {
+      min-height: 0;
+      padding: 10px;
+    }
+
+    .integration-card .flow-step::after {
+      display: none;
+    }
+
+    .flow-strip {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 9px;
+      margin-top: 14px;
+    }
+
+    .flow-step {
+      border: 1px solid var(--line);
+      background: #141719;
+      border-radius: var(--radius);
+      padding: 11px;
+      min-height: 86px;
+      position: relative;
+    }
+
+    .flow-step::after {
+      content: "";
+      position: absolute;
+      top: 50%;
+      right: -10px;
+      width: 10px;
+      height: 1px;
+      background: var(--line-strong);
+    }
+
+    .flow-step:last-child::after { display: none; }
+    .flow-step b { display: block; font-size: 12px; margin-bottom: 6px; color: var(--text); }
+    .flow-step span { color: var(--muted); font-size: 11px; line-height: 1.45; display: block; }
+
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .competitor-card {
+      min-height: 240px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .competitor-card[data-focus="threat"] { border-color: rgba(223,109,104,.55); }
+    .competitor-card[data-focus="borrow"] { border-color: rgba(213,169,71,.55); }
+    .competitor-card[data-focus="peer"] { border-color: rgba(102,198,189,.5); }
+
+    .tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .tag {
+      color: var(--ink);
+      background: var(--muted);
+      border-radius: 999px;
+      padding: 4px 7px;
+      font-size: 10px;
+      font-weight: 760;
+    }
+
+    .tag.borrow { background: var(--amber); }
+    .tag.win { background: var(--green); }
+    .tag.risk { background: var(--red); }
+    .tag.gap { background: var(--blue); }
+    .tag.neutral { background: #b8b0a0; }
+
+    .meters {
+      margin-top: auto;
+      display: grid;
+      gap: 8px;
+    }
+
+    .meter {
+      display: grid;
+      grid-template-columns: 96px 1fr 34px;
+      gap: 8px;
+      align-items: center;
+      font-size: 10px;
+      color: var(--muted);
+    }
+
+    .bar {
+      height: 8px;
+      background: #0e1011;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      overflow: hidden;
+    }
+
+    .bar i {
+      display: block;
+      height: 100%;
+      background: linear-gradient(90deg, var(--cyan), var(--amber));
+      width: var(--w);
+    }
+
+    .comparison {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(340px, .78fr);
+      gap: 16px;
+      align-items: start;
+    }
+
+    .radar {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: rgba(24, 27, 29, .92);
+      padding: 16px;
+      box-shadow: var(--shadow);
+    }
+
+    svg {
+      width: 100%;
+      height: auto;
+      display: block;
+    }
+
+    .principles {
+      display: grid;
+      gap: 12px;
+    }
+
+    .roadmap {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .road-card {
+      border-top: 3px solid var(--faint);
+      min-height: 190px;
+    }
+
+    .road-card:nth-child(1) { border-top-color: var(--cyan); }
+    .road-card:nth-child(2) { border-top-color: var(--amber); }
+    .road-card:nth-child(3) { border-top-color: var(--green); }
+    .road-card:nth-child(4) { border-top-color: var(--blue); }
+
+    .foot {
+      margin-top: 44px;
+      color: var(--faint);
+      font-size: 11px;
+      line-height: 1.7;
+      border-top: 1px solid var(--line);
+      padding-top: 16px;
+    }
+
+    .muted-list {
+      margin: 10px 0 0;
+      padding-left: 18px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.7;
+    }
+
+    .hidden-by-filter {
+      opacity: .22;
+      filter: grayscale(.85);
+    }
+
+    @media (max-width: 980px) {
+      .shell { padding: 20px 14px 44px; }
+      h1 { font-size: 30px; line-height: 1.05; }
+      .lead,
+      .stamp span,
+      .note {
+        word-break: break-word;
+        overflow-wrap: anywhere;
+      }
+      .nav {
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        max-width: 100%;
+        padding-bottom: 12px;
+      }
+      .nav a,
+      .filter-btn {
+        flex: 0 0 auto;
+      }
+      .workflow {
+        max-width: 100%;
+      }
+      .topbar,
+      .comparison,
+      .axis,
+      .integration-grid,
+      .cards,
+      .roadmap {
+        grid-template-columns: 1fr;
+      }
+      .stamp { justify-self: stretch; }
+      .section-head { display: block; }
+      .legend { justify-content: flex-start; margin-top: 12px; }
+      .flow-strip { grid-template-columns: 1fr; }
+      .flow-step::after { display: none; }
+    }
+
+    @media (max-width: 980px) {
+      .topbar > div,
+      .section-head,
+      .lead,
+      .note,
+      .stamp {
+        width: min(360px, calc(100vw - 28px));
+        max-width: min(360px, calc(100vw - 28px));
+      }
+
+      .topbar,
+      .comparison,
+      .axis,
+      .integration-grid,
+      .cards,
+      .roadmap {
+        grid-template-columns: 1fr;
+      }
+
+      .stamp .row {
+        display: block;
+      }
+
+      .stamp span {
+        display: block;
+        text-align: left;
+        margin-top: 6px;
+      }
+
+      .nav {
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        max-width: 100%;
+      }
+
+      .nav a,
+      .filter-btn {
+        flex: 0 0 auto;
+      }
+    }
+
+    @media (max-width: 480px) {
+      .topbar > div,
+      .section-head,
+      .lead,
+      .note,
+      .stamp {
+        width: 340px;
+        max-width: 340px;
+      }
+    }
+
+    @media print {
+      .nav { display: none; }
+      body { background: #fff; color: #111; }
+      .workflow, .axis-card, .competitor-card, .road-card, .principle, .radar, .stamp {
+        box-shadow: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <div>
+        <div class="eyebrow">Agent Memory Hub / Competitive Flow Map</div>
+        <h1>竞品不是一张表，而是几条不同的记忆流水线</h1>
+        <p class="lead">
+          这份图把 Agent Memory Hub 与主要竞品放到同一条流程上比较：
+          从输入资源到抽取、存储、索引、治理、注入，哪里该借鉴，哪里该反向设计，哪里是我们自己的护城河。
+        </p>
+      </div>
+      <aside class="stamp" aria-label="current assumptions">
+        <div class="row"><b>资料基线</b><span>STRATEGY.md / audit matrix</span></div>
+        <div class="row"><b>核心问题</b><span>多模态资源如何进入可检索记忆</span></div>
+        <div class="row"><b>我们主张</b><span>原件、抽取、记忆结论分层</span></div>
+        <div class="row"><b>人类界面</b><span>Obsidian vault + generated wiki</span></div>
+      </aside>
+    </header>
+
+    <nav class="nav" aria-label="page sections">
+      <a href="#workflow">流程泳道</a>
+      <a href="#axes">我们的四个差异轴</a>
+      <a href="#obsidian">Obsidian 结合</a>
+      <a href="#cards">竞品卡片</a>
+      <a href="#fusion">融合路线</a>
+      <button class="filter-btn active" data-filter="all">全部</button>
+      <button class="filter-btn" data-filter="borrow">只看可借鉴</button>
+      <button class="filter-btn" data-filter="threat">只看红区威胁</button>
+      <button class="filter-btn" data-filter="peer">只看设计近邻</button>
+    </nav>
+
+    <section id="workflow">
+      <div class="section-head">
+        <div>
+          <h2>流程泳道</h2>
+          <p class="note">同样叫 memory，真实差异在“输入如何被处理”。我们当前文本链路成熟；多模态目标应补 Resource/Extraction 层，而不是把图片/PDF/音视频直接塞进 MemoryItem。</p>
+        </div>
+        <div class="legend" aria-label="legend">
+          <span class="pill"><i class="dot win"></i>我们优势</span>
+          <span class="pill"><i class="dot borrow"></i>值得借鉴</span>
+          <span class="pill"><i class="dot risk"></i>风险/威胁</span>
+          <span class="pill"><i class="dot gap"></i>当前缺口</span>
+        </div>
+      </div>
+
+      <div class="workflow" role="region" aria-label="workflow comparison" tabindex="0">
+        <div class="workflow-grid">
+          <div class="head-cell">系统</div>
+          <div class="head-cell">Capture<br>输入捕获</div>
+          <div class="head-cell">Extract<br>抽取</div>
+          <div class="head-cell">Store<br>事实存储</div>
+          <div class="head-cell">Index<br>索引</div>
+          <div class="head-cell">Retrieve<br>召回</div>
+          <div class="head-cell">Govern<br>治理</div>
+          <div class="head-cell">Inject<br>注入</div>
+
+          <div class="label-cell our-row"><strong>Agent Memory Hub</strong><small>md-as-source + MCP-native</small></div>
+          <div class="stage-cell win"><strong>Hooks / MCP / CLI</strong>文本 turn、手写 memory、adapter 事件进入统一写入口。</div>
+          <div class="stage-cell gap"><strong>文本成熟，多模态缺 Resource</strong>当前图片等非文本会丢语义；目标是 Resource + Extraction Contract。</div>
+          <div class="stage-cell win"><strong>Markdown source-of-truth</strong>item md 是事实源；Obsidian vault 是可编辑/可审计窗口。</div>
+          <div class="stage-cell win"><strong>FTS5 + sqlite-vec + refs graph</strong>中文分词、tags、project、tenant 过滤。</div>
+          <div class="stage-cell win"><strong>BM25 + vector + RRF</strong>query expansion、decay、handoff boost、可选 rerank/MMR。</div>
+          <div class="stage-cell win"><strong>Before-write audit gate</strong>防进，而不是事后 audit trail。</div>
+          <div class="stage-cell win"><strong>MCP + Obsidian 双界面</strong>Agent 走工具注入；人类走 vault、wiki、entity 页审阅。</div>
+
+          <div class="label-cell"><strong>OpenViking</strong><small>resource hierarchy + L0/L1/L2</small></div>
+          <div class="stage-cell borrow"><strong>add_resource</strong>图片/PDF/音频/视频/文档作为 resource 进入。</div>
+          <div class="stage-cell borrow"><strong>Parser / VLM / ASR</strong>多模态先抽成 text/description。</div>
+          <div class="stage-cell borrow"><strong>viking://resources</strong>路径化资源和 L0/L1/L2 分层。</div>
+          <div class="stage-cell borrow"><strong>Semantic index</strong>资源摘要优先，原文按需读取。</div>
+          <div class="stage-cell borrow"><strong>Tiered read path</strong>abstract → overview → read，节省上下文。</div>
+          <div class="stage-cell gap"><strong>License / governance 差异</strong>AGPL；before-write audit 不是其核心锚点。</div>
+          <div class="stage-cell borrow"><strong>Filesystem mental model</strong>Agent 可以 tree / find / read。</div>
+
+          <div class="label-cell"><strong>Mem0</strong><small>LLM extraction memory</small></div>
+          <div class="stage-cell borrow"><strong>Conversation / image input</strong>支持多种 image 输入形态。</div>
+          <div class="stage-cell borrow"><strong>Vision extraction</strong>图片先转成文本事实，再存 memory。</div>
+          <div class="stage-cell risk"><strong>Service-side memory</strong>抽取和存储更依赖外部模型/服务。</div>
+          <div class="stage-cell borrow"><strong>Semantic memory</strong>适合快速开发，不强调 md 可重建。</div>
+          <div class="stage-cell borrow"><strong>Personalized recall</strong>面向 app/user memory。</div>
+          <div class="stage-cell gap"><strong>治理偏弱</strong>不以“防进 gate + 可审计 md”为核心。</div>
+          <div class="stage-cell gap"><strong>SDK-first</strong>跨 agent 中立性不是主叙事。</div>
+
+          <div class="label-cell"><strong>Supermemory</strong><small>content ingestion + context store</small></div>
+          <div class="stage-cell borrow"><strong>Wide content types</strong>图片、文档、网页、音视频等内容摄取。</div>
+          <div class="stage-cell borrow"><strong>OCR / transcript / description</strong>先抽取结构化文本。</div>
+          <div class="stage-cell risk"><strong>Cloud context store</strong>强产品化，但本地可移植性弱。</div>
+          <div class="stage-cell borrow"><strong>Unified content index</strong>资源级上下文组织值得学。</div>
+          <div class="stage-cell borrow"><strong>Context fencing</strong>会话/容器边界清楚。</div>
+          <div class="stage-cell gap"><strong>原件-抽取-结论分层不透明</strong>用户难以重建审计链。</div>
+          <div class="stage-cell gap"><strong>Single product gravity</strong>不是多 agent md 协议。</div>
+
+          <div class="label-cell"><strong>Tencent Agent-Memory</strong><small>L0 Conversation → L3 Persona</small></div>
+          <div class="stage-cell borrow"><strong>Conversation-first</strong>把对话作为原料。</div>
+          <div class="stage-cell borrow"><strong>Progressive distillation</strong>L0→L1→L2→L3 长期提炼。</div>
+          <div class="stage-cell borrow"><strong>SQLite + Markdown</strong>与我们设计最接近。</div>
+          <div class="stage-cell borrow"><strong>Layered memory</strong>比 flat item 更成熟。</div>
+          <div class="stage-cell borrow"><strong>Token-efficient recall</strong>高层摘要优先。</div>
+          <div class="stage-cell gap"><strong>人格/场景强，防进较弱</strong>不以 skill audit pre-gate 为锚点。</div>
+          <div class="stage-cell gap"><strong>不是 MCP-neutral 核心</strong>跨 agent adapter 不是主轴。</div>
+
+          <div class="label-cell"><strong>rohitg00 / agentmemory</strong><small>red-zone lifecycle engine</small></div>
+          <div class="stage-cell risk"><strong>多 hook 覆盖</strong>CC / Codex / OpenCode 等入口更广。</div>
+          <div class="stage-cell risk"><strong>Consolidate / crystallize</strong>生命周期自动化强。</div>
+          <div class="stage-cell risk"><strong>iii-engine</strong>功能强但不如 md 透明可审计。</div>
+          <div class="stage-cell risk"><strong>BM25 + vector + graph</strong>检索栈接近甚至更厚。</div>
+          <div class="stage-cell risk"><strong>RRF / rerank / diversity</strong>成熟度高。</div>
+          <div class="stage-cell borrow"><strong>Decay / snapshots / dedup</strong>值得借；但避免自递归污染。</div>
+          <div class="stage-cell gap"><strong>53 tools flat surface</strong>强但复杂；我们用 tiered surface 反向取舍。</div>
+
+          <div class="label-cell"><strong>Zep / langmem</strong><small>graph or framework memory</small></div>
+          <div class="stage-cell borrow"><strong>Chat / JSON / docs</strong>适合框架内事件。</div>
+          <div class="stage-cell borrow"><strong>Entity / fact extraction</strong>结构化图谱能力强。</div>
+          <div class="stage-cell gap"><strong>Framework gravity</strong>与 LangGraph / service 绑定更深。</div>
+          <div class="stage-cell borrow"><strong>Temporal graph</strong>实体和事实关系值得借。</div>
+          <div class="stage-cell borrow"><strong>Graph recall</strong>适合人/项目/时间线。</div>
+          <div class="stage-cell gap"><strong>Before-write gate 不是核心</strong>更偏应用记忆。</div>
+          <div class="stage-cell gap"><strong>Agent-neutral 弱</strong>跨工具共享不是主要定位。</div>
+        </div>
+      </div>
+    </section>
+
+    <section id="axes">
+      <div class="section-head">
+        <div>
+          <h2>我们的四个差异轴</h2>
+          <p class="note">不是每个单点都独占。可 defend 的是组合：可审计文本源、写前治理、跨 agent 协议、多模态派生层不污染原始事实。</p>
+        </div>
+      </div>
+      <div class="axis">
+        <article class="axis-card" data-num="01">
+          <h3>Markdown 是事实源</h3>
+          <p>memory item 以 md + frontmatter 落盘。SQLite、向量、图关系是派生索引，删掉可重建。这是对 cloud store、binary engine、压缩层的反向选择。</p>
+        </article>
+        <article class="axis-card" data-num="02">
+          <h3>写前治理，不是事后审计</h3>
+          <p>skill audit / safety gate 在写入前阻止高风险内容进入脑池。rohitg00 的 audit trail 很强，但更偏记录发生过什么。</p>
+        </article>
+        <article class="axis-card" data-num="03">
+          <h3>MCP-native 多智能体协作</h3>
+          <p>稳定核心工具 + 分层扩展工具，面向 Claude Code、Codex、Cursor、Wukong 等多个 agent，而不是某个框架或单一产品内存。</p>
+        </article>
+        <article class="axis-card" data-num="04">
+          <h3>Resource / Extraction / Memory 三层</h3>
+          <p>多模态未来不直接写 memory。原件保留，抽取可重建，结论可审计。借 OpenViking/Mem0/Supermemory 的抽取思路，但保留本地可追溯性。</p>
+        </article>
+      </div>
+    </section>
+
+    <section id="obsidian">
+      <div class="section-head">
+        <div>
+          <h2>Obsidian 结合层</h2>
+          <p class="note">Obsidian 不是另一个 memory 后端，而是人类可读、可编辑、可审计的 vault 界面。源事实仍在 brain pool 的 Markdown item；wiki / entity / health 页面是派生视图，生成错了可以删掉重建。</p>
+        </div>
+      </div>
+
+      <div class="integration-grid">
+        <article class="integration-card">
+          <h3>Item 级双向同步</h3>
+          <p>每条 MemoryItem 导出成 Obsidian 兼容 Markdown：YAML frontmatter、正文、tags、refs、相关记忆 wikilinks。人工在 vault 里修正文档后，可再 import 回 brain pool 并重建索引。</p>
+          <div class="flow-strip">
+            <div class="flow-step"><b>agent_runtime_kit/items</b><span>md + frontmatter 源数据</span></div>
+            <div class="flow-step"><b>export</b><span>生成 vault note</span></div>
+            <div class="flow-step"><b>human edit</b><span>人工修标题、来源、链接</span></div>
+            <div class="flow-step"><b>import</b><span>回写合法 item</span></div>
+            <div class="flow-step"><b>reindex</b><span>FTS / vector 可重建</span></div>
+          </div>
+        </article>
+
+        <article class="integration-card">
+          <h3>LLM-Wiki 派生视图</h3>
+          <p><code>obsidian-export --wiki</code> 会额外生成 <code>index.md</code>、<code>log.md</code>、<code>health/report.md</code> 和 entity 页面。它们方便人在 Obsidian 里浏览全局结构，但不会进入 items 池污染检索。</p>
+          <div class="flow-strip">
+            <div class="flow-step"><b>index.md</b><span>类型、项目、热度统计</span></div>
+            <div class="flow-step"><b>log.md</b><span>最近写入维护流</span></div>
+            <div class="flow-step"><b>health</b><span>孤岛、缺来源、过期</span></div>
+            <div class="flow-step"><b>entities</b><span>人/项目/主题索引</span></div>
+            <div class="flow-step"><b>derived</b><span>删掉可再生成</span></div>
+          </div>
+        </article>
+
+        <article class="integration-card">
+          <h3>人类审计，不绕过 gate</h3>
+          <p>Obsidian 负责让人看得懂、改得动、连得上；before-write 仍负责防止高风险内容进 brain pool。未来多模态资源也应先产生 extraction evidence，再在 Obsidian 中暴露给人复核。</p>
+          <div class="flow-strip">
+            <div class="flow-step"><b>review</b><span>人工确认事实和来源</span></div>
+            <div class="flow-step"><b>link</b><span>补 [[wiki-link]] / refs</span></div>
+            <div class="flow-step"><b>audit</b><span>写前安全和质量门</span></div>
+            <div class="flow-step"><b>memory</b><span>只保存确认结论</span></div>
+            <div class="flow-step"><b>agents</b><span>多 CLI 共享召回</span></div>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section id="cards">
+      <div class="section-head">
+        <div>
+          <h2>竞品卡片</h2>
+          <p class="note">分数不是市场排名，而是从 Agent Memory Hub 的目标看，各方案在资源摄取、治理、可移植性和检索深度上的相对位置。</p>
+        </div>
+      </div>
+      <div class="cards">
+        <article class="competitor-card" data-focus="peer borrow">
+          <div class="tags"><span class="tag borrow">借鉴</span><span class="tag neutral">资源分层</span></div>
+          <h3>OpenViking</h3>
+          <p>最值得借的是 resource-first 和 L0/L1/L2 读路径。它解决“先读摘要还是全文”的 token 成本问题，也给多模态资源一个文件系统心智模型。</p>
+          <div class="meters">
+            <div class="meter"><span>多模态摄取</span><div class="bar"><i style="--w: 86%"></i></div><span>强</span></div>
+            <div class="meter"><span>可审计源</span><div class="bar"><i style="--w: 58%"></i></div><span>中</span></div>
+            <div class="meter"><span>可借鉴度</span><div class="bar"><i style="--w: 92%"></i></div><span>高</span></div>
+          </div>
+        </article>
+
+        <article class="competitor-card" data-focus="borrow">
+          <div class="tags"><span class="tag borrow">借鉴</span><span class="tag gap">VLM extraction</span></div>
+          <h3>Mem0</h3>
+          <p>关键不是直接检索图片，而是用 vision/LLM 把图片或消息抽成 memory facts。我们应借抽取入口，但不要借 service-side 不透明存储。</p>
+          <div class="meters">
+            <div class="meter"><span>抽取能力</span><div class="bar"><i style="--w: 84%"></i></div><span>强</span></div>
+            <div class="meter"><span>本地可控</span><div class="bar"><i style="--w: 38%"></i></div><span>弱</span></div>
+            <div class="meter"><span>治理防进</span><div class="bar"><i style="--w: 35%"></i></div><span>弱</span></div>
+          </div>
+        </article>
+
+        <article class="competitor-card" data-focus="borrow">
+          <div class="tags"><span class="tag borrow">借鉴</span><span class="tag neutral">内容管线</span></div>
+          <h3>Supermemory</h3>
+          <p>强在文件/网页/图片/音视频统一摄取。我们要借统一 content pipeline，但把每次 extraction 作为可审计派生物，而不是黑箱 context blob。</p>
+          <div class="meters">
+            <div class="meter"><span>内容覆盖</span><div class="bar"><i style="--w: 90%"></i></div><span>强</span></div>
+            <div class="meter"><span>跨 agent</span><div class="bar"><i style="--w: 42%"></i></div><span>中</span></div>
+            <div class="meter"><span>可重建</span><div class="bar"><i style="--w: 34%"></i></div><span>弱</span></div>
+          </div>
+        </article>
+
+        <article class="competitor-card" data-focus="peer borrow">
+          <div class="tags"><span class="tag borrow">借鉴</span><span class="tag win">设计近邻</span></div>
+          <h3>Tencent Agent-Memory</h3>
+          <p>最像我们的本地记忆系统。它的 progressive distillation 比我们当前 flat item 成熟；AMH 的 MCP-neutral 和 before-write gate 是另一组工程侧重点。</p>
+          <div class="meters">
+            <div class="meter"><span>分层提炼</span><div class="bar"><i style="--w: 88%"></i></div><span>强</span></div>
+            <div class="meter"><span>MCP 中立</span><div class="bar"><i style="--w: 46%"></i></div><span>中</span></div>
+            <div class="meter"><span>防进治理</span><div class="bar"><i style="--w: 45%"></i></div><span>中</span></div>
+          </div>
+        </article>
+
+        <article class="competitor-card" data-focus="threat borrow">
+          <div class="tags"><span class="tag risk">红区威胁</span><span class="tag borrow">选择性借鉴</span></div>
+          <h3>rohitg00 / agentmemory</h3>
+          <p>检索、去重、生命周期、自进化都很厚。我们要正视差距，但不要复制 flat 53-tool surface 和 proprietary engine；我们的反向优势是可检查、可恢复、可审计。</p>
+          <div class="meters">
+            <div class="meter"><span>功能厚度</span><div class="bar"><i style="--w: 96%"></i></div><span>极强</span></div>
+            <div class="meter"><span>可检查性</span><div class="bar"><i style="--w: 52%"></i></div><span>中</span></div>
+            <div class="meter"><span>工具克制</span><div class="bar"><i style="--w: 26%"></i></div><span>弱</span></div>
+          </div>
+        </article>
+
+        <article class="competitor-card" data-focus="borrow">
+          <div class="tags"><span class="tag borrow">借鉴</span><span class="tag neutral">Graph</span></div>
+          <h3>Zep / langmem</h3>
+          <p>实体、事实、时间图谱是它们强项。我们可以借 graph recall 和 temporal facts，但不把 brain pool 绑定到某个 app framework。</p>
+          <div class="meters">
+            <div class="meter"><span>图谱能力</span><div class="bar"><i style="--w: 86%"></i></div><span>强</span></div>
+            <div class="meter"><span>框架中立</span><div class="bar"><i style="--w: 40%"></i></div><span>弱</span></div>
+            <div class="meter"><span>本地 md</span><div class="bar"><i style="--w: 30%"></i></div><span>弱</span></div>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section id="fusion">
+      <div class="section-head">
+        <div>
+          <h2>融合路线：取其精华，保留我们的硬边界</h2>
+          <p class="note">最终目标不是“也支持图片/PDF/音视频”，而是让任何资源都通过可审计派生层进入 memory。原件不丢，抽取可重跑，结论可追责。</p>
+        </div>
+      </div>
+
+      <div class="comparison">
+        <div class="radar">
+          <svg viewBox="0 0 920 470" role="img" aria-label="target architecture flow">
+            <defs>
+              <marker id="arrow" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+                <path d="M0,0 L9,4.5 L0,9 Z" fill="#d5a947"></path>
+              </marker>
+            </defs>
+            <rect x="0" y="0" width="920" height="470" rx="8" fill="#15181a"></rect>
+            <g font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="14">
+              <text x="34" y="42" fill="#ece7dc" font-size="20" font-weight="700">目标架构：Resource → Extraction → Memory → Obsidian</text>
+              <text x="34" y="68" fill="#a9afa9" font-size="12">多模态资源不直接变成 memory；先留下原件和抽取证据，再生成可检索事实，并同步到人类可审计 vault。</text>
+
+              <g transform="translate(36 112)">
+                <rect width="154" height="82" rx="8" fill="#202428" stroke="#59626a"></rect>
+                <text x="18" y="30" fill="#66c6bd" font-weight="700">Resource</text>
+                <text x="18" y="54" fill="#a9afa9" font-size="12">image / PDF / video</text>
+                <text x="18" y="70" fill="#a9afa9" font-size="12">audio / docs / web</text>
+              </g>
+
+              <path d="M200 153 H278" stroke="#d5a947" stroke-width="2" marker-end="url(#arrow)"></path>
+
+              <g transform="translate(292 92)">
+                <rect width="174" height="122" rx="8" fill="#202428" stroke="#59626a"></rect>
+                <text x="18" y="30" fill="#d5a947" font-weight="700">Extraction</text>
+                <text x="18" y="56" fill="#a9afa9" font-size="12">OCR / VLM / ASR</text>
+                <text x="18" y="74" fill="#a9afa9" font-size="12">parser / metadata</text>
+                <text x="18" y="96" fill="#88b56f" font-size="12">可重跑 + 有置信度</text>
+              </g>
+
+              <path d="M476 153 H548" stroke="#d5a947" stroke-width="2" marker-end="url(#arrow)"></path>
+
+              <g transform="translate(562 88)">
+                <rect width="170" height="130" rx="8" fill="#202428" stroke="#59626a"></rect>
+                <text x="18" y="30" fill="#88b56f" font-weight="700">MemoryItem</text>
+                <text x="18" y="56" fill="#a9afa9" font-size="12">title / summary / body</text>
+                <text x="18" y="74" fill="#a9afa9" font-size="12">refs.resource / source</text>
+                <text x="18" y="98" fill="#df6d68" font-size="12">写前 audit gate</text>
+              </g>
+
+              <path d="M742 153 H752" stroke="#d5a947" stroke-width="2" marker-end="url(#arrow)"></path>
+
+              <g transform="translate(762 88)">
+                <rect width="126" height="130" rx="8" fill="#202428" stroke="#66c6bd"></rect>
+                <text x="14" y="30" fill="#66c6bd" font-weight="700">Obsidian</text>
+                <text x="14" y="56" fill="#a9afa9" font-size="12">vault notes</text>
+                <text x="14" y="74" fill="#a9afa9" font-size="12">wiki / entity</text>
+                <text x="14" y="98" fill="#88b56f" font-size="12">人工审阅入口</text>
+              </g>
+
+              <g transform="translate(36 294)">
+                <rect width="180" height="96" rx="8" fill="#111315" stroke="#66c6bd"></rect>
+                <text x="18" y="32" fill="#66c6bd" font-weight="700">借 OpenViking</text>
+                <text x="18" y="58" fill="#a9afa9" font-size="12">resource path + tiered read</text>
+                <text x="18" y="76" fill="#a9afa9" font-size="12">abstract / overview / read</text>
+              </g>
+
+              <g transform="translate(258 294)">
+                <rect width="190" height="96" rx="8" fill="#111315" stroke="#d5a947"></rect>
+                <text x="18" y="32" fill="#d5a947" font-weight="700">借 Mem0/Supermemory</text>
+                <text x="18" y="58" fill="#a9afa9" font-size="12">extract-then-memory</text>
+                <text x="18" y="76" fill="#a9afa9" font-size="12">多内容格式统一入口</text>
+              </g>
+
+              <g transform="translate(490 294)">
+                <rect width="190" height="96" rx="8" fill="#111315" stroke="#88b56f"></rect>
+                <text x="18" y="32" fill="#88b56f" font-weight="700">保留我们的强点</text>
+                <text x="18" y="58" fill="#a9afa9" font-size="12">md source + derived index</text>
+                <text x="18" y="76" fill="#a9afa9" font-size="12">防进 gate + MCP neutral</text>
+              </g>
+
+              <g transform="translate(718 294)">
+                <rect width="166" height="96" rx="8" fill="#111315" stroke="#df6d68"></rect>
+                <text x="18" y="32" fill="#df6d68" font-weight="700">拒绝照搬</text>
+                <text x="18" y="58" fill="#a9afa9" font-size="12">黑箱 cloud store</text>
+                <text x="18" y="76" fill="#a9afa9" font-size="12">自递归污染 / 工具泛滥</text>
+              </g>
+            </g>
+          </svg>
+        </div>
+        <div class="principles">
+          <article class="principle">
+            <h3>规则 1：原始资源不是 memory 结论</h3>
+            <p>图片/PDF/音视频可以进入 Resource Registry；memory 只能保存“经过抽取和审核的事实/决策/信号”。</p>
+          </article>
+          <article class="principle">
+            <h3>规则 2：抽取结果必须可追溯</h3>
+            <p>每条派生文本记录 extractor、版本、时间、置信度、原件 hash/source_ref。未来模型升级时可以重跑。</p>
+          </article>
+          <article class="principle">
+            <h3>规则 3：检索仍以文本事实为主</h3>
+            <p>短期不引入复杂多模态向量库；先把 OCR/VLM/ASR 结果变成高质量 body，再走现有 BM25 + vector + graph。</p>
+          </article>
+        </div>
+      </div>
+
+      <div class="roadmap">
+        <article class="road-card">
+          <h3>v0 Resource Contract</h3>
+          <p>定义 Resource、Extraction、MemoryItem 引用关系。支持落盘、hash、source_ref、extractor metadata，不做重型模型依赖。</p>
+          <ul class="muted-list"><li>借 OpenViking 路径化资源</li><li>保留 md source-of-truth</li></ul>
+        </article>
+        <article class="road-card">
+          <h3>v1 Image + PDF Gate</h3>
+          <p>先做最容易验证的图片和 PDF：无“视觉事实/文本抽取”摘要则 warning 或拒写，避免 Image # 噪声污染检索。</p>
+          <ul class="muted-list"><li>借 Mem0 vision extraction</li><li>借 Supermemory OCR 思路</li></ul>
+        </article>
+        <article class="road-card">
+          <h3>v2 Audio / Video Parser</h3>
+          <p>把 ASR transcript、关键帧描述、章节摘要接入同一 Extraction Contract，而不是另开一套记忆 schema。</p>
+          <ul class="muted-list"><li>资源级 metadata</li><li>时间戳引用</li></ul>
+        </article>
+        <article class="road-card">
+          <h3>v3 Review + Graph</h3>
+          <p>把资源、抽取、memory item 和 refs_graph 接起来，支持人工确认、confidence 调整、跨资源实体关系。</p>
+          <ul class="muted-list"><li>借 Zep temporal graph</li><li>比 cloud store 更可审计</li></ul>
+        </article>
+      </div>
+    </section>
+
+    <footer class="foot">
+      <p>
+        Notes: 竞品描述基于当前仓库 `STRATEGY.md`、`docs/audit/2026-06-09-current-state-gap-matrix.md`
+        和历史 deep capability audit。该图用于产品/架构对齐，不代表外部发布材料；如竞品能力变更，应先刷新 research 再更新本页。
+      </p>
+    </footer>
+  </main>
+
+  <script>
+    const buttons = document.querySelectorAll(".filter-btn");
+    const cards = document.querySelectorAll(".competitor-card");
+    buttons.forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const filter = btn.dataset.filter;
+        buttons.forEach((b) => b.classList.toggle("active", b === btn));
+        cards.forEach((card) => {
+          const match = filter === "all" || card.dataset.focus.split(" ").includes(filter);
+          card.classList.toggle("hidden-by-filter", !match);
+        });
+      });
+    });
+  </script>
+</body>
+</html>
