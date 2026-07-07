@@ -1,0 +1,1883 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Agent Memory Hub README 中文专业预览</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --paper: #f6f1e7;
+      --paper-2: #fbf8f1;
+      --paper-3: #efe7d8;
+      --ink: #1f2523;
+      --muted: #66706d;
+      --muted-2: #87918d;
+      --line: #d8cdbb;
+      --line-strong: #bcae98;
+      --teal: #0f766e;
+      --teal-2: #134e4a;
+      --rust: #a5482d;
+      --brass: #a16207;
+      --blue: #295b7b;
+      --green: #4d7c0f;
+      --red: #9f3a33;
+      --white: #fffdf8;
+      --shadow: 0 16px 40px rgba(76, 64, 43, 0.13);
+      --mono: "SFMono-Regular", "Cascadia Code", "Menlo", "Consolas", monospace;
+      --sans: "Avenir Next", "PingFang SC", "Hiragino Sans GB", "Source Han Sans SC", "Noto Sans CJK SC", sans-serif;
+      --serif: "Iowan Old Style", "Songti SC", "Noto Serif CJK SC", "Source Han Serif SC", serif;
+      --max: 1180px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+      background: var(--paper);
+    }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      font-family: var(--sans);
+      line-height: 1.72;
+      background:
+        linear-gradient(90deg, rgba(31, 37, 35, 0.035) 1px, transparent 1px) 0 0 / 32px 32px,
+        linear-gradient(rgba(31, 37, 35, 0.025) 1px, transparent 1px) 0 0 / 32px 32px,
+        var(--paper);
+    }
+
+    a {
+      color: var(--teal-2);
+      text-decoration-color: rgba(15, 118, 110, 0.35);
+      text-underline-offset: 3px;
+    }
+
+    code {
+      font-family: var(--mono);
+      font-size: 0.92em;
+      color: #26322f;
+      background: #eee3d2;
+      border: 1px solid rgba(188, 174, 152, 0.55);
+      border-radius: 5px;
+      padding: 0.08rem 0.32rem;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
+
+    pre {
+      overflow-x: auto;
+      margin: 0;
+      padding: 1rem;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #27231d;
+      color: #f8ead1;
+      line-height: 1.55;
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05);
+    }
+
+    pre code {
+      display: block;
+      padding: 0;
+      color: inherit;
+      background: transparent;
+      border: 0;
+      white-space: pre;
+      overflow-wrap: normal;
+      word-break: normal;
+    }
+
+    .page {
+      display: grid;
+      grid-template-columns: 252px minmax(0, 1fr);
+      min-height: 100vh;
+    }
+
+    .toc {
+      position: sticky;
+      top: 0;
+      align-self: start;
+      height: 100vh;
+      overflow: auto;
+      padding: 1.25rem 1rem;
+      border-right: 1px solid var(--line);
+      background: rgba(251, 248, 241, 0.86);
+      backdrop-filter: blur(12px);
+    }
+
+    .toc .brand {
+      display: grid;
+      gap: 0.1rem;
+      margin-bottom: 1.2rem;
+      padding-bottom: 1rem;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .toc strong {
+      font-family: var(--serif);
+      font-size: 1.08rem;
+      letter-spacing: 0;
+    }
+
+    .toc small {
+      color: var(--muted);
+      line-height: 1.45;
+    }
+
+    .toc nav {
+      display: grid;
+      gap: 0.1rem;
+    }
+
+    .toc a {
+      display: block;
+      padding: 0.42rem 0.55rem;
+      border-radius: 6px;
+      color: #33413e;
+      font-size: 0.92rem;
+      text-decoration: none;
+    }
+
+    .toc a:hover {
+      background: #efe5d4;
+      color: var(--teal-2);
+    }
+
+    main {
+      min-width: 0;
+    }
+
+    .wrap {
+      width: min(var(--max), calc(100vw - 2.2rem));
+      margin: 0 auto;
+    }
+
+    .hero {
+      padding: 3rem 0 1.6rem;
+      border-bottom: 1px solid var(--line);
+      background:
+        linear-gradient(180deg, rgba(255, 253, 248, 0.72), rgba(246, 241, 231, 0.12));
+    }
+
+    .eyebrow {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      align-items: center;
+      color: var(--muted);
+      font-size: 0.88rem;
+      letter-spacing: 0;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      min-height: 1.65rem;
+      padding: 0.12rem 0.56rem;
+      border: 1px solid var(--line-strong);
+      border-radius: 999px;
+      background: #fff9ed;
+      color: #4c4234;
+      font-size: 0.82rem;
+      font-weight: 650;
+      white-space: nowrap;
+    }
+
+    h1, h2, h3, h4 {
+      margin: 0;
+      color: var(--ink);
+      line-height: 1.18;
+      letter-spacing: 0;
+    }
+
+    h1 {
+      max-width: 920px;
+      margin-top: 1.2rem;
+      font-family: var(--serif);
+      font-size: clamp(2.45rem, 5vw, 5.2rem);
+      font-weight: 760;
+    }
+
+    .subtitle {
+      max-width: 880px;
+      margin: 1.15rem 0 0;
+      color: #3c4845;
+      font-size: clamp(1.05rem, 2vw, 1.34rem);
+      line-height: 1.68;
+    }
+
+    .hero-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr);
+      gap: 1rem;
+      align-items: stretch;
+      margin-top: 1.6rem;
+    }
+
+    .thesis {
+      padding: 1.2rem;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--white);
+      box-shadow: var(--shadow);
+    }
+
+    .thesis h2 {
+      margin-bottom: 0.65rem;
+      font-size: 1rem;
+      color: var(--teal-2);
+    }
+
+    .thesis p {
+      margin: 0;
+      color: #34403d;
+      font-size: 1.02rem;
+    }
+
+    .facts {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 0.65rem;
+    }
+
+    .fact {
+      min-height: 94px;
+      padding: 0.88rem;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fffbf4;
+    }
+
+    .fact b {
+      display: block;
+      color: var(--ink);
+      font-family: var(--serif);
+      font-size: 1.65rem;
+      line-height: 1;
+    }
+
+    .fact span {
+      display: block;
+      margin-top: 0.38rem;
+      color: var(--muted);
+      font-size: 0.84rem;
+      line-height: 1.38;
+    }
+
+    section {
+      padding: 2.65rem 0;
+      border-bottom: 1px solid rgba(216, 205, 187, 0.8);
+    }
+
+    .section-head {
+      display: grid;
+      grid-template-columns: minmax(0, 0.58fr) minmax(0, 0.42fr);
+      gap: 1.3rem;
+      align-items: end;
+      margin-bottom: 1.35rem;
+    }
+
+    .section-kicker {
+      margin-bottom: 0.5rem;
+      color: var(--rust);
+      font-family: var(--mono);
+      font-size: 0.78rem;
+      font-weight: 800;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    h2 {
+      font-family: var(--serif);
+      font-size: clamp(1.72rem, 3.6vw, 3.05rem);
+    }
+
+    .lead {
+      margin: 0;
+      color: #43504d;
+      font-size: 1.02rem;
+    }
+
+    .note {
+      margin: 1rem 0 0;
+      padding: 0.9rem 1rem;
+      border-left: 4px solid var(--brass);
+      border-radius: 0 8px 8px 0;
+      background: #fff6e4;
+      color: #4a4031;
+    }
+
+    .grid {
+      display: grid;
+      gap: 1rem;
+    }
+
+    .grid.two {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .grid.three {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .grid.four {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+
+    .card {
+      min-width: 0;
+      padding: 1rem;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--paper-2);
+      box-shadow: 0 8px 22px rgba(94, 78, 53, 0.07);
+    }
+
+    .card h3 {
+      margin-bottom: 0.45rem;
+      font-size: 1.05rem;
+    }
+
+    .card p {
+      margin: 0;
+      color: #485551;
+    }
+
+    .card ul {
+      margin: 0.7rem 0 0;
+      padding-left: 1.1rem;
+      color: #4a5753;
+    }
+
+    .card li + li {
+      margin-top: 0.35rem;
+    }
+
+    .tagline {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.45rem;
+      margin-top: 0.85rem;
+    }
+
+    .mini {
+      display: inline-flex;
+      padding: 0.06rem 0.44rem;
+      border: 1px solid rgba(188, 174, 152, 0.85);
+      border-radius: 5px;
+      background: #f5ead9;
+      color: #594c3c;
+      font-size: 0.76rem;
+      font-weight: 700;
+      line-height: 1.55;
+    }
+
+    .architecture-board {
+      display: grid;
+      grid-template-columns: 1.05fr 1fr 1.05fr;
+      gap: 0.8rem;
+      margin-top: 1rem;
+    }
+
+    .layer {
+      padding: 0.95rem;
+      border: 1px solid var(--line-strong);
+      border-radius: 8px;
+      background: #fffaf0;
+    }
+
+    .layer h3 {
+      display: flex;
+      justify-content: space-between;
+      gap: 0.8rem;
+      align-items: baseline;
+      margin-bottom: 0.65rem;
+      color: var(--teal-2);
+      font-size: 1rem;
+    }
+
+    .layer h3 span {
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 0.68rem;
+      font-weight: 700;
+    }
+
+    .layer ul {
+      display: grid;
+      gap: 0.45rem;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .layer li {
+      padding: 0.52rem 0.6rem;
+      border: 1px solid rgba(216, 205, 187, 0.9);
+      border-radius: 6px;
+      background: rgba(255, 253, 248, 0.8);
+      color: #424d4a;
+      font-size: 0.93rem;
+    }
+
+    .chain {
+      display: grid;
+      grid-template-columns: repeat(9, minmax(120px, 1fr));
+      gap: 0.55rem;
+      overflow-x: auto;
+      padding-bottom: 0.25rem;
+    }
+
+    .step {
+      position: relative;
+      min-height: 132px;
+      padding: 0.82rem;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--white);
+    }
+
+    .step:not(:last-child)::after {
+      content: "";
+      position: absolute;
+      top: 50%;
+      right: -0.46rem;
+      width: 0.44rem;
+      height: 0.44rem;
+      border-top: 2px solid var(--line-strong);
+      border-right: 2px solid var(--line-strong);
+      transform: translateY(-50%) rotate(45deg);
+      background: var(--paper);
+      z-index: 1;
+    }
+
+    .step b {
+      display: inline-grid;
+      place-items: center;
+      width: 1.6rem;
+      height: 1.6rem;
+      margin-bottom: 0.55rem;
+      border-radius: 50%;
+      background: #e6d7c0;
+      color: #4d3920;
+      font-family: var(--mono);
+      font-size: 0.78rem;
+    }
+
+    .step strong {
+      display: block;
+      line-height: 1.3;
+    }
+
+    .step span {
+      display: block;
+      margin-top: 0.35rem;
+      color: var(--muted);
+      font-size: 0.83rem;
+      line-height: 1.45;
+    }
+
+    .diagram {
+      margin: 1rem 0;
+      padding: 0.85rem;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fffaf1;
+      overflow-x: auto;
+      box-shadow: var(--shadow);
+    }
+
+    svg {
+      display: block;
+      max-width: 100%;
+      height: auto;
+      font-family: var(--sans);
+    }
+
+    .table-wrap {
+      overflow-x: auto;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--paper-2);
+      box-shadow: 0 8px 24px rgba(94, 78, 53, 0.07);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 820px;
+      font-size: 0.94rem;
+    }
+
+    th, td {
+      vertical-align: top;
+      padding: 0.78rem 0.85rem;
+      border-bottom: 1px solid rgba(216, 205, 187, 0.82);
+      text-align: left;
+    }
+
+    th {
+      color: #3d4a47;
+      background: #efe5d4;
+      font-size: 0.78rem;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    tr:last-child td {
+      border-bottom: 0;
+    }
+
+    td:first-child {
+      color: #26312f;
+      font-weight: 760;
+    }
+
+    .scoreboard {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 0.9rem;
+    }
+
+    .score-col {
+      border: 1px solid var(--line-strong);
+      border-radius: 8px;
+      background: #fffaf1;
+      overflow: hidden;
+    }
+
+    .score-col h3 {
+      padding: 0.85rem 0.95rem;
+      border-bottom: 1px solid var(--line);
+      background: #efe5d4;
+      font-size: 1.02rem;
+    }
+
+    .score-row {
+      padding: 0.82rem 0.95rem;
+      border-bottom: 1px solid rgba(216, 205, 187, 0.72);
+    }
+
+    .score-row:last-child {
+      border-bottom: 0;
+    }
+
+    .score-row b {
+      display: block;
+      color: #283431;
+    }
+
+    .score-row span {
+      display: block;
+      margin-top: 0.24rem;
+      color: var(--muted);
+      font-size: 0.86rem;
+      line-height: 1.5;
+    }
+
+    .truth-list {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 0.8rem;
+    }
+
+    .truth {
+      padding: 0.92rem;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff8ec;
+    }
+
+    .truth b {
+      color: var(--red);
+    }
+
+    .footer {
+      padding: 2rem 0 3rem;
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+
+    .compact-list {
+      display: grid;
+      gap: 0.55rem;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .compact-list li {
+      padding: 0.65rem 0.75rem;
+      border: 1px solid rgba(216, 205, 187, 0.82);
+      border-radius: 7px;
+      background: rgba(255, 253, 248, 0.72);
+    }
+
+    @media (max-width: 1100px) {
+      .page {
+        grid-template-columns: 1fr;
+      }
+
+      .toc {
+        position: relative;
+        height: auto;
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .toc nav {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+
+      .hero-grid,
+      .section-head,
+      .architecture-board,
+      .scoreboard {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 760px) {
+      .grid.two,
+      .grid.three,
+      .grid.four,
+      .facts,
+      .truth-list {
+        grid-template-columns: 1fr;
+      }
+
+      .toc {
+        padding: 0.9rem 0.8rem;
+      }
+
+      .toc nav {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 0.12rem;
+      }
+
+      .toc a {
+        padding: 0.34rem 0.42rem;
+        font-size: 0.84rem;
+      }
+
+      .hero {
+        padding-top: 1.65rem;
+      }
+
+      section {
+        padding: 2rem 0;
+      }
+
+      h1 {
+        font-size: clamp(2rem, 10vw, 2.55rem);
+      }
+
+      .wrap {
+        width: min(100% - 1.1rem, var(--max));
+      }
+
+      .chain {
+        grid-template-columns: 1fr;
+        overflow: visible;
+      }
+
+      .step:not(:last-child)::after {
+        top: auto;
+        right: 50%;
+        bottom: -0.48rem;
+        transform: translateX(50%) rotate(135deg);
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <aside class="toc" aria-label="页面导航">
+      <div class="brand">
+        <strong>Agent Memory Hub</strong>
+        <small>README 中文专业预览<br>生成口径：当前本地源码与 surface-lock 测试，2026-06-26</small>
+      </div>
+      <nav>
+        <a href="#position">定位</a>
+        <a href="#core-chain">主链路</a>
+        <a href="#architecture">架构</a>
+        <a href="#maintenance">维护</a>
+        <a href="#recall">召回</a>
+        <a href="#capabilities">能力总账</a>
+        <a href="#algorithms">算法细账</a>
+        <a href="#data-boundary">数据边界</a>
+        <a href="#interfaces">接入面</a>
+        <a href="#map">能力地图</a>
+        <a href="#difficulties">工程难点</a>
+        <a href="#truth">真实边界</a>
+        <a href="#verification">验证</a>
+      </nav>
+    </aside>
+
+    <main>
+      <header class="hero" id="position">
+        <div class="wrap">
+          <div class="eyebrow">
+            <span class="pill">本地优先</span>
+            <span class="pill">证据可追溯</span>
+            <span class="pill">多智能体共享</span>
+            <span class="pill">注入前防火墙</span>
+            <span class="pill">治理闭环</span>
+          </div>
+          <h1>Agent Memory Hub 不是记忆库，而是跨智能体可信上下文操作系统。</h1>
+          <p class="subtitle">
+            它把原始会话、长期记忆、资源证据、派生索引、召回排序、上下文装载、治理演化和多智能体适配放在同一套可解释链路里。
+            核心问题不是“能不能召回”，而是：哪些事实可以进入共享大脑，如何证明它们从哪里来，什么时候该被降权、合并、归档或阻断，以及最终以什么粒度进入模型上下文。
+          </p>
+
+          <div class="hero-grid">
+            <div class="thesis">
+              <h2>一句话讲清楚</h2>
+              <p>
+                AMH 在每个智能体和它的上下文窗口之间建立一层可信中间层：
+                <strong>原始证据不直接污染 prompt，长期结论通过写入漏斗沉淀；召回不只是向量搜索，而是结构过滤、混合排序、成熟度和置信度治理、图/联想扩展、注入防火墙和分层上下文装载。</strong>
+              </p>
+              <div class="tagline">
+                <span class="mini">items/mem-*.md 是事实源</span>
+                <span class="mini">sources 是原始证据</span>
+                <span class="mini">index.db 是派生投影</span>
+                <span class="mini">runtime 是观测账本</span>
+                <span class="mini">review 是候选隔离</span>
+              </div>
+            </div>
+            <div class="facts" aria-label="当前源码事实">
+              <div class="fact"><b>36,415</b><span><code>agent_brain</code> Python 行，297 个核心引擎文件</span></div>
+              <div class="fact"><b>89</b><span>Web Admin API / WebSocket 路由，由 surface-lock 测试锁定</span></div>
+              <div class="fact"><b>27 + 1</b><span>MCP operation-tier 工具 + onboarding fallback <code>get_usage_guide</code></span></div>
+              <div class="fact"><b>16</b><span>适配器：7 verified，8 install-ready，1 wip；runtime observed 为 3</span></div>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <section id="core-chain">
+        <div class="wrap">
+          <div class="section-head">
+            <div>
+              <div class="section-kicker">01 / One Real Chain</div>
+              <h2>先维护，再召回，最后才注入。</h2>
+            </div>
+            <p class="lead">
+              旧版容易把重点压成“检索召回”。真实系统的主链路更长：如果事实源、证据、候选隔离、索引修复、反馈治理没有讲清楚，召回图再漂亮也解释不了“到底怎么取”和“为什么可信”。
+            </p>
+          </div>
+
+          <div class="chain" role="list" aria-label="Agent Memory Hub 主链路">
+            <div class="step" role="listitem"><b>1</b><strong>证据进入</strong><span>用户 prompt、完整 transcript、文件资源、任务结果、adapter/runtime event。</span></div>
+            <div class="step" role="listitem"><b>2</b><strong>候选隔离</strong><span>live-prompt、conversation、proactive candidate、pending 与 review 不等于长期记忆。</span></div>
+            <div class="step" role="listitem"><b>3</b><strong>写入漏斗</strong><span><code>WriteService</code> 做审计、字段增强、质量检查、证据 sidecar。</span></div>
+            <div class="step" role="listitem"><b>4</b><strong>事实落盘</strong><span><code>items/mem-*.md</code> 才是长期事实源；写入账本记录 provenance。</span></div>
+            <div class="step" role="listitem"><b>5</b><strong>索引投影</strong><span>FTS、向量、metadata、refs graph 是可重建投影；失败只标 dirty。</span></div>
+            <div class="step" role="listitem"><b>6</b><strong>维护治理</strong><span>maturity、drift、TTL、duplicate、summary rewrite、conversation tier。</span></div>
+            <div class="step" role="listitem"><b>7</b><strong>混合召回</strong><span>metadata filter 后 BM25 与向量并行，RRF 融合，rerank/decay/feedback 加权。</span></div>
+            <div class="step" role="listitem"><b>8</b><strong>防火墙</strong><span>topic、time、source、sensitivity、cohort、budget、duplicate cluster gate。</span></div>
+            <div class="step" role="listitem"><b>9</b><strong>分层注入</strong><span>locator / overview / detail，必要时通过 <code>detail_uri</code> 或 CCR 可逆取全文。</span></div>
+          </div>
+
+          <div class="note">
+            这条链路的关键语义：AMH 不把“查到”直接等价为“注入”。召回只是候选生成；真正进入上下文之前，还要过上下文防火墙、预算分配和分层装载。
+          </div>
+        </div>
+      </section>
+
+      <section id="architecture">
+        <div class="wrap">
+          <div class="section-head">
+            <div>
+              <div class="section-kicker">02 / Architecture</div>
+              <h2>可信上下文操作系统的五层结构。</h2>
+            </div>
+            <p class="lead">
+              这不是“一个 Markdown 文件夹 + 一个向量库”。真实架构要把证据层、事实源、派生投影、运行观测、接入面分开，否则很容易把原始 transcript、候选和长期记忆混成一团。
+            </p>
+          </div>
+
+          <div class="diagram" aria-label="架构总览图">
+            <svg width="1120" height="620" viewBox="0 0 1120 620" role="img" aria-labelledby="arch-title arch-desc">
+              <title id="arch-title">Agent Memory Hub 架构总览</title>
+              <desc id="arch-desc">从多智能体入口进入写入漏斗、事实源、派生投影、治理与上下文注入的结构图。</desc>
+              <defs>
+                <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                  <path d="M 0 0 L 10 5 L 0 10 z" fill="#7c6b54"></path>
+                </marker>
+                <style>
+                  .box{fill:#fffaf0;stroke:#bcae98;stroke-width:1.2;rx:8}
+                  .head{font:700 18px Avenir Next,PingFang SC,sans-serif;fill:#1f2523}
+                  .txt{font:13px Avenir Next,PingFang SC,sans-serif;fill:#4a5753}
+                  .mono{font:12px SFMono-Regular,Menlo,monospace;fill:#5c4a37}
+                  .small{font:11px Avenir Next,PingFang SC,sans-serif;fill:#66706d}
+                  .accent{fill:#efe5d4;stroke:#bcae98;stroke-width:1.1;rx:8}
+                  .line{stroke:#7c6b54;stroke-width:1.4;fill:none;marker-end:url(#arrow)}
+                  .soft{fill:#f5ead9;stroke:#d8cdbb;stroke-width:1;rx:6}
+                </style>
+              </defs>
+
+              <rect x="20" y="30" width="220" height="560" class="box"></rect>
+              <text x="42" y="64" class="head">多智能体入口</text>
+              <text x="42" y="90" class="txt">CLI / MCP / Web / SDK / hooks</text>
+              <rect x="42" y="122" width="176" height="48" class="soft"></rect>
+              <text x="58" y="151" class="mono">Claude Code / Codex</text>
+              <rect x="42" y="184" width="176" height="48" class="soft"></rect>
+              <text x="58" y="213" class="mono">Cursor / Qoder / Wukong</text>
+              <rect x="42" y="246" width="176" height="48" class="soft"></rect>
+              <text x="58" y="275" class="mono">GitHub Copilot / Aider</text>
+              <rect x="42" y="332" width="176" height="72" class="accent"></rect>
+              <text x="58" y="361" class="txt">Adapter doctor</text>
+              <text x="58" y="383" class="small">install / verify / uninstall</text>
+              <rect x="42" y="430" width="176" height="78" class="accent"></rect>
+              <text x="58" y="459" class="txt">Runtime events</text>
+              <text x="58" y="482" class="small">Subagent / compact / stop</text>
+
+              <rect x="290" y="30" width="250" height="560" class="box"></rect>
+              <text x="312" y="64" class="head">证据与写入漏斗</text>
+              <text x="312" y="90" class="txt">先隔离，再审计，再落盘</text>
+              <rect x="314" y="122" width="202" height="68" class="soft"></rect>
+              <text x="330" y="151" class="txt">ConversationStore</text>
+              <text x="330" y="173" class="mono">sources/conversations/*.jsonl</text>
+              <rect x="314" y="212" width="202" height="68" class="soft"></rect>
+              <text x="330" y="241" class="txt">ResourceStore</text>
+              <text x="330" y="263" class="mono">resources / extractions</text>
+              <rect x="314" y="302" width="202" height="92" class="accent"></rect>
+              <text x="330" y="331" class="txt">WriteService</text>
+              <text x="330" y="354" class="small">audit gate / enrichment</text>
+              <text x="330" y="376" class="small">quality warnings / ledger</text>
+              <rect x="314" y="430" width="202" height="76" class="soft"></rect>
+              <text x="330" y="459" class="txt">Pending / Review</text>
+              <text x="330" y="482" class="mono">pending/*.jsonl</text>
+
+              <rect x="590" y="30" width="240" height="560" class="box"></rect>
+              <text x="612" y="64" class="head">事实源与派生投影</text>
+              <text x="612" y="90" class="txt">事实源和可重建投影分离</text>
+              <rect x="614" y="122" width="192" height="82" class="accent"></rect>
+              <text x="630" y="153" class="txt">Long-term Memory</text>
+              <text x="630" y="176" class="mono">items/mem-*.md</text>
+              <rect x="614" y="238" width="192" height="86" class="soft"></rect>
+              <text x="630" y="268" class="txt">HubIndex</text>
+              <text x="630" y="291" class="mono">index.db / FTS / vector</text>
+              <rect x="614" y="356" width="192" height="78" class="soft"></rect>
+              <text x="630" y="385" class="txt">Derived sidecars</text>
+              <text x="630" y="408" class="mono">hierarchy / CCR / graph</text>
+              <rect x="614" y="462" width="192" height="72" class="soft"></rect>
+              <text x="630" y="491" class="txt">Runtime ledger</text>
+              <text x="630" y="514" class="mono">gaps / cohorts / loops</text>
+
+              <rect x="880" y="30" width="220" height="560" class="box"></rect>
+              <text x="902" y="64" class="head">召回、治理与注入</text>
+              <text x="902" y="90" class="txt">候选到上下文的质量门</text>
+              <rect x="902" y="122" width="176" height="72" class="soft"></rect>
+              <text x="918" y="151" class="txt">Hybrid retrieval</text>
+              <text x="918" y="174" class="mono">BM25 + vector + RRF</text>
+              <rect x="902" y="220" width="176" height="82" class="soft"></rect>
+              <text x="918" y="249" class="txt">Scoring</text>
+              <text x="918" y="272" class="mono">rerank / decay / feedback</text>
+              <rect x="902" y="328" width="176" height="82" class="accent"></rect>
+              <text x="918" y="357" class="txt">Context Firewall</text>
+              <text x="918" y="380" class="small">source / sensitivity / budget</text>
+              <rect x="902" y="436" width="176" height="82" class="soft"></rect>
+              <text x="918" y="465" class="txt">Context loading</text>
+              <text x="918" y="488" class="mono">locator / overview / detail</text>
+
+              <path d="M240 180 C260 180 268 180 290 180" class="line"></path>
+              <path d="M240 368 C262 368 272 350 314 350" class="line"></path>
+              <path d="M516 348 C548 348 562 164 614 164" class="line"></path>
+              <path d="M516 348 C548 348 564 280 614 280" class="line"></path>
+              <path d="M806 280 C840 280 858 158 902 158" class="line"></path>
+              <path d="M806 498 C846 498 858 370 902 370" class="line"></path>
+              <path d="M990 518 C990 568 140 568 140 508" class="line"></path>
+              <text x="428" y="548" class="small">feedback / drift / governance / adapter evidence 回写运行账本与治理队列</text>
+            </svg>
+          </div>
+
+          <div class="architecture-board">
+            <div class="layer">
+              <h3>事实源层 <span>source of truth</span></h3>
+              <ul>
+                <li><code>items/mem-*.md</code>：长期记忆唯一事实源，承载 type、summary、tags、confidence、validity、refs。</li>
+                <li><code>sources/writes</code>：写入账本，记录 writer、agent、session、hash、来源路径和有效期。</li>
+                <li><code>sources/conversations</code>：原始消息证据，按 conversation id 存 JSONL，不默认注入 prompt。</li>
+              </ul>
+            </div>
+            <div class="layer">
+              <h3>派生层 <span>rebuildable views</span></h3>
+              <ul>
+                <li><code>index.db</code>：metadata、FTS、embedding、<code>refs_graph</code>，可重建。</li>
+                <li><code>resources</code> / <code>extractions</code>：文件证据和抽取 sidecar，晋级时仍走 <code>WriteService</code>。</li>
+                <li><code>derived</code> / <code>runtime</code>：层级摘要、CCR、召回缺口、注入 cohort、loop ledger。</li>
+              </ul>
+            </div>
+            <div class="layer">
+              <h3>控制层 <span>policy gates</span></h3>
+              <ul>
+                <li>写入前：audit gate、质量检查、候选隔离、敏感度和来源边界。</li>
+                <li>召回中：结构过滤、RRF、rerank、decay、feedback、MMR/Hopfield/graph。</li>
+                <li>注入前：Context Firewall、预算、分层装载、review / blocked / safe-apply。</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="maintenance">
+        <div class="wrap">
+          <div class="section-head">
+            <div>
+              <div class="section-kicker">03 / Maintenance First</div>
+              <h2>维护链路：让大脑先可信，再让模型去取。</h2>
+            </div>
+            <p class="lead">
+              维护链路解决的是“什么能写、写到哪里、坏了怎么修、过期怎么降权、候选如何转正、哪些动作必须复核”。这比召回更基础，因为召回只会放大事实源的质量。
+            </p>
+          </div>
+
+          <div class="diagram" aria-label="维护时序图">
+            <svg width="1120" height="640" viewBox="0 0 1120 640" role="img" aria-labelledby="maint-title maint-desc">
+              <title id="maint-title">AMH 维护完整链路时序图</title>
+              <desc id="maint-desc">从维护信号到写入漏斗、事实源、索引修复、反馈治理和演化复核的时序。</desc>
+              <defs>
+                <marker id="arr2" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                  <path d="M 0 0 L 10 5 L 0 10 z" fill="#7c6b54"></path>
+                </marker>
+                <style>
+                  .m-head{font:700 14px Avenir Next,PingFang SC,sans-serif;fill:#1f2523}
+                  .m-txt{font:12px Avenir Next,PingFang SC,sans-serif;fill:#40504c}
+                  .m-small{font:11px SFMono-Regular,Menlo,monospace;fill:#66523e}
+                  .m-lane{stroke:#d8cdbb;stroke-width:1.1;stroke-dasharray:5 6}
+                  .m-box{fill:#fffaf0;stroke:#bcae98;stroke-width:1.1;rx:7}
+                  .m-safe{fill:#eef4df;stroke:#a9ba7f;stroke-width:1.1;rx:7}
+                  .m-review{fill:#fff0d2;stroke:#c59a4d;stroke-width:1.1;rx:7}
+                  .m-block{fill:#f5ded9;stroke:#c17a6e;stroke-width:1.1;rx:7}
+                  .m-arrow{stroke:#7c6b54;stroke-width:1.35;fill:none;marker-end:url(#arr2)}
+                </style>
+              </defs>
+
+              <text x="30" y="34" class="m-head">维护参与者</text>
+              <g transform="translate(28,58)">
+                <text x="0" y="0" class="m-head">Signal</text>
+                <line x1="34" y1="20" x2="34" y2="548" class="m-lane"></line>
+                <text x="138" y="0" class="m-head">Ingress</text>
+                <line x1="168" y1="20" x2="168" y2="548" class="m-lane"></line>
+                <text x="280" y="0" class="m-head">Review</text>
+                <line x1="306" y1="20" x2="306" y2="548" class="m-lane"></line>
+                <text x="410" y="0" class="m-head">WriteService</text>
+                <line x1="452" y1="20" x2="452" y2="548" class="m-lane"></line>
+                <text x="572" y="0" class="m-head">Stores</text>
+                <line x1="592" y1="20" x2="592" y2="548" class="m-lane"></line>
+                <text x="716" y="0" class="m-head">Index</text>
+                <line x1="736" y1="20" x2="736" y2="548" class="m-lane"></line>
+                <text x="844" y="0" class="m-head">Governance</text>
+                <line x1="888" y1="20" x2="888" y2="548" class="m-lane"></line>
+                <text x="982" y="0" class="m-head">Evolution</text>
+                <line x1="1022" y1="20" x2="1022" y2="548" class="m-lane"></line>
+              </g>
+
+              <g transform="translate(28,96)">
+                <rect x="0" y="0" width="108" height="54" class="m-box"></rect>
+                <text x="12" y="23" class="m-txt">prompt / stop</text>
+                <text x="12" y="42" class="m-small">conversation</text>
+                <path d="M108 28 H168" class="m-arrow"></path>
+                <rect x="168" y="0" width="116" height="54" class="m-box"></rect>
+                <text x="180" y="23" class="m-txt">normalize</text>
+                <text x="180" y="42" class="m-small">hook / CLI / MCP</text>
+
+                <rect x="260" y="86" width="128" height="62" class="m-review"></rect>
+                <text x="274" y="111" class="m-txt">candidate isolation</text>
+                <text x="274" y="132" class="m-small">review / pending</text>
+                <path d="M226 54 C226 94 240 116 260 116" class="m-arrow"></path>
+
+                <rect x="392" y="176" width="138" height="78" class="m-box"></rect>
+                <text x="408" y="204" class="m-txt">audit + enrich</text>
+                <text x="408" y="225" class="m-small">quality / refs</text>
+                <text x="408" y="244" class="m-small">fail-close high risk</text>
+                <path d="M388 117 C432 117 450 142 450 176" class="m-arrow"></path>
+
+                <rect x="546" y="176" width="118" height="78" class="m-safe"></rect>
+                <text x="560" y="204" class="m-txt">items write</text>
+                <text x="560" y="225" class="m-small">mem-*.md</text>
+                <text x="560" y="244" class="m-small">write ledger</text>
+                <path d="M530 216 H546" class="m-arrow"></path>
+
+                <rect x="546" y="286" width="118" height="70" class="m-box"></rect>
+                <text x="560" y="314" class="m-txt">evidence sidecar</text>
+                <text x="560" y="335" class="m-small">resources/extract</text>
+                <path d="M460 254 C460 318 510 320 546 320" class="m-arrow"></path>
+
+                <rect x="692" y="176" width="116" height="78" class="m-box"></rect>
+                <text x="708" y="204" class="m-txt">index upsert</text>
+                <text x="708" y="225" class="m-small">FTS / vector</text>
+                <text x="708" y="244" class="m-small">refs_graph</text>
+                <path d="M664 216 H692" class="m-arrow"></path>
+
+                <rect x="692" y="286" width="116" height="70" class="m-review"></rect>
+                <text x="708" y="314" class="m-txt">dirty repair</text>
+                <text x="708" y="335" class="m-small">reindex / sync</text>
+                <path d="M750 254 V286" class="m-arrow"></path>
+
+                <rect x="836" y="176" width="132" height="84" class="m-box"></rect>
+                <text x="852" y="204" class="m-txt">maturity / drift</text>
+                <text x="852" y="225" class="m-small">TTL / duplicate</text>
+                <text x="852" y="244" class="m-small">summary rewrite</text>
+                <path d="M808 216 H836" class="m-arrow"></path>
+
+                <rect x="836" y="300" width="132" height="78" class="m-safe"></rect>
+                <text x="852" y="329" class="m-txt">safe apply</text>
+                <text x="852" y="350" class="m-small">tier / index repair</text>
+                <path d="M900 260 V300" class="m-arrow"></path>
+
+                <rect x="984" y="176" width="108" height="84" class="m-review"></rect>
+                <text x="998" y="204" class="m-txt">evolve proposal</text>
+                <text x="998" y="225" class="m-small">consolidate</text>
+                <text x="998" y="244" class="m-small">skill synth</text>
+                <path d="M968 218 H984" class="m-arrow"></path>
+
+                <rect x="984" y="300" width="108" height="78" class="m-block"></rect>
+                <text x="998" y="329" class="m-txt">blocked</text>
+                <text x="998" y="350" class="m-small">unsafe mutation</text>
+                <path d="M1038 260 V300" class="m-arrow"></path>
+
+                <path d="M1038 378 C1038 438 452 438 452 254" class="m-arrow"></path>
+                <text x="468" y="466" class="m-txt">批准后的候选再次回到 WriteService；高风险动作不绕过写入漏斗</text>
+              </g>
+            </svg>
+          </div>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>维护能力</th>
+                  <th>它解决的问题</th>
+                  <th>真实实现入口</th>
+                  <th>不会越界做什么</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>写入漏斗</td>
+                  <td>避免不同入口各自写文件，导致审计、证据、索引和账本不一致。</td>
+                  <td><code>agent_brain/memory/store/write_service.py</code></td>
+                  <td>不会把 index upsert 成功当作写入成功；Markdown 落盘才算事实源写入。</td>
+                </tr>
+                <tr>
+                  <td>原始对话证据</td>
+                  <td>保留可追溯事实来源，同时不把完整 transcript 默认注入 prompt。</td>
+                  <td><code>conversation_store.py</code>、<code>memory conversation ingest/read/rebalance</code></td>
+                  <td>不会把原始消息直接伪装成长期记忆。</td>
+                </tr>
+                <tr>
+                  <td>资源与抽取晋级</td>
+                  <td>文件、图片、抽取片段可以作为证据进入 sidecar，并在确认后晋级成 MemoryItem。</td>
+                  <td><code>resource_store.py</code>、<code>extraction_promotion.py</code>、<code>memory resource promote-extraction</code></td>
+                  <td>不会把多模态 placeholder 当作真实文本证据。</td>
+                </tr>
+                <tr>
+                  <td>索引修复</td>
+                  <td>embedding 或 index 失败不能丢掉已经写入的长期事实。</td>
+                  <td><code>memory reindex</code>、<code>memory verify --repair</code>、<code>memory sync-pending</code></td>
+                  <td>不会因为向量服务失败回滚 Markdown 写入。</td>
+                </tr>
+                <tr>
+                  <td>自动治理</td>
+                  <td>成熟度、过期、漂移、重复、索引偏差、conversation tier 需要持续扫描。</td>
+                  <td><code>auto_governance.py</code>、<code>maintenance_plan.py</code>、<code>memory govern auto/plan</code></td>
+                  <td>高风险合并、归档、替代、删除不会默认自动执行。</td>
+                </tr>
+                <tr>
+                  <td>摘要重写</td>
+                  <td>长摘要会污染检索和注入，需要有快照、dry-run、rollback 机制。</td>
+                  <td><code>summary_rewrite_apply.py</code>、<code>memory govern apply-summary-rewrites</code></td>
+                  <td>不会在没有历史快照和回滚标记的情况下静默改写。</td>
+                </tr>
+                <tr>
+                  <td>Loop ledger</td>
+                  <td>复杂任务要留下 goal、budget、checkpoint、verification、artifact 和 outcome。</td>
+                  <td><code>memory loop create/checkpoint/complete/fail</code>、<code>runtime/loops/*.json</code></td>
+                  <td>不会在缺少完成证据时把 loop 标记完成。</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section id="recall">
+        <div class="wrap">
+          <div class="section-head">
+            <div>
+              <div class="section-kicker">04 / Recall Sequence</div>
+              <h2>召回链路：从用户问题到分层上下文注入。</h2>
+            </div>
+            <p class="lead">
+              真实读取顺序不是一句“召回”。它先做结构过滤，再并行跑全文和向量；融合后继续经历重排、成熟度、置信度、遗忘衰减、图扩展、联想扩展、上下文防火墙，最后才决定 locator、overview 还是 detail。
+            </p>
+          </div>
+
+          <div class="diagram" aria-label="召回时序图">
+            <svg width="1120" height="650" viewBox="0 0 1120 650" role="img" aria-labelledby="recall-title recall-desc">
+              <title id="recall-title">AMH 召回完整链路时序图</title>
+              <desc id="recall-desc">用户问题经过元数据过滤、全文与向量并行、RRF、重排、衰减、扩展、防火墙和分层装载。</desc>
+              <defs>
+                <marker id="arr3" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                  <path d="M 0 0 L 10 5 L 0 10 z" fill="#6f604b"></path>
+                </marker>
+                <style>
+                  .r-lane{stroke:#d8cdbb;stroke-width:1.1;stroke-dasharray:5 6}
+                  .r-box{fill:#fffaf0;stroke:#bcae98;stroke-width:1.1;rx:7}
+                  .r-core{fill:#eaf3ef;stroke:#7aa399;stroke-width:1.1;rx:7}
+                  .r-gate{fill:#fff0d2;stroke:#c59a4d;stroke-width:1.1;rx:7}
+                  .r-stop{fill:#f5ded9;stroke:#c17a6e;stroke-width:1.1;rx:7}
+                  .r-head{font:700 14px Avenir Next,PingFang SC,sans-serif;fill:#1f2523}
+                  .r-txt{font:12px Avenir Next,PingFang SC,sans-serif;fill:#40504c}
+                  .r-small{font:11px SFMono-Regular,Menlo,monospace;fill:#66523e}
+                  .r-arrow{stroke:#6f604b;stroke-width:1.35;fill:none;marker-end:url(#arr3)}
+                </style>
+              </defs>
+
+              <g transform="translate(30,42)">
+                <text x="0" y="0" class="r-head">User Query</text>
+                <line x1="44" y1="20" x2="44" y2="560" class="r-lane"></line>
+                <text x="135" y="0" class="r-head">Filter</text>
+                <line x1="160" y1="20" x2="160" y2="560" class="r-lane"></line>
+                <text x="270" y="0" class="r-head">BM25</text>
+                <line x1="292" y1="20" x2="292" y2="560" class="r-lane"></line>
+                <text x="402" y="0" class="r-head">Vector</text>
+                <line x1="430" y1="20" x2="430" y2="560" class="r-lane"></line>
+                <text x="530" y="0" class="r-head">Fusion</text>
+                <line x1="558" y1="20" x2="558" y2="560" class="r-lane"></line>
+                <text x="650" y="0" class="r-head">Scoring</text>
+                <line x1="686" y1="20" x2="686" y2="560" class="r-lane"></line>
+                <text x="780" y="0" class="r-head">Expand</text>
+                <line x1="812" y1="20" x2="812" y2="560" class="r-lane"></line>
+                <text x="890" y="0" class="r-head">Firewall</text>
+                <line x1="930" y1="20" x2="930" y2="560" class="r-lane"></line>
+                <text x="1004" y="0" class="r-head">Context</text>
+                <line x1="1038" y1="20" x2="1038" y2="560" class="r-lane"></line>
+              </g>
+
+              <g transform="translate(30,88)">
+                <rect x="0" y="0" width="102" height="58" class="r-box"></rect>
+                <text x="14" y="24" class="r-txt">用户问题</text>
+                <text x="14" y="45" class="r-small">query signal</text>
+                <path d="M102 30 H154" class="r-arrow"></path>
+                <rect x="154" y="0" width="116" height="58" class="r-gate"></rect>
+                <text x="168" y="24" class="r-txt">metadata/type</text>
+                <text x="168" y="45" class="r-small">project/tags/time</text>
+
+                <path d="M270 30 C292 30 292 78 292 96" class="r-arrow"></path>
+                <rect x="236" y="96" width="116" height="70" class="r-core"></rect>
+                <text x="252" y="125" class="r-txt">全文检索</text>
+                <text x="252" y="147" class="r-small">FTS / CJK tokens</text>
+
+                <path d="M270 30 C430 30 430 78 430 96" class="r-arrow"></path>
+                <rect x="374" y="96" width="120" height="70" class="r-core"></rect>
+                <text x="390" y="125" class="r-txt">向量检索</text>
+                <text x="390" y="147" class="r-small">embedder optional</text>
+
+                <path d="M352 132 H520" class="r-arrow"></path>
+                <path d="M494 132 H520" class="r-arrow"></path>
+                <rect x="520" y="96" width="120" height="70" class="r-box"></rect>
+                <text x="536" y="125" class="r-txt">RRF 融合</text>
+                <text x="536" y="147" class="r-small">weight/(k+rank+1)</text>
+
+                <path d="M640 132 H660" class="r-arrow"></path>
+                <rect x="660" y="82" width="122" height="100" class="r-box"></rect>
+                <text x="676" y="111" class="r-txt">rerank / decay</text>
+                <text x="676" y="133" class="r-small">confidence</text>
+                <text x="676" y="154" class="r-small">maturity / feedback</text>
+                <text x="676" y="174" class="r-small">handoff/status boost</text>
+
+                <path d="M782 132 H798" class="r-arrow"></path>
+                <rect x="798" y="82" width="126" height="100" class="r-box"></rect>
+                <text x="814" y="111" class="r-txt">扩展与去冗余</text>
+                <text x="814" y="133" class="r-small">MMR</text>
+                <text x="814" y="154" class="r-small">Hopfield</text>
+                <text x="814" y="174" class="r-small">refs_graph</text>
+
+                <path d="M924 132 H938" class="r-arrow"></path>
+                <rect x="938" y="60" width="132" height="144" class="r-gate"></rect>
+                <text x="954" y="90" class="r-txt">Context Firewall</text>
+                <text x="954" y="113" class="r-small">source gate</text>
+                <text x="954" y="134" class="r-small">temporal conflict</text>
+                <text x="954" y="155" class="r-small">topic recency</text>
+                <text x="954" y="176" class="r-small">budget/cohort</text>
+                <text x="954" y="197" class="r-small">duplicate cluster</text>
+
+                <rect x="938" y="246" width="132" height="92" class="r-stop"></rect>
+                <text x="954" y="276" class="r-txt">exclude / demote</text>
+                <text x="954" y="298" class="r-small">stale / unsafe</text>
+                <text x="954" y="319" class="r-small">scope mismatch</text>
+                <path d="M1004 204 V246" class="r-arrow"></path>
+
+                <path d="M1004 204 C1004 380 1038 380 1038 404" class="r-arrow"></path>
+                <rect x="940" y="404" width="132" height="112" class="r-core"></rect>
+                <text x="956" y="434" class="r-txt">分层上下文</text>
+                <text x="956" y="457" class="r-small">locator</text>
+                <text x="956" y="478" class="r-small">overview</text>
+                <text x="956" y="499" class="r-small">detail + URI/CCR</text>
+
+                <path d="M1038 516 C1038 580 44 580 44 58" class="r-arrow"></path>
+                <text x="312" y="608" class="r-txt">adopted / rejected feedback 回写访问、支持、矛盾、gain 与后续治理输入</text>
+              </g>
+            </svg>
+          </div>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>顺序</th>
+                  <th>步骤</th>
+                  <th>做什么</th>
+                  <th>关键代码 / 对象</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>1</td>
+                  <td>问题解析</td>
+                  <td>分析 query signal、项目/类型/标签/时效等约束，形成结构化 <code>SearchFilter</code>。</td>
+                  <td><code>SearchFilter</code>、<code>analyze_injection_query</code></td>
+                </tr>
+                <tr>
+                  <td>2</td>
+                  <td>元数据过滤</td>
+                  <td>先按 type、project、tenant、tags、exclude_tags、since_days、superseded/stale 状态收窄候选池。</td>
+                  <td><code>retrieval.py</code> metadata filters</td>
+                </tr>
+                <tr>
+                  <td>3</td>
+                  <td>全文与向量并行</td>
+                  <td>FTS/BM25 与 embedding 检索并行；embedder 不可用时退化为 BM25-only，不让召回链路中断。</td>
+                  <td><code>HubIndex</code>、FTS、embedding backend</td>
+                </tr>
+                <tr>
+                  <td>4</td>
+                  <td>RRF 融合</td>
+                  <td>按倒数排名融合全文和向量结果：<code>score += weight / (rrf_k + rank + 1)</code>。</td>
+                  <td><code>retrieval_fusion.py</code></td>
+                </tr>
+                <tr>
+                  <td>5</td>
+                  <td>重排与有效分</td>
+                  <td>可选 cross-encoder rerank；再合入 confidence、遗忘衰减、反馈 value、runtime evidence、handoff/status boost。</td>
+                  <td><code>retrieval_decay.py</code>、<code>rerank</code>、feedback stats</td>
+                </tr>
+                <tr>
+                  <td>6</td>
+                  <td>时态与替代过滤</td>
+                  <td>过滤 stale temporal state、superseded item，避免旧状态压过当前证据。</td>
+                  <td>stale temporal filter、supersession filter</td>
+                </tr>
+                <tr>
+                  <td>7</td>
+                  <td>扩展与多样性</td>
+                  <td>MMR 降低重复，Hopfield 做联想补全，<code>refs_graph</code> 做关联扩展。</td>
+                  <td><code>MMR</code>、<code>Hopfield</code>、<code>refs_graph</code></td>
+                </tr>
+                <tr>
+                  <td>8</td>
+                  <td>注入防火墙</td>
+                  <td>按来源、敏感度、review 状态、查询匹配、时间冲突、topic recency、duplicate cluster、cohort 和预算做 include/demote/exclude。</td>
+                  <td><code>context_firewall.py</code></td>
+                </tr>
+                <tr>
+                  <td>9</td>
+                  <td>上下文装载</td>
+                  <td>默认 locator；需要时 overview；只有直接证据、强相关、预算允许时升 detail。detail 可通过 <code>detail_uri</code> / CCR 可逆读取。</td>
+                  <td><code>context_loading.py</code>、<code>context_packing.py</code></td>
+                </tr>
+                <tr>
+                  <td>10</td>
+                  <td>反馈回写</td>
+                  <td>明确 adopted/rejected 才改 support、contradict、gain、confidence；ignored 不升温。</td>
+                  <td><code>injection-feedback</code>、runtime cohorts</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section id="capabilities">
+        <div class="wrap">
+          <div class="section-head">
+            <div>
+              <div class="section-kicker">05 / Capability Ledger</div>
+              <h2>能力总账：不是功能堆砌，而是围绕可信上下文闭环。</h2>
+            </div>
+            <p class="lead">
+              下面不是愿景清单，而是从当前源码与命令 surface 梳理出来的能力域。每个域都说明“做什么、为什么难、落在哪个模块”。
+            </p>
+          </div>
+
+          <div class="grid three">
+            <div class="card">
+              <h3>1. 统一写入漏斗</h3>
+              <p>CLI、MCP、Web、hook、SDK 和候选批准最终应走同一套写入语义，避免旁路写坏事实源。</p>
+              <div class="tagline"><span class="mini">audit gate</span><span class="mini">quality warnings</span><span class="mini">write ledger</span></div>
+            </div>
+            <div class="card">
+              <h3>2. 原始证据层</h3>
+              <p>会话 transcript、live prompt、文件资源、抽取片段和写入来源分层保存，支持追溯但不默认污染上下文。</p>
+              <div class="tagline"><span class="mini">sources</span><span class="mini">resources</span><span class="mini">extractions</span></div>
+            </div>
+            <div class="card">
+              <h3>3. MemoryItem 长期知识</h3>
+              <p>把 decision、fact、signal、episode、artifact、handoff 等长期有用结论结构化沉淀，而不是保存流水账。</p>
+              <div class="tagline"><span class="mini">type</span><span class="mini">confidence</span><span class="mini">validity</span></div>
+            </div>
+            <div class="card">
+              <h3>4. 混合召回排序</h3>
+              <p>metadata 先过滤，全文和向量并行，RRF 融合，再加 rerank、衰减、反馈和运行证据。</p>
+              <div class="tagline"><span class="mini">BM25</span><span class="mini">vector</span><span class="mini">RRF</span><span class="mini">decay</span></div>
+            </div>
+            <div class="card">
+              <h3>5. 分层上下文经济</h3>
+              <p>locator/overview/detail 三档装载，详情通过 detail URI 或 CCR 可逆展开，减少上下文预算浪费。</p>
+              <div class="tagline"><span class="mini">budget</span><span class="mini">detail_uri</span><span class="mini">CCR</span></div>
+            </div>
+            <div class="card">
+              <h3>6. 注入防火墙</h3>
+              <p>阻断旧状态、弱证据、错项目、敏感内容、重复簇和预算溢出，防止“召回到了就注入”。</p>
+              <div class="tagline"><span class="mini">include</span><span class="mini">demote</span><span class="mini">exclude</span></div>
+            </div>
+            <div class="card">
+              <h3>7. 治理与成熟度</h3>
+              <p>扫描重复、噪声、TTL、漂移、质量、索引偏差和 conversation tier，把动作分成 safe_apply、review_required、blocked。</p>
+              <div class="tagline"><span class="mini">maturity</span><span class="mini">drift</span><span class="mini">summary rewrite</span></div>
+            </div>
+            <div class="card">
+              <h3>8. 多智能体适配</h3>
+              <p>适配器不是口头支持：install、doctor、runtime evidence、verify、uninstall 都要有边界和记录。</p>
+              <div class="tagline"><span class="mini">16 adapters</span><span class="mini">7 verified</span><span class="mini">runtime observed 3</span></div>
+            </div>
+            <div class="card">
+              <h3>9. Web 读模型</h3>
+              <p>Web Admin 不只是 CRUD，还提供 Cockpit、Data Flow、Lineage、Candidates、Hierarchy、Headroom 和 adapter onboarding。</p>
+              <div class="tagline"><span class="mini">89 routes</span><span class="mini">SSE</span><span class="mini">WebSocket</span></div>
+            </div>
+            <div class="card">
+              <h3>10. MCP 公开工具面</h3>
+              <p>27 个 operation-tier 工具覆盖 core、graph、governance、evolve、io、conversation，另有 onboarding fallback。</p>
+              <div class="tagline"><span class="mini">core 10</span><span class="mini">governance 6</span><span class="mini">io 5</span></div>
+            </div>
+            <div class="card">
+              <h3>11. ML/DL 建议门禁</h3>
+              <p>Headroom、compression gate、retrieval gate、ML advisory gate 可以增强效果，但被放在门禁和建议层，不接管默认事实源。</p>
+              <div class="tagline"><span class="mini">gate</span><span class="mini">advisory</span><span class="mini">fallback</span></div>
+            </div>
+            <div class="card">
+              <h3>12. Loop Engineering</h3>
+              <p>把目标、预算、上下文、checkpoint、verification、artifact 和结果写成可追踪 loop ledger，要求完成证据。</p>
+              <div class="tagline"><span class="mini">goal</span><span class="mini">checkpoint</span><span class="mini">evidence</span></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="algorithms">
+        <div class="wrap">
+          <div class="section-head">
+            <div>
+              <div class="section-kicker">06 / Algorithm Detail</div>
+              <h2>算法不是“加个向量库”，而是多阶段质量控制。</h2>
+            </div>
+            <p class="lead">
+              AMH 的检索质量不是靠某一个模型能力，而是靠多个保守、可解释、可退化的阶段叠加：结构过滤负责范围，BM25/向量负责候选，RRF 负责融合，衰减和反馈负责时间与价值，防火墙负责最后的上下文安全。
+            </p>
+          </div>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>算法 / 机制</th>
+                  <th>输入</th>
+                  <th>输出</th>
+                  <th>为什么重要</th>
+                  <th>真实边界</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>SearchFilter</td>
+                  <td>query、type、project、tags、tenant、since_days、stale/superseded 策略</td>
+                  <td>收窄后的候选池</td>
+                  <td>先限制范围，减少“语义相似但项目错误”的召回。</td>
+                  <td>过滤条件过窄会漏召回，需要 brief/detail 读取补证据。</td>
+                </tr>
+                <tr>
+                  <td>Query expansion / CJK tokens</td>
+                  <td>用户问题、关键词、同义词、中文分词信号</td>
+                  <td>全文检索查询变体</td>
+                  <td>中英混合、项目名、缩写、中文短词都不能只靠空格切词。</td>
+                  <td>扩展是召回辅助，不是事实创造。</td>
+                </tr>
+                <tr>
+                  <td>BM25 / FTS</td>
+                  <td>正文、summary、tags、metadata 文本</td>
+                  <td>按关键词相关度排序的候选</td>
+                  <td>对精确路径、命令、错误码、文件名比向量更可靠。</td>
+                  <td>语义泛化弱，需与向量融合。</td>
+                </tr>
+                <tr>
+                  <td>Vector retrieval</td>
+                  <td>embedding query 与 item embedding</td>
+                  <td>语义相近候选</td>
+                  <td>找得到换了说法的决策、经历和交接信号。</td>
+                  <td>embedder 失败时退化，不应阻断核心检索。</td>
+                </tr>
+                <tr>
+                  <td>RRF</td>
+                  <td>BM25 rank、vector rank、权重、<code>rrf_k</code></td>
+                  <td>融合分</td>
+                  <td>不同检索器分数不可直接比较，排名融合更稳。</td>
+                  <td>RRF 只能融合候选，不能判断事实是否仍有效。</td>
+                </tr>
+                <tr>
+                  <td>Cross-encoder rerank</td>
+                  <td>query + candidate pair</td>
+                  <td>更细粒度相关性排序</td>
+                  <td>在候选集较小后用更贵模型重排，提升精度。</td>
+                  <td>可选增强，不能成为默认不可用时的单点故障。</td>
+                </tr>
+                <tr>
+                  <td>Retention decay</td>
+                  <td>年龄、half-life、access/support/gain、contradiction、confidence</td>
+                  <td>effective score</td>
+                  <td>旧状态必须自然降权；常用、被支持、有收益的记忆可以保持活性。</td>
+                  <td>衰减不是删除，删除/归档仍走治理。</td>
+                </tr>
+                <tr>
+                  <td>Feedback value</td>
+                  <td>adopted/rejected 注入反馈、task outcome</td>
+                  <td>support、contradict、gain、confidence 调整</td>
+                  <td>让“被模型真实采用且带来结果”的记忆升温，错误注入降权。</td>
+                  <td>ignored 不应被解读为采用。</td>
+                </tr>
+                <tr>
+                  <td>MMR</td>
+                  <td>候选相关度与候选间相似度</td>
+                  <td>相关但不重复的列表</td>
+                  <td>避免上下文里塞进十条同义记忆。</td>
+                  <td>多样性不能压过强证据。</td>
+                </tr>
+                <tr>
+                  <td>Hopfield / graph expansion</td>
+                  <td>候选、关联边、引用图、联想状态</td>
+                  <td>补充关联记忆</td>
+                  <td>让交接、决策、文件证据和后续结果能串起来。</td>
+                  <td>扩展结果仍要过防火墙和预算。</td>
+                </tr>
+                <tr>
+                  <td>Context Firewall</td>
+                  <td>候选、query signal、预算、source/sensitivity、temporal/topic rules</td>
+                  <td>include / demote / exclude 决策与原因</td>
+                  <td>把“检索相关”升级成“可安全注入”。</td>
+                  <td>防火墙是注入前门，不替代写入审计。</td>
+                </tr>
+                <tr>
+                  <td>Context loading</td>
+                  <td>防火墙后的候选、预算、证据强度</td>
+                  <td>locator、overview、detail、detail_uri、CCR</td>
+                  <td>上下文预算有限，必须按任务需要逐级展开。</td>
+                  <td>压缩视图不能当完整原文，关键判断要读 detail。</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section id="data-boundary">
+        <div class="wrap">
+          <div class="section-head">
+            <div>
+              <div class="section-kicker">07 / Data Boundary</div>
+              <h2>目录边界讲清楚，才不会把证据、候选和记忆混为一谈。</h2>
+            </div>
+            <p class="lead">
+              README 必须让读者知道每个目录承担什么职责，什么时候写入，什么时候读取，能不能重建，能不能直接注入 prompt。
+            </p>
+          </div>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>位置</th>
+                  <th>语义</th>
+                  <th>写入时机</th>
+                  <th>读取时机</th>
+                  <th>是否事实源</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>items/mem-*.md</code></td>
+                  <td>长期 MemoryItem：决策、事实、信号、经历、产物、交接。</td>
+                  <td>通过 <code>WriteService</code> 或等价写入漏斗。</td>
+                  <td>搜索、读取、治理、索引重建、上下文装载。</td>
+                  <td>是。</td>
+                </tr>
+                <tr>
+                  <td><code>sources/conversations</code></td>
+                  <td>原始会话证据，含 message id、hash、offset、agent、session、cwd、sensitivity、tier。</td>
+                  <td><code>Stop</code> hook、<code>conversation ingest</code>、harvest。</td>
+                  <td>取证、候选生成、conversation read/rebalance。</td>
+                  <td>不是长期记忆事实源。</td>
+                </tr>
+                <tr>
+                  <td><code>sources/writes</code></td>
+                  <td>写入 provenance 账本。</td>
+                  <td>MemoryItem 写入成功后。</td>
+                  <td>lineage、audit、source tracing。</td>
+                  <td>是写入证据，不是记忆正文。</td>
+                </tr>
+                <tr>
+                  <td><code>resources</code> / <code>extractions</code></td>
+                  <td>文件资源、抽取片段、多模态证据 sidecar。</td>
+                  <td>写入 refs、resource attach、extraction promotion。</td>
+                  <td>取证、晋级、Web 资源视图。</td>
+                  <td>证据源，不直接等于 MemoryItem。</td>
+                </tr>
+                <tr>
+                  <td><code>index.db</code></td>
+                  <td>metadata、FTS、embedding、refs graph 的查询投影。</td>
+                  <td>写入后 upsert、reindex、repair。</td>
+                  <td>search/retrieval/graph/related。</td>
+                  <td>不是，可重建。</td>
+                </tr>
+                <tr>
+                  <td><code>runtime</code></td>
+                  <td>adapter event、recall gap、injection cohort、loop ledger、task outcome。</td>
+                  <td>运行时事件、反馈、loop 命令。</td>
+                  <td>cockpit、data-flow、governance、retrieval boost。</td>
+                  <td>观测账本。</td>
+                </tr>
+                <tr>
+                  <td><code>review</code></td>
+                  <td>proactive candidates、需要复核的治理/演化建议。</td>
+                  <td>候选生成、semantic generation、governance plan。</td>
+                  <td>Web candidates、approve/reject、治理复核。</td>
+                  <td>不是，批准后才可写入。</td>
+                </tr>
+                <tr>
+                  <td><code>derived</code></td>
+                  <td>hierarchical memory、compression sidecar、其他可重建读模型。</td>
+                  <td>build hierarchy、context packing、compression gate。</td>
+                  <td>Web 预览、上下文装载、CCR retrieve。</td>
+                  <td>不是，可重建。</td>
+                </tr>
+                <tr>
+                  <td><code>pending</code></td>
+                  <td>写入兜底队列和 dead-letter。</td>
+                  <td>核心写入链路不可用、hook 兜底。</td>
+                  <td><code>sync-pending</code> 重放或排查。</td>
+                  <td>不是，重放成功后才进入 facts。</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section id="interfaces">
+        <div class="wrap">
+          <div class="section-head">
+            <div>
+              <div class="section-kicker">08 / Surfaces</div>
+              <h2>接入面要讲“能力边界”，不只讲“支持了谁”。</h2>
+            </div>
+            <p class="lead">
+              一个跨智能体共享大脑最容易被质疑的地方是：到底是 demo 支持，还是可安装、可诊断、可卸载、可验证、能产生运行证据。新版必须把这些层级说清楚。
+            </p>
+          </div>
+
+          <div class="grid two">
+            <div class="card">
+              <h3>CLI</h3>
+              <p>当前模块入口是 <code>python -m agent_brain.interfaces.cli</code>，对外命令为 <code>memory</code>。核心命令覆盖写入、查询、读取、反馈、治理、演化、导入导出、adapter、conversation、resource、profile、benchmark、headroom、loop。</p>
+              <div class="tagline"><span class="mini">write/search/read</span><span class="mini">govern</span><span class="mini">adapter</span><span class="mini">loop</span></div>
+            </div>
+            <div class="card">
+              <h3>MCP</h3>
+              <p>公开面由 conformance test 锁定：27 个 operation-tier 工具，按 core、graph、governance、evolve、io、conversation 分层；另外注册 1 个 onboarding fallback。</p>
+              <div class="tagline"><span class="mini">core 10</span><span class="mini">graph 3</span><span class="mini">governance 6</span><span class="mini">evolve 1</span><span class="mini">io 5</span><span class="mini">conversation 2</span></div>
+            </div>
+            <div class="card">
+              <h3>Web Admin</h3>
+              <p>89 条 API / WebSocket route，包括 items、batch、graph、data-flow、memory-lineage、cockpit、candidates、hierarchy、headroom、adapter onboarding、audit、export/import、SSE/WS。</p>
+              <div class="tagline"><span class="mini">89 routes</span><span class="mini">surface lock</span><span class="mini">sanitized read model</span></div>
+            </div>
+            <div class="card">
+              <h3>Adapter Runtime</h3>
+              <p>当前适配器账本共 16 个：7 verified，8 install-ready，1 wip。verified 名单是 aider、aone_copilot、claude_code、codex、github_copilot、openhuman、wukong；runtime observed 为 3。</p>
+              <div class="tagline"><span class="mini">doctor</span><span class="mini">install-verify</span><span class="mini">uninstall-check</span><span class="mini">truth contract</span></div>
+            </div>
+          </div>
+
+          <div class="note">
+            这组数字的口径很重要：adapter 的 <code>verified</code> 是 doctor/安装验证/运行证据驱动的状态，不等于“写了配置模板”；MCP 的 <code>27 + 1</code> 也不能宣传成 28 个核心操作工具，因为多出来的是客户端不展示 prompts/resources 时的 onboarding fallback。
+          </div>
+        </div>
+      </section>
+
+      <section id="map">
+        <div class="wrap">
+          <div class="section-head">
+            <div>
+              <div class="section-kicker">09 / Capability Map</div>
+              <h2>从指标、治理、协作三个维度看能力地图。</h2>
+            </div>
+            <p class="lead">
+              这里用工程账本式矩阵，不用夸张的“AI 图”。它要表达的是系统怎么被观测、怎么被治理、怎么让多个智能体安全共享，而不是用视觉效果掩盖能力边界。
+            </p>
+          </div>
+
+          <div class="scoreboard">
+            <div class="score-col">
+              <h3>指标：知道系统有没有变好</h3>
+              <div class="score-row"><b>检索命中与召回缺口</b><span>search trace、recall gaps、adopted/rejected feedback、runtime evidence boost。</span></div>
+              <div class="score-row"><b>上下文成本</b><span>locator/overview/detail token 估算、CCR、compression gate、budget downgrade。</span></div>
+              <div class="score-row"><b>记忆健康度</b><span>maturity、decay-status、confidence、support/contradict、stale/superseded。</span></div>
+              <div class="score-row"><b>接入真实性</b><span>adapter doctor、install-verify、runtime_observed、surface-lock route/tool counts。</span></div>
+            </div>
+            <div class="score-col">
+              <h3>治理：知道什么能自动改</h3>
+              <div class="score-row"><b>写入审计</b><span>critical/high 风险 fail-close；质量告警不静默。</span></div>
+              <div class="score-row"><b>维护分 lane</b><span>safe_apply、review_required、blocked，低风险修复和高风险变更分离。</span></div>
+              <div class="score-row"><b>漂移与时效</b><span>TTL、temporal conflict、supersession、引用腐烂、summary_too_long。</span></div>
+              <div class="score-row"><b>演化门禁</b><span>evolve/dream/proactive candidate 先生成提案，批准后再进事实源。</span></div>
+            </div>
+            <div class="score-col">
+              <h3>协作：知道谁在共享什么</h3>
+              <div class="score-row"><b>多智能体证据</b><span>writer、agent、session、cwd、source kind、conversation id。</span></div>
+              <div class="score-row"><b>统一读取模式</b><span>brief 优先、按需 detail；避免承接时 bulk-read 爆上下文。</span></div>
+              <div class="score-row"><b>能力分级</b><span>verified / install-ready / wip，不把模板支持写成真实验证。</span></div>
+              <div class="score-row"><b>Loop 承接</b><span>goal、budget、checkpoint、verification、artifact、outcome 让复杂任务可交接。</span></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="difficulties">
+        <div class="wrap">
+          <div class="section-head">
+            <div>
+              <div class="section-kicker">10 / Hard Problems</div>
+              <h2>真正难点：不是“存下来”，而是长期不污染、不漂移、不越权。</h2>
+            </div>
+            <p class="lead">
+              AMH 做了很多看起来不像“功能亮点”的工程，它们才是开源读者会关心的硬问题：失败时怎么降级、错误记忆怎么不被放大、候选怎么不误入事实源、多个智能体怎么不互相污染。
+            </p>
+          </div>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>难点</th>
+                  <th>为什么难</th>
+                  <th>AMH 的处理方式</th>
+                  <th>代码入口</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>写入与索引一致性</td>
+                  <td>索引、embedding、FTS 都可能失败；如果失败时丢写入，会损坏用户信任。</td>
+                  <td>Markdown 写入是事实源；索引失败只标 dirty，后续 repair/reindex。</td>
+                  <td><code>write_service.py</code>、<code>verify</code>、<code>reindex</code></td>
+                </tr>
+                <tr>
+                  <td>原始 transcript 污染</td>
+                  <td>完整对话噪声大、敏感、上下文占用高，不能直接当长期知识。</td>
+                  <td>ConversationStore 存证据；MemoryItem 只存提炼后的长期结论。</td>
+                  <td><code>conversation_store.py</code></td>
+                </tr>
+                <tr>
+                  <td>旧状态压过新证据</td>
+                  <td>Agent 最容易被过期 handoff、旧路径、旧命令误导。</td>
+                  <td>stale temporal filter、supersession、decay、topic recency、Context Firewall。</td>
+                  <td><code>retrieval.py</code>、<code>context_firewall.py</code></td>
+                </tr>
+                <tr>
+                  <td>上下文预算爆炸</td>
+                  <td>承接任务时 bulk-read 很容易把窗口吃满，模型反而无法行动。</td>
+                  <td>brief/locator/overview/detail 分层；detail_uri、head 限制、CCR 可逆压缩。</td>
+                  <td><code>context_loading.py</code>、<code>context_packing.py</code></td>
+                </tr>
+                <tr>
+                  <td>候选自动晋级风险</td>
+                  <td>proactive/semantic 候选可能合理但未验证，不能直接成为事实。</td>
+                  <td>review queue 隔离；approve 后仍走 WriteService。</td>
+                  <td><code>proactive_memory.py</code></td>
+                </tr>
+                <tr>
+                  <td>多智能体能力虚标</td>
+                  <td>模板可安装不等于真实客户端能工作，更不等于产生运行证据。</td>
+                  <td>adapter truth contract：doctor、install-verify、runtime_observed、uninstall-check 分级。</td>
+                  <td><code>adapter</code> CLI、Web adapter APIs</td>
+                </tr>
+                <tr>
+                  <td>治理误伤事实源</td>
+                  <td>自动合并、归档、删除如果做错，会永久破坏共享大脑。</td>
+                  <td>maintenance plan 分 safe/review/blocked；高风险动作必须复核。</td>
+                  <td><code>maintenance_plan.py</code>、<code>auto_governance.py</code></td>
+                </tr>
+                <tr>
+                  <td>增强模型单点依赖</td>
+                  <td>cross-encoder、Headroom、ML advisory 可提升质量，也可能不可用或不稳定。</td>
+                  <td>作为 gate/advisory/optional bridge；失败时有本地 fallback 或退化路径。</td>
+                  <td><code>headroom</code>、<code>compression-gate</code>、<code>ml-advisory-gate</code></td>
+                </tr>
+                <tr>
+                  <td>Web/API surface 漂移</td>
+                  <td>路由拆分和重构容易漏端点、重复端点或丢 internal symbol。</td>
+                  <td>conformance test 锁定 89 routes 和 MCP 27+1 surface。</td>
+                  <td><code>test_web_surface_lock.py</code>、<code>test_public_surface_lock.py</code></td>
+                </tr>
+                <tr>
+                  <td>Loop 完成证据</td>
+                  <td>复杂任务如果只记录“完成了”，下个 Agent 无法验证真假。</td>
+                  <td>Loop complete 要求 completion evidence，事件账本记录 checkpoint、verification、artifact。</td>
+                  <td><code>loop_store.py</code>、<code>loop_events.py</code></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section id="truth">
+        <div class="wrap">
+          <div class="section-head">
+            <div>
+              <div class="section-kicker">11 / Truth Boundaries</div>
+              <h2>专业 README 也要敢写边界。</h2>
+            </div>
+            <p class="lead">
+              开源前最需要的不是把话说满，而是让读者相信你知道哪些地方已经验证、哪些地方是保守门禁、哪些地方不能宣传成默认能力。
+            </p>
+          </div>
+
+          <div class="truth-list">
+            <div class="truth"><b>不能说：</b>“所有 Agent 都已经真实端到端验证。”<br>当前 adapter 账本是 16 个，其中 7 verified、8 install-ready、1 wip，runtime observed 为 3。</div>
+            <div class="truth"><b>不能说：</b>“AMH 自动维护所有 memory，不需要人管。”<br>它会自动扫描和 safe-apply 低风险动作，但高风险合并、归档、替代、删除和技能合成必须走 review/evolve。</div>
+            <div class="truth"><b>不能说：</b>“向量召回就是核心能力。”<br>向量只是候选来源之一；metadata、BM25、RRF、decay、feedback、firewall、context loading 才构成完整读取链路。</div>
+            <div class="truth"><b>不能说：</b>“原始对话就是长期记忆。”<br>原始对话是证据层；长期记忆必须提炼成 MemoryItem，并保留 provenance。</div>
+            <div class="truth"><b>不能说：</b>“ML/DL 已接管默认治理。”<br>ML advisory、compression gate、retrieval gate 是建议和质量门禁，不是默认事实源控制器。</div>
+            <div class="truth"><b>不能说：</b>“所有派生视图都等价于事实。”<br><code>index.db</code>、hierarchy、runtime、review、derived 都是投影、候选或观测，不能反向冒充 facts。</div>
+          </div>
+        </div>
+      </section>
+
+      <section id="verification">
+        <div class="wrap">
+          <div class="section-head">
+            <div>
+              <div class="section-kicker">12 / Verification</div>
+              <h2>README 的每个关键数字都应该能被命令复核。</h2>
+            </div>
+            <p class="lead">
+              新版预览把取证口径也放进页面：读者可以直接跑命令验证 CLI、Web routes、MCP surface、adapter 状态和关键测试，而不是只看宣传文案。
+            </p>
+          </div>
+
+          <div class="grid two">
+            <div class="card">
+              <h3>本地自检与公共入口</h3>
+              <pre><code>python -m agent_brain.interfaces.cli --help
+python -m agent_brain.interfaces.cli doctor
+python -m agent_brain.interfaces.cli adapter list --format json
+python -m agent_brain.interfaces.cli api-docs</code></pre>
+            </div>
+            <div class="card">
+              <h3>Surface lock 与重点测试</h3>
+              <pre><code>python -m pytest tests/conformance/test_public_surface_lock.py -q
+python -m pytest tests/conformance/test_web_surface_lock.py -q
+python -m pytest tests/unit/test_docs_truth_contract.py -q</code></pre>
+            </div>
+          </div>
+
+          <div class="table-wrap" style="margin-top:1rem">
+            <table>
+              <thead>
+                <tr>
+                  <th>事实</th>
+                  <th>验证方式</th>
+                  <th>当前值</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>核心引擎规模</td>
+                  <td><code>find agent_brain -type f -name '*.py' ... | wc -l</code></td>
+                  <td>294 个 Python 文件，36,415 行；目录文件总数 297。</td>
+                </tr>
+                <tr>
+                  <td>Web Admin API surface</td>
+                  <td><code>tests/conformance/test_web_surface_lock.py</code> 的 <code>EXPECTED_ROUTES</code></td>
+                  <td>89 条 API / WebSocket route。</td>
+                </tr>
+                <tr>
+                  <td>MCP operation-tier</td>
+                  <td><code>tests/conformance/test_public_surface_lock.py</code></td>
+                  <td>27 个 operation-tier 工具，注册面另有 1 个 onboarding fallback。</td>
+                </tr>
+                <tr>
+                  <td>适配器状态</td>
+                  <td><code>memory adapter list --format json</code></td>
+                  <td>16 个：7 verified，8 install-ready，1 wip；runtime_observed 为 3。</td>
+                </tr>
+                <tr>
+                  <td>测试规模</td>
+                  <td><code>find tests -type f -name '*.py' ...</code></td>
+                  <td>184 个 Python 测试文件，29,489 行；测试目录文件总数 233。</td>
+                </tr>
+                <tr>
+                  <td>运行时工具包口径</td>
+                  <td>排除 <code>agent_runtime_kit/mcp/.venv</code>、<code>__pycache__</code>、样例 <code>items</code></td>
+                  <td>27 个核心工具包文件，Python shim 1 个、9 行；其余以 shell/templates/hooks 为主。</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="note">
+            这个页面是 <code>docs/visuals/readme-zh-pro-preview.html</code> 的专业预览，不直接替换正式 README。它的目标是先把核心叙事、架构图和真实能力边界打磨到足够可信，再决定如何拆回 <code>README.zh.md</code>、<code>README.md</code> 和独立架构文档。
+          </div>
+        </div>
+      </section>
+
+      <footer class="footer">
+        <div class="wrap">
+          <p>
+            Evidence map:
+            <code>agent_brain/memory/store/write_service.py</code>,
+            <code>agent_brain/memory/recall/retrieval.py</code>,
+            <code>agent_brain/memory/context/context_firewall.py</code>,
+            <code>agent_brain/product/memory_lineage.py</code>,
+            <code>agent_brain/product/cockpit.py</code>,
+            <code>agent_brain/product/proactive_memory.py</code>,
+            <code>agent_brain/product/hierarchical_memory.py</code>,
+            <code>agent_brain/memory/governance/auto_governance.py</code>,
+            <code>agent_brain/memory/loops/*</code>,
+            <code>tests/conformance/*_surface_lock.py</code>.
+          </p>
+        </div>
+      </footer>
+    </main>
+  </div>
+</body>
+</html>

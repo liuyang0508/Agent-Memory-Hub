@@ -1,0 +1,246 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="820" viewBox="0 0 1500 820" role="img" aria-labelledby="title desc" style="max-width:100%;height:auto;">
+  <title id="title">Maintenance + Retrieval Sequence</title>
+  <desc id="desc">Maintenance + Retrieval Sequence</desc>
+  <defs>
+
+    <linearGradient id="qoderPageBg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#fffdfb"/>
+      <stop offset="48%" stop-color="#fbfaf8"/>
+      <stop offset="100%" stop-color="#f7fbff"/>
+    </linearGradient>
+    <linearGradient id="qoderSheetBg" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#fff3fa"/>
+      <stop offset="45%" stop-color="#fbfdff"/>
+      <stop offset="100%" stop-color="#f0f8e9"/>
+    </linearGradient>
+    <filter id="qoderSheetShadow" x="-8%" y="-8%" width="116%" height="116%">
+      <feDropShadow dx="0" dy="26" stdDeviation="30" flood-color="#2a231c" flood-opacity="0.085"/>
+    </filter>
+
+    <marker id="arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#57606a"/>
+    </marker>
+    <filter id="paper" x="-8%" y="-8%" width="116%" height="116%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.78" numOctaves="2" seed="11" result="noise"/>
+      <feColorMatrix type="saturate" values="0"/>
+      <feComponentTransfer>
+        <feFuncA type="table" tableValues="0 0.035"/>
+      </feComponentTransfer>
+      <feBlend in="SourceGraphic" mode="multiply"/>
+    </filter>
+    <filter id="softShadow" x="-15%" y="-15%" width="130%" height="130%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#1f2328" flood-opacity="0.08"/>
+    </filter>
+    <style>
+      .bg { fill: url(#qoderPageBg); }
+      .sheet { fill: url(#qoderSheetBg); filter: url(#qoderSheetShadow); }
+      .ink { fill: #24292f; }
+      .muted { fill: #57606a; }
+      .title { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 34px; font-weight: 850; fill: #24292f; }
+      .subtitle { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 17px; fill: #57606a; }
+      .section { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 17px; font-weight: 800; fill: #57606a; text-transform: uppercase; }
+      .card-title { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 20px; font-weight: 820; fill: #24292f; }
+      .card-line { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 15px; fill: #24292f; }
+      .small { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 13px; fill: #57606a; }
+      .tiny { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 10px; fill: #6e7781; }
+      .num { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 22px; font-weight: 900; }
+      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; font-size: 13px; fill: #24292f; }
+      .mono-small { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; font-size: 12px; fill: #57606a; }
+      .panel { fill: #ffffff; stroke: #d8dee4; stroke-width: 1.4; filter: url(#softShadow); }
+      .card { stroke-width: 1.8; filter: url(#softShadow); }
+      .thin-card { stroke-width: 1.2; }
+      .arrow { fill: none; stroke: #57606a; stroke-width: 2.1; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrow); }
+      .soft-arrow { fill: none; stroke: #8c959f; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 6 7; marker-end: url(#arrow); }
+      .flow-line { stroke-dasharray: 14 10; animation: flowDash 1.8s linear infinite; }
+      .planned-line { stroke-dasharray: 8 8; }
+      .flow-dot { fill: #1f6f78; filter: url(#softShadow); }
+      .breath { animation: breath 2.8s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+      .breath-slow { animation: breath 4.2s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+      .blink { animation: blink 1.7s ease-in-out infinite; }
+      .rail { fill: none; stroke: #d0d7de; stroke-width: 1.3; stroke-dasharray: 5 8; }
+      .branch { fill: none; stroke: #d0d7de; stroke-width: 1.3; stroke-linecap: round; stroke-linejoin: round; }
+      .icon { fill: none; stroke-width: 3.5; stroke-linecap: round; stroke-linejoin: round; }
+      @keyframes flowDash {
+        to { stroke-dashoffset: -24; }
+      }
+      @keyframes breath {
+        0%, 100% { opacity: 0.88; transform: scale(1); }
+        50% { opacity: 1; transform: scale(1.035); }
+      }
+      @keyframes blink {
+        0%, 100% { opacity: 0.42; }
+        50% { opacity: 1; }
+      }
+    </style>
+  </defs>
+  <rect class="bg" width="1500" height="820"/>
+  <rect x="28" y="28" width="1444" height="764" rx="36" fill="#ffffff" opacity="0.62"/>
+  <rect class="sheet" x="20" y="20" width="1460" height="780" rx="34" stroke="#ffffff" stroke-opacity="0.86" stroke-width="1.2"/>
+  <text class="title" x="70" y="76">Maintenance + Retrieval Sequence</text>
+  <text class="subtitle" x="72" y="105">The upper lane maintains trusted truth first; the lower lane reads the handoff surface before ranking, firewalls, and injection.</text>
+  <text class="section" x="70" y="142">Lane A</text>
+  <text class="section" x="136" y="142">Maintenance before recall</text>
+  <text class="section" x="70" y="480">Lane B</text>
+  <text class="section" x="136" y="480">Retrieval reads the handoff surface</text>
+  <g>
+    <rect class="card" x="58" y="178" width="176" height="118" rx="18" fill="#e7fbf8" stroke="#95dcd6"/>
+    <circle cx="100" cy="220" r="26" fill="#ffffff" opacity="0.58"/>
+    <path class="icon" stroke="#1f6f78" d="M88 205h18l8 8v17H88zM106 205v10h8M94 219h12M105 233a8 8 0 1 0 0.1 0M111 239l8 8"/>
+  <text class="card-title" x="136" y="212">Evidence</text>
+  <text class="card-line" x="136" y="239">prompt /</text>
+  <text class="card-line" x="136" y="258">transcript /</text>
+  </g>
+  <path class="arrow flow-line" d="M234 237 L306 237">
+    <animate attributeName="stroke-dashoffset" values="0;-24" dur="1.8s" repeatCount="indefinite"/>
+  </path>
+  <g>
+    <rect class="card" x="306" y="178" width="176" height="118" rx="18" fill="#fff0f6" stroke="#efb4d7"/>
+    <circle cx="348" cy="220" r="26" fill="#ffffff" opacity="0.58"/>
+    <path class="icon" stroke="#bf3989" d="M348 204l17 7v11c0 13-7 22-17 27-10-5-17-14-17-27V211zM340 226l7 7 13-15"/>
+  <text class="card-title" x="384" y="212">Candidat</text>
+  <text class="card-title" x="384" y="235">e</text>
+  <text class="card-line" x="384" y="262">isolate /</text>
+  </g>
+  <path class="arrow flow-line" d="M482 237 L554 237">
+    <animate attributeName="stroke-dashoffset" values="0;-24" dur="1.8s" repeatCount="indefinite"/>
+  </path>
+  <g>
+    <rect class="card" x="554" y="178" width="176" height="118" rx="18" fill="#fff1df" stroke="#efb770"/>
+    <circle cx="596" cy="220" r="26" fill="#ffffff" opacity="0.58"/>
+    <path class="icon" stroke="#bc6c00" d="M581 211c0-9 30-9 30 0v20c0 9-30 9-30 0zM581 211c0 9 30 9 30 0M581 224c0 9 30 9 30 0"/>
+  <text class="card-title" x="632" y="212">WriteSer</text>
+  <text class="card-title" x="632" y="235">vice</text>
+  <text class="card-line" x="632" y="262">schema +</text>
+  </g>
+  <path class="arrow flow-line" d="M730 237 L802 237">
+    <animate attributeName="stroke-dashoffset" values="0;-24" dur="1.8s" repeatCount="indefinite"/>
+  </path>
+  <g>
+    <rect class="card" x="802" y="178" width="176" height="118" rx="18" fill="#edf9ef" stroke="#a8d8b5"/>
+    <circle cx="844" cy="220" r="26" fill="#ffffff" opacity="0.58"/>
+    <path class="icon" stroke="#2f7d32" d="M830 209h31v27H830zM836 215h19M836 223h19M836 231h12"/>
+  <text class="card-title" x="880" y="212">MemoryIt</text>
+  <text class="card-title" x="880" y="235">em</text>
+  <text class="card-line" x="880" y="262">Markdown</text>
+  </g>
+  <path class="arrow flow-line" d="M978 237 L1050 237">
+    <animate attributeName="stroke-dashoffset" values="0;-24" dur="1.8s" repeatCount="indefinite"/>
+  </path>
+  <g>
+    <rect class="card" x="1050" y="178" width="176" height="118" rx="18" fill="#edf6ff" stroke="#a8cff2"/>
+    <circle cx="1092" cy="220" r="26" fill="#ffffff" opacity="0.58"/>
+    <path class="icon" stroke="#0969da" d="M1077 207h15v15H1077zM1097 207h15v15H1097zM1084 222v12h20M1104 234h9"/>
+  <text class="card-title" x="1128" y="212">Index</text>
+  <text class="card-title" x="1128" y="235">Projecti</text>
+  <text class="card-title" x="1128" y="258">on</text>
+  <text class="card-line" x="1128" y="285">FTS / vector</text>
+  </g>
+  <path class="arrow flow-line" d="M1226 237 L1298 237">
+    <animate attributeName="stroke-dashoffset" values="0;-24" dur="1.8s" repeatCount="indefinite"/>
+  </path>
+  <g>
+    <rect class="card" x="1298" y="178" width="176" height="118" rx="18" fill="#fff7cc" stroke="#e7c34e"/>
+    <circle cx="1340" cy="220" r="26" fill="#ffffff" opacity="0.58"/>
+    <path class="icon" stroke="#8a6200" d="M1325 209h34v24H1325zM1334 241h16M1342 233v8M1331 222h7l4-7 5 13 4-6h6"/>
+  <text class="card-title" x="1376" y="212">Runtime</text>
+  <text class="card-title" x="1376" y="235">Ledger</text>
+  <text class="card-line" x="1376" y="262">feedback /</text>
+  </g>
+  <g>
+    <rect x="438" y="340" width="724" height="72" rx="18" fill="#f6f8fa" stroke="#c9d1d9" stroke-width="1.5"/>
+    <text class="card-title" x="462" y="374" fill="#57606a">Handoff</text>
+  <text class="card-line" x="462" y="402">Handoff surface: MemoryItem + Index Projection + Runtime Ledger</text>
+  </g>
+  <path class="soft-arrow flow-line" d="M890 296 C 935 296, 755 340, 800 340">
+    <animate attributeName="stroke-dashoffset" values="0;-24" dur="1.8s" repeatCount="indefinite"/>
+  </path>
+  <path class="soft-arrow flow-line" d="M1138 296 C 1307 296, 631 340, 800 340">
+    <animate attributeName="stroke-dashoffset" values="0;-24" dur="1.8s" repeatCount="indefinite"/>
+  </path>
+  <path class="soft-arrow flow-line" d="M1386 296 C 1679 296, 507 340, 800 340">
+    <animate attributeName="stroke-dashoffset" values="0;-24" dur="1.8s" repeatCount="indefinite"/>
+  </path>
+  <g>
+    <rect class="card" x="58" y="516" width="118" height="126" rx="16" fill="#e7fbf8" stroke="#95dcd6"/>
+  <text class="card-title" x="74" y="548">User</text>
+  <text class="card-title" x="74" y="570">Query</text>
+  <text class="card-line" x="74" y="594">intent + cwd +</text>
+  <text class="card-line" x="74" y="612">adapter</text>
+  </g>
+  <path class="arrow flow-line" d="M176 579 L246 579">
+    <animate attributeName="stroke-dashoffset" values="0;-24" dur="1.8s" repeatCount="indefinite"/>
+  </path>
+  <g>
+    <rect class="card" x="246" y="516" width="118" height="126" rx="16" fill="#edf6ff" stroke="#a8cff2"/>
+  <text class="card-title" x="262" y="548">SearchFil</text>
+  <text class="card-title" x="262" y="570">ter</text>
+  <text class="card-line" x="262" y="594">type / tags /</text>
+  <text class="card-line" x="262" y="612">tenant</text>
+  </g>
+  <path class="arrow flow-line" d="M364 579 L434 579">
+    <animate attributeName="stroke-dashoffset" values="0;-24" dur="1.8s" repeatCount="indefinite"/>
+  </path>
+  <g>
+    <rect class="card" x="434" y="516" width="118" height="126" rx="16" fill="#edf9ef" stroke="#a8d8b5"/>
+  <text class="card-title" x="450" y="548">BM25 +</text>
+  <text class="card-title" x="450" y="570">Vector</text>
+  <text class="card-line" x="450" y="594">parallel</text>
+  <text class="card-line" x="450" y="612">recall</text>
+  </g>
+  <path class="arrow flow-line" d="M552 579 L622 579">
+    <animate attributeName="stroke-dashoffset" values="0;-24" dur="1.8s" repeatCount="indefinite"/>
+  </path>
+  <g>
+    <rect class="card" x="622" y="516" width="118" height="126" rx="16" fill="#fff1df" stroke="#efb770"/>
+  <text class="card-title" x="638" y="548">RRF +</text>
+  <text class="card-title" x="638" y="570">Boost</text>
+  <text class="card-line" x="638" y="594">phrase / status</text>
+  </g>
+  <path class="arrow flow-line" d="M740 579 L810 579">
+    <animate attributeName="stroke-dashoffset" values="0;-24" dur="1.8s" repeatCount="indefinite"/>
+  </path>
+  <g>
+    <rect class="card" x="810" y="516" width="118" height="126" rx="16" fill="#fff7cc" stroke="#e7c34e"/>
+  <text class="card-title" x="826" y="548">Rank</text>
+  <text class="card-title" x="826" y="570">Factors</text>
+  <text class="card-line" x="826" y="594">rerank /</text>
+  <text class="card-line" x="826" y="612">confidence /</text>
+  </g>
+  <path class="arrow flow-line" d="M928 579 L998 579">
+    <animate attributeName="stroke-dashoffset" values="0;-24" dur="1.8s" repeatCount="indefinite"/>
+  </path>
+  <g>
+    <rect class="card" x="998" y="516" width="118" height="126" rx="16" fill="#fff1eb" stroke="#efbda9"/>
+  <text class="card-title" x="1014" y="548">Freshness</text>
+  <text class="card-line" x="1014" y="572">stale /</text>
+  <text class="card-line" x="1014" y="590">supersession</text>
+  </g>
+  <path class="arrow flow-line" d="M1116 579 L1186 579">
+    <animate attributeName="stroke-dashoffset" values="0;-24" dur="1.8s" repeatCount="indefinite"/>
+  </path>
+  <g>
+    <rect class="card" x="1186" y="516" width="118" height="126" rx="16" fill="#f5efff" stroke="#cfb9f3"/>
+  <text class="card-title" x="1202" y="548">MMR +</text>
+  <text class="card-title" x="1202" y="570">Graph</text>
+  <text class="card-line" x="1202" y="594">Hopfield /</text>
+  <text class="card-line" x="1202" y="612">refs_graph</text>
+  </g>
+  <path class="arrow flow-line" d="M1304 579 L1374 579">
+    <animate attributeName="stroke-dashoffset" values="0;-24" dur="1.8s" repeatCount="indefinite"/>
+  </path>
+  <g>
+    <rect class="card" x="1374" y="516" width="118" height="126" rx="16" fill="#f1efff" stroke="#c0b0ee"/>
+  <text class="card-title" x="1390" y="548">Firewall</text>
+  <text class="card-title" x="1390" y="570">+ Pack</text>
+  <text class="card-line" x="1390" y="594">scope / safety</text>
+  <text class="card-line" x="1390" y="612">/ locator-</text>
+  </g>
+  <path class="arrow flow-line" d="M800 412 L835 516">
+    <animate attributeName="stroke-dashoffset" values="0;-24" dur="1.8s" repeatCount="indefinite"/>
+  </path>
+  <g>
+    <rect x="286" y="700" width="1028" height="70" rx="18" fill="#fff1eb" stroke="#efbda9" stroke-width="1.5"/>
+    <text class="card-title" x="310" y="734" fill="#d1242f">Failure / degradation</text>
+  <text class="card-line" x="310" y="762">Failure/degrade: unapproved candidates do not write; index failure does not invalidate Markdown truth; firewall rejects are not</text>
+  </g>
+</svg>

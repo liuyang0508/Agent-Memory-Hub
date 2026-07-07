@@ -1,0 +1,76 @@
+{
+  "id": "memory-eval-p0-fixture",
+  "top_k": 5,
+  "cases": [
+    {
+      "id": "conversation-mechanical-harvest",
+      "type": "conversation_replay",
+      "transcript": [
+        {
+          "role": "user",
+          "content": "fix the failing test_cli_version"
+        },
+        {
+          "role": "assistant",
+          "content": "Decision: chose mechanical-first harvesting over pure LLM so it works offline."
+        }
+      ],
+      "expected": {
+        "raw_messages": 2,
+        "min_written_items": 1,
+        "item_types": ["decision"],
+        "source_kind": "harvested"
+      }
+    },
+    {
+      "id": "recall-current-decision",
+      "type": "recall",
+      "items": [
+        {
+          "id": "mem-20260628-120000-current-decision",
+          "type": "decision",
+          "title": "Offline harvesting decision",
+          "summary": "Use mechanical-first harvesting before optional LLM enrichment",
+          "body": "Decision: AMH uses mechanical-first harvesting so it works offline.",
+          "refs": {"urls": ["https://example.test/design"]}
+        }
+      ],
+      "queries": [
+        {
+          "query": "offline harvesting decision",
+          "expected_ids": ["mem-20260628-120000-current-decision"]
+        }
+      ]
+    },
+    {
+      "id": "superseded-memory-guard",
+      "type": "dynamic_update",
+      "items": [
+        {
+          "id": "mem-20260628-120001-old-cli",
+          "type": "decision",
+          "title": "Use old CLI",
+          "summary": "Old memory eval command decision",
+          "body": "Use old eval command.",
+          "superseded_by": "mem-20260628-120002-new-cli",
+          "refs": {"urls": ["https://example.test/old"]}
+        },
+        {
+          "id": "mem-20260628-120002-new-cli",
+          "type": "decision",
+          "title": "Use memory eval run",
+          "summary": "Supported memory eval command decision",
+          "body": "Use memory eval run as the supported eval command.",
+          "refs": {"urls": ["https://example.test/new"]}
+        }
+      ],
+      "queries": [
+        {
+          "query": "supported memory eval command",
+          "expected_ids": ["mem-20260628-120002-new-cli"],
+          "forbidden_ids": ["mem-20260628-120001-old-cli"]
+        }
+      ]
+    }
+  ]
+}

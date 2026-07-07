@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AMH 记忆评测可视化报告</title>
+<style>
+:root {
+  color-scheme: light;
+  --ink: #17202a;
+  --muted: #68727f;
+  --line: #d7dde4;
+  --bg: #f6f8fb;
+  --panel: #ffffff;
+  --blue: #2f6fbd;
+  --green: #5d9b83;
+  --orange: #d58a3a;
+  --red: #c95f4d;
+  --navy: #303753;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+.page { max-width: 1320px; margin: 0 auto; padding: 34px 32px 56px; }
+.hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  gap: 28px;
+  align-items: stretch;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 28px;
+}
+.eyebrow { margin: 0 0 10px; color: var(--blue); font-weight: 800; letter-spacing: 0; }
+h1 { margin: 0; font-size: 48px; line-height: 1.04; letter-spacing: 0; }
+.lede { max-width: 820px; color: var(--muted); font-size: 19px; line-height: 1.5; margin: 18px 0 0; }
+.status-card, .metric, .chart-card, .boundary > div {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 12px 32px rgba(23, 32, 42, 0.06);
+}
+.status-card { padding: 22px; }
+.status-card dl { margin: 18px 0 0; display: grid; grid-template-columns: 90px 1fr; gap: 10px 14px; }
+.status-card dt { color: var(--muted); }
+.status-card dd { margin: 0; font-weight: 700; overflow-wrap: anywhere; }
+.status-pill, .mini-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #e7f1ff;
+  color: #174f96;
+  font-weight: 800;
+}
+.section { padding: 34px 0 0; }
+.section-head { display: flex; align-items: end; justify-content: space-between; gap: 22px; margin-bottom: 16px; }
+.section-head h2 { margin: 0; font-size: 28px; letter-spacing: 0; }
+.section-head p { margin: 0; max-width: 660px; color: var(--muted); line-height: 1.45; }
+.metric-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
+.metric { padding: 18px; min-height: 128px; }
+.metric span { display: block; color: var(--muted); font-weight: 700; }
+.metric strong { display: block; margin: 10px 0 8px; font-size: 32px; }
+.metric em { color: var(--muted); font-style: normal; }
+.chart-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+.chart-card { padding: 20px; }
+.card-topline { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.chart-card h3 { margin: 0 0 8px; font-size: 22px; }
+.muted { color: var(--muted); margin: 0 0 18px; }
+.bar-row { margin: 15px 0; }
+.bar-label { display: flex; justify-content: space-between; gap: 14px; margin-bottom: 6px; font-weight: 800; }
+.bar-track { height: 16px; background: #e9edf2; border-radius: 999px; overflow: hidden; }
+.bar-fill { height: 100%; background: linear-gradient(90deg, var(--blue), var(--green)); }
+.path {
+  margin: 18px 0 0;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.matrix { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--line); }
+.matrix th, .matrix td { padding: 14px 16px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+.matrix th { color: var(--muted); font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; }
+.state { display: inline-flex; padding: 4px 9px; border-radius: 999px; font-weight: 800; white-space: nowrap; }
+.state-smoke { background: #e8f5ee; color: #1f6d4d; }
+.state-full { background: #e1f3f6; color: #0b6570; }
+.state-ready { background: #e7f1ff; color: #174f96; }
+.state-missing { background: #fff1df; color: #8a4e00; }
+.callout { margin: 14px 0 0; color: var(--muted); }
+.audit-list { margin-top: 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px 16px; }
+.audit-list p { margin: 8px 0; color: var(--muted); line-height: 1.45; }
+.boundary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
+.boundary > div { padding: 18px; }
+.boundary h3 { margin: 0 0 10px; }
+.boundary p { color: var(--muted); line-height: 1.5; margin: 0; }
+code { background: #eef1f5; padding: 2px 5px; border-radius: 4px; }
+@media (max-width: 900px) {
+  .page { padding: 22px 16px 40px; }
+  .hero, .chart-grid, .metric-grid, .boundary { grid-template-columns: 1fr; }
+  h1 { font-size: 36px; }
+  .section-head { display: block; }
+  .section-head p { margin-top: 8px; }
+}
+</style>
+</head>
+<body>
+<main class="page">
+
+<section class="hero">
+  <div>
+    <p class="eyebrow">Agent Memory Hub / 记忆评测</p>
+    <h1>AMH 记忆评测可视化报告</h1>
+    <p class="lede">用于审查 LongMemEval-S R@K full、AMH ranking full、MemoryData full-family，以及 MemoryAgentBench 四维 full 真实产物的可视化报告。</p>
+  </div>
+  <div class="status-card">
+    <span class="status-pill">PASS_WITH_MEMORYDATA_FULL</span>
+    <dl>
+      <dt>生成时间</dt>
+      <dd>2026-07-01T20:06:08.015932+00:00</dd>
+      <dt>运行模式</dt>
+      <dd>source-lock</dd>
+    </dl>
+  </div>
+</section>
+
+
+<section class="section">
+  <div class="section-head">
+    <h2>评测门禁总览</h2>
+    <p>AMH 本地门禁、MemoryAgentBench 四维 full、MemoryData full-family 与 LongMemEval-S R@K full 均已落盘；B/C 档边界由 Dataset Provenance Audit 标注。</p>
+  </div>
+  <div class="metric-grid"><article class="metric"><span>AMH 用例数</span><strong>240</strong><em>本地 system benchmark</em></article><article class="metric"><span>Recall@10</span><strong>100.00%</strong><em>AMH 本地召回</em></article><article class="metric"><span>MRR</span><strong>99.78%</strong><em>AMH 本地召回</em></article><article class="metric"><span>索引条目数</span><strong>1269</strong><em>brain pool 快照</em></article></div>
+</section>
+
+
+<section class="section">
+  <div class="section-head">
+    <h2>LongMemEval-S 召回准确率</h2>
+    <p>覆盖 retrieval R@K；即使是 500-case full-rk，也不代表 generation / judge 全链路。</p>
+  </div>
+  <div class="chart-grid">
+<article class="chart-card"><h3>词法 R@K full</h3><p class="muted">500 / 500 个用例 / LongMemEval-S</p><div class="bar-row"><div class="bar-label"><span>R@5</span><strong>89.0%</strong></div><div class="bar-track"><div class="bar-fill" style="width:89.00%"></div></div></div><div class="bar-row"><div class="bar-label"><span>R@10</span><strong>93.6%</strong></div><div class="bar-track"><div class="bar-fill" style="width:93.60%"></div></div></div><div class="bar-row"><div class="bar-label"><span>MRR</span><strong>78.7%</strong></div><div class="bar-track"><div class="bar-fill" style="width:78.74%"></div></div></div></article>
+<article class="chart-card"><h3>AMH R@K full</h3><p class="muted">500 / 500 个用例 / LongMemEval-S</p><div class="bar-row"><div class="bar-label"><span>R@5</span><strong>97.4%</strong></div><div class="bar-track"><div class="bar-fill" style="width:97.40%"></div></div></div><div class="bar-row"><div class="bar-label"><span>R@10</span><strong>98.4%</strong></div><div class="bar-track"><div class="bar-fill" style="width:98.40%"></div></div></div><div class="bar-row"><div class="bar-label"><span>MRR</span><strong>91.3%</strong></div><div class="bar-track"><div class="bar-fill" style="width:91.29%"></div></div></div></article>
+</div>
+</section>
+
+
+<section class="section">
+  <div class="section-head">
+    <h2>MemoryData Smoke 矩阵</h2>
+    <p>使用本地 Ollama OpenAI-compatible endpoint 执行 upstream MemoryData，并保存 raw artifacts。</p>
+  </div>
+  <div class="chart-grid">
+<article class="chart-card"><div class="card-topline"><h3></h3><span class="mini-pill">阻塞</span></div><p class="muted">memorydata-smoke / 0 条 query 记录</p><div class="bar-row"><div class="bar-label"><span>精确匹配</span><strong>0.0%</strong></div><div class="bar-track"><div class="bar-fill" style="width:0.00%"></div></div></div>
+<div class="bar-row"><div class="bar-label"><span>F1</span><strong>0.0%</strong></div><div class="bar-track"><div class="bar-fill" style="width:0.00%"></div></div></div>
+<div class="bar-row"><div class="bar-label"><span>ROUGE-L F1</span><strong>0.0%</strong></div><div class="bar-track"><div class="bar-fill" style="width:0.00%"></div></div></div>
+<div class="bar-row"><div class="bar-label"><span>EventQA Recall</span><strong>0.0%</strong></div><div class="bar-track"><div class="bar-fill" style="width:0.00%"></div></div></div><p class="path">-</p></article>
+</div>
+</section>
+
+
+<section class="section">
+  <div class="section-head">
+    <h2>MemoryAgentBench 四维 Full 结果</h2>
+    <p>使用本地 Ollama OpenAI-compatible endpoint 执行，不带 max_test_queries_ablation；每个结果都保留 raw JSON artifact。</p>
+  </div>
+  <div class="chart-grid">
+<article class="chart-card"><div class="card-topline"><h3>准确召回 AR</h3><span class="mini-pill">full 已完成</span></div><p class="muted">Accurate_Retrieval / EventQA full / 500 条 query 记录，预期 500 条</p><div class="bar-row"><div class="bar-label"><span>精确匹配</span><strong>37.0%</strong></div><div class="bar-track"><div class="bar-fill" style="width:37.00%"></div></div></div>
+<div class="bar-row"><div class="bar-label"><span>F1</span><strong>59.2%</strong></div><div class="bar-track"><div class="bar-fill" style="width:59.17%"></div></div></div>
+<div class="bar-row"><div class="bar-label"><span>EventQA Recall</span><strong>37.0%</strong></div><div class="bar-track"><div class="bar-fill" style="width:37.00%"></div></div></div><p class="path">docs/evaluation/memorydata-artifacts/full/memoryagentbench-ar-eventqa/outputs/gui-owl-bm25/Accurate_Retrieval/eventqa_full_unknown_in800000_size40_shots0_max_samples5_k10_chunk4096_results.json</p></article>
+<article class="chart-card"><div class="card-topline"><h3>测试时学习 TTL</h3><span class="mini-pill">full 已完成</span></div><p class="muted">Test_Time_Learning / ICL banking77 / 100 条 query 记录，预期 100 条</p><div class="bar-row"><div class="bar-label"><span>Exact Match</span><strong>80.0%</strong></div><div class="bar-track"><div class="bar-fill" style="width:80.00%"></div></div></div>
+<div class="bar-row"><div class="bar-label"><span>Label Accuracy</span><strong>80.0%</strong></div><div class="bar-track"><div class="bar-fill" style="width:80.00%"></div></div></div>
+<div class="bar-row"><div class="bar-label"><span>Label Format</span><strong>100.0%</strong></div><div class="bar-track"><div class="bar-fill" style="width:100.00%"></div></div></div><p class="path">docs/evaluation/memorydata-artifacts/full/memoryagentbench-ttl-icl-banking77/outputs/gui-owl-bm25/Test_Time_Learning/icl_banking77_5900shot_balance_unknown_in131072_size20_shots0_max_samples100_k10_chunk4096_results.json</p></article>
+<article class="chart-card"><div class="card-topline"><h3>长程理解 LRU</h3><span class="mini-pill">full 已完成</span></div><p class="muted">Long_Range_Understanding / Detective_QA / 71 条 query 记录，预期 71 条</p><div class="bar-row"><div class="bar-label"><span>Exact Match</span><strong>0.0%</strong></div><div class="bar-track"><div class="bar-fill" style="width:0.00%"></div></div></div>
+<div class="bar-row"><div class="bar-label"><span>F1</span><strong>11.2%</strong></div><div class="bar-track"><div class="bar-fill" style="width:11.18%"></div></div></div>
+<div class="bar-row"><div class="bar-label"><span>ROUGE-L Recall</span><strong>44.0%</strong></div><div class="bar-track"><div class="bar-fill" style="width:43.97%"></div></div></div><p class="path">docs/evaluation/memorydata-artifacts/full/memoryagentbench-lru-detectiveqa/outputs/gui-owl-bm25/Long_Range_Understanding/detective_qa_unknown_in200000_size2000_shots0_max_samples10_k10_chunk4096_results.json</p></article>
+<article class="chart-card"><div class="card-topline"><h3>冲突解决 CR</h3><span class="mini-pill">full 已完成</span></div><p class="muted">Conflict_Resolution / Factconsolidation mh 6k / 100 条 query 记录，预期 100 条</p><div class="bar-row"><div class="bar-label"><span>Exact Match</span><strong>4.0%</strong></div><div class="bar-track"><div class="bar-fill" style="width:4.00%"></div></div></div>
+<div class="bar-row"><div class="bar-label"><span>Answer Hit</span><strong>4.0%</strong></div><div class="bar-track"><div class="bar-fill" style="width:4.00%"></div></div></div>
+<div class="bar-row"><div class="bar-label"><span>Concise Response</span><strong>100.0%</strong></div><div class="bar-track"><div class="bar-fill" style="width:100.00%"></div></div></div><p class="path">docs/evaluation/memorydata-artifacts/full/memoryagentbench-cr-fact-mh-6k/outputs/gui-owl-bm25/Conflict_Resolution/factconsolidation_mh_6k_unknown_in6000_size10_shots0_max_samples1_k10_chunk4096_results.json</p></article>
+</div><p class="callout">边界：这里的 LRU 使用 Detective_QA exact_match 路径；InfBench summarization 需要按 HELMET 口径做 LLM-as-judge，未混入这四个核心 full 结果。</p>
+</section>
+
+
+<section class="section">
+  <div class="section-head">
+    <h2>MemoryData Full-family 结果</h2>
+    <p>LoCoMo 4cat QA、LongBench rep150 proportional、MemBench FirstAgent 五个 slice 的本地 full-family artifact；可比性边界见 Dataset Provenance Audit。</p>
+  </div>
+  <div class="chart-grid">
+<article class="chart-card"><div class="card-topline"><h3>LoCoMo 4cat QA full</h3><span class="mini-pill">已通过</span></div><p class="muted">1540 / 1540 QA / LoCoMo official locomo10 derived category 1-4 QA; excludes adversarial/category 5.</p><div class="bar-row"><div class="bar-label"><span>精确匹配</span><strong>3.9%</strong></div><div class="bar-track"><div class="bar-fill" style="width:3.90%"></div></div></div>
+<div class="bar-row"><div class="bar-label"><span>F1</span><strong>13.1%</strong></div><div class="bar-track"><div class="bar-fill" style="width:13.08%"></div></div></div>
+<div class="bar-row"><div class="bar-label"><span>LoCoMo Recall@10</span><strong>7.6%</strong></div><div class="bar-track"><div class="bar-fill" style="width:7.55%"></div></div></div>
+<div class="bar-row"><div class="bar-label"><span>ROUGE-L F1</span><strong>12.7%</strong></div><div class="bar-track"><div class="bar-fill" style="width:12.68%"></div></div></div><p class="path">docs/evaluation/memorydata-artifacts/full-family/locomo-4cat/outputs/gui-owl-bm25/LoCoMo/locomo_qa_4cat_600_dist_in150000_size64_shots0_max_samples10_split_locomo_4cat_600_dist_k10_chunk4096_results.json</p></article>
+<article class="chart-card"><div class="card-topline"><h3>LongBench rep150 proportional full</h3><span class="mini-pill">已通过</span></div><p class="muted">150 / 150 rows / MemoryData deterministic 150-row proportional subset; not THUDM LongBench-v2 503-question full.</p><div class="bar-row"><div class="bar-label"><span>多选准确率</span><strong>23.3%</strong></div><div class="bar-track"><div class="bar-fill" style="width:23.33%"></div></div></div>
+<div class="bar-row"><div class="bar-label"><span>F1</span><strong>15.3%</strong></div><div class="bar-track"><div class="bar-fill" style="width:15.33%"></div></div></div>
+<div class="bar-row"><div class="bar-label"><span>ROUGE-L F1</span><strong>15.3%</strong></div><div class="bar-track"><div class="bar-fill" style="width:15.33%"></div></div></div><p class="path">docs/evaluation/memorydata-artifacts/full-family/longbench-rep150/outputs/gui-owl-bm25/LongBench/longbench_rep150_proportional_rep150_proportional_in2000000_size32_shots0_max_samples150_k10_chunk4096_results.json</p></article>
+<article class="chart-card"><div class="card-topline"><h3>MemBench simple full</h3><span class="mini-pill">已通过</span></div><p class="muted">100 / 100 rows / MemBench public FirstAgent simple slice full.</p><div class="bar-row"><div class="bar-label"><span>精确匹配</span><strong>64.0%</strong></div><div class="bar-track"><div class="bar-fill" style="width:64.00%"></div></div></div>
+<div class="bar-row"><div class="bar-label"><span>F1</span><strong>45.0%</strong></div><div class="bar-track"><div class="bar-fill" style="width:45.00%"></div></div></div>
+<div class="bar-row"><div class="bar-label"><span>Recall@10</span><strong>3.0%</strong></div><div class="bar-track"><div class="bar-fill" style="width:3.00%"></div></div></div><p class="path">docs/evaluation/memorydata-artifacts/full-family/membench-simple/outputs/gui-owl-bm25/MemBench/membench_simple_light_in200000_size8_shots0_max_samples100_k10_chunk4096_results.json</p></article>
+<article class="chart-card"><div class="card-topline"><h3>MemBench noisy full</h3><span class="mini-pill">已通过</span></div><p class="muted">100 / 100 rows / MemBench public FirstAgent noisy slice full.</p><div class="bar-row"><div class="bar-label"><span>精确匹配</span><strong>41.0%</strong></div><div class="bar-track"><div class="bar-fill" style="width:41.00%"></div></div></div>
+<div class="bar-row"><div class="bar-label"><span>F1</span><strong>31.0%</strong></div><div class="bar-track"><div class="bar-fill" style="width:31.00%"></div></div></div>
+<div class="bar-row"><div class="bar-label"><span>Recall@10</span><strong>1.0%</strong></div><div class="bar-track"><div class="bar-fill" style="width:1.00%"></div></div></div><p class="path">docs/evaluation/memorydata-artifacts/full-family/membench-noisy/outputs/gui-owl-bm25/MemBench/membench_noisy_light_in200000_size8_shots0_max_samples100_k10_chunk4096_results.json</p></article>
+<article class="chart-card"><div class="card-topline"><h3>MemBench knowledge_update full</h3><span class="mini-pill">已通过</span></div><p class="muted">100 / 100 rows / MemBench public FirstAgent knowledge_update slice full.</p><div class="bar-row"><div class="bar-label"><span>精确匹配</span><strong>49.0%</strong></div><div class="bar-track"><div class="bar-fill" style="width:49.00%"></div></div></div>
+<div class="bar-row"><div class="bar-label"><span>F1</span><strong>35.0%</strong></div><div class="bar-track"><div class="bar-fill" style="width:35.00%"></div></div></div>
+<div class="bar-row"><div class="bar-label"><span>Recall@10</span><strong>2.0%</strong></div><div class="bar-track"><div class="bar-fill" style="width:2.00%"></div></div></div><p class="path">docs/evaluation/memorydata-artifacts/full-family/membench-knowledge-update/outputs/gui-owl-bm25/MemBench/membench_knowledge_update_light_in200000_size8_shots0_max_samples100_k10_chunk4096_results.json</p></article>
+<article class="chart-card"><div class="card-topline"><h3>MemBench highlevel full</h3><span class="mini-pill">已通过</span></div><p class="muted">150 / 150 rows / MemBench public FirstAgent highlevel slice full.</p><div class="bar-row"><div class="bar-label"><span>精确匹配</span><strong>64.7%</strong></div><div class="bar-track"><div class="bar-fill" style="width:64.67%"></div></div></div>
+<div class="bar-row"><div class="bar-label"><span>F1</span><strong>46.0%</strong></div><div class="bar-track"><div class="bar-fill" style="width:46.00%"></div></div></div>
+<div class="bar-row"><div class="bar-label"><span>Recall@10</span><strong>0.0%</strong></div><div class="bar-track"><div class="bar-fill" style="width:0.00%"></div></div></div><p class="path">docs/evaluation/memorydata-artifacts/full-family/membench-highlevel/outputs/gui-owl-bm25/MemBench/membench_highlevel_light_in200000_size8_shots0_max_samples150_k10_chunk4096_results.json</p></article>
+<article class="chart-card"><div class="card-topline"><h3>MemBench RecMultiSession full</h3><span class="mini-pill">已通过</span></div><p class="muted">50 / 50 rows / MemBench public FirstAgent RecMultiSession slice full.</p><div class="bar-row"><div class="bar-label"><span>精确匹配</span><strong>52.0%</strong></div><div class="bar-track"><div class="bar-fill" style="width:52.00%"></div></div></div>
+<div class="bar-row"><div class="bar-label"><span>F1</span><strong>22.0%</strong></div><div class="bar-track"><div class="bar-fill" style="width:22.00%"></div></div></div>
+<div class="bar-row"><div class="bar-label"><span>Recall@10</span><strong>0.0%</strong></div><div class="bar-track"><div class="bar-fill" style="width:0.00%"></div></div></div><p class="path">docs/evaluation/memorydata-artifacts/full-family/membench-recmultisession/outputs/gui-owl-bm25/MemBench/membench_recmultisession_light_in200000_size8_shots0_max_samples50_k10_chunk4096_results.json</p></article>
+</div>
+</section>
+
+
+<section class="section">
+  <div class="section-head">
+    <h2>Dataset Provenance Audit</h2>
+    <p>把每个数据集和当前结果按 A/B/C 三档标注，避免把派生子集或 smoke 结果写成论文 full 成绩。</p>
+  </div>
+  <div class="metric-grid"><article class="metric"><span>A 档</span><strong>1</strong><em>论文/官方同源 full 可比</em></article><article class="metric"><span>B 档</span><strong>4</strong><em>官方同源但有派生/子集边界</em></article><article class="metric"><span>C 档</span><strong>2</strong><em>smoke / adapter 验证</em></article><article class="metric"><span>下一阶段门禁</span><strong>允许</strong><em>先补齐 provenance 边界</em></article></div>
+</section>
+
+
+<section class="section">
+  <div class="section-head">
+    <h2>Full-Family 准备度矩阵</h2>
+    <p>这里对应 benchmark family matrix：dataset ready、smoke passed、missing 分开呈现。</p>
+  </div>
+  
+<table class="matrix">
+  <thead><tr><th>Family</th><th>MemoryData 配置</th><th>状态</th><th>边界</th></tr></thead>
+  <tbody><tr><td><strong>MemoryAgentBench</strong></td><td>benchmark/memoryagentbench/Accurate_Retrieval/config/EventQA/Eventqa_full.yaml</td><td><span class="state state-full">四维 full 已完成</span></td><td>AR / TTL / LRU / CR 已有 full artifact；InfBench judge 另跑。</td></tr><tr><td><strong>LoCoMo</strong></td><td>benchmark/locomo/config/Locomo_qa_4cat_600_dist.yaml</td><td><span class="state state-full">full-family 已完成</span></td><td>本地 raw JSON artifact 已落盘；可比性边界见 provenance audit。</td></tr><tr><td><strong>LongBench</strong></td><td>benchmark/longbench/config/LongBench_rep150_proportional.yaml</td><td><span class="state state-full">full-family 已完成</span></td><td>本地 raw JSON artifact 已落盘；可比性边界见 provenance audit。</td></tr><tr><td><strong>MemBench</strong></td><td>benchmark/membench/config/MemBench_simple.yaml</td><td><span class="state state-full">full-family 已完成</span></td><td>本地 raw JSON artifact 已落盘；可比性边界见 provenance audit。</td></tr></tbody>
+</table>
+<p class="callout">严格 full-matrix 剩余数据集阻塞项：无。</p>
+
+</section>
+
+
+<section class="section">
+  <div class="section-head">
+    <h2>不是 full-matrix 论文复现</h2>
+    <p>LoCoMo、LongBench、MemBench full-family 已本机复现，但仍按 B 档派生/子集边界呈现；InfBench judge 未混入本轮成绩。</p>
+  </div>
+  
+<div class="boundary">
+  <div>
+    <h3>本页哪些是真实跑出来的</h3>
+    <p>AMH 本地指标、LongMemEval-S 500-case R@K full、MemoryData full-family、MemoryAgentBench 四维 full 都来自本机产物。</p>
+  </div>
+  <div>
+    <h3>哪些只是参考口径</h3>
+    <p>MemoryData 论文 full charts、LongBench-v2 503 full、InfBench LLM judge、OpenViking 框架、MEMTRON/AgentMemory-Bench 不会在未本机复现时写成 AMH 分数。</p>
+  </div>
+  <div>
+    <h3>源码锁定</h3>
+    <p>MemoryData commit：<code>e7ecdbe368426bb3b24bbb6126a57ea90eba1dfb</code></p>
+  </div>
+</div>
+
+</section>
+
+</main>
+</body>
+</html>

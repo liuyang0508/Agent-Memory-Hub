@@ -1,0 +1,1187 @@
+{
+  "amh_system_benchmark": {
+    "block_accuracy": 1.0,
+    "case_count": 240,
+    "failure_count": 0,
+    "firewall_exclude_rate": 1.0,
+    "firewall_include_rate": 1.0,
+    "inject_accuracy": 1.0,
+    "items_indexed": 1314,
+    "mrr": 0.997807,
+    "pack_reversible_rate": 1.0,
+    "passed": true,
+    "recall_at_k": 1.0,
+    "top_k": 10,
+    "total_time_s": 73.761927
+  },
+  "dataset_materialization": {
+    "artifacts": [
+      {
+        "alias": "longmemeval-s",
+        "benchmark": "LongMemEval",
+        "id": "longmemeval_s_cleaned",
+        "kind": "file",
+        "materialize_command": [
+          "python",
+          "benchmarks/materialize_memory_eval_datasets.py",
+          "--dataset",
+          "longmemeval-s",
+          "--cache-root",
+          ".cache/external",
+          "--memorydata-repo",
+          ".cache/external/MemoryData"
+        ],
+        "name": "LongMemEval-S cleaned",
+        "notes": "Primary retrieval-only benchmark for R@5/R@10 parity with public comparison tables.",
+        "ready": true,
+        "required_files": [],
+        "source_type": "direct_download",
+        "source_url": "https://huggingface.co/datasets/xiaowu0162/longmemeval-cleaned/resolve/main/longmemeval_s_cleaned.json",
+        "target_path": ".cache/external/LongMemEval/data/longmemeval_s_cleaned.json"
+      },
+      {
+        "alias": "longmemeval-oracle",
+        "benchmark": "LongMemEval",
+        "id": "longmemeval_oracle",
+        "kind": "file",
+        "materialize_command": [
+          "python",
+          "benchmarks/materialize_memory_eval_datasets.py",
+          "--dataset",
+          "longmemeval-oracle",
+          "--cache-root",
+          ".cache/external",
+          "--memorydata-repo",
+          ".cache/external/MemoryData"
+        ],
+        "name": "LongMemEval oracle cleaned",
+        "notes": "Oracle split used for sanity checks and methodology comparison.",
+        "ready": false,
+        "required_files": [],
+        "source_type": "direct_download",
+        "source_url": "https://huggingface.co/datasets/xiaowu0162/longmemeval-cleaned/resolve/main/longmemeval_oracle.json",
+        "target_path": ".cache/external/LongMemEval/data/longmemeval_oracle.json"
+      },
+      {
+        "alias": "memoryagentbench",
+        "benchmark": "MemoryAgentBench",
+        "id": "memoryagentbench_hf",
+        "kind": "dir",
+        "materialize_command": [
+          "python",
+          "benchmarks/materialize_memory_eval_datasets.py",
+          "--dataset",
+          "memoryagentbench",
+          "--cache-root",
+          ".cache/external",
+          "--memorydata-repo",
+          ".cache/external/MemoryData"
+        ],
+        "name": "MemoryAgentBench Hugging Face snapshot",
+        "notes": "MemoryData loader falls back to this HF dataset when local save_to_disk copy is absent.",
+        "ready": true,
+        "required_files": [],
+        "source_type": "huggingface_dataset",
+        "source_url": "https://huggingface.co/datasets/ai-hyz/MemoryAgentBench",
+        "target_path": ".cache/external/MemoryData/datasets/MemoryAgentBench/eval_dataset_collection"
+      },
+      {
+        "alias": "locomo-raw",
+        "benchmark": "LoCoMo",
+        "id": "locomo_raw",
+        "kind": "file",
+        "materialize_command": [
+          "python",
+          "benchmarks/materialize_memory_eval_datasets.py",
+          "--dataset",
+          "locomo-raw",
+          "--cache-root",
+          ".cache/external",
+          "--memorydata-repo",
+          ".cache/external/MemoryData"
+        ],
+        "name": "LoCoMo raw locomo10",
+        "notes": "Raw LoCoMo data; MemoryData full preset still expects a preprocessed 4-category dist file.",
+        "ready": true,
+        "required_files": [],
+        "source_type": "direct_download",
+        "source_url": "https://raw.githubusercontent.com/snap-research/locomo/main/data/locomo10.json",
+        "target_path": ".cache/external/MemoryData/datasets/LoCoMo/locomo10.json"
+      },
+      {
+        "alias": "locomo-4cat",
+        "benchmark": "LoCoMo",
+        "id": "locomo_4cat_dist",
+        "kind": "file",
+        "materialize_command": [
+          "python",
+          "benchmarks/materialize_memory_eval_datasets.py",
+          "--dataset",
+          "locomo-4cat",
+          "--cache-root",
+          ".cache/external",
+          "--memorydata-repo",
+          ".cache/external/MemoryData"
+        ],
+        "name": "LoCoMo 4-category MemoryData dist",
+        "notes": "Derived from official locomo10.json by retaining categories 1-4, the four LoCoMo QA types used by common memory benchmark reports.",
+        "ready": true,
+        "required_files": [],
+        "source_type": "derived_json_from_official_raw",
+        "source_url": "https://raw.githubusercontent.com/snap-research/locomo/main/data/locomo10.json",
+        "target_path": ".cache/external/MemoryData/datasets/LoCoMo/rq1_4cat_600_dist/locomo_4cat_600_dist.json"
+      },
+      {
+        "alias": "longbench-rep150",
+        "benchmark": "LongBench",
+        "id": "longbench_rep150_proportional",
+        "kind": "dir",
+        "materialize_command": [
+          "python",
+          "benchmarks/materialize_memory_eval_datasets.py",
+          "--dataset",
+          "longbench-rep150",
+          "--cache-root",
+          ".cache/external",
+          "--memorydata-repo",
+          ".cache/external/MemoryData"
+        ],
+        "name": "LongBench-v2 150-row proportional subset",
+        "notes": "Derived from THUDM/LongBench-v2 train split and saved to the MemoryData LongBench_rep150_proportional path.",
+        "ready": true,
+        "required_files": [],
+        "source_type": "huggingface_derived_save_to_disk",
+        "source_url": "https://huggingface.co/datasets/THUDM/LongBench-v2",
+        "target_path": ".cache/external/MemoryData/datasets/longBench_rep150_proportional/datasets"
+      },
+      {
+        "alias": "longbench-v2-full",
+        "benchmark": "LongBench",
+        "id": "longbench_v2_503_full",
+        "kind": "dir",
+        "materialize_command": [
+          "python",
+          "benchmarks/materialize_memory_eval_datasets.py",
+          "--dataset",
+          "longbench-v2-full",
+          "--cache-root",
+          ".cache/external",
+          "--memorydata-repo",
+          ".cache/external/MemoryData"
+        ],
+        "name": "LongBench-v2 503-question full",
+        "notes": "Official THUDM/LongBench-v2 train split saved as a MemoryData-compatible 503-question full dataset.",
+        "ready": true,
+        "required_files": [],
+        "source_type": "huggingface_save_to_disk",
+        "source_url": "https://huggingface.co/datasets/THUDM/LongBench-v2",
+        "target_path": ".cache/external/MemoryData/datasets/longBench_v2_503_full/datasets"
+      },
+      {
+        "alias": "membench",
+        "benchmark": "MemBench",
+        "id": "membench_firstagent",
+        "kind": "dir",
+        "materialize_command": [
+          "python",
+          "benchmarks/materialize_memory_eval_datasets.py",
+          "--dataset",
+          "membench",
+          "--cache-root",
+          ".cache/external",
+          "--memorydata-repo",
+          ".cache/external/MemoryData"
+        ],
+        "name": "MemBench FirstAgent slices",
+        "notes": "Direct raw download of the five MemoryData FirstAgent JSON slices.",
+        "ready": true,
+        "required_files": [
+          "simple.json",
+          "noisy.json",
+          "knowledge_update.json",
+          "highlevel.json",
+          "RecMultiSession.json"
+        ],
+        "source_type": "github_raw_bundle",
+        "source_url": "https://raw.githubusercontent.com/import-myself/Membench/main/MemData/FirstAgent",
+        "target_path": ".cache/external/MemoryData/datasets/MemBench/MemData/FirstAgent"
+      }
+    ],
+    "longmemeval_primary_id": "longmemeval_s_cleaned",
+    "memorydata_manifest": {
+      "longmemeval": {
+        "alias": "longmemeval-s",
+        "benchmark": "LongMemEval",
+        "config_paths": [],
+        "id": "longmemeval_s_cleaned",
+        "kind": "file",
+        "materialization_mode": "direct_download",
+        "name": "LongMemEval-S cleaned",
+        "notes": "Retrieval-only benchmark artifact; not a MemoryData full family.",
+        "ready": true,
+        "required_files": [],
+        "sha256": "d6f21ea9d60a0d56f34a05b609c79c88a451d2ae03597821ea3d5a9678c3a442",
+        "size_bytes": 277383467,
+        "source_type": "direct_download",
+        "source_url": "https://huggingface.co/datasets/xiaowu0162/longmemeval-cleaned/resolve/main/longmemeval_s_cleaned.json",
+        "target_path": ".cache/external/LongMemEval/data/longmemeval_s_cleaned.json"
+      },
+      "memorydata_families": [
+        {
+          "alias": "memoryagentbench",
+          "benchmark": "MemoryAgentBench",
+          "config_paths": [
+            "benchmark/memoryagentbench/Accurate_Retrieval/config/EventQA/Eventqa_full.yaml"
+          ],
+          "id": "memoryagentbench",
+          "kind": "dir",
+          "materialization_mode": "hf_save_to_disk",
+          "name": "MemoryAgentBench Hugging Face snapshot",
+          "notes": "Hugging Face save_to_disk directory expected by MemoryData.",
+          "ready": true,
+          "required_files": [],
+          "sha256": null,
+          "size_bytes": null,
+          "source_type": "hf_save_to_disk",
+          "source_url": "https://huggingface.co/datasets/ai-hyz/MemoryAgentBench",
+          "target_path": ".cache/external/MemoryData/datasets/MemoryAgentBench/eval_dataset_collection"
+        },
+        {
+          "alias": "locomo",
+          "benchmark": "LoCoMo",
+          "config_paths": [
+            "benchmark/locomo/config/Locomo_qa_4cat_600_dist.yaml"
+          ],
+          "id": "locomo",
+          "kind": "file",
+          "materialization_mode": "derived_json_from_official_raw",
+          "name": "LoCoMo 4-category preprocessed dist",
+          "notes": "Derived from official LoCoMo locomo10.json by retaining QA categories 1-4 and writing the MemoryData full-preset path.",
+          "ready": true,
+          "required_files": [],
+          "sha256": "1bcb94f211d13ec1921cad5fb67c8bb00e9aee9d4fa7e21258502832d9b82498",
+          "size_bytes": 2699871,
+          "source_type": "derived_json_from_official_raw",
+          "source_url": "https://raw.githubusercontent.com/snap-research/locomo/main/data/locomo10.json",
+          "target_path": ".cache/external/MemoryData/datasets/LoCoMo/rq1_4cat_600_dist/locomo_4cat_600_dist.json"
+        },
+        {
+          "alias": "locomo-category5",
+          "benchmark": "LoCoMo",
+          "config_paths": [
+            "benchmark/locomo/config/Locomo_qa_category5_adversarial.yaml"
+          ],
+          "id": "locomo_category5_adversarial",
+          "kind": "file",
+          "materialization_mode": "official_raw_category_filter",
+          "name": "LoCoMo category5 adversarial",
+          "notes": "Supplemental category 5 adversarial track read from official locomo10.json; kept separate from the category 1-4 QA score.",
+          "ready": true,
+          "required_files": [],
+          "sha256": "79fa87e90f04081343b8c8debecb80a9a6842b76a7aa537dc9fdf651ea698ff4",
+          "size_bytes": 2805274,
+          "source_type": "official_raw_category_filter",
+          "source_url": "https://raw.githubusercontent.com/snap-research/locomo/main/data/locomo10.json",
+          "target_path": ".cache/external/MemoryData/datasets/LoCoMo/locomo10.json"
+        },
+        {
+          "alias": "longbench",
+          "benchmark": "LongBench",
+          "config_paths": [
+            "benchmark/longbench/config/LongBench_rep150_proportional.yaml"
+          ],
+          "id": "longbench",
+          "kind": "dir",
+          "materialization_mode": "huggingface_derived_save_to_disk",
+          "name": "LongBench proportional subset",
+          "notes": "Derived from THUDM/LongBench-v2 train split as a deterministic 150-row proportional save_to_disk subset.",
+          "ready": true,
+          "required_files": [],
+          "sha256": null,
+          "size_bytes": null,
+          "source_type": "huggingface_derived_save_to_disk",
+          "source_url": "https://huggingface.co/datasets/THUDM/LongBench-v2",
+          "target_path": ".cache/external/MemoryData/datasets/longBench_rep150_proportional/datasets"
+        },
+        {
+          "alias": "longbench-v2-full",
+          "benchmark": "LongBench",
+          "config_paths": [
+            "benchmark/longbench/config/LongBench_v2_503_full.yaml"
+          ],
+          "id": "longbench_v2_503_full",
+          "kind": "dir",
+          "materialization_mode": "huggingface_save_to_disk",
+          "name": "LongBench-v2 503-question full",
+          "notes": "Official THUDM/LongBench-v2 train split saved to disk for the 503-question full benchmark configuration.",
+          "ready": true,
+          "required_files": [],
+          "sha256": null,
+          "size_bytes": null,
+          "source_type": "huggingface_save_to_disk",
+          "source_url": "https://huggingface.co/datasets/THUDM/LongBench-v2",
+          "target_path": ".cache/external/MemoryData/datasets/longBench_v2_503_full/datasets"
+        },
+        {
+          "alias": "membench",
+          "benchmark": "MemBench",
+          "config_paths": [
+            "benchmark/membench/config/MemBench_simple.yaml",
+            "benchmark/membench/config/MemBench_noisy.yaml",
+            "benchmark/membench/config/MemBench_knowledge_update.yaml",
+            "benchmark/membench/config/MemBench_highlevel.yaml",
+            "benchmark/membench/config/MemBench_RecMultiSession.yaml"
+          ],
+          "id": "membench",
+          "kind": "dir",
+          "materialization_mode": "github_raw_bundle",
+          "name": "MemBench FirstAgent slices",
+          "notes": "MemoryData expects FirstAgent JSON slices.",
+          "ready": true,
+          "required_files": [
+            "simple.json",
+            "noisy.json",
+            "knowledge_update.json",
+            "highlevel.json",
+            "RecMultiSession.json"
+          ],
+          "sha256": null,
+          "size_bytes": null,
+          "source_type": "github_raw_bundle",
+          "source_url": "https://github.com/import-myself/Membench",
+          "target_path": ".cache/external/MemoryData/datasets/MemBench/MemData/FirstAgent"
+        }
+      ],
+      "ready_summary": {
+        "longmemeval_ready": true,
+        "memorydata_ready_count": 6,
+        "memorydata_total_count": 6
+      }
+    },
+    "ready_count": 7,
+    "total_count": 8
+  },
+  "dataset_provenance_audit": {
+    "entries": [
+      {
+        "benchmark": "LongMemEval",
+        "id": "longmemeval_s_cleaned",
+        "industry_usage": "Used by public memory systems for LongMemEval-S retrieval and QA comparisons.",
+        "limitations": "当前只证明 retrieval loop；未跑 full answer generation 和 judge，不可写成 LongMemEval full 成绩。",
+        "local_result_status": "No completed benchmark result in current report.",
+        "paper_or_primary_source": "LongMemEval official benchmark",
+        "primary_urls": [
+          "https://github.com/xiaowu0162/longmemeval",
+          "https://arxiv.org/abs/2410.10813"
+        ],
+        "ready": true,
+        "scope": "Retrieval smoke / AMH ranking smoke only in the current report.",
+        "source_url": "https://huggingface.co/datasets/xiaowu0162/longmemeval-cleaned/resolve/main/longmemeval_s_cleaned.json",
+        "target_path": ".cache/external/LongMemEval/data/longmemeval_s_cleaned.json",
+        "tier": "C",
+        "tier_label": "C：smoke / adapter 验证，不可当 benchmark 成绩"
+      },
+      {
+        "benchmark": "LongMemEval",
+        "id": "longmemeval_oracle",
+        "industry_usage": "Oracle-style LongMemEval splits are often used for retrieval sanity checks.",
+        "limitations": "本地未就绪；不能参与下一阶段 full 结论。",
+        "local_result_status": "No completed benchmark result in current report.",
+        "paper_or_primary_source": "LongMemEval official benchmark",
+        "primary_urls": [
+          "https://github.com/xiaowu0162/longmemeval",
+          "https://arxiv.org/abs/2410.10813"
+        ],
+        "ready": false,
+        "scope": "Not materialized in the current local run.",
+        "source_url": "https://huggingface.co/datasets/xiaowu0162/longmemeval-cleaned/resolve/main/longmemeval_oracle.json",
+        "target_path": ".cache/external/LongMemEval/data/longmemeval_oracle.json",
+        "tier": "C",
+        "tier_label": "C：smoke / adapter 验证，不可当 benchmark 成绩"
+      },
+      {
+        "benchmark": "MemoryAgentBench",
+        "id": "memoryagentbench_hf",
+        "industry_usage": "MemoryData unifies MemoryAgentBench as one of its four benchmark families.",
+        "limitations": "Core four-dimensional representative configs are complete locally; InfBench summarization LLM-as-judge remains a separate track.",
+        "local_result_status": "No MemoryAgentBench full result in current report.",
+        "paper_or_primary_source": "MemoryAgentBench official dataset and configs",
+        "primary_urls": [
+          "https://github.com/HUST-AI-HYZ/MemoryAgentBench",
+          "https://huggingface.co/datasets/ai-hyz/MemoryAgentBench"
+        ],
+        "ready": true,
+        "scope": "Four core capability tracks: AR / TTL / LRU / CR.",
+        "source_url": "https://huggingface.co/datasets/ai-hyz/MemoryAgentBench",
+        "target_path": ".cache/external/MemoryData/datasets/MemoryAgentBench/eval_dataset_collection",
+        "tier": "A",
+        "tier_label": "A：论文/官方同源 full 可比"
+      },
+      {
+        "benchmark": "LoCoMo",
+        "id": "locomo_raw",
+        "industry_usage": "LoCoMo is widely used for long-term conversational memory QA evaluation.",
+        "limitations": "Raw source only; benchmark scoring uses the derived MemoryData-compatible 4-category file.",
+        "local_result_status": "No completed benchmark result in current report.",
+        "paper_or_primary_source": "LoCoMo official locomo10 release",
+        "primary_urls": [
+          "https://github.com/snap-research/locomo",
+          "https://snap-research.github.io/locomo/"
+        ],
+        "ready": true,
+        "scope": "Official raw source for downstream LoCoMo 4-category artifact.",
+        "source_url": "https://raw.githubusercontent.com/snap-research/locomo/main/data/locomo10.json",
+        "target_path": ".cache/external/MemoryData/datasets/LoCoMo/locomo10.json",
+        "tier": "B",
+        "tier_label": "B：官方同源但有派生/子集边界"
+      },
+      {
+        "benchmark": "LoCoMo",
+        "id": "locomo_4cat_dist",
+        "industry_usage": "Common memory-tool reports use LoCoMo QA with 10 conversations and 1540 category 1-4 questions.",
+        "limitations": "官方原始数据派生：保留 category 1-4，排除 adversarial/category 5；不是重新下载的第三方私有副本。",
+        "local_result_status": "Dataset ready; only MemoryData smoke is completed in current report.",
+        "paper_or_primary_source": "LoCoMo official locomo10 release",
+        "primary_urls": [
+          "https://github.com/snap-research/locomo",
+          "https://snap-research.github.io/locomo/"
+        ],
+        "ready": true,
+        "scope": "Question-answering categories 1-4 from official LoCoMo raw data.",
+        "source_url": "https://raw.githubusercontent.com/snap-research/locomo/main/data/locomo10.json",
+        "target_path": ".cache/external/MemoryData/datasets/LoCoMo/rq1_4cat_600_dist/locomo_4cat_600_dist.json",
+        "tier": "B",
+        "tier_label": "B：官方同源但有派生/子集边界"
+      },
+      {
+        "benchmark": "LongBench",
+        "id": "longbench_rep150_proportional",
+        "industry_usage": "MemoryData includes LongBench as a benchmark family for long-context reasoning.",
+        "limitations": "150-row proportional subset；不是 LongBench-v2 503-question full set。",
+        "local_result_status": "Dataset ready as 150-row subset; only MemoryData smoke is completed in current report.",
+        "paper_or_primary_source": "LongBench-v2 official Hugging Face dataset",
+        "primary_urls": [
+          "https://huggingface.co/datasets/THUDM/LongBench-v2",
+          "https://arxiv.org/abs/2412.15204"
+        ],
+        "ready": true,
+        "scope": "Deterministic MemoryData-compatible 150-row proportional subset.",
+        "source_url": "https://huggingface.co/datasets/THUDM/LongBench-v2",
+        "target_path": ".cache/external/MemoryData/datasets/longBench_rep150_proportional/datasets",
+        "tier": "B",
+        "tier_label": "B：官方同源但有派生/子集边界"
+      },
+      {
+        "benchmark": "LongBench",
+        "id": "longbench_v2_503_full",
+        "industry_usage": "MemoryData includes LongBench as a benchmark family for long-context reasoning.",
+        "limitations": "Full dataset source is official; score comparability still depends on the same model and judging/evaluation harness.",
+        "local_result_status": "LongBench-v2 503 full dataset may be ready, but no completed 503 full result is in the current report.",
+        "paper_or_primary_source": "LongBench-v2 official Hugging Face dataset",
+        "primary_urls": [
+          "https://huggingface.co/datasets/THUDM/LongBench-v2",
+          "https://arxiv.org/abs/2412.15204"
+        ],
+        "ready": true,
+        "scope": "Official 503-question LongBench-v2 full set through a MemoryData-compatible save_to_disk path.",
+        "source_url": "https://huggingface.co/datasets/THUDM/LongBench-v2",
+        "target_path": ".cache/external/MemoryData/datasets/longBench_v2_503_full/datasets",
+        "tier": "A",
+        "tier_label": "A：论文/官方同源 full 可比"
+      },
+      {
+        "benchmark": "MemBench",
+        "id": "membench_firstagent",
+        "industry_usage": "MemoryData includes MemBench as a benchmark family; Letta issue trackers also reference MemBench as a standardized memory benchmark candidate.",
+        "limitations": "FirstAgent 五个 public slice 是 MemoryData-compatible full-family 口径；仍需和其他私有/扩展 MemBench 口径区分。",
+        "local_result_status": "MemBench FirstAgent five-slice full completed.",
+        "paper_or_primary_source": "MemBench public FirstAgent JSON slices",
+        "primary_urls": [
+          "https://github.com/import-myself/Membench",
+          "https://github.com/OpenDataBox/MemoryData"
+        ],
+        "ready": true,
+        "scope": "FirstAgent simple/noisy/knowledge_update/highlevel/RecMultiSession slices are present locally.",
+        "source_url": "https://raw.githubusercontent.com/import-myself/Membench/main/MemData/FirstAgent",
+        "target_path": ".cache/external/MemoryData/datasets/MemBench/MemData/FirstAgent",
+        "tier": "B",
+        "tier_label": "B：官方同源但有派生/子集边界"
+      }
+    ],
+    "generated_at": "2026-07-02T18:00:32.160322+00:00",
+    "next_stage_gate": {
+      "allowed": false,
+      "required_actions": [
+        "LoCoMo：确认 MemoryData full preset 是否接受 4-category derived file；full 结果必须标注为 category 1-4 QA，不含 adversarial/category 5。",
+        "LongBench：补跑 THUDM/LongBench-v2 503-question full；rep150 只能作为 B 档子集结果。",
+        "MemBench：从 simple smoke 扩展到 FirstAgent 五个 slice full，并逐 slice 发布样本数和指标。",
+        "LongMemEval：retrieval smoke 不能冒充 full QA；若要横向对比工具榜单，需要补 answer generation / judge 或明确只比较 R@K。"
+      ]
+    },
+    "result_entries": [
+      {
+        "benchmark": "MemoryAgentBench",
+        "id": "memoryagentbench-ar-eventqa",
+        "limitations": "未达到预期行数，不能作为 full 成绩。",
+        "sample_scope": "0 / 500",
+        "tier": "C",
+        "tier_label": "C：smoke / adapter 验证，不可当 benchmark 成绩"
+      },
+      {
+        "benchmark": "MemoryAgentBench",
+        "id": "memoryagentbench-ttl-icl-banking77",
+        "limitations": "未达到预期行数，不能作为 full 成绩。",
+        "sample_scope": "0 / 100",
+        "tier": "C",
+        "tier_label": "C：smoke / adapter 验证，不可当 benchmark 成绩"
+      },
+      {
+        "benchmark": "MemoryAgentBench",
+        "id": "memoryagentbench-lru-detectiveqa",
+        "limitations": "未达到预期行数，不能作为 full 成绩。",
+        "sample_scope": "0 / 71",
+        "tier": "C",
+        "tier_label": "C：smoke / adapter 验证，不可当 benchmark 成绩"
+      },
+      {
+        "benchmark": "MemoryAgentBench",
+        "id": "memoryagentbench-cr-fact-mh-6k",
+        "limitations": "未达到预期行数，不能作为 full 成绩。",
+        "sample_scope": "0 / 100",
+        "tier": "C",
+        "tier_label": "C：smoke / adapter 验证，不可当 benchmark 成绩"
+      },
+      {
+        "benchmark": "MemBench",
+        "id": "memorydata-membench-simple-full",
+        "limitations": "MemBench public FirstAgent simple slice full.",
+        "sample_scope": "100 / 100 rows",
+        "tier": "B",
+        "tier_label": "B：官方同源但有派生/子集边界"
+      }
+    ],
+    "tier_definitions": [
+      {
+        "label": "A：论文/官方同源 full 可比",
+        "tier": "A"
+      },
+      {
+        "label": "B：官方同源但有派生/子集边界",
+        "tier": "B"
+      },
+      {
+        "label": "C：smoke / adapter 验证，不可当 benchmark 成绩",
+        "tier": "C"
+      }
+    ]
+  },
+  "external_sources": {
+    "arxiv_2606_24775": {
+      "available": true,
+      "reason": "Paper reference for agent-native memory evaluation taxonomy.",
+      "url": "https://arxiv.org/abs/2606.24775"
+    },
+    "memorydata": {
+      "available": true,
+      "commit": "e7ecdbe368426bb3b24bbb6126a57ea90eba1dfb",
+      "commit_date": "2026-06-24 11:29:38 +0800",
+      "commit_subject": "Update citation in README",
+      "launcher_ready": true,
+      "origin": "https://github.com/OpenDataBox/MemoryData.git",
+      "path": ".cache/external/MemoryData",
+      "url": "https://github.com/OpenDataBox/MemoryData"
+    },
+    "memtron_agentmemory_bench": {
+      "available": false,
+      "reason": "Current public source lock uses OpenDataBox/MemoryData; MEMTRON/AgentMemory-Bench is not treated as an anonymously readable canonical repo.",
+      "url": "https://github.com/MEMTRON/AgentMemory-Bench"
+    },
+    "openviking": {
+      "available": true,
+      "github": "https://github.com/volcengine/OpenViking",
+      "reason": "Design/reference source, not an AMH result source.",
+      "url": "https://openviking.ai/"
+    }
+  },
+  "generated_at": "2026-07-02T18:00:31.692869+00:00",
+  "longmemeval_qa_judge_loop": {
+    "generation_report": null,
+    "generation_report_path": "",
+    "judge_report": null,
+    "judge_report_path": "",
+    "primary_dataset": {
+      "alias": "longmemeval-s",
+      "benchmark": "LongMemEval",
+      "id": "longmemeval_s_cleaned",
+      "kind": "file",
+      "materialize_command": [
+        "python",
+        "benchmarks/materialize_memory_eval_datasets.py",
+        "--dataset",
+        "longmemeval-s",
+        "--cache-root",
+        ".cache/external",
+        "--memorydata-repo",
+        ".cache/external/MemoryData"
+      ],
+      "name": "LongMemEval-S cleaned",
+      "notes": "Primary retrieval-only benchmark for R@5/R@10 parity with public comparison tables.",
+      "ready": true,
+      "required_files": [],
+      "source_type": "direct_download",
+      "source_url": "https://huggingface.co/datasets/xiaowu0162/longmemeval-cleaned/resolve/main/longmemeval_s_cleaned.json",
+      "target_path": ".cache/external/LongMemEval/data/longmemeval_s_cleaned.json"
+    },
+    "stages": [
+      {
+        "gate": "LongMemEval-S cleaned 数据源锁定；QA/Judge 不复用 MemoryAgentBench 300-QA 派生口径冒充 500 full。",
+        "id": "source_lock",
+        "name": "source lock",
+        "status": "done"
+      },
+      {
+        "gate": "本地存在 LongMemEval-S cleaned 数据。",
+        "id": "dataset_materialize",
+        "name": "dataset materialize",
+        "status": "done"
+      },
+      {
+        "gate": "必须保存逐题 output 的 generation *_results.json。",
+        "id": "generation_run",
+        "name": "answer generation",
+        "status": "planned"
+      },
+      {
+        "gate": "必须保存 sidecar judge JSON，且 judged_rows 覆盖 supported_rows。",
+        "id": "judge_run",
+        "name": "LLM-as-judge",
+        "status": "blocked"
+      },
+      {
+        "gate": "generation 与 judge 分数单独发布，不替代 retrieval R@K。",
+        "id": "report_publish",
+        "name": "report publish",
+        "status": "planned"
+      }
+    ]
+  },
+  "longmemeval_retrieval_loop": {
+    "amh_ranking_report": null,
+    "amh_ranking_report_path": "docs/evaluation/amh-full-ranking/longmemeval-amh-ranking-smoke.json",
+    "amh_rk_full_report": null,
+    "amh_rk_full_report_path": "docs/evaluation/amh-full-ranking/longmemeval-amh-ranking-rk-full.json",
+    "one_click_command": "python benchmarks/materialize_memory_eval_datasets.py --dataset longmemeval-s --cache-root .cache/external --memorydata-repo .cache/external/MemoryData",
+    "primary_dataset": {
+      "alias": "longmemeval-s",
+      "benchmark": "LongMemEval",
+      "id": "longmemeval_s_cleaned",
+      "kind": "file",
+      "materialize_command": [
+        "python",
+        "benchmarks/materialize_memory_eval_datasets.py",
+        "--dataset",
+        "longmemeval-s",
+        "--cache-root",
+        ".cache/external",
+        "--memorydata-repo",
+        ".cache/external/MemoryData"
+      ],
+      "name": "LongMemEval-S cleaned",
+      "notes": "Primary retrieval-only benchmark for R@5/R@10 parity with public comparison tables.",
+      "ready": true,
+      "required_files": [],
+      "source_type": "direct_download",
+      "source_url": "https://huggingface.co/datasets/xiaowu0162/longmemeval-cleaned/resolve/main/longmemeval_s_cleaned.json",
+      "target_path": ".cache/external/LongMemEval/data/longmemeval_s_cleaned.json"
+    },
+    "rk_full_report": null,
+    "rk_full_report_path": "docs/evaluation/amh-full-ranking/longmemeval-retrieval-rk-full.json",
+    "smoke_report": null,
+    "smoke_report_path": "docs/evaluation/amh-full-ranking/longmemeval-retrieval-smoke.json",
+    "stages": [
+      {
+        "gate": "LongMemEval cleaned 数据源锁定到 Hugging Face xiaowu0162/longmemeval-cleaned。",
+        "id": "source_lock",
+        "name": "source lock",
+        "status": "done"
+      },
+      {
+        "gate": "本地存在 longmemeval_s_cleaned.json，且文件非空。",
+        "id": "dataset_materialize",
+        "name": "dataset materialize",
+        "status": "done"
+      },
+      {
+        "gate": "先跑小样本 R@5/R@10，不依赖外部 LLM judge。",
+        "id": "retrieval_only_smoke",
+        "name": "retrieval-only smoke",
+        "status": "planned"
+      },
+      {
+        "gate": "把 session evidence 写成 MemoryItem，再用 AMH retriever 计算 R@K。",
+        "id": "amh_ranking_run",
+        "name": "AMH ranking run",
+        "status": "waiting-smoke"
+      },
+      {
+        "gate": "只有跑出本地可复现指标后，才能写 LongMemEval-S R@K 数字。",
+        "id": "report_publish",
+        "name": "report publish",
+        "status": "planned"
+      }
+    ]
+  },
+  "memory_evaluation_loop": {
+    "metric_matrix": [
+      {
+        "amh_local_metric": "Recall@10、MRR、词频/BM25、向量召回、RRF 融合",
+        "dimension": "准确召回",
+        "external_metric": "MemoryAgentBench AR、LoCoMo QA、LongMemEval-S、Recall@K / MRR",
+        "gate": "候选必须可追溯到 MemoryItem 和 source evidence"
+      },
+      {
+        "amh_local_metric": "WriteService、MemoryItem 写入审计、runtime ledger、feedback ledger",
+        "dimension": "测试时学习",
+        "external_metric": "MemoryAgentBench TTL、State-Bench state update tasks",
+        "gate": "新事实必须落到本地事实层，不能只停在 prompt"
+      },
+      {
+        "amh_local_metric": "locator / overview / detail 分层注入、ContextPack 可逆、token budget",
+        "dimension": "长程理解",
+        "external_metric": "MemoryAgentBench LRU、LoCoMo long conversation、多跳/时序问题",
+        "gate": "长上下文只允许分层装载，detail 需要按需取证"
+      },
+      {
+        "amh_local_metric": "supersession、stale filter、用户/Agent 反馈、成熟度和废止过滤",
+        "dimension": "冲突解决",
+        "external_metric": "MemoryAgentBench CR、知识更新、过期/冲突状态处理",
+        "gate": "旧事实不得覆盖新证据；冲突必须保留来源边界"
+      },
+      {
+        "amh_local_metric": "弱意图阻断、可注入识别、防火墙 include/exclude、ContextPack 可逆",
+        "dimension": "有状态任务闭环",
+        "external_metric": "State-Bench task completion、pass^5、reliability、user experience",
+        "gate": "能完成任务，也要能拒绝不该注入的上下文"
+      },
+      {
+        "amh_local_metric": "indexed items、运行耗时、top_k、pack reversible、报告生成耗时",
+        "dimension": "成本与规模",
+        "external_metric": "token / latency / storage / indexed items / scale benchmark",
+        "gate": "报告必须同时给准确率和成本边界"
+      }
+    ],
+    "publication_rules": [
+      "AMH 本地指标可以直接发布，但必须带用例数、indexed items、top_k 和运行耗时。",
+      "外部 source-lock 只证明来源和入口可复核，不等于跑完外部榜单。",
+      "smoke 只证明 adapter / dataset / endpoint 最小链路可跑，不能外推到 full matrix。",
+      "full matrix 必须按来源维度写清 benchmark family、样本范围、指标和失败类型。",
+      "OpenViking、agentmemory COMPARISON、State-Bench、MemoryAgentBench 都是评估口径来源；没有真实运行就不写外部成绩。"
+    ],
+    "reference_sources": [
+      {
+        "id": "agentmemory_comparison",
+        "name": "agentmemory COMPARISON",
+        "role": "横向对照口径：LongMemEval、质量、规模、成本，不把第三方表格数字冒充 AMH 结果。",
+        "signals": "LongMemEval / quality benchmark / scale benchmark / cost",
+        "url": "https://github.com/rohitg00/agentmemory/blob/main/benchmark/COMPARISON.md"
+      },
+      {
+        "id": "state_bench",
+        "name": "State-Bench",
+        "role": "有状态任务闭环口径：任务完成率、可靠性、效率、用户体验。",
+        "signals": "task completion / pass^5 / efficiency / user experience",
+        "url": "https://opensource.microsoft.com/blog/2026/05/19/introducing-state-bench-a-benchmark-for-ai-agent-memory/"
+      },
+      {
+        "id": "memoryagentbench",
+        "name": "MemoryAgentBench",
+        "role": "能力分型口径：准确召回、测试时学习、长程理解、冲突解决。",
+        "signals": "准确召回 / 测试时学习 / 长程理解 / 冲突解决",
+        "url": "https://github.com/HUST-AI-HYZ/MemoryAgentBench"
+      },
+      {
+        "id": "openviking",
+        "name": "OpenViking",
+        "role": "公开评测体系参考：LoCoMo、tau2-bench、HotpotQA / KB QA、延迟和 token 成本。",
+        "signals": "LoCoMo / tau2-bench / HotpotQA / KB QA / latency / token cost",
+        "url": "https://openviking.ai/"
+      }
+    ],
+    "stages": [
+      {
+        "gate": "四份外部资料有固定 URL；MemoryData 本地 repo 有 commit SHA。",
+        "id": "source_lock",
+        "name": "source lock",
+        "status": "done"
+      },
+      {
+        "gate": "MemoryAgentBench / LoCoMo / LongBench / MemBench 数据集本地可读。",
+        "id": "dataset_materialize",
+        "name": "dataset materialize",
+        "status": "done"
+      },
+      {
+        "gate": "AMH write / retrieve / update / context pack 映射到外部 runner。",
+        "id": "adapter_mapping",
+        "name": "adapter mapping",
+        "status": "planned"
+      },
+      {
+        "gate": "最小样本在依赖、数据集和 OpenAI-compatible endpoint 全部 ready 后执行。",
+        "id": "smoke_run",
+        "name": "smoke run",
+        "status": "done"
+      },
+      {
+        "gate": "smoke pass 后才跑 AR / TTL / LRU / CR、LoCoMo、State-Bench 类任务。",
+        "id": "full_matrix",
+        "name": "full matrix",
+        "status": "partial"
+      },
+      {
+        "gate": "统一 Recall@K、MRR、accuracy、pass^5、latency、token、storage 和失败类型。",
+        "id": "result_normalize",
+        "name": "result normalize",
+        "status": "done"
+      },
+      {
+        "gate": "本地指标已发布；外部指标必须区分 source-lock / smoke / full matrix。",
+        "id": "report_publish",
+        "name": "report publish",
+        "status": "done"
+      }
+    ]
+  },
+  "memoryagentbench_full_runs": [
+    {
+      "config": "Accurate_Retrieval / EventQA full",
+      "dimension": "准确召回 AR",
+      "expected_rows": 500,
+      "id": "memoryagentbench-ar-eventqa",
+      "metrics": {},
+      "metrics_summary": "-",
+      "result_path": "",
+      "rows": 0,
+      "status": "missing"
+    },
+    {
+      "config": "Test_Time_Learning / ICL banking77",
+      "dimension": "测试时学习 TTL",
+      "expected_rows": 100,
+      "id": "memoryagentbench-ttl-icl-banking77",
+      "metrics": {},
+      "metrics_summary": "-",
+      "result_path": "",
+      "rows": 0,
+      "status": "missing"
+    },
+    {
+      "config": "Long_Range_Understanding / Detective_QA",
+      "dimension": "长程理解 LRU",
+      "expected_rows": 71,
+      "id": "memoryagentbench-lru-detectiveqa",
+      "metrics": {},
+      "metrics_summary": "-",
+      "result_path": "",
+      "rows": 0,
+      "status": "missing"
+    },
+    {
+      "config": "Conflict_Resolution / Factconsolidation mh 6k",
+      "dimension": "冲突解决 CR",
+      "expected_rows": 100,
+      "id": "memoryagentbench-cr-fact-mh-6k",
+      "metrics": {},
+      "metrics_summary": "-",
+      "result_path": "",
+      "rows": 0,
+      "status": "missing"
+    }
+  ],
+  "memorydata_agent_config": "config/hybrid_amh.yaml",
+  "memorydata_full_family_runs": [
+    {
+      "expected_rows": 1540,
+      "family": "LoCoMo",
+      "id": "memorydata-locomo-4cat-full",
+      "limitations": "LoCoMo official locomo10 derived category 1-4 QA; excludes adversarial/category 5.",
+      "metrics": {},
+      "metrics_summary": "-",
+      "name": "LoCoMo 4cat QA full",
+      "result_path": "",
+      "rows": 0,
+      "sample_scope": "0 / 1540 QA",
+      "status": "missing",
+      "tier": "B"
+    },
+    {
+      "expected_rows": 446,
+      "family": "LoCoMoCategory5",
+      "id": "memorydata-locomo-category5-adversarial-full",
+      "limitations": "LoCoMo official locomo10 category 5 adversarial questions, scored separately against adversarial_answer; not mixed into the category 1-4 QA benchmark.",
+      "metrics": {},
+      "metrics_summary": "-",
+      "name": "LoCoMo category5 adversarial full",
+      "result_path": "",
+      "rows": 0,
+      "sample_scope": "0 / 446 QA",
+      "status": "missing",
+      "tier": "B"
+    },
+    {
+      "expected_rows": 150,
+      "family": "LongBench",
+      "id": "memorydata-longbench-rep150-full",
+      "limitations": "MemoryData deterministic 150-row proportional subset; not THUDM LongBench-v2 503-question full.",
+      "metrics": {},
+      "metrics_summary": "-",
+      "name": "LongBench rep150 proportional full",
+      "result_path": "",
+      "rows": 0,
+      "sample_scope": "0 / 150 rows",
+      "status": "missing",
+      "tier": "B"
+    },
+    {
+      "expected_rows": 503,
+      "family": "LongBenchV2Full",
+      "id": "memorydata-longbench-v2-503-full",
+      "limitations": "Official THUDM LongBench-v2 503-question full set through MemoryData-compatible loader.",
+      "metrics": {},
+      "metrics_summary": "-",
+      "name": "LongBench-v2 503-question full",
+      "result_path": "",
+      "rows": 0,
+      "sample_scope": "0 / 503 rows",
+      "status": "missing",
+      "tier": "A"
+    },
+    {
+      "expected_rows": 100,
+      "family": "MemBench",
+      "id": "memorydata-membench-simple-full",
+      "limitations": "MemBench public FirstAgent simple slice full.",
+      "metrics": {
+        "exact_match": 94.0,
+        "f1": 67.0,
+        "input_len": 932.38,
+        "legacy_exact_match": 94.0,
+        "legacy_f1": 67.0,
+        "membench_read_time_per_op_s": 2.238621377944946,
+        "membench_recall@1": 0.0,
+        "membench_recall@10": 0.0,
+        "membench_recall@5": 0.0,
+        "membench_total_overhead_time_s": 2.2443820905685423,
+        "membench_write_time_per_op_s": 4.341102080343857e-05,
+        "memory_construction_time": 0.0057607126235961915,
+        "output_len": 2.0,
+        "query_time_len": 2.238621377944946,
+        "rougeL_f1": 67.0,
+        "rougeL_recall": 67.0,
+        "rougeLsum_f1": 67.0,
+        "rougeLsum_recall": 67.0,
+        "substring_exact_match": 95.0
+      },
+      "metrics_summary": "EM 94.00%; F1 67.00%; Recall@10 0.00%",
+      "name": "MemBench simple full",
+      "result_path": "docs/evaluation/amh-full-ranking/memorydata-artifacts/full-family/membench-simple/outputs/gui-owl-amh/MemBench/membench_simple_light_in200000_size8_shots0_max_samples100_variantbm25-rrf_results.json",
+      "rows": 100,
+      "sample_scope": "100 / 100 rows",
+      "status": "passed",
+      "tier": "B"
+    },
+    {
+      "expected_rows": 100,
+      "family": "MemBench",
+      "id": "memorydata-membench-noisy-full",
+      "limitations": "MemBench public FirstAgent noisy slice full.",
+      "metrics": {},
+      "metrics_summary": "-",
+      "name": "MemBench noisy full",
+      "result_path": "",
+      "rows": 0,
+      "sample_scope": "0 / 100 rows",
+      "status": "missing",
+      "tier": "B"
+    },
+    {
+      "expected_rows": 100,
+      "family": "MemBench",
+      "id": "memorydata-membench-knowledge-update-full",
+      "limitations": "MemBench public FirstAgent knowledge_update slice full.",
+      "metrics": {},
+      "metrics_summary": "-",
+      "name": "MemBench knowledge_update full",
+      "result_path": "",
+      "rows": 0,
+      "sample_scope": "0 / 100 rows",
+      "status": "missing",
+      "tier": "B"
+    },
+    {
+      "expected_rows": 150,
+      "family": "MemBench",
+      "id": "memorydata-membench-highlevel-full",
+      "limitations": "MemBench public FirstAgent highlevel slice full.",
+      "metrics": {},
+      "metrics_summary": "-",
+      "name": "MemBench highlevel full",
+      "result_path": "",
+      "rows": 0,
+      "sample_scope": "0 / 150 rows",
+      "status": "missing",
+      "tier": "B"
+    },
+    {
+      "expected_rows": 50,
+      "family": "MemBench",
+      "id": "memorydata-membench-recmultisession-full",
+      "limitations": "MemBench public FirstAgent RecMultiSession slice full.",
+      "metrics": {},
+      "metrics_summary": "-",
+      "name": "MemBench RecMultiSession full",
+      "result_path": "",
+      "rows": 0,
+      "sample_scope": "0 / 50 rows",
+      "status": "missing",
+      "tier": "B"
+    }
+  ],
+  "memorydata_plan": {
+    "families": [
+      "MemoryAgentBench",
+      "LoCoMo",
+      "LoCoMoCategory5",
+      "LongBench",
+      "LongBenchV2Full",
+      "MemBench"
+    ],
+    "families_detail": [
+      {
+        "config": "benchmark/memoryagentbench/Accurate_Retrieval/config/EventQA/Eventqa_full.yaml",
+        "dataset_path": "datasets/MemoryAgentBench/eval_dataset_collection",
+        "dataset_status": "ready",
+        "name": "MemoryAgentBench"
+      },
+      {
+        "config": "benchmark/locomo/config/Locomo_qa_4cat_600_dist.yaml",
+        "dataset_path": "datasets/LoCoMo/rq1_4cat_600_dist/locomo_4cat_600_dist.json",
+        "dataset_status": "ready",
+        "name": "LoCoMo"
+      },
+      {
+        "config": "benchmark/locomo/config/Locomo_qa_category5_adversarial.yaml",
+        "dataset_path": "datasets/LoCoMo/locomo10.json",
+        "dataset_status": "ready",
+        "name": "LoCoMoCategory5"
+      },
+      {
+        "config": "benchmark/longbench/config/LongBench_rep150_proportional.yaml",
+        "dataset_path": "datasets/longBench_rep150_proportional/datasets",
+        "dataset_status": "ready",
+        "name": "LongBench"
+      },
+      {
+        "config": "benchmark/longbench/config/LongBench_v2_503_full.yaml",
+        "dataset_path": "datasets/longBench_v2_503_full/datasets",
+        "dataset_status": "ready",
+        "name": "LongBenchV2Full"
+      },
+      {
+        "config": "benchmark/membench/config/MemBench_simple.yaml",
+        "dataset_path": "datasets/MemBench/MemData/FirstAgent",
+        "dataset_status": "ready",
+        "name": "MemBench"
+      }
+    ],
+    "smoke_command": [
+      "python",
+      "main.py",
+      "--agent_config",
+      "config/hybrid_amh.yaml",
+      "--dataset_config",
+      "benchmark/memoryagentbench/Accurate_Retrieval/config/EventQA/Eventqa_full.yaml",
+      "--max_test_queries_ablation",
+      "1",
+      "--artifact_root",
+      "results/amh-memorydata-smoke"
+    ]
+  },
+  "memorydata_prerequisites": {
+    "dataset_checks": [
+      {
+        "config": "benchmark/memoryagentbench/Accurate_Retrieval/config/EventQA/Eventqa_full.yaml",
+        "name": "MemoryAgentBench",
+        "path": ".cache/external/MemoryData/datasets/MemoryAgentBench/eval_dataset_collection",
+        "ready": true
+      },
+      {
+        "config": "benchmark/locomo/config/Locomo_qa_4cat_600_dist.yaml",
+        "name": "LoCoMo",
+        "path": ".cache/external/MemoryData/datasets/LoCoMo/rq1_4cat_600_dist/locomo_4cat_600_dist.json",
+        "ready": true
+      },
+      {
+        "config": "benchmark/locomo/config/Locomo_qa_category5_adversarial.yaml",
+        "name": "LoCoMoCategory5",
+        "path": ".cache/external/MemoryData/datasets/LoCoMo/locomo10.json",
+        "ready": true
+      },
+      {
+        "config": "benchmark/longbench/config/LongBench_rep150_proportional.yaml",
+        "name": "LongBench",
+        "path": ".cache/external/MemoryData/datasets/longBench_rep150_proportional/datasets",
+        "ready": true
+      },
+      {
+        "config": "benchmark/longbench/config/LongBench_v2_503_full.yaml",
+        "name": "LongBenchV2Full",
+        "path": ".cache/external/MemoryData/datasets/longBench_v2_503_full/datasets",
+        "ready": true
+      },
+      {
+        "config": "benchmark/membench/config/MemBench_simple.yaml",
+        "name": "MemBench",
+        "path": ".cache/external/MemoryData/datasets/MemBench/MemData/FirstAgent",
+        "ready": true
+      }
+    ],
+    "datasets_ready": true,
+    "dependencies_ready": true,
+    "endpoint_note": "TCP reachable: 127.0.0.1:11434",
+    "endpoint_ready": true,
+    "missing_dependencies": []
+  },
+  "memorydata_runs": [
+    {
+      "artifact": "docs/evaluation/amh-full-ranking/memorydata-artifacts/full-family/membench-simple",
+      "artifact_root": "docs/evaluation/amh-full-ranking/memorydata-artifacts/full-family/membench-simple",
+      "command": [
+        "python",
+        "main.py",
+        "--agent_config",
+        "config/hybrid_amh.yaml",
+        "--dataset_config",
+        "benchmark/membench/config/MemBench_simple.yaml",
+        "--max_test_queries_ablation",
+        "100",
+        "--artifact_root",
+        "docs/evaluation/amh-full-ranking/memorydata-artifacts/full-family/membench-simple"
+      ],
+      "completed_at": "2026-07-02T18:00:31.685117+00:00",
+      "family": "MemBench",
+      "memorydata_failed_query_count": 0,
+      "name": "memorydata-membench-full",
+      "reason": "ready to execute",
+      "returncode": 0,
+      "run_level": "full",
+      "run_record": "docs/evaluation/amh-full-ranking/memorydata-artifacts/full-family/membench-simple/run-record.json",
+      "started_at": "2026-07-02T17:55:59.699465+00:00",
+      "status": "passed",
+      "stderr_tail": "ments 99/100:   0%|          | 0/110 [00:00<?, ?it/s]\u001b[A\n\nProcessing experiments 99/100:  64%|██████▎   | 70/110 [00:00<00:00, 697.27it/s]\u001b[A\nProcessing experiments 99/100: 100%|██████████| 110/110 [00:00<00:00, 708.06it/s]\n\n\n  0%|          | 0/1 [00:00<?, ?it/s]\u001b[A07/03/2026 02:00:09 - INFO - __main__ - exact_match: 93.94\n07/03/2026 02:00:09 - INFO - __main__ - f1: 67.68\n07/03/2026 02:00:09 - INFO - __main__ - substring_exact_match: 94.95\n07/03/2026 02:00:09 - INFO - __main__ - rougeL_f1: 67.68\n07/03/2026 02:00:09 - INFO - __main__ - rougeL_recall: 67.68\n07/03/2026 02:00:09 - INFO - __main__ - rougeLsum_f1: 67.68\n07/03/2026 02:00:09 - INFO - __main__ - rougeLsum_recall: 67.68\n07/03/2026 02:00:09 - INFO - __main__ - legacy_exact_match: 93.94\n07/03/2026 02:00:09 - INFO - __main__ - legacy_f1: 67.68\n07/03/2026 02:00:09 - INFO - __main__ - membench_recall@1: 0.00\n07/03/2026 02:00:09 - INFO - __main__ - membench_recall@5: 0.00\n07/03/2026 02:00:09 - INFO - __main__ - membench_recall@10: 0.00\n07/03/2026 02:00:09 - INFO - __main__ - membench_total_overhead_time_s: 2.25\n07/03/2026 02:00:09 - INFO - __main__ - membench_read_time_per_op_s: 2.24\n07/03/2026 02:00:09 - INFO - __main__ - membench_write_time_per_op_s: 0.00\n07/03/2026 02:00:09 - INFO - __main__ - input_len: 932.75\n07/03/2026 02:00:09 - INFO - __main__ - output_len: 2.00\n07/03/2026 02:00:09 - INFO - __main__ - memory_construction_time: 0.01\n07/03/2026 02:00:09 - INFO - __main__ - query_time_len: 2.24\n07/03/2026 02:00:09 - INFO - __main__ - Results saved at <repo>/docs/evaluation/amh-full-ranking/memorydata-artifacts/full-family/membench-simple/outputs/gui-owl-amh/MemBench/membench_simple_light_in200000_size8_shots0_max_samples100_variantbm25-rrf_results.json\n\n\n100%|██████████| 1/1 [00:02<00:00,  2.34s/it]\u001b[A\n100%|██████████| 1/1 [00:02<00:00,  2.34s/it]\n\n 99%|█████████▉| 99/100 [04:05<00:02,  2.50s/it]\n\nProcessing experiments 100/100:   0%|          | 0/110 [00:00<?, ?it/s]\u001b[A\n\nProcessing experiments 100/100:  66%|██████▋   | 73/110 [00:00<00:00, 728.29it/s]\u001b[A\nProcessing experiments 100/100: 100%|██████████| 110/110 [00:00<00:00, 776.44it/s]\n\n\n  0%|          | 0/1 [00:00<?, ?it/s]\u001b[A07/03/2026 02:00:11 - INFO - __main__ - exact_match: 94.00\n07/03/2026 02:00:11 - INFO - __main__ - f1: 67.00\n07/03/2026 02:00:11 - INFO - __main__ - substring_exact_match: 95.00\n07/03/2026 02:00:11 - INFO - __main__ - rougeL_f1: 67.00\n07/03/2026 02:00:11 - INFO - __main__ - rougeL_recall: 67.00\n07/03/2026 02:00:11 - INFO - __main__ - rougeLsum_f1: 67.00\n07/03/2026 02:00:11 - INFO - __main__ - rougeLsum_recall: 67.00\n07/03/2026 02:00:11 - INFO - __main__ - legacy_exact_match: 94.00\n07/03/2026 02:00:11 - INFO - __main__ - legacy_f1: 67.00\n07/03/2026 02:00:11 - INFO - __main__ - membench_recall@1: 0.00\n07/03/2026 02:00:11 - INFO - __main__ - membench_recall@5: 0.00\n07/03/2026 02:00:11 - INFO - __main__ - membench_recall@10: 0.00\n07/03/2026 02:00:11 - INFO - __main__ - membench_total_overhead_time_s: 2.24\n07/03/2026 02:00:11 - INFO - __main__ - membench_read_time_per_op_s: 2.24\n07/03/2026 02:00:11 - INFO - __main__ - membench_write_time_per_op_s: 0.00\n07/03/2026 02:00:11 - INFO - __main__ - input_len: 932.38\n07/03/2026 02:00:11 - INFO - __main__ - output_len: 2.00\n07/03/2026 02:00:11 - INFO - __main__ - memory_construction_time: 0.01\n07/03/2026 02:00:11 - INFO - __main__ - query_time_len: 2.24\n07/03/2026 02:00:11 - INFO - __main__ - Results saved at <repo>/docs/evaluation/amh-full-ranking/memorydata-artifacts/full-family/membench-simple/outputs/gui-owl-amh/MemBench/membench_simple_light_in200000_size8_shots0_max_samples100_variantbm25-rrf_results.json\n\n\n100%|██████████| 1/1 [00:02<00:00,  2.10s/it]\u001b[A\n100%|██████████| 1/1 [00:02<00:00,  2.10s/it]\n\n100%|██████████| 100/100 [04:07<00:00,  2.43s/it]\n100%|██████████| 100/100 [04:07<00:00,  2.48s/it]\n07/03/2026 02:00:12 - INFO - __main__ - Total time taken: 248.5247519016266\n",
+      "stdout_tail": "\n\n\n Agent Memorizing...\n\n\n\n\n Agent saved...\n\n\n\n!!!!!Processing 1 queries for context 57!!!!!\n\n\n\n Agent Memorizing...\n\n\n\n\n Agent saved...\n\n\n\n!!!!!Processing 1 queries for context 58!!!!!\n\n\n\n Agent Memorizing...\n\n\n\n\n Agent saved...\n\n\n\n!!!!!Processing 1 queries for context 59!!!!!\n\n\n\n Agent Memorizing...\n\n\n\n\n Agent saved...\n\n\n\n!!!!!Processing 1 queries for context 60!!!!!\n\n\n\n Agent Memorizing...\n\n\n\n\n Agent saved...\n\n\n\n!!!!!Processing 1 queries for context 61!!!!!\n\n\n\n Agent Memorizing...\n\n\n\n\n Agent saved...\n\n\n\n!!!!!Processing 1 queries for context 62!!!!!\n\n\n\n Agent Memorizing...\n\n\n\n\n Agent saved...\n\n\n\n!!!!!Processing 1 queries for context 63!!!!!\n\n\n\n Agent Memorizing...\n\n\n\n\n Agent saved...\n\n\n\n!!!!!Processing 1 queries for context 64!!!!!\n\n\n\n Agent Memorizing...\n\n\n\n\n Agent saved...\n\n\n\n!!!!!Processing 1 queries for context 65!!!!!\n\n\n\n Agent Memorizing...\n\n\n\n\n Agent saved...\n\n\n\n!!!!!Processing 1 queries for context 66!!!!!\n\n\n\n Agent Memorizing...\n\n\n\n\n Agent saved...\n\n\n\n!!!!!Processing 1 queries for context 67!!!!!\n\n\n\n Agent Memorizing...\n\n\n\n\n Agent saved...\n\n\n\n!!!!!Processing 1 queries for context 68!!!!!\n\n\n\n Agent Memorizing...\n\n\n\n\n Agent saved...\n\n\n\n!!!!!Processing 1 queries for context 69!!!!!\n\n\n\n Agent Memorizing...\n\n\n\n\n Agent saved...\n\n\n\n!!!!!Processing 1 queries for context 70!!!!!\n\n\n\n Agent Memorizing...\n\n\n\n\n Agent saved...\n\n\n\n!!!!!Processing 1 queries for context 71!!!!!\n\n\n\n Agent Memorizing...\n\n\n\n\n Agent saved...\n\n\n\n!!!!!Processing 1 queries for context 72!!!!!\n\n\n\n Agent Memorizing...\n\n\n\n\n Agent saved...\n\n\n\n!!!!!Processing 1 queries for context 73!!!!!\n\n\n\n Agent Memorizing...\n\n\n\n\n Agent saved...\n\n\n\n!!!!!Processing 1 queries for context 74!!!!!\n\n\n\n Agent Memorizing...\n\n\n\n\n Agent saved...\n\n\n\n!!!!!Processing 1 queries for context 75!!!!!\n\n\n\n Agent Memorizing...\n\n\n\n\n Agent saved...\n\n\n\n!!!!!Processing 1 queries for context 76!!!!!\n\n\n\n Agent Memorizing...\n\n\n\n\n Agent saved...\n\n\n\n!!!!!Processing 1 queries for context 77!!!!!\n\n\n\n Agent Memorizing...\n\n\n\n\n Agent saved...\n\n\n\n!!!!!Processing 1 queries for context 78!!!!!\n\n\n\n Agent Memorizing...\n\n\n\n\n Agent saved...\n\n\n\n!!!!!Processing 1 queries for context 79!!!!!\n\n\n\n Agent Memorizing...\n\n\n\n\n Agent saved...\n\n\n\n!!!!!Processing 1 queries for context 80!!!!!\n\n\n\n Agent Memorizing...\n\n\n\n\n Agent saved...\n\n\n\n!!!!!Processing 1 queries for context 81!!!!!\n\n\n\n Agent Memorizing...\n\n\n\n\n Agent saved...\n\n\n\n!!!!!Processing 1 queries for context 82!!!!!\n\n\n\n Agent Memorizing...\n\n\n\n\n Agent saved...\n\n\n\n!!!!!Processing 1 queries for context 83!!!!!\n\n\n\n Agent Memorizing...\n\n\n\n\n Agent saved...\n\n\n\n!!!!!Processing 1 queries for context 84!!!!!\n\n\n\n Agent Memorizing...\n\n\n\n\n Agent saved...\n\n\n\n!!!!!Processing 1 queries for context 85!!!!!\n\n\n\n Agent Memorizing...\n\n\n\n\n Agent saved...\n\n\n\n!!!!!Processing 1 queries for context 86!!!!!\n\n\n\n Agent Memorizing...\n\n\n\n\n Agent saved...\n\n\n\n!!!!!Processing 1 queries for context 87!!!!!\n\n\n\n Agent Memorizing...\n\n\n\n\n Agent saved...\n\n\n\n!!!!!Processing 1 queries for context 88!!!!!\n\n\n\n Agent Memorizing...\n\n\n\n\n Agent saved...\n\n\n\n!!!!!Processing 1 queries for context 89!!!!!\n\n\n\n Agent Memorizing...\n\n\n\n\n Agent saved...\n\n\n\n!!!!!Processing 1 queries for context 90!!!!!\n\n\n\n Agent Memorizing...\n\n\n\n\n Agent saved...\n\n\n\n!!!!!Processing 1 queries for context 91!!!!!\n\n\n\n Agent Memorizing...\n\n\n\n\n Agent saved...\n\n\n\n!!!!!Processing 1 queries for context 92!!!!!\n\n\n\n Agent Memorizing...\n\n\n\n\n Agent saved...\n\n\n\n!!!!!Processing 1 queries for context 93!!!!!\n\n\n\n Agent Memorizing...\n\n\n\n\n Agent saved...\n\n\n\n!!!!!Processing 1 queries for context 94!!!!!\n\n\n\n Agent Memorizing...\n\n\n\n\n Agent saved...\n\n\n\n!!!!!Processing 1 queries for context 95!!!!!\n\n\n\n Agent Memorizing...\n\n\n\n\n Agent saved...\n\n\n\n!!!!!Processing 1 queries for context 96!!!!!\n\n\n\n Agent Memorizing...\n\n\n\n\n Agent saved...\n\n\n\n!!!!!Processing 1 queries for context 97!!!!!\n\n\n\n Agent Memorizing...\n\n\n\n\n Agent saved...\n\n\n\n!!!!!Processing 1 queries for context 98!!!!!\n\n\n\n Agent Memorizing...\n\n\n\n\n Agent saved...\n\n\n\n!!!!!Processing 1 queries for context 99!!!!!\n\n"
+    }
+  ],
+  "run_mode": "full",
+  "status": "PASS_WITH_MEMORYDATA_FULL_PARTIAL"
+}

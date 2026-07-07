@@ -1,0 +1,89 @@
+[
+  {
+    "prompt": "AMH 已作为本仓库追加的 hybrid_amh.yaml method preset 这句话我就没有看懂\n\n到底是不是跟其他竞品基于统一标准",
+    "seed_items": [
+      {
+        "id": "mem-20260704-220000-hybrid-amh-method-preset",
+        "type": "decision",
+        "title": "AMH hybrid_amh.yaml method preset comparison",
+        "summary": "hybrid_amh.yaml method preset is compared with external benchmark presets.",
+        "tags": ["hybrid_amh.yaml", "method", "preset"]
+      }
+    ],
+    "expected_decision": "inject_allowed",
+    "expected_keywords": "hybrid_amh.yaml|method|preset|其他竞品|统一标准",
+    "expected_anchors": ["metadata_phrase", "file_or_module", "cjk_question_focus"],
+    "expected_weak_noise": ["到底是不是跟其他竞品基于统一标准"],
+    "expected_trace_contains": ["cjk_question_focus_terms=其他竞品|统一标准"],
+    "description": "File/module anchored prompt should keep CJK comparison/baseline focus terms."
+  },
+  {
+    "prompt": "到底是不是跟其他竞品基于统一标准",
+    "expected_decision": "block",
+    "expected_reason": "too_weak",
+    "expected_keywords": "",
+    "description": "The same CJK comparison question stays blocked when it has no topic or scope anchor."
+  },
+  {
+    "prompt": "多Agent共享第二大脑",
+    "seed_items": [
+      {
+        "id": "mem-20260703-010531-agent-memory-metrics",
+        "type": "artifact",
+        "title": "AMH agent-memory metrics evaluation report",
+        "summary": "Evaluate agent memory metrics and benchmark readiness.",
+        "tags": ["agent", "memory", "metrics"]
+      }
+    ],
+    "expected_decision": "inject_allowed",
+    "expected_keywords": "多agent共享第二大脑",
+    "expected_anchors": ["keyphrase"],
+    "description": "Mixed CJK/ASCII topic should not degrade to generic agent."
+  },
+  {
+    "prompt": "4 skipped",
+    "seed_items": [
+      {
+        "id": "mem-20260703-010540-test-summary",
+        "type": "artifact",
+        "title": "Agent Memory Hub tests passed with skipped cases",
+        "summary": "Full pytest result: 1722 passed, 4 skipped.",
+        "tags": ["tests", "passed", "skipped"]
+      }
+    ],
+    "expected_decision": "block",
+    "expected_reason": "test_status_without_topic",
+    "expected_keywords": "",
+    "description": "Bare test status should not recall historical test memories."
+  },
+  {
+    "prompt": "[Image #1]另外，这个关于Agent的管理，应该单独一个模块，而且必须有优雅美观大气好看的统计图之类的交互",
+    "seed_items": [
+      {
+        "id": "mem-20260703-010530-agent-memory-metrics",
+        "type": "artifact",
+        "title": "AMH agent-memory metrics evaluation report",
+        "summary": "Evaluate agent memory metrics and benchmark readiness.",
+        "tags": ["agent", "memory", "metrics"]
+      }
+    ],
+    "expected_decision": "inject_allowed",
+    "expected_keywords": "agent的管理",
+    "expected_anchors": ["keyphrase"],
+    "description": "Mixed Agent management prompt should keep the compound keyphrase, not the generic word agent."
+  },
+  {
+    "prompt": "我的意思是代码是否全部在本地main分支了，因为我准备上传GitHub了",
+    "expected_decision": "block",
+    "expected_reason": "unanchored_mixed_scope",
+    "expected_keywords": "",
+    "description": "Unanchored mixed-language scope confirmation should not search only main/github fragments."
+  },
+  {
+    "prompt": "综上所有代码都合入main分支了吗",
+    "expected_decision": "block",
+    "expected_reason": "unanchored_mixed_scope",
+    "expected_keywords": "",
+    "description": "Mixed branch confirmation should not become a malformed CJK/ASCII keyphrase."
+  }
+]

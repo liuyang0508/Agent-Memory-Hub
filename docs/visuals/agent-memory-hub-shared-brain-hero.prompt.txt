@@ -1,0 +1,13 @@
+Use case: infographic-diagram
+Asset type: README hero visual for an open-source developer tool called Agent Memory Hub
+Primary request: Create a polished concept visual for a multi-agent shared fact layer. Multiple AI coding agents connect to one local-first Markdown memory pool, then retrieve trusted context in later sessions.
+Scene/backdrop: a clean technical workspace diagram with a central luminous knowledge core made of stacked Markdown documents and small memory nodes, surrounded by several distinct abstract agent terminals and IDE panels connected by thin data lines.
+Subject: central shared memory hub, local Markdown files, rebuildable index/database layer, governance/filter shield, and multiple agent clients. Keep the visual metaphor clear but not literal product UI.
+Style/medium: high-quality editorial technical illustration, sophisticated open-source README banner, semi-flat 3D with crisp vector-like edges and subtle depth, modern but restrained.
+Composition/framing: wide landscape banner, 16:9-ish, central hub dominant, agents around the perimeter, readable at README width, enough whitespace around edges, balanced symmetrical flow.
+Lighting/mood: clear, trustworthy, precise, calm engineering mood, soft daylight, subtle glow only at the central memory core.
+Color palette: neutral off-white background with GitHub-like ink, muted blue, green, purple, amber accents; avoid a one-note purple/blue gradient look.
+Materials/textures: paper/Markdown document texture, glassy but restrained data lines, clean panels, no heavy shadows.
+Text: no rendered text, no letters, no words, no logos, no watermarks. Leave all labels to be added separately by SVG/Markdown if needed.
+Constraints: Must communicate "many agents, one shared second brain, local durable memory, retrieval and governance" without relying on text. Accurate architecture-like visual hierarchy, not a fantasy brain illustration.
+Avoid: distorted text, fake UI text, brand logos, mascots, humanoid robots, photographic people, dark cyberpunk, clutter, random icons, illegible diagrams.

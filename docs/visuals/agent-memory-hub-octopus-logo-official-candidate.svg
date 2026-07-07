@@ -1,0 +1,98 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title desc" shape-rendering="geometricPrecision" color-rendering="sRGB">
+  <title id="title">Agent Memory Hub official octopus logo candidate</title>
+  <desc id="desc">A technical teal octopus mark with eight circuit-like arms and a memory-node crown, designed to match the Agent Memory Hub official site style.</desc>
+  <defs>
+    <linearGradient id="plate-fill" x1="16" y1="10" x2="116" y2="122" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="48%" stop-color="#effaff"/>
+      <stop offset="100%" stop-color="#dff4fb"/>
+    </linearGradient>
+    <radialGradient id="aura" cx="50%" cy="42%" r="58%">
+      <stop offset="0%" stop-color="#a5f3fc" stop-opacity="0.82"/>
+      <stop offset="62%" stop-color="#38bdf8" stop-opacity="0.18"/>
+      <stop offset="100%" stop-color="#0891b2" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="body-fill" x1="37" y1="22" x2="91" y2="91" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#67e8f9"/>
+      <stop offset="38%" stop-color="#22d3ee"/>
+      <stop offset="76%" stop-color="#0891b2"/>
+      <stop offset="100%" stop-color="#0c4a6e"/>
+    </linearGradient>
+    <linearGradient id="body-rim" x1="36" y1="18" x2="94" y2="86" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#ecfeff" stop-opacity="0.9"/>
+      <stop offset="54%" stop-color="#38bdf8" stop-opacity="0.34"/>
+      <stop offset="100%" stop-color="#082f49" stop-opacity="0.7"/>
+    </linearGradient>
+    <linearGradient id="arm-stroke" x1="20" y1="74" x2="108" y2="110" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#0ea5e9"/>
+      <stop offset="48%" stop-color="#0891b2"/>
+      <stop offset="100%" stop-color="#0c4a6e"/>
+    </linearGradient>
+    <linearGradient id="front-arm" x1="45" y1="75" x2="83" y2="112" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#67e8f9"/>
+      <stop offset="58%" stop-color="#0891b2"/>
+      <stop offset="100%" stop-color="#082f49"/>
+    </linearGradient>
+    <linearGradient id="node-stroke" x1="50" y1="21" x2="78" y2="45" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#ecfeff"/>
+      <stop offset="100%" stop-color="#a5f3fc"/>
+    </linearGradient>
+    <filter id="soft-shadow" x="-28%" y="-22%" width="156%" height="162%">
+      <feDropShadow dx="0" dy="16" stdDeviation="11" flood-color="#075985" flood-opacity="0.18"/>
+    </filter>
+  </defs>
+
+  <rect x="8" y="8" width="112" height="112" rx="24" fill="url(#plate-fill)" stroke="#cfe0ea" stroke-width="2"/>
+  <path d="M26 27H102M26 48H102M26 69H102M26 90H102M38 18V110M64 18V110M90 18V110" fill="none" stroke="#cfe0ea" stroke-width="1" opacity="0.34"/>
+  <circle cx="64" cy="65" r="48" fill="url(#aura)"/>
+
+  <g filter="url(#soft-shadow)">
+    <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M36 73C23 76 19 88 29 96" stroke="#082f49" stroke-width="11"/>
+      <path d="M45 80C36 88 38 101 49 105" stroke="#082f49" stroke-width="11"/>
+      <path d="M83 80C92 88 90 101 79 105" stroke="#082f49" stroke-width="11"/>
+      <path d="M92 73C105 76 109 88 99 96" stroke="#082f49" stroke-width="11"/>
+      <path d="M36 73C23 76 19 88 29 96" stroke="url(#arm-stroke)" stroke-width="6.8"/>
+      <path d="M45 80C36 88 38 101 49 105" stroke="url(#arm-stroke)" stroke-width="6.8"/>
+      <path d="M83 80C92 88 90 101 79 105" stroke="url(#arm-stroke)" stroke-width="6.8"/>
+      <path d="M92 73C105 76 109 88 99 96" stroke="url(#arm-stroke)" stroke-width="6.8"/>
+    </g>
+
+    <path d="M64 22C43 22 29 36 29 56.5C29 77.5 43.2 89 64 89S99 77.5 99 56.5C99 36 85 22 64 22Z" fill="url(#body-fill)" stroke="#082f49" stroke-width="2.5"/>
+    <path d="M64 22C43 22 29 36 29 56.5C29 77.5 43.2 89 64 89S99 77.5 99 56.5C99 36 85 22 64 22Z" fill="none" stroke="url(#body-rim)" stroke-width="1.35"/>
+    <path d="M36.5 66.8C43.5 78.6 52.2 84.5 64 84.5S84.5 78.6 91.5 66.8C88.7 83.6 78.7 94 64 94S39.3 83.6 36.5 66.8Z" fill="#082f49" opacity="0.18"/>
+    <path d="M43 34.2C36.5 38.6 33.2 44.9 33.2 53.1C33.2 56.4 34 58.3 35.6 58.4C37.2 58.6 38 56.8 38.7 53.8C40.2 47.6 44 42.7 50.4 39.3C53.3 37.7 54 36 52.8 34.9C51.6 33.8 47.9 33.8 43 34.2Z" fill="#ecfeff" opacity="0.45"/>
+    <path d="M85.2 38.2C90.6 43.5 93.4 50.7 93.2 59.7" fill="none" stroke="#ecfeff" stroke-width="2.2" stroke-linecap="round" opacity="0.44"/>
+
+    <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M52 86C43 95 45.4 108.5 56.4 113.2" stroke="#082f49" stroke-width="10"/>
+      <path d="M60.2 88.6C55.4 98.7 57.1 111.5 62.4 115" stroke="#082f49" stroke-width="10"/>
+      <path d="M67.8 88.6C72.6 98.7 70.9 111.5 65.6 115" stroke="#082f49" stroke-width="10"/>
+      <path d="M76 86C85 95 82.6 108.5 71.6 113.2" stroke="#082f49" stroke-width="10"/>
+      <path d="M52 86C43 95 45.4 108.5 56.4 113.2" stroke="url(#front-arm)" stroke-width="6.1"/>
+      <path d="M60.2 88.6C55.4 98.7 57.1 111.5 62.4 115" stroke="url(#front-arm)" stroke-width="6.1"/>
+      <path d="M67.8 88.6C72.6 98.7 70.9 111.5 65.6 115" stroke="url(#front-arm)" stroke-width="6.1"/>
+      <path d="M76 86C85 95 82.6 108.5 71.6 113.2" stroke="url(#front-arm)" stroke-width="6.1"/>
+    </g>
+
+    <g fill="none" stroke="url(#node-stroke)" stroke-width="2.7" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M64 30V42"/>
+      <path d="M54 47L64 42L74 47"/>
+      <path d="M54 47V55"/>
+      <path d="M74 47V55"/>
+    </g>
+    <g stroke="#ecfeff" stroke-width="1.5">
+      <circle cx="64" cy="30" r="3.5" fill="#ecfeff"/>
+      <circle cx="54" cy="47" r="2.8" fill="#cffafe"/>
+      <circle cx="74" cy="47" r="2.8" fill="#cffafe"/>
+      <circle cx="54" cy="55" r="2.2" fill="#a5f3fc"/>
+      <circle cx="74" cy="55" r="2.2" fill="#a5f3fc"/>
+    </g>
+
+    <circle cx="51" cy="64" r="4" fill="#052236"/>
+    <circle cx="77" cy="64" r="4" fill="#052236"/>
+    <circle cx="49.8" cy="62.8" r="1.15" fill="#f8feff"/>
+    <circle cx="75.8" cy="62.8" r="1.15" fill="#f8feff"/>
+    <path d="M58 74C61.1 76.8 66.9 76.8 70 74" fill="none" stroke="#052236" stroke-width="3" stroke-linecap="round"/>
+  </g>
+</svg>

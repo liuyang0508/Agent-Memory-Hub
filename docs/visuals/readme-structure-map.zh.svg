@@ -1,0 +1,327 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1460" height="1120" viewBox="0 0 1460 1120" role="img" aria-labelledby="title desc" style="max-width:100%;height:auto;">
+  <title id="title">可信上下文操作系统能力地图</title>
+  <desc id="desc">可信上下文操作系统能力地图</desc>
+  <defs>
+
+    <linearGradient id="qoderPageBg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#fffdfb"/>
+      <stop offset="48%" stop-color="#fbfaf8"/>
+      <stop offset="100%" stop-color="#f7fbff"/>
+    </linearGradient>
+    <linearGradient id="qoderSheetBg" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#fff3fa"/>
+      <stop offset="45%" stop-color="#fbfdff"/>
+      <stop offset="100%" stop-color="#f0f8e9"/>
+    </linearGradient>
+    <filter id="qoderSheetShadow" x="-8%" y="-8%" width="116%" height="116%">
+      <feDropShadow dx="0" dy="26" stdDeviation="30" flood-color="#2a231c" flood-opacity="0.085"/>
+    </filter>
+
+    <marker id="arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#57606a"/>
+    </marker>
+    <filter id="paper" x="-8%" y="-8%" width="116%" height="116%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.78" numOctaves="2" seed="11" result="noise"/>
+      <feColorMatrix type="saturate" values="0"/>
+      <feComponentTransfer>
+        <feFuncA type="table" tableValues="0 0.035"/>
+      </feComponentTransfer>
+      <feBlend in="SourceGraphic" mode="multiply"/>
+    </filter>
+    <filter id="softShadow" x="-15%" y="-15%" width="130%" height="130%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#1f2328" flood-opacity="0.08"/>
+    </filter>
+    <style>
+      .bg { fill: url(#qoderPageBg); }
+      .sheet { fill: url(#qoderSheetBg); filter: url(#qoderSheetShadow); }
+      .ink { fill: #24292f; }
+      .muted { fill: #57606a; }
+      .title { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 34px; font-weight: 850; fill: #24292f; }
+      .subtitle { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 17px; fill: #57606a; }
+      .section { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 17px; font-weight: 800; fill: #57606a; text-transform: uppercase; }
+      .card-title { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 20px; font-weight: 820; fill: #24292f; }
+      .card-line { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 15px; fill: #24292f; }
+      .small { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 13px; fill: #57606a; }
+      .tiny { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 10px; fill: #6e7781; }
+      .num { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 22px; font-weight: 900; }
+      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; font-size: 13px; fill: #24292f; }
+      .mono-small { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; font-size: 12px; fill: #57606a; }
+      .panel { fill: #ffffff; stroke: #d8dee4; stroke-width: 1.4; filter: url(#softShadow); }
+      .card { stroke-width: 1.8; filter: url(#softShadow); }
+      .thin-card { stroke-width: 1.2; }
+      .arrow { fill: none; stroke: #57606a; stroke-width: 2.1; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrow); }
+      .soft-arrow { fill: none; stroke: #8c959f; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 6 7; marker-end: url(#arrow); }
+      .flow-line { stroke-dasharray: 14 10; animation: flowDash 1.8s linear infinite; }
+      .planned-line { stroke-dasharray: 8 8; }
+      .flow-dot { fill: #1f6f78; filter: url(#softShadow); }
+      .breath { animation: breath 2.8s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+      .breath-slow { animation: breath 4.2s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+      .blink { animation: blink 1.7s ease-in-out infinite; }
+      .rail { fill: none; stroke: #d0d7de; stroke-width: 1.3; stroke-dasharray: 5 8; }
+      .branch { fill: none; stroke: #d0d7de; stroke-width: 1.3; stroke-linecap: round; stroke-linejoin: round; }
+      .icon { fill: none; stroke-width: 3.5; stroke-linecap: round; stroke-linejoin: round; }
+      @keyframes flowDash {
+        to { stroke-dashoffset: -24; }
+      }
+      @keyframes breath {
+        0%, 100% { opacity: 0.88; transform: scale(1); }
+        50% { opacity: 1; transform: scale(1.035); }
+      }
+      @keyframes blink {
+        0%, 100% { opacity: 0.42; }
+        50% { opacity: 1; }
+      }
+    </style>
+  </defs>
+  <rect class="bg" width="1460" height="1120"/>
+  <rect x="28" y="28" width="1404" height="1064" rx="36" fill="#ffffff" opacity="0.62"/>
+  <rect class="sheet" x="20" y="20" width="1420" height="1080" rx="34" stroke="#ffffff" stroke-opacity="0.86" stroke-width="1.2"/>
+  <text class="title" x="70" y="76">可信上下文操作系统能力地图</text>
+  <text class="subtitle" x="72" y="105">左侧是真实源码 ownership，右侧是 capture → write → project → retrieve → pack → firewall → govern → verify → adapt 的能力链路。</text>
+  <rect class="panel" x="54" y="132" width="620" height="948" rx="24"/>
+  <text class="title" x="90" y="178">agent-memory-hub/</text>
+  <text class="subtitle" x="92" y="206">按能力拆分的工程目录层级</text>
+  <text class="title" x="760" y="176">能力模块</text>
+  <path fill="none" stroke="#8c959f" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="5 8" opacity="0.66" d="M649 248 C 697 248, 698 265, 746 265"/>
+  <path fill="none" stroke="#8c959f" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="5 8" opacity="0.66" d="M649 328 C 697 328, 698 347, 746 347"/>
+  <path fill="none" stroke="#8c959f" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="5 8" opacity="0.66" d="M649 408 C 697 408, 698 429, 746 429"/>
+  <path fill="none" stroke="#8c959f" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="5 8" opacity="0.66" d="M649 488 C 697 488, 698 511, 746 511"/>
+  <path fill="none" stroke="#8c959f" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="5 8" opacity="0.66" d="M649 568 C 697 568, 698 593, 746 593"/>
+  <path fill="none" stroke="#8c959f" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="5 8" opacity="0.66" d="M649 648 C 697 648, 698 675, 746 675"/>
+  <path fill="none" stroke="#8c959f" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="5 8" opacity="0.66" d="M649 728 C 697 728, 698 757, 746 757"/>
+  <path fill="none" stroke="#8c959f" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="5 8" opacity="0.66" d="M649 808 C 697 808, 698 839, 746 839"/>
+  <path fill="none" stroke="#8c959f" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="5 8" opacity="0.66" d="M649 888 C 697 888, 698 921, 746 921"/>
+  <path fill="none" stroke="#8c959f" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="5 8" opacity="0.66" d="M649 968 C 697 968, 698 1003, 746 1003"/>
+  <text class="subtitle" x="762" y="204">每个能力层的目标、任务与交付物</text>
+  <path class="branch" d="M104 220 V995"/>
+  <path class="branch" d="M104 230 H114"/>
+  <path fill="#f6f8fa" stroke="#57606a" stroke-width="1.25" d="M122 222h10l4 4h17a3 3 0 0 1 3 3v13a3 3 0 0 1-3 3H125a3 3 0 0 1-3-3z"/>
+  <text class="mono" x="164" y="234">README.zh.md + source/test evidence/ 事实声明</text>
+  <path class="branch" d="M134 245 V254 H165"/>
+  <path fill="#ffffff" stroke="#57606a" stroke-width="1.25" d="M173 244h10l5 5v19H173zM183 244v6h6"/>
+  <text class="mono-small" x="198" y="258">28 MCP / 89 Web baseline / 16 adapters</text>
+  <path class="branch" d="M134 263 V272 H165"/>
+  <path fill="#ffffff" stroke="#57606a" stroke-width="1.25" d="M173 262h10l5 5v19H173zM183 262v6h6"/>
+  <text class="mono-small" x="198" y="276">tests locked / verified=11 local</text>
+  <g>
+    <circle cx="636" cy="248" r="11" fill="#f6f8fa" stroke="#c9d1d9" stroke-width="1.2"/>
+    <text class="tiny" x="630" y="252" fill="#57606a">01</text>
+  </g>
+  <path class="branch" d="M104 310 H114"/>
+  <path fill="#e7fbf8" stroke="#1f6f78" stroke-width="1.25" d="M122 302h10l4 4h17a3 3 0 0 1 3 3v13a3 3 0 0 1-3 3H125a3 3 0 0 1-3-3z"/>
+  <text class="mono" x="164" y="314">agent_brain/memory/evidence/ 采集与证据</text>
+  <path class="branch" d="M134 325 V334 H165"/>
+  <path fill="#ffffff" stroke="#1f6f78" stroke-width="1.25" d="M173 324h10l5 5v19H173zM183 324v6h6"/>
+  <text class="mono-small" x="198" y="338">conversation_store.py / harvest/</text>
+  <path class="branch" d="M134 343 V352 H165"/>
+  <path fill="#ffffff" stroke="#1f6f78" stroke-width="1.25" d="M173 342h10l5 5v19H173zM183 342v6h6"/>
+  <text class="mono-small" x="198" y="356">resource_store.py / import_service.py</text>
+  <g>
+    <circle cx="636" cy="328" r="11" fill="#e7fbf8" stroke="#95dcd6" stroke-width="1.2"/>
+    <text class="tiny" x="630" y="332" fill="#1f6f78">02</text>
+  </g>
+  <path class="branch" d="M104 390 H114"/>
+  <path fill="#edf6ff" stroke="#0969da" stroke-width="1.25" d="M122 382h10l4 4h17a3 3 0 0 1 3 3v13a3 3 0 0 1-3 3H125a3 3 0 0 1-3-3z"/>
+  <text class="mono" x="164" y="394">agent_brain/memory/store/ 记忆写入</text>
+  <path class="branch" d="M134 405 V414 H165"/>
+  <path fill="#ffffff" stroke="#0969da" stroke-width="1.25" d="M173 404h10l5 5v19H173zM183 404v6h6"/>
+  <text class="mono-small" x="198" y="418">write_service.py / items_store.py</text>
+  <path class="branch" d="M134 423 V432 H165"/>
+  <path fill="#ffffff" stroke="#0969da" stroke-width="1.25" d="M173 422h10l5 5v19H173zM183 422v6h6"/>
+  <text class="mono-small" x="198" y="436">item_markdown.py / quality.py</text>
+  <g>
+    <circle cx="636" cy="408" r="11" fill="#edf6ff" stroke="#a8cff2" stroke-width="1.2"/>
+    <text class="tiny" x="630" y="412" fill="#0969da">03</text>
+  </g>
+  <path class="branch" d="M104 470 H114"/>
+  <path fill="#edf9ef" stroke="#2f7d32" stroke-width="1.25" d="M122 462h10l4 4h17a3 3 0 0 1 3 3v13a3 3 0 0 1-3 3H125a3 3 0 0 1-3-3z"/>
+  <text class="mono" x="164" y="474">~/.agent-memory-hub/ 本地事实源</text>
+  <path class="branch" d="M134 485 V494 H165"/>
+  <path fill="#ffffff" stroke="#2f7d32" stroke-width="1.25" d="M173 484h10l5 5v19H173zM183 484v6h6"/>
+  <text class="mono-small" x="198" y="498">items/mem-*.md</text>
+  <path class="branch" d="M134 503 V512 H165"/>
+  <path fill="#ffffff" stroke="#2f7d32" stroke-width="1.25" d="M173 502h10l5 5v19H173zM183 502v6h6"/>
+  <text class="mono-small" x="198" y="516">resources/*.json / extractions/*.json</text>
+  <g>
+    <circle cx="636" cy="488" r="11" fill="#edf9ef" stroke="#a8d8b5" stroke-width="1.2"/>
+    <text class="tiny" x="630" y="492" fill="#2f7d32">04</text>
+  </g>
+  <path class="branch" d="M104 550 H114"/>
+  <path fill="#edf9ef" stroke="#2f7d32" stroke-width="1.25" d="M122 542h10l4 4h17a3 3 0 0 1 3 3v13a3 3 0 0 1-3 3H125a3 3 0 0 1-3-3z"/>
+  <text class="mono" x="164" y="554">agent_brain/platform/indexing/ 索引投影</text>
+  <path class="branch" d="M134 565 V574 H165"/>
+  <path fill="#ffffff" stroke="#2f7d32" stroke-width="1.25" d="M173 564h10l5 5v19H173zM183 564v6h6"/>
+  <text class="mono-small" x="198" y="578">index.db / sqlite_vec.py</text>
+  <path class="branch" d="M134 583 V592 H165"/>
+  <path fill="#ffffff" stroke="#2f7d32" stroke-width="1.25" d="M173 582h10l5 5v19H173zM183 582v6h6"/>
+  <text class="mono-small" x="198" y="596">FTS / refs_graph / pending repair</text>
+  <g>
+    <circle cx="636" cy="568" r="11" fill="#edf9ef" stroke="#a8d8b5" stroke-width="1.2"/>
+    <text class="tiny" x="630" y="572" fill="#2f7d32">05</text>
+  </g>
+  <path class="branch" d="M104 630 H114"/>
+  <path fill="#fff1df" stroke="#bc6c00" stroke-width="1.25" d="M122 622h10l4 4h17a3 3 0 0 1 3 3v13a3 3 0 0 1-3 3H125a3 3 0 0 1-3-3z"/>
+  <text class="mono" x="164" y="634">agent_brain/memory/recall/ 召回排序</text>
+  <path class="branch" d="M134 645 V654 H165"/>
+  <path fill="#ffffff" stroke="#bc6c00" stroke-width="1.25" d="M173 644h10l5 5v19H173zM183 644v6h6"/>
+  <text class="mono-small" x="198" y="658">retrieval.py / retrieval_fusion.py</text>
+  <path class="branch" d="M134 663 V672 H165"/>
+  <path fill="#ffffff" stroke="#bc6c00" stroke-width="1.25" d="M173 662h10l5 5v19H173zM183 662v6h6"/>
+  <text class="mono-small" x="198" y="676">retrieval_mmr.py / retrieval_value.py</text>
+  <g>
+    <circle cx="636" cy="648" r="11" fill="#fff1df" stroke="#efb770" stroke-width="1.2"/>
+    <text class="tiny" x="630" y="652" fill="#bc6c00">06</text>
+  </g>
+  <path class="branch" d="M104 710 H114"/>
+  <path fill="#f5efff" stroke="#8250df" stroke-width="1.25" d="M122 702h10l4 4h17a3 3 0 0 1 3 3v13a3 3 0 0 1-3 3H125a3 3 0 0 1-3-3z"/>
+  <text class="mono" x="164" y="714">agent_brain/memory/context/ 上下文经济</text>
+  <path class="branch" d="M134 725 V734 H165"/>
+  <path fill="#ffffff" stroke="#8250df" stroke-width="1.25" d="M173 724h10l5 5v19H173zM183 724v6h6"/>
+  <text class="mono-small" x="198" y="738">context_packing.py / adaptive_compression.py</text>
+  <path class="branch" d="M134 743 V752 H165"/>
+  <path fill="#ffffff" stroke="#8250df" stroke-width="1.25" d="M173 742h10l5 5v19H173zM183 742v6h6"/>
+  <text class="mono-small" x="198" y="756">context_firewall.py / injection_feedback.py</text>
+  <g>
+    <circle cx="636" cy="728" r="11" fill="#f5efff" stroke="#cfb9f3" stroke-width="1.2"/>
+    <text class="tiny" x="630" y="732" fill="#8250df">07</text>
+  </g>
+  <path class="branch" d="M104 790 H114"/>
+  <path fill="#fff7cc" stroke="#8a6200" stroke-width="1.25" d="M122 782h10l4 4h17a3 3 0 0 1 3 3v13a3 3 0 0 1-3 3H125a3 3 0 0 1-3-3z"/>
+  <text class="mono" x="164" y="794">agent_brain/memory/governance/ 记忆治理</text>
+  <path class="branch" d="M134 805 V814 H165"/>
+  <path fill="#ffffff" stroke="#8a6200" stroke-width="1.25" d="M173 804h10l5 5v19H173zM183 804v6h6"/>
+  <text class="mono-small" x="198" y="818">audit/ / governance/ / evolve/</text>
+  <path class="branch" d="M134 823 V832 H165"/>
+  <path fill="#ffffff" stroke="#8a6200" stroke-width="1.25" d="M173 822h10l5 5v19H173zM183 822v6h6"/>
+  <text class="mono-small" x="198" y="836">review_queue.py / outcome_feedback.py</text>
+  <g>
+    <circle cx="636" cy="808" r="11" fill="#fff7cc" stroke="#e7c34e" stroke-width="1.2"/>
+    <text class="tiny" x="630" y="812" fill="#8a6200">08</text>
+  </g>
+  <path class="branch" d="M104 870 H114"/>
+  <path fill="#fff1eb" stroke="#d1242f" stroke-width="1.25" d="M122 862h10l4 4h17a3 3 0 0 1 3 3v13a3 3 0 0 1-3 3H125a3 3 0 0 1-3-3z"/>
+  <text class="mono" x="164" y="874">agent_brain/memory/loops/ + evaluation/ Loop Contract 治理</text>
+  <path class="branch" d="M134 885 V894 H165"/>
+  <path fill="#ffffff" stroke="#d1242f" stroke-width="1.25" d="M173 884h10l5 5v19H173zM183 884v6h6"/>
+  <text class="mono-small" x="198" y="898">loop_contract.py / loop_store.py</text>
+  <path class="branch" d="M134 903 V912 H165"/>
+  <path fill="#ffffff" stroke="#d1242f" stroke-width="1.25" d="M173 902h10l5 5v19H173zM183 902v6h6"/>
+  <text class="mono-small" x="198" y="916">retrieval/compression/release gates</text>
+  <g>
+    <circle cx="636" cy="888" r="11" fill="#fff1eb" stroke="#efbda9" stroke-width="1.2"/>
+    <text class="tiny" x="630" y="892" fill="#d1242f">09</text>
+  </g>
+  <path class="branch" d="M104 950 H114"/>
+  <path fill="#f1efff" stroke="#6639ba" stroke-width="1.25" d="M122 942h10l4 4h17a3 3 0 0 1 3 3v13a3 3 0 0 1-3 3H125a3 3 0 0 1-3-3z"/>
+  <text class="mono" x="164" y="954">agent_runtime_kit/ + agent_brain/agent_integrations/ 多智能体适配</text>
+  <path class="branch" d="M134 965 V974 H165"/>
+  <path fill="#ffffff" stroke="#6639ba" stroke-width="1.25" d="M173 964h10l5 5v19H173zM183 964v6h6"/>
+  <text class="mono-small" x="198" y="978">hooks/ / mcp/ / provider tools</text>
+  <path class="branch" d="M134 983 V992 H165"/>
+  <path fill="#ffffff" stroke="#6639ba" stroke-width="1.25" d="M173 982h10l5 5v19H173zM183 982v6h6"/>
+  <text class="mono-small" x="198" y="996">codex / claude / qoder / open*</text>
+  <g>
+    <circle cx="636" cy="968" r="11" fill="#f1efff" stroke="#c0b0ee" stroke-width="1.2"/>
+    <text class="tiny" x="630" y="972" fill="#6639ba">10</text>
+  </g>
+  <g>
+    <rect x="764" y="231" width="640" height="78" rx="16" fill="#ffffff" stroke="#d8dee4" stroke-width="1.1" opacity="0.45"/>
+    <rect x="760" y="226" width="640" height="78" rx="16" fill="#f6f8fa" stroke="#c9d1d9" stroke-width="1.6"/>
+    <circle cx="810" cy="265" r="23" fill="#ffffff" opacity="0.65"/>
+    <g transform="translate(788,250) scale(0.5)"><path class="icon" stroke="#57606a" d="M8 12h34v24H8zM17 44h16M25 36v8M14 25h7l4-7 5 13 4-6h6"/></g>
+    <text class="num" x="856" y="259" fill="#57606a">01</text>
+    <text class="card-title" x="902" y="258">事实面</text>
+  <text class="card-line" x="856" y="282">MCP 28 tools、Web 89 locked routes。</text>
+  <text class="card-line" x="856" y="299">16 adapters：11 verified / 4 install-ready / 1 wip。</text>
+  </g>
+  <g>
+    <rect x="764" y="313" width="640" height="78" rx="16" fill="#ffffff" stroke="#d8dee4" stroke-width="1.1" opacity="0.45"/>
+    <rect x="760" y="308" width="640" height="78" rx="16" fill="#e7fbf8" stroke="#95dcd6" stroke-width="1.6"/>
+    <circle cx="810" cy="347" r="23" fill="#ffffff" opacity="0.65"/>
+    <g transform="translate(788,332) scale(0.5)"><path class="icon" stroke="#1f6f78" d="M11 8h18l8 8v17H11zM29 8v10h8M17 22h12M28 36a8 8 0 1 0 0.1 0M34 42l8 8"/></g>
+    <text class="num" x="856" y="341" fill="#1f6f78">02</text>
+    <text class="card-title" x="902" y="340">证据采集</text>
+  <text class="card-line" x="856" y="364">原始对话、资源和抽取先进入 evidence。</text>
+  <text class="card-line" x="856" y="381">记录 path / offset / hash / tier。</text>
+  </g>
+  <g>
+    <rect x="764" y="395" width="640" height="78" rx="16" fill="#ffffff" stroke="#d8dee4" stroke-width="1.1" opacity="0.45"/>
+    <rect x="760" y="390" width="640" height="78" rx="16" fill="#edf6ff" stroke="#a8cff2" stroke-width="1.6"/>
+    <circle cx="810" cy="429" r="23" fill="#ffffff" opacity="0.65"/>
+    <g transform="translate(788,414) scale(0.5)"><path class="icon" stroke="#0969da" d="M8 14c0-9 30-9 30 0v20c0 9-30 9-30 0zM8 14c0 9 30 9 30 0M8 27c0 9 30 9 30 0"/></g>
+    <text class="num" x="856" y="423" fill="#0969da">03</text>
+    <text class="card-title" x="902" y="422">写入漏斗</text>
+  <text class="card-line" x="856" y="446">核心写入口经 WriteService。</text>
+  <text class="card-line" x="856" y="463">bulk import / 治理内部写入仍需收敛。</text>
+  </g>
+  <g>
+    <rect x="764" y="477" width="640" height="78" rx="16" fill="#ffffff" stroke="#d8dee4" stroke-width="1.1" opacity="0.45"/>
+    <rect x="760" y="472" width="640" height="78" rx="16" fill="#edf9ef" stroke="#a8d8b5" stroke-width="1.6"/>
+    <circle cx="810" cy="511" r="23" fill="#ffffff" opacity="0.65"/>
+    <g transform="translate(788,496) scale(0.5)"><path class="icon" stroke="#2f7d32" d="M9 12h31v27H9zM15 18h19M15 26h19M15 34h12"/></g>
+    <text class="num" x="856" y="505" fill="#2f7d32">04</text>
+    <text class="card-title" x="902" y="504">事实源</text>
+  <text class="card-line" x="856" y="528">items/mem-*.md 是 source of truth。</text>
+  <text class="card-line" x="856" y="545">resources/extractions 是 evidence sidecar。</text>
+  </g>
+  <g>
+    <rect x="764" y="559" width="640" height="78" rx="16" fill="#ffffff" stroke="#d8dee4" stroke-width="1.1" opacity="0.45"/>
+    <rect x="760" y="554" width="640" height="78" rx="16" fill="#edf9ef" stroke="#a8d8b5" stroke-width="1.6"/>
+    <circle cx="810" cy="593" r="23" fill="#ffffff" opacity="0.65"/>
+    <g transform="translate(788,578) scale(0.5)"><path class="icon" stroke="#2f7d32" d="M9 12h31v27H9zM15 18h19M15 26h19M15 34h12"/></g>
+    <text class="num" x="856" y="587" fill="#2f7d32">05</text>
+    <text class="card-title" x="902" y="586">索引投影</text>
+  <text class="card-line" x="856" y="610">index.db 投影 meta / FTS / vec / graph。</text>
+  <text class="card-line" x="856" y="627">派生层可重建，不当权威事实源。</text>
+  </g>
+  <g>
+    <rect x="764" y="641" width="640" height="78" rx="16" fill="#ffffff" stroke="#d8dee4" stroke-width="1.1" opacity="0.45"/>
+    <rect x="760" y="636" width="640" height="78" rx="16" fill="#fff1df" stroke="#efb770" stroke-width="1.6"/>
+    <circle cx="810" cy="675" r="23" fill="#ffffff" opacity="0.65"/>
+    <g transform="translate(788,660) scale(0.5)"><path class="icon" stroke="#bc6c00" d="M8 10h15v15H8zM28 10h15v15H28zM15 25v12h20M35 37h9"/></g>
+    <text class="num" x="856" y="669" fill="#bc6c00">06</text>
+    <text class="card-title" x="902" y="668">召回解释</text>
+  <text class="card-line" x="856" y="692">BM25 + vector -&gt; RRF + trace。</text>
+  <text class="card-line" x="856" y="709">decay / feedback / freshness 控权。</text>
+  </g>
+  <g>
+    <rect x="764" y="723" width="640" height="78" rx="16" fill="#ffffff" stroke="#d8dee4" stroke-width="1.1" opacity="0.45"/>
+    <rect x="760" y="718" width="640" height="78" rx="16" fill="#f5efff" stroke="#cfb9f3" stroke-width="1.6"/>
+    <circle cx="810" cy="757" r="23" fill="#ffffff" opacity="0.65"/>
+    <g transform="translate(788,742) scale(0.5)"><path class="icon" stroke="#8250df" d="M8 10h28v18H8zM14 37h26M28 28v9M17 16h15M17 22h9"/></g>
+    <text class="num" x="856" y="751" fill="#8250df">07</text>
+    <text class="card-title" x="902" y="750">上下文经济</text>
+  <text class="card-line" x="856" y="774">可逆 context_pack + detail_uri。</text>
+  <text class="card-line" x="856" y="791">Headroom 式压缩要过 benchmark gate。</text>
+  </g>
+  <g>
+    <rect x="764" y="805" width="640" height="78" rx="16" fill="#ffffff" stroke="#d8dee4" stroke-width="1.1" opacity="0.45"/>
+    <rect x="760" y="800" width="640" height="78" rx="16" fill="#fff7cc" stroke="#e7c34e" stroke-width="1.6"/>
+    <circle cx="810" cy="839" r="23" fill="#ffffff" opacity="0.65"/>
+    <g transform="translate(788,824) scale(0.5)"><path class="icon" stroke="#8a6200" d="M23 7l17 7v11c0 13-7 22-17 27-10-5-17-14-17-27V14zM15 29l7 7 13-15"/></g>
+    <text class="num" x="856" y="833" fill="#8a6200">08</text>
+    <text class="card-title" x="902" y="832">防火墙治理</text>
+  <text class="card-line" x="856" y="856">范围、过期、敏感、低证据先过滤。</text>
+  <text class="card-line" x="856" y="873">drift / maturity / review / evolve 闭环。</text>
+  </g>
+  <g>
+    <rect x="764" y="887" width="640" height="78" rx="16" fill="#ffffff" stroke="#d8dee4" stroke-width="1.1" opacity="0.45"/>
+    <rect x="760" y="882" width="640" height="78" rx="16" fill="#fff1eb" stroke="#efbda9" stroke-width="1.6"/>
+    <circle cx="810" cy="921" r="23" fill="#ffffff" opacity="0.65"/>
+    <g transform="translate(788,906) scale(0.5)"><path class="icon" stroke="#d1242f" d="M8 12h34v24H8zM17 44h16M25 36v8M14 25h7l4-7 5 13 4-6h6"/></g>
+    <text class="num" x="856" y="915" fill="#d1242f">09</text>
+    <text class="card-title" x="902" y="914">Loop Contract 治理</text>
+  <text class="card-line" x="856" y="938">goal / verifier / human gate 契约。</text>
+  <text class="card-line" x="856" y="955">质量门禁不直接改默认链路。</text>
+  </g>
+  <g>
+    <rect x="764" y="969" width="640" height="78" rx="16" fill="#ffffff" stroke="#d8dee4" stroke-width="1.1" opacity="0.45"/>
+    <rect x="760" y="964" width="640" height="78" rx="16" fill="#f1efff" stroke="#c0b0ee" stroke-width="1.6"/>
+    <circle cx="810" cy="1003" r="23" fill="#ffffff" opacity="0.65"/>
+    <g transform="translate(788,988) scale(0.5)"><path class="icon" stroke="#6639ba" d="M13 12v10M33 12v10M10 22h26v8c0 8-5 14-13 14s-13-6-13-14zM23 44v-9M36 30h8"/></g>
+    <text class="num" x="856" y="997" fill="#6639ba">10</text>
+    <text class="card-title" x="902" y="996">多智能体复用</text>
+  <text class="card-line" x="856" y="1020">hooks / MCP / file / provider 分层。</text>
+  <text class="card-line" x="856" y="1037">verified 必须有真实 runtime evidence。</text>
+  </g>
+</svg>

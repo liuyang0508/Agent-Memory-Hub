@@ -1,0 +1,226 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1660" height="860" viewBox="0 0 1660 860" role="img" aria-labelledby="title desc" style="max-width:100%;height:auto;">
+  <title id="title">数据链路图：Evidence 到 ContextPack</title>
+  <desc id="desc">数据链路图：Evidence 到 ContextPack</desc>
+  <defs>
+
+    <linearGradient id="qoderPageBg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#fffdfb"/>
+      <stop offset="48%" stop-color="#fbfaf8"/>
+      <stop offset="100%" stop-color="#f7fbff"/>
+    </linearGradient>
+    <linearGradient id="qoderSheetBg" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#fff3fa"/>
+      <stop offset="45%" stop-color="#fbfdff"/>
+      <stop offset="100%" stop-color="#f0f8e9"/>
+    </linearGradient>
+    <filter id="qoderSheetShadow" x="-8%" y="-8%" width="116%" height="116%">
+      <feDropShadow dx="0" dy="26" stdDeviation="30" flood-color="#2a231c" flood-opacity="0.085"/>
+    </filter>
+
+    <marker id="arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#57606a"/>
+    </marker>
+    <filter id="paper" x="-8%" y="-8%" width="116%" height="116%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.78" numOctaves="2" seed="11" result="noise"/>
+      <feColorMatrix type="saturate" values="0"/>
+      <feComponentTransfer>
+        <feFuncA type="table" tableValues="0 0.035"/>
+      </feComponentTransfer>
+      <feBlend in="SourceGraphic" mode="multiply"/>
+    </filter>
+    <filter id="softShadow" x="-15%" y="-15%" width="130%" height="130%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#1f2328" flood-opacity="0.08"/>
+    </filter>
+    <style>
+      .bg { fill: url(#qoderPageBg); }
+      .sheet { fill: url(#qoderSheetBg); filter: url(#qoderSheetShadow); }
+      .ink { fill: #24292f; }
+      .muted { fill: #57606a; }
+      .title { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 34px; font-weight: 850; fill: #24292f; }
+      .subtitle { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 17px; fill: #57606a; }
+      .section { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 17px; font-weight: 800; fill: #57606a; text-transform: uppercase; }
+      .card-title { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 20px; font-weight: 820; fill: #24292f; }
+      .card-line { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 15px; fill: #24292f; }
+      .small { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 13px; fill: #57606a; }
+      .tiny { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 10px; fill: #6e7781; }
+      .num { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 22px; font-weight: 900; }
+      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; font-size: 13px; fill: #24292f; }
+      .mono-small { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; font-size: 12px; fill: #57606a; }
+      .panel { fill: #ffffff; stroke: #d8dee4; stroke-width: 1.4; filter: url(#softShadow); }
+      .card { stroke-width: 1.8; filter: url(#softShadow); }
+      .thin-card { stroke-width: 1.2; }
+      .arrow { fill: none; stroke: #57606a; stroke-width: 2.1; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrow); }
+      .soft-arrow { fill: none; stroke: #8c959f; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 6 7; marker-end: url(#arrow); }
+      .flow-line { stroke-dasharray: 14 10; animation: flowDash 1.8s linear infinite; }
+      .planned-line { stroke-dasharray: 8 8; }
+      .flow-dot { fill: #1f6f78; filter: url(#softShadow); }
+      .breath { animation: breath 2.8s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+      .breath-slow { animation: breath 4.2s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+      .blink { animation: blink 1.7s ease-in-out infinite; }
+      .rail { fill: none; stroke: #d0d7de; stroke-width: 1.3; stroke-dasharray: 5 8; }
+      .branch { fill: none; stroke: #d0d7de; stroke-width: 1.3; stroke-linecap: round; stroke-linejoin: round; }
+      .icon { fill: none; stroke-width: 3.5; stroke-linecap: round; stroke-linejoin: round; }
+      @keyframes flowDash {
+        to { stroke-dashoffset: -24; }
+      }
+      @keyframes breath {
+        0%, 100% { opacity: 0.88; transform: scale(1); }
+        50% { opacity: 1; transform: scale(1.035); }
+      }
+      @keyframes blink {
+        0%, 100% { opacity: 0.42; }
+        50% { opacity: 1; }
+      }
+    </style>
+  </defs>
+  <rect class="bg" width="1660" height="860"/>
+  <rect x="28" y="28" width="1604" height="804" rx="36" fill="#ffffff" opacity="0.62"/>
+  <rect class="sheet" x="20" y="20" width="1620" height="820" rx="34" stroke="#ffffff" stroke-opacity="0.86" stroke-width="1.2"/>
+  <text class="title" x="70" y="76">数据链路图：Evidence 到 ContextPack</text>
+  <text class="subtitle" x="72" y="105">这条链路把对象边界分开：证据不是记忆，索引不是事实，召回候选不是注入内容，反馈事件会反哺治理。</text>
+  <text class="small" x="72" y="136">实线 = 对象变形</text>
+  <text class="small" x="324" y="136">虚线 = 治理 / 反馈旁路</text>
+  <g>
+    <rect class="card" x="54" y="168" width="160" height="146" rx="18" fill="#e7fbf8" stroke="#95dcd6"/>
+    <circle cx="96" cy="210" r="26" fill="#ffffff" opacity="0.58"/>
+    <path class="icon" stroke="#1f6f78" d="M84 195h18l8 8v17H84zM102 195v10h8M90 209h12M101 223a8 8 0 1 0 0.1 0M107 229l8 8"/>
+  <text class="card-title" x="132" y="202">证据</text>
+  <text class="card-line" x="132" y="229">Evidence</text>
+  <text class="card-line" x="132" y="248">prompt /</text>
+  <text class="card-line" x="132" y="267">transcript</text>
+  </g>
+  <g>
+    <rect class="card" x="284" y="168" width="160" height="146" rx="18" fill="#edf9ef" stroke="#a8d8b5"/>
+    <circle cx="326" cy="210" r="26" fill="#ffffff" opacity="0.58"/>
+    <path class="icon" stroke="#2f7d32" d="M311 201c0-9 30-9 30 0v20c0 9-30 9-30 0zM311 201c0 9 30 9 30 0M311 214c0 9 30 9 30 0"/>
+  <text class="card-title" x="362" y="202">长期记忆</text>
+  <text class="card-line" x="362" y="229">MemoryItem</text>
+  <text class="card-line" x="362" y="248">body + meta</text>
+  <text class="card-line" x="362" y="267">validity</text>
+  </g>
+  <g>
+    <rect class="card" x="514" y="168" width="160" height="146" rx="18" fill="#edf6ff" stroke="#a8cff2"/>
+    <circle cx="556" cy="210" r="26" fill="#ffffff" opacity="0.58"/>
+    <path class="icon" stroke="#0969da" d="M542 199h31v27H542zM548 205h19M548 213h19M548 221h12"/>
+  <text class="card-title" x="592" y="202">索引投影</text>
+  <text class="card-line" x="592" y="229">Index</text>
+  <text class="card-line" x="592" y="248">Projection</text>
+  <text class="card-line" x="592" y="267">FTS + vector</text>
+  </g>
+  <g>
+    <rect class="card" x="744" y="168" width="160" height="146" rx="18" fill="#fff1df" stroke="#efb770"/>
+    <circle cx="786" cy="210" r="26" fill="#ffffff" opacity="0.58"/>
+    <path class="icon" stroke="#bc6c00" d="M771 197h15v15H771zM791 197h15v15H791zM778 212v12h20M798 224h9"/>
+  <text class="card-title" x="822" y="202">召回候选</text>
+  <text class="card-line" x="822" y="229">Retrieved</text>
+  <text class="card-line" x="822" y="248">item</text>
+  <text class="card-line" x="822" y="267">rank / trace</text>
+  </g>
+  <g>
+    <rect class="card" x="744" y="430" width="160" height="146" rx="18" fill="#fff7cc" stroke="#e7c34e"/>
+    <circle cx="786" cy="472" r="26" fill="#ffffff" opacity="0.58"/>
+    <path class="icon" stroke="#8a6200" d="M771 461h34v24H771zM780 493h16M788 485v8M777 474h7l4-7 5 13 4-6h6"/>
+  <text class="card-title" x="822" y="464">排序候选</text>
+  <text class="card-line" x="822" y="491">Ranked item</text>
+  <text class="card-line" x="822" y="510">RRF / rerank</text>
+  <text class="card-line" x="822" y="529">feedback</text>
+  </g>
+  <g>
+    <rect class="card" x="974" y="430" width="160" height="146" rx="18" fill="#fff1eb" stroke="#efbda9"/>
+    <circle cx="1016" cy="472" r="26" fill="#ffffff" opacity="0.58"/>
+    <path class="icon" stroke="#d1242f" d="M1016 456l17 7v11c0 13-7 22-17 27-10-5-17-14-17-27V463zM1008 478l7 7 13-15"/>
+  <text class="card-title" x="1052" y="464">防火墙候选</text>
+  <text class="card-line" x="1052" y="491">Firewalled</text>
+  <text class="card-line" x="1052" y="510">item</text>
+  <text class="card-line" x="1052" y="529">allow demote</text>
+  </g>
+  <g>
+    <rect class="card" x="1204" y="430" width="160" height="146" rx="18" fill="#f5efff" stroke="#cfb9f3"/>
+    <circle cx="1246" cy="472" r="26" fill="#ffffff" opacity="0.58"/>
+    <path class="icon" stroke="#8250df" d="M1231 459h28v18H1231zM1237 486h26M1251 477v9M1240 465h15M1240 471h9"/>
+  <text class="card-title" x="1282" y="464">上下文包</text>
+  <text class="card-line" x="1282" y="491">Context pack</text>
+  <text class="card-line" x="1282" y="510">locator</text>
+  <text class="card-line" x="1282" y="529">overview</text>
+  </g>
+  <g>
+    <rect class="card" x="1434" y="430" width="160" height="146" rx="18" fill="#f1efff" stroke="#c0b0ee"/>
+    <circle cx="1476" cy="472" r="26" fill="#ffffff" opacity="0.58"/>
+    <path class="icon" stroke="#6639ba" d="M1461 461h34v24H1461zM1470 493h16M1478 485v8M1467 474h7l4-7 5 13 4-6h6"/>
+  <text class="card-title" x="1512" y="464">反馈事件</text>
+  <text class="card-line" x="1512" y="491">Feedback</text>
+  <text class="card-line" x="1512" y="510">event</text>
+  <text class="card-line" x="1512" y="529">adopt/reject</text>
+  </g>
+  <path class="arrow flow-line" d="M214 241 L284 241">
+    <animate attributeName="stroke-dashoffset" values="0;-24" dur="1.8s" repeatCount="indefinite"/>
+  </path>
+  <path class="arrow flow-line" d="M444 241 L514 241">
+    <animate attributeName="stroke-dashoffset" values="0;-24" dur="1.8s" repeatCount="indefinite"/>
+  </path>
+  <path class="arrow flow-line" d="M674 241 L744 241">
+    <animate attributeName="stroke-dashoffset" values="0;-24" dur="1.8s" repeatCount="indefinite"/>
+  </path>
+  <path class="arrow flow-line" d="M824 314 L824 430">
+    <animate attributeName="stroke-dashoffset" values="0;-24" dur="1.8s" repeatCount="indefinite"/>
+  </path>
+  <path class="arrow flow-line" d="M904 503 L974 503">
+    <animate attributeName="stroke-dashoffset" values="0;-24" dur="1.8s" repeatCount="indefinite"/>
+  </path>
+  <path class="arrow flow-line" d="M1134 503 L1204 503">
+    <animate attributeName="stroke-dashoffset" values="0;-24" dur="1.8s" repeatCount="indefinite"/>
+  </path>
+  <path class="arrow flow-line" d="M1364 503 L1434 503">
+    <animate attributeName="stroke-dashoffset" values="0;-24" dur="1.8s" repeatCount="indefinite"/>
+  </path>
+  <g>
+    <rect class="card" x="216" y="540" width="220" height="132" rx="18" fill="#fff7cc" stroke="#e7c34e"/>
+    <circle cx="258" cy="582" r="26" fill="#ffffff" opacity="0.58"/>
+    <path class="icon" stroke="#8a6200" d="M243 571h34v24H243zM252 603h16M260 595v8M249 584h7l4-7 5 13 4-6h6"/>
+  <text class="card-title" x="294" y="574">运行账本</text>
+  <text class="card-line" x="294" y="601">Runtime Ledger</text>
+  <text class="card-line" x="294" y="620">adapter events</text>
+  <text class="card-line" x="294" y="639">adopt/reject</text>
+  </g>
+  <g>
+    <rect class="card" x="560" y="540" width="220" height="132" rx="18" fill="#fff0f6" stroke="#efb4d7"/>
+    <circle cx="602" cy="582" r="26" fill="#ffffff" opacity="0.58"/>
+    <path class="icon" stroke="#bf3989" d="M602 566l17 7v11c0 13-7 22-17 27-10-5-17-14-17-27V573zM594 588l7 7 13-15"/>
+  <text class="card-title" x="638" y="574">复核队列</text>
+  <text class="card-line" x="638" y="601">Review Queue</text>
+  <text class="card-line" x="638" y="620">candidate</text>
+  <text class="card-line" x="638" y="639">approve</text>
+  </g>
+  <g>
+    <rect class="card" x="904" y="540" width="220" height="132" rx="18" fill="#f1efff" stroke="#c0b0ee"/>
+    <circle cx="946" cy="582" r="26" fill="#ffffff" opacity="0.58"/>
+    <path class="icon" stroke="#6639ba" d="M946 566l17 7v11c0 13-7 22-17 27-10-5-17-14-17-27V573zM938 588l7 7 13-15"/>
+  <text class="card-title" x="982" y="574">治理回路</text>
+  <text class="card-line" x="982" y="601">Governance Loop</text>
+  <text class="card-line" x="982" y="620">maturity / TTL</text>
+  <text class="card-line" x="982" y="639">drift /</text>
+  </g>
+  <path class="soft-arrow flow-line planned-line" d="M824 314 C 1073 314, 77 540, 326 540">
+    <animate attributeName="stroke-dashoffset" values="0;-24" dur="2.2s" repeatCount="indefinite"/>
+  </path>
+  <path class="soft-arrow flow-line planned-line" d="M326 540 C 575 540, 575 314, 824 314">
+    <animate attributeName="stroke-dashoffset" values="0;-24" dur="2.2s" repeatCount="indefinite"/>
+  </path>
+  <path class="soft-arrow flow-line planned-line" d="M364 314 C 519 314, 519 540, 674 540">
+    <animate attributeName="stroke-dashoffset" values="0;-24" dur="2.2s" repeatCount="indefinite"/>
+  </path>
+  <path class="soft-arrow flow-line planned-line" d="M674 540 C 829 540, 209 314, 364 314">
+    <animate attributeName="stroke-dashoffset" values="0;-24" dur="2.2s" repeatCount="indefinite"/>
+  </path>
+  <path class="soft-arrow flow-line planned-line" d="M1514 576 C 1764 576, 764 540, 1014 540">
+    <animate attributeName="stroke-dashoffset" values="0;-24" dur="2.2s" repeatCount="indefinite"/>
+  </path>
+  <path class="soft-arrow flow-line planned-line" d="M1014 540 C 1264 540, 1264 576, 1514 576">
+    <animate attributeName="stroke-dashoffset" values="0;-24" dur="2.2s" repeatCount="indefinite"/>
+  </path>
+  <g>
+    <rect x="320" y="742" width="1040" height="66" rx="18" fill="#f6f8fa" stroke="#c9d1d9" stroke-width="1.5"/>
+    <text class="card-title" x="344" y="776" fill="#57606a">数据分层</text>
+  <text class="card-line" x="344" y="804">分层原则：Evidence 支撑判断，MemoryItem 才是长期事实；Index Projection 可重建；RetrievedItem/RankedItem 只是候选；ContextPack</text>
+  </g>
+</svg>

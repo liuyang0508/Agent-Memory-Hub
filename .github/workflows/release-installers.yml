@@ -1,0 +1,56 @@
+name: release-installers
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish-installers:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare release installer assets
+        env:
+          AMH_GITHUB_REPOSITORY: ${{ github.repository }}
+          AMH_GITHUB_REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          cp install.sh dist/install.sh
+          cp install.ps1 dist/install.ps1
+          python - <<'PY'
+          import os
+          from pathlib import Path
+
+          replacements = {
+              'RELEASE_REPO="__AMH_GITHUB_REPOSITORY__"':
+                  f'RELEASE_REPO="{os.environ["AMH_GITHUB_REPOSITORY"]}"',
+              'RELEASE_REF="__AMH_GITHUB_REF_NAME__"':
+                  f'RELEASE_REF="{os.environ["AMH_GITHUB_REF_NAME"]}"',
+              '$ReleaseRepo = "__AMH_GITHUB_REPOSITORY__"':
+                  f'$ReleaseRepo = "{os.environ["AMH_GITHUB_REPOSITORY"]}"',
+              '$ReleaseRef = "__AMH_GITHUB_REF_NAME__"':
+                  f'$ReleaseRef = "{os.environ["AMH_GITHUB_REF_NAME"]}"',
+          }
+          for path in [Path("dist/install.sh"), Path("dist/install.ps1")]:
+              text = path.read_text(encoding="utf-8")
+              for old, new in replacements.items():
+                  text = text.replace(old, new)
+              path.write_text(text, encoding="utf-8")
+          PY
+          chmod +x dist/install.sh
+          (cd dist && sha256sum install.sh install.ps1 > checksums.txt)
+
+      - name: Upload installers to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/install.sh
+            dist/install.ps1
+            dist/checksums.txt

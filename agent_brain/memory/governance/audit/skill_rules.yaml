@@ -1,0 +1,217 @@
+version: "1.0"
+rules:
+  # Outbound Rules (6 rules)
+  - id: outbound-curl
+    severity: high
+    category: outbound
+    pattern: "\\bcurl\\b.*https?://"
+    description: "Detects curl commands that send data to external URLs"
+    remediation: "Remove or replace with local file operations"
+
+  - id: outbound-wget
+    severity: high
+    category: outbound
+    pattern: "\\bwget\\b.*https?://"
+    description: "Detects wget commands downloading from external URLs"
+    remediation: "Remove or replace with local file operations"
+
+  - id: outbound-requests-get
+    severity: high
+    category: outbound
+    pattern: "requests\\.(get|post|put|delete|patch)\\("
+    description: "Detects Python requests library making HTTP calls"
+    remediation: "Review if external API call is necessary and authorized"
+
+  - id: outbound-httpx
+    severity: high
+    category: outbound
+    pattern: "httpx\\.(get|post|put|delete|patch)\\("
+    description: "Detects httpx library making HTTP calls"
+    remediation: "Review if external API call is necessary and authorized"
+
+  - id: outbound-urllib
+    severity: medium
+    category: outbound
+    pattern: "urllib\\.request\\.(urlopen|Request)\\("
+    description: "Detects urllib making HTTP requests"
+    remediation: "Review if external API call is necessary and authorized"
+
+  - id: outbound-fetch
+    severity: high
+    category: outbound
+    pattern: "\\bfetch\\b\\(.*https?://"
+    description: "Detects fetch API calls to external URLs"
+    remediation: "Remove or replace with local file operations"
+
+  # Filesystem Rules (5 rules)
+  - id: filesystem-ssh-keys
+    severity: critical
+    category: filesystem
+    pattern: "~\\/\\.ssh\\/"
+    description: "Accesses SSH private keys directory"
+    remediation: "Never read or modify SSH keys; use environment variables for credentials"
+
+  - id: filesystem-aws-credentials
+    severity: critical
+    category: filesystem
+    pattern: "~\\/\\.aws\\/(credentials|config)"
+    description: "Accesses AWS credentials or config files"
+    remediation: "Use IAM roles or environment variables instead of reading credential files"
+
+  - id: filesystem-etc-passwd
+    severity: high
+    category: filesystem
+    pattern: "\\/etc\\/passwd"
+    description: "Reads system password file"
+    remediation: "Avoid accessing system files; use appropriate APIs for user information"
+
+  - id: filesystem-env-file
+    severity: medium
+    category: filesystem
+    pattern: "\\.env$"
+    description: "Reads or writes .env files containing secrets"
+    remediation: "Use secure secret management services instead of .env files"
+
+  - id: filesystem-home-directory
+    severity: medium
+    category: filesystem
+    pattern: "~\\/\\.[a-zA-Z]"
+    description: "Accesses hidden files in home directory"
+    remediation: "Review if accessing dotfiles is necessary; avoid sensitive config files"
+
+  # Execution Rules (5 rules)
+  - id: exec-subprocess
+    severity: high
+    category: exec
+    pattern: "subprocess\\.(call|run|Popen|check_output)\\("
+    description: "Executes shell commands via subprocess"
+    remediation: "Use native Python libraries instead of shell commands when possible"
+
+  - id: exec-os-system
+    severity: critical
+    category: exec
+    pattern: "os\\.system\\("
+    description: "Executes shell commands via os.system"
+    remediation: "Replace with subprocess.run() with proper sanitization"
+
+  - id: exec-eval
+    severity: critical
+    category: exec
+    pattern: "\\beval\\("
+    description: "Evaluates arbitrary Python code strings"
+    remediation: "Never use eval; refactor to use safe alternatives"
+
+  - id: exec-exec
+    severity: critical
+    category: exec
+    pattern: "\\bexec\\("
+    description: "Executes arbitrary Python code strings"
+    remediation: "Never use exec; refactor to use safe alternatives"
+
+  - id: exec-compile
+    severity: high
+    category: exec
+    pattern: "\\bcompile\\("
+    description: "Compiles code strings which can be executed later"
+    remediation: "Avoid compiling dynamic code; use predefined functions"
+
+  # Secrets Rules (5 rules)
+  - id: secrets-api-key
+    severity: critical
+    category: secrets
+    pattern: "(api[_-]?key|apikey)\\s*[:=]\\s*['\"][a-zA-Z0-9]{20,}['\"]"
+    description: "Hardcoded API key detected"
+    remediation: "Use environment variables or secret management services"
+
+  - id: secrets-secret-token
+    severity: critical
+    category: secrets
+    pattern: "(secret|token)\\s*[:=]\\s*['\"][a-zA-Z0-9]{20,}['\"]"
+    description: "Hardcoded secret or token detected"
+    remediation: "Use environment variables or secret management services"
+
+  - id: secrets-password
+    severity: critical
+    category: secrets
+    pattern: "(password|passwd|pwd)\\s*[:=]\\s*['\"][^'\"]{8,}['\"]"
+    description: "Hardcoded password detected"
+    remediation: "Use environment variables or secret management services"
+
+  - id: secrets-aws-key
+    severity: critical
+    category: secrets
+    pattern: "(AKIA[0-9A-Z]{16})"
+    description: "AWS Access Key ID pattern detected"
+    remediation: "Use IAM roles or AWS Secrets Manager"
+
+  - id: secrets-private-key
+    severity: critical
+    category: secrets
+    pattern: "-----BEGIN (RSA |EC |DSA )?PRIVATE KEY-----"
+    description: "Private key embedded in code"
+    remediation: "Store private keys in secure vault; never hardcode"
+
+  # Injection Rules (5 rules)
+  - id: injection-system-prompt-override
+    severity: critical
+    category: injection
+    pattern: "(system|assistant)\\s*(prompt|instruction).*?(override|replace|ignore)"
+    description: "Attempts to override system prompt or instructions"
+    remediation: "Sanitize user input; never allow prompt manipulation"
+
+  - id: injection-ignore-instructions
+    severity: critical
+    category: injection
+    pattern: "(ignore|disregard|forget).*(previous|above|prior).*(instructions|prompts|rules)"
+    description: "Prompt injection attempting to ignore previous instructions"
+    remediation: "Implement input validation and instruction separation"
+
+  - id: injection-new-instructions
+    severity: high
+    category: injection
+    pattern: "(new|updated|revised).*(instructions|rules|guidelines).*?(follow|obey)"
+    description: "Attempts to inject new instructions for the agent"
+    remediation: "Separate user input from system instructions"
+
+  - id: injection-role-play
+    severity: high
+    category: injection
+    pattern: "(act as|pretend to be|you are now).*(admin|developer|root|superuser)"
+    description: "Role-playing attack to gain elevated privileges"
+    remediation: "Reject role-change attempts; maintain consistent identity"
+
+  - id: injection-dan-mode
+    severity: critical
+    category: injection
+    pattern: "(DAN|Do Anything Now|jailbreak|bypass).*(restrictions|limitations|filters)"
+    description: "Jailbreak attempt to bypass safety restrictions"
+    remediation: "Implement robust input filtering and monitoring"
+
+  # Resource Rules (4 rules)
+  - id: resource-infinite-loop
+    severity: high
+    category: resource
+    pattern: "while\\s+True\\s*:"
+    description: "Potential infinite loop without break condition"
+    remediation: "Add timeout or iteration limits to loops"
+
+  - id: resource-fork-bomb
+    severity: critical
+    category: resource
+    pattern: ":\\(\\)\\{\\s*:\\|:\\s*&\\s*\\}\\s*;\\s*:"
+    description: "Fork bomb pattern detected"
+    remediation: "Never execute fork bombs; implement process limits"
+
+  - id: resource-large-file-write
+    severity: medium
+    category: resource
+    pattern: "(write|dump).*(\\d{6,}).*(bytes|MB|GB)"
+    description: "Writing very large files (>1MB)"
+    remediation: "Implement file size limits and streaming for large data"
+
+  - id: resource-memory-allocation
+    severity: high
+    category: resource
+    pattern: "(list|dict|array).*(\\*|repeat).*(\\d{7,})"
+    description: "Large memory allocation detected"
+    remediation: "Use generators or chunked processing for large datasets"

@@ -1,0 +1,83 @@
+---
+description: 回顾本轮对话，把值得记的内容结构化写进 agent memory hub 的 brain pool
+argument-hint: [可选：主题提示，如 "csv 编码"]
+---
+
+# 任务：把本轮对话值得记的内容写进 brain pool
+
+## 上下文
+你是 Claude Code，有一个 brain pool 数据在 `~/.agent-memory-hub/items/`（用户级）。
+工具脚本在 `__HUB_CODE_DIR__/agent_runtime_kit/tools/`：
+- `write-memory.sh` 结构化写入
+- `search-memory.sh` 检索
+
+用户可能给了主题提示：$ARGUMENTS
+
+## 流程
+
+### 第 1 步：扫描本轮对话
+
+回顾最近 ~10-20 轮对话，按下表判断**有哪些值得长期记**：
+
+| 何时该记 | type |
+|---|---|
+| 做出了**非显然**技术决策（换个人会本能选别的） | `decision` |
+| 学到一个客观限制 / 配置 / 数字 / API 行为 | `fact` |
+| 完成一段有学习价值的工作（带正/反结果）| `episode` |
+| 当前阻塞 / 警报 / 在等什么 | `signal` |
+| 产出了 PR / 文档 / 文件 / 工具 | `artifact` |
+| 显式跨 Agent 任务交接 | `handoff` |
+
+不要硬凑——**没有值得记的就直说"本轮无明显值得记的内容"**，停在这里。
+
+### 第 2 步：先列计划给用户（必须）
+
+把你打算写的每条 item **一行预览**给用户看：
+
+```
+计划写 N 条 memory item:
+  1. [decision] <title>
+  2. [fact]     <title>
+  3. [signal]   <title>
+```
+
+然后**问用户**："要不要全部写入？或者删除某几条？"
+
+**不要先写后问**——给用户拒绝的机会。
+
+### 第 3 步：用户确认后，逐条调用 write-memory.sh
+
+对每条 item，用 Bash tool：
+
+```bash
+echo "<正文>" | __HUB_CODE_DIR__/agent_runtime_kit/tools/write-memory.sh \
+  --type <type> \
+  --title "<topic-centered>" \
+  --summary "<1-2 句>" \
+  --tags "<t1,t2,t3>" \
+  --project "<slug 或省略>" \
+  --agent claude-code
+```
+
+数据会自动写到 `~/.agent-memory-hub/items/`（默认）或 `$BRAIN_DIR/items/`（如果环境变量设了）。
+
+## 硬约束（必须遵守）
+
+1. **title 只描述内容主题**——不要写 "cc-to-codex" 这种方向信息
+2. **decision** 类正文必须包含三段：`决策 | 理由 | 改回去的代价`
+3. **fact** 类必须包含：`事实 / 来源 / 有效期（如适用）`
+4. **signal** 类必须包含：`当前状态 / 影响 / 期望操作`
+5. **sensitivity 默认 internal**；涉及 API 密钥 / 私密对话时显式 `--sensitivity private` 或 `secret`
+6. **一次最多写 5 条**——再多就让用户分批
+7. **写完后用 search-memory.sh 验证**至少能搜到刚写的 1-2 条
+
+## 异常处理
+
+- 如果 write-memory.sh 失败，立刻停止后续写入，把错误告诉用户
+- 如果用户在第 2 步说"全删"，回 "好，本轮不写入" 即可
+- 如果工具脚本不在 `__HUB_CODE_DIR__/agent_runtime_kit/tools/`，告诉用户重新跑 install.sh
+
+## 完成后
+
+用一行总结：`已写入 N 条 item 到 ~/.agent-memory-hub/items/`。
+不要重复贴一遍 frontmatter——保持简洁。

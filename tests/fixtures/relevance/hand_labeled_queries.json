@@ -1,0 +1,38 @@
+[
+  {
+    "query": "stale memory may cause a future agent to trust outdated project status",
+    "expected_ids": ["mem-20260609-152927-agent-memory-hub-evolution-cur-4d7e53f2"],
+    "category": "memory_risk",
+    "description": "Risk query should retrieve the current handoff signal rather than old launch notes."
+  },
+  {
+    "query": "adapter support claims must not overstate qoder or aone readiness",
+    "expected_ids": ["mem-20260609-204147-qoder-hooks-adapter-install-re-974188be"],
+    "category": "false_friend",
+    "description": "Similar product names should not collapse Qoder install-ready with Qoder Work/Wake or Aone WIP."
+  },
+  {
+    "query": "paper inspired associative memory needs evidence before ranking changes",
+    "expected_ids": ["mem-20260609-053522-retrieval-research-eval-gate-b-f3a15fe1"],
+    "category": "semantic_paraphrase",
+    "description": "Paraphrase for retrieval research gate without using the exact title."
+  },
+  {
+    "query": "explicit refs.mems associations should be measured before Hopfield HRR work",
+    "expected_ids": ["mem-20260609-160326-linked-association-relevance-f-b3c7a181"],
+    "category": "linked_association",
+    "description": "Linked-association benchmark evidence for graph-inspired retrieval ideas."
+  },
+  {
+    "query": "Codex hooks are installed but runtime events still need real observation",
+    "expected_ids": ["mem-20260609-174139-codex-adapter-runtime-env-inst-f5b6622e"],
+    "category": "runtime_evidence",
+    "description": "Runtime evidence should distinguish static config install from observed hook execution."
+  },
+  {
+    "query": "semantic drift check should not crash because cli helpers were missing",
+    "expected_ids": ["mem-20260609-173844-cli-anti-drift-semantic-nameer-cd9d760a"],
+    "category": "regression_memory",
+    "description": "Regression query for a bugfix memory with related wording."
+  }
+]

@@ -1,0 +1,48 @@
+version: "3.8"
+
+services:
+  mcp-server:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    container_name: agent-memory-hub
+    ports:
+      - "8742:8742"
+    volumes:
+      - brain-data:/data/brain
+    environment:
+      - BRAIN_DIR=/data/brain
+      - MEMORY_HUB_NO_MODEL=${MEMORY_HUB_NO_MODEL:-0}
+      - MEMORY_HUB_LLM_MODEL=${MEMORY_HUB_LLM_MODEL:-gpt-4o-mini}
+      - MEMORY_HUB_LLM_BASE_URL=${MEMORY_HUB_LLM_BASE_URL:-}
+      - MEMORY_HUB_LLM_API_KEY=${MEMORY_HUB_LLM_API_KEY:-}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8742/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  dreaming-worker:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    container_name: agent-memory-hub-dreaming
+    volumes:
+      - brain-data:/data/brain
+    environment:
+      - BRAIN_DIR=/data/brain
+      - MEMORY_HUB_NO_MODEL=${MEMORY_HUB_NO_MODEL:-0}
+      - MEMORY_HUB_LLM_MODEL=${MEMORY_HUB_LLM_MODEL:-gpt-4o-mini}
+      - MEMORY_HUB_LLM_BASE_URL=${MEMORY_HUB_LLM_BASE_URL:-}
+      - MEMORY_HUB_LLM_API_KEY=${MEMORY_HUB_LLM_API_KEY:-}
+      - DREAM_INTERVAL=${DREAM_INTERVAL:-3600}
+    command: ["python", "-m", "agent_brain.interfaces.cli", "dream", "--daemon", "--interval", "${DREAM_INTERVAL:-3600}"]
+    restart: unless-stopped
+    depends_on:
+      mcp-server:
+        condition: service_healthy
+
+volumes:
+  brain-data:
+    driver: local

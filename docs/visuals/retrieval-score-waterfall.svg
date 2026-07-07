@@ -1,0 +1,116 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1420" height="760" viewBox="0 0 1420 760" role="img" aria-labelledby="title desc" style="max-width:100%;height:auto;">
+  <title id="title">Retrieval Score Waterfall</title>
+  <desc id="desc">Retrieval Score Waterfall</desc>
+  <defs>
+
+    <linearGradient id="qoderPageBg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#fffdfb"/>
+      <stop offset="48%" stop-color="#fbfaf8"/>
+      <stop offset="100%" stop-color="#f7fbff"/>
+    </linearGradient>
+    <linearGradient id="qoderSheetBg" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#fff3fa"/>
+      <stop offset="45%" stop-color="#fbfdff"/>
+      <stop offset="100%" stop-color="#f0f8e9"/>
+    </linearGradient>
+    <filter id="qoderSheetShadow" x="-8%" y="-8%" width="116%" height="116%">
+      <feDropShadow dx="0" dy="26" stdDeviation="30" flood-color="#2a231c" flood-opacity="0.085"/>
+    </filter>
+
+    <marker id="arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#57606a"/>
+    </marker>
+    <filter id="paper" x="-8%" y="-8%" width="116%" height="116%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.78" numOctaves="2" seed="11" result="noise"/>
+      <feColorMatrix type="saturate" values="0"/>
+      <feComponentTransfer>
+        <feFuncA type="table" tableValues="0 0.035"/>
+      </feComponentTransfer>
+      <feBlend in="SourceGraphic" mode="multiply"/>
+    </filter>
+    <filter id="softShadow" x="-15%" y="-15%" width="130%" height="130%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#1f2328" flood-opacity="0.08"/>
+    </filter>
+    <style>
+      .bg { fill: url(#qoderPageBg); }
+      .sheet { fill: url(#qoderSheetBg); filter: url(#qoderSheetShadow); }
+      .ink { fill: #24292f; }
+      .muted { fill: #57606a; }
+      .title { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 34px; font-weight: 850; fill: #24292f; }
+      .subtitle { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 17px; fill: #57606a; }
+      .section { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 17px; font-weight: 800; fill: #57606a; text-transform: uppercase; }
+      .card-title { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 20px; font-weight: 820; fill: #24292f; }
+      .card-line { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 15px; fill: #24292f; }
+      .small { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 13px; fill: #57606a; }
+      .tiny { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 10px; fill: #6e7781; }
+      .num { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 22px; font-weight: 900; }
+      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; font-size: 13px; fill: #24292f; }
+      .mono-small { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; font-size: 12px; fill: #57606a; }
+      .panel { fill: #ffffff; stroke: #d8dee4; stroke-width: 1.4; filter: url(#softShadow); }
+      .card { stroke-width: 1.8; filter: url(#softShadow); }
+      .thin-card { stroke-width: 1.2; }
+      .arrow { fill: none; stroke: #57606a; stroke-width: 2.1; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrow); }
+      .soft-arrow { fill: none; stroke: #8c959f; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 6 7; marker-end: url(#arrow); }
+      .flow-line { stroke-dasharray: 14 10; animation: flowDash 1.8s linear infinite; }
+      .planned-line { stroke-dasharray: 8 8; }
+      .flow-dot { fill: #1f6f78; filter: url(#softShadow); }
+      .breath { animation: breath 2.8s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+      .breath-slow { animation: breath 4.2s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+      .blink { animation: blink 1.7s ease-in-out infinite; }
+      .rail { fill: none; stroke: #d0d7de; stroke-width: 1.3; stroke-dasharray: 5 8; }
+      .branch { fill: none; stroke: #d0d7de; stroke-width: 1.3; stroke-linecap: round; stroke-linejoin: round; }
+      .icon { fill: none; stroke-width: 3.5; stroke-linecap: round; stroke-linejoin: round; }
+      @keyframes flowDash {
+        to { stroke-dashoffset: -24; }
+      }
+      @keyframes breath {
+        0%, 100% { opacity: 0.88; transform: scale(1); }
+        50% { opacity: 1; transform: scale(1.035); }
+      }
+      @keyframes blink {
+        0%, 100% { opacity: 0.42; }
+        50% { opacity: 1; }
+      }
+    </style>
+  </defs>
+  <rect class="bg" width="1420" height="760"/>
+  <rect x="28" y="28" width="1364" height="704" rx="36" fill="#ffffff" opacity="0.62"/>
+  <rect class="sheet" x="20" y="20" width="1380" height="720" rx="34" stroke="#ffffff" stroke-opacity="0.86" stroke-width="1.2"/>
+  <text class="title" x="70" y="76">Retrieval Score Waterfall</text>
+  <text class="subtitle" x="72" y="105">Explainable ranking starts from RRF and applies governance factors step by step.</text>
+  <g>
+    <rect x="90" y="142" width="1100" height="126" rx="18" fill="#f6f8fa" stroke="#c9d1d9" stroke-width="1.5"/>
+    <text class="card-title" x="114" y="176" fill="#57606a">Ranking formula</text>
+  <text class="card-line" x="114" y="204">RRF(d)=Σs ws/(k+rank_s(d)+1)</text>
+  <text class="card-line" x="114" y="223">S_effective=S_rrf×confidence×decay_coefficient</text>
+  <text class="card-line" x="114" y="242">decay_coefficient=clamp(retention×access×support×gain×contradiction,0.01,1.35)</text>
+  </g>
+  <rect x="128" y="300" width="130" height="310" rx="14" fill="#edf6ff" stroke="#a8cff2" stroke-width="1.6"/>
+  <text class="card-title" x="144" y="332" fill="#0969da">S0 RRF</text>
+  <text class="mono-small" x="146" y="592" fill="#0969da">0.97x</text>
+  <path class="arrow" d="M266 455 L348 471"/>
+  <rect x="358" y="332" width="112" height="278" rx="14" fill="#edf9ef" stroke="#a8d8b5" stroke-width="1.6"/>
+  <text class="card-title" x="374" y="364" fill="#2f7d32">confidence</text>
+  <text class="mono-small" x="376" y="592" fill="#2f7d32">0.87x</text>
+  <path class="arrow" d="M478 471 L560 486"/>
+  <rect x="570" y="362" width="94" height="248" rx="14" fill="#e7fbf8" stroke="#95dcd6" stroke-width="1.6"/>
+  <text class="card-title" x="586" y="394" fill="#1f6f78">decay</text>
+  <text class="mono-small" x="588" y="592" fill="#1f6f78">0.78x</text>
+  <path class="arrow" d="M672 486 L754 464"/>
+  <rect x="764" y="318" width="126" height="292" rx="14" fill="#fff1df" stroke="#efb770" stroke-width="1.6"/>
+  <text class="card-title" x="780" y="350" fill="#bc6c00">feedback</text>
+  <text class="mono-small" x="782" y="592" fill="#bc6c00">0.91x</text>
+  <path class="arrow" d="M898 464 L980 446"/>
+  <rect x="990" y="282" width="154" height="328" rx="14" fill="#f5efff" stroke="#cfb9f3" stroke-width="1.6"/>
+  <text class="card-title" x="1006" y="314" fill="#8250df">status/runtime</text>
+  <text class="mono-small" x="1008" y="592" fill="#8250df">1.02x</text>
+  <path class="arrow" d="M1152 446 L1234 480"/>
+  <rect x="1244" y="350" width="96" height="260" rx="14" fill="#fff7cc" stroke="#e7c34e" stroke-width="1.6"/>
+  <text class="card-title" x="1260" y="382" fill="#8a6200">filters</text>
+  <text class="mono-small" x="1262" y="592" fill="#8a6200">0.81x</text>
+  <g>
+    <rect x="210" y="656" width="1000" height="82" rx="18" fill="#f6f8fa" stroke="#c9d1d9" stroke-width="1.5"/>
+    <text class="card-title" x="234" y="690" fill="#57606a">Governance boundary</text>
+  <text class="card-line" x="234" y="718">Example: relevant candidates are ranked, then temporal/supersession/filter/firewall gates include, demote, or exclude them.</text>
+  </g>
+</svg>

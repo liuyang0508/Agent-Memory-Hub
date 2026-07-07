@@ -1,0 +1,246 @@
+"""Stage C contract: ``write-memory.sh`` never loses a write when Python is gone.
+
+The hook shim must degrade to appending a durable pending record under
+``$BRAIN_DIR/pending/`` whenever the Python ``memory write`` path is unreachable
+(or when ``MEMORY_HUB_FORCE_PENDING=1`` forces the offline path). A later
+``memory sync-pending`` drains that queue through the one WriteService funnel, so
+the markdown pool eventually converges. These tests exercise the shim as a real
+subprocess (the way a hook invokes it) and then replay the record in-process.
+"""
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+# Repo root anchored to this file so the shim path is independent of the cwd
+# pytest happens to run from.
+REPO_ROOT = Path(__file__).resolve().parents[2]
+SHIM = REPO_ROOT / "agent_runtime_kit" / "tools" / "write-memory.sh"
+SEARCH_SHIM = REPO_ROOT / "agent_runtime_kit" / "tools" / "search-memory.sh"
+INJECT_HOOK = REPO_ROOT / "agent_runtime_kit" / "hooks" / "inject-context.sh"
+PYTHON_RESOLVER = REPO_ROOT / "agent_runtime_kit" / "tools" / "_resolve-python.sh"
+
+
+def test_shim_falls_back_to_pending_when_python_broken(tmp_path):
+    env = dict(
+        os.environ,
+        BRAIN_DIR=str(tmp_path),
+        MEMORY_HUB_FORCE_PENDING="1",  # shim honors this to skip python
+    )
+    p = subprocess.run(
+        [str(SHIM), "--type", "fact", "--title", "shim t", "--summary", "s"],
+        input="body\n",
+        text=True,
+        capture_output=True,
+        env=env,
+    )
+    assert p.returncode == 0, p.stderr
+    pend = list((tmp_path / "pending").glob("*.jsonl"))
+    assert len(pend) == 1
+    rec = json.loads(pend[0].read_text().splitlines()[0])
+    assert rec["op"] == "write"
+    assert rec["item"]["title"] == "shim t"
+    assert rec["item"]["body"] == "body"
+
+
+def test_python_resolver_does_not_trip_errexit_when_python_is_incomplete(tmp_path):
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    fake_python = fake_bin / "python3"
+    fake_python.write_text("#!/usr/bin/env bash\nexit 1\n", encoding="utf-8")
+    fake_python.chmod(0o755)
+
+    script = tmp_path / "source-resolver.sh"
+    script.write_text(
+        "\n".join(
+            [
+                "#!/usr/bin/env bash",
+                "set -euo pipefail",
+                f"source {PYTHON_RESOLVER}",
+                'printf "after:%s:%s\\n" "$_PYTHON_OK" "$MEMORY_PYTHON"',
+            ]
+        ),
+        encoding="utf-8",
+    )
+    script.chmod(0o755)
+
+    env = dict(
+        os.environ,
+        PATH=f"{fake_bin}:/usr/bin:/bin",
+        AGENT_MEMORY_HUB_PYTHON_IMPORTS="amh_missing_module_for_resolver_test",
+    )
+    p = subprocess.run(
+        ["/bin/bash", str(script)],
+        text=True,
+        capture_output=True,
+        env=env,
+    )
+
+    assert p.returncode == 0, p.stderr
+    assert p.stdout.startswith("after:1:")
+
+
+def test_shim_pending_record_includes_validity_scope(tmp_path):
+    env = dict(
+        os.environ,
+        BRAIN_DIR=str(tmp_path),
+        MEMORY_HUB_FORCE_PENDING="1",
+    )
+    p = subprocess.run(
+        [
+            str(SHIM),
+            "--type", "signal",
+            "--title", "scoped signal",
+            "--summary", "s",
+            "--cwd", "/repo/current",
+            "--adapter", "codex",
+        ],
+        input="body\n",
+        text=True,
+        capture_output=True,
+        env=env,
+    )
+
+    assert p.returncode == 0, p.stderr
+    pend = list((tmp_path / "pending").glob("*.jsonl"))
+    rec = json.loads(pend[0].read_text().splitlines()[0])
+    assert rec["item"]["validity"]["cwd"] == "/repo/current"
+    assert rec["item"]["validity"]["adapter"] == "codex"
+
+
+def test_shim_pending_record_includes_source_refs(tmp_path):
+    env = dict(
+        os.environ,
+        BRAIN_DIR=str(tmp_path),
+        MEMORY_HUB_FORCE_PENDING="1",
+    )
+    p = subprocess.run(
+        [
+            str(SHIM),
+            "--type", "fact",
+            "--title", "ref pending",
+            "--summary", "s",
+            "--ref-file", "/repo/evidence.md",
+            "--ref-url", "https://example.test/evidence",
+            "--ref-resource", "res-20260611-010203-demo-a1b2c3d4",
+            "--ref-extraction", "ext-20260611-010204-demo-e5f6a7b8",
+        ],
+        input="body\n",
+        text=True,
+        capture_output=True,
+        env=env,
+    )
+
+    assert p.returncode == 0, p.stderr
+    pend = list((tmp_path / "pending").glob("*.jsonl"))
+    rec = json.loads(pend[0].read_text().splitlines()[0])
+    assert rec["item"]["refs"]["files"] == ["/repo/evidence.md"]
+    assert rec["item"]["refs"]["urls"] == ["https://example.test/evidence"]
+    assert rec["item"]["refs"]["resources"] == ["res-20260611-010203-demo-a1b2c3d4"]
+    assert rec["item"]["refs"]["extractions"] == ["ext-20260611-010204-demo-e5f6a7b8"]
+
+
+def test_shim_pending_record_replays_into_pool(tmp_brain):
+    """The buffered record drains cleanly through the real PendingQueue funnel."""
+    env = dict(
+        os.environ,
+        BRAIN_DIR=str(tmp_brain),
+        MEMORY_HUB_FORCE_PENDING="1",
+    )
+    p = subprocess.run(
+        [
+            str(SHIM),
+            "--type", "fact",
+            "--title", "replay me",
+            "--summary", "s",
+            "--tags", "harvested,decision",
+            "--cwd", "/repo/current",
+            "--adapter", "codex",
+        ],
+        input="body text\n",
+        text=True,
+        capture_output=True,
+        env=env,
+    )
+    assert p.returncode == 0, p.stderr
+
+    from agent_brain.memory.store.pending import PendingQueue
+
+    stats = PendingQueue().replay()
+    assert stats.written == 1
+    assert PendingQueue().depth() == 0
+
+    items = list((tmp_brain / "items").glob("*.md"))
+    assert items
+    assert any("replay me" in it.read_text(encoding="utf-8") for it in items)
+    from agent_brain.memory.store.items_store import ItemsStore
+
+    item = next(item for item, _body in ItemsStore(tmp_brain / "items").iter_all())
+    assert item.validity.cwd == "/repo/current"
+    assert item.validity.adapter == "codex"
+    assert (tmp_brain / "sources" / "writes" / f"{item.id}.json").exists()
+
+
+def test_shim_uses_configured_python_when_path_cli_is_broken(tmp_path):
+    """A hook can pin a healthy Python even when PATH has a broken CLI env."""
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    for name in ("python3", "memory"):
+        fake = fake_bin / name
+        fake.write_text("#!/bin/sh\nexit 97\n", encoding="utf-8")
+        fake.chmod(0o755)
+
+    brain = tmp_path / "brain"
+    env = dict(
+        os.environ,
+        AGENT_MEMORY_HUB_PYTHON=sys.executable,
+        BRAIN_DIR=str(brain),
+        MEMORY_HUB_TEST_EMBEDDING="1",
+        PATH=f"{fake_bin}:{os.environ['PATH']}",
+        PYTHONPATH=f"{REPO_ROOT}:{os.environ.get('PYTHONPATH', '')}",
+    )
+    p = subprocess.run(
+        [
+            str(SHIM),
+            "--type",
+            "fact",
+            "--title",
+            "configured python",
+            "--summary",
+            "shim should bypass broken PATH python",
+            "--tags",
+            "runtime,shim",
+        ],
+        input="**事实**\nconfigured python works\n\n**来源**\ntest\n\n**有效期**\ncurrent\n",
+        text=True,
+        capture_output=True,
+        cwd=REPO_ROOT,
+        env=env,
+    )
+
+    assert p.returncode == 0, p.stderr
+    assert "queued:" not in p.stdout
+    items = list((brain / "items").glob("*.md"))
+    assert len(items) == 1
+    assert "configured python" in items[0].read_text(encoding="utf-8")
+    assert not list((brain / "pending").glob("*.jsonl"))
+
+
+def test_search_shim_defaults_embedding_offline():
+    """Cold interactive recall must not block on model downloads by default."""
+    content = SEARCH_SHIM.read_text(encoding="utf-8")
+    assert 'MEMORY_HUB_EMBEDDING_OFFLINE="${MEMORY_HUB_EMBEDDING_OFFLINE:-1}"' in content
+    assert 'memory_cli search "$@"' in content
+
+
+def test_prompt_injection_hook_uses_context_firewall():
+    """Auto-injected context should pass through the before-inject firewall."""
+    content = INJECT_HOOK.read_text(encoding="utf-8")
+    assert "--context-firewall" in content
+
+
+def test_prompt_injection_hook_uses_query_signal_gate():
+    """Weak prompts such as '就像' should be rejected before search runs."""
+    content = INJECT_HOOK.read_text(encoding="utf-8")
+    assert "agent_brain.memory.context.query_signal" in content

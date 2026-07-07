@@ -1,0 +1,215 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="728" viewBox="0 0 1500 728" role="img" aria-labelledby="title desc" style="max-width:100%;height:auto;">
+  <title id="title">召回时序链路图</title>
+  <desc id="desc">召回时序链路图</desc>
+  <defs>
+
+    <linearGradient id="qoderPageBg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#fffdfb"/>
+      <stop offset="48%" stop-color="#fbfaf8"/>
+      <stop offset="100%" stop-color="#f7fbff"/>
+    </linearGradient>
+    <linearGradient id="qoderSheetBg" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#fff3fa"/>
+      <stop offset="45%" stop-color="#fbfdff"/>
+      <stop offset="100%" stop-color="#f0f8e9"/>
+    </linearGradient>
+    <filter id="qoderSheetShadow" x="-8%" y="-8%" width="116%" height="116%">
+      <feDropShadow dx="0" dy="26" stdDeviation="30" flood-color="#2a231c" flood-opacity="0.085"/>
+    </filter>
+
+    <marker id="arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#57606a"/>
+    </marker>
+    <filter id="paper" x="-8%" y="-8%" width="116%" height="116%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.78" numOctaves="2" seed="11" result="noise"/>
+      <feColorMatrix type="saturate" values="0"/>
+      <feComponentTransfer>
+        <feFuncA type="table" tableValues="0 0.035"/>
+      </feComponentTransfer>
+      <feBlend in="SourceGraphic" mode="multiply"/>
+    </filter>
+    <filter id="softShadow" x="-15%" y="-15%" width="130%" height="130%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#1f2328" flood-opacity="0.08"/>
+    </filter>
+    <style>
+      .bg { fill: url(#qoderPageBg); }
+      .sheet { fill: url(#qoderSheetBg); filter: url(#qoderSheetShadow); }
+      .ink { fill: #24292f; }
+      .muted { fill: #57606a; }
+      .title { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 34px; font-weight: 850; fill: #24292f; }
+      .subtitle { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 17px; fill: #57606a; }
+      .section { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 17px; font-weight: 800; fill: #57606a; text-transform: uppercase; }
+      .card-title { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 20px; font-weight: 820; fill: #24292f; }
+      .card-line { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 15px; fill: #24292f; }
+      .small { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 13px; fill: #57606a; }
+      .tiny { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 10px; fill: #6e7781; }
+      .num { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 22px; font-weight: 900; }
+      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; font-size: 13px; fill: #24292f; }
+      .mono-small { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; font-size: 12px; fill: #57606a; }
+      .panel { fill: #ffffff; stroke: #d8dee4; stroke-width: 1.4; filter: url(#softShadow); }
+      .card { stroke-width: 1.8; filter: url(#softShadow); }
+      .thin-card { stroke-width: 1.2; }
+      .arrow { fill: none; stroke: #57606a; stroke-width: 2.1; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrow); }
+      .soft-arrow { fill: none; stroke: #8c959f; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 6 7; marker-end: url(#arrow); }
+      .flow-line { stroke-dasharray: 14 10; animation: flowDash 1.8s linear infinite; }
+      .planned-line { stroke-dasharray: 8 8; }
+      .flow-dot { fill: #1f6f78; filter: url(#softShadow); }
+      .breath { animation: breath 2.8s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+      .breath-slow { animation: breath 4.2s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+      .blink { animation: blink 1.7s ease-in-out infinite; }
+      .rail { fill: none; stroke: #d0d7de; stroke-width: 1.3; stroke-dasharray: 5 8; }
+      .branch { fill: none; stroke: #d0d7de; stroke-width: 1.3; stroke-linecap: round; stroke-linejoin: round; }
+      .icon { fill: none; stroke-width: 3.5; stroke-linecap: round; stroke-linejoin: round; }
+      @keyframes flowDash {
+        to { stroke-dashoffset: -24; }
+      }
+      @keyframes breath {
+        0%, 100% { opacity: 0.88; transform: scale(1); }
+        50% { opacity: 1; transform: scale(1.035); }
+      }
+      @keyframes blink {
+        0%, 100% { opacity: 0.42; }
+        50% { opacity: 1; }
+      }
+    </style>
+  </defs>
+  <rect class="bg" width="1500" height="728"/>
+  <rect x="28" y="28" width="1444" height="672" rx="36" fill="#ffffff" opacity="0.62"/>
+  <rect class="sheet" x="20" y="20" width="1460" height="688" rx="34" stroke="#ffffff" stroke-opacity="0.86" stroke-width="1.2"/>
+  <text class="title" x="70" y="76">召回时序链路图</text>
+  <text class="subtitle" x="72" y="105">维护产物 MemoryItem/Index/Runtime Ledger 被读取后，用户问题才进入过滤、并行召回、RRF、治理排序、防火墙和分层 context_pack。</text>
+  <text class="small" x="72" y="134">实线 = 当前已实现路径</text>
+  <text class="small" x="330" y="134">review / gate = 候选或高风险路径</text>
+  <g class="breath-slow">
+    <rect class="card" x="60" y="160" width="190" height="136" rx="18" fill="#e7fbf8" stroke="#95dcd6" stroke-width="1.6"/>
+    <circle cx="101" cy="202" r="26" fill="#ffffff" opacity="0.66"/>
+    <path class="icon" stroke="#1f6f78" d="M88 201c0-10 28-10 28 0v11c0 10-28 10-28 0zM96 200h1M108 200h1M99 211h7M102 187v7"/>
+    <rect x="198" y="176" width="34" height="24" rx="12" fill="#ffffff" stroke="#95dcd6" stroke-width="1.1"/>
+    <text class="tiny" x="207" y="192" fill="#1f6f78">01</text>
+  <text class="card-title" x="136" y="195">用户问题</text>
+  <text class="small" x="136" y="235">prompt /</text>
+  <text class="small" x="136" y="253">search call</text>
+  </g>
+  <g class="breath-slow">
+    <rect class="card" x="345" y="160" width="190" height="136" rx="18" fill="#edf6ff" stroke="#a8cff2" stroke-width="1.6"/>
+    <circle cx="386" cy="202" r="26" fill="#ffffff" opacity="0.66"/>
+    <path class="icon" stroke="#0969da" d="M386 186l17 7v11c0 13-7 22-17 27-10-5-17-14-17-27V193zM378 208l7 7 13-15"/>
+    <rect x="483" y="176" width="34" height="24" rx="12" fill="#ffffff" stroke="#a8cff2" stroke-width="1.1"/>
+    <text class="tiny" x="492" y="192" fill="#0969da">02</text>
+  <text class="card-title" x="421" y="195">元数据过</text>
+  <text class="card-title" x="421" y="215">滤</text>
+  <text class="small" x="421" y="254">type /</text>
+  </g>
+  <g class="breath-slow">
+    <rect class="card" x="630" y="160" width="190" height="136" rx="18" fill="#edf9ef" stroke="#a8d8b5" stroke-width="1.6"/>
+    <circle cx="671" cy="202" r="26" fill="#ffffff" opacity="0.66"/>
+    <path class="icon" stroke="#2f7d32" d="M656 189h15v15H656zM676 189h15v15H676zM663 204v12h20M683 216h9"/>
+    <rect x="768" y="176" width="34" height="24" rx="12" fill="#ffffff" stroke="#a8d8b5" stroke-width="1.1"/>
+    <text class="tiny" x="777" y="192" fill="#2f7d32">03</text>
+  <text class="card-title" x="706" y="195">并行召回</text>
+  <text class="small" x="706" y="235">BM25/FTS</text>
+  <text class="small" x="706" y="253">vector +</text>
+  </g>
+  <g class="breath-slow">
+    <rect class="card" x="915" y="160" width="190" height="136" rx="18" fill="#fff1df" stroke="#efb770" stroke-width="1.6"/>
+    <circle cx="956" cy="202" r="26" fill="#ffffff" opacity="0.66"/>
+    <path class="icon" stroke="#bc6c00" d="M941 189h15v15H941zM961 189h15v15H961zM948 204v12h20M968 216h9"/>
+    <rect x="1053" y="176" width="34" height="24" rx="12" fill="#ffffff" stroke="#efb770" stroke-width="1.1"/>
+    <text class="tiny" x="1062" y="192" fill="#bc6c00">04</text>
+  <text class="card-title" x="991" y="195">RRF 融合</text>
+  <text class="small" x="991" y="235">rank fusion</text>
+  <text class="small" x="991" y="253">第一候选池</text>
+  </g>
+  <g class="breath-slow">
+    <rect class="card" x="1200" y="160" width="190" height="136" rx="18" fill="#fff7cc" stroke="#e7c34e" stroke-width="1.6"/>
+    <circle cx="1241" cy="202" r="26" fill="#ffffff" opacity="0.66"/>
+    <path class="icon" stroke="#8a6200" d="M1226 191h34v24H1226zM1235 223h16M1243 215v8M1232 204h7l4-7 5 13 4-6h6"/>
+    <rect x="1338" y="176" width="34" height="24" rx="12" fill="#ffffff" stroke="#e7c34e" stroke-width="1.1"/>
+    <text class="tiny" x="1347" y="192" fill="#8a6200">05</text>
+  <text class="card-title" x="1276" y="195">可信排序</text>
+  <text class="small" x="1276" y="235">rerank /</text>
+  <text class="small" x="1276" y="253">confidence</text>
+  </g>
+  <g class="breath-slow">
+    <rect class="card" x="1200" y="414" width="190" height="136" rx="18" fill="#fff1eb" stroke="#efbda9" stroke-width="1.6"/>
+    <circle cx="1241" cy="456" r="26" fill="#ffffff" opacity="0.66"/>
+    <path class="icon" stroke="#d1242f" d="M1241 440l17 7v11c0 13-7 22-17 27-10-5-17-14-17-27V447zM1233 462l7 7 13-15"/>
+    <rect x="1338" y="430" width="34" height="24" rx="12" fill="#ffffff" stroke="#efbda9" stroke-width="1.1"/>
+    <text class="tiny" x="1347" y="446" fill="#d1242f">06</text>
+  <text class="card-title" x="1276" y="449">过期替代</text>
+  <text class="card-title" x="1276" y="469">过滤</text>
+  <text class="small" x="1276" y="508">temporal</text>
+  </g>
+  <g class="breath-slow">
+    <rect class="card" x="915" y="414" width="190" height="136" rx="18" fill="#f5efff" stroke="#cfb9f3" stroke-width="1.6"/>
+    <circle cx="956" cy="456" r="26" fill="#ffffff" opacity="0.66"/>
+    <path class="icon" stroke="#8250df" d="M941 443h15v15H941zM961 443h15v15H961zM948 458v12h20M968 470h9"/>
+    <rect x="1053" y="430" width="34" height="24" rx="12" fill="#ffffff" stroke="#cfb9f3" stroke-width="1.1"/>
+    <text class="tiny" x="1062" y="446" fill="#8250df">07</text>
+  <text class="card-title" x="991" y="449">关联扩展</text>
+  <text class="small" x="991" y="489">MMR /</text>
+  <text class="small" x="991" y="507">Hopfield</text>
+  </g>
+  <g class="breath-slow">
+    <rect class="card" x="630" y="414" width="190" height="136" rx="18" fill="#fff0f6" stroke="#efb4d7" stroke-width="1.6"/>
+    <circle cx="671" cy="456" r="26" fill="#ffffff" opacity="0.66"/>
+    <path class="icon" stroke="#bf3989" d="M671 440l17 7v11c0 13-7 22-17 27-10-5-17-14-17-27V447zM663 462l7 7 13-15"/>
+    <rect x="768" y="430" width="34" height="24" rx="12" fill="#ffffff" stroke="#efb4d7" stroke-width="1.1"/>
+    <text class="tiny" x="777" y="446" fill="#bf3989">08</text>
+  <text class="card-title" x="706" y="449">防火墙</text>
+  <text class="small" x="706" y="489">topic /</text>
+  <text class="small" x="706" y="507">scope</text>
+  </g>
+  <g class="breath-slow">
+    <rect class="card" x="345" y="414" width="190" height="136" rx="18" fill="#f1efff" stroke="#c0b0ee" stroke-width="1.6"/>
+    <circle cx="386" cy="456" r="26" fill="#ffffff" opacity="0.66"/>
+    <path class="icon" stroke="#6639ba" d="M371 443h28v18H371zM377 470h26M391 461v9M380 449h15M380 455h9"/>
+    <rect x="483" y="430" width="34" height="24" rx="12" fill="#ffffff" stroke="#c0b0ee" stroke-width="1.1"/>
+    <text class="tiny" x="492" y="446" fill="#6639ba">09</text>
+  <text class="card-title" x="421" y="449">分层装载</text>
+  <text class="small" x="421" y="489">locator 默认</text>
+  <text class="small" x="421" y="507">detail 按需</text>
+  </g>
+  <g class="breath-slow">
+    <rect class="card" x="60" y="414" width="190" height="136" rx="18" fill="#f6f8fa" stroke="#c9d1d9" stroke-width="1.6"/>
+    <circle cx="101" cy="456" r="26" fill="#ffffff" opacity="0.66"/>
+    <path class="icon" stroke="#57606a" d="M87 445h31v27H87zM93 451h19M93 459h19M93 467h12"/>
+    <rect x="198" y="430" width="34" height="24" rx="12" fill="#ffffff" stroke="#c9d1d9" stroke-width="1.1"/>
+    <text class="tiny" x="207" y="446" fill="#57606a">10</text>
+  <text class="card-title" x="136" y="449">上下文包</text>
+  <text class="small" x="136" y="489">detail_uri</text>
+  <text class="small" x="136" y="507">CCR / 注入</text>
+  </g>
+  <path class="arrow flow-line" d="M260 228 L335 228">
+    <animate attributeName="stroke-dashoffset" values="0;-24" dur="1.8s" repeatCount="indefinite"/>
+  </path>
+  <path class="arrow flow-line" d="M545 228 L620 228">
+    <animate attributeName="stroke-dashoffset" values="0;-24" dur="1.8s" repeatCount="indefinite"/>
+  </path>
+  <path class="arrow flow-line" d="M830 228 L905 228">
+    <animate attributeName="stroke-dashoffset" values="0;-24" dur="1.8s" repeatCount="indefinite"/>
+  </path>
+  <path class="arrow flow-line" d="M1115 228 L1190 228">
+    <animate attributeName="stroke-dashoffset" values="0;-24" dur="1.8s" repeatCount="indefinite"/>
+  </path>
+  <path class="soft-arrow flow-line" d="M1295 304 L1295 406">
+    <animate attributeName="stroke-dashoffset" values="0;-24" dur="1.8s" repeatCount="indefinite"/>
+  </path>
+  <path class="soft-arrow flow-line" d="M1190 482 L1115 482">
+    <animate attributeName="stroke-dashoffset" values="0;-24" dur="1.8s" repeatCount="indefinite"/>
+  </path>
+  <path class="soft-arrow flow-line" d="M905 482 L830 482">
+    <animate attributeName="stroke-dashoffset" values="0;-24" dur="1.8s" repeatCount="indefinite"/>
+  </path>
+  <path class="arrow flow-line" d="M620 482 L545 482">
+    <animate attributeName="stroke-dashoffset" values="0;-24" dur="1.8s" repeatCount="indefinite"/>
+  </path>
+  <path class="arrow flow-line" d="M335 482 L260 482">
+    <animate attributeName="stroke-dashoffset" values="0;-24" dur="1.8s" repeatCount="indefinite"/>
+  </path>
+  <g>
+    <rect x="190" y="610" width="1120" height="72" rx="18" fill="#f6f8fa" stroke="#c9d1d9" stroke-width="1.5"/>
+    <text class="card-title" x="214" y="644" fill="#57606a">关键策略</text>
+  <text class="card-line" x="214" y="672">读取起点是维护链路留下的 MemoryItem + Index Projection + Runtime Ledger；召回不等于注入，防火墙和 context_loading 决定 locator/overview/detail。</text>
+  </g>
+</svg>

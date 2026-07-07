@@ -1,0 +1,35 @@
+[Unit]
+Description=Agent Memory Hub - Dreaming Worker (background memory consolidation)
+After=network.target
+Documentation=https://github.com/user/agent-memory-hub
+
+[Service]
+Type=simple
+User=memhub
+Group=memhub
+WorkingDirectory=/opt/agent-memory-hub
+
+Environment=BRAIN_DIR=/home/memhub/.agent-memory-hub
+Environment=MEMORY_HUB_NO_MODEL=0
+Environment=MEMORY_HUB_LLM_MODEL=gpt-4o-mini
+
+ExecStart=/opt/agent-memory-hub/.venv/bin/python -m agent_brain.interfaces.cli dream --daemon --interval 3600
+ExecReload=/bin/kill -HUP $MAINPID
+
+Restart=on-failure
+RestartSec=30
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=agent-memory-hub
+
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/memhub/.agent-memory-hub
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

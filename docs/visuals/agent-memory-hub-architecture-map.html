@@ -1,0 +1,326 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Agent Memory Hub 架构图谱</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f7f4ed;
+      --paper: #fffdf8;
+      --ink: #20242a;
+      --muted: #5d6670;
+      --line: #d8dee4;
+      --accent: #1f6f78;
+      --soft: #eef6f5;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif;
+      line-height: 1.58;
+    }
+    .layout {
+      display: grid;
+      grid-template-columns: 280px minmax(0, 1fr);
+      min-height: 100vh;
+    }
+    aside {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      padding: 28px 22px;
+      border-right: 1px solid var(--line);
+      background: rgba(255, 253, 248, 0.9);
+      overflow: auto;
+    }
+    .brand-mark {
+      display: inline-grid;
+      place-items: center;
+      width: 54px;
+      height: 54px;
+      border-radius: 16px;
+      background: var(--accent);
+      color: white;
+      font-weight: 900;
+      letter-spacing: 0;
+    }
+    h1 { margin: 18px 0 8px; font-size: 26px; line-height: 1.15; }
+    .brand p, .side-note { color: var(--muted); font-size: 14px; }
+    nav { display: grid; gap: 8px; margin-top: 28px; }
+    nav a {
+      display: grid;
+      grid-template-columns: 40px 1fr;
+      gap: 10px;
+      align-items: center;
+      padding: 10px 12px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      color: var(--ink);
+      text-decoration: none;
+      background: #fff;
+    }
+    .index {
+      color: var(--accent);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-weight: 800;
+    }
+    main { padding: 36px clamp(18px, 4vw, 64px) 72px; }
+    .hero, .diagram-section, .facts {
+      max-width: 1320px;
+      margin: 0 auto 28px;
+      padding: clamp(22px, 3vw, 38px);
+      border: 1px solid var(--line);
+      border-radius: 24px;
+      background: var(--paper);
+      box-shadow: 0 18px 42px rgba(31, 35, 40, 0.06);
+    }
+    .hero h2 { margin: 0 0 14px; font-size: clamp(34px, 5vw, 64px); line-height: 1.02; letter-spacing: 0; }
+    .hero p { max-width: 84ch; color: var(--muted); font-size: 18px; }
+    .fact-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 24px;
+    }
+    .fact {
+      padding: 14px 16px;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background: var(--soft);
+    }
+    .fact strong { display: block; font-size: 26px; }
+    .fact span { color: var(--muted); font-size: 13px; }
+    .section-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 20px;
+      align-items: flex-start;
+      margin-bottom: 18px;
+    }
+    .eyebrow {
+      color: var(--accent);
+      font-size: 13px;
+      font-weight: 850;
+    }
+    h2 { margin: 6px 0 8px; font-size: clamp(24px, 3vw, 38px); line-height: 1.12; }
+    .section-head p { max-width: 84ch; margin: 0; color: var(--muted); }
+    .open-link {
+      flex: 0 0 auto;
+      color: var(--accent);
+      text-decoration: none;
+      border: 1px solid #95dcd6;
+      border-radius: 999px;
+      padding: 8px 14px;
+      background: #e7fbf8;
+      font-size: 14px;
+      font-weight: 750;
+    }
+    figure { margin: 0; }
+    img {
+      width: 100%;
+      height: auto;
+      display: block;
+      border-radius: 18px;
+      border: 1px solid var(--line);
+      background: #fff;
+    }
+    figcaption { margin-top: 10px; color: var(--muted); font-size: 14px; text-align: center; }
+    table { width: 100%; border-collapse: collapse; margin-top: 14px; }
+    th, td { border-bottom: 1px solid var(--line); padding: 12px 10px; text-align: left; vertical-align: top; }
+    th { color: var(--muted); font-size: 13px; }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    footer { max-width: 1320px; margin: 26px auto 0; color: var(--muted); font-size: 14px; }
+    @media (max-width: 900px) {
+      .layout { display: block; }
+      aside { position: static; height: auto; }
+      .fact-grid { grid-template-columns: 1fr 1fr; }
+      .section-head { display: block; }
+      .open-link { display: inline-block; margin-top: 12px; }
+    }
+    @media (max-width: 520px) {
+      .fact-grid { grid-template-columns: 1fr; }
+      main { padding-inline: 12px; }
+      .hero, .diagram-section, .facts { border-radius: 18px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <aside>
+      <div class="brand">
+        <div class="brand-mark">AMH</div>
+        <h1>可信上下文图谱</h1>
+        <p>Agent Memory Hub<br>总控图、产品、技术、时序、数据与算法</p>
+      </div>
+      <nav aria-label="页面导航">
+        <a href="#layered"><span class="index">01</span><span>生命周期图</span></a>
+<a href="#operating-loop"><span class="index">02</span><span>总控图</span></a>
+<a href="#product"><span class="index">03</span><span>产品架构图</span></a>
+<a href="#technical"><span class="index">04</span><span>技术架构图</span></a>
+<a href="#sequence"><span class="index">05</span><span>时序链路图</span></a>
+<a href="#flows"><span class="index">06</span><span>数据链路图</span></a>
+<a href="#algorithm"><span class="index">07</span><span>召回完整链路图</span></a>
+      </nav>
+      <div class="side-note">
+        最近刷新：2026-06-29。此页由 <code>docs/visuals/generate_readme_diagrams.py</code> 生成；实现证据以代码、测试、CLI 输出和能力真值账本为准。
+      </div>
+    </aside>
+    <main>
+      <section class="hero" id="overview">
+        <h2>一张生命周期图，一张总控图，五张放大图。</h2>
+        <p>这套图谱先用 Loop Engineering 视角解释 AMH 的可信上下文生命周期，再沿着实际链路展开：Intent -> Query Signal/SearchFilter -> Evidence -> Memory Curation -> MemoryItem Truth -> Index Projection -> Retrieval Ranking -> ContextFirewall -> ContextPack -> Feedback/Governance/Loop。</p>
+        <div class="fact-grid">
+          <div class="fact"><strong>28</strong><span>模型上下文协议 28 个工具</span></div>
+          <div class="fact"><strong>89</strong><span>89 条接口/通信路由，含驾驶舱 / 引导 / 候选 / 轨迹</span></div>
+          <div class="fact"><strong>16</strong><span>16 个适配器记录：11 个已验证、4 个安装就绪、1 个开发中</span></div>
+          <div class="fact"><strong>1546</strong><span>本轮全量测试通过，verified=11 仍需按本机证据理解</span></div>
+        </div>
+      </section>
+      <section id="layered" class="diagram-section">
+  <div class="section-head">
+    <div>
+      <span class="eyebrow">01 生命周期图</span>
+      <h2>接入、维护、召回、治理与评估</h2>
+      <p>用蓝图式层板解释 AMH 的真实上下文生命周期：记忆接入层按指定 Agent 顺序铺开，维护层沉淀事实，召回层排序候选，治理层处理反馈、访问和成熟度，评估层区分 AMH 本地基准与 MemoryData 外部横评 loop。</p>
+    </div>
+    <a class="open-link" href="./amh-loop-layered-architecture.zh.svg">打开 SVG</a>
+  </div>
+  <figure>
+    <img src="./amh-loop-layered-architecture.zh.svg" alt="接入、维护、召回、治理与评估">
+    <figcaption>amh-loop-layered-architecture.zh.svg · 可编辑 SVG 源文件</figcaption>
+  </figure>
+</section>
+<section id="operating-loop" class="diagram-section">
+  <div class="section-head">
+    <div>
+      <span class="eyebrow">02 总控图</span>
+      <h2>AMH 总控图：可信上下文操作回路</h2>
+      <p>AMH 的操作链路：Intent 进入 Query Signal，证据被提炼成 MemoryItem，索引投影支撑召回，算法栈产出候选，防火墙决定是否注入，反馈再回到治理和 Loop。</p>
+    </div>
+    <a class="open-link" href="./amh-operating-loop.zh.svg">打开 SVG</a>
+  </div>
+  <figure>
+    <img src="./amh-operating-loop.zh.svg" alt="AMH 总控图：可信上下文操作回路">
+    <figcaption>amh-operating-loop.zh.svg · 可编辑 SVG 源文件</figcaption>
+  </figure>
+</section>
+<section id="product" class="diagram-section">
+  <div class="section-head">
+    <div>
+      <span class="eyebrow">03 产品架构图</span>
+      <h2>从协作痛点到可信上下文</h2>
+      <p>从使用问题出发：多智能体协作中的重复说明、上下文断裂、过期事实误导，最后落到证据、记忆、召回、注入、反馈和验证这条产品链路。</p>
+    </div>
+    <a class="open-link" href="./product-architecture.zh.svg">打开 SVG</a>
+  </div>
+  <figure>
+    <img src="./product-architecture.zh.svg" alt="从协作痛点到可信上下文">
+    <figcaption>product-architecture.zh.svg · 可编辑 SVG 源文件</figcaption>
+  </figure>
+</section>
+<section id="technical" class="diagram-section">
+  <div class="section-head">
+    <div>
+      <span class="eyebrow">04 技术架构图</span>
+      <h2>接入、运行时、脑内核与本地数据</h2>
+      <p>说明代码边界：agent_integrations、agent_runtime_kit、agent_brain、读模型、治理门禁和本地存储各自承担不同责任，不能跨层混画。</p>
+    </div>
+    <a class="open-link" href="./technical-architecture.zh.svg">打开 SVG</a>
+  </div>
+  <figure>
+    <img src="./technical-architecture.zh.svg" alt="接入、运行时、脑内核与本地数据">
+    <figcaption>technical-architecture.zh.svg · 可编辑 SVG 源文件</figcaption>
+  </figure>
+</section>
+<section id="sequence" class="diagram-section">
+  <div class="section-head">
+    <div>
+      <span class="eyebrow">05 时序链路图</span>
+      <h2>维护 + 召回一体时序</h2>
+      <p>维护泳道先生成 MemoryItem + Index Projection + Runtime Ledger，召回泳道读取这个交接面后才进入过滤、排序、防火墙和 context_pack。</p>
+    </div>
+    <a class="open-link" href="./memory-lifecycle-sequence.zh.svg">打开 SVG</a>
+  </div>
+  <figure>
+    <img src="./memory-lifecycle-sequence.zh.svg" alt="维护 + 召回一体时序">
+    <figcaption>memory-lifecycle-sequence.zh.svg · 可编辑 SVG 源文件</figcaption>
+  </figure>
+</section>
+<section id="flows" class="diagram-section">
+  <div class="section-head">
+    <div>
+      <span class="eyebrow">06 数据链路图</span>
+      <h2>Evidence 到 ContextPack</h2>
+      <p>对象变形按这条线走：Evidence -&gt; MemoryItem -&gt; Index Projection -&gt; RetrievedItem -&gt; RankedItem -&gt; FirewalledItem -&gt; ContextPack -&gt; FeedbackEvent。每一步都是不同对象，不应混成一个“召回结果”。</p>
+    </div>
+    <a class="open-link" href="./data-flow.zh.svg">打开 SVG</a>
+  </div>
+  <figure>
+    <img src="./data-flow.zh.svg" alt="Evidence 到 ContextPack">
+    <figcaption>data-flow.zh.svg · 可编辑 SVG 源文件</figcaption>
+  </figure>
+</section>
+<section id="algorithm" class="diagram-section">
+  <div class="section-head">
+    <div>
+      <span class="eyebrow">07 召回完整链路图</span>
+      <h2>从问题到 ContextPack</h2>
+      <p>把执行时序和候选分数合到同一张图里：用户问题先经过过滤，再进入 BM25/vector、RRF、metadata phrase、rerank、confidence、遗忘曲线、feedback、MMR/Hopfield、ContextFirewall 和 ContextPack。</p>
+    </div>
+    <a class="open-link" href="./retrieval-complete-flow.zh.svg">打开 SVG</a>
+  </div>
+  <figure>
+    <img src="./retrieval-complete-flow.zh.svg" alt="从问题到 ContextPack">
+    <figcaption>retrieval-complete-flow.zh.svg · 可编辑 SVG 源文件</figcaption>
+  </figure>
+</section>
+      <section class="facts" id="boundary">
+        <h2>事实边界</h2>
+        <p>Markdown MemoryItem 是事实源；raw transcript/resource 是证据旁路；index/vector/runtime/review 都是派生或复核层。算法栈解释候选排序；召回不等于注入，注入内容由 ContextFirewall 和 ContextPack 处理。</p>
+        <table>
+          <thead><tr><th>辅助图</th><th>文件</th><th>用途</th></tr></thead>
+          <tbody>
+            <tr>
+  <td>结构地图</td>
+  <td><a href="./readme-structure-map.zh.svg">readme-structure-map.zh.svg</a></td>
+  <td>主生命周期总览。</td>
+</tr>
+<tr>
+  <td>检索算法栈拆分图</td>
+  <td><a href="./retrieval-algorithm-stack.zh.svg">retrieval-algorithm-stack.zh.svg</a></td>
+  <td>只看排序因子链路。</td>
+</tr>
+<tr>
+  <td>检索评分管线</td>
+  <td><a href="./retrieval-scoring-pipeline.zh.svg">retrieval-scoring-pipeline.zh.svg</a></td>
+  <td>算法阶段和分数变化。</td>
+</tr>
+<tr>
+  <td>检索分数瀑布</td>
+  <td><a href="./retrieval-score-waterfall.zh.svg">retrieval-score-waterfall.zh.svg</a></td>
+  <td>RRF、decay、feedback 的单独解释。</td>
+</tr>
+<tr>
+  <td>适配器边界</td>
+  <td><a href="./amh-adapter-capability-boundary.zh.svg">amh-adapter-capability-boundary.zh.svg</a></td>
+  <td>hook、MCP、文件旁路和验证边界。</td>
+</tr>
+<tr>
+  <td>三层能力地图</td>
+  <td><a href="./amh-metrics-governance-collaboration-map.html">amh-metrics-governance-collaboration-map.html</a></td>
+  <td>指标、治理、协作能力视角。</td>
+</tr>
+          </tbody>
+        </table>
+      </section>
+      <footer>
+        文件位置：docs/visuals/agent-memory-hub-architecture-map.html。该页面为生成物，修改源在 docs/visuals/generate_readme_diagrams.py。
+      </footer>
+    </main>
+  </div>
+</body>
+</html>

@@ -1,0 +1,125 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 620 160" role="img" aria-labelledby="title desc" shape-rendering="geometricPrecision" color-rendering="sRGB">
+  <title id="title">Agent Memory Hub logo lockup</title>
+  <desc id="desc">A horizontal logo lockup combining the high-fidelity octopus mark, the Agent Memory Hub wordmark, and a concise English tagline.</desc>
+  <defs>
+    <radialGradient id="lockup-sticker-fill" cx="36%" cy="24%" r="80%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="55%" stop-color="#fffdf8"/>
+      <stop offset="100%" stop-color="#eef9f6"/>
+    </radialGradient>
+    <radialGradient id="lockup-body-fill" cx="32%" cy="22%" r="82%">
+      <stop offset="0%" stop-color="#ffe1c4"/>
+      <stop offset="34%" stop-color="#ffad87"/>
+      <stop offset="63%" stop-color="#ec775e"/>
+      <stop offset="86%" stop-color="#c65848"/>
+      <stop offset="100%" stop-color="#8f3b35"/>
+    </radialGradient>
+    <linearGradient id="lockup-body-rim" x1="24" y1="19" x2="73" y2="68" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#fff2e8" stop-opacity="0.82"/>
+      <stop offset="46%" stop-color="#f09272" stop-opacity="0.26"/>
+      <stop offset="100%" stop-color="#6f302c" stop-opacity="0.82"/>
+    </linearGradient>
+    <linearGradient id="lockup-arm-fill" x1="17" y1="55" x2="78" y2="84" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#f7a07a"/>
+      <stop offset="44%" stop-color="#eb7359"/>
+      <stop offset="74%" stop-color="#c95747"/>
+      <stop offset="100%" stop-color="#8c3933"/>
+    </linearGradient>
+    <linearGradient id="lockup-arm-front-fill" x1="34" y1="63" x2="62" y2="84" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#ffb38d"/>
+      <stop offset="48%" stop-color="#ee765c"/>
+      <stop offset="100%" stop-color="#a3443b"/>
+    </linearGradient>
+    <linearGradient id="lockup-memory-stroke" x1="41" y1="22" x2="55" y2="36" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#f7fffd"/>
+      <stop offset="100%" stop-color="#91ece3"/>
+    </linearGradient>
+    <radialGradient id="lockup-node-fill" cx="34%" cy="26%" r="82%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="58%" stop-color="#e8fffb"/>
+      <stop offset="100%" stop-color="#9cefe6"/>
+    </radialGradient>
+    <linearGradient id="lockup-shade-fill" x1="48" y1="52" x2="48" y2="73" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#6f302c" stop-opacity="0"/>
+      <stop offset="100%" stop-color="#5d251f" stop-opacity="0.42"/>
+    </linearGradient>
+    <linearGradient id="lockup-shine-fill" x1="27" y1="20" x2="54" y2="48" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.68"/>
+      <stop offset="58%" stop-color="#ffffff" stop-opacity="0.2"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="lockup-word-accent" x1="150" y1="100" x2="424" y2="100" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#18aab5"/>
+      <stop offset="100%" stop-color="#91d8d0"/>
+    </linearGradient>
+  </defs>
+
+  <g transform="translate(22 25) scale(1.08)">
+    <circle cx="48" cy="48" r="43" fill="url(#lockup-sticker-fill)" stroke="#9bd9d2" stroke-width="1.55"/>
+    <circle cx="48" cy="50.6" r="30.8" fill="#b9efe5" opacity="0.2"/>
+    <ellipse cx="48" cy="76.7" rx="27.4" ry="8.8" fill="#6f302c" opacity="0.13"/>
+
+    <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M28.6 57.5C19.6 58.9 17.1 66.5 23.6 71.9" stroke="#6f302c" stroke-width="9.4"/>
+      <path d="M36.1 61.9C30.2 66.9 31 75.2 38.3 77.5" stroke="#6f302c" stroke-width="9.4"/>
+      <path d="M59.9 61.9C65.8 66.9 65 75.2 57.7 77.5" stroke="#6f302c" stroke-width="9.4"/>
+      <path d="M67.4 57.5C76.4 58.9 78.9 66.5 72.4 71.9" stroke="#6f302c" stroke-width="9.4"/>
+      <path d="M28.6 57.5C19.6 58.9 17.1 66.5 23.6 71.9" stroke="url(#lockup-arm-fill)" stroke-width="5.85"/>
+      <path d="M36.1 61.9C30.2 66.9 31 75.2 38.3 77.5" stroke="url(#lockup-arm-fill)" stroke-width="5.85"/>
+      <path d="M59.9 61.9C65.8 66.9 65 75.2 57.7 77.5" stroke="url(#lockup-arm-fill)" stroke-width="5.85"/>
+      <path d="M67.4 57.5C76.4 58.9 78.9 66.5 72.4 71.9" stroke="url(#lockup-arm-fill)" stroke-width="5.85"/>
+    </g>
+
+    <path d="M48 13.8c-16.6 0-28.7 11.7-28.7 27.5C19.3 57.9 30.7 67 48 67s28.7-9.1 28.7-25.7C76.7 25.5 64.6 13.8 48 13.8Z" fill="url(#lockup-body-fill)" stroke="#6f302c" stroke-width="2.18"/>
+    <path d="M48 13.8c-16.6 0-28.7 11.7-28.7 27.5C19.3 57.9 30.7 67 48 67s28.7-9.1 28.7-25.7C76.7 25.5 64.6 13.8 48 13.8Z" fill="none" stroke="url(#lockup-body-rim)" stroke-width="1.05"/>
+    <path d="M29.3 57.3C34.4 64 40.7 67.1 48 67.1s13.6-3.1 18.7-9.8C63.9 67.7 57 72.3 48 72.3s-15.9-4.6-18.7-15Z" fill="url(#lockup-shade-fill)" opacity="0.8"/>
+    <path d="M33.1 23.9c-5.2 3.1-8 8-8 13.9 0 2.5.7 4 2 4.1 1.1.1 1.7-1.1 2.2-3.4 1-4.7 3.7-8.2 8.3-10.6 2-1.1 2.5-2.3 1.7-3.1-.9-.9-3.4-1-6.2-.9Z" fill="#ffffff" opacity="0.38"/>
+    <ellipse cx="38.2" cy="30.5" rx="9.4" ry="15.1" transform="rotate(39 38.2 30.5)" fill="url(#lockup-shine-fill)"/>
+    <path d="M66.2 25.7c4.7 4.1 7 9.7 7 16.7" fill="none" stroke="#ffe6d8" stroke-width="2.05" stroke-linecap="round" opacity="0.36"/>
+
+    <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M39.3 64.5C32.4 70.7 34.3 79.2 42.2 82.5" stroke="#6f302c" stroke-width="8.4"/>
+      <path d="M45.1 66.3C41.7 73.2 42.7 82 46.4 84.1" stroke="#6f302c" stroke-width="8.4"/>
+      <path d="M50.9 66.3C54.3 73.2 53.3 82 49.6 84.1" stroke="#6f302c" stroke-width="8.4"/>
+      <path d="M56.7 64.5C63.6 70.7 61.7 79.2 53.8 82.5" stroke="#6f302c" stroke-width="8.4"/>
+      <path d="M39.3 64.5C32.4 70.7 34.3 79.2 42.2 82.5" stroke="url(#lockup-arm-front-fill)" stroke-width="5.12"/>
+      <path d="M45.1 66.3C41.7 73.2 42.7 82 46.4 84.1" stroke="url(#lockup-arm-front-fill)" stroke-width="5.12"/>
+      <path d="M50.9 66.3C54.3 73.2 53.3 82 49.6 84.1" stroke="url(#lockup-arm-front-fill)" stroke-width="5.12"/>
+      <path d="M56.7 64.5C63.6 70.7 61.7 79.2 53.8 82.5" stroke="url(#lockup-arm-front-fill)" stroke-width="5.12"/>
+    </g>
+
+    <g opacity="0.88" fill="none" stroke="#ffe1d2" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M21.9 66.1c-.5-1.7.1-3.2 1.7-4.5"/>
+      <path d="M36.2 72.5c-1-1.4-.8-3.1.6-4.8"/>
+      <path d="M45.7 75.6c-.3 1.9-.1 3.7.5 5.3"/>
+      <path d="M50.3 75.6c.3 1.9.1 3.7-.5 5.3"/>
+      <path d="M59.8 72.5c1-1.4.8-3.1-.6-4.8"/>
+      <path d="M74.1 66.1c.5-1.7-.1-3.2-1.7-4.5"/>
+    </g>
+
+    <g fill="none" stroke="url(#lockup-memory-stroke)" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M48 22.8v7.5"/>
+      <path d="M41.5 34.8 48 30.3l6.5 4.5"/>
+    </g>
+    <g stroke="#d9fff9" stroke-width="1.35">
+      <circle cx="48" cy="22.8" r="2.7" fill="url(#lockup-node-fill)"/>
+      <circle cx="41.5" cy="34.8" r="2.05" fill="url(#lockup-node-fill)"/>
+      <circle cx="54.5" cy="34.8" r="2.05" fill="url(#lockup-node-fill)"/>
+    </g>
+    <circle cx="48" cy="22.8" r="5.2" fill="#b9efe5" opacity="0.13"/>
+
+    <circle cx="39.1" cy="46.8" r="4.08" fill="#4a2726"/>
+    <circle cx="56.9" cy="46.8" r="4.08" fill="#4a2726"/>
+    <circle cx="37.8" cy="45.3" r="1.1" fill="#ffffff"/>
+    <circle cx="55.6" cy="45.3" r="1.1" fill="#ffffff"/>
+    <ellipse cx="31.6" cy="53.2" rx="2.65" ry="1.74" fill="#f7a6c9" opacity="0.76"/>
+    <ellipse cx="64.4" cy="53.2" rx="2.65" ry="1.74" fill="#f7a6c9" opacity="0.76"/>
+    <path d="M43.1 56.2c2.5 2.3 7.3 2.3 9.8 0" fill="none" stroke="#6f302c" stroke-width="2.95" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+
+  <g font-family="Inter, IBM Plex Sans, PingFang SC, Hiragino Sans GB, Microsoft YaHei, Arial, sans-serif">
+    <text x="150" y="68" fill="#102a2d" font-size="42" font-weight="780" letter-spacing="0">Agent Memory Hub</text>
+    <rect x="152" y="84" width="386" height="3.2" rx="1.6" fill="url(#lockup-word-accent)" opacity="0.82"/>
+    <text x="152" y="115" fill="#5b7274" font-size="17.5" font-weight="570" letter-spacing="0" textLength="386" lengthAdjust="spacingAndGlyphs">A shared second brain for multi-agent systems</text>
+  </g>
+</svg>

@@ -1,0 +1,684 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Agent Memory Hub 官网章鱼 Logo 重设计预览</title>
+  <link rel="icon" type="image/svg+xml" href="agent-memory-hub-octopus-logo-official-candidate.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #f6fbff;
+      --bg-2: #eaf5fc;
+      --ink: #071522;
+      --muted: #496273;
+      --soft: #6f8493;
+      --line: #cfe0ea;
+      --line-strong: #93b1c3;
+      --surface: #ffffff;
+      --surface-2: #edf7fc;
+      --surface-3: #dff0f8;
+      --accent: #0891b2;
+      --accent-2: #0ea5e9;
+      --accent-3: #22d3ee;
+      --deep: #0c4a6e;
+      --navy: #082f49;
+      --shadow: 0 20px 50px rgb(8 47 73 / 0.14);
+      --shadow-soft: 0 8px 24px rgb(8 47 73 / 0.10);
+      --radius: 8px;
+      --max: 1500px;
+      --font: "IBM Plex Sans", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --mono: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #071015;
+        --bg-2: #0a151c;
+        --ink: #eef9ff;
+        --muted: #9db5c3;
+        --soft: #718b9b;
+        --line: #18303d;
+        --line-strong: #285369;
+        --surface: #0d1a22;
+        --surface-2: #10232e;
+        --surface-3: #153040;
+        --accent: #22d3ee;
+        --accent-2: #38bdf8;
+        --accent-3: #a5f3fc;
+        --deep: #0ea5e9;
+        --navy: #e0f2fe;
+        --shadow: 0 24px 70px rgb(0 0 0 / 0.36);
+        --shadow-soft: 0 10px 32px rgb(0 0 0 / 0.26);
+      }
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+      background: var(--bg);
+    }
+
+    body {
+      margin: 0;
+      min-height: 100dvh;
+      color: var(--ink);
+      background:
+        linear-gradient(90deg, color-mix(in srgb, var(--line) 56%, transparent) 1px, transparent 1px),
+        linear-gradient(180deg, color-mix(in srgb, var(--line) 48%, transparent) 1px, transparent 1px),
+        radial-gradient(circle at 72% 22%, color-mix(in srgb, var(--accent-2) 16%, transparent), transparent 34rem),
+        radial-gradient(circle at 16% 68%, color-mix(in srgb, var(--accent) 12%, transparent), transparent 30rem),
+        var(--bg);
+      background-size: 76px 76px, 76px 76px, auto, auto, auto;
+      font-family: var(--font);
+      line-height: 1.58;
+      letter-spacing: 0;
+    }
+
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      z-index: -1;
+      pointer-events: none;
+      background:
+        linear-gradient(180deg, color-mix(in srgb, var(--bg) 0%, transparent), var(--bg) 86%),
+        radial-gradient(circle at 50% 0%, color-mix(in srgb, var(--accent-3) 9%, transparent), transparent 40rem);
+    }
+
+    img,
+    svg {
+      display: block;
+      max-width: 100%;
+    }
+
+    code {
+      font-family: var(--mono);
+    }
+
+    .wrap {
+      width: min(var(--max), calc(100% - 72px));
+      margin: 0 auto;
+    }
+
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      border-bottom: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
+      background: color-mix(in srgb, var(--bg) 83%, transparent);
+      backdrop-filter: blur(18px) saturate(150%);
+    }
+
+    .nav {
+      min-height: 76px;
+      display: grid;
+      grid-template-columns: minmax(260px, 1fr) auto minmax(120px, 1fr);
+      align-items: center;
+      gap: 28px;
+    }
+
+    .brand {
+      min-width: 0;
+      display: inline-flex;
+      align-items: center;
+      gap: 13px;
+      white-space: nowrap;
+      font-weight: 700;
+      letter-spacing: 0;
+    }
+
+    .brand-mark {
+      width: 40px;
+      height: 40px;
+      flex: 0 0 auto;
+      display: grid;
+      place-items: center;
+      border: 1px solid color-mix(in srgb, var(--line) 82%, transparent);
+      border-radius: 10px;
+      background: color-mix(in srgb, var(--surface) 78%, transparent);
+      box-shadow: 0 1px 0 color-mix(in srgb, white 28%, transparent) inset;
+    }
+
+    .brand-mark img {
+      width: 100%;
+      height: 100%;
+      filter: drop-shadow(0 10px 18px color-mix(in srgb, var(--accent) 22%, transparent));
+    }
+
+    .navlinks {
+      min-height: 46px;
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      padding: 4px;
+      border: 1px solid color-mix(in srgb, var(--line) 78%, transparent);
+      border-radius: 999px;
+      background: color-mix(in srgb, var(--surface) 74%, transparent);
+      box-shadow: 0 1px 0 color-mix(in srgb, white 30%, transparent) inset;
+    }
+
+    .navlinks span {
+      min-height: 36px;
+      display: inline-flex;
+      align-items: center;
+      padding: 0 14px;
+      border-radius: 999px;
+      color: var(--muted);
+      font-size: 0.88rem;
+      font-weight: 600;
+    }
+
+    .navlinks span:first-child {
+      color: var(--ink);
+      background: color-mix(in srgb, var(--accent-2) 12%, transparent);
+    }
+
+    .nav-status {
+      justify-self: end;
+      display: inline-flex;
+      align-items: center;
+      gap: 9px;
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 0.78rem;
+      white-space: nowrap;
+    }
+
+    .nav-status i {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--accent-3);
+      box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent-3) 20%, transparent);
+    }
+
+    .hero {
+      min-height: calc(100dvh - 76px);
+      padding: 72px 0 48px;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(420px, 0.72fr);
+      align-items: center;
+      gap: 58px;
+    }
+
+    h1 {
+      margin: 0;
+      max-width: 920px;
+      font-size: clamp(2.4rem, 5vw, 5.8rem);
+      line-height: 0.96;
+      letter-spacing: 0;
+    }
+
+    .lede {
+      max-width: 780px;
+      margin: 22px 0 0;
+      color: var(--muted);
+      font-size: clamp(1rem, 1.45vw, 1.17rem);
+    }
+
+    .tags {
+      margin-top: 28px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .tag {
+      min-height: 36px;
+      display: inline-flex;
+      align-items: center;
+      padding: 0 11px;
+      border: 1px solid color-mix(in srgb, var(--line) 88%, transparent);
+      border-radius: var(--radius);
+      background: color-mix(in srgb, var(--surface) 82%, transparent);
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 0.78rem;
+      box-shadow: var(--shadow-soft);
+    }
+
+    .hero-stage {
+      padding: 18px;
+      border: 1px solid color-mix(in srgb, var(--line) 84%, transparent);
+      border-radius: var(--radius);
+      background: color-mix(in srgb, var(--surface) 80%, transparent);
+      box-shadow: var(--shadow);
+    }
+
+    .stage-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 14px;
+      margin-bottom: 14px;
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 0.76rem;
+    }
+
+    .stage-art {
+      min-height: 420px;
+      display: grid;
+      place-items: center;
+      border: 1px solid color-mix(in srgb, var(--line-strong) 60%, transparent);
+      border-radius: var(--radius);
+      background:
+        linear-gradient(90deg, color-mix(in srgb, var(--surface) 76%, transparent), color-mix(in srgb, var(--surface-2) 78%, transparent)),
+        linear-gradient(90deg, color-mix(in srgb, var(--line) 44%, transparent) 1px, transparent 1px),
+        linear-gradient(180deg, color-mix(in srgb, var(--line) 38%, transparent) 1px, transparent 1px);
+      background-size: auto, 32px 32px, 32px 32px;
+    }
+
+    .stage-art img {
+      width: min(308px, 72%);
+      filter: drop-shadow(0 28px 36px color-mix(in srgb, var(--accent) 24%, transparent));
+    }
+
+    .section-head {
+      margin: 34px 0 18px;
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 28px;
+    }
+
+    .section-head h2 {
+      margin: 0;
+      font-size: clamp(1.45rem, 2.4vw, 2.25rem);
+      letter-spacing: 0;
+    }
+
+    .section-head p {
+      max-width: 720px;
+      margin: 0;
+      color: var(--muted);
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .surface {
+      min-height: 220px;
+      padding: 18px;
+      border: 1px solid color-mix(in srgb, var(--line) 86%, transparent);
+      border-radius: var(--radius);
+      background: color-mix(in srgb, var(--surface) 82%, transparent);
+      box-shadow: var(--shadow-soft);
+    }
+
+    .surface.dark {
+      color: #eef9ff;
+      background:
+        linear-gradient(90deg, rgb(24 48 61 / 0.55) 1px, transparent 1px),
+        linear-gradient(180deg, rgb(24 48 61 / 0.48) 1px, transparent 1px),
+        #071015;
+      background-size: 32px 32px;
+      border-color: #18303d;
+    }
+
+    .surface.cyan {
+      background:
+        radial-gradient(circle at 50% 30%, rgb(165 243 252 / 0.42), transparent 56%),
+        linear-gradient(180deg, #effcff, #dff4fb);
+    }
+
+    .surface.flat {
+      background: #ffffff;
+    }
+
+    .surface-title {
+      margin: 0 0 18px;
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 0.76rem;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
+    .surface.dark .surface-title {
+      color: #9db5c3;
+    }
+
+    .logo-center {
+      min-height: 150px;
+      display: grid;
+      place-items: center;
+    }
+
+    .logo-center img {
+      width: 136px;
+      height: 136px;
+      filter: drop-shadow(0 18px 26px rgb(8 145 178 / 0.18));
+    }
+
+    .scale-row {
+      min-height: 148px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 18px;
+      flex-wrap: wrap;
+    }
+
+    .scale-item {
+      display: grid;
+      justify-items: center;
+      gap: 8px;
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 0.7rem;
+    }
+
+    .scale-item img {
+      filter: drop-shadow(0 8px 14px rgb(8 145 178 / 0.18));
+    }
+
+    .mockups {
+      display: grid;
+      grid-template-columns: 1.1fr 0.9fr;
+      gap: 14px;
+      padding-bottom: 72px;
+    }
+
+    .browser {
+      min-height: 360px;
+      overflow: hidden;
+      border: 1px solid color-mix(in srgb, var(--line) 86%, transparent);
+      border-radius: var(--radius);
+      background: color-mix(in srgb, var(--surface) 82%, transparent);
+      box-shadow: var(--shadow-soft);
+    }
+
+    .browser-top {
+      min-height: 46px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 0 14px;
+      border-bottom: 1px solid color-mix(in srgb, var(--line) 82%, transparent);
+      background: color-mix(in srgb, var(--surface-2) 72%, transparent);
+    }
+
+    .dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: var(--line-strong);
+    }
+
+    .browser-body {
+      padding: 28px;
+    }
+
+    .mini-nav {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 34px;
+    }
+
+    .mini-brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 800;
+    }
+
+    .mini-brand img {
+      width: 38px;
+      height: 38px;
+    }
+
+    .mini-pills {
+      display: flex;
+      gap: 6px;
+    }
+
+    .mini-pills i {
+      width: 58px;
+      height: 24px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: color-mix(in srgb, var(--surface) 76%, transparent);
+    }
+
+    .mini-title {
+      max-width: 620px;
+      margin: 0;
+      font-size: clamp(2rem, 4vw, 4rem);
+      line-height: 0.98;
+      letter-spacing: 0;
+    }
+
+    .mini-copy {
+      max-width: 560px;
+      color: var(--muted);
+      margin: 16px 0 0;
+    }
+
+    .asset-card {
+      display: grid;
+      gap: 14px;
+    }
+
+    .asset-line {
+      display: grid;
+      grid-template-columns: 58px 1fr;
+      align-items: center;
+      gap: 12px;
+      padding: 14px;
+      border: 1px solid color-mix(in srgb, var(--line) 86%, transparent);
+      border-radius: var(--radius);
+      background: color-mix(in srgb, var(--surface) 82%, transparent);
+      box-shadow: var(--shadow-soft);
+    }
+
+    .asset-line img {
+      width: 46px;
+      height: 46px;
+    }
+
+    .asset-line strong {
+      display: block;
+      margin-bottom: 3px;
+    }
+
+    .asset-line span {
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 0.76rem;
+    }
+
+    @media (max-width: 1040px) {
+      .nav {
+        grid-template-columns: 1fr;
+        justify-items: start;
+        padding: 14px 0;
+      }
+
+      .navlinks,
+      .nav-status {
+        display: none;
+      }
+
+      .hero,
+      .mockups {
+        grid-template-columns: 1fr;
+      }
+
+      .hero {
+        min-height: auto;
+        padding-top: 46px;
+      }
+
+      .grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 640px) {
+      .wrap {
+        width: min(var(--max), calc(100% - 28px));
+      }
+
+      .hero-stage,
+      .surface,
+      .browser-body {
+        padding: 14px;
+      }
+
+      .stage-art {
+        min-height: 300px;
+      }
+
+      .grid {
+        grid-template-columns: 1fr;
+      }
+
+      .section-head {
+        display: block;
+      }
+
+      .section-head p {
+        margin-top: 8px;
+      }
+
+      .mini-pills {
+        display: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <nav class="wrap nav" aria-label="Preview navigation">
+      <div class="brand">
+        <span class="brand-mark"><img src="agent-memory-hub-octopus-logo-official-candidate.svg" alt=""></span>
+        <span>Agent Memory Hub</span>
+      </div>
+      <div class="navlinks" aria-hidden="true">
+        <span>Overview</span>
+        <span>Adapters</span>
+        <span>Memory</span>
+        <span>Docs</span>
+      </div>
+      <div class="nav-status"><i></i>logo candidate</div>
+    </nav>
+  </header>
+
+  <main>
+    <section class="wrap hero">
+      <div>
+        <h1>官网风格章鱼标候选</h1>
+        <p class="lede">从橙色软萌 mascot 收敛到 cyan 工程感：保留八爪鱼和记忆节点，减少贴纸感，贴近官网的浅蓝网格、半透明 surface、细线框和 runtime 工具气质。</p>
+        <div class="tags">
+          <span class="tag">palette #0891b2 / #22d3ee / #0c4a6e</span>
+          <span class="tag">shape rounded-square plate</span>
+          <span class="tag">symbol octopus + memory graph</span>
+          <span class="tag">file agent-memory-hub-octopus-logo-official-candidate.svg</span>
+        </div>
+      </div>
+      <aside class="hero-stage" aria-label="Large logo preview">
+        <div class="stage-head">
+          <span>primary mark</span>
+          <span>128 viewBox / SVG</span>
+        </div>
+        <div class="stage-art">
+          <img src="agent-memory-hub-octopus-logo-official-candidate.svg" alt="Agent Memory Hub official octopus logo candidate">
+        </div>
+      </aside>
+    </section>
+
+    <section class="wrap" aria-label="Logo surfaces">
+      <div class="section-head">
+        <h2>Surface Check</h2>
+        <p>同一个 SVG 在官网浅色背景、暗色背景、cyan 氛围和纯白底里的表现。</p>
+      </div>
+      <div class="grid">
+        <article class="surface">
+          <p class="surface-title">official light</p>
+          <div class="logo-center"><img src="agent-memory-hub-octopus-logo-official-candidate.svg" alt=""></div>
+        </article>
+        <article class="surface dark">
+          <p class="surface-title">official dark</p>
+          <div class="logo-center"><img src="agent-memory-hub-octopus-logo-official-candidate.svg" alt=""></div>
+        </article>
+        <article class="surface cyan">
+          <p class="surface-title">cyan field</p>
+          <div class="logo-center"><img src="agent-memory-hub-octopus-logo-official-candidate.svg" alt=""></div>
+        </article>
+        <article class="surface flat">
+          <p class="surface-title">white export</p>
+          <div class="logo-center"><img src="agent-memory-hub-octopus-logo-official-candidate.svg" alt=""></div>
+        </article>
+      </div>
+    </section>
+
+    <section class="wrap" aria-label="Responsive sizes">
+      <div class="section-head">
+        <h2>Size Check</h2>
+        <p>按导航标、favicon、README 角标和大图四种尺寸检查可读性。</p>
+      </div>
+      <article class="surface">
+        <div class="scale-row">
+          <div class="scale-item"><img src="agent-memory-hub-octopus-logo-official-candidate.svg" width="24" height="24" alt=""><span>24</span></div>
+          <div class="scale-item"><img src="agent-memory-hub-octopus-logo-official-candidate.svg" width="32" height="32" alt=""><span>32</span></div>
+          <div class="scale-item"><img src="agent-memory-hub-octopus-logo-official-candidate.svg" width="48" height="48" alt=""><span>48</span></div>
+          <div class="scale-item"><img src="agent-memory-hub-octopus-logo-official-candidate.svg" width="72" height="72" alt=""><span>72</span></div>
+          <div class="scale-item"><img src="agent-memory-hub-octopus-logo-official-candidate.svg" width="96" height="96" alt=""><span>96</span></div>
+          <div class="scale-item"><img src="agent-memory-hub-octopus-logo-official-candidate.svg" width="128" height="128" alt=""><span>128</span></div>
+        </div>
+      </article>
+    </section>
+
+    <section class="wrap" aria-label="In product mockup">
+      <div class="section-head">
+        <h2>Placement Check</h2>
+        <p>放回官网导航、hero 和资产列表里看整体品牌一致性。</p>
+      </div>
+      <div class="mockups">
+        <article class="browser">
+          <div class="browser-top"><i class="dot"></i><i class="dot"></i><i class="dot"></i></div>
+          <div class="browser-body">
+            <div class="mini-nav">
+              <div class="mini-brand"><img src="agent-memory-hub-octopus-logo-official-candidate.svg" alt="">Agent Memory Hub</div>
+              <div class="mini-pills" aria-hidden="true"><i></i><i></i><i></i></div>
+            </div>
+            <h3 class="mini-title">Shared memory layer for agents</h3>
+            <p class="mini-copy">The mark should read as a calm engineering tool first, and an octopus mascot second.</p>
+          </div>
+        </article>
+        <div class="asset-card">
+          <article class="asset-line">
+            <img src="agent-memory-hub-octopus-logo-official-candidate.svg" alt="">
+            <div><strong>Navigation icon</strong><span>40px / sticky topbar</span></div>
+          </article>
+          <article class="asset-line">
+            <img src="agent-memory-hub-octopus-logo-official-candidate.svg" alt="">
+            <div><strong>README badge</strong><span>96px / white surface</span></div>
+          </article>
+          <article class="asset-line">
+            <img src="agent-memory-hub-octopus-logo-official-candidate.svg" alt="">
+            <div><strong>App favicon</strong><span>32px / simplified silhouette</span></div>
+          </article>
+          <article class="asset-line">
+            <img src="agent-memory-hub-octopus-logo-official-candidate.svg" alt="">
+            <div><strong>Social avatar</strong><span>rounded-square plate retained</span></div>
+          </article>
+        </div>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

@@ -1,0 +1,719 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Agent Memory Hub 手绘版 README</title>
+  <base href="../../">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Kalam:wght@700&family=Patrick+Hand&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --paper: #fdfbf7;
+      --ink: #2d2d2d;
+      --muted: #e5e0d8;
+      --red: #ff4d4d;
+      --blue: #2d5da1;
+      --yellow: #fff9c4;
+      --white: #ffffff;
+      --shadow: 4px 4px 0 0 var(--ink);
+      --shadow-big: 8px 8px 0 0 var(--ink);
+      --wobble: 255px 15px 225px 15px / 15px 225px 15px 255px;
+      --wobble-md: 24px 10px 20px 12px / 12px 24px 10px 20px;
+      --wobble-sm: 17px 7px 15px 8px / 8px 15px 7px 17px;
+      --head: "Kalam", "Comic Sans MS", cursive;
+      --body: "Patrick Hand", "Comic Sans MS", cursive;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+
+    * { box-sizing: border-box; }
+
+    html {
+      background-color: var(--paper);
+      background-image: radial-gradient(#e5e0d8 1px, transparent 1px);
+      background-size: 24px 24px;
+      color: var(--ink);
+    }
+
+    body {
+      margin: 0;
+      font-family: var(--body);
+      font-size: 22px;
+      line-height: 1.38;
+      color: var(--ink);
+    }
+
+    a {
+      color: var(--blue);
+      text-decoration-thickness: 2px;
+      text-underline-offset: 4px;
+    }
+
+    .page {
+      width: min(1180px, calc(100% - 28px));
+      margin: 0 auto;
+      padding: 24px 0 80px;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      flex-wrap: wrap;
+      margin-bottom: 34px;
+    }
+
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      color: var(--ink);
+      text-decoration: none;
+      font-family: var(--head);
+      font-size: 28px;
+    }
+
+    .mark {
+      width: 58px;
+      height: 58px;
+      display: inline-grid;
+      place-items: center;
+      background: var(--white);
+      border: 3px solid var(--ink);
+      border-radius: 51% 49% 44% 56% / 45% 54% 46% 55%;
+      box-shadow: var(--shadow);
+      transform: rotate(-2deg);
+    }
+
+    .mark svg { width: 34px; height: 34px; stroke: var(--red); stroke-width: 3; fill: none; }
+
+    .nav {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    .button {
+      min-height: 48px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 8px 18px;
+      border: 3px solid var(--ink);
+      border-radius: var(--wobble);
+      background: var(--white);
+      color: var(--ink);
+      box-shadow: var(--shadow);
+      text-decoration: none;
+      transition: transform 100ms, box-shadow 100ms, background 100ms, color 100ms;
+    }
+
+    .button:hover {
+      background: var(--red);
+      color: var(--white);
+      box-shadow: 2px 2px 0 0 var(--ink);
+      transform: translate(2px, 2px) rotate(1deg);
+    }
+
+    .button.secondary:hover { background: var(--blue); }
+
+    .hero {
+      position: relative;
+      display: grid;
+      grid-template-columns: 1.04fr 0.96fr;
+      gap: 28px;
+      align-items: stretch;
+      margin-bottom: 42px;
+    }
+
+    .hero-copy {
+      position: relative;
+      padding: 34px 34px 30px;
+      background: var(--white);
+      border: 4px solid var(--ink);
+      border-radius: var(--wobble-md);
+      box-shadow: var(--shadow-big);
+      transform: rotate(-0.6deg);
+    }
+
+    .tape {
+      position: absolute;
+      top: -18px;
+      left: 50%;
+      width: 164px;
+      height: 32px;
+      transform: translateX(-50%) rotate(2deg);
+      background: rgba(229, 224, 216, 0.82);
+      border: 2px dashed rgba(45, 45, 45, 0.42);
+      border-radius: 8px 6px 10px 7px / 7px 10px 6px 9px;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 4px 12px;
+      margin-bottom: 12px;
+      border: 2px dashed var(--ink);
+      border-radius: 999px;
+      background: var(--yellow);
+      color: var(--blue);
+      font-family: var(--mono);
+      font-size: 14px;
+      font-weight: 800;
+      letter-spacing: 0;
+    }
+
+    h1, h2, h3 {
+      font-family: var(--head);
+      letter-spacing: 0;
+      margin: 0;
+      color: var(--ink);
+    }
+
+    h1 {
+      max-width: 780px;
+      font-size: clamp(48px, 8vw, 92px);
+      line-height: 0.98;
+    }
+
+    .hero-copy p {
+      max-width: 780px;
+      margin: 18px 0 0;
+      font-size: 28px;
+    }
+
+    .hero-media {
+      position: relative;
+      min-height: 420px;
+      padding: 22px;
+      background: var(--yellow);
+      border: 4px solid var(--ink);
+      border-radius: 18px 38px 20px 28px / 28px 18px 36px 22px;
+      box-shadow: var(--shadow-big);
+      transform: rotate(1.1deg);
+    }
+
+    .demo-frame {
+      overflow: hidden;
+      border: 3px solid var(--ink);
+      border-radius: 16px 11px 18px 12px / 12px 18px 11px 16px;
+      background: #111827;
+      box-shadow: var(--shadow);
+    }
+
+    .demo-frame.light {
+      background: var(--white);
+    }
+
+    .demo-frame img {
+      display: block;
+      width: 100%;
+      height: auto;
+      min-height: 260px;
+      object-fit: cover;
+    }
+
+    .caption {
+      margin: 14px 0 0;
+      font-size: 20px;
+      color: rgba(45, 45, 45, 0.74);
+    }
+
+    .scribble {
+      position: absolute;
+      right: 28px;
+      bottom: -34px;
+      width: 188px;
+      height: 92px;
+      pointer-events: none;
+    }
+
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 18px;
+      margin: 38px 0 48px;
+    }
+
+    .stat {
+      position: relative;
+      min-height: 150px;
+      padding: 22px;
+      border: 3px solid var(--ink);
+      border-radius: var(--wobble-md);
+      background: var(--white);
+      box-shadow: var(--shadow);
+    }
+
+    .stat:nth-child(odd) { transform: rotate(-1deg); }
+    .stat:nth-child(even) { transform: rotate(1deg); background: var(--yellow); }
+
+    .stat .num {
+      display: block;
+      font-family: var(--head);
+      font-size: 58px;
+      line-height: 0.9;
+      color: var(--blue);
+    }
+
+    .stat .label {
+      display: block;
+      margin-top: 10px;
+      font-size: 23px;
+    }
+
+    .section {
+      margin: 54px 0 0;
+    }
+
+    .section-head {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 18px;
+      border-bottom: 3px dashed var(--ink);
+      padding-bottom: 8px;
+    }
+
+    .section h2 {
+      font-size: clamp(38px, 5vw, 56px);
+      line-height: 1;
+    }
+
+    .section-head p {
+      max-width: 560px;
+      margin: 0;
+      color: rgba(45, 45, 45, 0.74);
+      font-size: 22px;
+      text-align: right;
+    }
+
+    .grid {
+      display: grid;
+      gap: 18px;
+    }
+
+    .cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+    .card {
+      position: relative;
+      padding: 22px;
+      border: 3px solid var(--ink);
+      border-radius: var(--wobble-md);
+      background: var(--white);
+      box-shadow: var(--shadow);
+      transition: transform 100ms, box-shadow 100ms;
+    }
+
+    .card:hover {
+      transform: translate(2px, 2px) rotate(0.5deg);
+      box-shadow: 2px 2px 0 0 var(--ink);
+    }
+
+    .card:nth-child(3n + 2) { background: var(--yellow); transform: rotate(0.7deg); }
+    .card:nth-child(3n + 3) { transform: rotate(-0.7deg); }
+
+    .card h3 {
+      font-size: 31px;
+      line-height: 1.04;
+      margin-bottom: 10px;
+    }
+
+    .card p, .card li {
+      margin: 0;
+      font-size: 22px;
+      color: rgba(45, 45, 45, 0.84);
+    }
+
+    .card ul {
+      margin: 10px 0 0;
+      padding-left: 22px;
+    }
+
+    .tagline {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 14px;
+    }
+
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      min-height: 34px;
+      padding: 2px 10px;
+      border: 2px dashed var(--ink);
+      border-radius: 999px;
+      background: var(--paper);
+      color: var(--blue);
+      font-family: var(--mono);
+      font-size: 14px;
+      font-weight: 800;
+    }
+
+    .pipeline {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+      gap: 14px;
+      align-items: stretch;
+    }
+
+    .step {
+      position: relative;
+      min-height: 190px;
+      padding: 18px;
+      border: 3px solid var(--ink);
+      border-radius: var(--wobble-sm);
+      background: var(--white);
+      box-shadow: var(--shadow);
+    }
+
+    .step::after {
+      content: "";
+      position: absolute;
+      top: 50%;
+      right: -18px;
+      width: 22px;
+      border-top: 3px dashed var(--ink);
+      transform: rotate(-4deg);
+    }
+
+    .step:last-child::after { display: none; }
+
+    .step .idx {
+      display: inline-grid;
+      place-items: center;
+      width: 42px;
+      height: 42px;
+      margin-bottom: 10px;
+      border: 3px solid var(--ink);
+      border-radius: 45% 55% 52% 48% / 48% 42% 58% 52%;
+      background: var(--red);
+      color: var(--white);
+      font-family: var(--head);
+      font-size: 24px;
+      box-shadow: 2px 2px 0 0 var(--ink);
+    }
+
+    .step h3 {
+      font-size: 25px;
+      margin-bottom: 6px;
+    }
+
+    .step p {
+      margin: 0;
+      font-size: 19px;
+      color: rgba(45, 45, 45, 0.78);
+    }
+
+    .ledger {
+      width: 100%;
+      border-collapse: separate;
+      border-spacing: 0 12px;
+    }
+
+    .ledger th {
+      text-align: left;
+      font-family: var(--head);
+      font-size: 24px;
+      padding: 0 12px 4px;
+    }
+
+    .ledger td {
+      padding: 14px 16px;
+      border-top: 3px solid var(--ink);
+      border-bottom: 3px solid var(--ink);
+      background: var(--white);
+      font-size: 21px;
+      vertical-align: top;
+    }
+
+    .ledger td:first-child {
+      border-left: 3px solid var(--ink);
+      border-radius: 18px 0 0 12px / 12px 0 0 18px;
+      font-family: var(--head);
+      font-size: 23px;
+      white-space: nowrap;
+    }
+
+    .ledger td:last-child {
+      border-right: 3px solid var(--ink);
+      border-radius: 0 12px 18px 0 / 0 18px 12px 0;
+    }
+
+    .adapter-wall {
+      display: grid;
+      grid-template-columns: 2fr 1fr;
+      gap: 18px;
+    }
+
+    .adapter-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 12px;
+    }
+
+    .adapter {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border: 2px solid var(--ink);
+      border-radius: 999px;
+      background: var(--white);
+      box-shadow: 2px 2px 0 0 var(--ink);
+      font-size: 20px;
+    }
+
+    .dot {
+      width: 10px;
+      height: 10px;
+      border: 2px solid var(--ink);
+      border-radius: 50%;
+      background: var(--blue);
+    }
+
+    .dot.red { background: var(--red); }
+
+    .terminal {
+      padding: 20px;
+      border: 3px solid var(--ink);
+      border-radius: 18px 10px 20px 12px / 12px 20px 10px 18px;
+      background: #141820;
+      color: #fdfbf7;
+      box-shadow: var(--shadow);
+      font-family: var(--mono);
+      font-size: 15px;
+      line-height: 1.55;
+      overflow-x: auto;
+    }
+
+    .terminal span { color: #8bd1ff; }
+    .terminal b { color: #fff9c4; }
+
+    .truth {
+      background: var(--yellow);
+    }
+
+    .footer {
+      margin-top: 54px;
+      padding: 28px;
+      border: 4px solid var(--ink);
+      border-radius: var(--wobble-md);
+      background: var(--white);
+      box-shadow: var(--shadow-big);
+    }
+
+    .footer h2 { font-size: 44px; margin-bottom: 10px; }
+    .footer p { margin: 0; max-width: 960px; font-size: 24px; }
+
+    @media (max-width: 980px) {
+      body { font-size: 20px; }
+      .hero, .stats, .cols-3, .cols-2, .adapter-wall { grid-template-columns: 1fr; }
+      .pipeline { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .section-head { display: block; }
+      .section-head p { text-align: left; margin-top: 8px; }
+      .step::after { display: none; }
+    }
+
+    @media (max-width: 620px) {
+      .page { width: min(100% - 20px, 1180px); padding-top: 14px; }
+      .hero-copy, .hero-media, .card, .stat, .footer { padding: 18px; }
+      .pipeline { grid-template-columns: 1fr; }
+      .ledger, .ledger tbody, .ledger tr, .ledger td, .ledger th { display: block; width: 100%; }
+      .ledger thead { display: none; }
+      .ledger td { border: 3px solid var(--ink); border-radius: var(--wobble-sm) !important; margin-bottom: 8px; }
+      .nav .button { width: 100%; }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <nav class="topbar" aria-label="README navigation">
+      <a class="brand" href="./README.zh.md">
+        <span class="mark" aria-hidden="true">
+          <svg viewBox="0 0 32 32"><path d="M9 5v13c0 5 4 9 9 9s9-4 9-9V5"/><path d="M5 14h22"/><path d="M18 25v-7"/><path d="M27 14h3"/></svg>
+        </span>
+        <span>Agent Memory Hub</span>
+      </a>
+      <div class="nav">
+        <a class="button secondary" href="./README.zh.md">标准 README</a>
+        <a class="button secondary" href="./docs/visuals/readme-zh-preview.html">HTML 预览</a>
+        <a class="button secondary" href="./docs/visuals/agent-memory-hub-architecture-map.html">架构图谱</a>
+        <a class="button" href="./ROADMAP.md">路线图</a>
+      </div>
+    </nav>
+
+    <section class="hero" aria-labelledby="hero-title">
+      <div class="hero-copy">
+        <div class="tape" aria-hidden="true"></div>
+        <div class="eyebrow">MAIN @ 69a65c5 / FULL SUITE GREEN</div>
+        <h1 id="hero-title">把每次智能协作，写成下一次的起点</h1>
+        <p>Agent Memory Hub 不是 transcript 仓库，也不是单个 Agent 的插件。它是一个本地优先、可追溯、可治理的共享第二大脑：证据进入证据层，长期结论进入 Markdown，索引只是可重建投影，注入前必须经过上下文防火墙。</p>
+        <div class="tagline" aria-label="核心标签">
+          <span class="tag">local-first</span>
+          <span class="tag">MCP</span>
+          <span class="tag">hooks</span>
+          <span class="tag">WriteService</span>
+          <span class="tag">context firewall</span>
+          <span class="tag">retrieval trace</span>
+        </div>
+      </div>
+      <div class="hero-media">
+        <div class="demo-frame light">
+          <img src="./docs/visuals/readme-structure-map.zh.svg" alt="Agent Memory Hub 工程能力地图">
+        </div>
+        <p class="caption">工程能力地图：从接入、证据、写入、索引、检索、上下文治理到多智能体接力。</p>
+        <svg class="scribble" viewBox="0 0 188 92" aria-hidden="true">
+          <path d="M8 50 C40 18 72 82 105 34 C128 2 156 26 176 16" fill="none" stroke="#2d5da1" stroke-width="4" stroke-linecap="round" stroke-dasharray="9 9"/>
+          <path d="M148 8 L177 16 L153 32" fill="none" stroke="#2d5da1" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+    </section>
+
+    <section class="stats" aria-label="真实能力数字">
+      <div class="stat"><span class="num">28</span><span class="label">MCP registered tools</span></div>
+      <div class="stat"><span class="num">89</span><span class="label">Web API / WS routes</span></div>
+      <div class="stat"><span class="num">17</span><span class="label">agent adapters</span></div>
+      <div class="stat"><span class="num">1393</span><span class="label">tests passing on main</span></div>
+    </section>
+
+    <section class="section" aria-labelledby="revolution-title">
+      <div class="section-head">
+        <h2 id="revolution-title">革命点不在“记住”，而在“可信接力”</h2>
+        <p>把 AI 协作从一次性 prompt，变成有证据、有边界、有治理、有下一步的工程系统。</p>
+      </div>
+      <div class="grid cols-3">
+        <article class="card">
+          <h3>从聊天记录到证据合同</h3>
+          <p>原始对话落在 evidence；MemoryItem 只保存可复用结论。证据、记忆、索引分层，避免上下文污染。</p>
+        </article>
+        <article class="card">
+          <h3>从黑箱 RAG 到可解释检索</h3>
+          <p>BM25、向量、RRF、MMR、衰减、反馈、状态、运行证据共同排序；retrieval trace 能说明为什么被召回。</p>
+        </article>
+        <article class="card">
+          <h3>从单 Agent 到共享第二大脑</h3>
+          <p>Claude Code、Codex、Hermes、Qoder、Wukong 和 Open* 适配器共享同一个本地脑池，但按真实能力边界接入。</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="section" aria-labelledby="pipeline-title">
+      <div class="section-head">
+        <h2 id="pipeline-title">核心链路</h2>
+        <p>每一步都有产物、有回退、有诊断，不把“智能”藏进不可审计的魔法里。</p>
+      </div>
+      <div class="pipeline">
+        <div class="step"><span class="idx">1</span><h3>采集证据</h3><p>conversation、resources、extractions 保留来源。</p></div>
+        <div class="step"><span class="idx">2</span><h3>写入漏斗</h3><p>WriteService 负责 schema、审计、质量和索引。</p></div>
+        <div class="step"><span class="idx">3</span><h3>投影索引</h3><p>Markdown 是事实源；SQLite、FTS、向量、图谱可重建。</p></div>
+        <div class="step"><span class="idx">4</span><h3>召回融合</h3><p>多路召回合并排序，再叠加时效、反馈和风险。</p></div>
+        <div class="step"><span class="idx">5</span><h3>上下文防火墙</h3><p>过期、低置信、跨范围、危险上下文先被挡住。</p></div>
+        <div class="step"><span class="idx">6</span><h3>Agent 接力</h3><p>hooks、MCP、provider、文件上下文按工具能力注入。</p></div>
+      </div>
+    </section>
+
+    <section class="section" aria-labelledby="audit-title">
+      <div class="section-head">
+        <h2 id="audit-title">全代码能力审视</h2>
+        <p>按源码模块和真实公开接口梳理，不按愿景写功能。</p>
+      </div>
+      <table class="ledger">
+        <thead><tr><th>能力层</th><th>已经具备</th><th>为什么关键</th></tr></thead>
+        <tbody>
+          <tr><td>接口面</td><td>28 个 MCP tools、CLI、SDK、89 条 Web/API/WS routes（由 surface lock 稳定锁定）、三日数据流转、记忆链路追踪、实时事件、Webhooks、备份、图谱、Cockpit、compression gate 和 ML/DL advisory gate。</td><td>同一个脑池能被脚本、Agent、网页和工具链同时使用。</td></tr>
+          <tr><td>写入面</td><td>CLI/MCP/Web create、merge、Hermes remember、proactive approval 均走 WriteService；失败索引写入进入 pending 可修复队列。</td><td>让新增长期记忆经过统一 schema、审计、质量和索引流程。</td></tr>
+          <tr><td>检索面</td><td>BM25、向量、RRF、rerank、MMR、graph expansion、Hopfield、temporal、decay、supersession、status、trace、budget。</td><td>不是“相似度最高就注入 prompt”，而是可治理的召回系统。</td></tr>
+          <tr><td>上下文面</td><td>context loading、context packing、query signal、context firewall、injection cohorts、injection feedback。</td><td>让自动注入可解释、可回退、可按任务范围收敛。</td></tr>
+          <tr><td>治理面</td><td>audit、outbound audit、drift、duplicates、contradictions、citation rot、staleness、tiering、maturity、review queue、evolve。</td><td>第二大脑不是越写越乱，而是能老化、合并、复核、晋级。</td></tr>
+          <tr><td>证据面</td><td>conversation store、resource store、import service、harvester、transcript reader、Obsidian integration、resource sidecar。</td><td>长期记忆能追到原始证据，资源和抽取不直接污染 MemoryItem。</td></tr>
+          <tr><td>适配面</td><td>16 个 adapter：11 verified、4 install-ready、1 wip；Codex 和 QoderWork 当前 verified，Claude Code、OpenClaw、Qoder、Wukong 仍为 install-ready。</td><td>不把所有 Agent 画成同一种能力，谁能 hooks、谁能 MCP、谁是 provider、谁只有兼容文件旁路，必须分开。</td></tr>
+          <tr><td>验证面</td><td>public surface lock、conformance、unit、perf、dashboard parse、route lock；成功数字必须来自当前验证输出，不能写成静态宣传数字。</td><td>接口不会悄悄漂移，README 数字和 Web 可视化不再靠手填。</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="section" aria-labelledby="adapter-title">
+      <div class="section-head">
+        <h2 id="adapter-title">多智能体接入边界</h2>
+        <p>真实状态：11 个 verified、4 个 install-ready、1 个 wip；verified 必须来自真实客户端运行证据。</p>
+      </div>
+      <div class="adapter-wall">
+        <article class="card">
+          <h3>Verified / install-ready</h3>
+          <p>verified 适配器已有当前机器证据；install-ready 适配器有可安装/可诊断路径，但仍缺当前门禁要求的证据。</p>
+          <div class="adapter-list">
+            <span class="adapter"><span class="dot"></span>Aider</span>
+            <span class="adapter"><span class="dot"></span>Claude Code install-ready</span>
+            <span class="adapter"><span class="dot"></span>Cline</span>
+            <span class="adapter"><span class="dot"></span>Codex</span>
+            <span class="adapter"><span class="dot"></span>Continue</span>
+            <span class="adapter"><span class="dot"></span>Cursor</span>
+            <span class="adapter"><span class="dot"></span>GitHub Copilot</span>
+            <span class="adapter"><span class="dot"></span>Hermes Agent</span>
+            <span class="adapter"><span class="dot"></span>OpenClaw</span>
+            <span class="adapter"><span class="dot"></span>OpenHuman</span>
+            <span class="adapter"><span class="dot"></span>OpenSquilla</span>
+            <span class="adapter"><span class="dot"></span>Qoder install-ready</span>
+            <span class="adapter"><span class="dot"></span>Qoder Work verified</span>
+            <span class="adapter"><span class="dot"></span>Aone Copilot / IDEA sidecar</span>
+            <span class="adapter"><span class="dot"></span>Wukong install-ready</span>
+          </div>
+        </article>
+        <article class="card truth">
+          <h3>WIP / 未 verified</h3>
+          <p>诚实合同比漂亮数字重要。Claude Code、OpenClaw、Qoder、Wukong 仍是 install-ready，MuleRun 仍是 wip；verified 必须由 doctor、runtime gate 和必要的 context-effectiveness 证据推进。</p>
+          <div class="adapter-list">
+            <span class="adapter"><span class="dot red"></span>MuleRun</span>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section class="section" aria-labelledby="cockpit-title">
+      <div class="section-head">
+        <h2 id="cockpit-title">新增强能力已经进入 Web 侧</h2>
+        <p>Cockpit 不只是看板，而是把接力前最关键的判断和动作聚合在同一屏。</p>
+      </div>
+      <div class="grid cols-3">
+        <article class="card"><h3>Adapter Onboarding</h3><p>Web 现在可以查看 onboarding summary、跑 doctor、触发 install/verify；verified 仍由后端 gate 决定。</p></article>
+        <article class="card"><h3>Proactive Memory</h3><p>从开放信号机械生成 memory candidates，批准后统一走 WriteService，拒绝只改 review sidecar。</p></article>
+        <article class="card"><h3>Trusted Handoff</h3><p>handoff pack、key decisions、open signals、trust risks、runtime timeline 和 adapter next action 同屏。</p></article>
+      </div>
+    </section>
+
+    <section class="section" aria-labelledby="install-title">
+      <div class="section-head">
+        <h2 id="install-title">一条命令启动共享大脑</h2>
+        <p>安装入口仍然保持收敛：CLI、MCP、Web Admin、hooks 和 /remember 都由 install 链路管理。</p>
+      </div>
+      <pre class="terminal"><code><span># macOS / Linux</span>
+curl -fsSL https://aihub0508.com/agent-memory-hub/install.sh | sh
+
+<span># verify</span>
+memory doctor
+memory search "项目决策"
+
+<span># open cockpit</span>
+memory serve --port 8765 --open
+
+<span># current verification evidence</span>
+<b>1393 passed, 2 skipped</b></code></pre>
+    </section>
+
+    <footer class="footer">
+      <h2>下一步的真实革命</h2>
+      <p>不是再堆一个页面，而是把 adapter verified 从 0 推上去，把 release gate、benchmark、语义 contradiction、L2/L3 协作和 SDK 现代能力补成可证明的系统。Agent Memory Hub 的核心原则不变：写得进去，查得回来，解释得清，接得下去。</p>
+    </footer>
+  </main>
+</body>
+</html>

@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Agent Memory Hub Evaluation Report</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #172033;
+      --muted: #5e6a7d;
+      --line: #d8dee8;
+      --panel: #ffffff;
+      --wash: #f6f8fb;
+      --brand: #1f6feb;
+      --good: #178a52;
+      --warn: #b86b00;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      color: var(--ink);
+      background: #eef2f7;
+      line-height: 1.62;
+    }
+    main { max-width: 1180px; margin: 0 auto; padding: 48px 24px 72px; }
+    header {
+      border: 1px solid var(--line);
+      background: linear-gradient(180deg, #fff 0%, #f8fbff 100%);
+      padding: 34px;
+      border-radius: 8px;
+    }
+    h1 { margin: 0 0 12px; font-size: clamp(30px, 4vw, 52px); letter-spacing: 0; }
+    h2 { margin: 38px 0 16px; font-size: 24px; letter-spacing: 0; }
+    p { margin: 0 0 14px; color: var(--muted); }
+    .meta { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 22px; }
+    .chip {
+      border: 1px solid var(--line);
+      background: #fff;
+      border-radius: 999px;
+      padding: 7px 12px;
+      font-size: 13px;
+      color: var(--muted);
+    }
+    .chip strong { color: var(--ink); }
+    .grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+    .card {
+      border: 1px solid var(--line);
+      background: var(--panel);
+      border-radius: 8px;
+      padding: 22px;
+      min-width: 0;
+    }
+    .metric { display: grid; gap: 10px; margin: 16px 0 18px; }
+    .metric-head { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; }
+    .metric-label { font-weight: 650; }
+    .metric-value { font-variant-numeric: tabular-nums; color: var(--brand); font-weight: 700; }
+    .bar { height: 10px; background: #e7ecf4; border-radius: 999px; overflow: hidden; }
+    .bar > span { display: block; height: 100%; background: linear-gradient(90deg, #1f6feb, #178a52); border-radius: 999px; }
+    table { width: 100%; table-layout: fixed; border-collapse: collapse; background: #fff; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+    th, td { padding: 12px 14px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; overflow-wrap: anywhere; word-break: break-word; }
+    th { background: #f6f8fb; font-size: 13px; color: var(--muted); }
+    tr:last-child td { border-bottom: 0; }
+    code { background: #eef2f7; padding: 2px 5px; border-radius: 4px; }
+    ul { margin: 0; padding-left: 20px; color: var(--muted); }
+    .note { border-left: 4px solid var(--brand); padding-left: 14px; color: var(--muted); }
+    @media (max-width: 680px) {
+      main { padding: 24px 14px 48px; }
+      header, .card { padding: 18px; }
+      table { font-size: 12px; }
+      th, td { padding: 8px 6px; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>评测结果</h1>
+    <p>Agent Memory Hub Evaluation Report 使用 AMH 本地 system benchmark 生成。这里不复用 OpenViking 的 LOCOMO 数字，也不制造无法复核的横评结论。</p>
+    <div class="meta">
+      <span class="chip"><strong>PASS</strong></span>
+      <span class="chip">cases <strong>240</strong></span>
+      <span class="chip">items <strong>1314</strong></span>
+      <span class="chip">top_k <strong>10</strong></span>
+      <span class="chip">generated <strong>2026-07-02T18:02:34.157559+00:00</strong></span>
+    </div>
+  </header>
+
+  <h2>核心指标快照</h2>
+  <div class="card">
+    <table>
+    <thead><tr><th>指标</th><th>结果</th></tr></thead>
+    <tbody><tr><td>总用例</td><td>240</td></tr>
+<tr><td>失败数</td><td>0</td></tr>
+<tr><td>弱意图阻断</td><td>100.00%</td></tr>
+<tr><td>可注入问题识别</td><td>100.00%</td></tr>
+<tr><td>Recall@10</td><td>100.00%</td></tr>
+<tr><td>MRR</td><td>99.78%</td></tr>
+<tr><td>Firewall include</td><td>100.00%</td></tr>
+<tr><td>Firewall exclude</td><td>100.00%</td></tr>
+<tr><td>ContextPack 可逆</td><td>100.00%</td></tr>
+<tr><td>top_k</td><td>10</td></tr>
+<tr><td>indexed items</td><td>1314</td></tr>
+<tr><td>运行耗时</td><td>76.244s</td></tr></tbody>
+  </table>
+  </div>
+
+  <h2>完成率指标对比</h2>
+  <section class="grid">
+    <article class="card metric">
+      <div class="metric-head"><span class="metric-label">弱意图阻断</span><span class="metric-value">100.00%</span></div>
+      <div class="bar"><span style="width:100.00%"></span></div>
+      <p>12 weak prompts · <code>metrics.query_gate.block_accuracy</code></p>
+    </article>
+<article class="card metric">
+      <div class="metric-head"><span class="metric-label">可注入问题识别</span><span class="metric-value">100.00%</span></div>
+      <div class="bar"><span style="width:100.00%"></span></div>
+      <p>228 injectable prompts · <code>metrics.query_gate.inject_accuracy</code></p>
+    </article>
+<article class="card metric">
+      <div class="metric-head"><span class="metric-label">Recall@10</span><span class="metric-value">100.00%</span></div>
+      <div class="bar"><span style="width:100.00%"></span></div>
+      <p>228 retrieval cases · <code>metrics.retrieval.recall_at_k</code></p>
+    </article>
+<article class="card metric">
+      <div class="metric-head"><span class="metric-label">MRR</span><span class="metric-value">99.78%</span></div>
+      <div class="bar"><span style="width:99.78%"></span></div>
+      <p>mean reciprocal rank · <code>metrics.retrieval.mrr</code></p>
+    </article>
+<article class="card metric">
+      <div class="metric-head"><span class="metric-label">Firewall include</span><span class="metric-value">100.00%</span></div>
+      <div class="bar"><span style="width:100.00%"></span></div>
+      <p>4 expected include · <code>metrics.context.firewall_include_rate</code></p>
+    </article>
+<article class="card metric">
+      <div class="metric-head"><span class="metric-label">ContextPack 可逆</span><span class="metric-value">100.00%</span></div>
+      <div class="bar"><span style="width:100.00%"></span></div>
+      <p>4 packed cases · <code>metrics.context.pack_reversible_rate</code></p>
+    </article>
+  </section>
+
+  <h2>Token 消耗对比</h2>
+  <section class="grid">
+    <article class="card metric">
+      <div class="metric-head"><span class="metric-label">全文详情预算</span><span class="metric-value">218564</span></div>
+      <div class="bar"><span style="width:100.00%"></span></div>
+      <p>如果把命中 item 的详情全部放入上下文，benchmark 记录的 token 预算。</p>
+    </article>
+<article class="card metric">
+      <div class="metric-head"><span class="metric-label">ContextPack 注入</span><span class="metric-value">53725</span></div>
+      <div class="bar"><span style="width:24.58%"></span></div>
+      <p>经过 locator / overview / detail_uri 分层装载后的实际注入预算。</p>
+    </article>
+<article class="card metric">
+      <div class="metric-head"><span class="metric-label">节省 Token</span><span class="metric-value">164839</span></div>
+      <div class="bar"><span style="width:75.42%"></span></div>
+      <p>full_tokens - packed_tokens，负数按 0 处理。</p>
+    </article>
+  </section>
+
+  <h2>治理与防火墙</h2>
+  <section class="grid">
+    <article class="card">
+      <div class="metric-head"><span class="metric-label">弱意图阻断样本</span><span class="metric-value">12</span></div>
+      <p>继续、好的、确认等不应自动注入的 prompt。</p>
+    </article>
+<article class="card">
+      <div class="metric-head"><span class="metric-label">Firewall 覆盖样本</span><span class="metric-value">228</span></div>
+      <p>进入检索后接受防火墙决策的样本。</p>
+    </article>
+<article class="card">
+      <div class="metric-head"><span class="metric-label">应注入样本</span><span class="metric-value">4</span></div>
+      <p>目标 item 应该进入 ContextPack 的样本。</p>
+    </article>
+<article class="card">
+      <div class="metric-head"><span class="metric-label">应排除样本</span><span class="metric-value">62</span></div>
+      <p>低置信、缺来源、过期或敏感 item 应被挡下的样本。</p>
+    </article>
+<article class="card">
+      <div class="metric-head"><span class="metric-label">排除正确率</span><span class="metric-value">100.0</span></div>
+      <p>应排除样本中，防火墙确实挡下目标 item 的比例。</p>
+    </article>
+  </section>
+
+  <h2>评测口径分层</h2>
+  <div class="card">
+    <p class="note">报告 PASS 不等于 release gate PASS。公开报告只展示当前本地 system benchmark 的可复核结果；发布前仍要单独跑 release gate 和开放式相关性基准。</p>
+    <table>
+    <thead><tr><th>层</th><th>作用</th><th>状态来源</th></tr></thead>
+    <tbody><tr><td><code>public_report</code></td><td>开源展示当前本地可复核结果</td><td><code>system_benchmark.passed</code></td></tr>
+<tr><td><code>system_benchmark</code></td><td>验证 query gate、retrieval、firewall、context pack 的端到端链路</td><td><code>memory benchmark system</code></td></tr>
+<tr><td><code>release_gate</code></td><td>发布前质量门禁，必须单独运行 benchmarks/release_gate.py</td><td><code>benchmarks/release_gate.py</code></td></tr>
+<tr><td><code>relevance_benchmark</code></td><td>开放式相关性基准，衡量非精确标题/locator 查询表现</td><td><code>benchmarks/benchmark_relevance.py</code></td></tr>
+<tr><td><code>memorydata_external_loop</code></td><td>外部横评 source-lock 与可执行入口；MemoryData smoke/full 需依赖、数据集和 endpoint 就绪</td><td><code>docs/evaluation/latest-memory-benchmark-report.zh.md</code></td></tr></tbody>
+  </table>
+  </div>
+
+  <h2>外部横评状态</h2>
+  <div class="card">
+    <p class="note">AMH 已完成本地 system benchmark 和 MemoryData source-lock；MemoryData smoke/full 需要依赖、数据集和 OpenAI-compatible endpoint 就绪后才能写入外部横评结果。OpenViking 仍是设计参考，不作为 AMH 指标来源。</p>
+    <ul>
+      <li>OpenViking：参考 context database、文件系统范式、L0/L1/L2 tiered context loading 和 retrieval trajectory。</li>
+      <li>arXiv 2606.24775：参考 agent-native memory evaluation 的表示/存储、抽取、检索/路由、维护四模块拆分。</li>
+      <li>OpenDataBox/MemoryData：source-lock 已完成；最新状态见 docs/evaluation/latest-memory-benchmark-report.zh.md。</li>
+    </ul>
+  </div>
+
+  <h2>多 Agent 适配矩阵</h2>
+  <table>
+    <thead><tr><th>Agent</th><th>状态</th><th>证据等级</th><th>运行观测</th><th>接入模式</th><th>阻塞项</th></tr></thead>
+    <tbody><tr><td>aider</td><td>ready</td><td>verified</td><td>no</td><td>file</td><td>-</td></tr>
+<tr><td>aone_copilot</td><td>ready</td><td>verified</td><td>no</td><td>file</td><td>-</td></tr>
+<tr><td>claude_code</td><td>ready</td><td>install-ready</td><td>yes</td><td>command, hook, mcp</td><td>evidence level is install-ready, not verified</td></tr>
+<tr><td>cline</td><td>ready</td><td>verified</td><td>yes</td><td>mcp</td><td>-</td></tr>
+<tr><td>codex</td><td>ready</td><td>verified</td><td>yes</td><td>file, hook, mcp</td><td>-</td></tr>
+<tr><td>continue_dev</td><td>ready</td><td>verified</td><td>yes</td><td>mcp</td><td>-</td></tr>
+<tr><td>cursor</td><td>ready</td><td>verified</td><td>yes</td><td>mcp, hook</td><td>-</td></tr>
+<tr><td>github_copilot</td><td>ready</td><td>verified</td><td>no</td><td>file</td><td>-</td></tr>
+<tr><td>hermes_agent</td><td>ready</td><td>verified</td><td>yes</td><td>mcp</td><td>-</td></tr>
+<tr><td>mulerun</td><td>wip</td><td>wip</td><td>no</td><td>file</td><td>install path not implemented</td></tr>
+<tr><td>openclaw</td><td>ready</td><td>install-ready</td><td>no</td><td>command, mcp</td><td>evidence level is install-ready, not verified; runtime event not observed</td></tr>
+<tr><td>openhuman</td><td>ready</td><td>verified</td><td>no</td><td>file</td><td>-</td></tr>
+<tr><td>opensquilla</td><td>ready</td><td>verified</td><td>yes</td><td>file, mcp</td><td>-</td></tr>
+<tr><td>qoder</td><td>ready</td><td>install-ready</td><td>yes</td><td>file, hook, mcp</td><td>evidence level is install-ready, not verified</td></tr>
+<tr><td>qoder_work</td><td>ready</td><td>verified</td><td>yes</td><td>file, hook, mcp</td><td>-</td></tr>
+<tr><td>wukong</td><td>ready</td><td>verified</td><td>yes</td><td>file, hook, mcp</td><td>-</td></tr></tbody>
+  </table>
+
+  <h2>数据口径</h2>
+  <div class="card">
+    <p class="note">这份报告是 AMH 当前本地链路的可复核结果：Query Gate、Retrieval、Context Firewall、ContextPack 和 Adapter Capability 分开统计。</p>
+    <ul>
+      <li>完成率来自 system benchmark 的 block / inject / recall / firewall / pack 指标。</li>
+      <li>Token 来自每个 case 的 full_tokens 与 packed_tokens，不是模型账单。</li>
+      <li>Adapter 矩阵来自本机 capability evidence，不等价于公开 benchmark 完成率。</li>
+      <li>新增数据类型、适配器或召回策略后必须重新生成报告。</li>
+    </ul>
+  </div>
+</main>
+</body>
+</html>

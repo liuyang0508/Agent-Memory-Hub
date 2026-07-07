@@ -1,0 +1,249 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1560" height="760" viewBox="0 0 1560 760" role="img" aria-labelledby="title desc" style="max-width:100%;height:auto;">
+  <title id="title">召回完整链路图：从问题到 ContextPack</title>
+  <desc id="desc">召回完整链路图：从问题到 ContextPack</desc>
+  <defs>
+
+    <linearGradient id="qoderPageBg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#fffdfb"/>
+      <stop offset="48%" stop-color="#fbfaf8"/>
+      <stop offset="100%" stop-color="#f7fbff"/>
+    </linearGradient>
+    <linearGradient id="qoderSheetBg" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#fff3fa"/>
+      <stop offset="45%" stop-color="#fbfdff"/>
+      <stop offset="100%" stop-color="#f0f8e9"/>
+    </linearGradient>
+    <filter id="qoderSheetShadow" x="-8%" y="-8%" width="116%" height="116%">
+      <feDropShadow dx="0" dy="26" stdDeviation="30" flood-color="#2a231c" flood-opacity="0.085"/>
+    </filter>
+
+    <marker id="arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#57606a"/>
+    </marker>
+    <filter id="paper" x="-8%" y="-8%" width="116%" height="116%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.78" numOctaves="2" seed="11" result="noise"/>
+      <feColorMatrix type="saturate" values="0"/>
+      <feComponentTransfer>
+        <feFuncA type="table" tableValues="0 0.035"/>
+      </feComponentTransfer>
+      <feBlend in="SourceGraphic" mode="multiply"/>
+    </filter>
+    <filter id="softShadow" x="-15%" y="-15%" width="130%" height="130%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#1f2328" flood-opacity="0.08"/>
+    </filter>
+    <style>
+      .bg { fill: url(#qoderPageBg); }
+      .sheet { fill: url(#qoderSheetBg); filter: url(#qoderSheetShadow); }
+      .ink { fill: #24292f; }
+      .muted { fill: #57606a; }
+      .title { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 34px; font-weight: 850; fill: #24292f; }
+      .subtitle { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 17px; fill: #57606a; }
+      .section { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 17px; font-weight: 800; fill: #57606a; text-transform: uppercase; }
+      .card-title { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 20px; font-weight: 820; fill: #24292f; }
+      .card-line { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 15px; fill: #24292f; }
+      .small { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 13px; fill: #57606a; }
+      .tiny { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 10px; fill: #6e7781; }
+      .num { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 22px; font-weight: 900; }
+      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; font-size: 13px; fill: #24292f; }
+      .mono-small { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; font-size: 12px; fill: #57606a; }
+      .panel { fill: #ffffff; stroke: #d8dee4; stroke-width: 1.4; filter: url(#softShadow); }
+      .card { stroke-width: 1.8; filter: url(#softShadow); }
+      .thin-card { stroke-width: 1.2; }
+      .arrow { fill: none; stroke: #57606a; stroke-width: 2.1; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrow); }
+      .soft-arrow { fill: none; stroke: #8c959f; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 6 7; marker-end: url(#arrow); }
+      .flow-line { stroke-dasharray: 14 10; animation: flowDash 1.8s linear infinite; }
+      .planned-line { stroke-dasharray: 8 8; }
+      .flow-dot { fill: #1f6f78; filter: url(#softShadow); }
+      .breath { animation: breath 2.8s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+      .breath-slow { animation: breath 4.2s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+      .blink { animation: blink 1.7s ease-in-out infinite; }
+      .rail { fill: none; stroke: #d0d7de; stroke-width: 1.3; stroke-dasharray: 5 8; }
+      .branch { fill: none; stroke: #d0d7de; stroke-width: 1.3; stroke-linecap: round; stroke-linejoin: round; }
+      .icon { fill: none; stroke-width: 3.5; stroke-linecap: round; stroke-linejoin: round; }
+      @keyframes flowDash {
+        to { stroke-dashoffset: -24; }
+      }
+      @keyframes breath {
+        0%, 100% { opacity: 0.88; transform: scale(1); }
+        50% { opacity: 1; transform: scale(1.035); }
+      }
+      @keyframes blink {
+        0%, 100% { opacity: 0.42; }
+        50% { opacity: 1; }
+      }
+    </style>
+  </defs>
+  <rect class="bg" width="1560" height="760"/>
+  <rect x="28" y="28" width="1504" height="704" rx="36" fill="#ffffff" opacity="0.62"/>
+  <rect class="sheet" x="20" y="20" width="1520" height="720" rx="34" stroke="#ffffff" stroke-opacity="0.86" stroke-width="1.2"/>
+  <text class="title" x="70" y="76">召回完整链路图：从问题到 ContextPack</text>
+  <text class="subtitle" x="72" y="105">把执行时序和算法分数合并到一张图：召回只是候选排序，防火墙和分层装载才决定注入内容。</text>
+  <text class="section" x="74" y="138">1. 执行链路</text>
+  <g>
+    <rect class="card" x="58" y="168" width="136" height="92" rx="16" fill="#e7fbf8" stroke="#95dcd6"/>
+  <text class="card-title" x="74" y="199">01 用户问题</text>
+  <text class="small" x="74" y="228">prompt /</text>
+  <text class="small" x="74" y="245">search call</text>
+  </g>
+  <path class="arrow flow-line" d="M202 214 L210 214">
+    <animate attributeName="stroke-dashoffset" values="0;-24" dur="1.8s" repeatCount="indefinite"/>
+  </path>
+  <g>
+    <rect class="card" x="218" y="168" width="136" height="92" rx="16" fill="#edf6ff" stroke="#a8cff2"/>
+  <text class="card-title" x="234" y="199">02 过滤</text>
+  <text class="small" x="234" y="228">project / type</text>
+  <text class="small" x="234" y="245">/ tags</text>
+  </g>
+  <path class="arrow flow-line" d="M362 214 L370 214">
+    <animate attributeName="stroke-dashoffset" values="0;-24" dur="1.8s" repeatCount="indefinite"/>
+  </path>
+  <g>
+    <rect class="card" x="378" y="168" width="136" height="92" rx="16" fill="#edf9ef" stroke="#a8d8b5"/>
+  <text class="card-title" x="394" y="199">03 并行召回</text>
+  <text class="small" x="394" y="228">BM25 / Vector</text>
+  </g>
+  <path class="arrow flow-line" d="M522 214 L530 214">
+    <animate attributeName="stroke-dashoffset" values="0;-24" dur="1.8s" repeatCount="indefinite"/>
+  </path>
+  <g>
+    <rect class="card" x="538" y="168" width="136" height="92" rx="16" fill="#fff1df" stroke="#efb770"/>
+  <text class="card-title" x="554" y="199">04 RRF 融合</text>
+  <text class="small" x="554" y="228">第一候选池</text>
+  </g>
+  <path class="arrow flow-line" d="M682 214 L690 214">
+    <animate attributeName="stroke-dashoffset" values="0;-24" dur="1.8s" repeatCount="indefinite"/>
+  </path>
+  <g>
+    <rect class="card" x="698" y="168" width="136" height="92" rx="16" fill="#fff7cc" stroke="#e7c34e"/>
+  <text class="card-title" x="714" y="199">05 可信排序</text>
+  <text class="small" x="714" y="228">rerank /</text>
+  <text class="small" x="714" y="245">confidence</text>
+  </g>
+  <path class="arrow flow-line" d="M842 214 L850 214">
+    <animate attributeName="stroke-dashoffset" values="0;-24" dur="1.8s" repeatCount="indefinite"/>
+  </path>
+  <g>
+    <rect class="card" x="858" y="168" width="136" height="92" rx="16" fill="#fff1eb" stroke="#efbda9"/>
+  <text class="card-title" x="874" y="199">06 时效门禁</text>
+  <text class="small" x="874" y="228">stale /</text>
+  <text class="small" x="874" y="245">supersession</text>
+  </g>
+  <path class="soft-arrow flow-line" d="M1002 214 L1010 214">
+    <animate attributeName="stroke-dashoffset" values="0;-24" dur="1.8s" repeatCount="indefinite"/>
+  </path>
+  <g>
+    <rect class="card" x="1018" y="168" width="136" height="92" rx="16" fill="#f5efff" stroke="#cfb9f3"/>
+  <text class="card-title" x="1034" y="199">07 关联扩展</text>
+  <text class="small" x="1034" y="228">MMR / Hopfield</text>
+  <text class="small" x="1034" y="245">/ graph</text>
+  </g>
+  <path class="soft-arrow flow-line" d="M1162 214 L1170 214">
+    <animate attributeName="stroke-dashoffset" values="0;-24" dur="1.8s" repeatCount="indefinite"/>
+  </path>
+  <g>
+    <rect class="card" x="1178" y="168" width="136" height="92" rx="16" fill="#fff0f6" stroke="#efb4d7"/>
+  <text class="card-title" x="1194" y="199">08 防火墙</text>
+  <text class="small" x="1194" y="228">include /</text>
+  <text class="small" x="1194" y="245">demote /</text>
+  </g>
+  <path class="soft-arrow flow-line" d="M1322 214 L1330 214">
+    <animate attributeName="stroke-dashoffset" values="0;-24" dur="1.8s" repeatCount="indefinite"/>
+  </path>
+  <g>
+    <rect class="card" x="1338" y="168" width="136" height="92" rx="16" fill="#f6f8fa" stroke="#c9d1d9"/>
+  <text class="card-title" x="1354" y="199">09 上下文包</text>
+  <text class="small" x="1354" y="228">locator /</text>
+  <text class="small" x="1354" y="245">overview</text>
+  </g>
+  <text class="section" x="74" y="318">2. 排序 / 治理因子</text>
+  <g>
+    <rect class="card" x="60" y="348" width="134" height="82" rx="16" fill="#edf9ef" stroke="#a8d8b5"/>
+  <text class="card-title" x="76" y="380">01 BM25</text>
+  <text class="card-line" x="76" y="404">FTS 字面排名</text>
+  </g>
+  <path class="arrow flow-line" d="M202 389 L209 389">
+    <animate attributeName="stroke-dashoffset" values="0;-24" dur="1.8s" repeatCount="indefinite"/>
+  </path>
+  <g>
+    <rect class="card" x="217" y="348" width="134" height="82" rx="16" fill="#edf6ff" stroke="#a8cff2"/>
+  <text class="card-title" x="233" y="380">02 Vector</text>
+  <text class="card-line" x="233" y="404">语义邻居</text>
+  </g>
+  <path class="arrow flow-line" d="M359 389 L366 389">
+    <animate attributeName="stroke-dashoffset" values="0;-24" dur="1.8s" repeatCount="indefinite"/>
+  </path>
+  <g>
+    <rect class="card" x="374" y="348" width="134" height="82" rx="16" fill="#fff1df" stroke="#efb770"/>
+  <text class="card-title" x="390" y="380">03 RRF</text>
+  <text class="card-line" x="390" y="404">Σw/(k+rank)</text>
+  </g>
+  <path class="arrow flow-line" d="M516 389 L523 389">
+    <animate attributeName="stroke-dashoffset" values="0;-24" dur="1.8s" repeatCount="indefinite"/>
+  </path>
+  <g>
+    <rect class="card" x="531" y="348" width="134" height="82" rx="16" fill="#e7fbf8" stroke="#95dcd6"/>
+  <text class="card-title" x="547" y="380">04 Phrase</text>
+  <text class="card-line" x="547" y="404">metadata 短语</text>
+  </g>
+  <path class="arrow flow-line" d="M673 389 L680 389">
+    <animate attributeName="stroke-dashoffset" values="0;-24" dur="1.8s" repeatCount="indefinite"/>
+  </path>
+  <g>
+    <rect class="card" x="688" y="348" width="134" height="82" rx="16" fill="#f5efff" stroke="#cfb9f3"/>
+  <text class="card-title" x="704" y="380">05 Rerank</text>
+  <text class="card-line" x="704" y="404">可选 cross-</text>
+  </g>
+  <path class="soft-arrow flow-line" d="M755 440 C 795 440, 715 488, 755 488">
+    <animate attributeName="stroke-dashoffset" values="0;-24" dur="1.8s" repeatCount="indefinite"/>
+  </path>
+  <g>
+    <rect class="card" x="688" y="498" width="134" height="82" rx="16" fill="#fff1eb" stroke="#efbda9"/>
+  <text class="card-title" x="704" y="530">06 Decay</text>
+  <text class="card-line" x="704" y="554">0.5^(Δt/h)</text>
+  </g>
+  <path class="soft-arrow flow-line" d="M680 539 L673 539">
+    <animate attributeName="stroke-dashoffset" values="0;-24" dur="1.8s" repeatCount="indefinite"/>
+  </path>
+  <g>
+    <rect class="card" x="531" y="498" width="134" height="82" rx="16" fill="#fff0f6" stroke="#efb4d7"/>
+  <text class="card-title" x="547" y="530">07 Feedback</text>
+  <text class="card-line" x="547" y="554">adopt / reject</text>
+  </g>
+  <path class="soft-arrow flow-line" d="M523 539 L516 539">
+    <animate attributeName="stroke-dashoffset" values="0;-24" dur="1.8s" repeatCount="indefinite"/>
+  </path>
+  <g>
+    <rect class="card" x="374" y="498" width="134" height="82" rx="16" fill="#f5efff" stroke="#cfb9f3"/>
+  <text class="card-title" x="390" y="530">08 MMR</text>
+  <text class="card-line" x="390" y="554">相关性 + 多样性</text>
+  </g>
+  <path class="soft-arrow flow-line" d="M366 539 L359 539">
+    <animate attributeName="stroke-dashoffset" values="0;-24" dur="1.8s" repeatCount="indefinite"/>
+  </path>
+  <g>
+    <rect class="card" x="217" y="498" width="134" height="82" rx="16" fill="#f1efff" stroke="#c0b0ee"/>
+  <text class="card-title" x="233" y="530">09 Hopfield</text>
+  <text class="card-line" x="233" y="554">语义吸引子</text>
+  </g>
+  <path class="soft-arrow flow-line" d="M209 539 L202 539">
+    <animate attributeName="stroke-dashoffset" values="0;-24" dur="1.8s" repeatCount="indefinite"/>
+  </path>
+  <g>
+    <rect class="card" x="60" y="498" width="134" height="82" rx="16" fill="#f6f8fa" stroke="#c9d1d9"/>
+  <text class="card-title" x="76" y="530">10 Firewall</text>
+  <text class="card-line" x="76" y="554">scope / safety</text>
+  </g>
+  <g>
+    <rect x="910" y="342" width="560" height="138" rx="18" fill="#f6f8fa" stroke="#c9d1d9" stroke-width="1.5"/>
+    <text class="card-title" x="934" y="376" fill="#57606a">遗忘曲线</text>
+  <text class="card-line" x="934" y="404">time_retention = 0.5 ^ (days_since_reference / half_life)</text>
+  <text class="card-line" x="934" y="423">decay_coefficient = clamp(retention * access * support * gain *</text>
+  <text class="card-line" x="934" y="442">contradiction, 0.01, 1.35)</text>
+  <text class="card-line" x="934" y="461">effective_score = candidate_score * confidence * decay_coefficient</text>
+  </g>
+  <g>
+    <rect x="260" y="642" width="980" height="72" rx="18" fill="#f6f8fa" stroke="#c9d1d9" stroke-width="1.5"/>
+    <text class="card-title" x="284" y="676" fill="#57606a">关键边界</text>
+  <text class="card-line" x="284" y="704">读取起点是 MemoryItem + Index Projection + Runtime Ledger；最终注入由 ContextFirewall + context_loading 决定。</text>
+  </g>
+</svg>
