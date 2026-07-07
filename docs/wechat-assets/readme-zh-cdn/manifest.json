@@ -1,0 +1,275 @@
+[
+  {
+    "index": 1,
+    "alt": "官网：aihub0508.com",
+    "file": "docs/wechat-assets/readme-zh-cdn/fig-01.png",
+    "cdnUrl": "https://cdn.jsdelivr.net/gh/liuyang0508/Agent-Memory-Hub@main/docs/wechat-assets/readme-zh-cdn/fig-01.png",
+    "bytes": 12984
+  },
+  {
+    "index": 2,
+    "alt": "定位：共享第二大脑",
+    "file": "docs/wechat-assets/readme-zh-cdn/fig-02.png",
+    "cdnUrl": "https://cdn.jsdelivr.net/gh/liuyang0508/Agent-Memory-Hub@main/docs/wechat-assets/readme-zh-cdn/fig-02.png",
+    "bytes": 11336
+  },
+  {
+    "index": 3,
+    "alt": "接入：CLI / MCP / SDK / Web / hooks",
+    "file": "docs/wechat-assets/readme-zh-cdn/fig-03.png",
+    "cdnUrl": "https://cdn.jsdelivr.net/gh/liuyang0508/Agent-Memory-Hub@main/docs/wechat-assets/readme-zh-cdn/fig-03.png",
+    "bytes": 23734
+  },
+  {
+    "index": 4,
+    "alt": "维护：Evidence / MemoryItem / Index",
+    "file": "docs/wechat-assets/readme-zh-cdn/fig-04.png",
+    "cdnUrl": "https://cdn.jsdelivr.net/gh/liuyang0508/Agent-Memory-Hub@main/docs/wechat-assets/readme-zh-cdn/fig-04.png",
+    "bytes": 22380
+  },
+  {
+    "index": 5,
+    "alt": "排序：BM25 / Vector / RRF / rerank",
+    "file": "docs/wechat-assets/readme-zh-cdn/fig-05.png",
+    "cdnUrl": "https://cdn.jsdelivr.net/gh/liuyang0508/Agent-Memory-Hub@main/docs/wechat-assets/readme-zh-cdn/fig-05.png",
+    "bytes": 21647
+  },
+  {
+    "index": 6,
+    "alt": "治理：decay / feedback / temporal",
+    "file": "docs/wechat-assets/readme-zh-cdn/fig-06.png",
+    "cdnUrl": "https://cdn.jsdelivr.net/gh/liuyang0508/Agent-Memory-Hub@main/docs/wechat-assets/readme-zh-cdn/fig-06.png",
+    "bytes": 21823
+  },
+  {
+    "index": 7,
+    "alt": "扩展：MMR / Hopfield / graph",
+    "file": "docs/wechat-assets/readme-zh-cdn/fig-07.png",
+    "cdnUrl": "https://cdn.jsdelivr.net/gh/liuyang0508/Agent-Memory-Hub@main/docs/wechat-assets/readme-zh-cdn/fig-07.png",
+    "bytes": 18732
+  },
+  {
+    "index": 8,
+    "alt": "注入：ContextFirewall / ContextPack",
+    "file": "docs/wechat-assets/readme-zh-cdn/fig-08.png",
+    "cdnUrl": "https://cdn.jsdelivr.net/gh/liuyang0508/Agent-Memory-Hub@main/docs/wechat-assets/readme-zh-cdn/fig-08.png",
+    "bytes": 22034
+  },
+  {
+    "index": 9,
+    "alt": "评测：doctor / runtime / benchmark",
+    "file": "docs/wechat-assets/readme-zh-cdn/fig-09.png",
+    "cdnUrl": "https://cdn.jsdelivr.net/gh/liuyang0508/Agent-Memory-Hub@main/docs/wechat-assets/readme-zh-cdn/fig-09.png",
+    "bytes": 20056
+  },
+  {
+    "index": 10,
+    "alt": "AMH 可信上下文生命周期图：接入、维护、召回、治理与评估",
+    "file": "docs/wechat-assets/readme-zh-cdn/fig-10.png",
+    "cdnUrl": "https://cdn.jsdelivr.net/gh/liuyang0508/Agent-Memory-Hub@main/docs/wechat-assets/readme-zh-cdn/fig-10.png",
+    "bytes": 365767
+  },
+  {
+    "index": 11,
+    "alt": "Agent Memory Hub 生命周期地图：维护、召回、注入、反馈和治理",
+    "file": "docs/wechat-assets/readme-zh-cdn/fig-11.png",
+    "cdnUrl": "https://cdn.jsdelivr.net/gh/liuyang0508/Agent-Memory-Hub@main/docs/wechat-assets/readme-zh-cdn/fig-11.png",
+    "bytes": 476107
+  },
+  {
+    "index": 12,
+    "alt": "AMH 后管可信接力 Cockpit：本机历史同步区域可以查看各 Agent 本机历史源并点击生成草稿",
+    "file": "docs/wechat-assets/readme-zh-cdn/fig-12.png",
+    "cdnUrl": "https://cdn.jsdelivr.net/gh/liuyang0508/Agent-Memory-Hub@main/docs/wechat-assets/readme-zh-cdn/fig-12.png",
+    "bytes": 41036
+  },
+  {
+    "index": 13,
+    "alt": "维护链路：证据、写入、索引、反馈、治理",
+    "file": "docs/wechat-assets/readme-zh-cdn/fig-13.png",
+    "cdnUrl": "https://cdn.jsdelivr.net/gh/liuyang0508/Agent-Memory-Hub@main/docs/wechat-assets/readme-zh-cdn/fig-13.png",
+    "bytes": 191309
+  },
+  {
+    "index": 14,
+    "alt": "召回完整链路：从用户问题、过滤、BM25/向量、RRF、衰减、反馈、防火墙到 ContextPack",
+    "file": "docs/wechat-assets/readme-zh-cdn/fig-14.png",
+    "cdnUrl": "https://cdn.jsdelivr.net/gh/liuyang0508/Agent-Memory-Hub@main/docs/wechat-assets/readme-zh-cdn/fig-14.png",
+    "bytes": 243779
+  },
+  {
+    "index": 15,
+    "alt": "Claude Code",
+    "file": "docs/wechat-assets/readme-zh-cdn/fig-15.png",
+    "cdnUrl": "https://cdn.jsdelivr.net/gh/liuyang0508/Agent-Memory-Hub@main/docs/wechat-assets/readme-zh-cdn/fig-15.png",
+    "bytes": 481
+  },
+  {
+    "index": 16,
+    "alt": "Codex",
+    "file": "docs/wechat-assets/readme-zh-cdn/fig-16.png",
+    "cdnUrl": "https://cdn.jsdelivr.net/gh/liuyang0508/Agent-Memory-Hub@main/docs/wechat-assets/readme-zh-cdn/fig-16.png",
+    "bytes": 14677
+  },
+  {
+    "index": 17,
+    "alt": "Hermes Agent",
+    "file": "docs/wechat-assets/readme-zh-cdn/fig-17.png",
+    "cdnUrl": "https://cdn.jsdelivr.net/gh/liuyang0508/Agent-Memory-Hub@main/docs/wechat-assets/readme-zh-cdn/fig-17.png",
+    "bytes": 18965
+  },
+  {
+    "index": 18,
+    "alt": "OpenClaw",
+    "file": "docs/wechat-assets/readme-zh-cdn/fig-18.png",
+    "cdnUrl": "https://cdn.jsdelivr.net/gh/liuyang0508/Agent-Memory-Hub@main/docs/wechat-assets/readme-zh-cdn/fig-18.png",
+    "bytes": 5169
+  },
+  {
+    "index": 19,
+    "alt": "OpenHuman",
+    "file": "docs/wechat-assets/readme-zh-cdn/fig-19.png",
+    "cdnUrl": "https://cdn.jsdelivr.net/gh/liuyang0508/Agent-Memory-Hub@main/docs/wechat-assets/readme-zh-cdn/fig-19.png",
+    "bytes": 27934
+  },
+  {
+    "index": 20,
+    "alt": "OpenSquilla",
+    "file": "docs/wechat-assets/readme-zh-cdn/fig-20.png",
+    "cdnUrl": "https://cdn.jsdelivr.net/gh/liuyang0508/Agent-Memory-Hub@main/docs/wechat-assets/readme-zh-cdn/fig-20.png",
+    "bytes": 5760
+  },
+  {
+    "index": 21,
+    "alt": "Qoder",
+    "file": "docs/wechat-assets/readme-zh-cdn/fig-21.png",
+    "cdnUrl": "https://cdn.jsdelivr.net/gh/liuyang0508/Agent-Memory-Hub@main/docs/wechat-assets/readme-zh-cdn/fig-21.png",
+    "bytes": 4020
+  },
+  {
+    "index": 22,
+    "alt": "Qoder Work",
+    "file": "docs/wechat-assets/readme-zh-cdn/fig-22.png",
+    "cdnUrl": "https://cdn.jsdelivr.net/gh/liuyang0508/Agent-Memory-Hub@main/docs/wechat-assets/readme-zh-cdn/fig-22.png",
+    "bytes": 5620
+  },
+  {
+    "index": 23,
+    "alt": "Wukong",
+    "file": "docs/wechat-assets/readme-zh-cdn/fig-23.png",
+    "cdnUrl": "https://cdn.jsdelivr.net/gh/liuyang0508/Agent-Memory-Hub@main/docs/wechat-assets/readme-zh-cdn/fig-23.png",
+    "bytes": 32311
+  },
+  {
+    "index": 24,
+    "alt": "Aone Copilot",
+    "file": "docs/wechat-assets/readme-zh-cdn/fig-24.png",
+    "cdnUrl": "https://cdn.jsdelivr.net/gh/liuyang0508/Agent-Memory-Hub@main/docs/wechat-assets/readme-zh-cdn/fig-24.png",
+    "bytes": 8780
+  },
+  {
+    "index": 25,
+    "alt": "Gemini CLI",
+    "file": "docs/wechat-assets/readme-zh-cdn/fig-25.png",
+    "cdnUrl": "https://cdn.jsdelivr.net/gh/liuyang0508/Agent-Memory-Hub@main/docs/wechat-assets/readme-zh-cdn/fig-25.png",
+    "bytes": 9926
+  },
+  {
+    "index": 26,
+    "alt": "Cursor",
+    "file": "docs/wechat-assets/readme-zh-cdn/fig-26.png",
+    "cdnUrl": "https://cdn.jsdelivr.net/gh/liuyang0508/Agent-Memory-Hub@main/docs/wechat-assets/readme-zh-cdn/fig-26.png",
+    "bytes": 5752
+  },
+  {
+    "index": 27,
+    "alt": "GitHub Copilot",
+    "file": "docs/wechat-assets/readme-zh-cdn/fig-27.png",
+    "cdnUrl": "https://cdn.jsdelivr.net/gh/liuyang0508/Agent-Memory-Hub@main/docs/wechat-assets/readme-zh-cdn/fig-27.png",
+    "bytes": 11102
+  },
+  {
+    "index": 28,
+    "alt": "MuleRun",
+    "file": "docs/wechat-assets/readme-zh-cdn/fig-28.png",
+    "cdnUrl": "https://cdn.jsdelivr.net/gh/liuyang0508/Agent-Memory-Hub@main/docs/wechat-assets/readme-zh-cdn/fig-28.png",
+    "bytes": 796
+  },
+  {
+    "index": 29,
+    "alt": "Aider",
+    "file": "docs/wechat-assets/readme-zh-cdn/fig-29.png",
+    "cdnUrl": "https://cdn.jsdelivr.net/gh/liuyang0508/Agent-Memory-Hub@main/docs/wechat-assets/readme-zh-cdn/fig-29.png",
+    "bytes": 5666
+  },
+  {
+    "index": 30,
+    "alt": "Cline",
+    "file": "docs/wechat-assets/readme-zh-cdn/fig-30.png",
+    "cdnUrl": "https://cdn.jsdelivr.net/gh/liuyang0508/Agent-Memory-Hub@main/docs/wechat-assets/readme-zh-cdn/fig-30.png",
+    "bytes": 5103
+  },
+  {
+    "index": 31,
+    "alt": "Continue",
+    "file": "docs/wechat-assets/readme-zh-cdn/fig-31.png",
+    "cdnUrl": "https://cdn.jsdelivr.net/gh/liuyang0508/Agent-Memory-Hub@main/docs/wechat-assets/readme-zh-cdn/fig-31.png",
+    "bytes": 3789
+  },
+  {
+    "index": 32,
+    "alt": "AMH 完整评测报告：MemoryData 论文原图和 AMH 追加指标",
+    "file": "docs/wechat-assets/readme-zh-cdn/fig-32.png",
+    "cdnUrl": "https://cdn.jsdelivr.net/gh/liuyang0508/Agent-Memory-Hub@main/docs/wechat-assets/readme-zh-cdn/fig-32.png",
+    "bytes": 4060824
+  },
+  {
+    "index": 33,
+    "alt": "AMH 可信上下文生命周期图：接入、维护、召回、治理与评估",
+    "file": "docs/wechat-assets/readme-zh-cdn/fig-33.png",
+    "cdnUrl": "https://cdn.jsdelivr.net/gh/liuyang0508/Agent-Memory-Hub@main/docs/wechat-assets/readme-zh-cdn/fig-33.png",
+    "bytes": 365767
+  },
+  {
+    "index": 34,
+    "alt": "AMH 总控图：可信上下文操作回路",
+    "file": "docs/wechat-assets/readme-zh-cdn/fig-34.png",
+    "cdnUrl": "https://cdn.jsdelivr.net/gh/liuyang0508/Agent-Memory-Hub@main/docs/wechat-assets/readme-zh-cdn/fig-34.png",
+    "bytes": 258929
+  },
+  {
+    "index": 35,
+    "alt": "产品架构图：从协作痛点到可信上下文",
+    "file": "docs/wechat-assets/readme-zh-cdn/fig-35.png",
+    "cdnUrl": "https://cdn.jsdelivr.net/gh/liuyang0508/Agent-Memory-Hub@main/docs/wechat-assets/readme-zh-cdn/fig-35.png",
+    "bytes": 237877
+  },
+  {
+    "index": 36,
+    "alt": "技术架构图：接入、运行时、脑内核与本地数据",
+    "file": "docs/wechat-assets/readme-zh-cdn/fig-36.png",
+    "cdnUrl": "https://cdn.jsdelivr.net/gh/liuyang0508/Agent-Memory-Hub@main/docs/wechat-assets/readme-zh-cdn/fig-36.png",
+    "bytes": 292660
+  },
+  {
+    "index": 37,
+    "alt": "维护 + 召回一体时序链路图",
+    "file": "docs/wechat-assets/readme-zh-cdn/fig-37.png",
+    "cdnUrl": "https://cdn.jsdelivr.net/gh/liuyang0508/Agent-Memory-Hub@main/docs/wechat-assets/readme-zh-cdn/fig-37.png",
+    "bytes": 224759
+  },
+  {
+    "index": 38,
+    "alt": "数据链路图：Evidence 到 ContextPack",
+    "file": "docs/wechat-assets/readme-zh-cdn/fig-38.png",
+    "cdnUrl": "https://cdn.jsdelivr.net/gh/liuyang0508/Agent-Memory-Hub@main/docs/wechat-assets/readme-zh-cdn/fig-38.png",
+    "bytes": 233100
+  },
+  {
+    "index": 39,
+    "alt": "召回完整链路图：从问题到 ContextPack",
+    "file": "docs/wechat-assets/readme-zh-cdn/fig-39.png",
+    "cdnUrl": "https://cdn.jsdelivr.net/gh/liuyang0508/Agent-Memory-Hub@main/docs/wechat-assets/readme-zh-cdn/fig-39.png",
+    "bytes": 243779
+  }
+]
