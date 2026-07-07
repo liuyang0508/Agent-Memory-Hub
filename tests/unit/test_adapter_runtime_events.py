@@ -807,6 +807,64 @@ def test_user_prompt_hook_injects_context_for_metadata_anchored_recall_prompt(tm
     assert "召回矩阵 hook 场景" in context
 
 
+def test_user_prompt_hook_keeps_long_mixed_agent_prompt_domain_keywords(tmp_path):
+    script = Path(__file__).resolve().parents[2] / "agent_runtime_kit" / "hooks" / "inject-context.sh"
+    (tmp_path / "items").mkdir()
+    embedder = HashingEmbedder()
+    store = ItemsStore(tmp_path / "items")
+    idx = HubIndex(tmp_path / "index.db", embedding_dim=embedder.dim)
+    item = MemoryItem(
+        id="mem-20260707-230100-amh-shared-fact-layer",
+        type=MemoryType.artifact,
+        created_at=datetime.now(timezone.utc),
+        title="AMH 多 Agent 协作共享可信事实层",
+        summary="长期记忆、上下文工程、多 Agent 协作、共享可信上下文和共享记忆层。",
+        tags=["agent", "agent-memory-hub", "长期记忆", "上下文工程"],
+        abstraction="L1",
+    )
+    body = (
+        "多agent协作 多 Agent 协作 长期记忆 上下文工程 共享可信上下文 可信上下文 "
+        "共享记忆层 Hopfield 联想召回 遗忘曲线 证据门禁 可信事实层 数据孤岛 上下文噪音"
+    )
+    store.write(item, body)
+    idx.upsert(item, body, embedding=embedder.embed(body))
+    idx.close()
+    env = {
+        **os.environ,
+        "BRAIN_DIR": str(tmp_path),
+        "AGENT_MEMORY_HUB_ADAPTER": "codex",
+        "MEMORY_HUB_TEST_EMBEDDING": "1",
+        "MEMORY_HUB_EMBEDDING_OFFLINE": "1",
+    }
+    prompt = (
+        "欢迎对 AI Agent、长期记忆、上下文工程、多 Agent 协作感兴趣的朋友交流。\n\n"
+        "多 Agent 协作真正难的不是让一个 Agent 更聪明，而是让不同 Agent 之间能够共享可信上下文。\n\n"
+        "基于 Hopfield 式联想召回、可治理的遗忘曲线和证据门禁，让你的 AI Agent 工具共享同一份可信事实层。\n\n"
+        "告别数据孤岛\n降低上下文噪音\n\n"
+        "综上帮我整合润色"
+    )
+
+    result = subprocess.run(
+        ["bash", str(script)],
+        input=json.dumps({
+            "prompt": prompt,
+            "session_id": "hook-long-mixed-agent-keywords-session",
+            "cwd": "/repo/current",
+            "hook_event_name": "UserPromptSubmit",
+        }),
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    context = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
+    assert "<agent_brain>" in context
+    assert "keywords: 多agent协作|长期记忆|上下文工程" in context
+    assert "keywords: agent" not in context
+    assert "AMH 多 Agent 协作共享可信事实层" in context
+
+
 def test_user_prompt_hook_replays_readme_deep_polish_prompt_end_to_end(tmp_path):
     script = Path(__file__).resolve().parents[2] / "agent_runtime_kit" / "hooks" / "inject-context.sh"
     (tmp_path / "items").mkdir()

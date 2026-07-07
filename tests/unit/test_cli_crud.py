@@ -583,8 +583,76 @@ class TestRecallDriftCLI:
         assert "high" in result.output
         assert "memory-quality" in result.output
 
+    def test_recall_drift_replay_cohort_exports_query_gate_cases(
+        self,
+        tmp_brain_dir,
+        monkeypatch,
+    ):
+        import json
+
+        from agent_brain.memory.governance.recall_events import record_gap
+
+        monkeypatch.setenv("BRAIN_DIR", str(tmp_brain_dir))
+        record_gap(
+            tmp_brain_dir,
+            query="验证",
+            reason="query_not_injectable",
+            evidence=["query_signal:too_weak", "terms=验证"],
+            adapter="codex",
+        )
+        record_gap(
+            tmp_brain_dir,
+            query="browser permission fixed but stale memory still says unavailable",
+            reason="only_rejected",
+        )
+
+        result = runner.invoke(
+            app,
+            [
+                "recall-drift",
+                "replay-cohort",
+                "--root-cause",
+                "query_gate_underqualified",
+                "--format",
+                "json",
+            ],
+        )
+
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+        assert data["matched_gap_count"] == 1
+        assert data["deduped_query_count"] == 1
+        assert data["cases"][0]["query"] == "验证"
+        assert data["cases"][0]["expected_root_cause"] == "query_gate_underqualified"
+
 
 class TestReviewCLI:
+    def test_review_status_summarizes_review_and_pending_backlog(self, tmp_brain_dir, monkeypatch):
+        monkeypatch.setenv("BRAIN_DIR", str(tmp_brain_dir))
+        from agent_brain.memory.store.pending import enqueue_write_record
+
+        store = ItemsStore(tmp_brain_dir / "items")
+        review = MemoryItem(
+            id="mem-20260612-105900-review-status-candidate",
+            type=MemoryType.episode,
+            created_at=datetime.now(timezone.utc),
+            title="Review status candidate",
+            summary="Needs review status coverage",
+            tags=["needs-review"],
+            confidence=0.3,
+        )
+        store.write(review, review.summary)
+        enqueue_write_record({"op": "write", "item": {"title": "pending", "summary": "pending"}})
+
+        result = runner.invoke(app, ["review", "status", "--format", "json"])
+
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+        assert data["review_total"] == 1
+        assert data["pending_depth"] == 1
+        assert data["pending_dead"] == 0
+        assert data["recommended_next"] == "review list --format json"
+
     def test_review_list_outputs_only_active_review_candidates(self, tmp_brain_dir, monkeypatch):
         monkeypatch.setenv("BRAIN_DIR", str(tmp_brain_dir))
         store = ItemsStore(tmp_brain_dir / "items")

@@ -34,6 +34,9 @@ on a cold/offline machine.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import os
+from pathlib import Path
+import shlex
 
 from agent_brain.memory.store.items_store import ItemsStore
 from agent_brain.memory.store.pending import PendingQueue, brain_dir
@@ -83,6 +86,42 @@ def _probe_embedder_tier(offline: bool) -> str:
         return "hashing" if is_prod_embedder_degraded() else "semantic"
     except Exception:
         return "none"
+
+
+def _memory_cli_shim_path() -> Path:
+    user_bin = os.environ.get("AGENT_MEMORY_HUB_BIN")
+    if user_bin:
+        return Path(user_bin) / "memory"
+    return Path.home() / ".local" / "bin" / "memory"
+
+
+def _extract_shim_exec_target(shim: Path) -> str:
+    if shim.is_symlink():
+        return str(shim.resolve())
+    try:
+        for raw_line in shim.read_text(encoding="utf-8", errors="replace").splitlines():
+            line = raw_line.strip()
+            if not line.startswith("exec "):
+                continue
+            parts = shlex.split(line)
+            if len(parts) >= 2:
+                return parts[1]
+    except OSError:
+        return ""
+    return ""
+
+
+def probe_memory_cli_shim() -> dict[str, object]:
+    shim = _memory_cli_shim_path()
+    present = shim.exists()
+    target = _extract_shim_exec_target(shim) if present else ""
+    target_exists = bool(target and Path(target).exists())
+    return {
+        "path": str(shim),
+        "present": present,
+        "target": target,
+        "target_exists": target_exists,
+    }
 
 
 def run_doctor(offline: bool = True) -> DoctorReport:
@@ -136,6 +175,12 @@ def run_doctor(offline: bool = True) -> DoctorReport:
     dead = bd / "pending" / "dead"
     rep.checks["pending.dead"] = len(list(dead.glob("*.jsonl"))) if dead.exists() else 0
 
+    shim = probe_memory_cli_shim()
+    rep.checks["cli.shim.present"] = shim["present"]
+    rep.checks["cli.shim.target_exists"] = shim["target_exists"]
+    rep.details["cli.shim.path"] = shim["path"]
+    rep.details["cli.shim.target"] = shim["target"]
+
     # grade
     if not rep.checks["core.md_store.writable"]:
         rep.overall, rep.exit_code = "BROKEN", 2
@@ -144,6 +189,7 @@ def run_doctor(offline: bool = True) -> DoctorReport:
         or rep.checks["pending.dead"]
         or rep.checks["core.items.skipped"]
         or rep.checks["core.embedder.tier"] != "semantic"
+        or (rep.checks["cli.shim.present"] and not rep.checks["cli.shim.target_exists"])
     ):
         rep.overall, rep.exit_code = "DEGRADED", 1
     else:

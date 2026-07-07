@@ -44,10 +44,39 @@ _CJK_BASELINE_FOCUS_RE = re.compile(
     r"(?=$|[\s:：,，.。?？!！/\\（）()\[\]【】「」『』、])"
 )
 _GENERIC_ASCII_ANCHORS = {
+    "agent",
+    "ai",
     "html",
     "question",
     "preview",
 }
+_GENERIC_METADATA_ENTITY_TERMS = {
+    "agent",
+    "ai",
+    "决策",
+    "经验",
+    "工具",
+    "问题",
+}
+_DOMAIN_KEYPHRASE_PRIORITY = (
+    "多agent协作",
+    "多智能体共享第二大脑",
+    "长期记忆",
+    "上下文工程",
+    "共享可信上下文",
+    "可信上下文",
+    "记忆召回",
+    "共享记忆层",
+    "联想召回",
+    "遗忘曲线",
+    "证据门禁",
+    "可信事实层",
+    "数据孤岛",
+    "上下文噪音",
+    "记忆维护",
+    "记忆治理",
+    "记忆注入",
+)
 _TEST_STATUS_ASCII_TERMS = {
     "error",
     "errors",
@@ -692,6 +721,9 @@ def _cjk_keyphrase_terms(prompt: str) -> list[str]:
     for match in _CJK_TOPIC_RE.finditer(prompt):
         _append_cjk_keyphrase(terms, match.group(1))
 
+    for term in _domain_keyphrase_terms(prompt):
+        _append_unique(terms, term)
+
     for match in _MIXED_TOPIC_RE.finditer(prompt):
         _append_mixed_keyphrase(terms, match.group(1), require_compound_shape=False)
 
@@ -701,6 +733,15 @@ def _cjk_keyphrase_terms(prompt: str) -> list[str]:
     for match in _CJK_CONTEXT_RE.finditer(prompt):
         _append_cjk_keyphrase(terms, match.group(1))
 
+    return terms
+
+
+def _domain_keyphrase_terms(prompt: str) -> list[str]:
+    compact = re.sub(r"\s+", "", prompt.lower())
+    terms: list[str] = []
+    for phrase in _DOMAIN_KEYPHRASE_PRIORITY:
+        if phrase in compact:
+            _append_unique(terms, phrase)
     return terms
 
 
@@ -1094,6 +1135,8 @@ def _metadata_entity_supported(
     sources: dict[str, object],
 ) -> bool:
     key = term.lower()
+    if key in _GENERIC_METADATA_ENTITY_TERMS:
+        return False
     score = int(scores.get(key, 0) or 0)
     if not _is_ascii(term) and len(term) <= 2:
         raw_sources = sources.get(key, ())

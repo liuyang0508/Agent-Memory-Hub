@@ -605,6 +605,53 @@ def test_mixed_generic_agent_prompt_does_not_use_single_metadata_word(tmp_path) 
     assert extract_injection_keywords("多Agent", brain_dir=tmp_path) == ""
 
 
+def test_long_mixed_agent_article_prompt_keeps_cjk_domain_keyphrases(tmp_path) -> None:
+    from agent_brain.contracts.memory_item import MemoryItem, MemoryType
+    from agent_brain.memory.context.query_signal import analyze_injection_query, extract_injection_keywords
+    from agent_brain.memory.store.items_store import ItemsStore
+
+    store = ItemsStore(tmp_path / "items")
+    for suffix, title, tags in [
+        ("agent", "Agent Memory Hub agent tag fixture", ["agent"]),
+        ("hopfield", "Hopfield 联想召回与遗忘曲线", ["hopfield", "遗忘曲线"]),
+        ("decision", "决策治理 fixture", ["决策"]),
+    ]:
+        store.write(
+            MemoryItem(
+                id=f"mem-20260707-230000-{suffix}",
+                type=MemoryType.artifact,
+                created_at=datetime.now(timezone.utc),
+                title=title,
+                summary="query signal fixture",
+                tags=tags,
+            ),
+            "body",
+        )
+
+    prompt = (
+        "欢迎对 AI Agent、长期记忆、上下文工程、多 Agent 协作感兴趣的朋友交流。\n\n"
+        "多 Agent 协作真正难的不是“让一个 Agent 更聪明”，而是让不同 Agent 之间能够共享可信上下文："
+        "谁做过什么、哪些结论仍然有效、哪些经验可以复用、哪些记忆应该被召回或拦截。\n\n"
+        "这篇文章系统讲了 AMH 如何把事实、决策、经验、产物和交接沉淀成本地优先的共享记忆层，"
+        "并围绕可治理、可追溯、可评测这几个方向做工程化设计。\n\n"
+        "基于 Hopfield 式联想召回、可治理的遗忘曲线和证据门禁，让你的 AI Agent 工具共享同一份可信事实层\n\n"
+        "告别数据孤岛\n降低上下文噪音\n\n"
+        "综上帮我整合润色"
+    )
+
+    signal = analyze_injection_query(prompt, brain_dir=tmp_path)
+    keywords = extract_injection_keywords(prompt, brain_dir=tmp_path)
+
+    assert signal.injectable
+    assert "keyphrase" in signal.anchors
+    assert keywords.startswith("多agent协作|长期记忆|上下文工程")
+    assert "agent" not in keywords.split("|")[:3]
+    assert "决策" not in keywords.split("|")
+    assert "长期记忆" in signal.strong_terms
+    assert "上下文工程" in signal.strong_terms
+    assert "遗忘曲线" in signal.strong_terms
+
+
 def test_short_mixed_singleton_blocks_by_shape_not_domain_denylist(tmp_path) -> None:
     from agent_brain.contracts.memory_item import MemoryItem, MemoryType
     from agent_brain.memory.context.query_signal import analyze_injection_query, extract_injection_keywords

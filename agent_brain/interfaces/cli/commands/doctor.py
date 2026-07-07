@@ -161,6 +161,17 @@ def doctor(
         brain_size = sum(f.stat().st_size for f in brain.rglob("*") if f.is_file()) / (1024 * 1024)
         checks.append(("Brain size", f"{brain_size:.1f} MB", "OK"))
 
+    from agent_brain.platform.doctor import probe_memory_cli_shim
+
+    shim = probe_memory_cli_shim()
+    if shim["present"]:
+        status = "OK" if shim["target_exists"] else "WARN (re-run install.sh)"
+        value = f"{shim['path']} -> {shim['target'] or 'unknown target'}"
+    else:
+        status = "WARN (run install.sh)"
+        value = str(shim["path"])
+    checks.append(("memory CLI shim", value, status))
+
     table = Table(title="Diagnostic Results")
     table.add_column("Check", style="bold")
     table.add_column("Value")

@@ -167,6 +167,26 @@ def test_doctor_reports_invalid_empty_search_index(tmp_path, monkeypatch):
     assert "reindex" in result.output
 
 
+def test_doctor_reports_broken_memory_cli_shim_row(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    brain = tmp_path / "brain"
+    shim = home / ".local" / "bin" / "memory"
+    target = tmp_path / "deleted" / ".venv" / "bin" / "memory"
+    (brain / "items").mkdir(parents=True)
+    shim.parent.mkdir(parents=True)
+    shim.write_text(f'#!/bin/sh\nexec "{target}" "$@"\n', encoding="utf-8")
+    shim.chmod(0o755)
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("BRAIN_DIR", str(brain))
+
+    result = runner.invoke(app, ["doctor"])
+
+    assert result.exit_code == 0
+    assert "memory CLI shim" in result.output
+    assert "re-run install.sh" in result.output
+    assert "->" in result.output
+
+
 # ----- #36 archived items addressable -----
 
 def _archive(tmp_path, item, body):

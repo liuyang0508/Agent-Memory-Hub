@@ -64,6 +64,43 @@ class GapClusterReport:
 
 
 @dataclass(frozen=True)
+class GapReplayCase:
+    gap_id: str
+    cluster_id: str
+    query: str
+    normalized_query: str
+    reason: str
+    evidence: tuple[str, ...]
+    adapter: str
+    session_id: str | None
+    cwd: str | None
+    expected_root_cause: str
+    expected_owner: str
+    expected_risk: str
+
+    def to_dict(self) -> dict[str, object]:
+        data = asdict(self)
+        data["evidence"] = list(self.evidence)
+        return data
+
+
+@dataclass(frozen=True)
+class GapReplayCohort:
+    root_cause: str
+    matched_gap_count: int
+    deduped_query_count: int
+    cases: tuple[GapReplayCase, ...]
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "root_cause": self.root_cause,
+            "matched_gap_count": self.matched_gap_count,
+            "deduped_query_count": self.deduped_query_count,
+            "cases": [case.to_dict() for case in self.cases],
+        }
+
+
+@dataclass(frozen=True)
 class _GapFeatures:
     gap: GapRecord
     normalized_text: str
@@ -136,6 +173,58 @@ def build_gap_cluster_report(
         total_gaps=len(gaps),
         cluster_count=len(clusters),
         clusters=tuple(clusters),
+    )
+
+
+def build_gap_replay_cohort(
+    brain_dir: Path,
+    *,
+    root_cause: str,
+    limit: int | None = None,
+) -> GapReplayCohort:
+    """Export deduped gap prompts for regression replay by operational root cause."""
+    report = build_gap_cluster_report(brain_dir)
+    gap_by_id = {gap.gap_id: gap for gap in iter_gap_records(brain_dir)}
+    matched_gap_count = 0
+    seen_queries: set[str] = set()
+    cases: list[GapReplayCase] = []
+
+    for cluster in report.clusters:
+        if cluster.profile.root_cause != root_cause:
+            continue
+        matched_gap_count += len(cluster.gap_ids)
+        for gap_id in cluster.gap_ids:
+            gap = gap_by_id.get(gap_id)
+            if gap is None:
+                continue
+            query_key = gap.normalized_query or gap.query
+            if query_key in seen_queries:
+                continue
+            seen_queries.add(query_key)
+            if limit is not None and len(cases) >= max(0, limit):
+                continue
+            cases.append(
+                GapReplayCase(
+                    gap_id=gap.gap_id,
+                    cluster_id=cluster.cluster_id,
+                    query=gap.query,
+                    normalized_query=gap.normalized_query,
+                    reason=gap.reason,
+                    evidence=gap.evidence,
+                    adapter=gap.adapter,
+                    session_id=gap.session_id,
+                    cwd=gap.cwd,
+                    expected_root_cause=cluster.profile.root_cause,
+                    expected_owner=cluster.profile.suggested_owner,
+                    expected_risk=cluster.profile.risk_level,
+                )
+            )
+
+    return GapReplayCohort(
+        root_cause=root_cause,
+        matched_gap_count=matched_gap_count,
+        deduped_query_count=len(seen_queries),
+        cases=tuple(cases),
     )
 
 
@@ -318,5 +407,8 @@ __all__ = [
     "GapCluster",
     "GapClusterProfile",
     "GapClusterReport",
+    "GapReplayCase",
+    "GapReplayCohort",
     "build_gap_cluster_report",
+    "build_gap_replay_cohort",
 ]

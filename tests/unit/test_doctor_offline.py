@@ -15,6 +15,23 @@ def test_doctor_reports_pending_depth(tmp_brain):
     assert rep.checks["pending.depth"] == 1
 
 
+def test_doctor_reports_broken_memory_cli_shim(tmp_brain, tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    shim = home / ".local" / "bin" / "memory"
+    target = tmp_path / "deleted" / ".venv" / "bin" / "memory"
+    shim.parent.mkdir(parents=True)
+    shim.write_text(f'#!/bin/sh\nexec "{target}" "$@"\n', encoding="utf-8")
+    shim.chmod(0o755)
+    monkeypatch.setenv("HOME", str(home))
+
+    rep = run_doctor(offline=True)
+
+    assert rep.checks["cli.shim.present"] is True
+    assert rep.checks["cli.shim.target_exists"] is False
+    assert rep.details["cli.shim.target"] == str(target)
+    assert rep.overall == "DEGRADED"
+
+
 def test_doctor_reports_malformed_item_count(tmp_brain):
     bad = tmp_brain / "items" / "bad.md"
     bad.write_text("missing frontmatter\n", encoding="utf-8")

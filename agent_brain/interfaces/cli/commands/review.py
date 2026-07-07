@@ -8,6 +8,47 @@ from agent_brain.interfaces.cli._app import review_app
 from agent_brain.interfaces.cli._shared import HubIndex, Table, _brain_dir, _resolve_id, _store_only, console, typer
 
 
+@review_app.command(name="status")
+def review_status(
+    output_format: str = typer.Option(
+        "table",
+        "--format",
+        help="Output format: table or json",
+    ),
+) -> None:
+    """Summarize review and pending queue backlog without changing data."""
+    from agent_brain.memory.governance.review_queue import list_review_candidates
+    from agent_brain.memory.store.pending import PendingQueue
+
+    review = list_review_candidates(_store_only())
+    queue = PendingQueue()
+    pending_dead_dir = _brain_dir() / "pending" / "dead"
+    pending_dead = len(list(pending_dead_dir.glob("*.jsonl"))) if pending_dead_dir.exists() else 0
+    recommended_next = (
+        "review list --format json"
+        if review.total
+        else ("sync-pending --dry-run --format json" if queue.depth() or pending_dead else "none")
+    )
+    data = {
+        "review_total": review.total,
+        "pending_depth": queue.depth(),
+        "pending_dead": pending_dead,
+        "recommended_next": recommended_next,
+    }
+    if output_format == "json":
+        typer.echo(json.dumps(data, ensure_ascii=False, indent=2, sort_keys=True))
+        return
+
+    table = Table(title="Memory Review Status")
+    table.add_column("metric")
+    table.add_column("value", justify="right")
+    table.add_row("review_total", str(data["review_total"]))
+    table.add_row("pending_depth", str(data["pending_depth"]))
+    table.add_row("pending_dead", str(data["pending_dead"]))
+    table.add_row("recommended_next", str(data["recommended_next"]))
+    console.print(table)
+
+
 @review_app.command(name="list")
 def review_list(
     output_format: str = typer.Option(
@@ -81,7 +122,7 @@ def _update_index_confidence(item_id: str, confidence: float) -> None:
         pass
 
 
-__all__ = ["review_approve", "review_list", "review_reject"]
+__all__ = ["review_approve", "review_list", "review_reject", "review_status"]
 
 
 @review_app.command(name="generate-semantic")

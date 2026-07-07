@@ -237,3 +237,45 @@ def test_recall_gap_cluster_json_includes_profile(tmp_path: Path) -> None:
     assert profile["risk_level"] == "medium"
     assert profile["suggested_owner"] == "retrieval-policy"
     assert "query gate" in " ".join(profile["exclusions"])
+
+
+def test_recall_gap_replay_cohort_filters_root_cause_and_dedupes_queries(
+    tmp_path: Path,
+) -> None:
+    from agent_brain.memory.governance.recall_events import record_gap
+    from agent_brain.memory.governance.recall_gap_clustering import build_gap_replay_cohort
+
+    first = record_gap(
+        tmp_path,
+        query="验证",
+        reason="query_not_injectable",
+        evidence=["query_signal:too_weak", "terms=验证"],
+        adapter="codex",
+        cwd="/repo",
+    )
+    record_gap(
+        tmp_path,
+        query="验证",
+        reason="query_not_injectable",
+        evidence=["query_signal:too_weak", "duplicate"],
+    )
+    record_gap(
+        tmp_path,
+        query="browser permission fixed but stale memory still says unavailable",
+        reason="only_rejected",
+    )
+
+    cohort = build_gap_replay_cohort(
+        tmp_path,
+        root_cause="query_gate_underqualified",
+        limit=10,
+    )
+    data = cohort.to_dict()
+
+    assert data["matched_gap_count"] == 2
+    assert data["deduped_query_count"] == 1
+    assert data["cases"][0]["gap_id"] == first.gap_id
+    assert data["cases"][0]["query"] == "验证"
+    assert data["cases"][0]["expected_root_cause"] == "query_gate_underqualified"
+    assert data["cases"][0]["expected_owner"] == "retrieval-policy"
+    assert data["cases"][0]["adapter"] == "codex"
