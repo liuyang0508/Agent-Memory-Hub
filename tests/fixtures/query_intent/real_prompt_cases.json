@@ -85,5 +85,37 @@
     "expected_reason": "unanchored_mixed_scope",
     "expected_keywords": "",
     "description": "Mixed branch confirmation should not become a malformed CJK/ASCII keyphrase."
+  },
+  {
+    "prompt": "[Image #1]新增这两个接口的理由给我，因为我之前理解既然只是扩展了数据结构{\n  \"defaultSceneIdentify\": \"ZTJD\",\n  \"installStatus\": \"\",\n  \"sceneEvaluationType\": {\n    \"ZTJD\": \"quantitative\"\n  },\n  \"serviceQualityScoreConfig\": {\n    \"ZTJD\": {\n      \"convertToPercentage\": true\n    }\n  }\n}\n\n不应该是复用原来的接口吗",
+    "expected_decision": "inject_allowed",
+    "expected_keywords_prefix": "新增接口|复用接口|数据结构|servicequalityscoreconfig",
+    "expected_anchors": ["json_field", "structured_cjk_focus"],
+    "expected_weak_noise": ["因为我之前理解既然只是扩展了数据结构"],
+    "forbidden_keywords": ["true"],
+    "description": "JSON boolean literals should not become the visible hook keyword for long Chinese interface questions."
+  },
+  {
+    "prompt": "这段代码为什么没复用原来的接口？\nconst config = { defaultSceneIdentify: \"ZTJD\", serviceQualityScoreConfig: { ZTJD: { convertToPercentage: true } } };\n需要新增 saveServiceQualityScoreConfig 吗",
+    "expected_decision": "inject_allowed",
+    "expected_keywords_prefix": "复用接口|新增接口|servicequalityscoreconfig|defaultsceneidentify",
+    "expected_anchors": ["json_field", "structured_cjk_focus"],
+    "forbidden_keywords": ["true", "const"],
+    "description": "JS/TS object literal fields should be treated like structured config anchors; code syntax and boolean literals stay non-semantic."
+  },
+  {
+    "prompt": "SessionStart hook failed error: hook exited with code 127 Stop hook failed error zsh:1 no such file or directory lifecycle-event.sh 现在钩子一直失败，是不是你改出的问题",
+    "expected_decision": "inject_allowed",
+    "expected_keywords": "sessionstart|hook|lifecycle-event.sh",
+    "expected_anchors": ["file_or_module", "runtime_ascii"],
+    "forbidden_keywords": ["127", "true"],
+    "description": "Hook failure logs should keep runtime/file anchors, not numeric exit-code noise."
+  },
+  {
+    "prompt": "Run /review on my current changes",
+    "expected_decision": "block",
+    "expected_reason": "generic_command_without_topic",
+    "expected_keywords": "",
+    "description": "Pure slash-command style prompts should not recall generic run/review/current/change memories."
   }
 ]

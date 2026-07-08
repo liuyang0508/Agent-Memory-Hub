@@ -71,6 +71,10 @@ def test_query_intent_real_prompt_regression_cases(fixtures_dir: Path, tmp_brain
             assert diagnostic["reason"] == case["expected_reason"], case["description"]
         if "expected_keywords" in case:
             assert diagnostic["keywords"] == case["expected_keywords"], case["description"]
+        if "expected_keywords_prefix" in case:
+            assert diagnostic["keywords"].startswith(case["expected_keywords_prefix"]), case["description"]
+        for forbidden in case.get("forbidden_keywords", []):
+            assert forbidden not in diagnostic["keywords"].split("|"), case["description"]
         for anchor in case.get("expected_anchors", []):
             assert anchor in diagnostic["anchors"], case["description"]
         for weak_noise in case.get("expected_weak_noise", []):

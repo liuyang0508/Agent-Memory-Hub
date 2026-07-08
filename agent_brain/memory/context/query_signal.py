@@ -18,6 +18,9 @@ _TOKEN_RE = re.compile(r"[A-Za-z0-9_+.-]+|[\u4e00-\u9fff]+", re.UNICODE)
 _JSONISH_FIELD_RE = re.compile(
     r"""["']([A-Za-z][A-Za-z0-9_+.-]{2,})["']\s*:""",
 )
+_JS_OBJECT_FIELD_RE = re.compile(
+    r"""(?<=[{,])\s*([A-Za-z][A-Za-z0-9_+.-]{2,})\s*:""",
+)
 _CJK_METADATA_SPLIT_RE = re.compile(
     r"[\s:：,，.。?？!！/\\（）()\[\]【】「」『』、]+"
 )
@@ -165,6 +168,19 @@ _ASCII_LITERAL_STOPWORDS = {
     "none",
     "true",
 }
+_GENERIC_COMMAND_TERMS = {
+    "change",
+    "changes",
+    "current",
+    "review",
+    "run",
+    "status",
+}
+_SLASH_COMMAND_PROMPT_RE = re.compile(
+    r"^\s*(?:please\s+)?(?:run\s+)?/[A-Za-z][A-Za-z0-9_-]*"
+    r"(?:\s+(?:on\s+)?(?:my\s+)?(?:current\s+)?changes?)?\s*$",
+    re.IGNORECASE,
+)
 _CJK_CONFIRMATION_OPERATOR_RE = re.compile(
     r"(?:是否|是不是|有没有|全部|吗)"
 )
@@ -506,6 +522,12 @@ def analyze_injection_query(
             False, "test_status_without_topic", specificity,
             "block", anchors_tuple, tuple([*trace, "block:test_status_without_topic"]),
         )
+    if _generic_command_without_topic(prompt, terms, anchors_tuple):
+        return QuerySignal(
+            tuple(terms), tuple(strong_terms), tuple(weak_terms),
+            False, "generic_command_without_topic", specificity,
+            "block", anchors_tuple, tuple([*trace, "block:generic_command_without_topic"]),
+        )
     if _unanchored_mixed_scope_without_semantic_anchor(prompt, terms, anchors_tuple, weak_terms):
         return QuerySignal(
             tuple(terms), tuple(strong_terms), tuple(weak_terms),
@@ -798,11 +820,12 @@ def _prompt_keyphrase_terms(prompt: str) -> list[str]:
 
 def _jsonish_field_terms(prompt: str) -> list[str]:
     positions: dict[str, int] = {}
-    for match in _JSONISH_FIELD_RE.finditer(prompt):
-        term = _normalize_jsonish_identifier(match.group(1))
-        if not _is_jsonish_field_anchor(term):
-            continue
-        positions.setdefault(term, match.start())
+    for pattern in (_JSONISH_FIELD_RE, _JS_OBJECT_FIELD_RE):
+        for match in pattern.finditer(prompt):
+            term = _normalize_jsonish_identifier(match.group(1))
+            if not _is_jsonish_field_anchor(term):
+                continue
+            positions.setdefault(term, match.start())
     return [
         term
         for term, _pos in sorted(
@@ -862,11 +885,18 @@ def _structured_cjk_focus_terms(prompt: str, anchor_terms: list[str]) -> list[st
         return []
     compact = re.sub(r"\s+", "", prompt)
     terms: list[str] = []
+
+    def position(term: str) -> int:
+        return compact.find(term)
+
     if "接口" in compact:
-        if "新增" in compact:
-            _append_unique(terms, "新增接口")
-        if "复用" in compact:
-            _append_unique(terms, "复用接口")
+        interface_terms: list[tuple[str, int]] = []
+        for term, marker in (("新增接口", "新增"), ("复用接口", "复用")):
+            pos = position(marker)
+            if pos >= 0:
+                interface_terms.append((term, pos))
+        for term, _pos in sorted(interface_terms, key=lambda item: (item[1], item[0])):
+            _append_unique(terms, term)
         if not terms and "理由" in compact:
             _append_unique(terms, "接口理由")
     if "数据结构" in compact:
@@ -1501,6 +1531,18 @@ def _test_status_without_topic(
         return False
     allowed = _TEST_STATUS_ASCII_TERMS | _TEST_STATUS_CONTEXT_ASCII_TERMS
     return all(term.lower() in allowed or term.isdigit() for term in terms)
+
+
+def _generic_command_without_topic(
+    prompt: str,
+    terms: list[str],
+    anchors: tuple[str, ...],
+) -> bool:
+    if anchors or not terms:
+        return False
+    if not _SLASH_COMMAND_PROMPT_RE.fullmatch(prompt.strip()):
+        return False
+    return all(_is_ascii(term) and term.lower() in _GENERIC_COMMAND_TERMS for term in terms)
 
 
 def _unanchored_mixed_scope_without_semantic_anchor(
