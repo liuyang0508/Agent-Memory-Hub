@@ -48,6 +48,11 @@ def doctor(
         "--apply",
         help="Actually apply --repair-malformed quarantine moves or --restore-malformed restore",
     ),
+    fix: bool = typer.Option(
+        False,
+        "--fix",
+        help="Repair install-time drift: CLI shim and core hook adapters",
+    ),
 ) -> None:
     """Run diagnostic checks on the Agent Memory Hub installation."""
     import shutil
@@ -55,6 +60,14 @@ def doctor(
     from rich.table import Table
 
     console = Console()
+
+    if fix and offline:
+        typer.echo("--fix cannot be combined with --offline", err=True)
+        raise typer.Exit(2)
+
+    if fix and (repair_malformed or restore_malformed or apply_repair):
+        typer.echo("--fix cannot be combined with malformed-item repair options", err=True)
+        raise typer.Exit(2)
 
     if repair_malformed and restore_malformed:
         typer.echo("--repair-malformed and --restore-malformed are mutually exclusive", err=True)
@@ -77,6 +90,25 @@ def doctor(
             apply_repair=apply_repair,
         )
         return
+
+    repair_failed = False
+    if fix:
+        from agent_brain.platform import install_repair
+
+        actions = install_repair.repair_installation(
+            brain_dir=Path(os.environ.get("BRAIN_DIR", os.path.expanduser("~/.agent-memory-hub"))),
+        )
+        repair_failed = install_repair.has_failures(actions)
+        repair_table = Table(title="Installation Repair")
+        repair_table.add_column("Action")
+        repair_table.add_column("Status")
+        repair_table.add_column("Detail")
+        for action in actions:
+            status = action.status
+            style = "green" if status in {"ok", "fixed"} else ("yellow" if status == "dry-run" else "red")
+            repair_table.add_row(action.name, f"[{style}]{status}[/{style}]", action.detail)
+        console.print(repair_table)
+        console.print("")
 
     console.print("[bold]Agent Memory Hub Doctor[/bold]\n")
     checks: list[tuple[str, str, str]] = []
@@ -183,6 +215,8 @@ def doctor(
 
     ok_count = sum(1 for _, _, s in checks if s == "OK")
     console.print(f"\n[bold]{ok_count}/{len(checks)} checks passed[/bold]")
+    if repair_failed:
+        raise typer.Exit(1)
 
 
 __all__ = ["doctor"]

@@ -73,6 +73,15 @@ npm are installer distribution channels; GitHub Release assets, npm publish, and
 the Homebrew tap/cask must be published separately. See
 [Release Publishing](./docs/release-publishing.md).
 
+AMH does not update itself from hooks. If a checkout moves, a release is
+refreshed, or `memory doctor` reports stale hook paths, repair explicitly:
+
+```bash
+memory doctor --fix
+memory self-update --dry-run
+memory self-update --repair-hooks
+```
+
 ### 2. Self-check, Uninstall, And Data Boundary
 
 Run the non-mutating self-check before or after install:

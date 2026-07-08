@@ -23,6 +23,7 @@ from agent_brain.interfaces.cli._shared import (  # noqa: F401
 from agent_brain.interfaces.cli.commands.crud import *  # noqa: F401,F403
 from agent_brain.interfaces.cli.commands.links import *  # noqa: F401,F403
 from agent_brain.interfaces.cli.commands.query import *  # noqa: F401,F403
+from agent_brain.interfaces.cli.commands.update import *  # noqa: F401,F403
 from agent_brain.interfaces.cli.commands.batch import *  # noqa: F401,F403
 from agent_brain.interfaces.cli.commands.doctor import *  # noqa: F401,F403
 from agent_brain.interfaces.cli.commands.gc import *  # noqa: F401,F403

@@ -178,6 +178,16 @@ memory doctor
 
 `memory doctor` 用来确认 CLI、数据目录、索引、hook / MCP 依赖是否可用。doctor 通过后，再继续写入和召回。
 
+AMH 不会在 hook 里静默联网更新。换版本、移动 checkout、重装 release，或者 doctor 提示 hook path / `memory` shim 指向旧目录时，用显式命令修复：
+
+```bash
+memory doctor --fix
+memory self-update --dry-run
+memory self-update --repair-hooks
+```
+
+`doctor --fix` 只修安装态漂移：重写 `~/.local/bin/memory` shim，并重装 Codex / Claude Code 这类核心 hook adapter。`self-update --dry-run` 只展示计划；`self-update --repair-hooks` 会基于当前 checkout 刷新安装状态和核心 hook。
+
 ### 3. 写入一条可复用记忆
 
 ```bash
@@ -1221,6 +1231,16 @@ cd ~/agent-memory-hub
 ```
 
 对外只有一个主安装入口：`install.sh`。通过 `curl` 运行时，它负责拉取或更新仓库；在源码目录里运行时，它负责安装 CLI、Web Admin、hooks、MCP server 和 `/remember`。Homebrew 和 npm 只是安装器分发渠道；GitHub Release asset、npm package、Homebrew tap/cask 需要分别发布。发布步骤见 [Release Publishing](./docs/release-publishing.md)。
+
+显式修复安装态漂移：
+
+```bash
+memory doctor --fix
+memory self-update --dry-run
+memory self-update --repair-hooks
+```
+
+这些命令不会从 hook 自动触发；如果要更新代码版本，先更新 release/checkout，再运行 `self-update` 刷新本机安装态。
 
 ### 自检命令全集
 

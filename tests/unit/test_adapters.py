@@ -602,7 +602,7 @@ class TestClaudeCodeAdapterRealInstall:
             "agent_runtime_kit/hooks/inject-context.sh"
         )
         worktree_script = (
-            "/Users/liuyang/.config/superpowers/worktrees/agent-memory-hub/old/"
+            "/home/example/.config/superpowers/worktrees/agent-memory-hub/old/"
             "agent_runtime_kit/hooks/inject-context.sh"
         )
         settings_path = tmp_path / ".claude" / "settings.json"
