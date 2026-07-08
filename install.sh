@@ -279,6 +279,12 @@ prefixes = [
     f"{code_dir}/agent_runtime_kit/hooks",
     f"{code_dir}/brain/hooks",
 ]
+hub_hook_scripts = {
+    "inject-discipline.sh",
+    "inject-context.sh",
+    "session-end-signal.sh",
+    "lifecycle-event.sh",
+}
 
 
 def references_prefix(command: str, prefix: str) -> bool:
@@ -291,12 +297,26 @@ def references_prefix(command: str, prefix: str) -> bool:
     return any(token.startswith(prefix) for token in tokens)
 
 
+def references_hub_hook(command: str) -> bool:
+    try:
+        tokens = shlex.split(command)
+    except ValueError:
+        tokens = command.split()
+    suffixes = tuple(
+        f"{marker}{script}"
+        for marker in ("/agent_runtime_kit/hooks/", "/brain/hooks/")
+        for script in hub_hook_scripts
+    )
+    return any(token.endswith(suffix) for token in tokens for suffix in suffixes)
+
+
 def entry_is_hub_owned(entry: dict) -> bool:
     entry_hooks = entry.get("hooks") or []
     if not entry_hooks:
         return False
     return all(
-        any(references_prefix(str(hook.get("command", "")), prefix) for prefix in prefixes)
+        references_hub_hook(str(hook.get("command", "")))
+        or any(references_prefix(str(hook.get("command", "")), prefix) for prefix in prefixes)
         for hook in entry_hooks
     )
 
@@ -488,6 +508,18 @@ def references_path(command: str, path: str) -> bool:
     return path in tokens
 
 
+def references_hub_script(command: str, script_name: str) -> bool:
+    try:
+        tokens = shlex.split(command)
+    except ValueError:
+        tokens = command.split()
+    suffixes = (
+        f"/agent_runtime_kit/hooks/{script_name}",
+        f"/brain/hooks/{script_name}",
+    )
+    return any(token.endswith(suffix) for token in tokens for suffix in suffixes)
+
+
 changed = 0
 added = 0
 for event, script in specs.items():
@@ -515,6 +547,39 @@ for event, script in specs.items():
             "hooks": [{"type": "command", "command": expected}],
         })
         added += 1
+
+    kept_current = False
+    kept_entries = []
+    for entry in entries:
+        entry_hooks = entry.get("hooks")
+        if not isinstance(entry_hooks, list):
+            kept_entries.append(entry)
+            continue
+        filtered_hooks = []
+        for hook in entry_hooks:
+            if not isinstance(hook, dict):
+                filtered_hooks.append(hook)
+                continue
+            command = str(hook.get("command", ""))
+            references_current = references_path(command, current) or references_path(command, legacy)
+            if references_current and not kept_current:
+                filtered_hooks.append(hook)
+                kept_current = True
+                continue
+            if references_hub_script(command, script):
+                changed += 1
+                continue
+            filtered_hooks.append(hook)
+        if filtered_hooks:
+            if len(filtered_hooks) != len(entry_hooks):
+                updated_entry = dict(entry)
+                updated_entry["hooks"] = filtered_hooks
+                kept_entries.append(updated_entry)
+            else:
+                kept_entries.append(entry)
+        elif entry_hooks:
+            changed += 1
+    hooks[event] = kept_entries
 
 tmp = settings_path.with_suffix(settings_path.suffix + ".tmp")
 tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")

@@ -12,6 +12,10 @@ HOOK_COMMAND_PATH_PREFIX = (
 )
 HOOK_COMMAND_FIXED_PATH_PREFIX = f"PATH={HOOK_COMMAND_PATH_VALUE}"
 POSIX_PATH_EXPANSION = "${PATH:+:$PATH}"
+HUB_HOOK_DIR_MARKERS = (
+    "/agent_runtime_kit/hooks/",
+    "/brain/hooks/",
+)
 
 
 def read_json_config(path: Path) -> dict:
@@ -64,6 +68,73 @@ def hook_script_present(entries: list, script_path: str) -> bool:
             if any(command_references_path(hook.get("command", ""), path) for path in script_paths):
                 return True
     return False
+
+
+def command_references_hub_hook_script(command: str, script_name: str) -> bool:
+    """True if a command points at a named AMH hook script in any checkout."""
+    suffixes = tuple(f"{marker}{script_name}" for marker in HUB_HOOK_DIR_MARKERS)
+    return any(
+        token.endswith(suffix)
+        for token in command_tokens(command)
+        for suffix in suffixes
+    )
+
+
+def prune_duplicate_hub_hook_handlers(
+    entries: list,
+    script_path: str,
+    *,
+    keep_entry: dict | None = None,
+) -> bool:
+    """Remove stale AMH hook handlers for the same script across old checkouts.
+
+    Installers can be run from throwaway worktrees or release test checkouts. A
+    later install must keep the current hook path while removing prior AMH-owned
+    handlers for the same script, otherwise Codex/Claude may execute the stale
+    handler first and fail with exit code 127 after the temp directory is gone.
+    """
+    changed = False
+    script_paths = hook_script_aliases(script_path)
+    script_name = Path(script_path).name
+    kept_current = False
+    kept_entries: list = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            kept_entries.append(entry)
+            continue
+        hooks = entry.get("hooks", [])
+        if not isinstance(hooks, list):
+            kept_entries.append(entry)
+            continue
+        filtered_hooks: list = []
+        for hook in hooks:
+            if not isinstance(hook, dict):
+                filtered_hooks.append(hook)
+                continue
+            command = str(hook.get("command", ""))
+            references_current = any(command_references_path(command, path) for path in script_paths)
+            references_named_hub_script = command_references_hub_hook_script(command, script_name)
+            can_keep_current = keep_entry is None or entry is keep_entry
+            if references_current and can_keep_current and not kept_current:
+                filtered_hooks.append(hook)
+                kept_current = True
+                continue
+            if references_named_hub_script:
+                changed = True
+                continue
+            filtered_hooks.append(hook)
+        if filtered_hooks:
+            if filtered_hooks != hooks:
+                updated = dict(entry)
+                updated["hooks"] = filtered_hooks
+                kept_entries.append(updated)
+            else:
+                kept_entries.append(entry)
+        elif hooks:
+            changed = True
+    if changed:
+        entries[:] = kept_entries
+    return changed
 
 
 def update_hook_command(
@@ -162,6 +233,7 @@ def command_tokens(command: str) -> list[str]:
 __all__ = [
     "adapter_hook_command",
     "atomic_write_json",
+    "command_references_hub_hook_script",
     "command_references_path",
     "command_references_prefix",
     "command_tokens",
@@ -175,6 +247,7 @@ __all__ = [
     "hook_script_aliases",
     "legacy_hook_path",
     "POSIX_PATH_EXPANSION",
+    "prune_duplicate_hub_hook_handlers",
     "read_json_config",
     "update_hook_command",
 ]

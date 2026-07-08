@@ -589,6 +589,49 @@ class TestClaudeCodeAdapterRealInstall:
         assert any("agent_runtime_kit/hooks/inject-context.sh" in command for command in commands)
         assert not any("/brain/hooks/inject-context.sh" in command for command in commands)
 
+    def test_install_prunes_stale_claude_hook_checkouts(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("HOME", str(tmp_path))
+        from agent_brain.agent_integrations import claude_code as cc_mod
+        monkeypatch.setattr(cc_mod, "SETTINGS_PATH", tmp_path / ".claude" / "settings.json")
+        monkeypatch.setattr(cc_mod, "AWARENESS_PATH", tmp_path / ".claude" / "CLAUDE.md")
+
+        repo = Path(__file__).resolve().parents[2]
+        current_script = repo / "agent_runtime_kit" / "hooks" / "inject-context.sh"
+        stale_script = (
+            "/private/var/folders/example/T/amh-bench-XXXXXX.old/agent-memory-hub/"
+            "agent_runtime_kit/hooks/inject-context.sh"
+        )
+        worktree_script = (
+            "/Users/liuyang/.config/superpowers/worktrees/agent-memory-hub/old/"
+            "agent_runtime_kit/hooks/inject-context.sh"
+        )
+        settings_path = tmp_path / ".claude" / "settings.json"
+        settings_path.parent.mkdir(parents=True)
+        settings_path.write_text(json.dumps({
+            "hooks": {
+                "UserPromptSubmit": [
+                    {"matcher": "", "hooks": [{"type": "command", "command": stale_script}]},
+                    {"matcher": "", "hooks": [{"type": "command", "command": "~/.claude/hooks/guard.sh"}]},
+                    {"matcher": "", "hooks": [{"type": "command", "command": str(current_script)}]},
+                    {"matcher": "", "hooks": [{"type": "command", "command": worktree_script}]},
+                ],
+            },
+        }))
+
+        adapter = cc_mod.ClaudeCodeAdapter(brain_dir=tmp_path / ".brain")
+        adapter.install()
+
+        settings = json.loads(settings_path.read_text(encoding="utf-8"))
+        commands = [
+            hook["command"]
+            for entry in settings["hooks"]["UserPromptSubmit"]
+            for hook in entry.get("hooks", [])
+        ]
+        assert sum("agent_runtime_kit/hooks/inject-context.sh" in command for command in commands) == 1
+        assert any("~/.claude/hooks/guard.sh" in command for command in commands)
+        assert not any("amh-bench-XXXXXX.old" in command for command in commands)
+        assert not any("superpowers/worktrees/agent-memory-hub/old" in command for command in commands)
+
     def test_uninstall_removes_only_hub_hooks(self, tmp_path, monkeypatch):
         monkeypatch.setenv("HOME", str(tmp_path))
         from agent_brain.agent_integrations import claude_code as cc_mod
@@ -1161,6 +1204,44 @@ class TestCodexAdapterRealInstall:
         assert len(entries) == 1
         assert any("agent_runtime_kit/hooks/inject-context.sh" in command for command in commands)
         assert not any("/brain/hooks/inject-context.sh" in command for command in commands)
+
+    def test_install_codex_hooks_prunes_stale_checkout_duplicate(self, tmp_path, monkeypatch):
+        from agent_brain.agent_integrations import codex as cx_mod
+        monkeypatch.setattr(cx_mod, "AGENTS_MD", tmp_path / ".codex" / "AGENTS.md")
+        monkeypatch.setattr(cx_mod, "CODEX_HOOKS_JSON", tmp_path / ".codex" / "hooks.json")
+        monkeypatch.setattr(cx_mod, "CODEX_CONFIG_TOML", tmp_path / ".codex" / "config.toml")
+
+        repo = Path(__file__).resolve().parents[2]
+        current_script = repo / "agent_runtime_kit" / "hooks" / "inject-context.sh"
+        stale_script = (
+            "/private/var/folders/example/T/amh-bench-XXXXXX.old/agent-memory-hub/"
+            "agent_runtime_kit/hooks/inject-context.sh"
+        )
+        hooks_json = tmp_path / ".codex" / "hooks.json"
+        hooks_json.parent.mkdir(parents=True)
+        hooks_json.write_text(json.dumps({
+            "hooks": {
+                "UserPromptSubmit": [
+                    {
+                        "hooks": [
+                            {"type": "command", "command": stale_script, "timeout": 10},
+                            {"type": "command", "command": str(current_script), "timeout": 10},
+                            {"type": "command", "command": "~/.codex/hooks/guard-prompt.sh"},
+                        ],
+                    },
+                ],
+            },
+        }))
+
+        adapter = cx_mod.CodexAdapter(brain_dir=tmp_path / ".brain")
+        adapter.install()
+
+        hooks = json.loads(hooks_json.read_text(encoding="utf-8"))["hooks"]
+        commands = [hook["command"] for hook in hooks["UserPromptSubmit"][0]["hooks"]]
+        assert "agent_runtime_kit/hooks/inject-context.sh" in commands[0]
+        assert sum("agent_runtime_kit/hooks/inject-context.sh" in command for command in commands) == 1
+        assert any("~/.codex/hooks/guard-prompt.sh" in command for command in commands)
+        assert not any("amh-bench-XXXXXX.old" in command for command in commands)
 
     def test_install_codex_hooks_repairs_wrong_hub_script_for_event(self, tmp_path, monkeypatch):
         from agent_brain.agent_integrations import codex as cx_mod

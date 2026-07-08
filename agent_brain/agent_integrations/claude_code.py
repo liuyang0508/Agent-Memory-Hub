@@ -39,6 +39,7 @@ from .hook_config import (
     hook_already_present as _hook_already_present,  # noqa: F401 - re-exported for adapter split tests
     hook_belongs_to as _hook_belongs_to,
     hook_script_present as _hook_script_present,
+    prune_duplicate_hub_hook_handlers as _prune_duplicate_hub_hook_handlers,
     read_json_config as _read_settings,
     update_hook_command as _update_hook_command,
 )
@@ -114,15 +115,20 @@ class ClaudeCodeAdapter(AdapterBase):
             script = self.hooks_dir / self.HOOK_SCRIPTS[event]
             existing = settings["hooks"].setdefault(event, [])
             command = _adapter_hook_command("claude_code", script)
+            event_changed = False
             if _hook_script_present(existing, str(script)):
                 if _update_hook_command(existing, str(script), command):
-                    changed_events.append(event)
-                continue
-            existing.append({
-                "matcher": "",
-                "hooks": [{"type": "command", "command": command}],
-            })
-            changed_events.append(event)
+                    event_changed = True
+            else:
+                existing.append({
+                    "matcher": "",
+                    "hooks": [{"type": "command", "command": command}],
+                })
+                event_changed = True
+            if _prune_duplicate_hub_hook_handlers(existing, str(script)):
+                event_changed = True
+            if event_changed:
+                changed_events.append(event)
 
         mcp_changed = self._install_mcp_server(settings)
         _atomic_write_settings(SETTINGS_PATH, settings)

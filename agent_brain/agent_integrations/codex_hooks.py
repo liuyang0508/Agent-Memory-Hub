@@ -12,6 +12,7 @@ from .hook_config import (
     hook_dir_aliases,
     hook_script_aliases,
     hook_script_present,
+    prune_duplicate_hub_hook_handlers,
     read_json_config,
     update_hook_command,
 )
@@ -142,32 +143,7 @@ def _matching_entry(entries: list, matcher: str) -> dict | None:
 
 
 def _remove_duplicate_script_hooks(entries: list, target: dict, script_path: str) -> bool:
-    changed = False
-    script_paths = hook_script_aliases(script_path)
-    kept_entries: list = []
-    for entry in entries:
-        if entry is target or not isinstance(entry, dict):
-            kept_entries.append(entry)
-            continue
-        original_hooks = entry.get("hooks", [])
-        if not isinstance(original_hooks, list):
-            kept_entries.append(entry)
-            continue
-        filtered = [
-            hook
-            for hook in original_hooks
-            if not any(command_references_path(hook.get("command", ""), path) for path in script_paths)
-        ]
-        if len(filtered) != len(original_hooks):
-            changed = True
-            if filtered:
-                entry["hooks"] = filtered
-                kept_entries.append(entry)
-            continue
-        kept_entries.append(entry)
-    if changed:
-        entries[:] = kept_entries
-    return changed
+    return prune_duplicate_hub_hook_handlers(entries, script_path, keep_entry=target)
 
 
 def _move_script_hook_first(entry: dict, script_path: str) -> bool:
