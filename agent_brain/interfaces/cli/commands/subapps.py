@@ -292,10 +292,26 @@ def maintenance_plan(
             lines.append(f"  - Reason: {action.reason}")
             if action.command:
                 lines.append(f"  - Command: `{action.command}`")
+            if action.details:
+                lines.append(
+                    "  - Details: "
+                    + "; ".join(
+                        f"{key}: {_markdown_detail_value(value)}"
+                        for key, value in action.details.items()
+                    )
+                )
         lines.append("")
 
     lines.append("dry-run: no memory items, conversations, or index rows were changed.")
     typer.echo("\n".join(lines))
+
+
+def _markdown_detail_value(value: object) -> str:
+    if isinstance(value, (dict, list)):
+        import json
+
+        return json.dumps(value, ensure_ascii=False, sort_keys=True)
+    return str(value)
 
 
 @govern_app.command("readiness")

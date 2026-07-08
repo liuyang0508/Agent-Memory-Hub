@@ -175,9 +175,11 @@ npm install -g agent-memory-hub
 ```bash
 memory doctor
 memory govern readiness --format markdown
+memory govern plan --category lifecycle --format markdown
 ```
 
 `memory doctor` 用来确认 CLI、数据目录、索引、hook / MCP 依赖是否可用。`memory govern readiness` 用来把发布可用性、长任务召回入口和记忆生命周期风险汇总成一张待治理表。doctor 通过后，再继续写入和召回。
+`memory govern plan --category lifecycle` 只生成 stale signal / handoff 的复核队列，不会自动归档或改写事实源。
 
 AMH 不会在 hook 里静默联网更新。换版本、移动 checkout、重装 release，或者 doctor 提示 hook path / `memory` shim 指向旧目录时，用显式命令修复：
 
@@ -221,6 +223,7 @@ memory read <memory-id> --view detail --head 2000
 |---|---|---|
 | `memory doctor` | CLI、数据目录、索引、hook/MCP 依赖是否可用。 | 本地大脑可运行。 |
 | `memory govern readiness --format markdown` | release assets、query signal 长任务抽词、stale signal/handoff。 | 当前机器的待治理项可见，不把风险藏在安装日志里。 |
+| `memory govern plan --category lifecycle --format markdown` | stale signal / handoff 的具体 item、年龄、阈值和建议动作。 | 生命周期欠账可分批 review；命令本身不自动 archive。 |
 | `memory search ... --context-firewall` | 输出里是否有 include/exclude、pack view、retrieve hint。 | 召回候选已经进入注入治理。 |
 | `memory read <id> --view detail --head 2000` | detail 是否可按提示回读。 | ContextPack 的 locator/overview/detail 不是一次性摘要，而是可逆分层加载。 |
 
@@ -460,6 +463,7 @@ AMH 把维护分成十一段：
 - index drift、pending backlog、recall gap、negative feedback。
 
 高风险动作不会悄悄改事实源。`memory govern plan` 会把动作分成 `safe_apply`、`review_required`、`blocked` 三条 lane；`memory evolve` 产生提案和候选，是否采用仍要经过明确命令或人工复核。
+只看短生命周期欠账时，用 `memory govern plan --category lifecycle --format markdown`；它会列出超过 30 天的 `signal` / `handoff`，并给出 `archive_or_supersede` 建议，但不会直接移动或删除 item。
 
 <a id="recall-flow"></a>
 
@@ -1836,6 +1840,7 @@ memory loop gate open <loop-id> --gate code_review --reason "需要人工复核"
 memory loop complete <loop-id> --evidence "tests passed"
 
 memory govern plan
+memory govern plan --category lifecycle --format markdown
 memory govern readiness --format markdown
 memory govern maturity
 memory sync-pending

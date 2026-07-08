@@ -117,6 +117,41 @@ def test_maintenance_plan_suppresses_duplicate_archive_proposals() -> None:
     assert payload["action_counts"] == {"review_archive": 1}
 
 
+def test_maintenance_plan_prefers_lifecycle_archive_over_generic_expired() -> None:
+    from agent_brain.memory.governance.maintenance_plan import build_maintenance_plan
+
+    item_id = "mem-20250101-000000-stale-signal"
+    report = AutoGovernanceReport(
+        scanned_items=1,
+        actions=[
+            AutoGovernanceAction(
+                action="review_archive",
+                risk="review_required",
+                title="Review stale signal",
+                reason="stale_signal_older_than_30_days",
+                item_ids=[item_id],
+                details={"issue_type": "stale_signal", "lifecycle_type": "signal"},
+            ),
+            AutoGovernanceAction(
+                action="review_archive",
+                risk="review_required",
+                title="Review expired",
+                reason="expired signal",
+                item_ids=[item_id],
+                details={"issue_type": "expired"},
+            ),
+        ],
+    )
+
+    payload = build_maintenance_plan(report).to_dict()
+
+    assert payload["raw_action_count"] == 2
+    assert payload["action_count"] == 1
+    assert payload["suppressed_action_count"] == 1
+    assert payload["lanes"][1]["actions"][0]["category"] == "lifecycle"
+    assert payload["category_counts"] == {"lifecycle": 1}
+
+
 def test_maintenance_plan_categorizes_review_quality_subtypes() -> None:
     from agent_brain.memory.governance.maintenance_plan import build_maintenance_plan
 
@@ -163,6 +198,44 @@ def test_maintenance_plan_categorizes_review_quality_subtypes() -> None:
         "near_duplicate": 1,
         "summary_too_long": 1,
     }
+
+
+def test_maintenance_plan_categorizes_stale_signal_archive_as_lifecycle() -> None:
+    from agent_brain.memory.governance.maintenance_plan import build_maintenance_plan
+
+    report = AutoGovernanceReport(
+        scanned_items=1,
+        actions=[
+            AutoGovernanceAction(
+                action="review_archive",
+                risk="review_required",
+                title="Review stale signal: hook warning",
+                reason="stale_signal_older_than_30_days",
+                item_ids=["mem-20260101-000000-stale-signal"],
+                details={
+                    "issue_type": "stale_signal",
+                    "lifecycle_type": "signal",
+                    "age_days": 60,
+                    "stale_after_days": 30,
+                    "recommended_action": "archive_or_supersede",
+                },
+            ),
+        ],
+    )
+
+    payload = build_maintenance_plan(report).to_dict()
+    action = payload["lanes"][1]["actions"][0]
+
+    assert action["category"] == "lifecycle"
+    assert action["details"] == {
+        "issue_type": "stale_signal",
+        "lifecycle_type": "signal",
+        "age_days": 60,
+        "stale_after_days": 30,
+        "recommended_action": "archive_or_supersede",
+    }
+    assert action["command"] == "memory govern plan --category lifecycle --format markdown"
+    assert payload["category_counts"] == {"lifecycle": 1}
 
 
 def test_maintenance_plan_filters_by_action_and_category() -> None:

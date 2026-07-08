@@ -328,7 +328,9 @@ def _memory_lifecycle_lane(brain_dir: Path) -> ReadinessLane:
         status=status,
         metrics=metrics,
         checks=checks,
-        next_actions=["memory govern plan --format markdown"] if status != "pass" else [],
+        next_actions=[
+            "memory govern plan --category lifecycle --format markdown"
+        ] if status != "pass" else [],
     )
 
 

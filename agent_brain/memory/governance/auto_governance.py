@@ -24,6 +24,10 @@ from agent_brain.memory.store.items_store import ItemsStore
 
 
 ActionRisk = Literal["safe_apply", "review_required", "blocked"]
+_LIFECYCLE_STALE_DAYS = {
+    "signal": 30,
+    "handoff": 30,
+}
 
 
 @dataclass(frozen=True)
@@ -106,6 +110,7 @@ class AutoGovernanceCycle:
         items = list(self.items_store.iter_all())
         actions: list[AutoGovernanceAction] = []
         actions.extend(self._maturity_actions(apply=apply))
+        actions.extend(self._lifecycle_actions(items))
         actions.extend(self._governance_actions())
         actions.extend(self._drift_actions())
         if self.include_evolve:
@@ -161,6 +166,35 @@ class AutoGovernanceCycle:
                     "reasons": list(score.reasons),
                 },
                 applied=applied,
+            ))
+        return actions
+
+    def _lifecycle_actions(
+        self,
+        items: list[tuple[Any, str]],
+    ) -> list[AutoGovernanceAction]:
+        actions: list[AutoGovernanceAction] = []
+        for item, _body in items:
+            item_type = memory_enum_value(item.type)
+            stale_after_days = _LIFECYCLE_STALE_DAYS.get(item_type)
+            if stale_after_days is None:
+                continue
+            age_days = max(0, (self.now - item.created_at).days)
+            if age_days <= stale_after_days:
+                continue
+            actions.append(AutoGovernanceAction(
+                action="review_archive",
+                risk="review_required",
+                title=f"Review stale {item_type}: {item.title}",
+                reason=f"stale_{item_type}_older_than_{stale_after_days}_days",
+                item_ids=[item.id],
+                details={
+                    "issue_type": f"stale_{item_type}",
+                    "lifecycle_type": item_type,
+                    "age_days": age_days,
+                    "stale_after_days": stale_after_days,
+                    "recommended_action": "archive_or_supersede",
+                },
             ))
         return actions
 

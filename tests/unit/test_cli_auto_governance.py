@@ -216,6 +216,118 @@ def test_govern_plan_summary_too_long_includes_rewrite_preview(
     assert unchanged.summary == long_text
 
 
+def test_govern_plan_lifecycle_category_reports_stale_signal_and_handoff(
+    tmp_brain_dir: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("BRAIN_DIR", str(tmp_brain_dir))
+    store = ItemsStore(tmp_brain_dir / "items")
+    stale_signal = MemoryItem(
+        id="mem-20260101-170007-cli-plan-stale-signal",
+        type=MemoryType.signal,
+        created_at=datetime.now(timezone.utc) - timedelta(days=60),
+        title="Stale hook signal",
+        summary="Stale hook signal summary",
+        tags=["runtime"],
+    )
+    stale_handoff = MemoryItem(
+        id="mem-20260101-170008-cli-plan-stale-handoff",
+        type=MemoryType.handoff,
+        created_at=datetime.now(timezone.utc) - timedelta(days=45),
+        title="Stale benchmark handoff",
+        summary="Stale benchmark handoff summary",
+        tags=["handoff"],
+    )
+    fresh_signal = MemoryItem(
+        id="mem-20260618-170009-cli-plan-fresh-signal",
+        type=MemoryType.signal,
+        created_at=datetime.now(timezone.utc) - timedelta(days=3),
+        title="Fresh hook signal",
+        summary="Fresh hook signal summary",
+        tags=["runtime"],
+    )
+    for item in (stale_signal, stale_handoff, fresh_signal):
+        store.write(item, f"{item.title}\nbody")
+
+    result = runner.invoke(
+        app,
+        [
+            "govern",
+            "plan",
+            "--format",
+            "json",
+            "--category",
+            "lifecycle",
+            "--no-index-repair",
+            "--no-evolve",
+            "--no-conversations",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["filters"] == {
+        "action": None,
+        "category": "lifecycle",
+    }
+    assert payload["action_counts"] == {"review_archive": 2}
+    assert payload["category_counts"] == {"lifecycle": 2}
+    actions = payload["lanes"][1]["actions"]
+    assert {action["item_ids"][0] for action in actions} == {
+        stale_signal.id,
+        stale_handoff.id,
+    }
+    assert {action["details"]["lifecycle_type"] for action in actions} == {
+        "signal",
+        "handoff",
+    }
+    assert all(
+        action["details"]["recommended_action"] == "archive_or_supersede"
+        for action in actions
+    )
+
+    unchanged, _ = store.get(stale_signal.id)
+    assert unchanged.title == stale_signal.title
+
+
+def test_govern_plan_lifecycle_markdown_includes_review_details(
+    tmp_brain_dir: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("BRAIN_DIR", str(tmp_brain_dir))
+    store = ItemsStore(tmp_brain_dir / "items")
+    item = MemoryItem(
+        id="mem-20260101-170010-cli-plan-stale-signal-markdown",
+        type=MemoryType.signal,
+        created_at=datetime.now(timezone.utc) - timedelta(days=60),
+        title="Stale markdown signal",
+        summary="Stale markdown signal summary",
+        tags=["runtime"],
+    )
+    store.write(item, "Stale markdown signal\nbody")
+
+    result = runner.invoke(
+        app,
+        [
+            "govern",
+            "plan",
+            "--format",
+            "markdown",
+            "--category",
+            "lifecycle",
+            "--no-index-repair",
+            "--no-evolve",
+            "--no-conversations",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "**review_archive** [lifecycle]" in result.output
+    assert "lifecycle_type: signal" in result.output
+    assert "stale_after_days: 30" in result.output
+    assert "recommended_action: archive_or_supersede" in result.output
+
+
 def test_govern_apply_summary_rewrites_dry_run_and_apply_and_rollback(
     tmp_brain_dir: Path,
     monkeypatch,

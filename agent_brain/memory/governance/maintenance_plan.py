@@ -196,7 +196,7 @@ def _compact_action(action: AutoGovernanceAction) -> MaintenancePlanAction:
         reason=action.reason,
         item_count=len(action.item_ids),
         item_ids=list(action.item_ids[:10]),
-        command=_command_for_action(action.action),
+        command=_command_for_action(action),
         details=_compact_details(action.details),
         applied=action.applied,
     )
@@ -219,6 +219,10 @@ def _compact_details(details: dict[str, object]) -> dict[str, Any]:
         "messages_to_rebalance",
         "recommended_distribution",
         "summary_rewrite",
+        "lifecycle_type",
+        "age_days",
+        "stale_after_days",
+        "recommended_action",
     }
     return {key: value for key, value in details.items() if key in keep_keys}
 
@@ -227,7 +231,7 @@ def _lane_command(risk: ActionRisk, actions: list[AutoGovernanceAction]) -> str:
     if risk == "safe_apply":
         return "memory govern auto --apply" if actions else ""
     for action in actions:
-        command = _command_for_action(action.action)
+        command = _command_for_action(action)
         if command:
             return command
     return ""
@@ -236,7 +240,7 @@ def _lane_command(risk: ActionRisk, actions: list[AutoGovernanceAction]) -> str:
 def _unique_commands(actions: list[AutoGovernanceAction]) -> list[str]:
     commands: list[str] = []
     for action in actions:
-        command = _command_for_action(action.action)
+        command = _command_for_action(action)
         if command and command not in commands:
             commands.append(command)
     return commands
@@ -277,6 +281,9 @@ def _category_for_action(action: AutoGovernanceAction) -> str:
             return "missing_tags"
         return "quality"
     if action.action == "review_archive":
+        issue_type = str(action.details.get("issue_type", "")).lower()
+        if issue_type in {"stale_signal", "stale_handoff"}:
+            return "lifecycle"
         return "expired"
     if action.action == "review_contradiction":
         return "contradiction"
@@ -298,6 +305,15 @@ def _category_for_action(action: AutoGovernanceAction) -> str:
 def _suppress_duplicate_actions(
     actions: list[AutoGovernanceAction],
 ) -> list[AutoGovernanceAction]:
+    lifecycle_archive_ids = {
+        action.item_ids[0]
+        for action in actions
+        if (
+            action.action == "review_archive"
+            and len(action.item_ids) == 1
+            and _category_for_action(action) == "lifecycle"
+        )
+    }
     direct_archive_ids = {
         action.item_ids[0]
         for action in actions
@@ -305,6 +321,13 @@ def _suppress_duplicate_actions(
     }
     visible: list[AutoGovernanceAction] = []
     for action in actions:
+        if (
+            action.action == "review_archive"
+            and len(action.item_ids) == 1
+            and action.item_ids[0] in lifecycle_archive_ids
+            and _category_for_action(action) == "expired"
+        ):
+            continue
         if (
             action.action == "review_evolve_archive"
             and len(action.item_ids) == 1
@@ -315,14 +338,21 @@ def _suppress_duplicate_actions(
     return visible
 
 
-def _command_for_action(action: str) -> str:
-    if action in {"update_maturity", "conversation_rebalance", "index_repair"}:
+def _command_for_action(action: AutoGovernanceAction | str) -> str:
+    action_name = action.action if isinstance(action, AutoGovernanceAction) else action
+    if (
+        isinstance(action, AutoGovernanceAction)
+        and action_name == "review_archive"
+        and _category_for_action(action) == "lifecycle"
+    ):
+        return "memory govern plan --category lifecycle --format markdown"
+    if action_name in {"update_maturity", "conversation_rebalance", "index_repair"}:
         return "memory govern auto --apply"
-    if action in {"review_archive", "review_quality"}:
+    if action_name in {"review_archive", "review_quality"}:
         return "memory govern run --format json"
-    if action.startswith("review_evolve_"):
+    if action_name.startswith("review_evolve_"):
         return "memory evolve --format json"
-    if action.startswith("review_"):
+    if action_name.startswith("review_"):
         return "memory anti-drift --format json"
     return ""
 

@@ -120,6 +120,7 @@ manager.
 ```bash
 memory doctor
 memory govern readiness --format markdown
+memory govern plan --category lifecycle --format markdown
 memory search "project decision"
 memory hook recent --limit 5
 ```
@@ -130,6 +131,9 @@ ignored item counts. It is the first check when an agent UI shows no
 `<agent_brain>` block. `memory govern readiness` also runs the packaged
 query-signal adversarial cases for long Chinese tasks, JSON/config prompts,
 OCR/log/code snippets, and weak follow-ups.
+`memory govern plan --category lifecycle` lists stale `signal` / `handoff`
+review items with age, threshold, and an `archive_or_supersede` recommendation;
+it is a dry-run plan and does not archive items by itself.
 
 ### 4. Open the local admin UI
 
