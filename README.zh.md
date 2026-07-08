@@ -1183,6 +1183,20 @@ CLI 升级后的风险也可以逐项定位：
 
 这组图标复用后管平台封面的同一套 Agent 资产。这张矩阵只展示接入面，不等于本机 verified 状态；不维护本机状态矩阵。已接入 Agent 优先展示，其余 Agent 标记为接入中；具体证据以目标机器的 `memory adapter list --format json`、`memory adapter install-verify <adapter> --format json`、doctor 和 runtime/context-effectiveness evidence 为准。
 
+单个 adapter 的安装结果可以用机器可读格式查看：
+
+```bash
+memory adapter install <adapter> --format json
+```
+
+| 字段 | 含义 |
+|---|---|
+| `status` | `configured`、`needs_client`、`malformed_config`、`adapter_wip`、`failed`、`unknown_adapter`。 |
+| `optional` | `true` 表示该 adapter 未配置不影响 AMH 核心、Claude Code Hooks 和 MCP Server。 |
+| `core_impact` | `none` 表示核心可用；核心 adapter 失败时为 `core_adapter_degraded`。 |
+| `repair_command` | 推荐下一条修复命令；核心 adapter 失败时使用 `memory doctor --fix`。 |
+| `next_step` | 面向人的下一步说明。 |
+
 <table class="agent-matrix">
   <tr>
     <th colspan="5" align="left">已接入</th>

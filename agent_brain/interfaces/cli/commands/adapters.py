@@ -62,27 +62,150 @@ def adapter_list(
 @adapter_app.command("install")
 def adapter_install(
     name: str = typer.Argument(..., help="Adapter name (see 'memory adapter list')"),
+    format: str = typer.Option("text", "--format", help="Output format: text or json"),
 ) -> None:
     """Install an agent adapter — wires the brain pool into that agent's config."""
+    import json
+
     from agent_brain.agent_integrations import discover_adapters
     from agent_brain.agent_integrations.registry import get_adapter, resolve_adapter_name
 
+    if format not in {"text", "json"}:
+        typer.echo("format must be text or json", err=True)
+        raise typer.Exit(2)
+
     discover_adapters()
     try:
-        canonical_name, _alias_used = resolve_adapter_name(name)
+        canonical_name, alias_used = resolve_adapter_name(name)
         adapter = get_adapter(canonical_name, _brain_dir())
     except ValueError as e:
+        if format == "json":
+            typer.echo(json.dumps(
+                _adapter_install_payload(
+                    adapter=name,
+                    requested_adapter=name,
+                    status="unknown_adapter",
+                    message=str(e),
+                ),
+                indent=2,
+                ensure_ascii=False,
+            ))
+            raise typer.Exit(1)
         typer.echo(str(e), err=True)
         raise typer.Exit(1)
     try:
         msg = adapter.install()
     except NotImplementedError as e:
-        typer.echo(f"{name}: {e}", err=True)
+        payload = _adapter_install_payload(
+            adapter=canonical_name,
+            requested_adapter=name,
+            alias=alias_used,
+            status="adapter_wip",
+            message=str(e),
+        )
+        if format == "json":
+            typer.echo(json.dumps(payload, indent=2, ensure_ascii=False))
+        else:
+            typer.echo(_format_adapter_install_failure(payload), err=True)
         raise typer.Exit(1)
     except (FileNotFoundError, RuntimeError) as e:
-        typer.echo(f"{name}: not configured — {e}", err=True)
+        payload = _adapter_install_payload(
+            adapter=canonical_name,
+            requested_adapter=name,
+            alias=alias_used,
+            status=_adapter_install_error_status(e),
+            message=str(e),
+        )
+        if format == "json":
+            typer.echo(json.dumps(payload, indent=2, ensure_ascii=False))
+        else:
+            typer.echo(_format_adapter_install_failure(payload), err=True)
         raise typer.Exit(1)
-    typer.echo(msg)
+    payload = _adapter_install_payload(
+        adapter=canonical_name,
+        requested_adapter=name,
+        alias=alias_used,
+        status="configured",
+        message=msg,
+    )
+    if format == "json":
+        typer.echo(json.dumps(payload, indent=2, ensure_ascii=False))
+    else:
+        typer.echo(msg)
+
+
+def _adapter_install_error_status(exc: Exception) -> str:
+    message = str(exc).lower()
+    if "malformed" in message:
+        return "malformed_config"
+    if (
+        isinstance(exc, FileNotFoundError)
+        or "not found" in message
+        or "config directory not found" in message
+        or "cli not found" in message
+        or "no such file" in message
+        or "not on path" in message
+    ):
+        return "needs_client"
+    return "failed"
+
+
+def _adapter_install_payload(
+    *,
+    adapter: str,
+    requested_adapter: str,
+    status: str,
+    message: str,
+    alias: str | None = None,
+) -> dict[str, object]:
+    from agent_brain.platform.install_repair import CORE_HOOK_ADAPTERS
+
+    optional = adapter not in CORE_HOOK_ADAPTERS
+    core_impact = "none" if optional or status == "configured" else "core_adapter_degraded"
+    repair_command = (
+        "memory doctor --fix"
+        if core_impact != "none"
+        else f"memory adapter install {adapter}"
+    )
+    payload: dict[str, object] = {
+        "adapter": adapter,
+        "requested_adapter": requested_adapter,
+        "status": status,
+        "optional": optional,
+        "core_impact": core_impact,
+        "message": message,
+        "repair_command": repair_command,
+        "next_step": _adapter_install_next_step(status, repair_command),
+    }
+    if alias:
+        payload["alias"] = alias
+    return payload
+
+
+def _adapter_install_next_step(status: str, repair_command: str) -> str:
+    if status == "configured":
+        return "run adapter doctor or start the target agent to observe runtime evidence"
+    if status == "needs_client":
+        return f"install the target client or CLI, then run: {repair_command}"
+    if status == "malformed_config":
+        return f"repair the malformed client config by hand, then run: {repair_command}"
+    if status == "adapter_wip":
+        return "this adapter is registered but its install path is not implemented yet"
+    if status == "unknown_adapter":
+        return "run: memory adapter list"
+    return f"inspect the error, then retry or run: {repair_command}"
+
+
+def _format_adapter_install_failure(payload: dict[str, object]) -> str:
+    adapter = payload.get("requested_adapter") or payload.get("adapter")
+    status = payload.get("status")
+    message = payload.get("message")
+    next_step = payload.get("next_step")
+    if status in {"needs_client", "malformed_config", "adapter_wip"}:
+        headline = f"{adapter}: not configured — {message}"
+    else:
+        headline = f"{adapter}: install failed — {message}"
+    return f"{headline}\nnext: {next_step}"
 
 
 @adapter_app.command("uninstall")

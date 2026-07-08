@@ -636,6 +636,13 @@ is an integration-surface map, not a local verified-status matrix. Run
 --format json`, doctor, and runtime/context-effectiveness checks on the target
 machine before making a machine-specific evidence claim.
 
+For a single adapter, use `memory adapter install <adapter> --format json` when
+you need a machine-readable install result.  `needs_client` means the target
+client or CLI is missing; `malformed_config` means AMH refused to overwrite a
+broken client config.  Optional adapter failures report `core_impact=none`;
+core adapter failures point `repair_command` to
+`memory doctor --fix`.
+
 <table class="agent-matrix">
   <tr>
     <th colspan="5" align="left">Integrated</th>

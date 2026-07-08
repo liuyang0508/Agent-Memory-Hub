@@ -255,6 +255,14 @@ def test_readme_maintains_architecture_map_index():
     assert "当前发布审计口径：本机已完成 `memory benchmark system`、LongMemEval-S retrieval、LongMemEval-S QA/Judge、MemoryAgentBench、LoCoMo、LongBench、MemBench" in readme_zh
     assert "### 评测报告" in readme_zh
     assert '<a id="benchmark-report"></a>' in readme_zh
+    assert "memory adapter install <adapter> --format json" in readme
+    assert "memory adapter install <adapter> --format json" in readme_zh
+    assert "`needs_client`" in readme
+    assert "`malformed_config`" in readme
+    assert "`needs_client`" in readme_zh
+    assert "`malformed_config`" in readme_zh
+    assert "`core_impact`" in readme_zh
+    assert "核心 adapter 失败时使用 `memory doctor --fix`" in readme_zh
     assert "MemoryData 外部横评与 AMH 本地指标（GitHub 可读 Markdown）" not in readme_zh
     assert "AMH 记忆评测审计报告（HTML 本地预览）" not in readme_zh
     assert "GitHub 仓库里打开 `.html` 会看到源码；需要渲染版时请本地打开或发布到 GitHub Pages" not in readme_zh

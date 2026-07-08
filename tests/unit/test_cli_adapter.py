@@ -204,6 +204,67 @@ def test_adapter_install_unavailable_dependency_reports_not_configured(monkeypat
     assert "install failed" not in result.output
 
 
+def test_adapter_install_json_reports_optional_client_missing(monkeypatch):
+    from agent_brain.agent_integrations import openclaw as oc_mod
+
+    monkeypatch.setattr(
+        oc_mod,
+        "_require_openclaw",
+        lambda: (_ for _ in ()).throw(RuntimeError("openclaw CLI not found on PATH")),
+    )
+
+    result = runner.invoke(app, ["adapter", "install", "openclaw", "--format", "json"])
+
+    assert result.exit_code == 1
+    payload = json.loads(result.output)
+    assert payload["adapter"] == "openclaw"
+    assert payload["status"] == "needs_client"
+    assert payload["optional"] is True
+    assert payload["core_impact"] == "none"
+    assert payload["repair_command"] == "memory adapter install openclaw"
+    assert "install the target client" in payload["next_step"]
+
+
+def test_adapter_install_json_reports_malformed_config(monkeypatch):
+    from agent_brain.agent_integrations import cursor as cur_mod
+
+    def fail_malformed(self):
+        raise RuntimeError(
+            "refuse to overwrite malformed /tmp/.cursor/mcp.json — fix it by hand first"
+        )
+
+    monkeypatch.setattr(cur_mod.CursorAdapter, "install", fail_malformed)
+
+    result = runner.invoke(app, ["adapter", "install", "cursor", "--format", "json"])
+
+    assert result.exit_code == 1
+    payload = json.loads(result.output)
+    assert payload["adapter"] == "cursor"
+    assert payload["status"] == "malformed_config"
+    assert payload["optional"] is True
+    assert payload["core_impact"] == "none"
+    assert "repair the malformed client config" in payload["next_step"]
+
+
+def test_adapter_install_json_marks_core_adapter_failure(monkeypatch):
+    from agent_brain.agent_integrations import codex as cx_mod
+
+    def fail_core(self):
+        raise RuntimeError("permission denied while writing hooks.json")
+
+    monkeypatch.setattr(cx_mod.CodexAdapter, "install", fail_core)
+
+    result = runner.invoke(app, ["adapter", "install", "codex", "--format", "json"])
+
+    assert result.exit_code == 1
+    payload = json.loads(result.output)
+    assert payload["adapter"] == "codex"
+    assert payload["status"] == "failed"
+    assert payload["optional"] is False
+    assert payload["core_impact"] == "core_adapter_degraded"
+    assert payload["repair_command"] == "memory doctor --fix"
+
+
 def test_adapter_install_codex_writes_block(tmp_path, monkeypatch):
     from agent_brain.agent_integrations import codex as cx_mod
 
