@@ -49,3 +49,4 @@ from agent_brain.interfaces.cli.commands.loops import *  # noqa: F401,F403
 from agent_brain.interfaces.cli.commands.lint import *  # noqa: F401,F403
 from agent_brain.interfaces.cli.commands.wiki import *  # noqa: F401,F403
 from agent_brain.interfaces.cli.commands.codegraph import *  # noqa: F401,F403
+from agent_brain.interfaces.cli.commands.hook import *  # noqa: F401,F403

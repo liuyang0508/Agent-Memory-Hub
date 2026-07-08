@@ -53,3 +53,6 @@ app.add_typer(loop_app, name="loop")
 
 codegraph_app = typer.Typer(help="Optional external code graph provider commands")
 app.add_typer(codegraph_app, name="codegraph")
+
+hook_app = typer.Typer(help="Hook runtime diagnostics")
+app.add_typer(hook_app, name="hook")

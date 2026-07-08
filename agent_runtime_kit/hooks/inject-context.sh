@@ -86,6 +86,37 @@ print(json.dumps(output, ensure_ascii=False))
   esac
 }
 
+emit_empty_trace_context() {
+  local reason="$1"
+  local keywords="${2:-}"
+  local detail="${3:-}"
+  [ "${AGENT_MEMORY_HUB_HOOK_TRACE_EMPTY:-}" = "1" ] || return 1
+  local context
+  context=$(python3 - "$reason" "$keywords" "$detail" <<'PY'
+import sys
+
+reason, keywords, detail = sys.argv[1:4]
+lines = [
+    "<agent_brain_diagnostics>",
+    "**AMH hook trace**",
+    "hook: triggered",
+    "decision: no_injection",
+    f"reason: {reason or '-'}",
+    f"keywords: {keywords or '-'}",
+]
+if detail:
+    lines.append(f"detail: {detail}")
+lines.extend([
+    "next: memory hook recent --limit 5",
+    "</agent_brain_diagnostics>",
+])
+sys.stdout.write("\n".join(lines))
+PY
+)
+  emit_hook_context "$context"
+  return 0
+}
+
 INPUT=$(cat)
 PROMPT=$(echo "$INPUT" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("prompt",""))' 2>/dev/null || true)
 SESSION_ID=$(echo "$INPUT" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("session_id",""))' 2>/dev/null || true)
@@ -210,6 +241,49 @@ PY
   fi
   if [ -n "$DIAGNOSTICS_CONTEXT" ]; then
     emit_hook_context "$DIAGNOSTICS_CONTEXT"
+  elif [ -n "$GAP_JSON" ]; then
+    EMPTY_REASON=$(python3 - "$GAP_JSON" <<'PY' 2>/dev/null || true
+import json
+import sys
+try:
+    payload = json.loads(sys.argv[1])
+except (IndexError, json.JSONDecodeError):
+    payload = {}
+print(str(payload.get("reason") or "query_not_injectable"))
+PY
+)
+    EMPTY_KEYWORDS=$(python3 - "$GAP_JSON" <<'PY' 2>/dev/null || true
+import json
+import sys
+try:
+    payload = json.loads(sys.argv[1])
+except (IndexError, json.JSONDecodeError):
+    payload = {}
+for value in payload.get("evidence", []) or []:
+    text = str(value)
+    if text.startswith("terms="):
+        print(text.removeprefix("terms="))
+        break
+    if text.startswith("multimodal_placeholders="):
+        print(text.removeprefix("multimodal_placeholders="))
+        break
+PY
+)
+    EMPTY_DETAIL=$(python3 - "$GAP_JSON" <<'PY' 2>/dev/null || true
+import json
+import sys
+try:
+    payload = json.loads(sys.argv[1])
+except (IndexError, json.JSONDecodeError):
+    payload = {}
+evidence = [str(value) for value in payload.get("evidence", []) or []]
+print("; ".join(evidence))
+PY
+)
+    [ -n "$EMPTY_DETAIL" ] || EMPTY_DETAIL="query signal did not produce injectable keywords"
+    emit_empty_trace_context "${EMPTY_REASON:-query_not_injectable}" "${EMPTY_KEYWORDS:-"-"}" "$EMPTY_DETAIL" || echo '{}'
+  elif emit_empty_trace_context "query_not_injectable" "-" "query signal did not produce injectable keywords"; then
+    :
   else
     echo '{}'
   fi
@@ -252,6 +326,7 @@ if [ -n "$EXCLUDE" ]; then
 fi
 
 SEARCH_STATUS=0
+EMPTY_SEARCH_REASON="search_no_context"
 set +e
 if [ -n "$TIMEOUT_BIN" ]; then
   RESULTS=$("$TIMEOUT_BIN" "$SEARCH_TIMEOUT_SECONDS" "${SEARCH_ARGS[@]}" 2>/dev/null)
@@ -288,6 +363,7 @@ set -e
 case "$SEARCH_STATUS" in
   124|137)
     record_hook_latency "search_memory" "timeout" "search exceeded internal hook budget"
+    EMPTY_SEARCH_REASON="search_timeout"
     RESULTS=""
     ;;
 esac
@@ -295,6 +371,8 @@ esac
 if [ -z "$RESULTS" ] || echo "$RESULTS" | head -1 | grep -q "no matches"; then
   if [ -n "$DIAGNOSTICS_CONTEXT" ]; then
     emit_hook_context "$DIAGNOSTICS_CONTEXT"
+  elif emit_empty_trace_context "$EMPTY_SEARCH_REASON" "$KEYWORDS" "search returned no injectable memory candidates"; then
+    :
   else
     echo '{}'
   fi

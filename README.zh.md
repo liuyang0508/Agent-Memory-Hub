@@ -538,6 +538,28 @@ AMH 把维护分成十一段：
 
 如果前置 gate 阻断，系统还没有走到 BM25/vector、RRF、后处理或防火墙。对于有具体 terms 但被阻断的情况，AMH 会记录 bounded recall gap，供后续治理分析。
 
+看不到 `<agent_brain>` 不等于 hook 没触发。先看最近运行账本：
+
+```bash
+memory hook recent --limit 5
+```
+
+| 现象 | 说明 | 下一步 |
+|---|---|---|
+| `injection` | hook 触发并注入了候选。 | 查看注入的 item id，再用 `memory read <id> --view detail --head 2000` 读证据。 |
+| `recall_gap` + `query_not_injectable` | query_signal 认为本轮没有稳定锚点。 | 增加文件名、模块名、业务实体、错误码或明确主题。 |
+| `recall_gap` + `all_candidates_rejected` | 已提取关键词，也搜到候选，但被相关性、防火墙、过期或范围规则拒绝。 | 用输出里的 rejected/evidence 判断是缺记忆、记忆过期，还是 gate 过严。 |
+| `recall_gap` + `multimodal_extraction_missing` | prompt 里主要信息在图片/音频附件中，但本机没有可用 OCR/ASR 文本。 | 补充文字版关键信息，或配置 OCR/ASR 后重试。 |
+| `latency` + `timeout` | hook 搜索超过内部预算。 | 先用 `memory search "<关键词>" --explain` 手动验证，再治理索引或模型加载耗时。 |
+
+如果希望 Codex UI 在“没有注入”时也显示诊断，可以给 hook 命令增加：
+
+```bash
+AGENT_MEMORY_HUB_HOOK_TRACE_EMPTY=1
+```
+
+打开后空召回会出现 `<agent_brain_diagnostics>`，显示 `hook: triggered`、`decision: no_injection`、`reason` 和提取到的关键词。默认不打开，是为了避免每个低信息 turn 都污染模型上下文。
+
 ### 2. 结构过滤
 
 `SearchFilter` 先在 `items_meta` 上筛选：

@@ -344,6 +344,49 @@ def test_user_prompt_hook_debug_mode_reports_query_signal_when_blocked(tmp_path)
     assert "weak_noise: 继续" in context
 
 
+def test_user_prompt_hook_trace_empty_reports_triggered_keywords_without_injection(tmp_path):
+    script = Path(__file__).resolve().parents[2] / "agent_runtime_kit" / "hooks" / "inject-context.sh"
+    (tmp_path / "items").mkdir()
+    env = {
+        **os.environ,
+        "BRAIN_DIR": str(tmp_path),
+        "AGENT_MEMORY_HUB_ADAPTER": "codex",
+        "AGENT_MEMORY_HUB_HOOK_OUTPUT_FORMAT": "json",
+        "AGENT_MEMORY_HUB_HOOK_TRACE_EMPTY": "1",
+        "MEMORY_HUB_TEST_EMBEDDING": "1",
+        "MEMORY_HUB_EMBEDDING_OFFLINE": "1",
+    }
+
+    result = subprocess.run(
+        ["bash", str(script)],
+        input=json.dumps({
+            "prompt": (
+                "新增这两个接口的理由给我，因为我之前理解既然只是扩展了数据结构 "
+                '{"defaultSceneIdentify":"ZTJD","sceneEvaluationType":{"ZTJD":"quantitative"},'
+                '"serviceQualityScoreConfig":{"ZTJD":{"convertToPercentage":true}}} '
+                "不应该是复用原来的接口吗"
+            ),
+            "session_id": "hook-empty-trace-session",
+            "cwd": "/repo",
+            "hook_event_name": "UserPromptSubmit",
+        }),
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    context = payload["hookSpecificOutput"]["additionalContext"]
+    assert "<agent_brain_diagnostics>" in context
+    assert "hook: triggered" in context
+    assert "decision: no_injection" in context
+    assert "reason: search_no_context" in context
+    assert "keywords: 新增接口|复用接口|数据结构" in context
+    assert "servicequalityscoreconfig" in context
+    assert "<agent_brain>" not in context
+
+
 def test_user_prompt_hook_can_emit_plain_context_for_qoder(tmp_path):
     script = Path(__file__).resolve().parents[2] / "agent_runtime_kit" / "hooks" / "inject-context.sh"
     store = ItemsStore(tmp_path / "items")
@@ -1382,6 +1425,43 @@ def test_user_prompt_hook_records_multimodal_gap_without_injecting_image_memory(
     assert len(gaps) == 1
     assert gaps[0].reason == "multimodal_extraction_missing"
     assert "multimodal_placeholders=Image#1" in gaps[0].evidence
+
+
+def test_user_prompt_hook_trace_empty_reports_multimodal_missing_extraction(tmp_path):
+    script = Path(__file__).resolve().parents[2] / "agent_runtime_kit" / "hooks" / "inject-context.sh"
+    (tmp_path / "items").mkdir()
+    env = {
+        **os.environ,
+        "BRAIN_DIR": str(tmp_path),
+        "AGENT_MEMORY_HUB_ADAPTER": "codex",
+        "AGENT_MEMORY_HUB_HOOK_OUTPUT_FORMAT": "json",
+        "AGENT_MEMORY_HUB_HOOK_TRACE_EMPTY": "1",
+        "MEMORY_HUB_TEST_EMBEDDING": "1",
+        "MEMORY_HUB_EMBEDDING_OFFLINE": "1",
+    }
+
+    result = subprocess.run(
+        ["bash", str(script)],
+        input=json.dumps({
+            "prompt": "[Image #1]\n治理方向没问题，在推进之前，我再反馈一个问题",
+            "session_id": "hook-mm-trace-session",
+            "cwd": "/repo/current",
+            "hook_event_name": "UserPromptSubmit",
+        }),
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    context = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
+    assert "<agent_brain_diagnostics>" in context
+    assert "hook: triggered" in context
+    assert "decision: no_injection" in context
+    assert "reason: multimodal_extraction_missing" in context
+    assert "keywords: Image#1" in context
+    assert "multimodal_placeholders=Image#1" in context
+    assert "extraction_text=missing" in context
 
 
 def test_user_prompt_hook_does_not_record_query_gate_gap_for_connective_noise(tmp_path):
