@@ -1111,6 +1111,37 @@ def test_multimodal_placeholder_prompt_does_not_recall_image_memories() -> None:
     assert extract_injection_keywords(prompt) == ""
 
 
+def test_ocr_hook_prompt_keeps_runtime_ascii_anchors_with_metadata_noise(tmp_path) -> None:
+    from agent_brain.contracts.memory_item import MemoryItem, MemoryType
+    from agent_brain.memory.context.query_signal import analyze_injection_query, extract_injection_keywords
+    from agent_brain.memory.store.items_store import ItemsStore
+
+    store = ItemsStore(tmp_path / "items")
+    store.write(
+        MemoryItem(
+            id="mem-20260708-000000-stale-hook-warning",
+            type=MemoryType.signal,
+            created_at=datetime.now(timezone.utc),
+            title="stale hook warning",
+            summary="old hook metadata should not crowd out runtime anchors",
+            tags=["hook"],
+        ),
+        "stale hook warning body",
+    )
+
+    prompt = "截图 OCR 显示 UserPromptSubmit hook completed，但没有 agent_brain，帮我判断是没触发还是没提取关键词"
+    signal = analyze_injection_query(prompt, brain_dir=tmp_path)
+    keywords = extract_injection_keywords(prompt, brain_dir=tmp_path)
+
+    assert signal.injectable
+    assert "runtime_ascii" in signal.anchors
+    assert "ocr" in signal.strong_terms
+    assert "userpromptsubmit" in signal.strong_terms
+    assert "agent_brain" in signal.strong_terms
+    assert "ocr" in keywords.split("|")
+    assert "userpromptsubmit" in keywords.split("|")
+
+
 def test_generic_singleton_memory_does_not_inject() -> None:
     from agent_brain.memory.context.query_signal import analyze_injection_query
 

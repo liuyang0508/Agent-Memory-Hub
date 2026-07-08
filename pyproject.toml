@@ -59,6 +59,9 @@ version = {attr = "agent_brain._version.__version__"}
 include = ["agent_brain*", "web*", "agent_runtime_kit", "docs"]
 
 [tool.setuptools.package-data]
+agent_brain = [
+    "product/*.json",
+]
 agent_runtime_kit = [
     "*.md",
     "hooks/*.md",

@@ -90,6 +90,18 @@ _ASCII_TASK_ANCHOR_TERMS = (
     "github",
     "commit",
 )
+_RUNTIME_ASCII_EXACT_TERMS = {
+    "agent_brain",
+    "hook",
+    "hookspecificoutput",
+    "mcp",
+    "ocr",
+    "userpromptsubmit",
+}
+_RUNTIME_ASCII_CONTEXT_RE = re.compile(
+    r"(hook|mcp|ocr|pytest|trace|json|日志|截图|报错|错误)",
+    re.IGNORECASE,
+)
 _CJK_TASK_ANCHOR_CONTEXT_TERMS = (
     "长任务",
     "提取",
@@ -354,11 +366,18 @@ def analyze_injection_query(
     if json_field_terms:
         anchors.append("json_field")
         trace.append("json_field_terms=" + "|".join(json_field_terms))
+    runtime_ascii_terms = _runtime_ascii_terms(prompt)
+    for term in runtime_ascii_terms:
+        _append_unique(terms, term)
+        _append_unique(strong_terms, term)
+    if runtime_ascii_terms:
+        anchors.append("runtime_ascii")
+        trace.append("runtime_ascii_terms=" + "|".join(runtime_ascii_terms))
     keyphrase_terms = _prompt_keyphrase_terms(prompt)
     keyphrase_terms = _metadata_superseded_keyphrase_terms(keyphrase_terms, metadata_terms)
     adjacent_ascii_scope_terms = _adjacent_ascii_scope_terms(
         prompt,
-        [*keyphrase_terms, *metadata_terms, *known_entity_terms, *json_field_terms],
+        [*keyphrase_terms, *metadata_terms, *known_entity_terms, *json_field_terms, *runtime_ascii_terms],
     )
     for term in adjacent_ascii_scope_terms:
         _append_unique(terms, term)
@@ -377,6 +396,7 @@ def analyze_injection_query(
             *adjacent_ascii_scope_terms,
             *file_terms,
             *known_entity_terms,
+            *runtime_ascii_terms,
         ],
     )
     for term in cjk_question_focus_terms:
@@ -394,6 +414,7 @@ def analyze_injection_query(
             *adjacent_ascii_scope_terms,
             *file_terms,
             *known_entity_terms,
+            *runtime_ascii_terms,
         ],
     )
     for term in structured_cjk_focus_terms:
@@ -411,6 +432,7 @@ def analyze_injection_query(
             *adjacent_ascii_scope_terms,
             *file_terms,
             *known_entity_terms,
+            *runtime_ascii_terms,
             *cjk_question_focus_terms,
             *structured_cjk_focus_terms,
         ],
@@ -428,6 +450,7 @@ def analyze_injection_query(
     precise_anchor_terms = [
         *structured_cjk_focus_terms,
         *json_field_terms,
+        *runtime_ascii_terms,
         *leading_task_anchor_terms,
         *keyphrase_terms,
         *metadata_terms,
@@ -440,6 +463,7 @@ def analyze_injection_query(
     strong_focus_terms = [
         *structured_cjk_focus_terms,
         *json_field_terms,
+        *runtime_ascii_terms,
         *leading_task_anchor_terms,
         *keyphrase_terms,
         *metadata_terms,
@@ -800,6 +824,37 @@ def _is_jsonish_field_anchor(term: str) -> bool:
     if not _is_ascii_candidate(term):
         return False
     return any(ch.isalpha() for ch in term)
+
+
+def _runtime_ascii_terms(prompt: str) -> list[str]:
+    terms: list[str] = []
+    has_runtime_context = bool(_RUNTIME_ASCII_CONTEXT_RE.search(prompt))
+    for match in re.finditer(r"(?<![A-Za-z0-9_+.-])([A-Za-z][A-Za-z0-9_+.-]{2,})(?![A-Za-z0-9_+.-])", prompt):
+        raw = match.group(1).strip("._-+")
+        normalized = raw.lower()
+        if not _is_runtime_ascii_anchor(raw, has_runtime_context=has_runtime_context):
+            continue
+        _append_unique(terms, normalized)
+    return terms
+
+
+def _is_runtime_ascii_anchor(raw: str, *, has_runtime_context: bool) -> bool:
+    normalized = raw.strip("._-+").lower()
+    if not _is_ascii_candidate(normalized):
+        return False
+    if normalized in _GENERIC_ASCII_ANCHORS or normalized in _ASCII_LITERAL_STOPWORDS:
+        return False
+    if normalized in _RUNTIME_ASCII_EXACT_TERMS:
+        return True
+    if not has_runtime_context:
+        return False
+    if "_" in raw:
+        return True
+    if re.search(r"[a-z][A-Z]", raw):
+        return True
+    if re.fullmatch(r"[A-Z][A-Z0-9_+.-]{2,11}", raw):
+        return True
+    return False
 
 
 def _structured_cjk_focus_terms(prompt: str, anchor_terms: list[str]) -> list[str]:

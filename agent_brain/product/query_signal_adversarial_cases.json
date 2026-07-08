@@ -1,0 +1,86 @@
+[
+  {
+    "id": "cjk_long_memory_governance_matrix",
+    "category": "cjk_long_task",
+    "prompt": "关于记忆维护、记忆召回、记忆治理、记忆注入，辛苦你用大量数据来验证是否还有不足的地方，梳理一张待治理表格",
+    "min_terms": 4,
+    "expected_terms": ["记忆维护", "记忆召回", "记忆治理", "记忆注入"],
+    "expected_injectable": true
+  },
+  {
+    "id": "cjk_long_followup_commit_scope",
+    "category": "cjk_long_task",
+    "prompt": "我下发这么长一个任务，只提取了一个关键词，这种情况遇到太多次了，然后继续推进你整理的那张表格，全部治理完成之后，依旧提交到GitHub，注意commit规范和文案",
+    "min_terms": 4,
+    "expected_terms": ["关键词", "治理", "表格", "github", "commit"],
+    "expected_injectable": true
+  },
+  {
+    "id": "json_config_interface_reuse",
+    "category": "json_config",
+    "prompt": "新增这两个接口的理由给我，因为我之前理解既然只是扩展了数据结构{\"defaultSceneIdentify\":\"ZTJD\",\"installStatus\":\"\",\"sceneEvaluationType\":{\"ZTJD\":\"quantitative\"},\"serviceQualityScoreConfig\":{\"ZTJD\":{\"convertToPercentage\":true}}}不应该是复用原来的接口吗",
+    "min_terms": 5,
+    "expected_terms": ["新增接口", "复用接口", "servicequalityscoreconfig", "sceneevaluationtype"],
+    "expected_injectable": true
+  },
+  {
+    "id": "image_placeholder_without_ocr",
+    "category": "multimodal",
+    "prompt": "[Image #1]\n治理方向没问题，在推进之前，我再反馈一个问题",
+    "min_terms": 0,
+    "expected_terms": [],
+    "expected_injectable": false,
+    "expected_reason": "unanchored_cjk_clause"
+  },
+  {
+    "id": "ocr_text_hook_trace_question",
+    "category": "multimodal",
+    "prompt": "截图 OCR 显示 UserPromptSubmit hook completed，但没有 agent_brain，帮我判断是没触发还是没提取关键词",
+    "min_terms": 3,
+    "expected_terms": ["ocr", "userpromptsubmit", "hook", "agent_brain"],
+    "expected_injectable": true
+  },
+  {
+    "id": "pytest_keyerror_hook_output_log",
+    "category": "log_trace",
+    "prompt": "报错 KeyError: hookSpecificOutput at tests/unit/test_adapter_runtime_events.py:625，帮我定位 hook JSON 输出结构",
+    "min_terms": 1,
+    "expected_terms": ["tests/unit/test_adapter_runtime_events.py"],
+    "expected_injectable": true
+  },
+  {
+    "id": "code_snippet_service_quality_config",
+    "category": "code_snippet",
+    "prompt": "代码里 serviceQualityScoreConfig.convertToPercentage 应该复用 sceneEvaluationType 的接口吗",
+    "min_terms": 2,
+    "expected_terms": ["servicequalityscoreconfig.converttopercentage", "复用接口"],
+    "expected_injectable": true
+  },
+  {
+    "id": "weak_continue",
+    "category": "weak_followup",
+    "prompt": "继续",
+    "min_terms": 0,
+    "expected_terms": [],
+    "expected_injectable": false,
+    "expected_reason": "too_weak"
+  },
+  {
+    "id": "weak_why",
+    "category": "weak_followup",
+    "prompt": "为什么",
+    "min_terms": 0,
+    "expected_terms": [],
+    "expected_injectable": false,
+    "expected_reason": "too_weak"
+  },
+  {
+    "id": "weak_direction_without_anchor",
+    "category": "weak_followup",
+    "prompt": "接下来应该朝着什么方向治理",
+    "min_terms": 0,
+    "expected_terms": [],
+    "expected_injectable": false,
+    "expected_reason": "too_weak"
+  }
+]

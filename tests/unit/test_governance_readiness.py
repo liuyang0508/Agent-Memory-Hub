@@ -78,6 +78,29 @@ def test_govern_readiness_json_reports_release_query_and_lifecycle_lanes(tmp_pat
     assert any("memory govern plan" in action for action in payload["next_actions"])
 
 
+def test_govern_readiness_query_signal_uses_adversarial_manifest(tmp_path, monkeypatch):
+    brain = tmp_path / "brain"
+    ItemsStore(brain / "items")
+    monkeypatch.setenv("BRAIN_DIR", str(brain))
+
+    result = runner.invoke(app, ["govern", "readiness", "--format", "json"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    query_lane = next(lane for lane in payload["lanes"] if lane["id"] == "query_signal")
+    metrics = query_lane["metrics"]
+    assert metrics["case_count"] >= 10
+    assert metrics["category_counts"]["cjk_long_task"] >= 2
+    assert metrics["category_counts"]["json_config"] >= 1
+    assert metrics["category_counts"]["multimodal"] >= 2
+    assert metrics["category_counts"]["log_trace"] >= 1
+    assert metrics["category_counts"]["code_snippet"] >= 1
+    assert metrics["category_counts"]["weak_followup"] >= 2
+    assert metrics["under_extracted_cases"] == 0
+    assert any(check["id"] == "json_config_interface_reuse" for check in query_lane["checks"])
+    assert any(check["id"] == "image_placeholder_without_ocr" for check in query_lane["checks"])
+
+
 def test_govern_readiness_markdown_is_user_facing(tmp_path, monkeypatch):
     brain = tmp_path / "brain"
     ItemsStore(brain / "items")

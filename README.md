@@ -125,8 +125,11 @@ memory hook recent --limit 5
 ```
 
 `memory hook recent` shows whether a prompt injected memory, produced a recall
-gap, or timed out. It is the first check when an agent UI shows no
-`<agent_brain>` block.
+gap, timed out, or later received outcome feedback with adopted / rejected /
+ignored item counts. It is the first check when an agent UI shows no
+`<agent_brain>` block. `memory govern readiness` also runs the packaged
+query-signal adversarial cases for long Chinese tasks, JSON/config prompts,
+OCR/log/code snippets, and weak follow-ups.
 
 ### 4. Open the local admin UI
 

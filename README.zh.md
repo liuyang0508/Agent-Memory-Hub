@@ -550,6 +550,7 @@ memory hook recent --limit 5
 | `recall_gap` + `query_not_injectable` | query_signal 认为本轮没有稳定锚点。 | 增加文件名、模块名、业务实体、错误码或明确主题。 |
 | `recall_gap` + `all_candidates_rejected` | 已提取关键词，也搜到候选，但被相关性、防火墙、过期或范围规则拒绝。 | 用输出里的 rejected/evidence 判断是缺记忆、记忆过期，还是 gate 过严。 |
 | `recall_gap` + `multimodal_extraction_missing` | prompt 里主要信息在图片/音频附件中，但本机没有可用 OCR/ASR 文本。 | 补充文字版关键信息，或配置 OCR/ASR 后重试。 |
+| `outcome` | 某次注入后的任务结果反馈。JSON 输出里会给 `usage.injected/adopted/rejected/ignored`。 | 判断候选是否真的被采用，还是被忽略或误召回。 |
 | `latency` + `timeout` | hook 搜索超过内部预算。 | 先用 `memory search "<关键词>" --explain` 手动验证，再治理索引或模型加载耗时。 |
 
 如果希望 Codex UI 在“没有注入”时也显示诊断，可以给 hook 命令增加：
@@ -1454,7 +1455,13 @@ System benchmark: PASS cases=240 items=1234 block=1.000 inject=1.000 recall@10=1
 memory govern readiness --format markdown
 ```
 
-这条命令是只读审计，覆盖三组经常漂移的发布前风险：GitHub Release / Homebrew / npm 资产是否齐、长任务 prompt 是否能保留关键召回锚点、`~/.agent-memory-hub/items` 里是否存在 stale signal / handoff 等生命周期欠账。
+这条命令是只读审计，覆盖三组经常漂移的发布前风险：
+
+- GitHub Release / Homebrew / npm 资产是否齐。
+- 长任务 prompt 是否能保留关键召回锚点。
+- `~/.agent-memory-hub/items` 里是否存在 stale signal / handoff 等生命周期欠账。
+
+长任务召回入口的对抗样本在 `agent_brain/product/query_signal_adversarial_cases.json`，覆盖中文长任务、JSON 配置、截图/OCR、日志、代码片段和弱追问。报告里的 `category_counts` 用来确认这些入口没有被某一类样本挤掉。
 
 核心指标快照：
 

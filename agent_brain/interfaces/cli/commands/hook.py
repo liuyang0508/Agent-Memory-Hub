@@ -11,7 +11,7 @@ from rich.table import Table
 from agent_brain.interfaces.cli._app import hook_app
 from agent_brain.interfaces.cli._shared import _brain_dir, console
 from agent_brain.memory.context.injection_cohorts import iter_injection_cohorts
-from agent_brain.memory.governance.recall_events import iter_gap_records
+from agent_brain.memory.governance.recall_events import iter_gap_records, iter_task_outcomes
 
 
 @hook_app.command("recent")
@@ -98,6 +98,47 @@ def _recent_hook_rows(
             "evidence": list(gap.evidence),
         })
 
+    for outcome in iter_task_outcomes(brain):
+        if adapter and outcome.adapter != adapter:
+            continue
+        if session and outcome.session_id != session:
+            continue
+        injected_ids = list(outcome.injected_ids)
+        adopted_ids = list(outcome.adopted_ids)
+        rejected_ids = list(outcome.rejected_ids)
+        handled_ids = set(adopted_ids) | set(rejected_ids)
+        ignored_ids = [item_id for item_id in injected_ids if item_id not in handled_ids]
+        cohort_id = _cohort_id_from_task_outcome(outcome.task_id, outcome.question)
+        usage = {
+            "injected": len(injected_ids),
+            "adopted": len(adopted_ids),
+            "rejected": len(rejected_ids),
+            "ignored": len(ignored_ids),
+        }
+        rows.append({
+            "timestamp": outcome.timestamp,
+            "kind": "outcome",
+            "adapter": outcome.adapter,
+            "session_id": outcome.session_id,
+            "cwd": outcome.cwd,
+            "status": outcome.outcome,
+            "detail": (
+                f"adopted={usage['adopted']} "
+                f"rejected={usage['rejected']} "
+                f"ignored={usage['ignored']}"
+            ),
+            "outcome_id": outcome.outcome_id,
+            "task_id": outcome.task_id,
+            "cohort_id": cohort_id,
+            "usage": usage,
+            "injected_ids": injected_ids,
+            "adopted_ids": adopted_ids,
+            "rejected_ids": rejected_ids,
+            "ignored_ids": ignored_ids,
+            "feedback_signals": list(outcome.feedback_signals),
+            "value_tags": list(outcome.value_tags),
+        })
+
     for latency in _iter_hook_latency(brain):
         if adapter and latency.get("adapter") != adapter:
             continue
@@ -119,6 +160,17 @@ def _recent_hook_rows(
     if limit > 0:
         rows = rows[-limit:]
     return rows
+
+
+def _cohort_id_from_task_outcome(task_id: str, question: str) -> str | None:
+    prefix = "injection-feedback:"
+    if task_id.startswith(prefix):
+        return task_id[len(prefix):] or None
+    question_prefix = "injection cohort "
+    normalized_question = question.strip()
+    if normalized_question.startswith(question_prefix):
+        return normalized_question[len(question_prefix):].strip() or None
+    return None
 
 
 def _iter_hook_latency(brain: Path) -> list[dict[str, Any]]:

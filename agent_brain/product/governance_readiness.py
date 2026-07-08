@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
+import json
 from pathlib import Path
 from typing import Any
 
@@ -62,61 +63,23 @@ class GovernanceReadinessReport:
         }
 
 
-QUERY_SIGNAL_AUDIT_CASES: tuple[dict[str, Any], ...] = (
-    {
-        "id": "long_multi_topic_governance",
-        "prompt": (
-            "关于记忆维护、记忆召回、记忆治理、记忆注入，辛苦你用大量数据来验证"
-            "是否还有不足的地方，梳理一张待治理表格"
-        ),
-        "min_terms": 4,
-        "expected_terms": ("记忆维护", "记忆召回", "记忆治理", "记忆注入"),
-        "expected_injectable": True,
-    },
-    {
-        "id": "long_followup_table_commit",
-        "prompt": (
-            "我下发这么长一个任务，只提取了一个关键词，这种情况遇到太多次了，"
-            "然后继续推进你整理的那张表格，全部治理完成之后，依旧提交到GitHub，"
-            "注意commit规范和文案"
-        ),
-        "min_terms": 4,
-        "expected_terms": ("关键词", "治理", "表格", "github", "commit"),
-        "expected_injectable": True,
-    },
-    {
-        "id": "weak_followup_without_anchor",
-        "prompt": "接下来应该朝着什么方向治理",
-        "min_terms": 0,
-        "expected_terms": (),
-        "expected_injectable": False,
-    },
-    {
-        "id": "file_anchor_query_signal",
-        "prompt": "优化一下 query_signal.py，看看中文长任务关键词为什么丢失",
-        "min_terms": 2,
-        "expected_terms": ("query_signal.py", "关键词"),
-        "expected_injectable": True,
-    },
-    {
-        "id": "cjk_interface_json_config",
-        "prompt": (
-            "新增这两个接口的理由给我，因为我之前理解既然只是扩展了数据结构{"
-            '"defaultSceneIdentify":"ZTJD","installStatus":"",'
-            '"sceneEvaluationType":{"ZTJD":"quantitative"},'
-            '"serviceQualityScoreConfig":{"ZTJD":{"convertToPercentage":true}}'
-            "}不应该是复用原来的接口吗"
-        ),
-        "min_terms": 5,
-        "expected_terms": (
-            "新增接口",
-            "复用接口",
-            "servicequalityscoreconfig",
-            "sceneevaluationtype",
-        ),
-        "expected_injectable": True,
-    },
-)
+QUERY_SIGNAL_AUDIT_CASES_PATH = Path(__file__).with_name("query_signal_adversarial_cases.json")
+
+
+def load_query_signal_audit_cases() -> tuple[dict[str, Any], ...]:
+    """Load adversarial query-signal readiness cases shipped with the package."""
+    try:
+        raw = json.loads(QUERY_SIGNAL_AUDIT_CASES_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"cannot load query signal audit cases: {exc}") from exc
+    if not isinstance(raw, list):
+        raise RuntimeError("query signal audit cases must be a JSON list")
+    cases: list[dict[str, Any]] = []
+    for index, case in enumerate(raw):
+        if not isinstance(case, dict):
+            raise RuntimeError(f"query signal audit case #{index} must be an object")
+        cases.append(case)
+    return tuple(cases)
 
 
 def build_governance_readiness_report(
@@ -221,15 +184,19 @@ def _release_lane(repo_root: Path) -> ReadinessLane:
 
 
 def _query_signal_lane(brain_dir: Path) -> ReadinessLane:
+    cases = load_query_signal_audit_cases()
     checks: list[ReadinessCheck] = []
     under_extracted = 0
     injectable = 0
     blocked = 0
-    for case in QUERY_SIGNAL_AUDIT_CASES:
+    category_counts: dict[str, int] = {}
+    for case in cases:
+        category = str(case.get("category") or "uncategorized")
+        category_counts[category] = category_counts.get(category, 0) + 1
         diagnostic = diagnose_injection_query(case["prompt"], brain_dir=brain_dir)
         terms = tuple(str(term) for term in diagnostic.terms)
         lower_terms = tuple(term.lower() for term in terms)
-        expected_terms = tuple(str(term).lower() for term in case["expected_terms"])
+        expected_terms = tuple(str(term).lower() for term in case.get("expected_terms", ()))
         missing_terms = [
             term for term in expected_terms
             if not any(term in candidate or candidate in term for candidate in lower_terms)
@@ -239,10 +206,16 @@ def _query_signal_lane(brain_dir: Path) -> ReadinessLane:
         else:
             blocked += 1
         expected_injectable = bool(case["expected_injectable"])
+        expected_reason = case.get("expected_reason")
+        reason_mismatch = (
+            expected_reason is not None
+            and str(diagnostic.reason) != str(expected_reason)
+        )
         is_under_extracted = (
             diagnostic.injectable != expected_injectable
             or len(terms) < int(case["min_terms"])
             or bool(missing_terms)
+            or reason_mismatch
         )
         if is_under_extracted:
             under_extracted += 1
@@ -252,17 +225,26 @@ def _query_signal_lane(brain_dir: Path) -> ReadinessLane:
             status=status,
             title=str(case["id"]).replace("_", " "),
             detail=(
+                f"category={category}, "
                 f"decision={diagnostic.decision}, "
-                f"terms={list(terms)}, missing={missing_terms}"
+                f"terms={list(terms)}, missing={missing_terms}, "
+                f"reason={diagnostic.reason}"
             ),
-            evidence=diagnostic.to_dict(),
+            evidence={
+                **diagnostic.to_dict(),
+                "category": category,
+                "expected_injectable": expected_injectable,
+                "expected_reason": expected_reason,
+                "reason_mismatch": reason_mismatch,
+            },
         ))
     return ReadinessLane(
         id="query_signal",
         title="长任务召回入口",
         status="warn" if under_extracted else "pass",
         metrics={
-            "case_count": len(QUERY_SIGNAL_AUDIT_CASES),
+            "case_count": len(cases),
+            "category_counts": dict(sorted(category_counts.items())),
             "injectable_cases": injectable,
             "blocked_cases": blocked,
             "under_extracted_cases": under_extracted,
@@ -422,9 +404,10 @@ def _unique(values: Any) -> list[str]:
 
 __all__ = [
     "GovernanceReadinessReport",
-    "QUERY_SIGNAL_AUDIT_CASES",
+    "QUERY_SIGNAL_AUDIT_CASES_PATH",
     "ReadinessCheck",
     "ReadinessLane",
     "build_governance_readiness_report",
+    "load_query_signal_audit_cases",
     "render_governance_readiness_markdown",
 ]

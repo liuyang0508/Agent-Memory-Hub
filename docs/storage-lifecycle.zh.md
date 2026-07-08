@@ -26,7 +26,7 @@
 | `runtime/adapter-events.jsonl` | hook 是否真实跑过的机械证据。只记录 adapter、event、session、cwd，不存 prompt/body。 | SessionStart、UserPromptSubmit、Stop、PreCompact、PostCompact、SubagentStart、SubagentStop hook 执行时。 | adapter doctor、verified gate、运行状态诊断。 | `memory adapter doctor <adapter> --format json`；源码是 `runtime_events.py`。 |
 | `runtime/injection-cohorts.jsonl` | 某次自动注入最终进入上下文的 item id 集合和 pack metrics。不会存 prompt 正文。 | `inject-context.sh` 调 `memory search --record-injection-cohort` 且有结果时。 | 分析哪些记忆被注入、哪些被反馈采纳/拒绝。 | runtime 诊断、Web trace、`latest_injection_cohort()`。 |
 | `runtime/recall-gaps.jsonl` | 召回缺口：没有结果、query 太弱、候选被 firewall 拒绝、图片/音频缺少 OCR/ASR 文本等。 | hook/search 开启 `--record-recall-gap` 且没有可注入上下文时。 | 发现“为什么没召回”、训练 benchmark/治理候选。 | `memory hook recent --limit 5` 看最近 hook 结果；`memory recall-drift ...` 做批量治理；源码是 `recall_events.py`。 |
-| `runtime/task-outcomes*.jsonl` | 任务结果和注入反馈：哪些记忆有用、哪些误导。 | 用户/系统记录 outcome 或 injection feedback 后。 | 召回 value weighting、负反馈 quarantine、质量报告。 | recall drift/report、feedback tooling。 |
+| `runtime/task-outcomes*.jsonl` | 任务结果和注入反馈：哪些记忆有用、哪些误导。 | 用户/系统记录 outcome 或 injection feedback 后。 | 召回 value weighting、负反馈 quarantine、质量报告。 | `memory hook recent --format json` 查看 adopted / rejected / ignored；recall drift/report、feedback tooling。 |
 | `.harvest/state.json` | transcript harvest 水位线：每个 transcript 读到哪个 byte offset。 | `memory harvest` 扫 transcript 后更新。 | 下次 harvest 断点续跑，避免重复抽取。 | `WatermarkStore` 自动读写。 |
 | `.session-flags/` | Stop hook 去重 flag。 | `session-end-signal.sh` 第一次看到一个 session 时写。 | 防止每个 turn 都写 session-active signal。 | 通常无需手动读；`memory gc` 可清理。 |
 | `review/proactive-candidates.jsonl` | 语义记忆候选，还没批准，不是正式长期记忆。 | proactive/semantic 候选生成时。 | Web/CLI review 审核。批准后才经 `WriteService` 写入 `items/`。 | review/candidate UI 或相关 CLI。 |
