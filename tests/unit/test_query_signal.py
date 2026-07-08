@@ -196,6 +196,61 @@ def test_long_followup_task_keeps_governance_table_and_release_anchors() -> None
     assert {"关键词", "表格", "治理", "github", "commit"}.issubset(terms)
 
 
+def test_cjk_interface_question_with_json_config_does_not_extract_boolean_literal() -> None:
+    from agent_brain.memory.context.query_signal import analyze_injection_query, extract_injection_keywords
+
+    prompt = """[Image #1]新增这两个接口的理由给我，因为我之前理解既然只是扩展了数据结构{
+      "defaultSceneIdentify": "ZTJD",
+      "installStatus": "",
+      "sceneEvaluationType": {
+        "ZTJD": "quantitative"
+      },
+      "serviceQualityScoreConfig": {
+        "ZTJD": {
+          "convertToPercentage": true
+        }
+      }
+    }
+
+    不应该是复用原来的接口吗"""
+
+    signal = analyze_injection_query(prompt)
+    keywords = extract_injection_keywords(prompt).split("|")
+
+    assert signal.injectable
+    assert "json_field" in signal.anchors
+    assert "true" not in signal.terms
+    assert "true" not in signal.weak_terms
+    assert "true" not in keywords
+    assert {"新增接口", "复用接口"}.issubset(keywords)
+    assert {"servicequalityscoreconfig", "sceneevaluationtype"}.issubset(keywords)
+
+
+def test_json_boolean_literal_is_not_restored_from_metadata_cache(tmp_path) -> None:
+    from agent_brain.contracts.memory_item import MemoryItem, MemoryType
+    from agent_brain.memory.context.query_signal import analyze_injection_query
+    from agent_brain.memory.store.items_store import ItemsStore
+
+    item = MemoryItem(
+        id="mem-20260708-100000-json-true-literal",
+        type=MemoryType.fact,
+        created_at=datetime.now(timezone.utc),
+        title="JSON true literal should stay non-semantic",
+        summary="Historical metadata containing true should not make true a recall anchor.",
+        tags=["json", "query-signal"],
+    )
+    ItemsStore(tmp_path / "items").write(item, "true literal body")
+
+    prompt = """新增接口理由 {"serviceQualityScoreConfig":{"ZTJD":{"convertToPercentage":true}}}"""
+
+    signal = analyze_injection_query(prompt, brain_dir=tmp_path)
+
+    assert signal.injectable
+    assert "true" not in signal.terms
+    assert "true" not in signal.strong_terms
+    assert "true" not in signal.weak_terms
+
+
 def test_file_uri_prompt_does_not_promote_local_path_segments_from_metadata(tmp_path) -> None:
     from agent_brain.contracts.memory_item import MemoryItem, MemoryType
     from agent_brain.memory.context.query_signal import analyze_injection_query, extract_injection_keywords

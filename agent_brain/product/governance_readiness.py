@@ -98,6 +98,24 @@ QUERY_SIGNAL_AUDIT_CASES: tuple[dict[str, Any], ...] = (
         "expected_terms": ("query_signal.py", "关键词"),
         "expected_injectable": True,
     },
+    {
+        "id": "cjk_interface_json_config",
+        "prompt": (
+            "新增这两个接口的理由给我，因为我之前理解既然只是扩展了数据结构{"
+            '"defaultSceneIdentify":"ZTJD","installStatus":"",'
+            '"sceneEvaluationType":{"ZTJD":"quantitative"},'
+            '"serviceQualityScoreConfig":{"ZTJD":{"convertToPercentage":true}}'
+            "}不应该是复用原来的接口吗"
+        ),
+        "min_terms": 5,
+        "expected_terms": (
+            "新增接口",
+            "复用接口",
+            "servicequalityscoreconfig",
+            "sceneevaluationtype",
+        ),
+        "expected_injectable": True,
+    },
 )
 
 

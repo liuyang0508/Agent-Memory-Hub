@@ -15,6 +15,9 @@ from agent_brain.memory.context.query_intent import (
 )
 
 _TOKEN_RE = re.compile(r"[A-Za-z0-9_+.-]+|[\u4e00-\u9fff]+", re.UNICODE)
+_JSONISH_FIELD_RE = re.compile(
+    r"""["']([A-Za-z][A-Za-z0-9_+.-]{2,})["']\s*:""",
+)
 _CJK_METADATA_SPLIT_RE = re.compile(
     r"[\s:：,，.。?？!！/\\（）()\[\]【】「」『』、]+"
 )
@@ -143,6 +146,12 @@ _ASCII_KEYPHRASE_STOPWORDS = {
     "only",
     "the",
     "to",
+}
+_ASCII_LITERAL_STOPWORDS = {
+    "false",
+    "null",
+    "none",
+    "true",
 }
 _CJK_CONFIRMATION_OPERATOR_RE = re.compile(
     r"(?:是否|是不是|有没有|全部|吗)"
@@ -338,11 +347,18 @@ def analyze_injection_query(
     if file_terms:
         anchors.append("file_or_module")
         trace.append("file_terms=" + "|".join(file_terms))
+    json_field_terms = _jsonish_field_terms(prompt)
+    for term in json_field_terms:
+        _append_unique(terms, term)
+        _append_unique(strong_terms, term)
+    if json_field_terms:
+        anchors.append("json_field")
+        trace.append("json_field_terms=" + "|".join(json_field_terms))
     keyphrase_terms = _prompt_keyphrase_terms(prompt)
     keyphrase_terms = _metadata_superseded_keyphrase_terms(keyphrase_terms, metadata_terms)
     adjacent_ascii_scope_terms = _adjacent_ascii_scope_terms(
         prompt,
-        [*keyphrase_terms, *metadata_terms, *known_entity_terms],
+        [*keyphrase_terms, *metadata_terms, *known_entity_terms, *json_field_terms],
     )
     for term in adjacent_ascii_scope_terms:
         _append_unique(terms, term)
@@ -369,15 +385,34 @@ def analyze_injection_query(
     if cjk_question_focus_terms:
         anchors.append("cjk_question_focus")
         trace.append("cjk_question_focus_terms=" + "|".join(cjk_question_focus_terms))
+    structured_cjk_focus_terms = _structured_cjk_focus_terms(
+        prompt,
+        [
+            *json_field_terms,
+            *keyphrase_terms,
+            *metadata_terms,
+            *adjacent_ascii_scope_terms,
+            *file_terms,
+            *known_entity_terms,
+        ],
+    )
+    for term in structured_cjk_focus_terms:
+        _append_unique(terms, term)
+        _append_unique(strong_terms, term)
+    if structured_cjk_focus_terms:
+        anchors.append("structured_cjk_focus")
+        trace.append("structured_cjk_focus_terms=" + "|".join(structured_cjk_focus_terms))
     task_anchor_terms = _task_anchor_terms(
         prompt,
         [
+            *json_field_terms,
             *keyphrase_terms,
             *metadata_terms,
             *adjacent_ascii_scope_terms,
             *file_terms,
             *known_entity_terms,
             *cjk_question_focus_terms,
+            *structured_cjk_focus_terms,
         ],
     )
     for term in task_anchor_terms:
@@ -391,6 +426,8 @@ def analyze_injection_query(
         term for term in task_anchor_terms if term not in leading_task_anchor_terms
     ]
     precise_anchor_terms = [
+        *structured_cjk_focus_terms,
+        *json_field_terms,
         *leading_task_anchor_terms,
         *keyphrase_terms,
         *metadata_terms,
@@ -401,6 +438,8 @@ def analyze_injection_query(
         *trailing_task_anchor_terms,
     ]
     strong_focus_terms = [
+        *structured_cjk_focus_terms,
+        *json_field_terms,
         *leading_task_anchor_terms,
         *keyphrase_terms,
         *metadata_terms,
@@ -487,7 +526,7 @@ def _candidate_terms(prompt: str) -> tuple[list[str], list[str], list[str]]:
             continue
         expanded = _expand_token(token)
         if not expanded:
-            if token:
+            if token and token not in _ASCII_LITERAL_STOPWORDS:
                 weak.append(token)
             continue
         for candidate in expanded:
@@ -519,6 +558,8 @@ def _metadata_supported_prompt_terms(prompt: str, brain_dir: Path | None) -> lis
         return []
     for phrase in cache.get("phrases", []):
         if not isinstance(phrase, str):
+            continue
+        if phrase.strip().lower() in _ASCII_LITERAL_STOPWORDS:
             continue
         if _is_generic_ascii_anchor(phrase) or _ascii_phrase_embedded_in_cjk_compound(prompt_lower, phrase):
             continue
@@ -669,6 +710,8 @@ def _metadata_search_phrases(text: str) -> list[str]:
         if not phrase or phrase in seen:
             return
         if _is_ascii(phrase):
+            if phrase.lower() in _ASCII_LITERAL_STOPWORDS:
+                return
             if len(phrase) < 4:
                 return
         elif len(phrase) < 4:
@@ -726,6 +769,53 @@ def _prompt_keyphrase_terms(prompt: str) -> list[str]:
     for term in _ascii_keyphrase_terms(prompt):
         _append_unique(terms, term)
 
+    return terms
+
+
+def _jsonish_field_terms(prompt: str) -> list[str]:
+    positions: dict[str, int] = {}
+    for match in _JSONISH_FIELD_RE.finditer(prompt):
+        term = _normalize_jsonish_identifier(match.group(1))
+        if not _is_jsonish_field_anchor(term):
+            continue
+        positions.setdefault(term, match.start())
+    return [
+        term
+        for term, _pos in sorted(
+            positions.items(),
+            key=lambda item: (-len(item[0]), item[1], item[0]),
+        )
+    ]
+
+
+def _normalize_jsonish_identifier(raw: str) -> str:
+    return raw.strip("._-+").lower()
+
+
+def _is_jsonish_field_anchor(term: str) -> bool:
+    if not term or not _is_ascii(term):
+        return False
+    if term in _ASCII_LITERAL_STOPWORDS:
+        return False
+    if not _is_ascii_candidate(term):
+        return False
+    return any(ch.isalpha() for ch in term)
+
+
+def _structured_cjk_focus_terms(prompt: str, anchor_terms: list[str]) -> list[str]:
+    if not anchor_terms:
+        return []
+    compact = re.sub(r"\s+", "", prompt)
+    terms: list[str] = []
+    if "接口" in compact:
+        if "新增" in compact:
+            _append_unique(terms, "新增接口")
+        if "复用" in compact:
+            _append_unique(terms, "复用接口")
+        if not terms and "理由" in compact:
+            _append_unique(terms, "接口理由")
+    if "数据结构" in compact:
+        _append_unique(terms, "数据结构")
     return terms
 
 
@@ -1471,6 +1561,8 @@ def _weak_noise_from_trace(trace: tuple[str, ...]) -> tuple[str, ...]:
 
 
 def _is_ascii_candidate(token: str) -> bool:
+    if token.lower() in _ASCII_LITERAL_STOPWORDS:
+        return False
     return len(token) >= 3 and any(ch.isalpha() for ch in token)
 
 
