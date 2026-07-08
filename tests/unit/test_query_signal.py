@@ -166,6 +166,36 @@ def test_file_or_module_anchor_allows_weak_edit_prompt() -> None:
     assert extract_injection_keywords("优化一下 query_signal.py") == "query_signal.py"
 
 
+def test_file_anchor_prompt_keeps_specific_cjk_task_term() -> None:
+    from agent_brain.memory.context.query_signal import analyze_injection_query, extract_injection_keywords
+
+    prompt = "优化一下 query_signal.py，看看中文长任务关键词为什么丢失"
+
+    signal = analyze_injection_query(prompt)
+    keywords = extract_injection_keywords(prompt)
+
+    assert signal.injectable
+    assert "file_or_module" in signal.anchors
+    assert "query_signal.py" in keywords.split("|")
+    assert "关键词" in keywords.split("|")
+
+
+def test_long_followup_task_keeps_governance_table_and_release_anchors() -> None:
+    from agent_brain.memory.context.query_signal import analyze_injection_query, extract_injection_keywords
+
+    prompt = (
+        "我下发这么长一个任务，只提取了一个关键词，这种情况遇到太多次了，"
+        "然后继续推进你整理的那张表格，全部治理完成之后，依旧提交到GitHub，"
+        "注意commit规范和文案"
+    )
+
+    signal = analyze_injection_query(prompt)
+    terms = set(extract_injection_keywords(prompt).split("|"))
+
+    assert signal.injectable
+    assert {"关键词", "表格", "治理", "github", "commit"}.issubset(terms)
+
+
 def test_file_uri_prompt_does_not_promote_local_path_segments_from_metadata(tmp_path) -> None:
     from agent_brain.contracts.memory_item import MemoryItem, MemoryType
     from agent_brain.memory.context.query_signal import analyze_injection_query, extract_injection_keywords
@@ -644,6 +674,7 @@ def test_long_mixed_agent_article_prompt_keeps_cjk_domain_keyphrases(tmp_path) -
 
     assert signal.injectable
     assert "keyphrase" in signal.anchors
+    assert "治理" not in signal.strong_terms
     assert keywords.startswith("多agent协作|长期记忆|上下文工程")
     assert "agent" not in keywords.split("|")[:3]
     assert "决策" not in keywords.split("|")

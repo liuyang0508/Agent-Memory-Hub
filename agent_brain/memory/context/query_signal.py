@@ -77,6 +77,27 @@ _DOMAIN_KEYPHRASE_PRIORITY = (
     "记忆治理",
     "记忆注入",
 )
+_CJK_TASK_ANCHOR_TERMS = (
+    "关键词",
+    "表格",
+    "治理",
+    "文案",
+)
+_ASCII_TASK_ANCHOR_TERMS = (
+    "github",
+    "commit",
+)
+_CJK_TASK_ANCHOR_CONTEXT_TERMS = (
+    "长任务",
+    "提取",
+    "关键词",
+    "表格",
+    "治理",
+    "提交",
+    "规范",
+    "文案",
+    "丢失",
+)
 _TEST_STATUS_ASCII_TERMS = {
     "error",
     "errors",
@@ -348,28 +369,53 @@ def analyze_injection_query(
     if cjk_question_focus_terms:
         anchors.append("cjk_question_focus")
         trace.append("cjk_question_focus_terms=" + "|".join(cjk_question_focus_terms))
+    task_anchor_terms = _task_anchor_terms(
+        prompt,
+        [
+            *keyphrase_terms,
+            *metadata_terms,
+            *adjacent_ascii_scope_terms,
+            *file_terms,
+            *known_entity_terms,
+            *cjk_question_focus_terms,
+        ],
+    )
+    for term in task_anchor_terms:
+        _append_unique(terms, term)
+        _append_unique(strong_terms, term)
+    if task_anchor_terms:
+        anchors.append("task_anchor")
+        trace.append("task_anchor_terms=" + "|".join(task_anchor_terms))
+    leading_task_anchor_terms = _leading_task_anchor_terms(task_anchor_terms, keyphrase_terms)
+    trailing_task_anchor_terms = [
+        term for term in task_anchor_terms if term not in leading_task_anchor_terms
+    ]
     precise_anchor_terms = [
+        *leading_task_anchor_terms,
         *keyphrase_terms,
         *metadata_terms,
         *adjacent_ascii_scope_terms,
         *file_terms,
         *known_entity_terms,
         *cjk_question_focus_terms,
+        *trailing_task_anchor_terms,
     ]
     strong_focus_terms = [
+        *leading_task_anchor_terms,
         *keyphrase_terms,
         *metadata_terms,
         *adjacent_ascii_scope_terms,
         *file_terms,
         *cjk_question_focus_terms,
+        *trailing_task_anchor_terms,
     ] or known_entity_terms
     _promote_terms(terms, precise_anchor_terms)
     _focus_terms_on_precise_anchor(terms, precise_anchor_terms)
     _focus_strong_terms_on_precise_anchor(strong_terms, strong_focus_terms)
     _focus_unanchored_terms_on_ascii_scope(terms, strong_terms, anchors)
     if keyphrase_terms:
-        _prune_ascii_terms_after_keyphrases(terms, keyphrase_terms)
-        _prune_ascii_terms_after_keyphrases(strong_terms, keyphrase_terms)
+        _prune_ascii_terms_after_keyphrases(terms, keyphrase_terms, protected_terms=task_anchor_terms)
+        _prune_ascii_terms_after_keyphrases(strong_terms, keyphrase_terms, protected_terms=task_anchor_terms)
     trace.extend(_weak_intent_traces(weak_terms))
     specificity = _specificity(terms, strong_terms)
     anchors_tuple = tuple(dict.fromkeys(anchors))
@@ -759,6 +805,56 @@ def _anchored_cjk_question_focus_terms(
     return terms
 
 
+def _task_anchor_terms(prompt: str, anchor_terms: list[str]) -> list[str]:
+    if not anchor_terms and not _looks_like_long_task_anchor_prompt(prompt):
+        return []
+    lowered = prompt.lower()
+    terms: list[str] = []
+    for term in _CJK_TASK_ANCHOR_TERMS:
+        if _cjk_task_anchor_present(prompt, term):
+            _append_unique(terms, term)
+    for term in _ASCII_TASK_ANCHOR_TERMS:
+        pattern = r"(?<![a-z0-9_+.-])" + re.escape(term) + r"(?![a-z0-9_+.-])"
+        if re.search(pattern, lowered):
+            _append_unique(terms, term)
+    if anchor_terms:
+        return terms
+    if len(terms) >= 2 and any(term in prompt for term in _CJK_TASK_ANCHOR_CONTEXT_TERMS):
+        return terms
+    return []
+
+
+def _looks_like_long_task_anchor_prompt(prompt: str) -> bool:
+    if len(prompt) < 32:
+        return False
+    if "然后" not in prompt and "之后" not in prompt and "完成" not in prompt:
+        return False
+    return any(term in prompt for term in _CJK_TASK_ANCHOR_CONTEXT_TERMS)
+
+
+def _cjk_task_anchor_present(prompt: str, term: str) -> bool:
+    for match in re.finditer(re.escape(term), prompt):
+        before = prompt[match.start() - 1] if match.start() > 0 else ""
+        after = prompt[match.end()] if match.end() < len(prompt) else ""
+        if term == "治理" and (before == "可" or after == "的"):
+            continue
+        return True
+    return False
+
+
+def _leading_task_anchor_terms(task_anchor_terms: list[str], keyphrase_terms: list[str]) -> list[str]:
+    if not task_anchor_terms:
+        return []
+    if any(_keyphrase_is_non_task_topic(term, task_anchor_terms) for term in keyphrase_terms):
+        return []
+    return task_anchor_terms
+
+
+def _keyphrase_is_non_task_topic(term: str, task_anchor_terms: list[str]) -> bool:
+    normalized = term.lower()
+    return not any(anchor.lower() in normalized for anchor in task_anchor_terms)
+
+
 def _append_cjk_question_focus(values: list[str], raw: str) -> None:
     phrase = _normalize_cjk_question_focus(raw)
     if _is_cjk_question_focus_anchor(phrase):
@@ -922,11 +1018,17 @@ def _is_ascii_keyphrase_anchor(phrase: str) -> bool:
     return any(any(ch.isalpha() for ch in word) for word in words)
 
 
-def _prune_ascii_terms_after_keyphrases(values: list[str], keyphrase_terms: list[str]) -> None:
+def _prune_ascii_terms_after_keyphrases(
+    values: list[str],
+    keyphrase_terms: list[str],
+    *,
+    protected_terms: list[str] | None = None,
+) -> None:
+    protected = set(protected_terms or ())
     values[:] = [
         value
         for value in values
-        if not _drop_ascii_term_after_keyphrases(value, keyphrase_terms)
+        if value in protected or not _drop_ascii_term_after_keyphrases(value, keyphrase_terms)
     ]
 
 

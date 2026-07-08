@@ -119,6 +119,7 @@ manager.
 
 ```bash
 memory doctor
+memory govern readiness --format markdown
 memory search "project decision"
 ```
 

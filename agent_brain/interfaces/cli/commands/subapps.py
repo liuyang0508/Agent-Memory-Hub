@@ -298,6 +298,29 @@ def maintenance_plan(
     typer.echo("\n".join(lines))
 
 
+@govern_app.command("readiness")
+def governance_readiness(
+    format: str = typer.Option("markdown", "--format", help="Output format: json or markdown"),
+) -> None:
+    """Summarize release, query-signal, and memory-lifecycle governance risks."""
+    import json
+
+    from agent_brain.platform.install_repair import repo_root
+    from agent_brain.product.governance_readiness import (
+        build_governance_readiness_report,
+        render_governance_readiness_markdown,
+    )
+
+    report = build_governance_readiness_report(_brain_dir(), repo_root=repo_root())
+    if format == "json":
+        typer.echo(json.dumps(report.to_dict(), indent=2, ensure_ascii=False))
+        return
+    if format != "markdown":
+        typer.echo("format must be json or markdown", err=True)
+        raise typer.Exit(2)
+    typer.echo(render_governance_readiness_markdown(report))
+
+
 @govern_app.command("apply-summary-rewrites")
 def apply_summary_rewrites_command(
     dry_run: bool = typer.Option(
@@ -489,4 +512,13 @@ def entity_show(
     typer.echo(build_entity_page(match, items_by_id))
 
 
-__all__ = ['run', 'maturity_report', 'auto_governance', 'entity_list', 'entity_show']
+__all__ = [
+    'run',
+    'maturity_report',
+    'maintenance_plan',
+    'governance_readiness',
+    'apply_summary_rewrites_command',
+    'auto_governance',
+    'entity_list',
+    'entity_show',
+]

@@ -174,9 +174,10 @@ npm install -g agent-memory-hub
 
 ```bash
 memory doctor
+memory govern readiness --format markdown
 ```
 
-`memory doctor` 用来确认 CLI、数据目录、索引、hook / MCP 依赖是否可用。doctor 通过后，再继续写入和召回。
+`memory doctor` 用来确认 CLI、数据目录、索引、hook / MCP 依赖是否可用。`memory govern readiness` 用来把发布可用性、长任务召回入口和记忆生命周期风险汇总成一张待治理表。doctor 通过后，再继续写入和召回。
 
 AMH 不会在 hook 里静默联网更新。换版本、移动 checkout、重装 release，或者 doctor 提示 hook path / `memory` shim 指向旧目录时，用显式命令修复：
 
@@ -219,6 +220,7 @@ memory read <memory-id> --view detail --head 2000
 | 检查点 | 看什么 | 通过意味着什么 |
 |---|---|---|
 | `memory doctor` | CLI、数据目录、索引、hook/MCP 依赖是否可用。 | 本地大脑可运行。 |
+| `memory govern readiness --format markdown` | release assets、query signal 长任务抽词、stale signal/handoff。 | 当前机器的待治理项可见，不把风险藏在安装日志里。 |
 | `memory search ... --context-firewall` | 输出里是否有 include/exclude、pack view、retrieve hint。 | 召回候选已经进入注入治理。 |
 | `memory read <id> --view detail --head 2000` | detail 是否可按提示回读。 | ContextPack 的 locator/overview/detail 不是一次性摘要，而是可逆分层加载。 |
 
@@ -1424,6 +1426,14 @@ memory benchmark system --max-cases 240 --top-k 10 --min-block-accuracy 1.0 --mi
 System benchmark: PASS cases=240 items=1234 block=1.000 inject=1.000 recall@10=1.000 mrr=0.998 firewall=1.000 pack=1.000
 ```
 
+治理 readiness：
+
+```bash
+memory govern readiness --format markdown
+```
+
+这条命令是只读审计，覆盖三组经常漂移的发布前风险：GitHub Release / Homebrew / npm 资产是否齐、长任务 prompt 是否能保留关键召回锚点、`~/.agent-memory-hub/items` 里是否存在 stale signal / handoff 等生命周期欠账。
+
 核心指标快照：
 
 | 指标 | 结果 |
@@ -1797,6 +1807,7 @@ memory loop gate open <loop-id> --gate code_review --reason "需要人工复核"
 memory loop complete <loop-id> --evidence "tests passed"
 
 memory govern plan
+memory govern readiness --format markdown
 memory govern maturity
 memory sync-pending
 memory verify --repair
