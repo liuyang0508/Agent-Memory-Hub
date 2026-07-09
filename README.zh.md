@@ -1,8 +1,10 @@
 # Agent Memory Hub
 
-[官网](https://aihub0508.com/) | [English](./README.md) | [快速使用](#quick-start) | [生命周期图](#diagram-lifecycle) | [能力账本](#capability-ledger) | [评测门禁](#system-benchmark-gate) | [架构图谱](#architecture-map)
+[官网](https://aihub0508.com/) | [Gitee 镜像](https://gitee.com/liuyang0508/Agent-Memory-Hub) | [技术共创群](#community) | [English](./README.md) | [快速使用](#quick-start) | [生命周期图](#diagram-lifecycle) | [能力账本](#capability-ledger) | [评测门禁](#system-benchmark-gate) | [架构图谱](#architecture-map)
 
 [![官网：aihub0508.com](https://img.shields.io/badge/官网-aihub0508.com-0ea5e9.svg)](https://aihub0508.com/)
+[![Gitee 镜像](https://img.shields.io/badge/镜像-Gitee-C71D23.svg)](https://gitee.com/liuyang0508/Agent-Memory-Hub)
+[![技术共创群](https://img.shields.io/badge/社群-Agent%20Memory%20Hub%20技术共创群-0f766e.svg)](#community)
 [![定位：共享第二大脑](https://img.shields.io/badge/定位-共享第二大脑-0f766e.svg)](#why-shared-second-brain)
 [![接入：CLI / MCP / SDK / Web / hooks](https://img.shields.io/badge/接入-CLI%20%2F%20MCP%20%2F%20SDK%20%2F%20Web%20%2F%20hooks-2563eb.svg)](#runtime-integration-model)
 [![维护：Evidence / MemoryItem / Index](https://img.shields.io/badge/维护-Evidence%20%2F%20MemoryItem%20%2F%20Index-0891b2.svg)](#maintenance-flow)
@@ -15,6 +17,14 @@
 <p align="center">
   <img src="./docs/visuals/amh-loop-layered-architecture.zh.svg" alt="AMH 可信上下文生命周期图：接入、维护、召回、治理与评估" width="100%">
 </p>
+
+<a id="community"></a>
+
+## 国内镜像与技术共创群
+
+- GitHub 主仓库：[liuyang0508/Agent-Memory-Hub](https://github.com/liuyang0508/Agent-Memory-Hub)
+- Gitee 国内镜像：[liuyang0508/Agent-Memory-Hub](https://gitee.com/liuyang0508/Agent-Memory-Hub)，适合 GitHub 访问不稳定的同学克隆源码和跟进更新。
+- 技术交流群统一命名为 **Agent Memory Hub 技术共创群**。它用于安装支持、适配器接入证据、召回问题反馈、评测样本共创和长期路线讨论；二维码或邀请链接以官网社区入口为准，也可以在 GitHub / Gitee issue 留言获取。
 
 <a id="quick-nav"></a>
 
@@ -168,6 +178,15 @@ npm：
 
 ```bash
 npm install -g agent-memory-hub
+```
+
+GitHub 访问不稳定时，可以从 Gitee 镜像做源码安装：
+
+```bash
+git clone https://gitee.com/liuyang0508/Agent-Memory-Hub.git ~/agent-memory-hub
+cd ~/agent-memory-hub
+./install.sh --verify-only
+./install.sh
 ```
 
 ### 2. 自检
@@ -1269,10 +1288,19 @@ npm：
 npm install -g agent-memory-hub
 ```
 
-源码安装：
+源码安装（GitHub）：
 
 ```bash
 git clone https://github.com/liuyang0508/agent-memory-hub.git ~/agent-memory-hub
+cd ~/agent-memory-hub
+./install.sh --verify-only
+./install.sh
+```
+
+源码安装（Gitee 国内镜像）：
+
+```bash
+git clone https://gitee.com/liuyang0508/Agent-Memory-Hub.git ~/agent-memory-hub
 cd ~/agent-memory-hub
 ./install.sh --verify-only
 ./install.sh

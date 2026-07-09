@@ -10,9 +10,11 @@
 > Cursor, Hermes, Qoder, Wukong, GitHub Copilot, and any agent that can use
 > MCP, CLI, or hooks.
 
-[Official Website](https://aihub0508.com/) | [中文版](./README.zh.md) | [Strategy](./STRATEGY.md) | [Roadmap](./ROADMAP.md) | [Benchmark Report](#benchmark-report) | [Lifecycle](#trusted-context-lifecycle) | [Capability Map](#engineering-capability-map) | [Architecture Map](#engineering-architecture-map) | [Architecture Notes](./docs/architecture.md)
+[Official Website](https://aihub0508.com/) | [Gitee Mirror](https://gitee.com/liuyang0508/Agent-Memory-Hub) | [Community](#mirrors-and-community) | [中文版](./README.zh.md) | [Strategy](./STRATEGY.md) | [Roadmap](./ROADMAP.md) | [Benchmark Report](#benchmark-report) | [Lifecycle](#trusted-context-lifecycle) | [Capability Map](#engineering-capability-map) | [Architecture Map](#engineering-architecture-map) | [Architecture Notes](./docs/architecture.md)
 
 [![Website](https://img.shields.io/badge/website-aihub0508.com-0ea5e9.svg)](https://aihub0508.com/)
+[![Gitee Mirror](https://img.shields.io/badge/mirror-Gitee-C71D23.svg)](https://gitee.com/liuyang0508/Agent-Memory-Hub)
+[![Community](https://img.shields.io/badge/community-Agent%20Memory%20Hub%20Technical%20Community-0f766e.svg)](#mirrors-and-community)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](./LICENSE)
 [![CI](https://img.shields.io/github/actions/workflow/status/liuyang0508/agent-memory-hub/python-tests.yml?branch=main&label=tests)](./.github/workflows/python-tests.yml)
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue)](./pyproject.toml)
@@ -22,6 +24,12 @@
 For the full technical audit, algorithm walk-through, and detailed benchmark
 boundaries, see [README.zh.md](./README.zh.md). This English README is the
 concise public overview.
+
+## Mirrors And Community
+
+- Primary repository: [GitHub `liuyang0508/Agent-Memory-Hub`](https://github.com/liuyang0508/Agent-Memory-Hub).
+- China-accessible mirror: [Gitee `liuyang0508/Agent-Memory-Hub`](https://gitee.com/liuyang0508/Agent-Memory-Hub).
+- Technical community: **Agent Memory Hub Technical Community** / **Agent Memory Hub 技术共创群**. Use it for install help, adapter evidence, recall misses, benchmark samples, and long-term co-building. If an invite link or QR code changes, check the official website or leave an issue on GitHub or Gitee.
 
 ## Trusted Context Lifecycle
 
@@ -57,10 +65,19 @@ NPM:
 npm install -g agent-memory-hub
 ```
 
-Source checkout:
+Source checkout from GitHub:
 
 ```bash
 git clone https://github.com/liuyang0508/agent-memory-hub.git ~/agent-memory-hub
+cd ~/agent-memory-hub
+./install.sh --verify-only
+./install.sh
+```
+
+Source checkout from the Gitee mirror:
+
+```bash
+git clone https://gitee.com/liuyang0508/Agent-Memory-Hub.git ~/agent-memory-hub
 cd ~/agent-memory-hub
 ./install.sh --verify-only
 ./install.sh

@@ -63,6 +63,23 @@ Homebrew maps `liuyang0508/agent-memory-hub` to the GitHub repository
 repository's GitHub Release `install.sh` asset, so the cask requires the release
 installer asset to exist.
 
+## Gitee Mirror
+
+The Gitee mirror is published at:
+
+```text
+https://gitee.com/liuyang0508/Agent-Memory-Hub
+```
+
+`.github/workflows/sync-gitee.yml` syncs GitHub branches and tags to Gitee on
+`main` pushes, `v*` tags, and manual workflow dispatch.
+
+Maintainer setup:
+
+- Add `GITEE_SSH_PRIVATE_KEY` as a GitHub repository secret.
+- Add the matching public key to the Gitee repository with push permission.
+- Keep the remote path as `git@gitee.com:liuyang0508/Agent-Memory-Hub.git`.
+
 ## Verification
 
 ```bash

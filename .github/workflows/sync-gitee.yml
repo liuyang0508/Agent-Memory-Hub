@@ -1,0 +1,49 @@
+name: sync-gitee
+
+on:
+  push:
+    branches: [main]
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sync-gitee-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  mirror:
+    if: github.repository_owner == 'liuyang0508'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure Gitee SSH key
+        env:
+          GITEE_SSH_PRIVATE_KEY: ${{ secrets.GITEE_SSH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GITEE_SSH_PRIVATE_KEY}" ]; then
+            echo "GITEE_SSH_PRIVATE_KEY is not configured."
+            exit 1
+          fi
+          mkdir -p "$HOME/.ssh"
+          chmod 700 "$HOME/.ssh"
+          printf '%s\n' "$GITEE_SSH_PRIVATE_KEY" > "$HOME/.ssh/gitee_mirror"
+          chmod 600 "$HOME/.ssh/gitee_mirror"
+          ssh-keyscan gitee.com >> "$HOME/.ssh/known_hosts"
+
+      - name: Push GitHub refs to Gitee
+        run: |
+          set -euo pipefail
+          git fetch --prune origin '+refs/heads/*:refs/remotes/origin/*' '+refs/tags/*:refs/tags/*'
+          git update-ref -d refs/remotes/origin/HEAD || true
+          git remote add gitee git@gitee.com:liuyang0508/Agent-Memory-Hub.git
+          export GIT_SSH_COMMAND="ssh -i $HOME/.ssh/gitee_mirror -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes"
+          git push --force --prune gitee 'refs/remotes/origin/*:refs/heads/*'
+          git push --force gitee 'refs/tags/*:refs/tags/*'

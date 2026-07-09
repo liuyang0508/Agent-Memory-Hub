@@ -4262,7 +4262,7 @@
 
     .contribution-grid {
       display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
+      grid-template-columns: repeat(4, minmax(0, 1fr));
       gap: 10px;
     }
 
@@ -4307,6 +4307,13 @@
         radial-gradient(circle at 36% 28%, rgba(255,255,255,0.92), rgba(255,255,255,0) 42%),
         linear-gradient(145deg, #dffbea, #84e7a8 48%, #28b884);
       color: #118d74;
+    }
+
+    .contribution-card:nth-child(4) i {
+      background:
+        radial-gradient(circle at 36% 28%, rgba(255,255,255,0.92), rgba(255,255,255,0) 42%),
+        linear-gradient(145deg, #f4ecff, #b59cff 52%, #7c5cff);
+      color: #5940c9;
     }
 
     .contribution-card strong {
@@ -4794,7 +4801,8 @@
           <a href="#quick-access">快速接入</a>
           <a href="#capabilities">核心能力</a>
           <a href="#benchmark">评测报告</a>
-          <a href="#co-create">欢迎共创</a>
+          <a href="https://gitee.com/liuyang0508/Agent-Memory-Hub">Gitee 镜像</a>
+          <a href="#community">技术共创群</a>
         </nav>
         <a class="redesign-cta" href="#quick-access">Start</a>
       </div>
@@ -4820,6 +4828,9 @@
           <div class="redesign-actions">
             <a class="redesign-button primary" href="#quick-access">
               <span>快速接入</span>
+            </a>
+            <a class="redesign-button" href="https://gitee.com/liuyang0508/Agent-Memory-Hub">
+              <span>Gitee 镜像</span>
             </a>
             <a class="redesign-button" href="#capabilities">
               <span>核心能力</span>
@@ -4936,11 +4947,16 @@
                 <div class="install-command"><code>npm install -g agent-memory-hub</code><button class="install-copy-button" type="button" data-copy="npm install -g agent-memory-hub" aria-label="复制 npm 安装命令">复制</button></div>
               </article>
               <article class="install-card" data-step="05">
+                <h3>Gitee 国内镜像</h3>
+                <p>GitHub 访问不稳定时，从 Gitee 克隆源码并在本机完成安装。</p>
+                <div class="install-command"><code>git clone https://gitee.com/liuyang0508/Agent-Memory-Hub.git ~/agent-memory-hub &amp;&amp; cd ~/agent-memory-hub &amp;&amp; ./install.sh</code><button class="install-copy-button" type="button" data-copy="git clone https://gitee.com/liuyang0508/Agent-Memory-Hub.git ~/agent-memory-hub && cd ~/agent-memory-hub && ./install.sh" aria-label="复制 Gitee 源码安装命令">复制</button></div>
+              </article>
+              <article class="install-card" data-step="06">
                 <h3>启动本地后管</h3>
                 <p>打开 Web Admin，查看 Agent、运行证据、本机历史源和记忆草稿。</p>
                 <div class="install-command"><code>memory serve --port 8765 --open</code><button class="install-copy-button" type="button" data-copy="memory serve --port 8765 --open" aria-label="复制启动本地后管命令">复制</button></div>
               </article>
-              <article class="install-card danger" data-step="06">
+              <article class="install-card danger" data-step="07">
                 <h3>一键卸载</h3>
                 <p>如果它对你造成了烦恼，可以用同一个远程入口卸载。</p>
                 <div class="install-command"><code>curl -fsSL https://github.com/liuyang0508/agent-memory-hub/releases/latest/download/install.sh | sh -s -- --uninstall</code><button class="install-copy-button" type="button" data-copy="curl -fsSL https://github.com/liuyang0508/agent-memory-hub/releases/latest/download/install.sh | sh -s -- --uninstall" aria-label="复制一键卸载命令">复制</button></div>
@@ -5014,12 +5030,12 @@
         </div>
       </section>
 
-      <section class="redesign-section" id="co-create">
+      <section class="redesign-section" id="community">
         <div class="redesign-wrap welcome-panel">
           <div class="co-create-copy">
             <p class="section-label">Co-create</p>
             <h2><span>欢迎把它用坏</span><span class="co-title-second">也欢迎一起把它修好</span></h2>
-            <p>Agent Memory Hub 还不是“万能记忆答案”，它更像一套本地优先、证据优先的上下文基础设施。谢谢每一个真实工作流、失败案例、评测样本、adapter 证据和治理建议。它们会变成下一版更安静、更可靠的大脑。</p>
+            <p>Agent Memory Hub 还不是“万能记忆答案”，它更像一套本地优先、证据优先的上下文基础设施。技术交流群统一命名为 Agent Memory Hub 技术共创群，用来承接真实工作流、失败案例、评测样本、adapter 证据和治理建议。</p>
             <div class="co-create-loop" aria-label="Co-create feedback loop">
               <div class="loop-step"><b>collect</b><span>保留真实失败样本、链路日志、adapter 证据。</span></div>
               <div class="loop-step"><b>verify</b><span>复现问题，写进 recall gap、benchmark 和 doctor。</span></div>
@@ -5043,17 +5059,23 @@
                 <strong>评测样本</strong>
                 <p>可以复跑的 query、期望 memory、source 边界和判定理由。</p>
               </article>
+              <article class="contribution-card">
+                <i>04</i>
+                <strong>技术共创群</strong>
+                <p>Agent Memory Hub 技术共创群，长期讨论安装、适配器、召回、治理和路线建议。</p>
+              </article>
             </div>
             <div class="governance-card" aria-label="Co-create governance output">
               <div>
                 <strong>每个问题都应该回到证据账本，而不是停在感觉上。</strong>
-                <p>AMH 会把共创反馈落到运行事件、recall gap、task outcome、文档真值和 benchmark 报告里，后续改动必须能被重新验证。</p>
+                <p>AMH 会把共创反馈落到运行事件、recall gap、task outcome、文档真值和 benchmark 报告里，后续改动必须能被重新验证。二维码或邀请链接以官网社区入口为准，也可以在 GitHub / Gitee issue 留言获取。</p>
               </div>
               <div class="governance-meter" aria-hidden="true"><span>feedback<br>loop</span></div>
             </div>
             <div class="welcome-actions">
               <a href="#quick-access">快速接入</a>
-              <a class="secondary" href="readme-zh-preview.html">阅读 README</a>
+              <a class="secondary" href="https://gitee.com/liuyang0508/Agent-Memory-Hub">Gitee 镜像</a>
+              <a class="secondary" href="https://gitee.com/liuyang0508/Agent-Memory-Hub/blob/main/README.zh.md">阅读 README</a>
               <a class="secondary" href="https://github.com/liuyang0508/agent-memory-hub/blob/main/docs/evaluation/amh-full-ranking-optimized-full/latest-memory-benchmark-report.zh.md">评测报告</a>
             </div>
           </div>
@@ -5070,8 +5092,9 @@
           </div>
           <div>
             <h3>开源</h3>
-            <a href="readme-zh-preview.html">Agent Memory Hub</a>
+            <a href="https://gitee.com/liuyang0508/Agent-Memory-Hub/blob/main/README.zh.md">Agent Memory Hub</a>
             <a href="https://github.com/liuyang0508/agent-memory-hub/blob/main/README.zh.md">README</a>
+            <a href="https://gitee.com/liuyang0508/Agent-Memory-Hub">Gitee 镜像</a>
             <a href="https://github.com/liuyang0508/agent-memory-hub/tree/main/docs">Docs</a>
           </div>
           <div>
@@ -5082,6 +5105,9 @@
           </div>
           <div>
             <h3>社区与入口</h3>
+            <a href="#community">Agent Memory Hub 技术共创群</a>
+            <a href="https://github.com/liuyang0508/agent-memory-hub/">GitHub 主仓库</a>
+            <a href="https://gitee.com/liuyang0508/Agent-Memory-Hub">Gitee 国内镜像</a>
             <div class="footer-social">
               <a class="github-repo-link" href="https://github.com/liuyang0508/agent-memory-hub/" aria-label="GitHub repository: liuyang0508/agent-memory-hub">
                 <span class="github-repo-mark" aria-hidden="true">
@@ -5118,6 +5144,8 @@
         <a href="#deep">系统链路</a>
         <a href="#algorithms">算法</a>
         <a href="#evidence">证据</a>
+        <a href="https://gitee.com/liuyang0508/Agent-Memory-Hub">Gitee</a>
+        <a href="#community">社区</a>
       </div>
       <a class="ledger-link" href="../audit/2026-06-21-codebase-capability-deep-analysis.md" title="能力真值账本">账</a>
     </nav>
@@ -5131,9 +5159,11 @@
         <p class="hero-signature">让每一次沉淀，成为下一次出发。</p>
         <p class="hero-lede">Agent Memory Hub 把不同 Agent 和不同角色沉淀的可复用结论，整理成同一份<strong>本地可信事实层</strong>。原始对话先进 Evidence，长期知识写成 MemoryItem，召回候选经过 ContextFirewall，最后以可追溯的 ContextPack 分层注入。</p>
         <div class="hero-actions">
-          <a class="btn-primary" href="#commands">三步启动</a>
+          <a class="btn-primary" href="#commands">启动命令</a>
+          <a class="btn-secondary" href="https://gitee.com/liuyang0508/Agent-Memory-Hub">Gitee 镜像</a>
+          <a class="btn-secondary" href="#community">技术共创群</a>
           <a class="btn-secondary" href="#algorithms">看算法边界</a>
-          <a class="btn-secondary" href="readme-zh-article-preview.html">读完整 README</a>
+          <a class="btn-secondary" href="https://gitee.com/liuyang0508/Agent-Memory-Hub/blob/main/README.zh.md">读完整 README</a>
         </div>
       </div>
 
@@ -5155,10 +5185,11 @@
 
       <div class="hero-tools">
         <div class="command-panel" id="commands" aria-label="Quick start commands">
-          <div class="command-head"><span>安装 / doctor / 搜索</span><span>copy-ready</span></div>
+          <div class="command-head"><span>安装 / 国内镜像 / doctor / 搜索</span><span>copy-ready</span></div>
           <div class="cmd-row"><span class="cmd-index">1</span><code>curl -fsSL https://github.com/liuyang0508/agent-memory-hub/releases/latest/download/install.sh | sh</code><button class="copy-btn" type="button" data-copy="curl -fsSL https://github.com/liuyang0508/agent-memory-hub/releases/latest/download/install.sh | sh" title="复制安装命令">⧉</button></div>
-          <div class="cmd-row"><span class="cmd-index">2</span><code>memory doctor &amp;&amp; memory adapter doctor codex --format json</code><button class="copy-btn" type="button" data-copy="memory doctor && memory adapter doctor codex --format json" title="复制 doctor 命令">⧉</button></div>
-          <div class="cmd-row"><span class="cmd-index">3</span><code>memory search "README 维护 召回 叙事顺序" --context-firewall --format text</code><button class="copy-btn" type="button" data-copy="memory search &quot;README 维护 召回 叙事顺序&quot; --context-firewall --format text" title="复制搜索命令">⧉</button></div>
+          <div class="cmd-row"><span class="cmd-index">2</span><code>git clone https://gitee.com/liuyang0508/Agent-Memory-Hub.git ~/agent-memory-hub &amp;&amp; cd ~/agent-memory-hub &amp;&amp; ./install.sh</code><button class="copy-btn" type="button" data-copy="git clone https://gitee.com/liuyang0508/Agent-Memory-Hub.git ~/agent-memory-hub && cd ~/agent-memory-hub && ./install.sh" title="复制 Gitee 安装命令">⧉</button></div>
+          <div class="cmd-row"><span class="cmd-index">3</span><code>memory doctor &amp;&amp; memory adapter doctor codex --format json</code><button class="copy-btn" type="button" data-copy="memory doctor && memory adapter doctor codex --format json" title="复制 doctor 命令">⧉</button></div>
+          <div class="cmd-row"><span class="cmd-index">4</span><code>memory search "README 维护 召回 叙事顺序" --context-firewall --format text</code><button class="copy-btn" type="button" data-copy="memory search &quot;README 维护 召回 叙事顺序&quot; --context-firewall --format text" title="复制搜索命令">⧉</button></div>
         </div>
         <div class="metric-strip" aria-label="Current verified boundaries">
           <div class="metric"><strong>11 / 4 / 1</strong><span>当前快照：verified / install-ready / wip；新机器需重跑 doctor。</span></div>
@@ -5201,7 +5232,7 @@
         <div>
           <p class="section-kicker">Brand assets</p>
           <h2 class="section-title">完整 logo 和标语，放在读者已经理解 AMH 之后。</h2>
-          <p class="section-lede">首屏负责讲清“多 Agent 共享第二大脑”和三步启动；品牌资产区负责留下稳定识别。完整 lockup 用于官网、分享页和技术材料；README 顶部只保留克制文本，避免压过快速试用和能力边界。</p>
+          <p class="section-lede">首屏负责讲清“多 Agent 共享第二大脑”和启动路径；品牌资产区负责留下稳定识别。完整 lockup 用于官网、分享页和技术材料；README 顶部只保留克制文本，避免压过快速试用和能力边界。</p>
         </div>
         <div class="brand-showcase">
           <div class="brand-lockup">
@@ -5395,7 +5426,7 @@
   </main>
 
   <footer class="product-footer">
-    <div class="wrap"><span>Agent Memory Hub · local-first shared fact layer for multi-agent collaboration</span><span>Source of truth: README.zh.md + capability ledger + fresh doctor / benchmark evidence</span></div>
+    <div class="wrap"><span>Agent Memory Hub · local-first shared fact layer for multi-agent collaboration</span><span>Gitee 镜像：gitee.com/liuyang0508/Agent-Memory-Hub · 技术共创群：Agent Memory Hub 技术共创群</span></div>
   </footer>
 
   <script>
