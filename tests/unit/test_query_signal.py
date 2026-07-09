@@ -781,6 +781,38 @@ def test_test_status_summaries_do_not_auto_inject(tmp_path) -> None:
         assert extract_injection_keywords(prompt, brain_dir=tmp_path) == ""
 
 
+def test_pytest_output_with_duration_and_file_context_does_not_auto_inject() -> None:
+    from agent_brain.memory.context.query_signal import analyze_injection_query, extract_injection_keywords
+
+    prompts = (
+        "168 passed in 44.26s",
+        "75 passed, 1 warning (existing Starlette deprecation)",
+        "tests/unit/test_web_api.py 165 passed in 45.58s",
+        "pytest tests/unit/test_web_api.py -q 165 passed in 45.58s",
+        "验证结果：168 passed in 44.26s",
+        "ruff check passed",
+    )
+
+    for prompt in prompts:
+        signal = analyze_injection_query(prompt)
+
+        assert not signal.injectable, prompt
+        assert signal.reason == "test_status_without_topic", prompt
+        assert extract_injection_keywords(prompt) == ""
+
+
+def test_file_test_failure_question_still_allows_recall() -> None:
+    from agent_brain.memory.context.query_signal import analyze_injection_query, extract_injection_keywords
+
+    prompt = "为什么 tests/unit/test_web_api.py failed"
+
+    signal = analyze_injection_query(prompt)
+
+    assert signal.injectable
+    assert "file_or_module" in signal.anchors
+    assert "tests/unit/test_web_api.py" in extract_injection_keywords(prompt)
+
+
 def test_english_topic_question_extracts_keyphrases_before_generic_html(tmp_path) -> None:
     from agent_brain.contracts.memory_item import MemoryItem, MemoryType
     from agent_brain.memory.context.query_signal import analyze_injection_query, extract_injection_keywords

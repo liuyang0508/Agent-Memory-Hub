@@ -133,6 +133,37 @@ _TEST_STATUS_CONTEXT_ASCII_TERMS = {
     "test",
     "tests",
 }
+_TEST_STATUS_COMMAND_ASCII_TERMS = {
+    "black",
+    "check",
+    "checks",
+    "eslint",
+    "jest",
+    "mypy",
+    "npm",
+    "pnpm",
+    "prettier",
+    "pyright",
+    "pytest",
+    "ruff",
+    "uv",
+    "vitest",
+    "yarn",
+}
+_TEST_STATUS_DURATION_RE = re.compile(r"^\d+(?:\.\d+)?s$")
+_TEST_STATUS_RESULT_RE = re.compile(
+    r"\b\d+\s+(?:passed|failed|skipped|warnings?|errors?|failures?|xfailed|xpassed)\b",
+    re.IGNORECASE,
+)
+_TEST_STATUS_COMMAND_RE = re.compile(
+    r"\b(?:black|eslint|jest|mypy|npm|pnpm|prettier|pyright|pytest|ruff|uv|vitest|yarn)\b"
+    r".*\b(?:passed|failed|skipped|warnings?|errors?|failures?|xfailed|xpassed)\b",
+    re.IGNORECASE | re.DOTALL,
+)
+_TEST_STATUS_FOLLOWUP_INTENT_RE = re.compile(
+    r"\b(?:debug|explain|fix|handle|how|investigate|reason|resolve|triage|what|why)\b",
+    re.IGNORECASE,
+)
 _ASCII_TOPIC_RE = re.compile(
     r"\babout\s+([A-Za-z0-9_+./-]+(?:\s+[A-Za-z0-9_+./-]+){0,7})"
     r"(?=,|:|\.|\?|!|$)",
@@ -516,7 +547,7 @@ def analyze_injection_query(
             False, "generic_format_without_topic", specificity,
             "block", anchors_tuple, tuple([*trace, "block:generic_format_without_topic"]),
         )
-    if _test_status_without_topic(terms, keyphrase_terms, file_terms, known_entity_terms):
+    if _test_status_without_topic(prompt, terms, keyphrase_terms, file_terms, known_entity_terms):
         return QuerySignal(
             tuple(terms), tuple(strong_terms), tuple(weak_terms),
             False, "test_status_without_topic", specificity,
@@ -1515,22 +1546,59 @@ def _generic_format_without_topic(
 
 
 def _test_status_without_topic(
+    prompt: str,
     terms: list[str],
     keyphrase_terms: list[str],
     file_terms: list[str],
     known_entity_terms: list[str],
 ) -> bool:
-    if keyphrase_terms or file_terms or known_entity_terms:
+    if keyphrase_terms or known_entity_terms:
         return False
     if not terms:
         return False
     if not all(_is_ascii(term) for term in terms):
         return False
-    has_status = any(term.lower() in _TEST_STATUS_ASCII_TERMS for term in terms)
+    has_status = (
+        any(term.lower() in _TEST_STATUS_ASCII_TERMS for term in terms)
+        or _TEST_STATUS_RESULT_RE.search(prompt) is not None
+        or _TEST_STATUS_COMMAND_RE.search(prompt) is not None
+    )
     if not has_status:
         return False
-    allowed = _TEST_STATUS_ASCII_TERMS | _TEST_STATUS_CONTEXT_ASCII_TERMS
-    return all(term.lower() in allowed or term.isdigit() for term in terms)
+    if _test_status_followup_intent(prompt):
+        return False
+    allowed = _TEST_STATUS_ASCII_TERMS | _TEST_STATUS_CONTEXT_ASCII_TERMS | _TEST_STATUS_COMMAND_ASCII_TERMS
+    file_status_terms = _file_status_terms(file_terms)
+    if all(
+        term.lower() in allowed
+        or term.lower() in file_status_terms
+        or term.isdigit()
+        or _TEST_STATUS_DURATION_RE.fullmatch(term.lower()) is not None
+        for term in terms
+    ):
+        return True
+    return (
+        _TEST_STATUS_RESULT_RE.search(prompt) is not None
+        or _TEST_STATUS_COMMAND_RE.search(prompt) is not None
+    )
+
+
+def _file_status_terms(file_terms: list[str]) -> set[str]:
+    values: set[str] = set()
+    for term in file_terms:
+        lowered = term.lower()
+        values.add(lowered)
+        basename = lowered.rsplit("/", 1)[-1]
+        values.add(basename)
+        if "." in basename:
+            values.add(basename.rsplit(".", 1)[0])
+    return values
+
+
+def _test_status_followup_intent(prompt: str) -> bool:
+    if _TEST_STATUS_FOLLOWUP_INTENT_RE.search(prompt):
+        return True
+    return bool(re.search(r"(为什么|怎么|如何|处理|修复|排查|解释|原因|怎么办)", prompt))
 
 
 def _generic_command_without_topic(
