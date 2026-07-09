@@ -121,6 +121,7 @@ manager.
 memory doctor
 memory govern readiness --format markdown
 memory govern plan --category lifecycle --format markdown
+memory govern plan --category lifecycle --format json
 memory search "project decision"
 memory hook recent --limit 5
 ```
@@ -133,7 +134,9 @@ query-signal adversarial cases for long Chinese tasks, JSON/config prompts,
 OCR/log/code snippets, and weak follow-ups.
 `memory govern plan --category lifecycle` lists stale `signal` / `handoff`
 review items with age, threshold, and an `archive_or_supersede` recommendation;
-it is a dry-run plan and does not archive items by itself.
+it is a dry-run plan and does not archive items by itself. The JSON output also
+contains a `review_queue` with item IDs, bounded `memory read` commands, and
+`can_auto_apply=false` for Web Admin or script-driven human review.
 
 ### 4. Open the local admin UI
 

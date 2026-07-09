@@ -56,6 +56,23 @@ class MaintenancePlanAction:
 
 
 @dataclass(frozen=True)
+class MaintenanceReviewQueueItem:
+    """Read-only review queue row for external tools and Web Admin."""
+
+    item_id: str
+    action: str
+    category: str
+    title: str
+    read_command: str
+    recommended_next: str
+    can_auto_apply: bool
+    boundary: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
 class MaintenancePlanLane:
     """One execution lane in the maintenance plan."""
 
@@ -98,6 +115,7 @@ class MaintenancePlan:
     filters: dict[str, str | None]
     lanes: list[MaintenancePlanLane]
     next_commands: list[str]
+    review_queue: list[MaintenanceReviewQueueItem] = field(default_factory=list)
     dry_run: bool = True
 
     def to_dict(self) -> dict[str, Any]:
@@ -115,6 +133,7 @@ class MaintenancePlan:
             "category_counts": self.category_counts,
             "filters": self.filters,
             "next_commands": self.next_commands,
+            "review_queue": [row.to_dict() for row in self.review_queue],
             "lanes": [lane.to_dict() for lane in self.lanes],
         }
 
@@ -165,6 +184,7 @@ def build_maintenance_plan(
         },
         lanes=lanes,
         next_commands=_unique_commands(visible_actions),
+        review_queue=_build_review_queue(lanes),
     )
 
 
@@ -244,6 +264,36 @@ def _unique_commands(actions: list[AutoGovernanceAction]) -> list[str]:
         if command and command not in commands:
             commands.append(command)
     return commands
+
+
+def _build_review_queue(
+    lanes: list[MaintenancePlanLane],
+) -> list[MaintenanceReviewQueueItem]:
+    rows: list[MaintenanceReviewQueueItem] = []
+    seen: set[str] = set()
+    for lane in lanes:
+        if lane.risk != "review_required":
+            continue
+        for action in lane.actions:
+            if action.category != "lifecycle":
+                continue
+            for item_id in action.item_ids:
+                if item_id in seen:
+                    continue
+                seen.add(item_id)
+                rows.append(
+                    MaintenanceReviewQueueItem(
+                        item_id=item_id,
+                        action=action.action,
+                        category=action.category,
+                        title=action.title,
+                        read_command=f"memory read {item_id} --head 2000 --view detail",
+                        recommended_next="supersede_or_archive_after_review",
+                        can_auto_apply=False,
+                        boundary="确认是否已有更新 item 可以 supersede，不能确认再 archive",
+                    )
+                )
+    return rows
 
 
 def _action_counts(actions: list[AutoGovernanceAction]) -> dict[str, int]:
@@ -361,5 +411,6 @@ __all__ = [
     "MaintenancePlan",
     "MaintenancePlanAction",
     "MaintenancePlanLane",
+    "MaintenanceReviewQueueItem",
     "build_maintenance_plan",
 ]

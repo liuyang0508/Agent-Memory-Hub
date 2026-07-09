@@ -290,6 +290,56 @@ def test_govern_plan_lifecycle_category_reports_stale_signal_and_handoff(
     assert unchanged.title == stale_signal.title
 
 
+def test_govern_plan_lifecycle_json_includes_read_only_review_queue(
+    tmp_brain_dir: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("BRAIN_DIR", str(tmp_brain_dir))
+    store = ItemsStore(tmp_brain_dir / "items")
+    item = MemoryItem(
+        id="mem-20260101-170011-cli-plan-lifecycle-queue",
+        type=MemoryType.signal,
+        created_at=datetime.now(timezone.utc) - timedelta(days=60),
+        title="Lifecycle queue signal",
+        summary="Lifecycle queue signal summary",
+        tags=["runtime"],
+    )
+    store.write(item, "Lifecycle queue signal\nbody")
+
+    result = runner.invoke(
+        app,
+        [
+            "govern",
+            "plan",
+            "--format",
+            "json",
+            "--category",
+            "lifecycle",
+            "--no-index-repair",
+            "--no-evolve",
+            "--no-conversations",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["review_queue"] == [
+        {
+            "item_id": item.id,
+            "action": "review_archive",
+            "category": "lifecycle",
+            "title": "Review stale signal: Lifecycle queue signal",
+            "read_command": f"memory read {item.id} --head 2000 --view detail",
+            "recommended_next": "supersede_or_archive_after_review",
+            "can_auto_apply": False,
+            "boundary": "确认是否已有更新 item 可以 supersede，不能确认再 archive",
+        }
+    ]
+
+    unchanged, _ = store.get(item.id)
+    assert unchanged.title == item.title
+
+
 def test_govern_plan_lifecycle_markdown_includes_review_details(
     tmp_brain_dir: Path,
     monkeypatch,

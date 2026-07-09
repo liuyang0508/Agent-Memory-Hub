@@ -203,6 +203,7 @@ def test_maintenance_plan_categorizes_review_quality_subtypes() -> None:
 def test_maintenance_plan_categorizes_stale_signal_archive_as_lifecycle() -> None:
     from agent_brain.memory.governance.maintenance_plan import build_maintenance_plan
 
+    item_id = "mem-20260101-000000-stale-signal"
     report = AutoGovernanceReport(
         scanned_items=1,
         actions=[
@@ -211,7 +212,7 @@ def test_maintenance_plan_categorizes_stale_signal_archive_as_lifecycle() -> Non
                 risk="review_required",
                 title="Review stale signal: hook warning",
                 reason="stale_signal_older_than_30_days",
-                item_ids=["mem-20260101-000000-stale-signal"],
+                item_ids=[item_id],
                 details={
                     "issue_type": "stale_signal",
                     "lifecycle_type": "signal",
@@ -236,6 +237,18 @@ def test_maintenance_plan_categorizes_stale_signal_archive_as_lifecycle() -> Non
     }
     assert action["command"] == "memory govern plan --category lifecycle --format markdown"
     assert payload["category_counts"] == {"lifecycle": 1}
+    assert payload["review_queue"] == [
+        {
+            "item_id": item_id,
+            "action": "review_archive",
+            "category": "lifecycle",
+            "title": "Review stale signal: hook warning",
+            "read_command": f"memory read {item_id} --head 2000 --view detail",
+            "recommended_next": "supersede_or_archive_after_review",
+            "can_auto_apply": False,
+            "boundary": "确认是否已有更新 item 可以 supersede，不能确认再 archive",
+        }
+    ]
 
 
 def test_maintenance_plan_filters_by_action_and_category() -> None:
