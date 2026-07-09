@@ -122,6 +122,7 @@ memory doctor
 memory govern readiness --format markdown
 memory govern plan --category lifecycle --format markdown
 memory govern plan --category lifecycle --format json
+memory govern apply-lifecycle <memory-id> --dry-run --format json
 memory search "project decision"
 memory hook recent --limit 5
 ```
@@ -137,6 +138,9 @@ review items with age, threshold, and an `archive_or_supersede` recommendation;
 it is a dry-run plan and does not archive items by itself. The JSON output also
 contains a `review_queue` with item IDs, bounded `memory read` commands, and
 `can_auto_apply=false` for Web Admin or script-driven human review.
+`memory govern apply-lifecycle` rechecks selected IDs against the current
+`review_queue`; it defaults to `--dry-run` and only archives matched items when
+you pass `--apply`.
 
 ### 4. Open the local admin UI
 

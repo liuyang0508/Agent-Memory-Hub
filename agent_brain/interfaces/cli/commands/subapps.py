@@ -364,6 +364,133 @@ def governance_readiness(
     typer.echo(render_governance_readiness_markdown(report))
 
 
+@govern_app.command("apply-lifecycle")
+def apply_lifecycle_reviews(
+    item_ids: list[str] = typer.Argument(..., help="Lifecycle review_queue item IDs to process"),
+    apply: bool = typer.Option(
+        False,
+        "--apply/--dry-run",
+        help="Archive matched lifecycle items; --dry-run previews only",
+    ),
+    format: str = typer.Option("markdown", "--format", help="Output format: json or markdown"),
+    index_repair: bool = typer.Option(
+        True,
+        "--index-repair/--no-index-repair",
+        help="Remove archived item rows from index.db when present",
+    ),
+) -> None:
+    """Apply explicitly selected lifecycle review items.
+
+    Defaults to dry-run and only accepts IDs currently present in the lifecycle
+    review_queue. This intentionally does not supersede items; supersession
+    needs a replacement item and remains a separate explicit action.
+    """
+    import json
+    import shutil
+
+    from agent_brain.memory.governance.auto_governance import AutoGovernanceCycle
+    from agent_brain.memory.governance.maintenance_plan import build_maintenance_plan
+
+    brain = _brain_dir()
+    store = _store_only()
+    report = AutoGovernanceCycle(
+        brain_dir=brain,
+        items_store=store,
+        include_index=False,
+        include_evolve=False,
+        include_conversations=False,
+    ).run(apply=False)
+    plan = build_maintenance_plan(
+        report,
+        limit_per_lane=max(len(report.actions), len(item_ids), 1),
+        category_filter="lifecycle",
+    )
+    queue_by_id = {row.item_id: row for row in plan.review_queue}
+
+    requested = list(dict.fromkeys(item_ids))
+    candidates = [queue_by_id[item_id].to_dict() for item_id in requested if item_id in queue_by_id]
+    skipped = [
+        {"id": item_id, "reason": "not_in_lifecycle_review_queue"}
+        for item_id in requested
+        if item_id not in queue_by_id
+    ]
+    archived: list[str] = []
+    failed: list[dict[str, str]] = []
+
+    idx = None
+    if apply and index_repair:
+        db_path = brain / "index.db"
+        if db_path.exists():
+            idx = HubIndex(db_path=db_path)
+    try:
+        if apply:
+            archive_dir = store.items_dir / "archived"
+            archive_dir.mkdir(exist_ok=True)
+            for item_id in requested:
+                if item_id not in queue_by_id:
+                    continue
+                src = store.items_dir / f"{item_id}.md"
+                if not src.exists():
+                    failed.append({"id": item_id, "reason": "source_missing"})
+                    continue
+                try:
+                    shutil.move(str(src), str(archive_dir / f"{item_id}.md"))
+                    if idx is not None:
+                        try:
+                            idx.delete(item_id)
+                        except Exception as exc:  # noqa: BLE001 - archive remains source-of-truth.
+                            failed.append({"id": item_id, "reason": f"index_delete_failed:{exc}"})
+                    archived.append(item_id)
+                except Exception as exc:  # noqa: BLE001 - report per-item failure.
+                    failed.append({"id": item_id, "reason": str(exc)})
+    finally:
+        if idx is not None:
+            idx.close()
+
+    payload = {
+        "dry_run": not apply,
+        "requested": requested,
+        "candidates": candidates,
+        "archived": archived,
+        "skipped": skipped,
+        "failed": failed,
+        "boundary": "only current lifecycle review_queue items are eligible; supersede remains manual",
+    }
+    if format == "json":
+        typer.echo(json.dumps(payload, indent=2, ensure_ascii=False))
+        return
+    if format != "markdown":
+        typer.echo("format must be json or markdown", err=True)
+        raise typer.Exit(2)
+
+    lines = [
+        "# Lifecycle Apply Plan" if not apply else "# Lifecycle Apply Result",
+        "",
+        f"Dry Run: {'Yes' if payload['dry_run'] else 'No'}",
+        f"Requested: {len(requested)}",
+        f"Matched: {len(candidates)}",
+        f"Archived: {len(archived)}",
+        f"Skipped: {len(skipped)}",
+        f"Failed: {len(failed)}",
+        "",
+    ]
+    for row in candidates:
+        lines.append(f"- {row['item_id']}: {row['title']}")
+        lines.append(f"  - Read: `{row['read_command']}`")
+        lines.append(f"  - Auto Apply: {str(row['can_auto_apply']).lower()}")
+    if skipped:
+        lines.append("")
+        lines.append("## Skipped")
+        for row in skipped:
+            lines.append(f"- {row['id']}: {row['reason']}")
+    if failed:
+        lines.append("")
+        lines.append("## Failed")
+        for row in failed:
+            lines.append(f"- {row['id']}: {row['reason']}")
+    typer.echo("\n".join(lines))
+
+
 @govern_app.command("apply-summary-rewrites")
 def apply_summary_rewrites_command(
     dry_run: bool = typer.Option(
@@ -560,6 +687,7 @@ __all__ = [
     'maturity_report',
     'maintenance_plan',
     'governance_readiness',
+    'apply_lifecycle_reviews',
     'apply_summary_rewrites_command',
     'auto_governance',
     'entity_list',

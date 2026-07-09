@@ -381,6 +381,101 @@ def test_govern_plan_lifecycle_markdown_includes_review_details(
     assert "recommended_action: archive_or_supersede" in result.output
 
 
+def test_govern_apply_lifecycle_dry_run_reports_queue_item_without_archiving(
+    tmp_brain_dir: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("BRAIN_DIR", str(tmp_brain_dir))
+    store = ItemsStore(tmp_brain_dir / "items")
+    item = MemoryItem(
+        id="mem-20260101-170012-cli-apply-lifecycle-dry-run",
+        type=MemoryType.signal,
+        created_at=datetime.now(timezone.utc) - timedelta(days=60),
+        title="Lifecycle dry run signal",
+        summary="Lifecycle dry run signal summary",
+        tags=["runtime"],
+    )
+    store.write(item, "Lifecycle dry run signal\nbody")
+
+    result = runner.invoke(
+        app,
+        [
+            "govern",
+            "apply-lifecycle",
+            item.id,
+            "--dry-run",
+            "--format",
+            "json",
+            "--no-index-repair",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["dry_run"] is True
+    assert payload["requested"] == [item.id]
+    assert payload["archived"] == []
+    assert payload["skipped"] == []
+    assert payload["candidates"][0]["item_id"] == item.id
+    assert payload["candidates"][0]["can_auto_apply"] is False
+    assert (tmp_brain_dir / "items" / f"{item.id}.md").exists()
+    assert not (tmp_brain_dir / "items" / "archived" / f"{item.id}.md").exists()
+
+
+def test_govern_apply_lifecycle_apply_archives_only_review_queue_items(
+    tmp_brain_dir: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("BRAIN_DIR", str(tmp_brain_dir))
+    store = ItemsStore(tmp_brain_dir / "items")
+    stale = MemoryItem(
+        id="mem-20260101-170013-cli-apply-lifecycle-stale",
+        type=MemoryType.handoff,
+        created_at=datetime.now(timezone.utc) - timedelta(days=45),
+        title="Lifecycle apply stale handoff",
+        summary="Lifecycle apply stale handoff summary",
+        tags=["handoff"],
+    )
+    fresh = MemoryItem(
+        id="mem-20260701-170014-cli-apply-lifecycle-fresh",
+        type=MemoryType.signal,
+        created_at=datetime.now(timezone.utc) - timedelta(days=3),
+        title="Lifecycle apply fresh signal",
+        summary="Lifecycle apply fresh signal summary",
+        tags=["runtime"],
+    )
+    store.write(stale, "Lifecycle stale handoff\nbody")
+    store.write(fresh, "Lifecycle fresh signal\nbody")
+
+    result = runner.invoke(
+        app,
+        [
+            "govern",
+            "apply-lifecycle",
+            stale.id,
+            fresh.id,
+            "--apply",
+            "--format",
+            "json",
+            "--no-index-repair",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["dry_run"] is False
+    assert payload["archived"] == [stale.id]
+    assert payload["skipped"] == [
+        {
+            "id": fresh.id,
+            "reason": "not_in_lifecycle_review_queue",
+        }
+    ]
+    assert not (tmp_brain_dir / "items" / f"{stale.id}.md").exists()
+    assert (tmp_brain_dir / "items" / "archived" / f"{stale.id}.md").exists()
+    assert (tmp_brain_dir / "items" / f"{fresh.id}.md").exists()
+
+
 def test_govern_apply_summary_rewrites_dry_run_and_apply_and_rollback(
     tmp_brain_dir: Path,
     monkeypatch,
