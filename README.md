@@ -29,7 +29,11 @@ concise public overview.
 
 - Primary repository: [GitHub `liuyang0508/Agent-Memory-Hub`](https://github.com/liuyang0508/Agent-Memory-Hub).
 - China-accessible mirror: [Gitee `liuyang0508/Agent-Memory-Hub`](https://gitee.com/liuyang0508/Agent-Memory-Hub).
-- Technical community: **Agent Memory Hub Technical Community** / **Agent Memory Hub 技术共创群**. Use it for install help, adapter evidence, recall misses, benchmark samples, and long-term co-building. If an invite link or QR code changes, check the official website or leave an issue on GitHub or Gitee.
+- Technical community: **Agent Memory Hub Technical Community** / **Agent Memory Hub 技术共创群**. Use it for install help, adapter evidence, recall misses, benchmark samples, and long-term co-building. Scan the WeChat QR code below to join; the current QR code is valid through **July 16, 2026**. If it expires, check the official website or leave an issue on GitHub or Gitee.
+
+<p align="center">
+  <img src="./docs/assets/agent-memory-hub-wechat-community-qr-20260716.jpg" alt="WeChat QR code for Agent Memory Hub Technical Community, valid through July 16, 2026" width="320">
+</p>
 
 ## Trusted Context Lifecycle
 

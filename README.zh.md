@@ -24,7 +24,11 @@
 
 - GitHub 主仓库：[liuyang0508/Agent-Memory-Hub](https://github.com/liuyang0508/Agent-Memory-Hub)
 - Gitee 国内镜像：[liuyang0508/Agent-Memory-Hub](https://gitee.com/liuyang0508/Agent-Memory-Hub)，适合 GitHub 访问不稳定的同学克隆源码和跟进更新。
-- 技术交流群统一命名为 **Agent Memory Hub 技术共创群**。它用于安装支持、适配器接入证据、召回问题反馈、评测样本共创和长期路线讨论；二维码或邀请链接以官网社区入口为准，也可以在 GitHub / Gitee issue 留言获取。
+- 技术交流群统一命名为 **Agent Memory Hub 技术共创群**。它用于安装支持、适配器接入证据、召回问题反馈、评测样本共创和长期路线讨论；扫描下方微信群二维码即可加入。当前二维码有效期到 **2026 年 7 月 16 日**，过期后请看官网社区入口，或在 GitHub / Gitee issue 留言获取新二维码。
+
+<p align="center">
+  <img src="./docs/assets/agent-memory-hub-wechat-community-qr-20260716.jpg" alt="Agent Memory Hub 技术共创群微信群二维码，有效期到 2026 年 7 月 16 日" width="320">
+</p>
 
 <a id="quick-nav"></a>
 
