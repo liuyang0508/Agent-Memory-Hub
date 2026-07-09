@@ -169,6 +169,14 @@ you pass `--apply`.
 memory serve --port 8765 --open
 ```
 
+The Web Admin binds to `127.0.0.1` by default. To intentionally expose it on
+your LAN or another network, pass `--host 0.0.0.0` and rely on the built-in auth
+controls plus your own firewall rules. Agents do not need the Web Admin port for
+normal memory access; they use CLI, MCP, hooks, or awareness files.
+Cross-origin browser access is loopback-only by default; set
+`MEMORY_HUB_CORS_ORIGINS=https://example.internal` only when a separate trusted
+front end must call the Web Admin API.
+
 ## What It Solves
 
 AI tools should not start every session from a blank page, and they should not
@@ -633,6 +641,7 @@ memory benchmark system --max-cases 240 --format summary
 memory loop run --contract loop.yaml --format json
 memory doctor
 memory serve --port 8765
+memory serve --host 0.0.0.0 --port 8765   # intentional LAN or remote exposure
 ```
 
 MCP examples live in [`agent_runtime_kit/mcp/example-configs.md`](./agent_runtime_kit/mcp/example-configs.md).
@@ -655,6 +664,13 @@ The strongest adapters combine awareness + automatic hooks + tool access.
 Awareness + MCP is the minimum credible base for proactive memory use, while
 awareness sidecars without verified runtime evidence remain `install-ready`,
 not `verified`.
+
+The Web Admin on port `8765` is a human governance surface over the same local
+brain directory, not the default agent execution channel. Adapter installs should
+prove CLI, MCP, hook, or awareness access directly; do not treat "Web Admin is
+running" as evidence that an agent can read or write AMH memory.
+The Web Admin API also avoids wildcard CORS by default; cross-origin callers
+outside loopback must be explicitly listed in `MEMORY_HUB_CORS_ORIGINS`.
 
 ## Agent Adapter Matrix
 

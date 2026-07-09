@@ -24,9 +24,16 @@ from web._base import *  # noqa: F401,F403  (state, helpers, models, lifespan, m
 
 app = FastAPI(title="Agent Memory Hub Admin", version=__version__, lifespan=_lifespan)
 
+
+def _cors_origins_from_env() -> list[str]:
+    raw = os.environ.get("MEMORY_HUB_CORS_ORIGINS", "")
+    return [origin.strip() for origin in raw.split(",") if origin.strip()]
+
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_origins_from_env(),
+    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1|\[::1\])(:\d+)?",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -125,6 +132,6 @@ for _r in (
     app.include_router(_r.router)
 
 
-def serve(host: str = "0.0.0.0", port: int = 8765):
+def serve(host: str = "127.0.0.1", port: int = 8765):
     import uvicorn
     uvicorn.run(app, host=host, port=port)

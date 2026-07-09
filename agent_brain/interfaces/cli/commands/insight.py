@@ -88,7 +88,11 @@ def inspect(item_id: str = typer.Argument(..., help="Full or prefix of item ID")
 
 @app.command()
 def serve(
-    host: str = typer.Option("0.0.0.0", "--host", help="Bind host"),
+    host: str = typer.Option(
+        "127.0.0.1",
+        "--host",
+        help="Bind host. Use 0.0.0.0 only when you intentionally expose Web Admin on the network.",
+    ),
     port: int = typer.Option(8765, "--port", help="Bind port"),
     open_browser: bool = typer.Option(False, "--open", help="Open browser on start"),
 ) -> None:
@@ -98,9 +102,14 @@ def serve(
     except ImportError as e:
         typer.echo(f"Web dependencies missing: {e}\npip install 'agent-memory-hub[web]'", err=True)
         raise typer.Exit(1)
-    display_host = "localhost" if host == "0.0.0.0" else host
+    display_host = "127.0.0.1" if host in {"0.0.0.0", "::"} else host
     url = f"http://{display_host}:{port}"
     typer.echo(f"Starting Admin UI on {url}")
+    if host in {"0.0.0.0", "::"}:
+        typer.echo(
+            "Warning: Web Admin is listening on all network interfaces. "
+            "Use --host 0.0.0.0 only when you intentionally need LAN or remote access."
+        )
     if open_browser:
         import threading
         import webbrowser
