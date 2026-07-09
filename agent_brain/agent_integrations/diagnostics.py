@@ -28,12 +28,20 @@ class AdapterDiagnosticReport:
     adapter: str
     overall_status: CheckStatus
     checks: list[AdapterDiagnosticCheck]
+    brain_dir: Path | None = None
 
     def to_dict(self) -> dict[str, object]:
+        from .memory_boundary import memory_boundary_for_adapter
+
         return {
             "adapter": self.adapter,
             "overall_status": self.overall_status,
             "checks": [check.to_dict() for check in self.checks],
+            "memory_boundary": memory_boundary_for_adapter(
+                self.adapter,
+                brain_dir=self.brain_dir,
+                native_memory_observed=_native_memory_observed(self.checks),
+            ).to_dict(),
         }
 
 
@@ -43,6 +51,13 @@ def overall_status(checks: list[AdapterDiagnosticCheck]) -> CheckStatus:
     if any(check.status == "warn" for check in checks):
         return "warn"
     return "ok"
+
+
+def _native_memory_observed(checks: list[AdapterDiagnosticCheck]) -> bool:
+    return any(
+        check.status == "ok" and "native memory bridge" in check.name.lower()
+        for check in checks
+    )
 
 
 def diagnose_runtime_evidence(

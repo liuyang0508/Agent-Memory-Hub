@@ -886,6 +886,13 @@ class TestAdapterCapabilitiesAPI:
             "agent_brain/agent_integrations/codex_hooks.py",
             "agent_brain/agent_integrations/codex_diagnostics.py",
         ]
+        assert by_name["codex"]["memory_boundary"]["amh_role"] == "shared_truth_source"
+        assert by_name["codex"]["memory_boundary"]["native_memory_role"] == "candidate_hint"
+        assert by_name["codex"]["memory_boundary"]["native_memory_observed"] is False
+        assert by_name["codex"]["memory_boundary"]["last_injection"] == {"observed": False}
+        assert by_name["codex"]["memory_boundary"]["priority_order"].index("amh_memory_item") < (
+            by_name["codex"]["memory_boundary"]["priority_order"].index("agent_native_memory")
+        )
         assert by_name["qoder"]["support_level"] == "install-ready"
         assert by_name["qoder"]["evidence_paths"] == [
             "tests/unit/test_adapters.py",

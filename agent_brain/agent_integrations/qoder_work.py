@@ -256,6 +256,7 @@ class QoderWorkAdapter(AdapterBase):
             adapter="qoder_work",
             overall_status=overall_status(checks),
             checks=checks,
+            brain_dir=self.brain_dir,
         )
 
     def _validate_inputs(self) -> None:

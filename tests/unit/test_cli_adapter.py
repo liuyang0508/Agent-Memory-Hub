@@ -309,6 +309,15 @@ def test_adapter_doctor_codex_json_reports_runtime_warning_after_install(tmp_pat
     layered = [check for check in data["checks"] if check["name"] == "Codex layered context pack evidence"][0]
     assert layered["status"] == "warn"
     assert "pack metrics not observed" in layered["detail"]
+    boundary = data["memory_boundary"]
+    assert boundary["amh_role"] == "shared_truth_source"
+    assert boundary["native_memory_role"] == "candidate_hint"
+    assert boundary["native_memory_state"] == "documented"
+    assert boundary["native_memory_observed"] is False
+    assert boundary["last_injection"] == {"observed": False}
+    assert boundary["explored_trace_role"] == "session_trace_only"
+    assert boundary["priority_order"].index("amh_memory_item") < boundary["priority_order"].index("agent_native_memory")
+    assert boundary["priority_order"].index("agent_native_memory") < boundary["priority_order"].index("explored_trace")
 
 
 def test_adapter_doctor_codex_reports_layered_context_pack_metrics(tmp_path, monkeypatch):
@@ -352,6 +361,11 @@ def test_adapter_doctor_codex_reports_layered_context_pack_metrics(tmp_path, mon
     assert layered["status"] == "ok"
     assert "selected_view=locator" in layered["detail"]
     assert "packed=20/205t" in layered["detail"]
+    assert data["memory_boundary"]["last_injection"]["observed"] is True
+    assert data["memory_boundary"]["last_injection"]["session_id"] == "sess-layered-pack"
+    assert data["memory_boundary"]["last_injection"]["item_count"] == 1
+    assert data["memory_boundary"]["last_injection"]["packed_tokens"] == 20
+    assert data["memory_boundary"]["last_injection"]["full_tokens"] == 205
 
 
 def test_adapter_install_verify_codex_promotes_after_runtime_observed(tmp_path, monkeypatch):

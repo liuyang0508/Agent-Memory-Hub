@@ -80,6 +80,7 @@ class OpenHumanAdapter(AdapterBase):
             adapter="openhuman",
             overall_status=overall_status(checks),
             checks=checks,
+            brain_dir=self.brain_dir,
         )
 
     def _diagnose_backend(self) -> AdapterDiagnosticCheck:

@@ -57,6 +57,7 @@ def diagnose_codex_config(
         adapter="codex",
         overall_status=overall_status(checks),
         checks=checks,
+        brain_dir=brain_dir,
     )
 
 

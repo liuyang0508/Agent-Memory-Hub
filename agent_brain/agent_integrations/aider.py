@@ -108,6 +108,7 @@ class AiderAdapter(AdapterBase):
             adapter="aider",
             overall_status=overall_status(checks),
             checks=checks,
+            brain_dir=self.brain_dir,
         )
 
     def _ensure_digest(self) -> None:

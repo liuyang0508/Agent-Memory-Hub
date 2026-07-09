@@ -123,6 +123,7 @@ class AoneCopilotAdapter(AdapterBase):
             adapter="aone_copilot",
             overall_status=overall_status(checks),
             checks=checks,
+            brain_dir=self.brain_dir,
         )
 
     def _awareness_block(self) -> str:

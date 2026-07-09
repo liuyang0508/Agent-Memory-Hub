@@ -245,6 +245,25 @@ def test_agent_management_row_exposes_history_sync_quick_action():
     assert "同步历史" in row_fn
 
 
+def test_agent_management_row_exposes_memory_boundary_contract():
+    text = DASH.read_text(encoding="utf-8")
+    model_start = text.index("function agentManagementModel")
+    model_end = text.index("function agentMetricHtml")
+    model_fn = text[model_start:model_end]
+    row_start = text.index("function agentManagementRowHtml")
+    row_end = text.index("function agentManagementRowsHtml")
+    row_fn = text[row_start:row_end]
+
+    assert "memory_boundary: source.memory_boundary || null" in model_fn
+    assert "记忆边界" in row_fn
+    assert "Memory boundary" in row_fn
+    assert "amh_role" in row_fn
+    assert "native_memory_role" in row_fn
+    assert "native_memory_observed" in row_fn
+    assert "explored_trace_role" in row_fn
+    assert "last_injection" in row_fn
+
+
 def test_agent_history_sync_uses_all_discovered_sources():
     text = DASH.read_text(encoding="utf-8")
     start = text.index("async function syncFirstLocalHistorySource")

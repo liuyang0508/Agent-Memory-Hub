@@ -103,6 +103,7 @@ class GitHubCopilotAdapter(AdapterBase):
             adapter="github_copilot",
             overall_status=overall_status(checks),
             checks=checks,
+            brain_dir=self.brain_dir,
         )
 
     def _build_block(self) -> str:

@@ -12,6 +12,7 @@ from typing import Literal
 
 from . import AdapterBase, WIPAdapter
 from .evidence import SupportLevel, evidence_for_adapter
+from .memory_boundary import memory_boundary_for_adapter
 from .runtime_events import AdapterRuntimeSummary, runtime_event_summary
 from .verifications import AdapterVerificationSummary, adapter_verification_summary
 
@@ -56,6 +57,7 @@ class AdapterCapability:
     verified: bool
     verification_status: Literal["verified", "not_verified"]
     verification_blockers: list[str]
+    memory_boundary: dict[str, object]
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -114,6 +116,7 @@ def capability_for_adapter(name: str, adapter: AdapterBase) -> AdapterCapability
         verified=verified,
         verification_status="verified" if verified else "not_verified",
         verification_blockers=verification_blockers,
+        memory_boundary=memory_boundary_for_adapter(name, brain_dir=adapter.brain_dir).to_dict(),
     )
 
 

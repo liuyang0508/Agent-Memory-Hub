@@ -204,6 +204,7 @@ class WukongAdapter(AdapterBase):
             adapter="wukong",
             overall_status=overall_status(checks),
             checks=checks,
+            brain_dir=self.brain_dir,
         )
 
     def _install_context(self) -> tuple[bool, str]:

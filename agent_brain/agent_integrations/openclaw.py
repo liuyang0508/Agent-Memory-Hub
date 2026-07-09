@@ -100,6 +100,7 @@ class OpenClawAdapter(AdapterBase):
             adapter="openclaw",
             overall_status=overall_status(checks),
             checks=checks,
+            brain_dir=self.brain_dir,
         )
 
     def _install_awareness(self) -> str:

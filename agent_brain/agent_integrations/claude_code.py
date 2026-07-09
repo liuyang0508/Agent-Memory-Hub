@@ -217,6 +217,7 @@ class ClaudeCodeAdapter(AdapterBase):
             adapter="claude_code",
             overall_status=overall_status(checks),
             checks=checks,
+            brain_dir=self.brain_dir,
         )
 
     def _diagnose_settings_hooks(self) -> AdapterDiagnosticCheck:

@@ -843,3 +843,19 @@ def test_gap_matrix_does_not_preserve_resolved_items_route_risk():
 
     assert "`web/api/routes/items.py` | 27" in gap_matrix
     assert "`web/api/routes/items.py` remains very large" not in gap_matrix
+
+
+def test_agent_native_memory_boundary_doc_keeps_amh_truth_source_clear():
+    boundary = _read("docs/audit/agent-native-memory-vs-amh-boundary-2026-07-10.zh.md")
+
+    assert "Agent 原生探索 / 记忆与 AMH 边界矩阵" in boundary
+    assert "Explored" in boundary
+    assert "不是长期记忆，也不是 AMH 召回" in boundary
+    assert "Agent native memory 是 hint，不是事实源" in boundary
+    assert "AMH MemoryItem 优先于 Agent native memory" in boundary
+    assert "`native_memory_observed` 在 capability 中保守为 false" in boundary
+    assert "成功的 native memory bridge 诊断会置 true" in boundary
+    assert "所有 adapter doctor report 已传入 brain_dir" in boundary
+    assert "Qoder/Wukong" in boundary
+    assert "`last_injection` 来自 runtime injection cohort ledger" in boundary
+    assert "awareness、tool、automatic hook、fallback 四层分开证明" in boundary

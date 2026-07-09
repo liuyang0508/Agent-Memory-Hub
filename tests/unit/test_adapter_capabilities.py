@@ -46,6 +46,110 @@ def test_codex_capability_reports_three_layer_install():
     assert cap.evidence_level == "install-ready"
     assert cap.verification_status == "not_verified"
     assert cap.verified is False
+    assert cap.memory_boundary["amh_role"] == "shared_truth_source"
+    assert cap.memory_boundary["native_memory_role"] == "candidate_hint"
+    assert cap.memory_boundary["native_memory_state"] == "documented"
+    assert cap.memory_boundary["explored_trace_role"] == "session_trace_only"
+    assert cap.memory_boundary["priority_order"] == [
+        "current_user_message",
+        "live_repository_evidence",
+        "current_project_instructions",
+        "amh_memory_item",
+        "agent_native_memory",
+        "explored_trace",
+    ]
+    assert cap.memory_boundary["evidence_layers"] == [
+        "awareness",
+        "tool",
+        "automatic_hook",
+        "fallback",
+    ]
+    assert cap.memory_boundary["native_memory_observed"] is False
+    assert cap.memory_boundary["last_injection"] == {"observed": False}
+
+
+def test_capability_memory_boundary_reports_latest_injection_observation(tmp_path):
+    from agent_brain.agent_integrations.capabilities import capability_for_adapter
+    from agent_brain.memory.context.injection_cohorts import record_injection_cohort
+
+    record_injection_cohort(
+        tmp_path,
+        item_ids=["mem-boundary-runtime"],
+        adapter="codex",
+        session_id="sess-boundary-runtime",
+        cwd="/repo/runtime",
+        query="memory boundary runtime",
+        pack_metrics={
+            "packed_tokens": 34,
+            "full_tokens": 233,
+            "items": [{"id": "mem-boundary-runtime", "selected_view": "locator"}],
+        },
+    )
+
+    cap = capability_for_adapter("codex", get_adapter("codex", tmp_path))
+    last_injection = cap.memory_boundary["last_injection"]
+
+    assert cap.memory_boundary["native_memory_observed"] is False
+    assert last_injection["observed"] is True
+    assert last_injection["cohort_id"].startswith("inj-")
+    assert last_injection["session_id"] == "sess-boundary-runtime"
+    assert last_injection["cwd"] == "/repo/runtime"
+    assert last_injection["item_count"] == 1
+    assert last_injection["packed_tokens"] == 34
+    assert last_injection["full_tokens"] == 233
+
+
+def test_doctor_memory_boundary_marks_native_bridge_check_as_observed(tmp_path):
+    from agent_brain.agent_integrations.diagnostics import (
+        AdapterDiagnosticCheck,
+        AdapterDiagnosticReport,
+    )
+
+    report = AdapterDiagnosticReport(
+        adapter="qoder",
+        overall_status="ok",
+        checks=[
+            AdapterDiagnosticCheck(
+                name="Qoder native memory bridge",
+                status="ok",
+                detail="AMH native memory bridge present",
+            )
+        ],
+        brain_dir=tmp_path,
+    )
+
+    boundary = report.to_dict()["memory_boundary"]
+
+    assert boundary["native_memory_observed"] is True
+
+
+def test_adapter_doctor_reports_wire_brain_dir_for_memory_boundary():
+    repo = Path(__file__).resolve().parents[2]
+    adapter_files = [
+        "aider.py",
+        "aone_copilot.py",
+        "claude_code.py",
+        "cline.py",
+        "continue_dev.py",
+        "cursor.py",
+        "github_copilot.py",
+        "hermes_agent.py",
+        "openclaw.py",
+        "openhuman.py",
+        "opensquilla.py",
+        "qoder.py",
+        "qoder_work.py",
+        "wukong.py",
+    ]
+
+    for filename in adapter_files:
+        text = (repo / "agent_brain" / "agent_integrations" / filename).read_text(encoding="utf-8")
+        assert "brain_dir=self.brain_dir" in text, filename
+
+    codex_diagnostics = (
+        repo / "agent_brain" / "agent_integrations" / "codex_diagnostics.py"
+    ).read_text(encoding="utf-8")
+    assert "brain_dir=brain_dir" in codex_diagnostics
 
 
 def test_codex_evidence_is_registered_separately_from_capability_projection():

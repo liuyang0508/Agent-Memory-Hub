@@ -2863,6 +2863,7 @@ function agentManagementModel(onboarding, capabilities, localHistory, draftsPayl
       message_count: Number(history.message_count || 0),
       draft_count: Number(draftCounts[name] || 0),
       last_runtime_event: source.last_runtime_event || null,
+      memory_boundary: source.memory_boundary || null,
     };
   });
   const reducedHistorySources = agents.reduce((sum, agent) => sum + agent.source_count, 0);
@@ -3188,6 +3189,15 @@ function agentManagementRowHtml(agent) {
     ? `${cockpitTime(agent.last_runtime_event.timestamp)} · ${agent.last_runtime_event.event_name || ''}`
     : (isZh ? '暂无运行事件' : 'No runtime event');
   const history = `${agent.source_count} ${isZh ? '个来源' : 'sources'} · ${agent.message_count} ${isZh ? '条消息' : 'messages'} · ${agent.draft_count} ${isZh ? '条草稿' : 'drafts'}`;
+  const boundary = agent.memory_boundary || {};
+  const lastInjection = boundary.last_injection || {};
+  const memoryBoundary = [
+    `AMH=${boundary.amh_role || '-'}`,
+    `${isZh ? '原生' : 'native'}=${boundary.native_memory_role || '-'}`,
+    `${isZh ? '原生已观测' : 'native observed'}=${boundary.native_memory_observed ? 'yes' : 'no'}`,
+    `Explored=${boundary.explored_trace_role || '-'}`,
+    `${isZh ? '最近注入' : 'last injection'}=${lastInjection.observed ? (lastInjection.session_id || lastInjection.cohort_id || 'observed') : 'none'}`,
+  ].join(' · ');
   return `
     <div class="agent-row" id="agent-row-${escHtml(agent.name)}">
       <div class="agent-row-main">
@@ -3213,6 +3223,8 @@ function agentManagementRowHtml(agent) {
           <div class="agent-detail-text">${escHtml(blockers.length ? blockers.join(' · ') : (isZh ? '暂无阻塞。' : 'No blockers.'))}</div>
           <div class="agent-detail-title" style="margin-top:10px">${isZh ? '最近运行证据' : 'Latest runtime evidence'}</div>
           <div class="agent-detail-text">${escHtml(lastEvent)}</div>
+          <div class="agent-detail-title" style="margin-top:10px">${isZh ? '记忆边界' : 'Memory boundary'}</div>
+          <div class="agent-detail-text">${escHtml(memoryBoundary)}</div>
           <div class="agent-detail-title" style="margin-top:10px">${isZh ? '本机历史同步' : 'Local history sync'}</div>
           <div class="agent-detail-text">${escHtml(history)}</div>
         </div>
