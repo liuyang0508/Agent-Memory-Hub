@@ -5113,9 +5113,9 @@
             <figure class="community-qr-card" aria-label="Agent Memory Hub 技术共创群微信群二维码">
               <figcaption>
                 <strong>扫码加入 Agent Memory Hub 技术共创群</strong>
-                <p>用于安装支持、适配器接入、召回问题反馈、评测样本共创和路线讨论。当前微信群二维码有效期到 2026 年 7 月 16 日，过期后会在官网社区入口更新。</p>
+                <p>用于安装支持、适配器接入、召回问题反馈、评测样本共创和路线讨论。官网社区入口会展示当前可用的微信群二维码；如果微信群二维码过期，请刷新官网或在 GitHub / Gitee issue 留言获取新入口。</p>
               </figcaption>
-              <img src="../assets/agent-memory-hub-wechat-community-qr-20260716.jpg" alt="Agent Memory Hub 技术共创群微信群二维码，有效期到 2026 年 7 月 16 日">
+              <img src="../assets/agent-memory-hub-wechat-community-qr-current.jpg" data-refresh-src="../assets/agent-memory-hub-wechat-community-qr-current.jpg" alt="Agent Memory Hub 技术共创群当前微信群二维码">
             </figure>
             <div class="governance-card" aria-label="Co-create governance output">
               <div>
@@ -5482,6 +5482,12 @@
   </footer>
 
   <script>
+    document.querySelectorAll('[data-refresh-src]').forEach((image) => {
+      const src = image.getAttribute('data-refresh-src');
+      if (!src) return;
+      image.src = `${src}?t=${Date.now()}`;
+    });
+
     document.querySelectorAll('[data-copy]').forEach((button) => {
       button.addEventListener('click', async () => {
         const text = button.getAttribute('data-copy') || '';
