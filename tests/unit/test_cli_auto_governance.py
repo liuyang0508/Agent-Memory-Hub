@@ -323,6 +323,9 @@ def test_govern_plan_lifecycle_markdown_includes_review_details(
 
     assert result.exit_code == 0, result.output
     assert "**review_archive** [lifecycle]" in result.output
+    assert "## Review Checklist" in result.output
+    assert f"`memory read {item.id} --head 2000 --view detail`" in result.output
+    assert "确认是否已有更新 item 可以 supersede，不能确认再 archive" in result.output
     assert "lifecycle_type: signal" in result.output
     assert "stale_after_days: 30" in result.output
     assert "recommended_action: archive_or_supersede" in result.output

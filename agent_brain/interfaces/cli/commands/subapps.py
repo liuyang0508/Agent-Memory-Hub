@@ -273,6 +273,18 @@ def maintenance_plan(
         for command in plan.next_commands:
             lines.append(f"- `{command}`")
         lines.append("")
+    if category == "lifecycle":
+        checklist = _lifecycle_review_checklist(plan)
+        if checklist:
+            lines.append("## Review Checklist")
+            lines.append("")
+            lines.append("只读复核顺序：先读正文和来源，再决定 supersede / archive；不要直接批量归档。")
+            lines.append("")
+            for item_id, action_title in checklist:
+                lines.append(f"- {item_id}: {action_title}")
+                lines.append(f"  - Read: `memory read {item_id} --head 2000 --view detail`")
+                lines.append("  - Boundary: 确认是否已有更新 item 可以 supersede，不能确认再 archive")
+            lines.append("")
 
     for lane in plan.lanes:
         lines.append(f"## {lane.title}")
@@ -312,6 +324,21 @@ def _markdown_detail_value(value: object) -> str:
 
         return json.dumps(value, ensure_ascii=False, sort_keys=True)
     return str(value)
+
+
+def _lifecycle_review_checklist(plan) -> list[tuple[str, str]]:
+    rows: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for lane in plan.lanes:
+        for action in lane.actions:
+            if action.category != "lifecycle":
+                continue
+            for item_id in action.item_ids:
+                if item_id in seen:
+                    continue
+                seen.add(item_id)
+                rows.append((item_id, action.title))
+    return rows
 
 
 @govern_app.command("readiness")
