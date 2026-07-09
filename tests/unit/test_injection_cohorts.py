@@ -106,6 +106,29 @@ def test_record_injection_cohort_preserves_pack_metrics(tmp_path: Path) -> None:
     assert cohort.to_dict()["pack_metrics"] == metrics
 
 
+def test_record_injection_cohort_preserves_bounded_query_terms(tmp_path: Path) -> None:
+    from agent_brain.memory.context.injection_cohorts import (
+        iter_injection_cohorts,
+        record_injection_cohort,
+    )
+
+    record_injection_cohort(
+        tmp_path,
+        item_ids=["mem-keyword-observability"],
+        adapter="codex",
+        session_id="sess-keywords",
+        cwd="/tmp/repo",
+        query="用户原始问题 should not be stored",
+        query_terms=["新增接口", "复用接口", "servicequalityscoreconfig"],
+    )
+
+    cohort = next(iter_injection_cohorts(tmp_path))
+    assert cohort.query_terms == ("新增接口", "复用接口", "servicequalityscoreconfig")
+    row = cohort.to_dict()
+    assert row["query_terms"] == ["新增接口", "复用接口", "servicequalityscoreconfig"]
+    assert "用户原始问题" not in json.dumps(row, ensure_ascii=False)
+
+
 def test_iter_injection_cohorts_accepts_old_records_without_pack_metrics(tmp_path: Path) -> None:
     runtime = tmp_path / "runtime"
     runtime.mkdir(parents=True)

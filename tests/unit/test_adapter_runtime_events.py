@@ -622,6 +622,7 @@ def test_user_prompt_hook_injects_known_short_project_entity_for_qoderwork(tmp_p
     )
     assert cohort is not None
     assert cohort.item_ids == (item.id,)
+    assert cohort.query_terms == ("alpha",)
     assert list(iter_gap_records(tmp_path)) == []
 
 

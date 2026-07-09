@@ -34,6 +34,7 @@
 | P1 | 记忆召回 | multimodal 提取缺口仍显著 | recall drift: `multimodal_extraction_missing=80` | 图片/音频/PDF 类上下文不能稳定进入记忆链路 | 已有多模态 hook 和 ASR 回归；缺独立 benchmark | 给 multimodal extraction 增加独立 benchmark 和失败样本落盘 |
 | P1 | 记忆注入 | 多 Agent runtime verified 未满格 | adapter matrix: total 16，ready 15，verified 13，runtime_observed 10 | “已接入”和“真实运行注入过”还不是一回事 | README 中已拆清“接入面”和 verified 状态；安装输出已改为“可选未配置” | Adapter 矩阵继续拆 installed / configured / runtime observed / injected |
 | P1 | 记忆注入 | 纯命令式 prompt 误触发泛词召回 | `Run /review on my current changes` 原会提取 `run\|review\|current\|changes` | 这类 prompt 本意是执行当前命令，不需要历史记忆；误召回会污染 review 上下文 | 已代码闭环：新增 `generic_command_without_topic` gate | 后续扩展到 `/test`、`/fix`、`/commit` 等命令型样本 |
+| P1 | 记忆注入 | Hook 注入质量缺少关键词账本 | 之前 `memory hook recent` 能看 injected/gap/outcome，但注入成功路径看不到本次 hook 的安全关键词 | 用户只能从 prompt 输出肉眼判断关键词，难以批量定位“关键词对了但命中不对”还是“关键词本身错了” | 已代码闭环：`injection-cohorts.jsonl` 增加 `query_terms`，`memory hook recent --format json` 输出 `keywords` | 下一步把关键词质量、命中 item、feedback outcome 聚合成日报/周报 |
 | P2 | 记忆维护 | 本机 `memory` shim 可漂移 | `memory doctor` 新增 `memory CLI shim` 行；本机当前 WARN，指向 `/var/folders/...` 临时路径 | 用户安装后可能遇到 CLI 不可用，但项目 venv 下 doctor 仍正常 | 已代码闭环：installer 每次重写 shim；doctor 增加 shim target 检查 | 用户重跑 install 后消除本机 WARN |
 | P2 | 记忆维护 | storage tier 没有 cold 层 | hot 1066，warm 479，cold 0 | 长期 items 都还在热/温层，成本和噪声会上升 | 已有 tier show / tiering 机制；cold 策略仍需产品规则确认 | 明确 cold tier 规则：过期 session、低置信、旧项目归 cold |
 | P2 | 记忆召回 | 空召回仍存在小簇 | recall drift: `empty_recall=25`，gap cluster 20 medium | 少数项目/关键词没有被索引或 query expansion 覆盖 | 已有 gap-clusters；本轮新增 replay-cohort 可复用同一机制 | 对 `empty_recall` 建立项目级词表和 query expansion 回归样本 |
@@ -43,6 +44,7 @@
 - 长中文/中英混合任务的关键词退化问题已补测试并修复。
 - JSON / JS 对象配置片段已纳入 `tests/fixtures/query_intent/real_prompt_cases.json`：`true`、`const`、数字 exit code 不再作为可见关键词；未加引号的 JS/TS 字段可作为结构化锚点。
 - 纯命令式 prompt 已新增 fail-close：`Run /review on my current changes` 不再触发 `run|review|current|changes` 泛词召回。
+- Hook 注入成功路径已记录安全关键词：`InjectionCohort.query_terms` 不存 prompt 原文，`memory hook recent --format json` 可直接查看 `keywords`、`item_ids`、后续 `outcome.usage`。
 - Query Signal 定向回归、关键 hook 回归和全量 pytest 已通过。
 - `memory recall-drift replay-cohort` 已新增，能按 root cause 导出可回放 gap 样本。
 - `memory review status` 已新增，能同时报告 review queue 和 pending queue 积压。

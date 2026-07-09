@@ -893,6 +893,7 @@ def test_cli_search_records_final_firewalled_injection_cohort(tmp_brain):
     assert cohort.item_ids == (keep.id,)
     assert cohort.cwd == "/repo"
     assert cohort.query_sha256 is not None
+    assert cohort.query_terms == ("Python",)
     assert cohort.pack_metrics is not None
     trace = cohort.pack_metrics["retrieval_trace"][keep.id]
     assert trace["final_rank"] == 1

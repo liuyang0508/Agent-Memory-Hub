@@ -62,6 +62,10 @@ def _recent_hook_rows(
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for cohort in iter_injection_cohorts(brain, adapter=adapter, session_id=session):
+        keywords = "|".join(cohort.query_terms)
+        detail = ",".join(cohort.item_ids[:3])
+        if keywords:
+            detail = f"keywords={keywords} | ids={detail}"
         rows.append({
             "timestamp": cohort.timestamp,
             "kind": "injection",
@@ -69,7 +73,8 @@ def _recent_hook_rows(
             "session_id": cohort.session_id,
             "cwd": cohort.cwd,
             "status": f"injected:{len(cohort.item_ids)}",
-            "detail": ",".join(cohort.item_ids[:3]),
+            "detail": detail,
+            "keywords": keywords,
             "item_ids": list(cohort.item_ids),
             "cohort_id": cohort.cohort_id,
         })

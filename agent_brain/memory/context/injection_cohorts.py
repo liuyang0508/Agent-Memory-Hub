@@ -28,11 +28,15 @@ class InjectionCohort:
     cwd: str | None = None
     source: str = "search"
     query_sha256: str | None = None
+    query_terms: tuple[str, ...] = ()
     pack_metrics: dict[str, object] | None = None
 
     def to_dict(self) -> dict[str, object]:
         data = asdict(self)
         data["item_ids"] = list(self.item_ids)
+        data["query_terms"] = list(self.query_terms)
+        if not self.query_terms:
+            data.pop("query_terms", None)
         if self.pack_metrics is None:
             data.pop("pack_metrics", None)
         return data
@@ -50,6 +54,7 @@ def record_injection_cohort(
     session_id: str | None = None,
     cwd: str | None = None,
     query: str | None = None,
+    query_terms: list[str] | tuple[str, ...] | None = None,
     source: str = "search",
     now: datetime | None = None,
     pack_metrics: dict[str, object] | None = None,
@@ -67,6 +72,7 @@ def record_injection_cohort(
         cwd=cwd or None,
         source=source,
         query_sha256=_query_hash(query),
+        query_terms=_sanitize_query_terms(query_terms),
         pack_metrics=pack_metrics,
     )
     path = injection_cohorts_path(brain_dir)
@@ -103,6 +109,7 @@ def iter_injection_cohorts(
                     cwd=data.get("cwd"),
                     source=str(data.get("source") or "search"),
                     query_sha256=data.get("query_sha256"),
+                    query_terms=tuple(str(term) for term in data.get("query_terms") or []),
                     pack_metrics=data.get("pack_metrics"),
                 )
             except (KeyError, TypeError, json.JSONDecodeError):
@@ -154,6 +161,22 @@ def _query_hash(query: str | None) -> str | None:
     if not query:
         return None
     return hashlib.sha256(query.encode("utf-8")).hexdigest()
+
+
+def _sanitize_query_terms(query_terms: list[str] | tuple[str, ...] | None) -> tuple[str, ...]:
+    if not query_terms:
+        return ()
+    result: list[str] = []
+    seen: set[str] = set()
+    for term in query_terms:
+        value = str(term).strip()
+        if not value or len(value) > 64 or value in seen:
+            continue
+        seen.add(value)
+        result.append(value)
+        if len(result) >= 12:
+            break
+    return tuple(result)
 
 
 __all__ = [

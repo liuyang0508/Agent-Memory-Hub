@@ -264,6 +264,7 @@ def search(
                 session_id=session,
                 cwd=cwd,
                 query=query,
+                query_terms=_query_terms_for_injection_record(query) if context_firewall else None,
                 pack_metrics=pack_metrics or None,
             )
     if output_format == "text":
@@ -320,6 +321,19 @@ def _record_search_gap(
         session_id=session,
         cwd=cwd,
     )
+
+
+def _query_terms_for_injection_record(query: str) -> list[str]:
+    if "|" not in query:
+        stripped = query.strip()
+        if stripped and len(stripped) <= 64 and not any(ch.isspace() for ch in stripped):
+            return [stripped]
+        return []
+    return [
+        term.strip()
+        for term in query.split("|")
+        if term.strip()
+    ][:12]
 
 
 def _prompt_frame_evidence(prompt_frame: PromptFrame | None) -> list[str]:

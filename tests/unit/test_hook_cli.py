@@ -24,6 +24,7 @@ def test_hook_recent_json_reports_gaps_injections_and_latency(tmp_path):
             session_id="s1",
             cwd="/repo",
             query="q",
+            query_terms=["新增接口", "复用接口"],
             now=datetime(2026, 7, 8, 10, 0, tzinfo=timezone.utc),
         )
         record_gap(
@@ -59,6 +60,7 @@ def test_hook_recent_json_reports_gaps_injections_and_latency(tmp_path):
         rows = json.loads(result.output)
         assert [row["kind"] for row in rows] == ["injection", "recall_gap", "latency"]
         assert rows[0]["status"] == "injected:2"
+        assert rows[0]["keywords"] == "新增接口|复用接口"
         assert rows[1]["status"] == "all_candidates_rejected"
         assert rows[1]["rejected_ids"] == ["mem-c"]
         assert rows[2]["status"] == "timeout"
