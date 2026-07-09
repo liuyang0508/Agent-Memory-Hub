@@ -180,7 +180,7 @@ MuleRun remains planned until install, uninstall, malformed-config, and idempote
 | `agent_brain/mcp/tools/governance_batch.py` | 78 | Focused owner for MCP batch confirm/archive mutation helpers, confidence clamping, archive moves, index deletion, and item-id safety delegation |
 | `agent_brain/mcp/tools/io.py` | 162 | Focused owner for MCP import/export/Obsidian/gc tool orchestration and FastMCP registration |
 | `agent_brain/mcp/tools/io_export.py` | 32 | Focused owner for pure MCP export filtering and JSON/JSONL payload assembly |
-| `web/api/routes/governance.py` | 135 | Web governance router for stats, gc, evolve, and mounting audit/webhook/activity subroutes |
+| `web/api/routes/governance.py` | 198 | Web governance router for stats, gc, evolve, lifecycle review/apply, and mounting audit/webhook/activity subroutes |
 | `web/api/routes/governance_activity.py` | 67 | Focused owner for Web activity timeline and recent item aggregation route |
 | `web/api/routes/governance_audit.py` | 85 | Focused owner for Web audit log, audit scan, and outbound audit routes |
 | `web/api/routes/governance_webhooks.py` | 45 | Focused owner for Web webhook list/add/remove routes |

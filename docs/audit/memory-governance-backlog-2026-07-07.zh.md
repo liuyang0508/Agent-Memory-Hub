@@ -24,7 +24,7 @@
 | 优先级 | 链路 | 待治理项 | 数据证据 | 影响 | 治理状态 | 下一步 |
 |---|---|---|---|---|---|---|
 | P0 | 记忆注入 | 长中文/中英混合任务会退化成单个泛词关键词 | 复现样本中原输出为 `agent`、`true` 或 `agent\|amh\|hopfield`；修复后输出 `多agent协作\|长期记忆\|上下文工程...`、`新增接口\|复用接口...` | 召回偏题，容易注入微信公众号配图、封面图、JSON 布尔值或命令泛词等无关记忆 | 已代码闭环：补 `query_signal` 单测、真实 hook 端到端回归和 `real_prompt_cases.json` 对抗样本 | 继续把真实长 prompt / 日志 / 代码片段样本沉淀到 query signal corpus |
-| P0 | 记忆维护 | 过期 / stale 生命周期 item 没有进入稳定清理节奏 | `memory govern plan --category lifecycle --limit 3 --format markdown --no-index-repair --no-evolve --no-conversations`: review_required 245，suppressed duplicates 229，health `D` | 旧阻塞、旧 handoff、旧 signal 继续参与召回，污染上下文 | 已代码闭环：lifecycle plan 增加 Review Checklist、只读 `memory read ... --head 2000 --view detail`、JSON `review_queue`，以及指定 ID 的 `memory govern apply-lifecycle` dry-run/apply 通道 | 接 Web Admin 批量勾选确认；supersede 仍需单独 replacement item |
+| P0 | 记忆维护 | 过期 / stale 生命周期 item 没有进入稳定清理节奏 | `memory govern plan --category lifecycle --limit 3 --format markdown --no-index-repair --no-evolve --no-conversations`: review_required 245，suppressed duplicates 229，health `D` | 旧阻塞、旧 handoff、旧 signal 继续参与召回，污染上下文 | 已代码闭环：lifecycle plan 增加 Review Checklist、只读 `memory read ... --head 2000 --view detail`、JSON `review_queue`、指定 ID 的 `memory govern apply-lifecycle` dry-run/apply 通道，以及 Web Admin lifecycle review/apply API | Web Admin 前端批量勾选确认；supersede 仍需单独 replacement item |
 | P0 | 记忆召回 | 召回后“能不能答对”弱于 R@K | LongMemEval R@5 97.4%，但 judge acc 41.6%；multi-session 6.6%，temporal 12.6% | 找得到材料，但多会话/时序问题容易答偏 | 已有 answerability、temporal stale、supersession 过滤；本轮不继续放宽策略 | 单独建立 answer-generation / temporal resolver 评测，不和 R@K 混成一个分数 |
 | P0 | 记忆注入 | 实际 runtime 有大量 context rejected gap | recall drift 601 gaps；本机 `replay-cohort` 当前匹配 585 个 `query_gate_underqualified` gap、去重 501 个 query | 用户感知是“没想起来”或“召回被吞” | 已代码闭环：新增 `memory recall-drift replay-cohort`，可导出可回放 prompt cohort | 将 cohort 接入 query-signal / firewall 回归数据集 |
 | P0 | 记忆治理 | review 队列积压 | `memory review status`: review_total 153，pending_depth 43，pending_dead 0 | 好记忆无法进入正常召回，或 pending 长期不落库 | 已代码闭环：新增 `memory review status --format json`，把 review 与 pending 积压放到同一入口 | 后续做批量 approve/reject UI 和 pending TTL 告警 |
@@ -45,7 +45,7 @@
 - JSON / JS 对象配置片段已纳入 `tests/fixtures/query_intent/real_prompt_cases.json`：`true`、`const`、数字 exit code 不再作为可见关键词；未加引号的 JS/TS 字段可作为结构化锚点。
 - 纯命令式 prompt 已新增 fail-close：`Run /review on my current changes` 不再触发 `run|review|current|changes` 泛词召回。
 - Hook 注入成功路径已记录安全关键词：`InjectionCohort.query_terms` 不存 prompt 原文，`memory hook recent --format json` 可直接查看 `keywords`、`item_ids`、后续 `outcome.usage`。
-- Lifecycle 治理已补只读 checklist、JSON 队列和指定 ID apply 通道：`memory govern plan --category lifecycle --format markdown` 给人读，`--format json` 输出 `review_queue`，`memory govern apply-lifecycle <id> --dry-run/--apply` 会重新校验 ID 是否仍在队列里，未命中则跳过。
+- Lifecycle 治理已补只读 checklist、JSON 队列、指定 ID apply 通道和 Web Admin API：`memory govern plan --category lifecycle --format markdown` 给人读，`--format json` 输出 `review_queue`，`memory govern apply-lifecycle <id> --dry-run/--apply` 与 `/api/governance/lifecycle-apply` 都会重新校验 ID 是否仍在队列里，未命中则跳过。
 - Query Signal 定向回归、关键 hook 回归和全量 pytest 已通过。
 - `memory recall-drift replay-cohort` 已新增，能按 root cause 导出可回放 gap 样本。
 - `memory review status` 已新增，能同时报告 review queue 和 pending queue 积压。

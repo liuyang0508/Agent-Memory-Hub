@@ -464,7 +464,7 @@ def structure_map(zh: bool) -> tuple[str, str, str, int, int]:
         desc = "左侧是真实源码 ownership，右侧是 capture → write → project → retrieve → pack → firewall → govern → verify → adapt 的能力链路。"
         root = "agent-memory-hub/"
         modules = [
-            ("01", "事实面", "gray", "observe", ["MCP 28 tools、Web 89 locked routes。", "16 adapters：11 verified / 4 install-ready / 1 wip。"]),
+            ("01", "事实面", "gray", "observe", ["MCP 28 tools、Web 91 locked routes。", "16 adapters：11 verified / 4 install-ready / 1 wip。"]),
             ("02", "证据采集", "teal", "evidence", ["原始对话、资源和抽取先进入 evidence。", "记录 path / offset / hash / tier。"]),
             ("03", "写入漏斗", "blue", "memory", ["核心写入口经 WriteService。", "bulk import / 治理内部写入仍需收敛。"]),
             ("04", "事实源", "green", "store", ["items/mem-*.md 是 source of truth。", "resources/extractions 是 evidence sidecar。"]),
@@ -476,7 +476,7 @@ def structure_map(zh: bool) -> tuple[str, str, str, int, int]:
             ("10", "多智能体复用", "indigo", "adapter", ["hooks / MCP / file / provider 分层。", "verified 必须有真实 runtime evidence。"]),
         ]
         tree_entries = [
-            ("README.zh.md + source/test evidence/", "事实声明", ["28 MCP / 89 Web baseline / 16 adapters", "tests locked / verified=11 local"]),
+            ("README.zh.md + source/test evidence/", "事实声明", ["28 MCP / 91 Web baseline / 16 adapters", "tests locked / verified=11 local"]),
             ("agent_brain/memory/evidence/", "采集与证据", ["conversation_store.py / harvest/", "resource_store.py / import_service.py"]),
             ("agent_brain/memory/store/", "记忆写入", ["write_service.py / items_store.py", "item_markdown.py / quality.py"]),
             ("~/.agent-memory-hub/", "本地事实源", ["items/mem-*.md", "resources/*.json / extractions/*.json"]),
@@ -492,7 +492,7 @@ def structure_map(zh: bool) -> tuple[str, str, str, int, int]:
         desc = "The repo tree is organized as a closed loop: capture → write → project → retrieve → pack → firewall → govern → verify → adapt."
         root = "agent-memory-hub/"
         modules = [
-            ("01", "Fact surface", "gray", "observe", ["MCP 28 tools, Web 89 locked routes.", "16 adapters: 11 verified / 4 install-ready / 1 wip."]),
+            ("01", "Fact surface", "gray", "observe", ["MCP 28 tools, Web 91 locked routes.", "16 adapters: 11 verified / 4 install-ready / 1 wip."]),
             ("02", "Evidence capture", "teal", "evidence", ["Raw conversations, resources, and extractions land as evidence.", "Keep path / offset / hash / tier."]),
             ("03", "Write funnel", "blue", "memory", ["External writes go through WriteService.", "Bulk import/internal governance paths still need convergence."]),
             ("04", "Truth source", "green", "store", ["items/mem-*.md is source of truth.", "resources/extractions are evidence sidecars."]),
@@ -504,7 +504,7 @@ def structure_map(zh: bool) -> tuple[str, str, str, int, int]:
             ("10", "Agent reuse", "indigo", "adapter", ["hooks / MCP / file / provider are separate.", "verified requires runtime evidence."]),
         ]
         tree_entries = [
-            ("README.zh.md + source/test evidence/", "Truth claims", ["28 MCP / 89 Web baseline / 16 adapters", "tests locked / verified=11 local"]),
+            ("README.zh.md + source/test evidence/", "Truth claims", ["28 MCP / 91 Web baseline / 16 adapters", "tests locked / verified=11 local"]),
             ("agent_brain/memory/evidence/", "Ingestion and evidence", ["conversation_store.py / harvest/", "resource_store.py / import_service.py"]),
             ("agent_brain/memory/store/", "Memory write", ["write_service.py / items_store.py", "item_markdown.py / quality.py"]),
             ("~/.agent-memory-hub/", "Local truth", ["items/mem-*.md", "resources/*.json / extractions/*.json"]),
@@ -1983,7 +1983,7 @@ def amh_engineering_capability_map(zh: bool) -> tuple[str, str, str, int, int]:
         title = "工程能力链路地图"
         desc = "从事实声明到证据、写入、投影、召回、压缩、防火墙、门禁、adapter verified gate 和交付文档。"
         modules = [
-            ("01", "事实面", ["MCP 28 / Web 89 locked", "16 adapters / verified=11 local"], "gray", "observe"),
+            ("01", "事实面", ["MCP 28 / Web 91 locked", "16 adapters / verified=11 local"], "gray", "observe"),
             ("02", "证据采集", ["conversation snapshot", "resources / extractions"], "teal", "evidence"),
             ("03", "写入漏斗", ["WriteService + audit", "bulk/import 待收敛"], "blue", "memory"),
             ("04", "事实源", ["items/mem-*.md", "refs + context views"], "green", "store"),
@@ -1998,7 +1998,7 @@ def amh_engineering_capability_map(zh: bool) -> tuple[str, str, str, int, int]:
         title = "Engineering Capability Loop"
         desc = "The real loop from truth claims to evidence, writes, projections, retrieval, compression, firewall, gates, adapter verified evidence, and docs."
         modules = [
-            ("01", "Fact surface", ["MCP 28 / Web 89 locked", "16 adapters / verified=11 local"], "gray", "observe"),
+            ("01", "Fact surface", ["MCP 28 / Web 91 locked", "16 adapters / verified=11 local"], "gray", "observe"),
             ("02", "Evidence capture", ["conversation snapshot", "resources / extractions"], "teal", "evidence"),
             ("03", "Write funnel", ["WriteService + audit", "bulk/import convergence gap"], "blue", "memory"),
             ("04", "Truth source", ["items/mem-*.md", "refs + context views"], "green", "store"),
@@ -2361,7 +2361,7 @@ def write_preview_html() -> None:
     facts = [
         (
             "接口能力面",
-            "`MCP 28 tools`、`Web API/WS 89 locked routes`",
+            "`MCP 28 tools`、`Web API/WS 91 locked routes`",
             "Web route surface lock 包含 Cockpit、data-flow、memory-lineage、adapter onboarding、memory candidates、Headroom/CCR、compression gate 和 ML/DL advisory gate。",
         ),
         (
@@ -2749,7 +2749,7 @@ def write_architecture_map_html() -> None:
         <p>这套图谱先用 Loop Engineering 视角解释 AMH 的可信上下文生命周期，再沿着实际链路展开：Intent -> Query Signal/SearchFilter -> Evidence -> Memory Curation -> MemoryItem Truth -> Index Projection -> Retrieval Ranking -> ContextFirewall -> ContextPack -> Feedback/Governance/Loop。</p>
         <div class="fact-grid">
           <div class="fact"><strong>28</strong><span>模型上下文协议 28 个工具</span></div>
-          <div class="fact"><strong>89</strong><span>89 条接口/通信路由，含驾驶舱 / 引导 / 候选 / 轨迹</span></div>
+          <div class="fact"><strong>91</strong><span>91 条接口/通信路由，含驾驶舱 / 引导 / 候选 / 轨迹</span></div>
           <div class="fact"><strong>16</strong><span>16 个适配器记录：11 个已验证、4 个安装就绪、1 个开发中</span></div>
           <div class="fact"><strong>1546</strong><span>本轮全量测试通过，verified=11 仍需按本机证据理解</span></div>
         </div>

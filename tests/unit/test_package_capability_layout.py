@@ -212,6 +212,7 @@ def test_capability_packages_expose_primary_services():
         "agent_brain.memory.context.context_loading",
         "agent_brain.memory.context.context_firewall",
         "agent_brain.memory.governance.review_queue",
+        "agent_brain.memory.governance.lifecycle_review",
         "agent_brain.memory.governance.audit.scanner",
         "agent_brain.memory.governance.drift",
         "agent_brain.memory.governance.evolve.engine",

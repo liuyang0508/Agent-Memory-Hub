@@ -99,7 +99,7 @@
   <text class="mono" x="164" y="234">README.zh.md + source/test evidence/ Truth claims</text>
   <path class="branch" d="M134 245 V254 H165"/>
   <path fill="#ffffff" stroke="#57606a" stroke-width="1.25" d="M173 244h10l5 5v19H173zM183 244v6h6"/>
-  <text class="mono-small" x="198" y="258">28 MCP / 89 Web baseline / 16 adapters</text>
+  <text class="mono-small" x="198" y="258">28 MCP / 91 Web baseline / 16 adapters</text>
   <path class="branch" d="M134 263 V272 H165"/>
   <path fill="#ffffff" stroke="#57606a" stroke-width="1.25" d="M173 262h10l5 5v19H173zM183 262v6h6"/>
   <text class="mono-small" x="198" y="276">tests locked / verified=11 local</text>
@@ -231,7 +231,7 @@
     <g transform="translate(788,250) scale(0.5)"><path class="icon" stroke="#57606a" d="M8 12h34v24H8zM17 44h16M25 36v8M14 25h7l4-7 5 13 4-6h6"/></g>
     <text class="num" x="856" y="259" fill="#57606a">01</text>
     <text class="card-title" x="902" y="258">Fact surface</text>
-  <text class="card-line" x="856" y="282">MCP 28 tools, Web 89 locked routes.</text>
+  <text class="card-line" x="856" y="282">MCP 28 tools, Web 91 locked routes.</text>
   <text class="card-line" x="856" y="299">16 adapters: 11 verified / 4 install-ready / 1 wip.</text>
   </g>
   <g>

@@ -815,7 +815,7 @@ def test_architecture_map_adapter_counts_match_current_truth_contract():
     assert "16" in architecture_map
     assert "16 个适配器记录：11 个已验证、4 个安装就绪、1 个开发中" in architecture_map
     assert "模型上下文协议 28 个工具" in architecture_map
-    assert "89 条接口/通信路由" in architecture_map
+    assert "91 条接口/通信路由" in architecture_map
     assert "驾驶舱 / 引导" in architecture_map
     assert "候选 / 轨迹" in architecture_map
     assert "verified=11" in architecture_map
@@ -834,8 +834,8 @@ def test_architecture_map_adapter_counts_match_current_truth_contract():
     assert "data-flow.zh.svg" in architecture_map
     assert "retrieval-complete-flow.zh.svg" in architecture_map
     assert "Evidence -&gt; MemoryItem -&gt; Index Projection -&gt; RetrievedItem -&gt; RankedItem -&gt; FirewalledItem -&gt; ContextPack -&gt; FeedbackEvent" in architecture_map
-    assert '<span class="num">89</span><span class="label">Web API / WS routes</span>' in handdrawn_readme
-    assert "89 条 Web/API/WS routes" in handdrawn_readme
+    assert '<span class="num">91</span><span class="label">Web API / WS routes</span>' in handdrawn_readme
+    assert "91 条 Web/API/WS routes" in handdrawn_readme
 
 
 def test_gap_matrix_does_not_preserve_resolved_items_route_risk():

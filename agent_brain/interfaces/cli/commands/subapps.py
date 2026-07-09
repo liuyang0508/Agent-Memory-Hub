@@ -386,76 +386,24 @@ def apply_lifecycle_reviews(
     needs a replacement item and remains a separate explicit action.
     """
     import json
-    import shutil
 
-    from agent_brain.memory.governance.auto_governance import AutoGovernanceCycle
-    from agent_brain.memory.governance.maintenance_plan import build_maintenance_plan
+    from agent_brain.memory.governance.lifecycle_review import (
+        apply_lifecycle_review_items,
+    )
 
     brain = _brain_dir()
-    store = _store_only()
-    report = AutoGovernanceCycle(
+    payload = apply_lifecycle_review_items(
         brain_dir=brain,
-        items_store=store,
-        include_index=False,
-        include_evolve=False,
-        include_conversations=False,
-    ).run(apply=False)
-    plan = build_maintenance_plan(
-        report,
-        limit_per_lane=max(len(report.actions), len(item_ids), 1),
-        category_filter="lifecycle",
+        items_store=_store_only(),
+        item_ids=item_ids,
+        apply=apply,
+        index_repair=index_repair,
     )
-    queue_by_id = {row.item_id: row for row in plan.review_queue}
-
-    requested = list(dict.fromkeys(item_ids))
-    candidates = [queue_by_id[item_id].to_dict() for item_id in requested if item_id in queue_by_id]
-    skipped = [
-        {"id": item_id, "reason": "not_in_lifecycle_review_queue"}
-        for item_id in requested
-        if item_id not in queue_by_id
-    ]
-    archived: list[str] = []
-    failed: list[dict[str, str]] = []
-
-    idx = None
-    if apply and index_repair:
-        db_path = brain / "index.db"
-        if db_path.exists():
-            idx = HubIndex(db_path=db_path)
-    try:
-        if apply:
-            archive_dir = store.items_dir / "archived"
-            archive_dir.mkdir(exist_ok=True)
-            for item_id in requested:
-                if item_id not in queue_by_id:
-                    continue
-                src = store.items_dir / f"{item_id}.md"
-                if not src.exists():
-                    failed.append({"id": item_id, "reason": "source_missing"})
-                    continue
-                try:
-                    shutil.move(str(src), str(archive_dir / f"{item_id}.md"))
-                    if idx is not None:
-                        try:
-                            idx.delete(item_id)
-                        except Exception as exc:  # noqa: BLE001 - archive remains source-of-truth.
-                            failed.append({"id": item_id, "reason": f"index_delete_failed:{exc}"})
-                    archived.append(item_id)
-                except Exception as exc:  # noqa: BLE001 - report per-item failure.
-                    failed.append({"id": item_id, "reason": str(exc)})
-    finally:
-        if idx is not None:
-            idx.close()
-
-    payload = {
-        "dry_run": not apply,
-        "requested": requested,
-        "candidates": candidates,
-        "archived": archived,
-        "skipped": skipped,
-        "failed": failed,
-        "boundary": "only current lifecycle review_queue items are eligible; supersede remains manual",
-    }
+    requested = payload["requested"]
+    candidates = payload["candidates"]
+    archived = payload["archived"]
+    skipped = payload["skipped"]
+    failed = payload["failed"]
     if format == "json":
         typer.echo(json.dumps(payload, indent=2, ensure_ascii=False))
         return

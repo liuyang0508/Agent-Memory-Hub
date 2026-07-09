@@ -92,6 +92,62 @@ async def garbage_collect(req: GcRequest, user: CurrentUser = Depends(get_curren
                 deleted += 1
     return {"deleted": deleted, "candidates": candidates, "dry_run": req.dry_run}
 
+
+class LifecycleApplyRequest(BaseModel):
+    item_ids: list[str]
+    apply: bool = False
+    index_repair: bool = True
+
+
+@router.get("/api/governance/lifecycle-review")
+async def lifecycle_review(
+    limit: int = Query(20, ge=1, le=200),
+    user: CurrentUser = Depends(get_current_user),
+):
+    """Return the current read-only lifecycle review queue. Admin only."""
+    if not user.is_admin:
+        raise HTTPException(status_code=403, detail="admin only")
+
+    from agent_brain.memory.governance.lifecycle_review import (
+        build_lifecycle_review_plan,
+    )
+    from agent_brain.memory.store.items_store import ItemsStore
+
+    brain = _brain_dir()
+    plan = build_lifecycle_review_plan(
+        brain_dir=brain,
+        items_store=ItemsStore(items_dir=brain / "items"),
+        limit_per_lane=limit,
+    )
+    return plan.to_dict()
+
+
+@router.post("/api/governance/lifecycle-apply")
+async def lifecycle_apply(
+    req: LifecycleApplyRequest,
+    user: CurrentUser = Depends(get_current_user),
+):
+    """Preview or archive selected lifecycle review queue items. Admin only."""
+    if not user.is_admin:
+        raise HTTPException(status_code=403, detail="admin only")
+    if not req.item_ids:
+        raise HTTPException(status_code=400, detail="item_ids required")
+
+    from agent_brain.memory.governance.lifecycle_review import (
+        apply_lifecycle_review_items,
+    )
+    from agent_brain.memory.store.items_store import ItemsStore
+
+    brain = _brain_dir()
+    return apply_lifecycle_review_items(
+        brain_dir=brain,
+        items_store=ItemsStore(items_dir=brain / "items"),
+        item_ids=req.item_ids,
+        apply=req.apply,
+        index_repair=req.index_repair,
+    )
+
+
 class EvolveRequest(BaseModel):
     apply: bool = False
     decay_archive_threshold: float = 0.1

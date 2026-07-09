@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -436,13 +436,15 @@ class TestApiDocsRoutes:
         data = resp.json()
         paths = {route["path"] for route in data["routes"]}
         assert data["total"] == len(data["routes"])
-        assert data["total"] == 99
+        assert data["total"] == 101
         assert "/api/data-flow" in paths
         assert "/api/chain-logs" in paths
         assert "/api/chain-logs/{chain_id}" in paths
         assert "/api/agents/local-history" in paths
         assert "/api/agents/{agent}/local-history/sync" in paths
         assert "/api/adapters/{name}/install-verify" in paths
+        assert "/api/governance/lifecycle-review" in paths
+        assert "/api/governance/lifecycle-apply" in paths
         assert "/api/memory-lineage" in paths
         assert "/ws/events" in paths
         assert "/api/routes" in paths
@@ -1111,6 +1113,136 @@ class TestGC:
         assert data["dry_run"] is True
         assert data["deleted"] == 0
         assert len(data["candidates"]) == 3
+
+
+class TestLifecycleGovernanceAPI:
+    def test_lifecycle_review_requires_admin(self, client: TestClient):
+        assert client.get("/api/governance/lifecycle-review").status_code == 401
+
+    def test_lifecycle_review_lists_read_only_queue(
+        self,
+        client: TestClient,
+        admin_token: str,
+        brain_dir: Path,
+    ):
+        from agent_brain.memory.store.items_store import ItemsStore
+
+        store = ItemsStore(items_dir=brain_dir / "items")
+        item = MemoryItem(
+            id="mem-20260101-170101-web-lifecycle-review",
+            type=MemoryType.signal,
+            created_at=datetime.now(timezone.utc) - timedelta(days=60),
+            title="Web lifecycle signal",
+            summary="Web lifecycle signal summary",
+            tags=["runtime"],
+        )
+        store.write(item, "Web lifecycle signal\nbody")
+
+        resp = client.get(
+            "/api/governance/lifecycle-review?limit=5",
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["dry_run"] is True
+        assert data["filters"] == {"action": None, "category": "lifecycle"}
+        assert data["review_queue"] == [
+            {
+                "item_id": item.id,
+                "action": "review_archive",
+                "category": "lifecycle",
+                "title": "Review stale signal: Web lifecycle signal",
+                "read_command": f"memory read {item.id} --head 2000 --view detail",
+                "recommended_next": "supersede_or_archive_after_review",
+                "can_auto_apply": False,
+                "boundary": "确认是否已有更新 item 可以 supersede，不能确认再 archive",
+            }
+        ]
+        assert (brain_dir / "items" / f"{item.id}.md").exists()
+
+    def test_lifecycle_apply_defaults_to_dry_run(
+        self,
+        client: TestClient,
+        admin_token: str,
+        brain_dir: Path,
+    ):
+        from agent_brain.memory.store.items_store import ItemsStore
+
+        store = ItemsStore(items_dir=brain_dir / "items")
+        item = MemoryItem(
+            id="mem-20260101-170102-web-lifecycle-dry-run",
+            type=MemoryType.handoff,
+            created_at=datetime.now(timezone.utc) - timedelta(days=45),
+            title="Web lifecycle dry run handoff",
+            summary="Web lifecycle dry run handoff summary",
+            tags=["handoff"],
+        )
+        store.write(item, "Web lifecycle dry run handoff\nbody")
+
+        resp = client.post(
+            "/api/governance/lifecycle-apply",
+            json={"item_ids": [item.id]},
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["dry_run"] is True
+        assert data["requested"] == [item.id]
+        assert data["archived"] == []
+        assert data["skipped"] == []
+        assert data["candidates"][0]["item_id"] == item.id
+        assert (brain_dir / "items" / f"{item.id}.md").exists()
+        assert not (brain_dir / "items" / "archived" / f"{item.id}.md").exists()
+
+    def test_lifecycle_apply_archives_only_current_queue_items(
+        self,
+        client: TestClient,
+        admin_token: str,
+        brain_dir: Path,
+    ):
+        from agent_brain.memory.store.items_store import ItemsStore
+
+        store = ItemsStore(items_dir=brain_dir / "items")
+        stale = MemoryItem(
+            id="mem-20260101-170103-web-lifecycle-apply",
+            type=MemoryType.signal,
+            created_at=datetime.now(timezone.utc) - timedelta(days=60),
+            title="Web lifecycle apply signal",
+            summary="Web lifecycle apply signal summary",
+            tags=["runtime"],
+        )
+        fresh = MemoryItem(
+            id="mem-20260701-170104-web-lifecycle-fresh",
+            type=MemoryType.signal,
+            created_at=datetime.now(timezone.utc) - timedelta(days=3),
+            title="Web lifecycle fresh signal",
+            summary="Web lifecycle fresh signal summary",
+            tags=["runtime"],
+        )
+        store.write(stale, "Web lifecycle apply signal\nbody")
+        store.write(fresh, "Web lifecycle fresh signal\nbody")
+
+        resp = client.post(
+            "/api/governance/lifecycle-apply",
+            json={"item_ids": [stale.id, fresh.id], "apply": True, "index_repair": False},
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["dry_run"] is False
+        assert data["archived"] == [stale.id]
+        assert data["skipped"] == [
+            {
+                "id": fresh.id,
+                "reason": "not_in_lifecycle_review_queue",
+            }
+        ]
+        assert not (brain_dir / "items" / f"{stale.id}.md").exists()
+        assert (brain_dir / "items" / "archived" / f"{stale.id}.md").exists()
+        assert (brain_dir / "items" / f"{fresh.id}.md").exists()
 
 
 class TestBatchOps:
