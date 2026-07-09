@@ -1,0 +1,50 @@
+name: Deploy official website
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - docs/visuals/agent-memory-hub-official-site.html
+      - docs/assets/agent-memory-hub-wechat-community-qr-current.jpg
+      - .github/workflows/deploy-official-site.yml
+
+jobs:
+  deploy:
+    name: Sync static site to nginx
+    runs-on: ubuntu-latest
+    env:
+      DEPLOY_ENABLED: ${{ secrets.AIHUB_SSH_HOST != '' && secrets.AIHUB_SSH_USER != '' && secrets.AIHUB_SSH_KEY != '' && secrets.AIHUB_WEB_ROOT != '' }}
+      AIHUB_SSH_HOST: ${{ secrets.AIHUB_SSH_HOST }}
+      AIHUB_SSH_USER: ${{ secrets.AIHUB_SSH_USER }}
+      AIHUB_SSH_KEY: ${{ secrets.AIHUB_SSH_KEY }}
+      AIHUB_SSH_PORT: ${{ secrets.AIHUB_SSH_PORT || '22' }}
+      AIHUB_WEB_ROOT: ${{ secrets.AIHUB_WEB_ROOT }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Skip when deployment secrets are missing
+        if: env.DEPLOY_ENABLED != 'true'
+        run: |
+          echo "Official website deployment skipped because AIHUB_* deployment secrets are not fully configured."
+
+      - name: Prepare SSH key
+        if: env.DEPLOY_ENABLED == 'true'
+        run: |
+          set -euo pipefail
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$AIHUB_SSH_KEY" > ~/.ssh/aihub_deploy_key
+          chmod 600 ~/.ssh/aihub_deploy_key
+          ssh-keyscan -p "$AIHUB_SSH_PORT" "$AIHUB_SSH_HOST" >> ~/.ssh/known_hosts
+
+      - name: Upload official website
+        if: env.DEPLOY_ENABLED == 'true'
+        run: |
+          set -euo pipefail
+          remote="${AIHUB_SSH_USER}@${AIHUB_SSH_HOST}"
+          ssh -i ~/.ssh/aihub_deploy_key -p "$AIHUB_SSH_PORT" "$remote" "mkdir -p '$AIHUB_WEB_ROOT/assets'"
+          scp -i ~/.ssh/aihub_deploy_key -P "$AIHUB_SSH_PORT" docs/visuals/agent-memory-hub-official-site.html "$remote:$AIHUB_WEB_ROOT/index.html"
+          scp -i ~/.ssh/aihub_deploy_key -P "$AIHUB_SSH_PORT" docs/assets/agent-memory-hub-wechat-community-qr-current.jpg "$remote:$AIHUB_WEB_ROOT/assets/agent-memory-hub-wechat-community-qr-current.jpg"
