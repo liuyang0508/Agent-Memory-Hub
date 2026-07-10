@@ -283,6 +283,24 @@ class TestMemoryClientStats:
 
 class TestMemoryClientBrief:
     def test_brief(self, client):
-        client.write(type="decision", title="Brief test", summary="Testing brief")
-        b = client.brief()
-        assert "total_shown" in b
+        item_id = client.write(
+            type="decision",
+            title="Brief gateway test",
+            summary="Testing gated brief",
+            refs={"urls": ["https://example.test/brief"]},
+        )
+        client.write(
+            type="signal",
+            title="Private brief signal",
+            summary="Must be withheld",
+            sensitivity="private",
+        )
+
+        payload = client.brief()
+
+        assert payload["total_shown"] == 1
+        assert payload["total_withheld"] == 1
+        assert payload["tiers"][2]["items"] == [
+            {"id": item_id, "title": "Brief gateway test"},
+        ]
+        assert "Private brief signal" not in repr(payload)

@@ -10,8 +10,14 @@ from agent_brain.contracts.memory_item import MemoryItem, MemoryType
 def _seed(brain, type_, title, summary):
     store = ItemsStore(items_dir=brain / "items")
     now = datetime.now(timezone.utc).astimezone()
-    store.write(MemoryItem(id=make_item_id(title, when=now), type=MemoryType(type_),
-                           created_at=now, title=title, summary=summary), "body")
+    store.write(MemoryItem(
+        id=make_item_id(title, when=now),
+        type=MemoryType(type_),
+        created_at=now,
+        title=title,
+        summary=summary,
+        refs={"urls": [f"https://example.test/{title}"]} if type_ == "decision" else {},
+    ), "body")
 
 
 def test_brief_cli_renders_grouped_and_footer(tmp_brain):

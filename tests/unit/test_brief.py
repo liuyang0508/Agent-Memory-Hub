@@ -1,8 +1,10 @@
 from datetime import datetime, timedelta, timezone
 
+import pytest
+
 from agent_brain.memory.store.items_store import ItemsStore, make_item_id
 from agent_brain.memory.recall.brief import build_brief, Brief
-from agent_brain.contracts.memory_item import MemoryItem, MemoryType
+from agent_brain.contracts.memory_item import MemoryItem, MemoryType, Sensitivity
 
 
 def _seed(store: ItemsStore, type_: str, title: str, summary: str, *,
@@ -11,6 +13,7 @@ def _seed(store: ItemsStore, type_: str, title: str, summary: str, *,
     item = MemoryItem(
         id=make_item_id(title, when=now), type=MemoryType(type_), created_at=now,
         title=title, summary=summary, project=project, tags=tags or [],
+        refs={"urls": [f"https://example.test/{title}"]} if type_ == "decision" else {},
     )
     store.write(item, body)
     return item
@@ -35,6 +38,59 @@ def test_brief_excludes_session_noise(tmp_path):
     titles = [i.title for t in brief.tiers for i in t.shown]
     assert "real blocker" in titles
     assert "Session abc active" not in titles
+    assert brief.total_withheld == 0
+
+
+def test_brief_filters_gateway_forbidden_items_and_counts_withheld(tmp_path):
+    store = ItemsStore(items_dir=tmp_path / "items")
+    safe = _seed(store, "signal", "safe gateway signal", "safe summary")
+    now = safe.created_at
+    forbidden = [
+        safe.model_copy(update={
+            "id": make_item_id("private gateway signal", when=now),
+            "title": "private gateway signal",
+            "sensitivity": Sensitivity.private,
+        }),
+        safe.model_copy(update={
+            "id": make_item_id("secret gateway signal", when=now),
+            "title": "secret gateway signal",
+            "sensitivity": Sensitivity.secret,
+        }),
+        safe.model_copy(update={
+            "id": make_item_id("review gateway signal", when=now),
+            "title": "review gateway signal",
+            "tags": ["needs-review"],
+        }),
+        safe.model_copy(update={
+            "id": make_item_id("unverified gateway signal", when=now),
+            "title": "unverified gateway signal",
+            "tags": ["unverified-boundary"],
+        }),
+        safe.model_copy(update={
+            "id": make_item_id("superseded gateway signal", when=now),
+            "title": "superseded gateway signal",
+            "superseded_by": safe.id,
+        }),
+    ]
+    for item in forbidden:
+        store.write(item, f"body:{item.title}")
+
+    brief = build_brief(store, budget_tokens=1500)
+
+    assert [item.title for tier in brief.tiers for item in tier.shown] == [safe.title]
+    assert brief.total_shown == 1
+    assert brief.total_withheld == len(forbidden)
+
+
+@pytest.mark.parametrize("query", ["memory", ""])
+def test_brief_explicit_noninjectable_query_withholds_all_items(tmp_path, query):
+    store = ItemsStore(items_dir=tmp_path / "items")
+    _seed(store, "episode", "memory", "memory")
+
+    brief = build_brief(store, budget_tokens=1500, query=query)
+
+    assert brief.total_shown == 0
+    assert brief.total_withheld == 1
 
 
 def test_brief_respects_budget_and_announces_withheld(tmp_path):
