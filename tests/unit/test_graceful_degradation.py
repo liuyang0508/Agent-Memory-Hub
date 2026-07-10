@@ -66,11 +66,38 @@ def test_doctor_offline_reports(monkeypatch):
     from typer.testing import CliRunner
     from agent_brain.interfaces.cli import app
     monkeypatch.setenv("MEMORY_HUB_TEST_EMBEDDING", "1")
+    monkeypatch.setenv("COLUMNS", "200")
     res = CliRunner().invoke(app, ["doctor", "--offline"])
     assert res.exit_code == 0
-    out = res.stdout.lower()
+    out = " ".join(res.stdout.lower().split())
     assert "offline" in out
     assert "bm25" in out
+    assert "prompt injection gateway" in out
+    assert "gateway apis" in out
+    assert "gateway unavailable" not in out
+
+
+def test_doctor_offline_reports_injection_gateway_degraded(monkeypatch):
+    from typer.testing import CliRunner
+    from agent_brain.interfaces.cli import app
+    import agent_brain.platform.doctor as doctor
+
+    monkeypatch.setenv("MEMORY_HUB_TEST_EMBEDDING", "1")
+    monkeypatch.setenv("COLUMNS", "200")
+    monkeypatch.setattr(
+        doctor,
+        "_probe_injection_gateway_available",
+        lambda: False,
+        raising=False,
+    )
+
+    res = CliRunner().invoke(app, ["doctor", "--offline"])
+
+    assert res.exit_code == 0
+    out = " ".join(res.stdout.lower().split())
+    assert "prompt injection gateway" in out
+    assert "gateway apis" in out
+    assert "gateway unavailable" in out
 
 
 def test_doctor_offline_surfaces_malformed_items(tmp_brain):

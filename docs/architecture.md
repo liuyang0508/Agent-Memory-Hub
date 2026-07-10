@@ -91,6 +91,9 @@ Automatic UserPromptSubmit injection and MCP `search_memory(..., verbosity="auto
 send the compact `text` and retrieve hint first; agents deep-read the canonical
 body only after the compact view proves relevant.
 
+Packing is not authorization. Prompt-facing callers may build this derived view
+only after InjectionGateway and ContextFirewall approve the hydrated candidate.
+
 ## Loop Contract — `agent_brain/memory/loops/`
 
 Loop Engineering uses a contract plus runtime ledger instead of prompt-only
@@ -134,11 +137,33 @@ user question / search call / UserPromptSubmit
   -> optional MMR
   -> optional Hopfield expansion
   -> optional refs_graph expansion
-  -> access recording
+  -> InjectionGateway
   -> ContextFirewall
   -> locator / overview / detail context loading
-  -> reversible context_pack injection
+  -> ContextPack budget / view selection
+  -> approved-hit access recording (once)
+  -> prompt surface
 ```
+
+### Prompt-facing injection authorization boundary
+
+The single safe prompt path is:
+
+`Retriever raw hits -> InjectionGateway -> ContextFirewall -> ContextPack -> prompt surface`
+
+Safe prompt surfaces call retrieval with `record_access=False`, hydrate raw hits,
+submit hydrated candidates to InjectionGateway, and expose only final included
+ContextPack entries. A prompt-facing surface must never call `build_context_pack`
+directly on raw hits.
+
+Explicit raw CLI diagnostics do not grant injection authorization and do not turn raw hits into ContextPack.
+Explicit raw diagnostics keep their normal single raw access record, return no ContextPack, and cannot write an injection cohort.
+If InjectionGateway fails, prompt-facing callers fail closed; there is no raw-hit fallback.
+Raw overfetch runs with access recording disabled; after Gateway authorization, final included hits are recorded exactly once before the prompt surface returns.
+
+Prompt-facing recall-gap records persist only a query fingerprint and aggregate counts; they do not store rejected IDs or id:reason evidence.
+The lower-level explicit record_gap API may still store rejected_ids and diagnostic evidence for deliberate diagnostic callers.
+DataFlow and memory-lineage outputs apply a closed aggregate allowlist to recall-gap evidence, so historical free-text evidence is not re-exposed.
 
 Scoring invariants:
 
@@ -152,8 +177,9 @@ Scoring invariants:
   not a direct multiplier inside `SearchEngine.search()`.
 
 Invariant: **retrieved does not mean injected.** The retrieval pipeline produces
-candidates; `ContextFirewall` still decides include, demote, or exclude before
-any hook or MCP response uses those candidates as context.
+raw candidates; `InjectionGateway` owns prompt authorization, invokes
+`ContextFirewall`, and sends only approved entries to `ContextPack`. Explicit raw
+diagnostics remain diagnostic output, not injection authority.
 
 ## Exact maintenance order — store, evidence, governance, and evolution
 

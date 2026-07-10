@@ -8,6 +8,42 @@ def _read(path: str) -> str:
     return (ROOT / path).read_text(encoding="utf-8")
 
 
+def test_architecture_exposes_the_single_prompt_injection_authorization_chain():
+    architecture = _read("docs/architecture.md")
+    chain = (
+        "Retriever raw hits -> InjectionGateway -> ContextFirewall -> "
+        "ContextPack -> prompt surface"
+    )
+
+    assert architecture.count(chain) == 1
+    assert (
+        "Explicit raw CLI diagnostics do not grant injection authorization and do not turn raw hits into ContextPack."
+        in architecture
+    )
+    assert (
+        "Explicit raw diagnostics keep their normal single raw access record, return no ContextPack, and cannot write an injection cohort."
+        in architecture
+    )
+    assert (
+        "If InjectionGateway fails, prompt-facing callers fail closed; there is no raw-hit fallback."
+        in architecture
+    )
+    assert (
+        "Raw overfetch runs with access recording disabled; after Gateway authorization, final included hits are recorded exactly once before the prompt surface returns."
+        in architecture
+    )
+    assert (
+        "Prompt-facing recall-gap records persist only a query fingerprint and aggregate counts; they do not store rejected IDs or id:reason evidence."
+        in architecture
+    )
+    assert (
+        "The lower-level explicit record_gap API may still store rejected_ids and diagnostic evidence for deliberate diagnostic callers."
+        in architecture
+    )
+    assert "Retriever raw hits -> ContextFirewall -> ContextPack -> prompt surface" not in architecture
+    assert "  -> access recording\n  -> ContextFirewall" not in architecture
+
+
 def test_release_manifest_keeps_public_readme_and_evaluation_assets_present():
     required_paths = [
         "agent_brain/evaluation/professional_report.py",

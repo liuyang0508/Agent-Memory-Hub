@@ -100,6 +100,7 @@ def test_data_flow_ledger_merges_recent_runtime_sources_and_redacts_raw_text(tmp
         "adapter_verification",
         "adapter_runtime",
     ]
+    assert payload[0]["summary"] == "注入 2 条已授权记忆"
     assert {event["stage"] for event in payload} >= {
         "触发采集",
         "适配器验证",
@@ -127,3 +128,48 @@ def test_data_flow_ledger_merges_recent_runtime_sources_and_redacts_raw_text(tmp
     assert summary["by_source"]["adapter_runtime"] == 1
     assert summary["by_stage"]["上下文注入"] == 1
     assert summary["last_event_at"] == payload[0]["timestamp"]
+
+
+def test_data_flow_recall_gap_evidence_uses_closed_aggregate_vocabulary(
+    tmp_brain: Path,
+):
+    from agent_brain.memory.governance.recall_events import record_gap
+    from agent_brain.observability.data_flow import DataFlowLedger
+
+    record_gap(
+        tmp_brain,
+        query="sha256:prompt-fingerprint",
+        reason="partial_candidates_rejected",
+        evidence=[
+            "retrieved_count=2",
+            "included_count=1",
+            "hydrate_error_count=0",
+            "excluded_count=1",
+            "excluded_reason.missing_source=1",
+            "source_evidence_count=3",
+            "mem-secret-id:missing_source",
+            "SECRET_RAW_RECALL_EVIDENCE",
+            "excluded_reason.unknown_private_reason=1",
+            "excluded_reason.missing_source=0",
+            "retrieved_count=SECRET",
+            "retrieved_count=１２",
+            "excluded_reason.missing_source=²",
+            "excluded_count=" + ("9" * 64),
+        ],
+        adapter="codex",
+    )
+
+    gap = next(
+        event
+        for event in DataFlowLedger(tmp_brain).list_events(since_hours=72)
+        if event.source == "recall_gap"
+    )
+
+    assert gap.evidence == (
+        "retrieved_count=2",
+        "included_count=1",
+        "hydrate_error_count=0",
+        "excluded_count=1",
+        "excluded_reason.missing_source=1",
+    )
+    assert "SECRET_RAW_RECALL_EVIDENCE" not in repr(gap.to_dict())

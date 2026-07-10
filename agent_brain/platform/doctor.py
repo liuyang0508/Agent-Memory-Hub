@@ -4,14 +4,15 @@ What it does:
     ``run_doctor(offline=True)`` probes the parts of the system that must keep
     working when everything else is down — the markdown source-of-truth store's
     writability, the presence of the derived sqlite index, the embedder tier
-    (semantic vs. degraded hashing fallback), and the depth of the durable
-    pending queue (plus any parked "dead" records). It returns a graded
+    (semantic vs. degraded hashing fallback), the prompt-injection Gateway API,
+    and the depth of the durable pending queue (plus any parked "dead" records).
+    It returns a graded
     :class:`DoctorReport` whose ``overall`` is one of ``OK`` / ``DEGRADED`` /
     ``BROKEN`` with a matching ``exit_code`` of ``0`` / ``1`` / ``2``.
 
     The single hard requirement is that markdown is writable: if it is not, the
     brain cannot accept writes and the report is ``BROKEN``. Everything below the
-    md line (index, embedder) is best-effort/derived, so its absence or
+    md line (index, embedder, Gateway API) is best-effort/derived, so its absence or
     degradation only downgrades the report to ``DEGRADED`` — never ``BROKEN``.
 
 How to use it::
@@ -88,6 +89,22 @@ def _probe_embedder_tier(offline: bool) -> str:
         return "none"
 
 
+def _probe_injection_gateway_available() -> bool:
+    """Check that the prompt-injection Gateway APIs can be imported.
+
+    This is deliberately an import/callable probe only. It does not execute
+    retrieval, policy evaluation, packing, or any network-capable path.
+    """
+    try:
+        from agent_brain.memory.context.injection_gateway import (
+            build_injection_context,
+            evaluate_injection_candidates,
+        )
+    except Exception:
+        return False
+    return callable(build_injection_context) and callable(evaluate_injection_candidates)
+
+
 def _memory_cli_shim_path() -> Path:
     user_bin = os.environ.get("AGENT_MEMORY_HUB_BIN")
     if user_bin:
@@ -128,7 +145,7 @@ def run_doctor(offline: bool = True) -> DoctorReport:
     """Probe brain health and return a graded report.
 
     Order of checks: md-store writability (the only ``BROKEN`` trigger), derived
-    index presence, embedder tier, and pending-queue depth/dead counts. The grade
+    index presence, embedder tier, Gateway API availability, and pending-queue depth/dead counts. The grade
     is then: ``BROKEN`` if md isn't writable, else ``DEGRADED`` if any write is
     buffered/parked or the embedder isn't fully semantic, else ``OK``.
     """
@@ -169,6 +186,11 @@ def run_doctor(offline: bool = True) -> DoctorReport:
     # embedder tier — network-free in offline mode.
     rep.checks["core.embedder.tier"] = _probe_embedder_tier(offline)
 
+    # Security boundary availability — import/callable only, never retrieval.
+    rep.checks["security.injection_gateway.available"] = (
+        _probe_injection_gateway_available()
+    )
+
     # pending queue: buffered writes awaiting replay + poison records parked dead.
     q = PendingQueue()
     rep.checks["pending.depth"] = q.depth()
@@ -189,6 +211,7 @@ def run_doctor(offline: bool = True) -> DoctorReport:
         or rep.checks["pending.dead"]
         or rep.checks["core.items.skipped"]
         or rep.checks["core.embedder.tier"] != "semantic"
+        or not rep.checks["security.injection_gateway.available"]
         or (rep.checks["cli.shim.present"] and not rep.checks["cli.shim.target_exists"])
     ):
         rep.overall, rep.exit_code = "DEGRADED", 1

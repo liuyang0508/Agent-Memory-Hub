@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from agent_brain.platform.doctor import run_doctor
 
 
@@ -6,6 +8,61 @@ def test_doctor_offline_reports_writable_and_overall_ok(tmp_brain):
     assert rep.checks["core.md_store.writable"] is True
     assert rep.overall in ("OK", "DEGRADED")
     assert rep.exit_code in (0, 1)
+
+
+def test_doctor_reports_injection_gateway_available(tmp_brain):
+    rep = run_doctor(offline=True)
+
+    assert rep.checks["security.injection_gateway.available"] is True
+
+
+def test_doctor_degrades_when_injection_gateway_is_unavailable(
+    tmp_brain,
+    monkeypatch,
+):
+    import agent_brain.platform.doctor as doctor
+
+    monkeypatch.setattr(
+        doctor,
+        "_probe_injection_gateway_available",
+        lambda: False,
+        raising=False,
+    )
+
+    rep = doctor.run_doctor(offline=True)
+
+    assert rep.checks["security.injection_gateway.available"] is False
+    assert rep.overall == "DEGRADED"
+    assert rep.exit_code == 1
+
+
+def test_doctor_keeps_md_store_failure_broken_when_gateway_is_unavailable(
+    tmp_brain,
+    monkeypatch,
+):
+    import agent_brain.platform.doctor as doctor
+
+    original_write_text = Path.write_text
+
+    def fail_doctor_probe(path: Path, *args, **kwargs):
+        if path.name == ".doctor-probe":
+            raise OSError("read-only store")
+        return original_write_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(
+        doctor,
+        "_probe_injection_gateway_available",
+        lambda: False,
+        raising=False,
+    )
+    monkeypatch.setattr(Path, "write_text", fail_doctor_probe)
+
+    rep = doctor.run_doctor(offline=True)
+
+    assert rep.checks["core.md_store.writable"] is False
+    assert rep.checks["security.injection_gateway.available"] is False
+    assert rep.overall == "BROKEN"
+    assert rep.exit_code == 2
 
 
 def test_doctor_reports_pending_depth(tmp_brain):

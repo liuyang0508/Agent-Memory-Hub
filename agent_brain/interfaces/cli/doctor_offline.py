@@ -34,6 +34,12 @@ def doctor_offline(
         rows.append(("vector / semantic search", "model loads on first use; BM25 fallback if it can't", "available"))
     else:
         rows.append(("vector / semantic search", "embedder degraded to hashing", "degraded -> BM25-only"))
+    gateway_available = rep.checks["security.injection_gateway.available"]
+    rows.append((
+        "prompt injection gateway",
+        "Gateway APIs importable; surface contract tests prove mandatory enforcement",
+        "available" if gateway_available else "degraded -> gateway unavailable",
+    ))
     rows.append(("govern / audit / anti-drift", "offline by construction", "available"))
     rows.append(("git snapshots (history)", "local git", "available" if _sh.which("git") else "unavailable (git not found)"))
     rows.append(("citation-rot URL probe", "network, opt-in (--check-urls)", "opt-in (off by default)"))
@@ -133,7 +139,9 @@ def doctor_offline(
                 f"{'item' if restore.found == 1 else 'items'} checked[/bold]"
             )
     console.print(f"\n[bold]overall: {rep.overall}[/bold]")
-    console.print("[dim]Core read/write is always available offline. Only semantic recall degrades.[/dim]")
+    console.print(
+        "[dim]Core read/write stays offline; semantic recall and prompt-injection API availability degrade independently.[/dim]"
+    )
 
 
 __all__ = ["doctor_offline"]

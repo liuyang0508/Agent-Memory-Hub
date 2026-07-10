@@ -62,6 +62,19 @@ def test_cli_search_runs(seeded_brain):
     assert result.exit_code == 0, result.output
 
 
+def test_cli_raw_search_cannot_record_an_injection_cohort(seeded_brain):
+    from agent_brain.memory.context.injection_cohorts import iter_injection_cohorts
+
+    result = runner.invoke(
+        app,
+        ["search", "Python", "--record-injection-cohort"],
+    )
+
+    assert result.exit_code == 2
+    assert "--record-injection-cohort requires --context-firewall" in result.output
+    assert list(iter_injection_cohorts(seeded_brain)) == []
+
+
 def test_cli_sync_pending_dry_run_outputs_json_without_replay(tmp_brain):
     import json
 

@@ -154,7 +154,7 @@ def build_memory_lineage_report(
             "Web 只展示脱敏 query hash、item id、标题/摘要级元数据和 sidecar 路径，不展示原始 prompt、query 或 body。",
             "items/*.md 是长期记忆事实源；index.db、resources、extractions、runtime jsonl 都是可重建或派生证据视图。",
             "Hopfield、MMR、graph expansion 是可选增强；默认链路是否启用取决于 Retriever 配置和质量门禁。",
-            "locator/overview/detail 是 MemoryItem schema 的加载视图；写入时补默认值，召回注入时按成熟度、证据形状、防火墙动作和预算选择。",
+            "Prompt-facing raw candidates 必须经过 InjectionGateway -> ContextFirewall；通过项才由 ContextPack 按预算选择 locator/overview/detail。",
         ),
     )
 
@@ -257,14 +257,14 @@ def _kind_for_data_flow(event: DataFlowEvent) -> str:
         "adapter_runtime": "trigger",
         "adapter_verification": "verification",
         "loop": "governance",
-        "recall_gap": "load",
+        "recall_gap": "gap",
         "task_outcome": "feedback",
         "injection": "load",
     }.get(event.source, event.source)
 
 
 def _mode_for_kind(kind: str) -> str:
-    if kind == "load":
+    if kind in {"load", "gap"}:
         return "recall"
     if kind in {"governance", "feedback", "verification"}:
         return "evolve"
@@ -277,7 +277,9 @@ def _moment_for_data_flow(event: DataFlowEvent) -> str:
     if event.source == "injection":
         return "查询后、上下文注入前"
     if event.source == "recall_gap":
-        return "候选召回后、防火墙/人工反馈发现缺口时"
+        if event.metadata.get("reason") == "query_not_injectable":
+            return "检索前 query gate 判定不可注入时"
+        return "检索与 InjectionGateway 后记录聚合诊断时"
     if event.source == "task_outcome":
         return "任务结束或用户反馈后"
     if event.source == "adapter_verification":
@@ -289,7 +291,7 @@ def _moment_for_data_flow(event: DataFlowEvent) -> str:
 
 def _method_for_data_flow(event: DataFlowEvent) -> str:
     if event.source == "injection":
-        return "Retriever.search -> ContextFirewall -> context_pack"
+        return "Retriever.search -> InjectionGateway -> ContextFirewall -> ContextPack"
     if event.source == "recall_gap":
         return "record_gap"
     if event.source == "task_outcome":
@@ -302,13 +304,28 @@ def _method_for_data_flow(event: DataFlowEvent) -> str:
 
 
 def _reads_for_data_flow(event: DataFlowEvent) -> tuple[str, ...]:
-    if event.source in {"injection", "recall_gap", "task_outcome"}:
+    if event.source == "injection":
         return (
             "index.db items_meta",
             "index.db items_fts",
             "index.db items_vec",
             "items/*.md context_views",
             "runtime/injection-cohorts.jsonl",
+        )
+    if event.source == "recall_gap":
+        if event.metadata.get("reason") == "query_not_injectable":
+            return ("runtime/recall-gaps.jsonl",)
+        return (
+            "index.db items_meta",
+            "index.db items_fts",
+            "index.db items_vec",
+            "items/*.md context_views",
+            "runtime/recall-gaps.jsonl",
+        )
+    if event.source == "task_outcome":
+        return (
+            "items/*.md context_views",
+            "runtime/task-outcomes.jsonl",
         )
     if event.source == "adapter_runtime":
         return ("runtime/adapter-events.jsonl",)
@@ -324,14 +341,16 @@ def _steps_for_data_flow(event: DataFlowEvent) -> tuple[str, ...]:
             "BM25 与向量检索各取候选，RRF 融合初始分。",
             "候选经过 rerank、遗忘曲线衰减、反馈价值、runtime evidence、stale/supersession 过滤。",
             "可选 MMR / Hopfield / refs_graph 扩展相关但第一跳没命中的记忆。",
-            "ContextFirewall 按主题、时间、置信度、证据边界和预算形成 context_pack。",
-            "context_loading 按 maturity/abstraction、类型、refs、validity 和 firewall 决策选择 locator/overview/detail。",
-            "注入时默认给 locator/overview 和 detail_uri；正文按 detail_uri 延迟读取。",
+            "候选统一进入 InjectionGateway；任何 prompt-facing surface 都不得直接打包 raw hit。",
+            "InjectionGateway 先调用 ContextFirewall 做主题、时间、敏感度、审核、废止、证据和 scope 门禁。",
+            "通过项再由 ContextPack 按预算选择 locator/overview/detail，正文按 detail_uri 延迟读取。",
+            "raw overfetch 不计访问；只有 Gateway 最终 included hits 在 prompt surface 输出前统一 record_accesses 一次。",
         )
     if event.source == "recall_gap":
         return (
-            "记录被拒绝/未注入候选 id 和缺口原因。",
-            "不保存原始 query 到 Web read model；只暴露 has_query 或 query_sha256。",
+            "Prompt-facing recall-gap 只记录 query fingerprint 与 aggregate counts，不记录 rejected ID 或 id:reason。",
+            "底层显式 record_gap 仍可保留 rejected_ids/evidence 供诊断调用；这不是 prompt-facing 默认行为。",
+            "DataFlow/lineage 仅放行 closed-set aggregate evidence，历史自由文本 evidence 在输出边界丢弃。",
             "后续可转化为 benchmark case、候选记忆或防火墙调优建议。",
         )
     if event.source == "adapter_runtime":
@@ -562,8 +581,8 @@ def _lifecycle() -> list[dict[str, str]]:
         {"phase": "写入漏斗", "detail": "入口统一为 MemoryItem，过 audit gate、字段增强、质量 warning、边界隔离。"},
         {"phase": "事实落盘", "detail": "items/*.md 是唯一长期事实源；sources/writes 记录写入账本；resources/extractions 记录证据 sidecar。"},
         {"phase": "派生索引", "detail": "index.db 投影 meta/FTS/vector/refs_graph；失败进 dirty log，可重建。"},
-        {"phase": "召回", "detail": "SearchFilter -> BM25/vector -> RRF -> rerank/decay/value/runtime/status -> MMR/Hopfield/graph。"},
-        {"phase": "注入", "detail": "ContextFirewall 按 topic/temporal/confidence/evidence/budget 形成 context_pack；context_loading 选择 locator/overview/detail_uri。"},
+        {"phase": "召回", "detail": "SearchFilter -> BM25/vector -> RRF -> rerank/decay/value/runtime/status -> MMR/Hopfield/graph，产出 raw candidates。"},
+        {"phase": "注入", "detail": "Raw candidates 必须先进入 InjectionGateway；ContextFirewall 完成门禁，通过项再由 ContextPack 按预算选择视图，最终 included hits 只记一次 access。"},
         {"phase": "反馈与自进化", "detail": "task outcome、recall gap、loop/evolve 只生成建议或候选；成熟度升级、合并、归档仍需治理门禁。"},
     ]
 
@@ -574,9 +593,9 @@ def _retrieval_pipeline() -> list[dict[str, str]]:
         {"step": "2. first-hop retrieval", "code": "HubIndex.bm25_search + vector_search", "detail": "全文检索和向量相似度并行；degraded embedder 时自动 BM25-only，避免伪语义污染。"},
         {"step": "3. fusion", "code": "rrf_fusion", "detail": "BM25 rank 和 vector rank 通过 Reciprocal Rank Fusion 合并，得到第一版候选分。"},
         {"step": "4. policy stages", "code": "Retriever._candidate_stages", "detail": "handoff supplement、cross encoder rerank、遗忘曲线衰减、feedback value、status/runtime boost、temporal/supersession filter。"},
-        {"step": "5. maturity and firewall", "code": "ContextFirewall + context_loading", "detail": "成熟度不是预过滤主轴；raw/L0 无证据项会被防火墙降权，raw+直接证据可加载 detail，consolidated/skill 更适合 overview/detail。"},
-        {"step": "6. associative expansion", "code": "MMR / Hopfield / refs_graph", "detail": "可选去冗余、连续 Hopfield attractor 联想、显式图谱扩展，必须受基准门禁约束。"},
-        {"step": "7. context pack", "code": "ContextFirewall + context_views", "detail": "候选转成 locator/overview/detail_uri，按预算注入；正文按 detail_uri 延迟加载。"},
+        {"step": "5. associative expansion", "code": "MMR / Hopfield / refs_graph", "detail": "可选去冗余、连续 Hopfield attractor 联想、显式图谱扩展，必须受基准门禁约束。"},
+        {"step": "6. injection authorization", "code": "InjectionGateway -> ContextFirewall", "detail": "所有 prompt-facing raw candidates 统一过 Gateway；Firewall 校验 topic/temporal/sensitivity/review/supersession/evidence/scope，异常时不回退 raw hits。"},
+        {"step": "7. context and accounting", "code": "ContextPack -> record_accesses -> prompt surface", "detail": "通过项按 maturity、证据形状和预算选择 locator/overview/detail_uri；raw overfetch 不计访问，最终 included hits 统一记一次 access 后才输出。"},
     ]
 
 

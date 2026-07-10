@@ -16,6 +16,7 @@ from typing import Any, Iterable
 from agent_brain.agent_integrations.runtime_events import iter_runtime_events
 from agent_brain.agent_integrations.verifications import iter_adapter_verifications
 from agent_brain.memory.context.injection_cohorts import iter_injection_cohorts
+from agent_brain.memory.context.injection_gateway import INJECTION_EXCLUSION_REASONS
 from agent_brain.memory.governance.recall_events import iter_gap_records, iter_task_outcomes
 from agent_brain.memory.loops.loop_events import iter_loop_events
 
@@ -32,6 +33,13 @@ REDACTED_KEYS = {
     "query",
     "question",
 }
+RECALL_GAP_AGGREGATE_KEYS = frozenset({
+    "excluded_count",
+    "hydrate_error_count",
+    "included_count",
+    "retrieved_count",
+})
+MAX_RECALL_GAP_COUNT_DIGITS = 12
 
 
 @dataclass(frozen=True)
@@ -209,7 +217,7 @@ class DataFlowLedger:
                 adapter=record.adapter,
                 session_id=record.session_id,
                 item_ids=tuple(record.injected_ids + record.rejected_ids),
-                evidence=tuple(record.evidence),
+                evidence=_sanitize_recall_gap_evidence(record.evidence),
                 metadata={
                     "reason": record.reason,
                     "injected_count": len(record.injected_ids),
@@ -255,7 +263,7 @@ class DataFlowLedger:
                 timestamp=cohort.timestamp,
                 source="injection",
                 stage="上下文注入",
-                summary=f"注入 {len(cohort.item_ids)} 条候选记忆",
+                summary=f"注入 {len(cohort.item_ids)} 条已授权记忆",
                 status="injected",
                 adapter=cohort.adapter,
                 session_id=cohort.session_id,
@@ -283,6 +291,39 @@ def _sanitize(value: Any) -> Any:
     if isinstance(value, (list, tuple)):
         return [_sanitize(child) for child in value]
     return value
+
+
+def _sanitize_recall_gap_evidence(
+    evidence: Iterable[object],
+) -> tuple[str, ...]:
+    safe: list[str] = []
+    for raw_value in evidence:
+        if not isinstance(raw_value, str):
+            continue
+        key, separator, raw_count = raw_value.partition("=")
+        if not separator or not _is_bounded_ascii_count(raw_count):
+            continue
+        if key in RECALL_GAP_AGGREGATE_KEYS:
+            safe.append(raw_value)
+            continue
+        prefix = "excluded_reason."
+        reason = key.removeprefix(prefix)
+        if (
+            key.startswith(prefix)
+            and reason in INJECTION_EXCLUSION_REASONS
+            and int(raw_count) > 0
+        ):
+            safe.append(raw_value)
+    return tuple(safe)
+
+
+def _is_bounded_ascii_count(value: str) -> bool:
+    return bool(
+        value
+        and len(value) <= MAX_RECALL_GAP_COUNT_DIGITS
+        and value.isascii()
+        and value.isdecimal()
+    )
 
 
 def _loop_status(event_type: str) -> str:

@@ -120,7 +120,7 @@ def search(
     record_injection_cohort: bool = typer.Option(
         False,
         "--record-injection-cohort",
-        help="Record the final emitted hit IDs as a runtime injection cohort.",
+        help="Record Gateway-approved hit IDs as an injection cohort (requires --context-firewall).",
     ),
     record_recall_gap: bool = typer.Option(
         False,
@@ -132,6 +132,12 @@ def search(
     cwd: str | None = typer.Option(None, "--cwd", help="Working directory for injection cohort records"),
 ) -> None:
     """Search memory items by query (BM25 + vector RRF)."""
+    if record_injection_cohort and not context_firewall:
+        typer.echo(
+            "--record-injection-cohort requires --context-firewall",
+            err=True,
+        )
+        raise typer.Exit(2)
     verbosity = _parse_context_verbosity(
         verbosity or ("auto" if context_firewall else "locator"),
         "--verbosity",
