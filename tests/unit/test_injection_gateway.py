@@ -202,3 +202,98 @@ def test_gateway_excludes_one_pack_error_without_dropping_safe_peer(monkeypatch)
     assert result.metrics()["excluded_reasons"]["pack_error"] == 1
     assert broken.id not in repr(result.metrics())
     assert broken.title not in repr(result.metrics())
+
+
+def test_gateway_refills_max_item_slot_after_pack_error(monkeypatch):
+    import agent_brain.memory.context.injection_gateway as gateway
+
+    broken = item("broken-pack-refill")
+    safe = item("safe-pack-refill")
+    real_pack = gateway.pack_decisions
+
+    def conditional_pack(decisions, **kwargs):
+        if decisions[0].candidate.item.id == broken.id:
+            raise RuntimeError("synthetic pack failure")
+        return real_pack(decisions, **kwargs)
+
+    monkeypatch.setattr(gateway, "pack_decisions", conditional_pack)
+    result = gateway.build_injection_context(
+        [candidate(broken, 2.0), candidate(safe, 1.0)],
+        max_items=1,
+    )
+
+    assert [entry.decision.candidate.item.id for entry in result.included] == [safe.id]
+    assert [decision.candidate.item.id for decision in result.excluded] == [broken.id]
+    assert "pack_error" in result.excluded[0].reasons
+    assert result.used_tokens == result.included[0].pack.packed_tokens
+    assert result.full_tokens == result.included[0].pack.full_tokens
+
+
+def test_gateway_analyzes_query_once_during_pack_refill(monkeypatch):
+    import agent_brain.memory.context.injection_gateway as gateway
+
+    stable = item("stable-query-pack-refill")
+    broken = item("broken-query-pack-refill")
+    replacement = item("replacement-query-pack-refill")
+    real_analyze = gateway.analyze_injection_query
+    real_pack = gateway.pack_decisions
+    analyze_calls = 0
+
+    def counting_analyze(query):
+        nonlocal analyze_calls
+        analyze_calls += 1
+        return real_analyze(query)
+
+    def conditional_pack(decisions, **kwargs):
+        if decisions[0].candidate.item.id == broken.id:
+            raise RuntimeError("synthetic pack failure")
+        return real_pack(decisions, **kwargs)
+
+    monkeypatch.setattr(gateway, "analyze_injection_query", counting_analyze)
+    monkeypatch.setattr(gateway, "pack_decisions", conditional_pack)
+    result = gateway.build_injection_context(
+        [
+            candidate(stable, 3.0),
+            candidate(broken, 2.0),
+            candidate(replacement, 1.0),
+        ],
+        query="injection gateway query pack refill",
+        max_items=2,
+    )
+
+    assert analyze_calls == 1
+    assert [entry.decision.candidate.item.id for entry in result.included] == [
+        stable.id,
+        replacement.id,
+    ]
+    assert result.used_tokens == sum(
+        entry.pack.packed_tokens for entry in result.included
+    )
+    assert result.full_tokens == sum(
+        entry.pack.full_tokens for entry in result.included
+    )
+
+
+def test_gateway_refills_max_item_slot_after_pack_budget_exclusion():
+    from agent_brain.memory.context.injection_gateway import build_injection_context
+
+    oversized = item(
+        "oversized-pack-refill",
+        context_views={"locator": "oversized locator " * 20},
+    )
+    small = item(
+        "small-pack-refill",
+        context_views={"locator": "ok"},
+    )
+    result = build_injection_context(
+        [candidate(oversized, 2.0), candidate(small, 1.0)],
+        requested="locator",
+        max_items=1,
+        budget_tokens=2,
+    )
+
+    assert [entry.decision.candidate.item.id for entry in result.included] == [small.id]
+    assert [decision.candidate.item.id for decision in result.excluded] == [oversized.id]
+    assert "pack_budget_exceeded" in result.excluded[0].reasons
+    assert result.used_tokens == result.included[0].pack.packed_tokens
+    assert result.full_tokens == result.included[0].pack.full_tokens

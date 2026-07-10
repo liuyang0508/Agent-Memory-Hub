@@ -88,35 +88,63 @@ def build_injection_context(
 ) -> InjectionResult:
     if requested not in _CONTEXT_VERBOSITIES:
         raise ValueError(f"unsupported context verbosity: {requested!r}")
-    firewall = evaluate_injection_candidates(
-        candidates,
-        query=query,
-        query_signal=query_signal,
-        max_items=max_items,
-        current_scope=current_scope,
-    )
-    included = []
-    excluded = list(firewall.excluded)
-    used_tokens = 0
-    full_tokens = 0
-    for decision in firewall.included:
-        remaining = None if budget_tokens is None else max(0, budget_tokens - used_tokens)
-        try:
-            packed = pack_decisions([decision], requested=requested, budget_tokens=remaining)
-        except Exception:
-            excluded.append(exclude_with(decision, "pack_error"))
-            continue
-        included.extend(packed.included)
-        excluded.extend(packed.excluded)
-        used_tokens += packed.used_tokens
-        full_tokens += packed.full_tokens
-    return InjectionResult(
-        included=included,
-        excluded=excluded,
-        cohort_reasons=firewall.cohort_reasons,
-        used_tokens=used_tokens,
-        full_tokens=full_tokens,
-    )
+    signal = query_signal
+    if signal is None and query is not None:
+        signal = analyze_injection_query(query.replace("|", " "))
+    active_candidates = list(candidates)
+    packing_excluded: list[FirewallDecision] = []
+    while True:
+        firewall = evaluate_injection_candidates(
+            active_candidates,
+            query=query,
+            query_signal=signal,
+            max_items=max_items,
+            current_scope=current_scope,
+        )
+        included: list[PackedDecision] = []
+        used_tokens = 0
+        full_tokens = 0
+        failed_decision: FirewallDecision | None = None
+        for decision in firewall.included:
+            remaining = (
+                None if budget_tokens is None else max(0, budget_tokens - used_tokens)
+            )
+            try:
+                packed = pack_decisions(
+                    [decision],
+                    requested=requested,
+                    budget_tokens=remaining,
+                )
+            except Exception:
+                failed_decision = exclude_with(decision, "pack_error")
+                break
+            if not packed.included:
+                failed_decision = (
+                    packed.excluded[0]
+                    if packed.excluded
+                    else exclude_with(decision, "pack_error")
+                )
+                break
+            included.extend(packed.included)
+            used_tokens += packed.used_tokens
+            full_tokens += packed.full_tokens
+
+        if failed_decision is None:
+            return InjectionResult(
+                included=included,
+                excluded=[*firewall.excluded, *packing_excluded],
+                cohort_reasons=firewall.cohort_reasons,
+                used_tokens=used_tokens,
+                full_tokens=full_tokens,
+            )
+
+        packing_excluded.append(failed_decision)
+        failed_id = failed_decision.candidate.item.id
+        active_candidates = [
+            candidate
+            for candidate in active_candidates
+            if candidate.item.id != failed_id
+        ]
 
 
 __all__ = [
