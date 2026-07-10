@@ -13,7 +13,7 @@ router = APIRouter()
 
 
 @router.get("/api/memory-lineage")
-async def memory_lineage(
+def memory_lineage(
     hours: int = Query(72, ge=1, le=72),
     limit: int = Query(200, ge=1, le=500),
     agent: str | None = Query(None),

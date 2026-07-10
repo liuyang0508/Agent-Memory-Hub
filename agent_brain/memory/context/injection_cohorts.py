@@ -14,6 +14,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterator
 
+from agent_brain.memory.context.injection_metrics import (
+    sanitize_adapter_name,
+    sanitize_cohort_id,
+    sanitize_injection_source,
+    sanitize_query_sha256,
+)
+from agent_brain.platform.bounded_jsonl import iter_bounded_jsonl
+
 
 INJECTION_COHORTS_RELATIVE_PATH = "runtime/injection-cohorts.jsonl"
 
@@ -90,35 +98,28 @@ def iter_injection_cohorts(
     limit: int | None = None,
 ) -> Iterator[InjectionCohort]:
     path = injection_cohorts_path(brain_dir)
-    if not path.exists():
-        return iter(())
     cohorts: list[InjectionCohort] = []
-    with path.open("r", encoding="utf-8") as fh:
-        for line in fh:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                data = json.loads(line)
-                cohort = InjectionCohort(
-                    cohort_id=str(data["cohort_id"]),
-                    timestamp=str(data["timestamp"]),
-                    item_ids=tuple(str(item_id) for item_id in data["item_ids"]),
-                    adapter=str(data.get("adapter") or "unknown"),
-                    session_id=data.get("session_id"),
-                    cwd=data.get("cwd"),
-                    source=str(data.get("source") or "search"),
-                    query_sha256=data.get("query_sha256"),
-                    query_terms=tuple(str(term) for term in data.get("query_terms") or []),
-                    pack_metrics=data.get("pack_metrics"),
-                )
-            except (KeyError, TypeError, json.JSONDecodeError):
-                continue
-            if adapter and cohort.adapter != adapter:
-                continue
-            if session_id and cohort.session_id != session_id:
-                continue
-            cohorts.append(cohort)
+    for data in iter_bounded_jsonl(path):
+        try:
+            cohort = InjectionCohort(
+                cohort_id=sanitize_cohort_id(data["cohort_id"]),
+                timestamp=str(data["timestamp"]),
+                item_ids=tuple(str(item_id) for item_id in data["item_ids"]),
+                adapter=sanitize_adapter_name(data.get("adapter")),
+                session_id=data.get("session_id"),
+                cwd=data.get("cwd"),
+                source=sanitize_injection_source(data.get("source")),
+                query_sha256=sanitize_query_sha256(data.get("query_sha256")),
+                query_terms=tuple(str(term) for term in data.get("query_terms") or []),
+                pack_metrics=data.get("pack_metrics"),
+            )
+        except (KeyError, TypeError, ValueError, OverflowError):
+            continue
+        if adapter and cohort.adapter != adapter:
+            continue
+        if session_id and cohort.session_id != session_id:
+            continue
+        cohorts.append(cohort)
     if limit is not None:
         cohorts = cohorts[-limit:]
     return iter(cohorts)

@@ -15,15 +15,18 @@ from typing import Any, Iterable
 
 from agent_brain.agent_integrations.runtime_events import iter_runtime_events
 from agent_brain.agent_integrations.verifications import iter_adapter_verifications
+from agent_brain.contracts.memory_item import is_valid_memory_item_id
 from agent_brain.memory.context.injection_cohorts import iter_injection_cohorts
 from agent_brain.memory.context.injection_gateway import INJECTION_EXCLUSION_REASONS
-from agent_brain.memory.governance.recall_events import iter_gap_records, iter_task_outcomes
-from agent_brain.memory.loops.loop_events import iter_loop_events
-from agent_brain.memory.store.items_store import ItemsStore
-from agent_brain.product.chain_log import (
+from agent_brain.memory.context.injection_metrics import (
+    sanitize_adapter_name,
+    sanitize_injection_source,
     sanitize_pack_metric_aggregate_bundle,
     sanitize_pack_metrics,
+    sanitize_query_sha256,
 )
+from agent_brain.memory.governance.recall_events import iter_gap_records, iter_task_outcomes
+from agent_brain.memory.loops.loop_events import iter_loop_events
 
 
 MAX_WINDOW_HOURS = 72
@@ -121,7 +124,7 @@ class DataFlowLedger:
         start = end - timedelta(hours=window_hours)
         events = [
             event
-            for event in self._all_events()
+            for event in self._all_events(source=source)
             if _within_window(event.timestamp, start, end)
             and (source is None or event.source == source)
         ]
@@ -154,57 +157,71 @@ class DataFlowLedger:
             last_event_at=rows[0].timestamp if rows else None,
         )
 
-    def _all_events(self) -> list[DataFlowEvent]:
-        # Keep one ItemsStore scan per read while reflecting changes when a
-        # long-lived ledger instance is queried again.
+    def _all_events(self, *, source: str | None = None) -> list[DataFlowEvent]:
+        # Keep one lightweight filename scan per read while reflecting archive
+        # moves when a long-lived ledger instance is queried again.
         self._known_item_ids_cache = None
+        builders = {
+            "adapter_runtime": self._adapter_runtime_events,
+            "adapter_verification": self._adapter_verification_events,
+            "loop": self._loop_events,
+            "recall_gap": self._recall_gap_events,
+            "task_outcome": self._task_outcome_events,
+            "injection": self._injection_events,
+        }
+        if source is not None:
+            builder = builders.get(source)
+            return builder() if builder is not None else []
         events: list[DataFlowEvent] = []
-        events.extend(self._adapter_runtime_events())
-        events.extend(self._adapter_verification_events())
-        events.extend(self._loop_events())
-        events.extend(self._recall_gap_events())
-        events.extend(self._task_outcome_events())
-        events.extend(self._injection_events())
+        for builder in builders.values():
+            events.extend(builder())
         return events
 
     def _adapter_runtime_events(self) -> list[DataFlowEvent]:
-        return [
-            DataFlowEvent(
-                event_id=_event_id("adapter-runtime", event.timestamp, event.adapter, event.event_name),
+        events: list[DataFlowEvent] = []
+        for event in iter_runtime_events(self.brain_dir):
+            adapter = sanitize_adapter_name(event.adapter)
+            events.append(DataFlowEvent(
+                event_id=_event_id(
+                    "adapter-runtime",
+                    event.timestamp,
+                    adapter,
+                    event.event_name,
+                ),
                 timestamp=event.timestamp,
                 source="adapter_runtime",
                 stage="触发采集",
-                summary=f"{event.adapter} 触发 {event.event_name}",
+                summary=f"{adapter} 触发 {event.event_name}",
                 status="observed",
-                adapter=event.adapter,
+                adapter=adapter,
                 session_id=event.session_id,
                 metadata={
                     "event_name": event.event_name,
                     "source": event.source,
                     "cwd": event.cwd,
                 },
-            )
-            for event in iter_runtime_events(self.brain_dir)
-        ]
+            ))
+        return events
 
     def _adapter_verification_events(self) -> list[DataFlowEvent]:
-        return [
-            DataFlowEvent(
-                event_id=_event_id("adapter-verification", record.timestamp, record.adapter),
+        events: list[DataFlowEvent] = []
+        for record in iter_adapter_verifications(self.brain_dir):
+            adapter = sanitize_adapter_name(record.adapter)
+            events.append(DataFlowEvent(
+                event_id=_event_id("adapter-verification", record.timestamp, adapter),
                 timestamp=record.timestamp,
                 source="adapter_verification",
                 stage="适配器验证",
-                summary=f"{record.adapter} 验证 {record.status}",
+                summary=f"{adapter} 验证 {record.status}",
                 status="verified" if record.status == "passed" else "failed",
-                adapter=record.adapter,
+                adapter=adapter,
                 evidence=tuple(record.evidence),
                 metadata={
                     "verifier": record.verifier,
                     "note": record.note,
                 },
-            )
-            for record in iter_adapter_verifications(self.brain_dir)
-        ]
+            ))
+        return events
 
     def _loop_events(self) -> list[DataFlowEvent]:
         return [
@@ -229,6 +246,7 @@ class DataFlowLedger:
         events: list[DataFlowEvent] = []
         for record in iter_gap_records(self.brain_dir):
             reason = _sanitize_recall_gap_reason(record.reason)
+            adapter = sanitize_adapter_name(record.adapter)
             injected_ids = self._safe_item_ids(record.injected_ids)
             rejected_ids = self._safe_item_ids(record.rejected_ids)
             events.append(DataFlowEvent(
@@ -238,7 +256,7 @@ class DataFlowLedger:
                 stage="召回诊断",
                 summary=f"召回缺口：{reason}",
                 status="gap",
-                adapter=record.adapter,
+                adapter=adapter,
                 session_id=record.session_id,
                 item_ids=_dedupe((*injected_ids, *rejected_ids)),
                 evidence=_sanitize_recall_gap_evidence(record.evidence),
@@ -255,6 +273,7 @@ class DataFlowLedger:
     def _task_outcome_events(self) -> list[DataFlowEvent]:
         events: list[DataFlowEvent] = []
         for record in iter_task_outcomes(self.brain_dir):
+            adapter = sanitize_adapter_name(record.adapter)
             injected_ids = self._safe_item_ids(record.injected_ids)
             adopted_ids = self._safe_item_ids(record.adopted_ids)
             rejected_ids = self._safe_item_ids(record.rejected_ids)
@@ -265,7 +284,7 @@ class DataFlowLedger:
                 stage="结果反馈",
                 summary=f"任务结果：{record.outcome}",
                 status=record.outcome,
-                adapter=record.adapter,
+                adapter=adapter,
                 session_id=record.session_id,
                 item_ids=_dedupe((*injected_ids, *adopted_ids, *rejected_ids)),
                 metadata={
@@ -286,6 +305,7 @@ class DataFlowLedger:
         events: list[DataFlowEvent] = []
         for cohort in iter_injection_cohorts(self.brain_dir):
             item_ids = self._safe_item_ids(cohort.item_ids)
+            adapter = sanitize_adapter_name(cohort.adapter)
             events.append(DataFlowEvent(
                 event_id=cohort.cohort_id,
                 timestamp=cohort.timestamp,
@@ -293,15 +313,16 @@ class DataFlowLedger:
                 stage="上下文注入",
                 summary=f"记录 {len(item_ids)} 条 injection cohort 记忆",
                 status="injected",
-                adapter=cohort.adapter,
+                adapter=adapter,
                 session_id=cohort.session_id,
                 item_ids=item_ids,
                 metadata={
-                    "source": cohort.source,
-                    "query_sha256": cohort.query_sha256,
+                    "source": sanitize_injection_source(cohort.source),
+                    "query_sha256": sanitize_query_sha256(cohort.query_sha256),
                     "pack_metrics": sanitize_pack_metrics(
                         cohort.pack_metrics,
-                        cohort_item_ids=item_ids,
+                        cohort_item_ids=cohort.item_ids,
+                        allowed_item_ids=item_ids,
                     ),
                     "cwd": cohort.cwd,
                 },
@@ -314,12 +335,14 @@ class DataFlowLedger:
 
     def _known_item_ids(self) -> frozenset[str]:
         if self._known_item_ids_cache is None:
-            if not (self.brain_dir / "items").exists():
+            items_dir = self.brain_dir / "items"
+            if not items_dir.exists():
                 self._known_item_ids_cache = frozenset()
             else:
                 self._known_item_ids_cache = frozenset(
-                    item.id
-                    for item, _body in ItemsStore(self.brain_dir / "items").iter_all()
+                    path.stem
+                    for path in items_dir.rglob("*.md")
+                    if path.is_file() and is_valid_memory_item_id(path.stem)
                 )
         return self._known_item_ids_cache
 

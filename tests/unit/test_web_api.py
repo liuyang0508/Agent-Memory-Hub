@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import json
+import inspect
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -150,6 +151,14 @@ def test_adapter_read_routes_offload_sync_builders():
     assert "run_in_threadpool" in text
     assert "await run_in_threadpool(_adapter_capabilities_payload)" in text
     assert "await run_in_threadpool(build_onboarding_summary" in text
+
+
+def test_data_flow_and_lineage_routes_use_fastapi_sync_threadpool_contract():
+    from web.api.routes.data_flow import data_flow
+    from web.api.routes.memory_lineage import memory_lineage
+
+    assert inspect.iscoroutinefunction(data_flow) is False
+    assert inspect.iscoroutinefunction(memory_lineage) is False
 
 
 @pytest.fixture()

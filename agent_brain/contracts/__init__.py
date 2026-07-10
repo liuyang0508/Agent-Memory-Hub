@@ -5,6 +5,7 @@ from agent_brain.contracts.memory_item import (
     MemoryType,
     Sensitivity,
     Validity,
+    is_valid_memory_item_id,
 )
 from agent_brain.contracts.resource import (
     ExtractionKind,
@@ -40,6 +41,7 @@ __all__ = [
     "ResourceRecord",
     "Sensitivity",
     "Validity",
+    "is_valid_memory_item_id",
     "make_extraction_id",
     "make_conversation_id",
     "make_message_id",

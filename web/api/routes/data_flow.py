@@ -13,7 +13,7 @@ router = APIRouter()
 
 
 @router.get("/api/data-flow")
-async def data_flow(
+def data_flow(
     hours: int = Query(72, ge=1, le=72),
     limit: int = Query(200, ge=1, le=500),
     source: str | None = Query(None),

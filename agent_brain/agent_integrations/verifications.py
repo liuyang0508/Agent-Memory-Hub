@@ -13,6 +13,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterator, Literal
 
+from agent_brain.platform.bounded_jsonl import iter_bounded_jsonl
+
 
 ADAPTER_VERIFICATIONS_RELATIVE_PATH = "runtime/adapter-verifications.jsonl"
 VerificationStatus = Literal["passed", "failed"]
@@ -75,29 +77,22 @@ def iter_adapter_verifications(
     limit: int | None = None,
 ) -> Iterator[AdapterVerificationRecord]:
     path = adapter_verifications_path(brain_dir)
-    if not path.exists():
-        return iter(())
     records: list[AdapterVerificationRecord] = []
-    with path.open("r", encoding="utf-8") as fh:
-        for line in fh:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                data = json.loads(line)
-                record = AdapterVerificationRecord(
-                    adapter=str(data["adapter"]),
-                    status=str(data["status"]),
-                    timestamp=str(data["timestamp"]),
-                    verifier=str(data.get("verifier") or "unknown"),
-                    evidence=[str(entry) for entry in data.get("evidence") or []],
-                    note=data.get("note"),
-                )
-            except (KeyError, TypeError, json.JSONDecodeError):
-                continue
-            if adapter and record.adapter != adapter:
-                continue
-            records.append(record)
+    for data in iter_bounded_jsonl(path):
+        try:
+            record = AdapterVerificationRecord(
+                adapter=str(data["adapter"]),
+                status=str(data["status"]),
+                timestamp=str(data["timestamp"]),
+                verifier=str(data.get("verifier") or "unknown"),
+                evidence=[str(entry) for entry in data.get("evidence") or []],
+                note=data.get("note"),
+            )
+        except (KeyError, TypeError, ValueError, OverflowError):
+            continue
+        if adapter and record.adapter != adapter:
+            continue
+        records.append(record)
     if limit is not None:
         records = records[-limit:]
     return iter(records)

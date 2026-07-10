@@ -5,6 +5,7 @@ from collections.abc import Iterator
 from pathlib import Path
 
 from agent_brain.memory.loops.loop_types import LoopEvent
+from agent_brain.platform.bounded_jsonl import iter_bounded_jsonl
 
 
 LOOP_EVENTS_RELATIVE_PATH = "runtime/loop-events.jsonl"
@@ -23,17 +24,11 @@ def append_loop_event(brain_dir: Path, event: LoopEvent) -> None:
 
 def iter_loop_events(brain_dir: Path, *, loop_id: str | None = None) -> Iterator[LoopEvent]:
     path = loop_events_path(brain_dir)
-    if not path.exists():
-        return
-    with path.open("r", encoding="utf-8") as fh:
-        for line in fh:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                event = LoopEvent.from_dict(json.loads(line))
-            except (KeyError, TypeError, json.JSONDecodeError):
-                continue
-            if loop_id and event.loop_id != loop_id:
-                continue
-            yield event
+    for data in iter_bounded_jsonl(path):
+        try:
+            event = LoopEvent.from_dict(data)
+        except (KeyError, TypeError, ValueError, OverflowError):
+            continue
+        if loop_id and event.loop_id != loop_id:
+            continue
+        yield event

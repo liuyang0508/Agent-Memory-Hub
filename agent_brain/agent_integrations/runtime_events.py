@@ -13,6 +13,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterator
 
+from agent_brain.platform.bounded_jsonl import iter_bounded_jsonl
+
 
 RUNTIME_EVENTS_RELATIVE_PATH = "runtime/adapter-events.jsonl"
 
@@ -74,29 +76,22 @@ def iter_runtime_events(
     limit: int | None = None,
 ) -> Iterator[AdapterRuntimeEvent]:
     path = runtime_events_path(brain_dir)
-    if not path.exists():
-        return iter(())
     events: list[AdapterRuntimeEvent] = []
-    with path.open("r", encoding="utf-8") as fh:
-        for line in fh:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                data = json.loads(line)
-                event = AdapterRuntimeEvent(
-                    adapter=str(data["adapter"]),
-                    event_name=str(data["event_name"]),
-                    timestamp=str(data["timestamp"]),
-                    session_id=data.get("session_id"),
-                    cwd=data.get("cwd"),
-                    source=str(data.get("source") or "hook"),
-                )
-            except (KeyError, TypeError, json.JSONDecodeError):
-                continue
-            if adapter and event.adapter != adapter:
-                continue
-            events.append(event)
+    for data in iter_bounded_jsonl(path):
+        try:
+            event = AdapterRuntimeEvent(
+                adapter=str(data["adapter"]),
+                event_name=str(data["event_name"]),
+                timestamp=str(data["timestamp"]),
+                session_id=data.get("session_id"),
+                cwd=data.get("cwd"),
+                source=str(data.get("source") or "hook"),
+            )
+        except (KeyError, TypeError, ValueError, OverflowError):
+            continue
+        if adapter and event.adapter != adapter:
+            continue
+        events.append(event)
     if limit is not None:
         events = events[-limit:]
     return iter(events)

@@ -31,3 +31,12 @@ def test_label_is_embedded():
 
     mid = make_item_id("two notes", label="merged", when=datetime(2026, 5, 29, 12, 0, 0, tzinfo=timezone.utc))
     assert "-merged-" in mid
+
+
+def test_public_memory_item_id_validator_requires_a_full_canonical_match():
+    from agent_brain.contracts.memory_item import is_valid_memory_item_id
+
+    assert is_valid_memory_item_id("mem-20260711-010203-canonical") is True
+    assert is_valid_memory_item_id("mem-20260711-010203-trailing-newline\n") is False
+    assert is_valid_memory_item_id("not-a-memory-id") is False
+    assert is_valid_memory_item_id(123) is False

@@ -105,6 +105,12 @@ _LEGACY_TIER_TO_MATURITY = {
 }
 
 
+def is_valid_memory_item_id(value: object) -> bool:
+    """Return whether ``value`` fully matches the canonical MemoryItem ID."""
+
+    return isinstance(value, str) and _ID_PATTERN.fullmatch(value) is not None
+
+
 class MemoryItem(BaseModel):
     """Memory item frontmatter schema — forward-only, no version numbering."""
 
@@ -145,7 +151,7 @@ class MemoryItem(BaseModel):
     @field_validator("id")
     @classmethod
     def _validate_id(cls, value: str) -> str:
-        if not _ID_PATTERN.match(value):
+        if not is_valid_memory_item_id(value):
             raise ValueError(f"id must match {_ID_PATTERN.pattern}, got {value!r}")
         return value
 

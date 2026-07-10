@@ -10,6 +10,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterator
 
+from agent_brain.platform.bounded_jsonl import iter_bounded_jsonl
+
 
 RECALL_GAPS_RELATIVE_PATH = "runtime/recall-gaps.jsonl"
 TASK_OUTCOMES_RELATIVE_PATH = "runtime/task-outcomes.jsonl"
@@ -268,23 +270,7 @@ def _append_jsonl(path: Path, data: dict[str, object]) -> None:
 
 
 def _iter_jsonl(path: Path) -> Iterator[dict[str, object]]:
-    if not path.exists():
-        return iter(())
-
-    def _read() -> Iterator[dict[str, object]]:
-        with path.open("r", encoding="utf-8") as fh:
-            for line in fh:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    data = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                if isinstance(data, dict):
-                    yield data
-
-    return _read()
+    return iter_bounded_jsonl(path)
 
 
 def _timestamp(now: datetime | None) -> str:

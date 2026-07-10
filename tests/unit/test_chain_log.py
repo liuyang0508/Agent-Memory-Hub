@@ -966,14 +966,14 @@ def test_chain_log_accepts_id_free_ordered_retrieval_trace_metrics(tmp_path: Pat
     assert _algorithm_status(detail, "feedback_value") == "applied"
 
 
-def test_chain_log_accepts_finite_integer_scores_without_float_overflow(
+def test_chain_log_drops_integer_scores_beyond_javascript_safe_range(
     tmp_path: Path,
 ) -> None:
     from agent_brain.memory.context.injection_cohorts import record_injection_cohort
     from agent_brain.product.chain_log import build_chain_log_detail, build_chain_log_report
 
     item_id = _write_item(tmp_path)
-    finite_integer_score = 10**400
+    oversized_score = 10**400
     record_injection_cohort(
         tmp_path,
         item_ids=[item_id],
@@ -982,9 +982,9 @@ def test_chain_log_accepts_finite_integer_scores_without_float_overflow(
         cwd="/repo",
         pack_metrics={
             "retrieval_trace": [{
-                "initial_score": finite_integer_score,
+                "initial_score": oversized_score,
                 "final_rank": 1,
-                "final_score": finite_integer_score,
+                "final_score": oversized_score,
             }]
         },
     )
@@ -992,8 +992,79 @@ def test_chain_log_accepts_finite_integer_scores_without_float_overflow(
     report = build_chain_log_report(tmp_path, hours=72).to_dict()
     detail = build_chain_log_detail(tmp_path, report["chains"][0]["chain_id"]).to_dict()
 
-    assert detail["candidates"][0]["score_trace"]["initial_score"] == finite_integer_score
-    assert detail["candidates"][0]["score_trace"]["final_score"] == finite_integer_score
+    assert detail["candidates"][0]["score_trace"] == {"final_rank": 1}
+    assert str(oversized_score) not in json.dumps(detail)
+
+
+def test_chain_log_metrics_are_json_safe_and_bounded_for_web_consumers(
+    tmp_path: Path,
+) -> None:
+    from agent_brain.memory.context.injection_cohorts import record_injection_cohort
+    from agent_brain.product.chain_log import build_chain_log_detail, build_chain_log_report
+
+    item_id = _write_item(tmp_path)
+    oversized = 2**53
+    record_injection_cohort(
+        tmp_path,
+        item_ids=[item_id],
+        adapter="codex",
+        session_id="sess-js-safe-metrics",
+        cwd="/repo",
+        pack_metrics={
+            "candidate_count": oversized + 1,
+            "included_count": 1,
+            "excluded_count": oversized,
+            "excluded_reasons": {"missing_source": oversized},
+            "packed_tokens": oversized,
+            "retrieval_trace": [
+                {
+                    "initial_bm25_rank": oversized,
+                    "initial_score": oversized,
+                    "final_rank": 1,
+                    "final_score": 0.5,
+                    "stages": [
+                        {
+                            "name": "feedback_value",
+                            "effect": "rescored",
+                            "before_rank": oversized,
+                            "before_score": float(oversized),
+                            "after_rank": 1,
+                            "after_score": 0.5,
+                        }
+                    ],
+                }
+            ],
+        },
+    )
+
+    report = build_chain_log_report(tmp_path, hours=72).to_dict()
+    detail = build_chain_log_detail(tmp_path, report["chains"][0]["chain_id"]).to_dict()
+    serialized = json.dumps(detail, allow_nan=False)
+    roundtripped = json.loads(serialized)
+    packing = next(
+        stage for stage in detail["stages"] if stage["stage_id"] == "packing"
+    )
+    metrics = packing["preview"]["pack_metrics"][0]
+
+    assert str(oversized) not in serialized
+    assert roundtripped == detail
+    assert metrics == {
+        "retrieval_trace": [
+            {
+                "final_rank": 1,
+                "final_score": 0.5,
+                "stages": [
+                    {
+                        "name": "feedback_value",
+                        "effect": "rescored",
+                        "after_rank": 1,
+                        "after_score": 0.5,
+                    }
+                ],
+            }
+        ]
+    }
+    assert detail["candidates"][0]["score_trace"] == metrics["retrieval_trace"][0]
 
 
 def test_chain_log_does_not_bind_mismatched_id_free_trace_rows(tmp_path: Path) -> None:

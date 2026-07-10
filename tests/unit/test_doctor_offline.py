@@ -1,5 +1,9 @@
 import builtins
-import socket
+import json
+import os
+import subprocess
+import sys
+import textwrap
 from pathlib import Path
 
 from agent_brain.platform.doctor import run_doctor
@@ -45,15 +49,58 @@ def test_doctor_gateway_probe_rejects_noncallable_api(tmp_brain, monkeypatch):
     assert doctor._probe_injection_gateway_available() is False
 
 
-def test_doctor_offline_probe_never_opens_a_socket(tmp_brain, monkeypatch):
-    def fail_socket(*args, **kwargs):
-        raise AssertionError("offline doctor attempted network access")
+def test_doctor_offline_cold_import_never_uses_network_and_loads_gateway(tmp_brain):
+    root = Path(__file__).resolve().parents[2]
+    script = textwrap.dedent(
+        """
+        import json
+        import socket
 
-    monkeypatch.setattr(socket, "socket", fail_socket)
+        calls = []
 
-    rep = run_doctor(offline=True)
+        class BlockedSocket(socket.socket):
+            def __new__(cls, *args, **kwargs):
+                calls.append("socket")
+                raise AssertionError("offline doctor called socket.socket")
 
-    assert rep.checks["core.md_store.writable"] is True
+        def blocked(name):
+            def fail(*args, **kwargs):
+                calls.append(name)
+                raise AssertionError(f"offline doctor called socket.{name}")
+            return fail
+
+        socket.socket = BlockedSocket
+        socket.create_connection = blocked("create_connection")
+        socket.getaddrinfo = blocked("getaddrinfo")
+
+        from agent_brain.platform.doctor import run_doctor
+
+        report = run_doctor(offline=True)
+        print(json.dumps({
+            "calls": calls,
+            "gateway": report.checks["security.injection_gateway.available"],
+        }))
+        """
+    )
+    env = {
+        **os.environ,
+        "BRAIN_DIR": str(tmp_brain),
+        "MEMORY_HUB_TEST_EMBEDDING": "1",
+        "PYTHONPATH": str(root),
+    }
+
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=root,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    payload = json.loads(completed.stdout)
+    assert payload == {"calls": [], "gateway": True}
 
 
 def test_doctor_degrades_when_injection_gateway_is_unavailable(
