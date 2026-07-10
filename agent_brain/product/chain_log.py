@@ -7,6 +7,7 @@ chains and never returns raw prompt/query/question/body content.
 from __future__ import annotations
 
 import hashlib
+import math
 from collections import Counter
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -71,23 +72,6 @@ REDACTED_KEYS = {
 }
 
 CHAIN_ANCHOR_WINDOW = timedelta(minutes=5)
-RETRIEVAL_TRACE_ALLOWED_KEYS = {
-    "initial_bm25_rank",
-    "initial_vector_rank",
-    "initial_score",
-    "final_rank",
-    "final_score",
-    "signals",
-    "stages",
-}
-RETRIEVAL_TRACE_STAGE_ALLOWED_KEYS = {
-    "name",
-    "before_rank",
-    "after_rank",
-    "before_score",
-    "after_score",
-    "effect",
-}
 PACK_METRICS_ALLOWED_KEYS = {
     "candidate_count",
     "compressed_count",
@@ -96,22 +80,71 @@ PACK_METRICS_ALLOWED_KEYS = {
     "excluded_count",
     "excluded_reasons",
     "full_tokens",
+    "gateway_candidate_count",
+    "hydrate_error_count",
     "included_count",
     "items",
     "packed_tokens",
     "query_terms_count",
+    "raw_candidate_count",
     "retrieval_trace",
     "selected_views",
-    "trimmed_ids",
+    "trimmed_count",
 }
-PACK_METRIC_ITEM_ALLOWED_KEYS = {
-    "compressed",
+PACK_METRIC_NONNEGATIVE_INT_KEYS = {
+    "candidate_count",
+    "compressed_count",
+    "context_pack_chars",
+    "detail_refs",
+    "excluded_count",
     "full_tokens",
-    "id",
+    "gateway_candidate_count",
+    "hydrate_error_count",
+    "included_count",
     "packed_tokens",
-    "selected_view",
+    "query_terms_count",
+    "raw_candidate_count",
+    "trimmed_count",
 }
-RETRIEVAL_TRACE_SIGNAL_ALLOWED_CHARS = frozenset("abcdefghijklmnopqrstuvwxyz0123456789_.:-/")
+CONTEXT_PACK_VIEWS = frozenset({"locator", "overview", "detail"})
+RETRIEVAL_TRACE_RANK_KEYS = frozenset({
+    "initial_bm25_rank",
+    "initial_vector_rank",
+    "final_rank",
+})
+RETRIEVAL_TRACE_SCORE_KEYS = frozenset({"initial_score", "final_score"})
+RETRIEVAL_TRACE_STAGE_RANK_KEYS = frozenset({"before_rank", "after_rank"})
+RETRIEVAL_TRACE_STAGE_SCORE_KEYS = frozenset({"before_score", "after_score"})
+RETRIEVAL_TRACE_STAGE_NAMES = frozenset({
+    "cross_encoder_rerank",
+    "decay",
+    "decay_coefficient",
+    "feedback_value",
+    "graph",
+    "graph_expand",
+    "graph_expansion",
+    "hopfield",
+    "hopfield_expand",
+    "metadata_phrase",
+    "mmr",
+    "retention",
+    "runtime_evidence",
+    "status_handoff_boost",
+    "status_handoff_supplement",
+    "supersession_filter",
+    "temporal_state_filter",
+})
+RETRIEVAL_TRACE_STAGE_EFFECTS = frozenset({
+    "added",
+    "applied",
+    "boosted",
+    "changed",
+    "demoted",
+    "kept",
+    "reranked",
+    "reordered",
+    "rescored",
+})
 MMR_APPLIED_EFFECTS = {
     "added",
     "applied",
@@ -497,7 +530,15 @@ def _chain_stages(bucket: _ChainBucket, final_outcome: str) -> list[ChainStage]:
         "query_gate": {"gap_reason": gap_reason, "has_gap": bool(bucket.gaps)},
         "retrieval": {"injected_count": injection_count, "rejected_count": rejected_count},
         "context_firewall": {"rejected_count": rejected_count},
-        "packing": {"pack_metrics": [_sanitize_pack_metrics(cohort.pack_metrics or {}) for cohort in bucket.injections]},
+        "packing": {
+            "pack_metrics": [
+                _sanitize_pack_metrics(
+                    cohort.pack_metrics or {},
+                    cohort_item_ids=cohort.item_ids,
+                )
+                for cohort in bucket.injections
+            ]
+        },
         "injection": {"cohort_count": len(bucket.injections), "item_count": injection_count},
         "feedback": {"outcomes": len(bucket.outcomes), "gaps": len(bucket.gaps)},
     }
@@ -522,7 +563,12 @@ def _retrieval_trace_by_item(bucket: _ChainBucket) -> dict[str, dict[str, Any]]:
             continue
         retrieval_trace = cohort.pack_metrics.get("retrieval_trace")
         if isinstance(retrieval_trace, dict):
-            trace_rows = retrieval_trace.items()
+            cohort_ids = set(cohort.item_ids)
+            trace_rows = (
+                (item_id, trace)
+                for item_id, trace in retrieval_trace.items()
+                if isinstance(item_id, str) and item_id in cohort_ids
+            )
         elif isinstance(retrieval_trace, list):
             if len(retrieval_trace) != len(cohort.item_ids):
                 # Ordered traces carry no item IDs. A cardinality mismatch
@@ -540,67 +586,90 @@ def _retrieval_trace_by_item(bucket: _ChainBucket) -> dict[str, dict[str, Any]]:
     return trace_by_item
 
 
-def _sanitize_pack_metrics(pack_metrics: dict[str, Any]) -> dict[str, Any]:
+def _sanitize_pack_metrics(
+    pack_metrics: dict[str, Any],
+    *,
+    cohort_item_ids: tuple[str, ...],
+) -> dict[str, Any]:
+    cohort_ids = set(cohort_item_ids)
     sanitized: dict[str, Any] = {}
     for key in sorted(PACK_METRICS_ALLOWED_KEYS - {"retrieval_trace"}):
         if key not in pack_metrics:
             continue
-        value = _sanitize_pack_metric_value(key, pack_metrics[key])
+        value = _sanitize_pack_metric_value(
+            key,
+            pack_metrics[key],
+            cohort_item_ids=cohort_ids,
+        )
         if value not in (None, [], {}):
             sanitized[key] = value
+    if "trimmed_count" not in sanitized:
+        legacy_trimmed_count = _legacy_trimmed_count(pack_metrics.get("trimmed_ids"))
+        if legacy_trimmed_count:
+            sanitized["trimmed_count"] = legacy_trimmed_count
     retrieval_trace = pack_metrics.get("retrieval_trace")
     if isinstance(retrieval_trace, dict):
         trace_by_item = {
             str(item_id): trace
             for item_id, raw_trace in retrieval_trace.items()
-            if isinstance(raw_trace, dict)
+            if isinstance(item_id, str)
+            and item_id in cohort_ids
+            and isinstance(raw_trace, dict)
             for trace in [_sanitize_retrieval_trace(raw_trace)]
             if trace
         }
         if trace_by_item:
             sanitized["retrieval_trace"] = trace_by_item
-    elif isinstance(retrieval_trace, list):
+    elif (
+        isinstance(retrieval_trace, list)
+        and len(retrieval_trace) == len(cohort_item_ids)
+    ):
         trace_rows = [
-            trace
+            _sanitize_retrieval_trace(raw_trace)
             for raw_trace in retrieval_trace
             if isinstance(raw_trace, dict)
-            for trace in [_sanitize_retrieval_trace(raw_trace)]
-            if trace
         ]
-        if trace_rows:
+        if len(trace_rows) == len(cohort_item_ids) and any(trace_rows):
             sanitized["retrieval_trace"] = trace_rows
     return _sanitize(sanitized)
 
 
-def _sanitize_pack_metric_value(key: str, value: Any) -> Any:
+def _sanitize_pack_metric_value(
+    key: str,
+    value: Any,
+    *,
+    cohort_item_ids: set[str],
+) -> Any:
     if key == "items":
-        return _sanitize_pack_metric_items(value)
-    if key == "trimmed_ids":
-        return [str(item_id) for item_id in value if isinstance(item_id, str)] if isinstance(value, list) else []
+        return _sanitize_pack_metric_items(
+            value,
+            cohort_item_ids=cohort_item_ids,
+        )
     if key == "selected_views":
         return _sanitize_count_map(
             value,
-            allowed_keys={"locator", "overview", "detail"},
+            allowed_keys=set(CONTEXT_PACK_VIEWS),
         )
     if key == "excluded_reasons":
         return _sanitize_count_map(
             value,
             allowed_keys=set(INJECTION_EXCLUSION_REASONS),
         )
-    if key in {
-        "candidate_count",
-        "compressed_count",
-        "excluded_count",
-        "included_count",
-    }:
-        return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else None
-    return value if isinstance(value, (bool, int, float, str)) else None
+    if key in PACK_METRIC_NONNEGATIVE_INT_KEYS:
+        return value if _is_nonnegative_int(value) else None
+    return None
+
+
+def _legacy_trimmed_count(value: Any) -> int:
+    if not isinstance(value, list):
+        return 0
+    return len({item_id for item_id in value if isinstance(item_id, str) and item_id})
 
 
 def _sanitize_count_map(
     value: Any,
     *,
-    allowed_keys: set[str] | None = None,
+    allowed_keys: set[str],
 ) -> dict[str, int]:
     if not isinstance(value, dict):
         return {}
@@ -609,13 +678,7 @@ def _sanitize_count_map(
         if not isinstance(raw_key, str):
             continue
         key = raw_key.strip().lower()
-        if allowed_keys is not None and key not in allowed_keys:
-            continue
-        if allowed_keys is None and (
-            not key
-            or len(key) > 80
-            or any(char not in RETRIEVAL_TRACE_SIGNAL_ALLOWED_CHARS for char in key)
-        ):
+        if key not in allowed_keys:
             continue
         if not isinstance(raw_count, int) or isinstance(raw_count, bool) or raw_count < 0:
             continue
@@ -623,49 +686,57 @@ def _sanitize_count_map(
     return dict(sorted(sanitized.items()))
 
 
-def _sanitize_pack_metric_items(value: Any) -> list[dict[str, Any]]:
+def _sanitize_pack_metric_items(
+    value: Any,
+    *,
+    cohort_item_ids: set[str],
+) -> list[dict[str, Any]]:
     if not isinstance(value, list):
         return []
     items: list[dict[str, Any]] = []
     for row in value:
         if not isinstance(row, dict):
             continue
-        item = {
-            key: row[key]
-            for key in sorted(PACK_METRIC_ITEM_ALLOWED_KEYS)
-            if key in row and isinstance(row[key], (bool, int, float, str))
-        }
-        if item:
-            items.append(item)
+        item_id = row.get("id")
+        if not isinstance(item_id, str) or item_id not in cohort_item_ids:
+            continue
+        item: dict[str, Any] = {"id": item_id}
+        selected_view = row.get("selected_view")
+        if selected_view in CONTEXT_PACK_VIEWS:
+            item["selected_view"] = selected_view
+        for key in ("full_tokens", "packed_tokens"):
+            if _is_nonnegative_int(row.get(key)):
+                item[key] = row[key]
+        compressed = row.get("compressed")
+        if isinstance(compressed, bool):
+            item["compressed"] = compressed
+        items.append(item)
     return items
 
 
 def _sanitize_retrieval_trace(trace: dict[str, Any]) -> dict[str, Any]:
     allowed: dict[str, Any] = {}
-    for key in RETRIEVAL_TRACE_ALLOWED_KEYS:
-        if key not in trace:
-            continue
-        if key == "stages":
-            stages = trace.get("stages")
-            if not isinstance(stages, list):
-                continue
-            sanitized_stages = [
-                _sanitize_retrieval_trace_stage(stage)
-                for stage in stages
-                if isinstance(stage, dict)
-            ]
-            sanitized_stages = [stage for stage in sanitized_stages if stage]
-            if sanitized_stages:
-                allowed["stages"] = sanitized_stages
-            continue
-        if key == "signals":
-            signals = _sanitize_retrieval_trace_signals(trace.get("signals"))
-            if signals:
-                allowed["signals"] = signals
-            continue
-        allowed[key] = trace[key]
-    sanitized = _sanitize(allowed)
-    return sanitized if isinstance(sanitized, dict) else {}
+    for key in RETRIEVAL_TRACE_RANK_KEYS:
+        if _is_nonnegative_int(trace.get(key)):
+            allowed[key] = trace[key]
+    for key in RETRIEVAL_TRACE_SCORE_KEYS:
+        score = _finite_number(trace.get(key))
+        if score is not None:
+            allowed[key] = score
+    stages = trace.get("stages")
+    if isinstance(stages, list):
+        sanitized_stages = [
+            _sanitize_retrieval_trace_stage(stage)
+            for stage in stages
+            if isinstance(stage, dict)
+        ]
+        sanitized_stages = [stage for stage in sanitized_stages if stage]
+        if sanitized_stages:
+            allowed["stages"] = sanitized_stages
+    signals = _sanitize_retrieval_trace_signals(trace.get("signals"))
+    if signals:
+        allowed["signals"] = signals
+    return allowed
 
 
 def _sanitize_retrieval_trace_signals(signals: Any) -> list[str]:
@@ -676,22 +747,52 @@ def _sanitize_retrieval_trace_signals(signals: Any) -> list[str]:
         if not isinstance(signal, str):
             continue
         text = signal.strip().lower()
-        if not text or len(text) > 80:
+        if text in {"bm25", "vector"}:
+            safe_signals.append(text)
             continue
-        if any(char not in RETRIEVAL_TRACE_SIGNAL_ALLOWED_CHARS for char in text):
-            continue
-        safe_signals.append(text)
+        stage_name, separator, effect = text.partition(":")
+        if (
+            separator
+            and stage_name in RETRIEVAL_TRACE_STAGE_NAMES
+            and effect in RETRIEVAL_TRACE_STAGE_EFFECTS
+        ):
+            safe_signals.append(f"{stage_name}:{effect}")
     return _dedupe(safe_signals)
 
 
 def _sanitize_retrieval_trace_stage(stage: dict[str, Any]) -> dict[str, Any]:
-    allowed = {
-        key: stage[key]
-        for key in RETRIEVAL_TRACE_STAGE_ALLOWED_KEYS
-        if key in stage
-    }
-    sanitized = _sanitize(allowed)
-    return sanitized if isinstance(sanitized, dict) else {}
+    name = stage.get("name")
+    effect = stage.get("effect")
+    if not isinstance(name, str) or not isinstance(effect, str):
+        return {}
+    name = name.strip().lower()
+    effect = effect.strip().lower()
+    if (
+        name not in RETRIEVAL_TRACE_STAGE_NAMES
+        or effect not in RETRIEVAL_TRACE_STAGE_EFFECTS
+    ):
+        return {}
+    allowed: dict[str, Any] = {"name": name, "effect": effect}
+    for key in RETRIEVAL_TRACE_STAGE_RANK_KEYS:
+        if _is_nonnegative_int(stage.get(key)):
+            allowed[key] = stage[key]
+    for key in RETRIEVAL_TRACE_STAGE_SCORE_KEYS:
+        score = _finite_number(stage.get(key))
+        if score is not None:
+            allowed[key] = score
+    return allowed
+
+
+def _is_nonnegative_int(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 0
+
+
+def _finite_number(value: Any) -> int | float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    if isinstance(value, int):
+        return value
+    return value if math.isfinite(value) else None
 
 
 def _algorithm_stages(
@@ -717,7 +818,10 @@ def _algorithm_stages(
         "mmr": False,
         "hopfield": False,
         "graph_expansion": False,
-        "budget_trim": any((cohort.pack_metrics or {}).get("trimmed_ids") for cohort in bucket.injections),
+        "budget_trim": any(
+            _pack_metrics_trimmed_count(cohort.pack_metrics) > 0
+            for cohort in bucket.injections
+        ),
     }
 
     stages: list[AlgorithmStage] = []
@@ -749,6 +853,15 @@ def _algorithm_stages(
             )
         )
     return stages
+
+
+def _pack_metrics_trimmed_count(pack_metrics: Any) -> int:
+    if not isinstance(pack_metrics, dict):
+        return 0
+    direct_count = pack_metrics.get("trimmed_count")
+    if _is_nonnegative_int(direct_count):
+        return direct_count
+    return _legacy_trimmed_count(pack_metrics.get("trimmed_ids"))
 
 
 def _algorithm_statuses_from_retrieval_trace(trace_by_item: dict[str, dict[str, Any]]) -> dict[str, str]:

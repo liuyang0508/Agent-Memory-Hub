@@ -324,6 +324,9 @@ def test_chain_log_preserves_aggregate_gateway_metrics_without_content(
         cwd="/repo",
         pack_metrics={
             "candidate_count": 3,
+            "raw_candidate_count": 4,
+            "gateway_candidate_count": 3,
+            "hydrate_error_count": 1,
             "included_count": 1,
             "excluded_count": 2,
             "excluded_reasons": {
@@ -351,8 +354,11 @@ def test_chain_log_preserves_aggregate_gateway_metrics_without_content(
         "excluded_count": 2,
         "excluded_reasons": {"missing_source": 2},
         "full_tokens": 30,
+        "gateway_candidate_count": 3,
+        "hydrate_error_count": 1,
         "included_count": 1,
         "packed_tokens": 12,
+        "raw_candidate_count": 4,
         "selected_views": {"locator": 1},
     }]
     serialized = json.dumps(detail)
@@ -361,6 +367,153 @@ def test_chain_log_preserves_aggregate_gateway_metrics_without_content(
     assert "body" not in _collect_pack_metric_keys(metrics)
     assert "query" not in _collect_pack_metric_keys(metrics)
     assert "secret_private_title" not in _collect_pack_metric_keys(metrics)
+
+
+def test_chain_log_field_schema_rejects_sentinels_and_unbound_ids(
+    tmp_path: Path,
+) -> None:
+    from agent_brain.memory.context.injection_cohorts import record_injection_cohort
+    from agent_brain.product.chain_log import build_chain_log_detail, build_chain_log_report
+
+    item_id = _write_item(tmp_path)
+    record_injection_cohort(
+        tmp_path,
+        item_ids=[item_id],
+        adapter="codex",
+        session_id="sess-field-schema",
+        cwd="/repo",
+        pack_metrics={
+            "candidate_count": 1,
+            "context_pack_chars": "SECRET_CONTEXT_CHARS",
+            "detail_refs": True,
+            "packed_tokens": "SECRET_PACKED_TOKENS",
+            "full_tokens": -1,
+            "query_terms_count": 1.5,
+            "items": [
+                {
+                    "id": item_id,
+                    "selected_view": "SECRET_SELECTED_VIEW",
+                    "packed_tokens": "SECRET_ITEM_PACKED_TOKENS",
+                    "full_tokens": True,
+                    "compressed": "SECRET_COMPRESSED",
+                },
+                {
+                    "id": "SECRET_LEGACY_ITEM_ID",
+                    "selected_view": "locator",
+                    "packed_tokens": 1,
+                    "full_tokens": 2,
+                    "compressed": False,
+                },
+            ],
+            "trimmed_ids": ["SECRET_TRIMMED_ID"],
+            "retrieval_trace": {
+                item_id: {
+                    "initial_bm25_rank": "SECRET_BM25_RANK",
+                    "initial_vector_rank": True,
+                    "initial_score": float("inf"),
+                    "final_rank": -1,
+                    "final_score": "SECRET_FINAL_SCORE",
+                    "signals": [
+                        "bm25",
+                        "feedback_value:rescored",
+                        "SECRET_SIGNAL",
+                        "secret_stage:kept",
+                        "feedback_value:secret_effect",
+                    ],
+                    "stages": [
+                        {
+                            "name": "feedback_value",
+                            "effect": "rescored",
+                            "before_rank": "SECRET_BEFORE_RANK",
+                            "after_rank": True,
+                            "before_score": "SECRET_BEFORE_SCORE",
+                            "after_score": float("nan"),
+                        },
+                        {
+                            "name": "SECRET_STAGE_NAME",
+                            "effect": "SECRET_STAGE_EFFECT",
+                        },
+                    ],
+                },
+                "SECRET_TRACE_KEY": {
+                    "initial_score": 0.4,
+                    "final_rank": 1,
+                    "final_score": 0.5,
+                },
+            },
+        },
+    )
+
+    report = build_chain_log_report(tmp_path, hours=72).to_dict()
+    detail = build_chain_log_detail(tmp_path, report["chains"][0]["chain_id"]).to_dict()
+    packing = next(stage for stage in detail["stages"] if stage["stage_id"] == "packing")
+    metrics = packing["preview"]["pack_metrics"][0]
+
+    assert "SECRET" not in json.dumps(detail)
+    assert metrics == {
+        "candidate_count": 1,
+        "items": [{"id": item_id}],
+        "retrieval_trace": {
+            item_id: {
+                "signals": ["bm25", "feedback_value:rescored"],
+                "stages": [{"name": "feedback_value", "effect": "rescored"}],
+            }
+        },
+        "trimmed_count": 1,
+    }
+    assert _algorithm_status(detail, "budget_trim") == "applied"
+
+
+def test_chain_log_preserves_valid_legacy_item_metrics_for_cohort_ids_only(
+    tmp_path: Path,
+) -> None:
+    from agent_brain.memory.context.injection_cohorts import record_injection_cohort
+    from agent_brain.product.chain_log import build_chain_log_detail, build_chain_log_report
+
+    item_id = _write_item(tmp_path)
+    record_injection_cohort(
+        tmp_path,
+        item_ids=[item_id],
+        adapter="codex",
+        session_id="sess-legacy-item-schema",
+        cwd="/repo",
+        pack_metrics={
+            "packed_tokens": 7,
+            "full_tokens": 21,
+            "items": [
+                {
+                    "id": item_id,
+                    "selected_view": "overview",
+                    "packed_tokens": 7,
+                    "full_tokens": 21,
+                    "compressed": True,
+                },
+                {
+                    "id": "mem-20260706-010299-not-in-cohort",
+                    "selected_view": "locator",
+                    "packed_tokens": 1,
+                    "full_tokens": 2,
+                    "compressed": False,
+                },
+            ],
+        },
+    )
+
+    report = build_chain_log_report(tmp_path, hours=72).to_dict()
+    detail = build_chain_log_detail(tmp_path, report["chains"][0]["chain_id"]).to_dict()
+    packing = next(stage for stage in detail["stages"] if stage["stage_id"] == "packing")
+
+    assert packing["preview"]["pack_metrics"] == [{
+        "full_tokens": 21,
+        "items": [{
+            "compressed": True,
+            "full_tokens": 21,
+            "id": item_id,
+            "packed_tokens": 7,
+            "selected_view": "overview",
+        }],
+        "packed_tokens": 7,
+    }]
 
 
 def test_chain_log_accepts_retrieval_trace_like_pack_metrics(tmp_path: Path) -> None:
@@ -476,6 +629,36 @@ def test_chain_log_accepts_id_free_ordered_retrieval_trace_metrics(tmp_path: Pat
     assert candidate["score_trace"]["initial_bm25_rank"] == 3
     assert candidate["score_trace"]["final_score"] == 0.54
     assert _algorithm_status(detail, "feedback_value") == "applied"
+
+
+def test_chain_log_accepts_finite_integer_scores_without_float_overflow(
+    tmp_path: Path,
+) -> None:
+    from agent_brain.memory.context.injection_cohorts import record_injection_cohort
+    from agent_brain.product.chain_log import build_chain_log_detail, build_chain_log_report
+
+    item_id = _write_item(tmp_path)
+    finite_integer_score = 10**400
+    record_injection_cohort(
+        tmp_path,
+        item_ids=[item_id],
+        adapter="codex",
+        session_id="sess-large-finite-score",
+        cwd="/repo",
+        pack_metrics={
+            "retrieval_trace": [{
+                "initial_score": finite_integer_score,
+                "final_rank": 1,
+                "final_score": finite_integer_score,
+            }]
+        },
+    )
+
+    report = build_chain_log_report(tmp_path, hours=72).to_dict()
+    detail = build_chain_log_detail(tmp_path, report["chains"][0]["chain_id"]).to_dict()
+
+    assert detail["candidates"][0]["score_trace"]["initial_score"] == finite_integer_score
+    assert detail["candidates"][0]["score_trace"]["final_score"] == finite_integer_score
 
 
 def test_chain_log_does_not_bind_mismatched_id_free_trace_rows(tmp_path: Path) -> None:

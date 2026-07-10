@@ -402,6 +402,95 @@ def test_layered_context_pack_diagnostic_accepts_legacy_item_metrics(tmp_path):
     assert "packed=7/21t" in check.detail
 
 
+def test_legacy_context_pack_diagnostic_rejects_secret_selected_view(tmp_path):
+    from agent_brain.agent_integrations.diagnostics import (
+        diagnose_layered_context_pack_evidence,
+    )
+    from agent_brain.memory.context.injection_cohorts import record_injection_cohort
+
+    record_injection_cohort(
+        tmp_path,
+        item_ids=["mem-legacy-secret-selected-view"],
+        adapter="codex",
+        pack_metrics={
+            "packed_tokens": 7,
+            "full_tokens": 21,
+            "items": [
+                {
+                    "id": "mem-legacy-secret-selected-view",
+                    "selected_view": "SECRET_SELECTED_VIEW",
+                    "packed_tokens": 7,
+                    "full_tokens": 21,
+                    "compressed": True,
+                }
+            ],
+        },
+    )
+
+    check = diagnose_layered_context_pack_evidence(
+        brain_dir=tmp_path,
+        adapter="codex",
+        check_name="legacy secret selected view",
+    )
+
+    assert check.status == "warn"
+    assert "malformed pack metrics" in check.detail
+    assert "SECRET_SELECTED_VIEW" not in check.detail
+    assert "SECRET_SELECTED_VIEW" not in check.fix
+
+
+@pytest.mark.parametrize(
+    ("top_level_update", "item_update"),
+    [
+        ({"packed_tokens": "SECRET_PACKED_TOKENS"}, {}),
+        ({"full_tokens": True}, {}),
+        ({}, {"packed_tokens": -1}),
+        ({}, {"full_tokens": "SECRET_ITEM_FULL_TOKENS"}),
+    ],
+)
+def test_legacy_context_pack_diagnostic_rejects_malformed_tokens(
+    tmp_path,
+    top_level_update,
+    item_update,
+):
+    from agent_brain.agent_integrations.diagnostics import (
+        diagnose_layered_context_pack_evidence,
+    )
+    from agent_brain.memory.context.injection_cohorts import record_injection_cohort
+
+    item_metrics = {
+        "id": "mem-legacy-malformed-tokens",
+        "selected_view": "locator",
+        "packed_tokens": 7,
+        "full_tokens": 21,
+        "compressed": False,
+        **item_update,
+    }
+    pack_metrics = {
+        "packed_tokens": 7,
+        "full_tokens": 21,
+        "items": [item_metrics],
+        **top_level_update,
+    }
+    record_injection_cohort(
+        tmp_path,
+        item_ids=["mem-legacy-malformed-tokens"],
+        adapter="codex",
+        pack_metrics=pack_metrics,
+    )
+
+    check = diagnose_layered_context_pack_evidence(
+        brain_dir=tmp_path,
+        adapter="codex",
+        check_name="legacy malformed tokens",
+    )
+
+    assert check.status == "warn"
+    assert "malformed pack metrics" in check.detail
+    assert "SECRET" not in check.detail
+    assert "SECRET" not in check.fix
+
+
 def test_adapter_install_verify_codex_promotes_after_runtime_observed(tmp_path, monkeypatch):
     from agent_brain.agent_integrations import codex as cx_mod
     from agent_brain.agent_integrations.runtime_events import record_runtime_event

@@ -10,6 +10,7 @@ from .runtime_events import runtime_event_summary
 
 
 CheckStatus = Literal["ok", "warn", "error"]
+_CONTEXT_PACK_VIEWS = frozenset({"locator", "overview", "detail"})
 
 
 @dataclass(frozen=True)
@@ -129,28 +130,21 @@ def diagnose_layered_context_pack_evidence(
             isinstance(selected_view_counts, dict)
             and bool(selected_view_counts)
             and all(
-                view in {"locator", "overview", "detail"}
-                and isinstance(count, int)
-                and not isinstance(count, bool)
+                view in _CONTEXT_PACK_VIEWS
+                and _is_nonnegative_int(count)
                 and count > 0
                 for view, count in selected_view_counts.items()
             )
         )
         aggregate_valid = (
-            isinstance(included_count, int)
-            and not isinstance(included_count, bool)
+            _is_nonnegative_int(included_count)
             and included_count > 0
             and valid_view_counts
             and sum(selected_view_counts.values()) == included_count
-            and isinstance(compressed_count, int)
-            and not isinstance(compressed_count, bool)
+            and _is_nonnegative_int(compressed_count)
             and 0 <= compressed_count <= included_count
-            and isinstance(packed_tokens, int)
-            and not isinstance(packed_tokens, bool)
-            and packed_tokens >= 0
-            and isinstance(full_tokens, int)
-            and not isinstance(full_tokens, bool)
-            and full_tokens >= 0
+            and _is_nonnegative_int(packed_tokens)
+            and _is_nonnegative_int(full_tokens)
         )
         if not aggregate_valid:
             return AdapterDiagnosticCheck(
@@ -180,18 +174,29 @@ def diagnose_layered_context_pack_evidence(
         )
 
     item_metrics = [item for item in items if isinstance(item, dict)]
-    selected_views = sorted({
-        str(item.get("selected_view"))
-        for item in item_metrics
-        if item.get("selected_view")
-    })
-    if not selected_views or not isinstance(packed_tokens, int) or not isinstance(full_tokens, int):
+    legacy_valid = (
+        len(item_metrics) == len(items)
+        and _is_nonnegative_int(packed_tokens)
+        and _is_nonnegative_int(full_tokens)
+        and all(
+            item.get("selected_view") in _CONTEXT_PACK_VIEWS
+            and _is_nonnegative_int(item.get("packed_tokens"))
+            and _is_nonnegative_int(item.get("full_tokens"))
+            for item in item_metrics
+        )
+    )
+    if not legacy_valid:
         return AdapterDiagnosticCheck(
             name=check_name,
             status="warn",
             detail=f"latest injection cohort {cohort.cohort_id} has malformed pack metrics",
             fix="reinstall the adapter, trigger UserPromptSubmit, then re-run adapter doctor",
         )
+    selected_views = sorted({
+        str(item.get("selected_view"))
+        for item in item_metrics
+        if item.get("selected_view")
+    })
 
     return AdapterDiagnosticCheck(
         name=check_name,
@@ -202,6 +207,10 @@ def diagnose_layered_context_pack_evidence(
             f"packed={packed_tokens}/{full_tokens}t"
         ),
     )
+
+
+def _is_nonnegative_int(value: object) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 0
 
 
 from .mcp_config_diagnostics import (  # noqa: E402
