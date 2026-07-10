@@ -2,8 +2,11 @@
 # ruff: noqa: F405
 from __future__ import annotations
 
-from agent_brain.memory.context.context_loading import select_context_view
-from agent_brain.memory.context.context_packing import build_context_pack
+from agent_brain.memory.context.context_firewall_types import ContextCandidate
+from agent_brain.memory.context.injection_gateway import (
+    _record_injection_diagnostic,
+    build_injection_context,
+)
 from agent_brain.interfaces.mcp.tools._shared import *  # noqa: F401,F403
 
 
@@ -113,43 +116,77 @@ def search_memory(
         exclude_tags=exclude_tags or [],
         since_days=since_days, tenant_id=tenant_id,
     )
-    hits = retriever.search(query, top_k=top_k, filters=sf, explain=include_trace)
+    raw_top_k = top_k * 3 if top_k > 0 else top_k
+    old_record_access = getattr(retriever, "record_access", None)
+    if old_record_access is not None:
+        retriever.record_access = False
+    try:
+        hits = retriever.search(
+            query,
+            top_k=raw_top_k,
+            filters=sf,
+            explain=include_trace,
+        )
+    finally:
+        if old_record_access is not None:
+            retriever.record_access = old_record_access
+    _record_injection_diagnostic(
+        surface="mcp-search",
+        reason="hydrate_error",
+        count=sum(1 for hit in hits if hit.id not in items_by_id),
+    )
+    hit_by_id = {hit.id: hit for hit in hits}
+    candidates = [
+        ContextCandidate(
+            item=items_by_id[hit.id],
+            body=bodies_by_id.get(hit.id, ""),
+            score=hit.score,
+            source="mcp-search",
+        )
+        for hit in hits
+        if hit.id in items_by_id
+    ]
+    injection = build_injection_context(
+        candidates,
+        query=query,
+        requested=verbosity,
+        max_items=top_k,
+    )
     results = []
-    for h in hits:
-        item = items_by_id.get(h.id)
-        body = bodies_by_id.get(h.id, "")
+    for entry in injection.included:
+        decision = entry.decision
+        item = decision.candidate.item
+        pack = entry.pack
+        hit = hit_by_id.get(item.id)
         result = {
-            "id": h.id,
-            "title": item.title if item is not None else None,
-            "type": str(item.type) if item is not None else None,
-            "summary": item.summary if item is not None else None,
-            "confidence": item.confidence if item is not None else None,
-            "score": h.score,
+            "id": item.id,
+            "title": item.title,
+            "type": str(item.type),
+            "summary": item.summary,
+            "confidence": item.confidence,
+            "score": hit.score if hit is not None else decision.score,
+            "context_pack": pack.to_dict(),
+            "locator": item.context_views.locator,
         }
-        if item is not None:
-            context_pack = build_context_pack(item, body, requested=verbosity)
-            result["context_pack"] = context_pack.to_dict()
-            result["locator"] = item.context_views.locator
-            if verbosity == "auto":
-                selection = select_context_view(item, body)
-                result["selected_view"] = selection.view
-                result["load_reason"] = list(selection.reasons)
-                if selection.view == "detail":
-                    result["overview"] = item.context_views.overview
-                    result["body"] = body
-                elif selection.view == "overview":
-                    result["overview"] = item.context_views.overview
-                else:
-                    result["snippet"] = item.context_views.locator
-            elif verbosity == "overview":
+        if verbosity == "auto":
+            result["selected_view"] = pack.selected_view
+            result["load_reason"] = list(pack.load_reason)
+            if pack.selected_view == "detail":
                 result["overview"] = item.context_views.overview
-            elif verbosity == "detail":
-                result["overview"] = item.context_views.overview
-                result["body"] = body
+                result["body"] = pack.text
+            elif pack.selected_view == "overview":
+                result["overview"] = pack.text
             else:
-                result["snippet"] = item.context_views.locator
-        if h.trace is not None:
-            result["retrieval_trace"] = h.trace.to_dict()
+                result["snippet"] = pack.text
+        elif verbosity == "overview":
+            result["overview"] = pack.text
+        elif verbosity == "detail":
+            result["overview"] = item.context_views.overview
+            result["body"] = pack.text
+        else:
+            result["snippet"] = pack.text
+        if hit is not None and hit.trace is not None:
+            result["retrieval_trace"] = hit.trace.to_dict()
         results.append(result)
     return results
 
