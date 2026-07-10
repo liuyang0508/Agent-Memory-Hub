@@ -146,6 +146,11 @@ def search_memory(
         requested=verbosity,
         max_items=top_k,
     )
+    retriever.record_accesses([
+        hit_by_id[entry.decision.candidate.item.id]
+        for entry in injection.included
+        if entry.decision.candidate.item.id in hit_by_id
+    ])
     results = []
     for entry in injection.included:
         decision = entry.decision

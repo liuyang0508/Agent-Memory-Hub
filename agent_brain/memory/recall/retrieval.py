@@ -426,6 +426,10 @@ class Retriever:
             confidence_reward=getattr(self, "confidence_reward", 0.01),
         ).record(results)
 
+    def record_accesses(self, results: list[RetrievedItem]) -> None:
+        """Record final caller-approved hits using the instance access policy."""
+        self._record_access(results)
+
     def search(
         self,
         query: str,

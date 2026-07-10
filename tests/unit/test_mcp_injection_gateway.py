@@ -74,6 +74,21 @@ def test_mcp_search_never_serializes_rejected_memory_content(tmp_brain):
     assert result[0]["title"] == safe.title
     assert result[0]["summary"] == safe.summary
     assert result[0]["body"] == f"{body_for(safe)}\n"
+    from agent_brain.interfaces.mcp.tools._shared import _components_cache
+
+    _store, index, _retriever = next(iter(_components_cache.values()))
+    access = index.get_decay_data([
+        safe.id,
+        private.id,
+        secret.id,
+        review.id,
+        superseded.id,
+    ])
+    assert access[safe.id][4] == 1
+    assert all(
+        access[value.id][4] == 0
+        for value in (private, secret, review, superseded)
+    )
 
 
 @pytest.mark.parametrize("query", ["memory", ""])
@@ -105,6 +120,10 @@ def test_mcp_search_drops_index_hit_that_cannot_be_hydrated(tmp_brain, caplog):
     assert result == []
     assert ghost.id not in repr(result)
     assert "surface=mcp-search reason=hydrate_error count=1" in caplog.text
+    from agent_brain.interfaces.mcp.tools._shared import _components_cache
+
+    _store, cached_index, _retriever = next(iter(_components_cache.values()))
+    assert cached_index.get_decay_data([ghost.id])[ghost.id][4] == 0
 
 
 def test_mcp_search_never_falls_back_to_raw_when_gateway_fails(
@@ -130,7 +149,7 @@ def test_mcp_search_never_falls_back_to_raw_when_gateway_fails(
         mcp.search_memory("injection gateway boundary", top_k=10)
 
 
-def test_mcp_search_raw_retrieval_does_not_record_access(tmp_brain):
+def test_mcp_search_records_access_only_after_gateway_includes_hit(tmp_brain):
     value = memory("no-access")
     seed(tmp_brain, [value])
 
@@ -141,7 +160,7 @@ def test_mcp_search_raw_retrieval_does_not_record_access(tmp_brain):
 
     assert [row["id"] for row in result] == [value.id]
     _store, index, _retriever = next(iter(_components_cache.values()))
-    assert index.get_decay_data([value.id])[value.id][4] == 0
+    assert index.get_decay_data([value.id])[value.id][4] == 1
 
 
 def test_mcp_search_uses_per_call_record_access_override(

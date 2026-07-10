@@ -108,6 +108,9 @@ def search_items(
             for item_id in packed_by_id
             if item_id in hit_by_id
         ]
+        record_accesses = getattr(retriever, "record_accesses", None)
+        if callable(record_accesses):
+            record_accesses(hits)
     else:
         hits = hits[:top_k]
 

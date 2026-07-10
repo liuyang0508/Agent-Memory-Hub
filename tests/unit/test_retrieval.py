@@ -86,6 +86,25 @@ def test_search_record_access_override_is_per_call_and_does_not_mutate_instance(
     assert idx.get_decay_data([hits[0].id])[hits[0].id][4] == 1
 
 
+def test_record_accesses_respects_disabled_instance_configuration(tmp_brain_dir: Path):
+    from agent_brain.memory.recall.retrieval import Retriever
+
+    idx = _build_index(tmp_brain_dir, [
+        ("disabled", "Disabled access recording", "disabled access recording boundary"),
+    ])
+    retriever = Retriever(
+        index=idx,
+        embedder=HashingEmbedder(dim=8),
+        record_access=False,
+    )
+    hits = retriever.search("disabled access recording boundary", top_k=1)
+
+    retriever.record_accesses(hits)
+
+    assert retriever.record_access is False
+    assert idx.get_decay_data([hits[0].id])[hits[0].id][4] == 0
+
+
 def test_bm25_weight_boost(tmp_brain_dir: Path):
     from agent_brain.memory.recall.retrieval import Retriever
 

@@ -225,6 +225,10 @@ class TestMemoryClientSearch:
         results = client.search("SDK gateway cohort boundary", top_k=10)
 
         assert [result.id for result in results] == [safe_id]
+        index = client._components.get_index()
+        access = index.get_decay_data([safe_id, *forbidden])
+        assert access[safe_id][4] == 1
+        assert all(access[item_id][4] == 0 for item_id in forbidden)
         serialized = repr(results)
         for item_id in forbidden:
             assert item_id not in serialized
@@ -257,6 +261,8 @@ class TestMemoryClientSearch:
         assert results[0].retrieval_trace is not None
         assert results[0].context_pack is None
         assert results[0].firewall is None
+        index = client._components.get_index()
+        assert index.get_decay_data([item_id])[item_id][4] == 1
 
     def test_gateway_failure_never_falls_back_to_raw(self, client, monkeypatch):
         client.write(
@@ -444,9 +450,11 @@ class TestMemoryClientSearch:
 
         ghost_id = "mem-20260711-010000-sdk-ghost-private-title"
         ghost_hit = SimpleNamespace(id=ghost_id, score=0.9, trace=None)
+        recorded = []
         retriever = SimpleNamespace(
             record_access=True,
             search=lambda *_args, **_kwargs: [ghost_hit],
+            record_accesses=lambda hits: recorded.extend(hit.id for hit in hits),
         )
 
         results = search_items(
@@ -462,6 +470,7 @@ class TestMemoryClientSearch:
         )
 
         assert results == []
+        assert recorded == []
         assert "surface=sdk-search reason=hydrate_error count=1" in caplog.text
         assert ghost_id not in caplog.text
         assert "SDK ghost private query content" not in caplog.text
