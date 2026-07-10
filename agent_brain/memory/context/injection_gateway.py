@@ -3,7 +3,7 @@
 import logging
 from collections import Counter
 from dataclasses import dataclass
-from typing import Mapping, get_args
+from typing import Iterable, Mapping, get_args
 
 from agent_brain.memory.context.context_firewall import ContextFirewall
 from agent_brain.memory.context.context_firewall_rules import exclude_with
@@ -19,6 +19,12 @@ from agent_brain.memory.context.query_signal import QuerySignal, analyze_injecti
 logger = logging.getLogger(__name__)
 _CONTEXT_VERBOSITIES = frozenset(get_args(ContextVerbosity))
 _INJECTION_OVERFETCH_CAP = 50
+HYDRATE_ERROR_REASON = "hydrate_error"
+PACK_ERROR_REASON = "pack_error"
+GATEWAY_SYNTHETIC_EXCLUSION_REASONS = frozenset({
+    HYDRATE_ERROR_REASON,
+    PACK_ERROR_REASON,
+})
 INJECTION_EXCLUSION_REASONS = frozenset({
     "answerability_mismatch",
     "cohort_strong_anchor_undercovered",
@@ -30,7 +36,6 @@ INJECTION_EXCLUSION_REASONS = frozenset({
     "missing_source",
     "negative_feedback",
     "pack_budget_exceeded",
-    "pack_error",
     "query_mismatch",
     "query_not_injectable",
     "requires_review",
@@ -46,7 +51,7 @@ INJECTION_EXCLUSION_REASONS = frozenset({
     "temporal_state_conflict_newer",
     "topic_recency_newer",
     "very_low_confidence",
-})
+}) | GATEWAY_SYNTHETIC_EXCLUSION_REASONS
 
 
 @dataclass(frozen=True)
@@ -58,17 +63,12 @@ class InjectionResult:
     full_tokens: int
 
     def metrics(self) -> dict[str, object]:
-        reason_counts = Counter(
-            reason
-            for decision in self.excluded
-            for reason in set(decision.reasons)
-        )
         view_counts = Counter(entry.pack.selected_view for entry in self.included)
         return {
             "candidate_count": len(self.included) + len(self.excluded),
             "included_count": len(self.included),
             "excluded_count": len(self.excluded),
-            "excluded_reasons": dict(sorted(reason_counts.items())),
+            "excluded_reasons": injection_exclusion_reason_counts(self.excluded),
             "selected_views": dict(sorted(view_counts.items())),
             "compressed_count": sum(
                 1 for entry in self.included if entry.pack.compressed
@@ -76,6 +76,69 @@ class InjectionResult:
             "packed_tokens": self.used_tokens,
             "full_tokens": self.full_tokens,
         }
+
+
+def injection_exclusion_reason_counts(
+    decisions: Iterable[FirewallDecision],
+    *,
+    hydrate_error_count: int = 0,
+) -> dict[str, int]:
+    """Return closed-set aggregate exclusion counts without item identity."""
+    if hydrate_error_count < 0:
+        raise ValueError("hydrate_error_count must be non-negative")
+    reason_counts = Counter(
+        reason
+        for decision in decisions
+        for reason in set(decision.reasons)
+    )
+    if hydrate_error_count:
+        reason_counts[HYDRATE_ERROR_REASON] += hydrate_error_count
+    unknown = set(reason_counts) - INJECTION_EXCLUSION_REASONS
+    if unknown:
+        raise ValueError(
+            "unsupported injection exclusion reasons: "
+            + ", ".join(sorted(unknown))
+        )
+    return dict(sorted(reason_counts.items()))
+
+
+def surface_injection_metrics(
+    result: InjectionResult,
+    *,
+    raw_candidate_count: int,
+    hydrate_error_count: int,
+) -> dict[str, object]:
+    """Merge pre-Gateway hydrate failures into aggregate surface metrics.
+
+    Bare ``InjectionResult.metrics()`` keeps its original Gateway-only meaning.
+    Surface ``candidate_count`` and ``raw_candidate_count`` cover every raw hit,
+    while ``gateway_candidate_count`` covers only hydrated Gateway inputs.
+    """
+    if raw_candidate_count < 0:
+        raise ValueError("raw_candidate_count must be non-negative")
+    if hydrate_error_count < 0:
+        raise ValueError("hydrate_error_count must be non-negative")
+    metrics = result.metrics()
+    gateway_candidate_count = int(metrics["candidate_count"])
+    expected_raw_count = gateway_candidate_count + hydrate_error_count
+    if raw_candidate_count != expected_raw_count:
+        raise ValueError(
+            "raw candidates must equal Gateway candidates plus hydrate errors: "
+            f"{raw_candidate_count} != {gateway_candidate_count} + "
+            f"{hydrate_error_count}"
+        )
+    metrics.update({
+        "candidate_count": raw_candidate_count,
+        "raw_candidate_count": raw_candidate_count,
+        "gateway_candidate_count": gateway_candidate_count,
+        "hydrate_error_count": hydrate_error_count,
+        "excluded_count": int(metrics["excluded_count"]) + hydrate_error_count,
+        "excluded_reasons": injection_exclusion_reason_counts(
+            result.excluded,
+            hydrate_error_count=hydrate_error_count,
+        ),
+    })
+    return metrics
 
 
 def injection_retrieval_top_k(top_k: int) -> int:
@@ -161,11 +224,11 @@ def build_injection_context(
                 budget_tokens=remaining,
             )
         except Exception:
-            packing_excluded.append(exclude_with(decision, "pack_error"))
+            packing_excluded.append(exclude_with(decision, PACK_ERROR_REASON))
             continue
         if not packed.included:
             packing_excluded.extend(
-                packed.excluded or [exclude_with(decision, "pack_error")]
+                packed.excluded or [exclude_with(decision, PACK_ERROR_REASON)]
             )
             continue
         included.extend(packed.included)
@@ -200,9 +263,14 @@ def build_injection_context(
 
 
 __all__ = [
+    "GATEWAY_SYNTHETIC_EXCLUSION_REASONS",
+    "HYDRATE_ERROR_REASON",
     "INJECTION_EXCLUSION_REASONS",
     "InjectionResult",
+    "PACK_ERROR_REASON",
     "build_injection_context",
     "evaluate_injection_candidates",
+    "injection_exclusion_reason_counts",
     "injection_retrieval_top_k",
+    "surface_injection_metrics",
 ]

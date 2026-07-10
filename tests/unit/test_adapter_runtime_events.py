@@ -939,7 +939,12 @@ def test_user_prompt_hook_records_recall_gap_when_no_context_matches(tmp_path):
     assert gaps[0].query.startswith("sha256:")
     assert gaps[0].injected_ids == ()
     assert gaps[0].rejected_ids == ()
-    assert gaps[0].evidence == ("retrieved_count=0",)
+    assert gaps[0].evidence == (
+        "retrieved_count=0",
+        "included_count=0",
+        "hydrate_error_count=0",
+        "excluded_count=0",
+    )
     raw_gap = (tmp_path / "runtime" / "recall-gaps.jsonl").read_text(encoding="utf-8")
     assert "Browser hook missing context" not in raw_gap
 

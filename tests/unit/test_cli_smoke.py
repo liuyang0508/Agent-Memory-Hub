@@ -291,6 +291,7 @@ def test_cli_gateway_reports_ghost_hydrate_only_as_aggregate(tmp_brain, caplog):
         "--format",
         "text",
         "--context-firewall",
+        "--record-recall-gap",
     ])
 
     assert result.exit_code == 0, result.output
@@ -299,8 +300,128 @@ def test_cli_gateway_reports_ghost_hydrate_only_as_aggregate(tmp_brain, caplog):
     for forbidden in (ghost.id, ghost.title, ghost.summary, body):
         assert forbidden not in result.output
         assert forbidden not in caplog.text
+    from agent_brain.memory.governance.recall_events import iter_gap_records
+
+    gaps = list(iter_gap_records(tmp_brain))
+    assert len(gaps) == 1
+    assert gaps[0].reason == "all_candidates_rejected"
+    assert "retrieved_count=1" in gaps[0].evidence
+    assert "included_count=0" in gaps[0].evidence
+    assert "hydrate_error_count=1" in gaps[0].evidence
+    assert "excluded_count=1" in gaps[0].evidence
+    assert "excluded_reason.hydrate_error=1" in gaps[0].evidence
+    raw_gap = (tmp_brain / "runtime" / "recall-gaps.jsonl").read_text(
+        encoding="utf-8",
+    )
+    for forbidden in (ghost.id, ghost.title, ghost.summary, body):
+        assert forbidden not in raw_gap
     check = HubIndex(tmp_brain / "index.db", embedding_dim=embedder.dim)
     assert check.get_decay_data([ghost.id])[ghost.id][4] == 0
+    check.close()
+
+
+def test_cli_safe_plus_ghost_records_partial_gap_and_surface_cohort_metrics(
+    tmp_brain,
+):
+    from agent_brain.memory.context.injection_cohorts import latest_injection_cohort
+    from agent_brain.memory.context.injection_gateway import (
+        HYDRATE_ERROR_REASON,
+        INJECTION_EXCLUSION_REASONS,
+    )
+    from agent_brain.memory.governance.recall_events import iter_gap_records
+
+    store = ItemsStore(tmp_brain / "items")
+    embedder = HashingEmbedder()
+    idx = HubIndex(tmp_brain / "index.db", embedding_dim=embedder.dim)
+    safe = MemoryItem(
+        id="mem-20260711-020005-cli-hydrate-safe",
+        type=MemoryType.episode,
+        created_at=datetime.now(timezone.utc),
+        title="CLI hydrate aggregate safe",
+        summary="CLI hydrate aggregate safe",
+        confidence=0.9,
+    )
+    ghost = MemoryItem(
+        id="mem-20260711-020006-cli-hydrate-ghost-secret",
+        type=MemoryType.episode,
+        created_at=datetime.now(timezone.utc),
+        title="CLI hydrate aggregate ghost secret",
+        summary="CLI hydrate aggregate ghost secret",
+        confidence=0.9,
+    )
+    safe_body = "CLI hydrate aggregate safe body"
+    ghost_body = "CLI hydrate aggregate ghost private body sentinel"
+    store.write(safe, safe_body)
+    idx.upsert(safe, safe_body, embedding=embedder.embed(safe_body))
+    idx.upsert(ghost, ghost_body, embedding=embedder.embed(ghost_body))
+    idx.close()
+
+    query = "CLI hydrate aggregate"
+    result = runner.invoke(app, [
+        "search",
+        query,
+        "--top-k",
+        "5",
+        "--format",
+        "text",
+        "--context-firewall",
+        "--record-recall-gap",
+        "--record-injection-cohort",
+        "--adapter",
+        "codex",
+        "--session",
+        "sess-hydrate-partial",
+    ])
+
+    assert result.exit_code == 0, result.output
+    assert safe.title in result.output
+    for forbidden in (ghost.id, ghost.title, ghost.summary, ghost_body):
+        assert forbidden not in result.output
+
+    gaps = list(iter_gap_records(tmp_brain))
+    assert len(gaps) == 1
+    assert gaps[0].reason == "partial_candidates_rejected"
+    assert "retrieved_count=2" in gaps[0].evidence
+    assert "included_count=1" in gaps[0].evidence
+    assert "hydrate_error_count=1" in gaps[0].evidence
+    assert "excluded_count=1" in gaps[0].evidence
+    assert f"excluded_reason.{HYDRATE_ERROR_REASON}=1" in gaps[0].evidence
+    emitted_reasons = {
+        entry.removeprefix("excluded_reason.").split("=", 1)[0]
+        for entry in gaps[0].evidence
+        if entry.startswith("excluded_reason.")
+    }
+    assert emitted_reasons <= INJECTION_EXCLUSION_REASONS
+    raw_gap = (tmp_brain / "runtime" / "recall-gaps.jsonl").read_text(
+        encoding="utf-8",
+    )
+    for forbidden in (ghost.id, ghost.title, ghost.summary, ghost_body):
+        assert forbidden not in raw_gap
+    assert query not in raw_gap
+
+    cohort = latest_injection_cohort(
+        tmp_brain,
+        adapter="codex",
+        session_id="sess-hydrate-partial",
+    )
+    assert cohort is not None
+    assert cohort.item_ids == (safe.id,)
+    metrics = cohort.pack_metrics
+    assert metrics is not None
+    assert metrics["candidate_count"] == 2
+    assert metrics["raw_candidate_count"] == 2
+    assert metrics["gateway_candidate_count"] == 1
+    assert metrics["included_count"] == 1
+    assert metrics["hydrate_error_count"] == 1
+    assert metrics["excluded_count"] == 1
+    assert metrics["excluded_reasons"] == {HYDRATE_ERROR_REASON: 1}
+    for forbidden in (ghost.id, ghost.title, ghost.summary, ghost_body):
+        assert forbidden not in repr(metrics)
+
+    check = HubIndex(tmp_brain / "index.db", embedding_dim=embedder.dim)
+    decay = check.get_decay_data([safe.id, ghost.id])
+    assert decay[safe.id][4] == 1
+    assert decay[ghost.id][4] == 0
     check.close()
 
 
@@ -550,6 +671,8 @@ def test_cli_search_records_gap_when_firewall_rejects_all(tmp_brain):
     assert gaps[0].adapter == "codex"
     assert gaps[0].session_id == "sess-gap"
     assert gaps[0].cwd == "/repo"
+    assert "retrieved_count=1" in gaps[0].evidence
+    assert "hydrate_error_count=0" in gaps[0].evidence
     assert "excluded_count=1" in gaps[0].evidence
     assert "excluded_reason.missing_source=1" in gaps[0].evidence
     raw_gap = (tmp_brain / "runtime" / "recall-gaps.jsonl").read_text(encoding="utf-8")
@@ -586,7 +709,12 @@ def test_cli_search_records_gap_when_retrieval_is_empty(tmp_brain):
     assert gaps[0].adapter == "codex"
     assert gaps[0].injected_ids == ()
     assert gaps[0].rejected_ids == ()
-    assert gaps[0].evidence == ("retrieved_count=0",)
+    assert gaps[0].evidence == (
+        "retrieved_count=0",
+        "included_count=0",
+        "hydrate_error_count=0",
+        "excluded_count=0",
+    )
     raw_gap = (tmp_brain / "runtime" / "recall-gaps.jsonl").read_text(encoding="utf-8")
     assert "browser nothing matches" not in raw_gap
 
@@ -636,7 +764,12 @@ def test_cli_search_empty_gap_distinguishes_candidate_search_from_block(tmp_brai
     assert gaps[0].query.startswith("sha256:")
     assert gaps[0].injected_ids == ()
     assert gaps[0].rejected_ids == ()
-    assert gaps[0].evidence == ("retrieved_count=0",)
+    assert gaps[0].evidence == (
+        "retrieved_count=0",
+        "included_count=0",
+        "hydrate_error_count=0",
+        "excluded_count=0",
+    )
     raw_gap = (tmp_brain / "runtime" / "recall-gaps.jsonl").read_text(encoding="utf-8")
     assert "多Agent共享第二大脑" not in raw_gap
     assert "多agent共享第二大脑" not in raw_gap
@@ -698,6 +831,8 @@ def test_cli_search_records_partial_gap_when_firewall_rejects_risky_candidates(t
     assert gaps[0].rejected_ids == ()
     assert gaps[0].adapter == "codex"
     assert gaps[0].session_id == "sess-partial-gap"
+    assert "retrieved_count=2" in gaps[0].evidence
+    assert "hydrate_error_count=0" in gaps[0].evidence
     assert "included_count=1" in gaps[0].evidence
     assert "excluded_count=1" in gaps[0].evidence
     assert "excluded_reason.missing_source=1" in gaps[0].evidence
@@ -747,7 +882,9 @@ def test_partial_gap_rejections_ignore_query_mismatch_noise() -> None:
     ("value", "expected"),
     [
         ("retrieved_count=0", True),
+        ("hydrate_error_count=1", True),
         ("included_count=1", True),
+        ("excluded_reason.hydrate_error=1", True),
         ("excluded_reason.missing_source=2", True),
         ("private_prompt_token=1", False),
         ("excluded_reason.secret_prompt_words=1", False),

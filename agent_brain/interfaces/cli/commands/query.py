@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import os
-from collections import Counter
 
 from agent_brain.interfaces.cli._app import app
 from agent_brain.interfaces.cli._shared import *  # noqa: F401,F403
@@ -12,11 +11,14 @@ from agent_brain.memory.context.context_loading import render_context_view, sele
 from agent_brain.memory.context.context_packing import ContextPack
 from agent_brain.memory.context.context_firewall_types import ContextCandidate
 from agent_brain.memory.context.injection_gateway import (
+    HYDRATE_ERROR_REASON,
     INJECTION_EXCLUSION_REASONS,
     InjectionResult,
     _record_injection_diagnostic,
     build_injection_context,
+    injection_exclusion_reason_counts,
     injection_retrieval_top_k,
+    surface_injection_metrics,
 )
 from agent_brain.memory.context.query_signal import analyze_injection_query
 import agent_brain.interfaces.cli as _cli  # noqa: E402  late binding for test-patched helpers
@@ -40,6 +42,7 @@ _NEAR_MISS_REJECTION_REASONS = {
 }
 _AGGREGATE_GAP_KEYS = {
     "excluded_count",
+    "hydrate_error_count",
     "included_count",
     "retrieved_count",
     "source_evidence_count",
@@ -161,13 +164,19 @@ def search(
         # inclusions are allowed to affect access accounting.
         search_kwargs["record_access"] = False
     hits = retriever.search(effective_query, **search_kwargs)
+    raw_candidate_count = len(hits)
     if not hits:
         if record_recall_gap:
             _record_search_gap(
                 query=answerability_query if context_firewall else query,
                 reason="empty_recall",
                 evidence=(
-                    ["retrieved_count=0"]
+                    _aggregate_gap_evidence(
+                        retrieved_count=0,
+                        included_count=0,
+                        decisions=(),
+                        hydrate_error_count=0,
+                    )
                     if context_firewall
                     else []
                 ),
@@ -182,11 +191,13 @@ def search(
     type_order = _parse_type_order(prefer_type)
     context_packs_by_id: dict[str, ContextPack] = {}
     injection_result: InjectionResult | None = None
+    injection_metrics: dict[str, object] | None = None
     if context_firewall:
+        hydrate_error_count = sum(1 for hit in hits if hit.id not in items_by_id)
         _record_injection_diagnostic(
             surface="cli-search",
-            reason="hydrate_error",
-            count=sum(1 for hit in hits if hit.id not in items_by_id),
+            reason=HYDRATE_ERROR_REASON,
+            count=hydrate_error_count,
         )
         hit_by_id = {hit.id: hit for hit in hits}
         candidates = [
@@ -216,6 +227,11 @@ def search(
             max_items=top_k,
             current_scope=current_scope or None,
         )
+        injection_metrics = surface_injection_metrics(
+            injection_result,
+            raw_candidate_count=raw_candidate_count,
+            hydrate_error_count=hydrate_error_count,
+        )
         context_packs_by_id = {
             entry.decision.candidate.item.id: entry.pack
             for entry in injection_result.included
@@ -232,8 +248,10 @@ def search(
                     query=answerability_query,
                     reason="all_candidates_rejected",
                     evidence=_aggregate_gap_evidence(
+                        retrieved_count=raw_candidate_count,
                         included_count=0,
                         decisions=injection_result.excluded,
+                        hydrate_error_count=hydrate_error_count,
                     ),
                     adapter=adapter,
                     session=session,
@@ -244,13 +262,15 @@ def search(
             return
         if record_recall_gap:
             rejected = _significant_rejected_decisions(injection_result.excluded)
-            if rejected:
+            if rejected or hydrate_error_count:
                 _record_search_gap(
                     query=answerability_query,
                     reason="partial_candidates_rejected",
                     evidence=_aggregate_gap_evidence(
+                        retrieved_count=raw_candidate_count,
                         included_count=len(injection_result.included),
-                        decisions=rejected,
+                        decisions=injection_result.excluded,
+                        hydrate_error_count=hydrate_error_count,
                     ),
                     adapter=adapter,
                     session=session,
@@ -265,8 +285,8 @@ def search(
             from agent_brain.memory.context.injection_cohorts import record_injection_cohort as _record_injection_cohort
 
             pack_metrics: dict[str, object] = {}
-            if injection_result is not None:
-                pack_metrics.update(injection_result.metrics())
+            if injection_metrics is not None:
+                pack_metrics.update(injection_metrics)
             retrieval_trace = [
                 hit.trace.to_dict()
                 for hit in hits
@@ -371,19 +391,26 @@ def _significant_rejected_decisions(decisions) -> list:
     ]
 
 
-def _aggregate_gap_evidence(*, included_count: int, decisions) -> list[str]:
-    reason_counts = Counter(
-        reason
-        for decision in decisions
-        for reason in set(decision.reasons)
+def _aggregate_gap_evidence(
+    *,
+    retrieved_count: int,
+    included_count: int,
+    decisions,
+    hydrate_error_count: int,
+) -> list[str]:
+    reason_counts = injection_exclusion_reason_counts(
+        decisions,
+        hydrate_error_count=hydrate_error_count,
     )
-    evidence = []
-    if included_count:
-        evidence.append(f"included_count={included_count}")
-    evidence.append(f"excluded_count={len(decisions)}")
+    evidence = [
+        f"retrieved_count={retrieved_count}",
+        f"included_count={included_count}",
+        f"hydrate_error_count={hydrate_error_count}",
+        f"excluded_count={len(decisions) + hydrate_error_count}",
+    ]
     evidence.extend(
         f"excluded_reason.{reason}={count}"
-        for reason, count in sorted(reason_counts.items())
+        for reason, count in reason_counts.items()
     )
     return evidence
 

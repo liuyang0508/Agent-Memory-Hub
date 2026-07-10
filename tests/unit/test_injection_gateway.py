@@ -169,6 +169,72 @@ def test_gateway_metrics_are_aggregate_only():
         assert context_candidate.body not in rendered_metrics
 
 
+@pytest.mark.parametrize(
+    ("with_safe_candidate", "raw_candidate_count", "expected_gateway_count"),
+    [
+        (False, 1, 0),
+        (True, 2, 1),
+    ],
+)
+def test_surface_metrics_count_hydrate_failures_without_fake_candidates(
+    with_safe_candidate,
+    raw_candidate_count,
+    expected_gateway_count,
+):
+    from agent_brain.memory.context.injection_gateway import (
+        HYDRATE_ERROR_REASON,
+        build_injection_context,
+        surface_injection_metrics,
+    )
+
+    safe = item("surface-hydrate-safe")
+    candidates = [candidate(safe)] if with_safe_candidate else []
+    result = build_injection_context(candidates)
+    gateway_metrics = result.metrics()
+
+    metrics = surface_injection_metrics(
+        result,
+        raw_candidate_count=raw_candidate_count,
+        hydrate_error_count=1,
+    )
+
+    # Bare Gateway metrics describe only candidates that reached the Gateway.
+    assert gateway_metrics["candidate_count"] == expected_gateway_count
+    assert gateway_metrics["excluded_count"] == 0
+    # Surface metrics describe the full raw-hit partition, including ghosts.
+    assert metrics["candidate_count"] == raw_candidate_count
+    assert metrics["raw_candidate_count"] == raw_candidate_count
+    assert metrics["gateway_candidate_count"] == expected_gateway_count
+    assert metrics["included_count"] == expected_gateway_count
+    assert metrics["hydrate_error_count"] == 1
+    assert metrics["excluded_count"] == 1
+    assert metrics["excluded_reasons"] == {HYDRATE_ERROR_REASON: 1}
+    rendered = repr(metrics)
+    for forbidden in (safe.id, safe.title, safe.summary, "body:"):
+        assert forbidden not in rendered
+
+
+def test_gateway_synthetic_exclusion_reasons_are_canonical(monkeypatch):
+    import agent_brain.memory.context.injection_gateway as gateway
+
+    broken = item("canonical-pack-error")
+
+    def fail_pack(*_args, **_kwargs):
+        raise RuntimeError("synthetic pack failure")
+
+    monkeypatch.setattr(gateway, "pack_decisions", fail_pack)
+    result = gateway.build_injection_context([candidate(broken)])
+    emitted = {
+        reason
+        for decision in result.excluded
+        for reason in decision.reasons
+    }
+
+    assert gateway.HYDRATE_ERROR_REASON in gateway.INJECTION_EXCLUSION_REASONS
+    assert gateway.PACK_ERROR_REASON in emitted
+    assert emitted <= gateway.INJECTION_EXCLUSION_REASONS
+
+
 def test_gateway_diagnostic_logs_only_aggregate_reason(caplog):
     from agent_brain.memory.context.injection_gateway import _record_injection_diagnostic
 
