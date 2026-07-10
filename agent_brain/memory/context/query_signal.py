@@ -59,6 +59,7 @@ _GENERIC_ASCII_ANCHORS = {
 _GENERIC_METADATA_ENTITY_TERMS = {
     "agent",
     "ai",
+    "memory",
     "决策",
     "经验",
     "工具",
@@ -636,7 +637,10 @@ def _metadata_supported_prompt_terms(prompt: str, brain_dir: Path | None) -> lis
     for phrase in cache.get("phrases", []):
         if not isinstance(phrase, str):
             continue
-        if phrase.strip().lower() in _ASCII_LITERAL_STOPWORDS:
+        normalized_phrase = phrase.strip().lower()
+        if normalized_phrase in _ASCII_LITERAL_STOPWORDS:
+            continue
+        if normalized_phrase in _GENERIC_METADATA_ENTITY_TERMS:
             continue
         if _is_generic_ascii_anchor(phrase) or _ascii_phrase_embedded_in_cjk_compound(prompt_lower, phrase):
             continue

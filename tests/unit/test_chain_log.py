@@ -309,6 +309,60 @@ def test_chain_log_pack_metrics_are_allowlisted_not_alias_blacklisted(tmp_path: 
     assert packing["preview"]["pack_metrics"] == [{"packed_tokens": 12, "full_tokens": 30}]
 
 
+def test_chain_log_preserves_aggregate_gateway_metrics_without_content(
+    tmp_path: Path,
+) -> None:
+    from agent_brain.memory.context.injection_cohorts import record_injection_cohort
+    from agent_brain.product.chain_log import build_chain_log_detail, build_chain_log_report
+
+    item_id = _write_item(tmp_path)
+    record_injection_cohort(
+        tmp_path,
+        item_ids=[item_id],
+        adapter="codex",
+        session_id="sess-aggregate-pack",
+        cwd="/repo",
+        pack_metrics={
+            "candidate_count": 3,
+            "included_count": 1,
+            "excluded_count": 2,
+            "excluded_reasons": {
+                "missing_source": 2,
+                "secret_private_title": 1,
+            },
+            "selected_views": {"locator": 1},
+            "compressed_count": 0,
+            "packed_tokens": 12,
+            "full_tokens": 30,
+            "title": "SECRET_PRIVATE_TITLE",
+            "body": "SECRET_PRIVATE_BODY",
+            "query": "SECRET_PRIVATE_QUERY",
+        },
+    )
+
+    report = build_chain_log_report(tmp_path, hours=72, limit=20).to_dict()
+    detail = build_chain_log_detail(tmp_path, report["chains"][0]["chain_id"]).to_dict()
+    packing = next(stage for stage in detail["stages"] if stage["stage_id"] == "packing")
+    metrics = packing["preview"]["pack_metrics"]
+
+    assert metrics == [{
+        "candidate_count": 3,
+        "compressed_count": 0,
+        "excluded_count": 2,
+        "excluded_reasons": {"missing_source": 2},
+        "full_tokens": 30,
+        "included_count": 1,
+        "packed_tokens": 12,
+        "selected_views": {"locator": 1},
+    }]
+    serialized = json.dumps(detail)
+    assert "SECRET_PRIVATE" not in serialized
+    assert "title" not in _collect_pack_metric_keys(metrics)
+    assert "body" not in _collect_pack_metric_keys(metrics)
+    assert "query" not in _collect_pack_metric_keys(metrics)
+    assert "secret_private_title" not in _collect_pack_metric_keys(metrics)
+
+
 def test_chain_log_accepts_retrieval_trace_like_pack_metrics(tmp_path: Path) -> None:
     from agent_brain.memory.context.injection_cohorts import record_injection_cohort
     from agent_brain.product.chain_log import build_chain_log_detail, build_chain_log_report
@@ -382,6 +436,78 @@ def test_chain_log_accepts_retrieval_trace_like_pack_metrics(tmp_path: Path) -> 
     assert _algorithm_status(detail, "mmr") == "no_change"
     assert _algorithm_status(detail, "hopfield") == "applied"
     assert _algorithm_status(detail, "graph_expansion") == "applied"
+
+
+def test_chain_log_accepts_id_free_ordered_retrieval_trace_metrics(tmp_path: Path) -> None:
+    from agent_brain.memory.context.injection_cohorts import record_injection_cohort
+    from agent_brain.product.chain_log import build_chain_log_detail, build_chain_log_report
+
+    item_id = _write_item(tmp_path)
+    record_injection_cohort(
+        tmp_path,
+        item_ids=[item_id],
+        adapter="codex",
+        session_id="sess-id-free-trace",
+        cwd="/repo",
+        pack_metrics={
+            "retrieval_trace": [
+                {
+                    "initial_bm25_rank": 3,
+                    "initial_score": 0.31,
+                    "final_rank": 1,
+                    "final_score": 0.54,
+                    "stages": [
+                        {
+                            "name": "feedback_value",
+                            "before_score": 0.31,
+                            "after_score": 0.54,
+                            "effect": "rescored",
+                        }
+                    ],
+                }
+            ]
+        },
+    )
+
+    report = build_chain_log_report(tmp_path, hours=72).to_dict()
+    detail = build_chain_log_detail(tmp_path, report["chains"][0]["chain_id"]).to_dict()
+
+    candidate = detail["candidates"][0]
+    assert candidate["score_trace"]["initial_bm25_rank"] == 3
+    assert candidate["score_trace"]["final_score"] == 0.54
+    assert _algorithm_status(detail, "feedback_value") == "applied"
+
+
+def test_chain_log_does_not_bind_mismatched_id_free_trace_rows(tmp_path: Path) -> None:
+    from agent_brain.memory.context.injection_cohorts import record_injection_cohort
+    from agent_brain.product.chain_log import build_chain_log_detail, build_chain_log_report
+
+    first_id = _write_item(tmp_path, "mem-20260706-010203-chain-first")
+    second_id = _write_item(tmp_path, "mem-20260706-010204-chain-second")
+    record_injection_cohort(
+        tmp_path,
+        item_ids=[first_id, second_id],
+        adapter="codex",
+        session_id="sess-id-free-trace-mismatch",
+        cwd="/repo",
+        pack_metrics={
+            "retrieval_trace": [
+                {
+                    "initial_score": 0.31,
+                    "final_score": 0.54,
+                    "stages": [
+                        {"name": "feedback_value", "effect": "rescored"}
+                    ],
+                }
+            ]
+        },
+    )
+
+    report = build_chain_log_report(tmp_path, hours=72).to_dict()
+    detail = build_chain_log_detail(tmp_path, report["chains"][0]["chain_id"]).to_dict()
+
+    assert all(candidate["score_trace"] == {} for candidate in detail["candidates"])
+    assert _algorithm_status(detail, "feedback_value") == "not_observed"
 
 
 def test_chain_log_does_not_observe_mmr_from_free_text_pack_metrics(tmp_path: Path) -> None:

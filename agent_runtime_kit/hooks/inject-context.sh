@@ -221,6 +221,7 @@ if [ -z "$KEYWORDS" ]; then
     "$MEMORY_PYTHON" - "$BRAIN_DIR" "$GAP_QUERY" "$GAP_JSON" \
       "${AGENT_MEMORY_HUB_ADAPTER:-unknown}" "$SESSION_ID" "$CWD" <<'PY' >/dev/null 2>&1 || true
 import json
+import hashlib
 import sys
 from pathlib import Path
 
@@ -228,11 +229,14 @@ from agent_brain.memory.governance.recall_events import record_gap
 
 brain_dir, prompt, payload_json, adapter, session_id, cwd = sys.argv[1:7]
 payload = json.loads(payload_json)
+source_evidence = payload.get("evidence", [])
+if not isinstance(source_evidence, list):
+    source_evidence = []
 record_gap(
     Path(brain_dir),
-    query=prompt,
+    query="sha256:" + hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
     reason=str(payload.get("reason") or "query_not_injectable"),
-    evidence=[str(value) for value in payload.get("evidence", [])],
+    evidence=[f"source_evidence_count={len(source_evidence)}"],
     adapter=adapter,
     session_id=session_id or None,
     cwd=cwd or None,
@@ -364,6 +368,13 @@ case "$SEARCH_STATUS" in
   124|137)
     record_hook_latency "search_memory" "timeout" "search exceeded internal hook budget"
     EMPTY_SEARCH_REASON="search_timeout"
+    RESULTS=""
+    ;;
+  0)
+    ;;
+  *)
+    record_hook_latency "search_memory" "error" "search exited nonzero"
+    EMPTY_SEARCH_REASON="search_error"
     RESULTS=""
     ;;
 esac

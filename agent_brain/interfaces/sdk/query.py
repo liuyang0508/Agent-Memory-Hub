@@ -49,6 +49,7 @@ def search_items(
     from agent_brain.memory.context.injection_gateway import (
         _record_injection_diagnostic,
         build_injection_context,
+        injection_retrieval_top_k,
     )
 
     parsed_verbosity = _parse_verbosity(verbosity)
@@ -63,7 +64,7 @@ def search_items(
     )
 
     search_kwargs: dict[str, Any] = {
-        "top_k": top_k * 3 if context_firewall else top_k,
+        "top_k": injection_retrieval_top_k(top_k) if context_firewall else top_k,
         "filters": search_filter if not search_filter.is_empty else None,
         "explain": include_trace,
     }

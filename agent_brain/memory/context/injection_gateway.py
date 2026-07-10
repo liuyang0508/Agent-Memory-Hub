@@ -18,6 +18,35 @@ from agent_brain.memory.context.query_signal import QuerySignal, analyze_injecti
 
 logger = logging.getLogger(__name__)
 _CONTEXT_VERBOSITIES = frozenset(get_args(ContextVerbosity))
+_INJECTION_OVERFETCH_CAP = 50
+INJECTION_EXCLUSION_REASONS = frozenset({
+    "answerability_mismatch",
+    "cohort_strong_anchor_undercovered",
+    "contested",
+    "duplicate_cluster",
+    "l0_evidence_only",
+    "low_confidence",
+    "max_items_exceeded",
+    "missing_source",
+    "negative_feedback",
+    "pack_budget_exceeded",
+    "pack_error",
+    "query_mismatch",
+    "query_not_injectable",
+    "requires_review",
+    "scope_mismatch",
+    "semantic_answerability_mismatch",
+    "sensitivity_not_allowed",
+    "stale_current_state",
+    "stale_handoff",
+    "stale_negative_state",
+    "stale_positive_state",
+    "stale_signal",
+    "superseded",
+    "temporal_state_conflict_newer",
+    "topic_recency_newer",
+    "very_low_confidence",
+})
 
 
 @dataclass(frozen=True)
@@ -34,14 +63,27 @@ class InjectionResult:
             for decision in self.excluded
             for reason in set(decision.reasons)
         )
+        view_counts = Counter(entry.pack.selected_view for entry in self.included)
         return {
             "candidate_count": len(self.included) + len(self.excluded),
             "included_count": len(self.included),
             "excluded_count": len(self.excluded),
             "excluded_reasons": dict(sorted(reason_counts.items())),
+            "selected_views": dict(sorted(view_counts.items())),
+            "compressed_count": sum(
+                1 for entry in self.included if entry.pack.compressed
+            ),
             "packed_tokens": self.used_tokens,
             "full_tokens": self.full_tokens,
         }
+
+
+def injection_retrieval_top_k(top_k: int) -> int:
+    """Return the shared pre-Gateway candidate limit for prompt surfaces."""
+    if top_k <= 0:
+        return top_k
+    overfetch = max(top_k * 4, top_k + 8)
+    return max(top_k, min(overfetch, _INJECTION_OVERFETCH_CAP))
 
 
 def _record_injection_diagnostic(*, surface: str, reason: str, count: int) -> None:
@@ -158,7 +200,9 @@ def build_injection_context(
 
 
 __all__ = [
+    "INJECTION_EXCLUSION_REASONS",
     "InjectionResult",
     "build_injection_context",
     "evaluate_injection_candidates",
+    "injection_retrieval_top_k",
 ]

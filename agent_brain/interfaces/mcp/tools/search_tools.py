@@ -6,6 +6,7 @@ from agent_brain.memory.context.context_firewall_types import ContextCandidate
 from agent_brain.memory.context.injection_gateway import (
     _record_injection_diagnostic,
     build_injection_context,
+    injection_retrieval_top_k,
 )
 from agent_brain.interfaces.mcp.tools._shared import *  # noqa: F401,F403
 
@@ -116,7 +117,7 @@ def search_memory(
         exclude_tags=exclude_tags or [],
         since_days=since_days, tenant_id=tenant_id,
     )
-    raw_top_k = top_k * 3 if top_k > 0 else top_k
+    raw_top_k = injection_retrieval_top_k(top_k)
     hits = retriever.search(
         query,
         top_k=raw_top_k,

@@ -339,17 +339,14 @@ def test_adapter_doctor_codex_reports_layered_context_pack_metrics(tmp_path, mon
         cwd="/repo",
         query="layered context pack smoke",
         pack_metrics={
+            "candidate_count": 1,
+            "included_count": 1,
+            "excluded_count": 0,
+            "excluded_reasons": {},
             "packed_tokens": 20,
             "full_tokens": 205,
-            "items": [
-                {
-                    "id": "mem-layered-context-pack",
-                    "selected_view": "locator",
-                    "packed_tokens": 20,
-                    "full_tokens": 205,
-                    "compressed": True,
-                }
-            ],
+            "selected_views": {"locator": 1},
+            "compressed_count": 1,
         },
     )
 
@@ -366,6 +363,43 @@ def test_adapter_doctor_codex_reports_layered_context_pack_metrics(tmp_path, mon
     assert data["memory_boundary"]["last_injection"]["item_count"] == 1
     assert data["memory_boundary"]["last_injection"]["packed_tokens"] == 20
     assert data["memory_boundary"]["last_injection"]["full_tokens"] == 205
+
+
+def test_layered_context_pack_diagnostic_accepts_legacy_item_metrics(tmp_path):
+    from agent_brain.agent_integrations.diagnostics import (
+        diagnose_layered_context_pack_evidence,
+    )
+    from agent_brain.memory.context.injection_cohorts import record_injection_cohort
+
+    record_injection_cohort(
+        tmp_path,
+        item_ids=["mem-legacy-layered-context-pack"],
+        adapter="codex",
+        pack_metrics={
+            "packed_tokens": 7,
+            "full_tokens": 21,
+            "items": [
+                {
+                    "id": "mem-legacy-layered-context-pack",
+                    "selected_view": "overview",
+                    "packed_tokens": 7,
+                    "full_tokens": 21,
+                    "compressed": True,
+                }
+            ],
+        },
+    )
+
+    check = diagnose_layered_context_pack_evidence(
+        brain_dir=tmp_path,
+        adapter="codex",
+        check_name="legacy layered pack",
+    )
+
+    assert check.status == "ok"
+    assert "items=1" in check.detail
+    assert "selected_view=overview" in check.detail
+    assert "packed=7/21t" in check.detail
 
 
 def test_adapter_install_verify_codex_promotes_after_runtime_observed(tmp_path, monkeypatch):

@@ -329,7 +329,7 @@ class TestMemoryClientSearch:
         )
 
         assert results == []
-        assert calls == [(6, None, False, False, True)]
+        assert calls == [(10, None, False, False, True)]
         assert retriever.record_access is True
 
     def test_search_items_raw_mode_supports_legacy_retriever_signature(self, tmp_path):

@@ -2,18 +2,25 @@
 # ruff: noqa: F405
 from __future__ import annotations
 
+import hashlib
 import os
+from collections import Counter
 
 from agent_brain.interfaces.cli._app import app
 from agent_brain.interfaces.cli._shared import *  # noqa: F401,F403
 from agent_brain.memory.context.context_loading import render_context_view, select_context_view
-from agent_brain.memory.context.context_packing import build_context_pack, pack_decisions
-from agent_brain.memory.context.context_firewall import ContextCandidate, ContextFirewall
-from agent_brain.memory.context.prompt_frame import PromptFrame, analyze_prompt_frame
+from agent_brain.memory.context.context_packing import ContextPack
+from agent_brain.memory.context.context_firewall_types import ContextCandidate
+from agent_brain.memory.context.injection_gateway import (
+    INJECTION_EXCLUSION_REASONS,
+    InjectionResult,
+    _record_injection_diagnostic,
+    build_injection_context,
+    injection_retrieval_top_k,
+)
 from agent_brain.memory.context.query_signal import analyze_injection_query
 import agent_brain.interfaces.cli as _cli  # noqa: E402  late binding for test-patched helpers
 
-_CONTEXT_FIREWALL_OVERFETCH_CAP = 50
 _CONTEXT_VERBOSITIES = {"locator", "overview", "detail", "auto"}
 _NEAR_MISS_REJECTION_REASONS = {
     "missing_source",
@@ -30,6 +37,12 @@ _NEAR_MISS_REJECTION_REASONS = {
     "temporal_state_conflict_newer",
     "topic_recency_newer",
     "very_low_confidence",
+}
+_AGGREGATE_GAP_KEYS = {
+    "excluded_count",
+    "included_count",
+    "retrieved_count",
+    "source_evidence_count",
 }
 
 
@@ -129,44 +142,52 @@ def search(
         since_days=since,
         include_stale_state=include_stale_state,
     )
-    if context_firewall:
-        # Auto-injection uses this path. Do not reinforce items merely because
-        # retrieval found them; excluded candidates must not become hotter.
-        retriever.record_access = False
     query_signal = None
-    prompt_frame = None
     effective_query = query
     answerability_query = os.environ.get("AGENT_MEMORY_HUB_RAW_QUERY") or query
     if context_firewall:
         frame_query = answerability_query.replace("|", " ")
-        prompt_frame = analyze_prompt_frame(frame_query, brain_dir=_brain_dir())
         query_signal = analyze_injection_query(frame_query, brain_dir=_brain_dir())
         if query_signal.injectable and query_signal.terms:
             effective_query = "|".join(query_signal.terms[:6])
-    retrieval_top_k = _context_firewall_retrieval_top_k(top_k) if context_firewall else top_k
-    hits = retriever.search(
-        effective_query,
-        top_k=retrieval_top_k,
-        filters=sf,
-        explain=explain or record_injection_cohort,
-    )
+    retrieval_top_k = injection_retrieval_top_k(top_k) if context_firewall else top_k
+    search_kwargs = {
+        "top_k": retrieval_top_k,
+        "filters": sf,
+        "explain": explain or record_injection_cohort,
+    }
+    if context_firewall:
+        # Retrieval candidates are not final prompt context. Only Gateway
+        # inclusions are allowed to affect access accounting.
+        search_kwargs["record_access"] = False
+    hits = retriever.search(effective_query, **search_kwargs)
     if not hits:
         if record_recall_gap:
             _record_search_gap(
-                query=query,
+                query=answerability_query if context_firewall else query,
                 reason="empty_recall",
-                evidence=_prompt_frame_evidence(prompt_frame),
+                evidence=(
+                    ["retrieved_count=0"]
+                    if context_firewall
+                    else []
+                ),
                 adapter=adapter,
                 session=session,
                 cwd=cwd,
+                privacy_safe=context_firewall,
             )
         typer.echo("no matches")
         return
     items_by_id = {item.id: (item, body) for item, body in store.iter_all()}
     type_order = _parse_type_order(prefer_type)
-    firewall_decisions_by_id = {}
-    firewall_result = None
+    context_packs_by_id: dict[str, ContextPack] = {}
+    injection_result: InjectionResult | None = None
     if context_firewall:
+        _record_injection_diagnostic(
+            surface="cli-search",
+            reason="hydrate_error",
+            count=sum(1 for hit in hits if hit.id not in items_by_id),
+        )
         hit_by_id = {hit.id: hit for hit in hits}
         candidates = [
             ContextCandidate(
@@ -177,6 +198,7 @@ def search(
                     items_by_id[hit.id][0],
                     type_order,
                 ),
+                source="cli-search",
             )
             for hit in hits
             if hit.id in items_by_id
@@ -186,56 +208,54 @@ def search(
             current_scope["cwd"] = cwd
         if adapter != "unknown":
             current_scope["adapter"] = adapter
-        firewall_result = ContextFirewall().filter(
+        injection_result = build_injection_context(
             candidates,
             query=answerability_query,
             query_signal=query_signal,
+            requested=verbosity,
             max_items=top_k,
             current_scope=current_scope or None,
         )
-        included_ids = [decision.candidate.item.id for decision in firewall_result.included]
-        firewall_decisions_by_id = {
-            decision.candidate.item.id: decision
-            for decision in firewall_result.included
+        context_packs_by_id = {
+            entry.decision.candidate.item.id: entry.pack
+            for entry in injection_result.included
         }
-        hits = [hit_by_id[d.candidate.item.id] for d in firewall_result.included]
+        hits = [
+            hit_by_id[item_id]
+            for item_id in context_packs_by_id
+            if item_id in hit_by_id
+        ]
+        retriever.record_accesses(hits)
         if not hits:
             if record_recall_gap:
                 _record_search_gap(
-                    query=query,
+                    query=answerability_query,
                     reason="all_candidates_rejected",
-                    rejected_ids=[decision.candidate.item.id for decision in firewall_result.excluded],
-                    evidence=(
-                        _prompt_frame_evidence(prompt_frame)
-                        + [
-                            f"{decision.candidate.item.id}:{','.join(decision.reasons)}"
-                            for decision in firewall_result.excluded
-                        ]
+                    evidence=_aggregate_gap_evidence(
+                        included_count=0,
+                        decisions=injection_result.excluded,
                     ),
                     adapter=adapter,
                     session=session,
                     cwd=cwd,
+                    privacy_safe=True,
                 )
             typer.echo("no matches")
             return
         if record_recall_gap:
-            rejected = _significant_rejected_decisions(firewall_result.excluded)
+            rejected = _significant_rejected_decisions(injection_result.excluded)
             if rejected:
                 _record_search_gap(
-                    query=query,
+                    query=answerability_query,
                     reason="partial_candidates_rejected",
-                    injected_ids=included_ids,
-                    rejected_ids=[decision.candidate.item.id for decision in rejected],
-                    evidence=(
-                        _prompt_frame_evidence(prompt_frame)
-                        + [
-                            f"{decision.candidate.item.id}:{','.join(decision.reasons)}"
-                            for decision in rejected
-                        ]
+                    evidence=_aggregate_gap_evidence(
+                        included_count=len(injection_result.included),
+                        decisions=rejected,
                     ),
                     adapter=adapter,
                     session=session,
                     cwd=cwd,
+                    privacy_safe=True,
                 )
     if type_order:
         hits.sort(key=lambda h: _type_priority(h.id, items_by_id, type_order))
@@ -245,17 +265,14 @@ def search(
             from agent_brain.memory.context.injection_cohorts import record_injection_cohort as _record_injection_cohort
 
             pack_metrics: dict[str, object] = {}
-            if firewall_result is not None:
-                pack_metrics.update(pack_decisions(
-                    firewall_result.included,
-                    requested=verbosity,
-                ).metrics())
-            retrieval_trace = {
-                hit.id: hit.trace.to_dict()
+            if injection_result is not None:
+                pack_metrics.update(injection_result.metrics())
+            retrieval_trace = [
+                hit.trace.to_dict()
                 for hit in hits
                 if hit.trace is not None and hit.id in final_ids
-            }
-            if retrieval_trace:
+            ]
+            if retrieval_trace and len(retrieval_trace) == len(final_ids):
                 pack_metrics["retrieval_trace"] = retrieval_trace
             _record_injection_cohort(
                 _brain_dir(),
@@ -278,7 +295,7 @@ def search(
                 body=_body,
                 include_audit_metadata=context_firewall,
                 verbosity=verbosity,
-                firewall_decision=firewall_decisions_by_id.get(hit.id),
+                context_pack=context_packs_by_id.get(hit.id),
                 retrieval_trace=hit.trace if explain else None,
             ):
                 typer.echo(line)
@@ -307,9 +324,19 @@ def _record_search_gap(
     adapter: str = "unknown",
     session: str | None = None,
     cwd: str | None = None,
+    privacy_safe: bool = False,
 ) -> None:
     from agent_brain.memory.governance.recall_events import record_gap
 
+    if privacy_safe:
+        query = "sha256:" + hashlib.sha256(query.encode("utf-8")).hexdigest()
+        injected_ids = []
+        rejected_ids = []
+        evidence = [
+            value
+            for value in (evidence or [])
+            if _is_aggregate_gap_evidence(value)
+        ]
     record_gap(
         _brain_dir(),
         query=query,
@@ -336,12 +363,6 @@ def _query_terms_for_injection_record(query: str) -> list[str]:
     ][:12]
 
 
-def _prompt_frame_evidence(prompt_frame: PromptFrame | None) -> list[str]:
-    if prompt_frame is None:
-        return []
-    return list(prompt_frame.evidence())
-
-
 def _significant_rejected_decisions(decisions) -> list:
     return [
         decision
@@ -350,12 +371,31 @@ def _significant_rejected_decisions(decisions) -> list:
     ]
 
 
-def _context_firewall_retrieval_top_k(top_k: int) -> int:
-    """Fetch extra candidates before the firewall while keeping final output bounded."""
-    if top_k <= 0:
-        return top_k
-    overfetch = max(top_k * 4, top_k + 8)
-    return max(top_k, min(overfetch, _CONTEXT_FIREWALL_OVERFETCH_CAP))
+def _aggregate_gap_evidence(*, included_count: int, decisions) -> list[str]:
+    reason_counts = Counter(
+        reason
+        for decision in decisions
+        for reason in set(decision.reasons)
+    )
+    evidence = []
+    if included_count:
+        evidence.append(f"included_count={included_count}")
+    evidence.append(f"excluded_count={len(decisions)}")
+    evidence.extend(
+        f"excluded_reason.{reason}={count}"
+        for reason, count in sorted(reason_counts.items())
+    )
+    return evidence
+
+
+def _is_aggregate_gap_evidence(value: str) -> bool:
+    key, separator, count = value.partition("=")
+    if not separator or not count.isdigit():
+        return False
+    if key in _AGGREGATE_GAP_KEYS:
+        return True
+    prefix = "excluded_reason."
+    return key.startswith(prefix) and key[len(prefix):] in INJECTION_EXCLUSION_REASONS
 
 
 def _parse_type_order(prefer_type: str | None) -> list[str]:
@@ -400,18 +440,15 @@ def _render_text_hit(
     include_audit_metadata: bool,
     verbosity: str = "locator",
     firewall_decision=None,
+    context_pack: ContextPack | None = None,
     retrieval_trace=None,
 ) -> list[str]:
     conf = f" conf:{item.confidence:.1f}" if item.confidence is not None and item.confidence < 1.0 else ""
     display_id = item.id if include_audit_metadata else item.id[:8]
     lines = [f"[{item.type}] **{item.title}** (id:{display_id}{conf})"]
     if include_audit_metadata:
-        context_pack = build_context_pack(
-            item,
-            body,
-            requested=verbosity,
-            firewall_decision=firewall_decision,
-        )
+        if context_pack is None:
+            raise RuntimeError("gateway context pack required for prompt output")
         lines.append(
             "  "
             f"view={context_pack.selected_view} "

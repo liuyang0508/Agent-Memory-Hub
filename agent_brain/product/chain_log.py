@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from agent_brain.agent_integrations.runtime_events import AdapterRuntimeEvent, iter_runtime_events
+from agent_brain.memory.context.injection_gateway import INJECTION_EXCLUSION_REASONS
 from agent_brain.memory.context.injection_cohorts import InjectionCohort, iter_injection_cohorts
 from agent_brain.memory.governance.recall_events import GapRecord, TaskOutcome, iter_gap_records, iter_task_outcomes
 from agent_brain.memory.store.items_store import ItemsStore
@@ -89,13 +90,18 @@ RETRIEVAL_TRACE_STAGE_ALLOWED_KEYS = {
 }
 PACK_METRICS_ALLOWED_KEYS = {
     "candidate_count",
+    "compressed_count",
     "context_pack_chars",
     "detail_refs",
+    "excluded_count",
+    "excluded_reasons",
     "full_tokens",
+    "included_count",
     "items",
     "packed_tokens",
     "query_terms_count",
     "retrieval_trace",
+    "selected_views",
     "trimmed_ids",
 }
 PACK_METRIC_ITEM_ALLOWED_KEYS = {
@@ -515,9 +521,17 @@ def _retrieval_trace_by_item(bucket: _ChainBucket) -> dict[str, dict[str, Any]]:
         if not isinstance(cohort.pack_metrics, dict):
             continue
         retrieval_trace = cohort.pack_metrics.get("retrieval_trace")
-        if not isinstance(retrieval_trace, dict):
+        if isinstance(retrieval_trace, dict):
+            trace_rows = retrieval_trace.items()
+        elif isinstance(retrieval_trace, list):
+            if len(retrieval_trace) != len(cohort.item_ids):
+                # Ordered traces carry no item IDs. A cardinality mismatch
+                # makes positional binding ambiguous, so fail closed.
+                continue
+            trace_rows = zip(cohort.item_ids, retrieval_trace)
+        else:
             continue
-        for item_id, trace in retrieval_trace.items():
+        for item_id, trace in trace_rows:
             if not isinstance(trace, dict):
                 continue
             sanitized = _sanitize_retrieval_trace(trace)
@@ -545,6 +559,16 @@ def _sanitize_pack_metrics(pack_metrics: dict[str, Any]) -> dict[str, Any]:
         }
         if trace_by_item:
             sanitized["retrieval_trace"] = trace_by_item
+    elif isinstance(retrieval_trace, list):
+        trace_rows = [
+            trace
+            for raw_trace in retrieval_trace
+            if isinstance(raw_trace, dict)
+            for trace in [_sanitize_retrieval_trace(raw_trace)]
+            if trace
+        ]
+        if trace_rows:
+            sanitized["retrieval_trace"] = trace_rows
     return _sanitize(sanitized)
 
 
@@ -553,7 +577,50 @@ def _sanitize_pack_metric_value(key: str, value: Any) -> Any:
         return _sanitize_pack_metric_items(value)
     if key == "trimmed_ids":
         return [str(item_id) for item_id in value if isinstance(item_id, str)] if isinstance(value, list) else []
+    if key == "selected_views":
+        return _sanitize_count_map(
+            value,
+            allowed_keys={"locator", "overview", "detail"},
+        )
+    if key == "excluded_reasons":
+        return _sanitize_count_map(
+            value,
+            allowed_keys=set(INJECTION_EXCLUSION_REASONS),
+        )
+    if key in {
+        "candidate_count",
+        "compressed_count",
+        "excluded_count",
+        "included_count",
+    }:
+        return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else None
     return value if isinstance(value, (bool, int, float, str)) else None
+
+
+def _sanitize_count_map(
+    value: Any,
+    *,
+    allowed_keys: set[str] | None = None,
+) -> dict[str, int]:
+    if not isinstance(value, dict):
+        return {}
+    sanitized: dict[str, int] = {}
+    for raw_key, raw_count in value.items():
+        if not isinstance(raw_key, str):
+            continue
+        key = raw_key.strip().lower()
+        if allowed_keys is not None and key not in allowed_keys:
+            continue
+        if allowed_keys is None and (
+            not key
+            or len(key) > 80
+            or any(char not in RETRIEVAL_TRACE_SIGNAL_ALLOWED_CHARS for char in key)
+        ):
+            continue
+        if not isinstance(raw_count, int) or isinstance(raw_count, bool) or raw_count < 0:
+            continue
+        sanitized[key] = raw_count
+    return dict(sorted(sanitized.items()))
 
 
 def _sanitize_pack_metric_items(value: Any) -> list[dict[str, Any]]:

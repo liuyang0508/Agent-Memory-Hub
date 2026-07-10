@@ -307,8 +307,15 @@ def test_user_prompt_hook_records_injection_cohort_when_context_is_injected(tmp_
     assert cohort.item_ids == (item.id,)
     assert cohort.cwd == "/repo"
     assert cohort.pack_metrics is not None
-    assert cohort.pack_metrics["items"][0]["id"] == item.id
+    assert "items" not in cohort.pack_metrics
+    assert cohort.pack_metrics["included_count"] == 1
+    assert sum(cohort.pack_metrics["selected_views"].values()) == 1
+    assert isinstance(cohort.pack_metrics["compressed_count"], int)
     assert cohort.pack_metrics["packed_tokens"] > 0
+    assert item.id not in repr(cohort.pack_metrics)
+    assert item.title not in repr(cohort.pack_metrics)
+    assert item.summary not in repr(cohort.pack_metrics)
+    assert body not in repr(cohort.pack_metrics)
 
 
 def test_user_prompt_hook_debug_mode_reports_query_signal_when_blocked(tmp_path):
@@ -506,6 +513,166 @@ memory_cli() {{
     assert rows[-1]["status"] == "timeout"
     assert rows[-1]["adapter"] == "codex"
     assert rows[-1]["session_id"] == "hook-search-timeout-session"
+
+
+def test_user_prompt_hook_never_injects_partial_stdout_from_failed_search(tmp_path):
+    repo = Path(__file__).resolve().parents[2]
+    runtime = tmp_path / "runtime" / "agent_runtime_kit"
+    hooks_dir = runtime / "hooks"
+    tools_dir = runtime / "tools"
+    bin_dir = tmp_path / "bin"
+    hooks_dir.mkdir(parents=True)
+    tools_dir.mkdir(parents=True)
+    bin_dir.mkdir()
+    shutil.copy2(
+        repo / "agent_runtime_kit" / "hooks" / "inject-context.sh",
+        hooks_dir / "inject-context.sh",
+    )
+    (bin_dir / "python3").symlink_to(Path(sys.executable))
+    for command in ("dirname", "cat", "head", "grep"):
+        command_path = shutil.which(command)
+        assert command_path is not None
+        (bin_dir / command).symlink_to(Path(command_path))
+    (tools_dir / "_resolve-python.sh").write_text(
+        f'''#!/usr/bin/env bash
+MEMORY_PYTHON="{sys.executable}"
+_PYTHON_OK=0
+memory_cli() {{
+  "$MEMORY_PYTHON" -m agent_brain.interfaces.cli "$@"
+}}
+''',
+        encoding="utf-8",
+    )
+    (tools_dir / "record-runtime-event.sh").write_text(
+        "#!/bin/sh\nexit 0\n",
+        encoding="utf-8",
+    )
+    malicious = "MALICIOUS_PARTIAL_PRIVATE_MEMORY_BODY"
+    (tools_dir / "search-memory.sh").write_text(
+        f"#!/bin/sh\necho '{malicious}'\nexit 1\n",
+        encoding="utf-8",
+    )
+    for script in tools_dir.iterdir():
+        script.chmod(0o755)
+
+    env = {
+        **os.environ,
+        "PATH": str(bin_dir),
+        "PYTHONPATH": f"{repo}{os.pathsep}{os.environ.get('PYTHONPATH', '')}",
+        "BRAIN_DIR": str(tmp_path / "brain"),
+        "AGENT_MEMORY_HUB_ADAPTER": "codex",
+        "AGENT_MEMORY_HUB_HOOK_OUTPUT_FORMAT": "json",
+        "AGENT_MEMORY_HUB_HOOK_TRACE_EMPTY": "1",
+        "MEMORY_HUB_TEST_EMBEDDING": "1",
+        "MEMORY_HUB_EMBEDDING_OFFLINE": "1",
+    }
+
+    result = subprocess.run(
+        ["/bin/bash", str(hooks_dir / "inject-context.sh")],
+        input=json.dumps({
+            "prompt": "Python hook context",
+            "session_id": "hook-search-error-session",
+            "cwd": "/repo/current",
+            "hook_event_name": "UserPromptSubmit",
+        }),
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert malicious not in result.stdout
+    context = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
+    assert "decision: no_injection" in context
+    assert "reason: search_error" in context
+    runtime_text = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in (tmp_path / "brain" / "runtime").glob("*.jsonl")
+    )
+    assert malicious not in runtime_text
+
+
+def test_user_prompt_hook_external_timeout_wrapper_drops_failed_search_stdout(
+    tmp_path,
+):
+    repo = Path(__file__).resolve().parents[2]
+    runtime = tmp_path / "runtime" / "agent_runtime_kit"
+    hooks_dir = runtime / "hooks"
+    tools_dir = runtime / "tools"
+    bin_dir = tmp_path / "bin"
+    hooks_dir.mkdir(parents=True)
+    tools_dir.mkdir(parents=True)
+    bin_dir.mkdir()
+    shutil.copy2(
+        repo / "agent_runtime_kit" / "hooks" / "inject-context.sh",
+        hooks_dir / "inject-context.sh",
+    )
+    (bin_dir / "python3").symlink_to(Path(sys.executable))
+    for command in ("dirname", "cat", "head", "grep"):
+        command_path = shutil.which(command)
+        assert command_path is not None
+        (bin_dir / command).symlink_to(Path(command_path))
+    (bin_dir / "timeout").write_text(
+        "#!/bin/sh\nshift\nexec \"$@\"\n",
+        encoding="utf-8",
+    )
+    (tools_dir / "_resolve-python.sh").write_text(
+        f'''#!/usr/bin/env bash
+MEMORY_PYTHON="{sys.executable}"
+_PYTHON_OK=0
+memory_cli() {{
+  "$MEMORY_PYTHON" -m agent_brain.interfaces.cli "$@"
+}}
+''',
+        encoding="utf-8",
+    )
+    (tools_dir / "record-runtime-event.sh").write_text(
+        "#!/bin/sh\nexit 0\n",
+        encoding="utf-8",
+    )
+    sentinel = "EXTERNAL_TIMEOUT_PARTIAL_PRIVATE_MEMORY_BODY"
+    (tools_dir / "search-memory.sh").write_text(
+        f"#!/bin/sh\necho '{sentinel}'\nexit 2\n",
+        encoding="utf-8",
+    )
+    for script in (*tools_dir.iterdir(), bin_dir / "timeout"):
+        script.chmod(0o755)
+
+    brain_dir = tmp_path / "brain"
+    env = {
+        **os.environ,
+        "PATH": str(bin_dir),
+        "PYTHONPATH": f"{repo}{os.pathsep}{os.environ.get('PYTHONPATH', '')}",
+        "BRAIN_DIR": str(brain_dir),
+        "AGENT_MEMORY_HUB_ADAPTER": "codex",
+        "AGENT_MEMORY_HUB_HOOK_OUTPUT_FORMAT": "json",
+        "AGENT_MEMORY_HUB_HOOK_TRACE_EMPTY": "1",
+        "MEMORY_HUB_TEST_EMBEDDING": "1",
+        "MEMORY_HUB_EMBEDDING_OFFLINE": "1",
+    }
+
+    result = subprocess.run(
+        ["/bin/bash", str(hooks_dir / "inject-context.sh")],
+        input=json.dumps({
+            "prompt": "Python external timeout wrapper boundary",
+            "session_id": "hook-external-search-error-session",
+            "cwd": "/repo/current",
+            "hook_event_name": "UserPromptSubmit",
+        }),
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert sentinel not in result.stdout
+    context = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
+    assert "reason: search_error" in context
+    runtime_text = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in (brain_dir / "runtime").glob("*.jsonl")
+    )
+    assert sentinel not in runtime_text
 
 
 def test_user_prompt_hook_uses_sanitized_qoderwork_prompt_for_recall(tmp_path):
@@ -769,6 +936,12 @@ def test_user_prompt_hook_records_recall_gap_when_no_context_matches(tmp_path):
     assert gaps[0].adapter == "codex"
     assert gaps[0].session_id == "hook-empty-session"
     assert gaps[0].cwd == "/repo/current"
+    assert gaps[0].query.startswith("sha256:")
+    assert gaps[0].injected_ids == ()
+    assert gaps[0].rejected_ids == ()
+    assert gaps[0].evidence == ("retrieved_count=0",)
+    raw_gap = (tmp_path / "runtime" / "recall-gaps.jsonl").read_text(encoding="utf-8")
+    assert "Browser hook missing context" not in raw_gap
 
 
 def test_user_prompt_hook_records_query_gate_gap_for_specific_weak_prompt(tmp_path):
@@ -1425,7 +1598,14 @@ def test_user_prompt_hook_records_multimodal_gap_without_injecting_image_memory(
     gaps = list(iter_gap_records(tmp_path))
     assert len(gaps) == 1
     assert gaps[0].reason == "multimodal_extraction_missing"
-    assert "multimodal_placeholders=Image#1" in gaps[0].evidence
+    assert gaps[0].query.startswith("sha256:")
+    assert gaps[0].injected_ids == ()
+    assert gaps[0].rejected_ids == ()
+    assert gaps[0].evidence == ("source_evidence_count=3",)
+    raw_gap = (tmp_path / "runtime" / "recall-gaps.jsonl").read_text(encoding="utf-8")
+    assert "[Image #1]" not in raw_gap
+    assert "我其他同事执行之后有问题" not in raw_gap
+    assert "Image#1" not in raw_gap
 
 
 def test_user_prompt_hook_trace_empty_reports_multimodal_missing_extraction(tmp_path):

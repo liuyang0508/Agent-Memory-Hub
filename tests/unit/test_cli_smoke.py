@@ -195,7 +195,211 @@ def test_cli_search_context_firewall_filters_bad_injection_candidates(tmp_brain)
     access_counts = idx.connection.execute(
         "SELECT SUM(access_count) FROM items_meta"
     ).fetchone()[0]
-    assert access_counts == 0
+    assert access_counts == 2
+
+
+@pytest.mark.parametrize("query", ["memory", ""])
+def test_cli_gateway_noninjectable_query_never_falls_back_to_raw_hits(
+    tmp_brain,
+    query,
+):
+    store = ItemsStore(tmp_brain / "items")
+    embedder = HashingEmbedder()
+    idx = HubIndex(tmp_brain / "index.db", embedding_dim=embedder.dim)
+    item = MemoryItem(
+        id="mem-20260711-020000-cli-weak-gateway",
+        type=MemoryType.episode,
+        created_at=datetime.now(timezone.utc),
+        title="memory",
+        summary="memory",
+        confidence=0.9,
+    )
+    store.write(item, "memory")
+    idx.upsert(item, "memory", embedding=embedder.embed("memory"))
+    idx.close()
+
+    result = runner.invoke(app, [
+        "search", query, "--format", "text", "--context-firewall",
+    ])
+
+    assert result.exit_code == 0, result.output
+    assert result.output.strip() == "no matches"
+    assert item.id not in result.output
+
+
+def test_cli_gateway_failure_never_falls_back_to_raw_hits(tmp_brain, monkeypatch):
+    store = ItemsStore(tmp_brain / "items")
+    embedder = HashingEmbedder()
+    idx = HubIndex(tmp_brain / "index.db", embedding_dim=embedder.dim)
+    item = MemoryItem(
+        id="mem-20260711-020001-cli-gateway-failure",
+        type=MemoryType.episode,
+        created_at=datetime.now(timezone.utc),
+        title="CLI gateway failure boundary",
+        summary="CLI gateway failure boundary",
+        confidence=0.9,
+    )
+    body = "CLI gateway failure raw body"
+    store.write(item, body)
+    idx.upsert(item, body, embedding=embedder.embed(body))
+    idx.close()
+
+    from agent_brain.interfaces.cli.commands import query as query_module
+
+    def fail_closed(*_args, **_kwargs):
+        raise RuntimeError("synthetic gateway failure")
+
+    monkeypatch.setattr(
+        query_module,
+        "build_injection_context",
+        fail_closed,
+        raising=False,
+    )
+    result = runner.invoke(app, [
+        "search",
+        "CLI gateway failure boundary",
+        "--format",
+        "text",
+        "--context-firewall",
+    ])
+
+    assert result.exit_code != 0
+    assert item.id not in result.output
+    assert item.title not in result.output
+    assert item.summary not in result.output
+    assert body not in result.output
+
+
+def test_cli_gateway_reports_ghost_hydrate_only_as_aggregate(tmp_brain, caplog):
+    embedder = HashingEmbedder()
+    idx = HubIndex(tmp_brain / "index.db", embedding_dim=embedder.dim)
+    ghost = MemoryItem(
+        id="mem-20260711-020002-cli-ghost-private-title",
+        type=MemoryType.episode,
+        created_at=datetime.now(timezone.utc),
+        title="CLI ghost private title",
+        summary="CLI ghost private summary",
+        confidence=0.9,
+    )
+    body = "CLI ghost private body"
+    idx.upsert(ghost, body, embedding=embedder.embed(body))
+    idx.close()
+
+    result = runner.invoke(app, [
+        "search",
+        "CLI ghost private title",
+        "--format",
+        "text",
+        "--context-firewall",
+    ])
+
+    assert result.exit_code == 0, result.output
+    assert result.output.strip() == "no matches"
+    assert "surface=cli-search reason=hydrate_error count=1" in caplog.text
+    for forbidden in (ghost.id, ghost.title, ghost.summary, body):
+        assert forbidden not in result.output
+        assert forbidden not in caplog.text
+    check = HubIndex(tmp_brain / "index.db", embedding_dim=embedder.dim)
+    assert check.get_decay_data([ghost.id])[ghost.id][4] == 0
+    check.close()
+
+
+def test_cli_raw_search_preserves_single_access_record(tmp_brain):
+    store = ItemsStore(tmp_brain / "items")
+    embedder = HashingEmbedder()
+    idx = HubIndex(tmp_brain / "index.db", embedding_dim=embedder.dim)
+    item = MemoryItem(
+        id="mem-20260711-020003-cli-raw-access",
+        type=MemoryType.episode,
+        created_at=datetime.now(timezone.utc),
+        title="CLI raw access boundary",
+        summary="CLI raw access boundary",
+        confidence=0.9,
+    )
+    body = "CLI raw access boundary"
+    store.write(item, body)
+    idx.upsert(item, body, embedding=embedder.embed(body))
+    idx.close()
+
+    result = runner.invoke(app, [
+        "search", "CLI raw access boundary", "--format", "text",
+    ])
+
+    assert result.exit_code == 0, result.output
+    assert item.title in result.output
+    check = HubIndex(tmp_brain / "index.db", embedding_dim=embedder.dim)
+    assert check.get_decay_data([item.id])[item.id][4] == 1
+    check.close()
+
+
+def test_cli_prompt_renderer_requires_gateway_context_pack():
+    from agent_brain.interfaces.cli.commands.query import _render_text_hit
+
+    item = MemoryItem(
+        id="mem-20260711-020004-cli-pack-required",
+        type=MemoryType.episode,
+        created_at=datetime.now(timezone.utc),
+        title="CLI gateway pack required",
+        summary="CLI gateway pack required",
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match="gateway context pack required for prompt output",
+    ):
+        _render_text_hit(
+            item,
+            body="must not be packed here",
+            include_audit_metadata=True,
+        )
+
+
+def test_cli_context_firewall_packs_each_included_item_once(tmp_brain, monkeypatch):
+    from agent_brain.memory.context import injection_gateway
+
+    store = ItemsStore(tmp_brain / "items")
+    embedder = HashingEmbedder()
+    idx = HubIndex(tmp_brain / "index.db", embedding_dim=embedder.dim)
+    item = MemoryItem(
+        id="mem-20260711-020005-cli-single-pack",
+        type=MemoryType.episode,
+        created_at=datetime.now(timezone.utc),
+        title="CLI single gateway pack boundary",
+        summary="CLI single gateway pack boundary",
+        confidence=0.9,
+    )
+    body = "CLI single gateway pack boundary detail"
+    store.write(item, body)
+    idx.upsert(item, body, embedding=embedder.embed(body))
+    idx.close()
+
+    original_pack_decisions = injection_gateway.pack_decisions
+    pack_calls = 0
+
+    def counting_pack_decisions(*args, **kwargs):
+        nonlocal pack_calls
+        pack_calls += 1
+        return original_pack_decisions(*args, **kwargs)
+
+    monkeypatch.setattr(
+        injection_gateway,
+        "pack_decisions",
+        counting_pack_decisions,
+    )
+
+    result = runner.invoke(app, [
+        "search",
+        "CLI single gateway pack boundary",
+        "--top-k",
+        "1",
+        "--format",
+        "text",
+        "--context-firewall",
+    ])
+
+    assert result.exit_code == 0, result.output
+    assert item.title in result.output
+    assert pack_calls == 1
 
 
 def test_cli_search_context_firewall_applies_cohort_gate(tmp_brain):
@@ -340,11 +544,17 @@ def test_cli_search_records_gap_when_firewall_rejects_all(tmp_brain):
     gaps = list(iter_gap_records(tmp_brain))
     assert len(gaps) == 1
     assert gaps[0].reason == "all_candidates_rejected"
-    assert gaps[0].rejected_ids == (item.id,)
+    assert gaps[0].query.startswith("sha256:")
+    assert gaps[0].injected_ids == ()
+    assert gaps[0].rejected_ids == ()
     assert gaps[0].adapter == "codex"
     assert gaps[0].session_id == "sess-gap"
     assert gaps[0].cwd == "/repo"
-    assert any("missing_source" in evidence for evidence in gaps[0].evidence)
+    assert "excluded_count=1" in gaps[0].evidence
+    assert "excluded_reason.missing_source=1" in gaps[0].evidence
+    raw_gap = (tmp_brain / "runtime" / "recall-gaps.jsonl").read_text(encoding="utf-8")
+    for forbidden in ("Python", item.id, item.title, item.summary, body):
+        assert forbidden not in raw_gap
 
 
 def test_cli_search_records_gap_when_retrieval_is_empty(tmp_brain):
@@ -372,11 +582,30 @@ def test_cli_search_records_gap_when_retrieval_is_empty(tmp_brain):
     gaps = list(iter_gap_records(tmp_brain))
     assert len(gaps) == 1
     assert gaps[0].reason == "empty_recall"
-    assert gaps[0].query == "browser nothing matches"
+    assert gaps[0].query.startswith("sha256:")
     assert gaps[0].adapter == "codex"
-    assert "prompt_frame.intent_kind=unknown" in gaps[0].evidence
-    assert "prompt_frame.retrieval_mode=candidate_search" in gaps[0].evidence
-    assert "prompt_frame.injection_policy=needs_answerability" in gaps[0].evidence
+    assert gaps[0].injected_ids == ()
+    assert gaps[0].rejected_ids == ()
+    assert gaps[0].evidence == ("retrieved_count=0",)
+    raw_gap = (tmp_brain / "runtime" / "recall-gaps.jsonl").read_text(encoding="utf-8")
+    assert "browser nothing matches" not in raw_gap
+
+
+def test_cli_raw_empty_gap_uses_cli_query_not_hook_prompt(tmp_brain, monkeypatch):
+    from agent_brain.memory.governance.recall_events import iter_gap_records
+
+    monkeypatch.setenv("AGENT_MEMORY_HUB_RAW_QUERY", "SECRET_HOOK_PROMPT")
+    result = runner.invoke(app, [
+        "search",
+        "explicit raw diagnostic query",
+        "--record-recall-gap",
+    ])
+
+    assert result.exit_code == 0, result.output
+    gaps = list(iter_gap_records(tmp_brain))
+    assert len(gaps) == 1
+    assert gaps[0].query == "explicit raw diagnostic query"
+    assert "SECRET_HOOK_PROMPT" not in repr(gaps[0])
 
 
 def test_cli_search_empty_gap_distinguishes_candidate_search_from_block(tmp_brain):
@@ -404,10 +633,13 @@ def test_cli_search_empty_gap_distinguishes_candidate_search_from_block(tmp_brai
     gaps = list(iter_gap_records(tmp_brain))
     assert len(gaps) == 1
     assert gaps[0].reason == "empty_recall"
-    assert "prompt_frame.intent_kind=task_question" in gaps[0].evidence
-    assert "prompt_frame.retrieval_mode=candidate_search" in gaps[0].evidence
-    assert "prompt_frame.injection_policy=needs_answerability" in gaps[0].evidence
-    assert "prompt_frame.topic_anchors=多agent共享第二大脑" in gaps[0].evidence
+    assert gaps[0].query.startswith("sha256:")
+    assert gaps[0].injected_ids == ()
+    assert gaps[0].rejected_ids == ()
+    assert gaps[0].evidence == ("retrieved_count=0",)
+    raw_gap = (tmp_brain / "runtime" / "recall-gaps.jsonl").read_text(encoding="utf-8")
+    assert "多Agent共享第二大脑" not in raw_gap
+    assert "多agent共享第二大脑" not in raw_gap
 
 
 def test_cli_search_records_partial_gap_when_firewall_rejects_risky_candidates(tmp_brain):
@@ -461,11 +693,17 @@ def test_cli_search_records_partial_gap_when_firewall_rejects_risky_candidates(t
     gaps = list(iter_gap_records(tmp_brain))
     assert len(gaps) == 1
     assert gaps[0].reason == "partial_candidates_rejected"
-    assert gaps[0].injected_ids == (keep.id,)
-    assert gaps[0].rejected_ids == (drop.id,)
+    assert gaps[0].query.startswith("sha256:")
+    assert gaps[0].injected_ids == ()
+    assert gaps[0].rejected_ids == ()
     assert gaps[0].adapter == "codex"
     assert gaps[0].session_id == "sess-partial-gap"
-    assert any("missing_source" in evidence for evidence in gaps[0].evidence)
+    assert "included_count=1" in gaps[0].evidence
+    assert "excluded_count=1" in gaps[0].evidence
+    assert "excluded_reason.missing_source=1" in gaps[0].evidence
+    raw_gap = (tmp_brain / "runtime" / "recall-gaps.jsonl").read_text(encoding="utf-8")
+    for forbidden in ("Python", keep.id, keep.title, drop.id, drop.title, drop.summary):
+        assert forbidden not in raw_gap
 
 
 def test_partial_gap_rejections_ignore_query_mismatch_noise() -> None:
@@ -503,6 +741,23 @@ def test_partial_gap_rejections_ignore_query_mismatch_noise() -> None:
 
     assert _significant_rejected_decisions([mismatch, max_items]) == []
     assert _significant_rejected_decisions([mismatch, missing_source, max_items]) == [missing_source]
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("retrieved_count=0", True),
+        ("included_count=1", True),
+        ("excluded_reason.missing_source=2", True),
+        ("private_prompt_token=1", False),
+        ("excluded_reason.secret_prompt_words=1", False),
+        ("excluded_reason.missing_source=SECRET", False),
+    ],
+)
+def test_cli_safe_gap_evidence_uses_closed_aggregate_vocabulary(value, expected):
+    from agent_brain.interfaces.cli.commands.query import _is_aggregate_gap_evidence
+
+    assert _is_aggregate_gap_evidence(value) is expected
 
 
 def test_cli_search_context_firewall_excludes_scope_mismatch_state(tmp_brain):
@@ -895,7 +1150,15 @@ def test_cli_search_records_final_firewalled_injection_cohort(tmp_brain):
     assert cohort.query_sha256 is not None
     assert cohort.query_terms == ("Python",)
     assert cohort.pack_metrics is not None
-    trace = cohort.pack_metrics["retrieval_trace"][keep.id]
+    assert "items" not in cohort.pack_metrics
+    assert cohort.pack_metrics["included_count"] == 1
+    assert sum(cohort.pack_metrics["selected_views"].values()) == 1
+    assert isinstance(cohort.pack_metrics["compressed_count"], int)
+    assert keep.id not in repr(cohort.pack_metrics)
+    trace_rows = cohort.pack_metrics["retrieval_trace"]
+    assert isinstance(trace_rows, list)
+    assert len(trace_rows) == 1
+    trace = trace_rows[0]
     assert trace["final_rank"] == 1
     assert "stages" in trace
 

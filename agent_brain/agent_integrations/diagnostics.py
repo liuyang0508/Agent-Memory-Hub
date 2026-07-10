@@ -119,6 +119,57 @@ def diagnose_layered_context_pack_evidence(
             fix="reinstall the adapter, trigger UserPromptSubmit, then re-run adapter doctor",
         )
 
+    packed_tokens = metrics.get("packed_tokens")
+    full_tokens = metrics.get("full_tokens")
+    if "selected_views" in metrics:
+        included_count = metrics.get("included_count")
+        selected_view_counts = metrics.get("selected_views")
+        compressed_count = metrics.get("compressed_count")
+        valid_view_counts = (
+            isinstance(selected_view_counts, dict)
+            and bool(selected_view_counts)
+            and all(
+                view in {"locator", "overview", "detail"}
+                and isinstance(count, int)
+                and not isinstance(count, bool)
+                and count > 0
+                for view, count in selected_view_counts.items()
+            )
+        )
+        aggregate_valid = (
+            isinstance(included_count, int)
+            and not isinstance(included_count, bool)
+            and included_count > 0
+            and valid_view_counts
+            and sum(selected_view_counts.values()) == included_count
+            and isinstance(compressed_count, int)
+            and not isinstance(compressed_count, bool)
+            and 0 <= compressed_count <= included_count
+            and isinstance(packed_tokens, int)
+            and not isinstance(packed_tokens, bool)
+            and packed_tokens >= 0
+            and isinstance(full_tokens, int)
+            and not isinstance(full_tokens, bool)
+            and full_tokens >= 0
+        )
+        if not aggregate_valid:
+            return AdapterDiagnosticCheck(
+                name=check_name,
+                status="warn",
+                detail=f"latest injection cohort {cohort.cohort_id} has malformed pack metrics",
+                fix="reinstall the adapter, trigger UserPromptSubmit, then re-run adapter doctor",
+            )
+        selected_views = sorted(selected_view_counts)
+        return AdapterDiagnosticCheck(
+            name=check_name,
+            status="ok",
+            detail=(
+                f"observed context_pack cohort {cohort.cohort_id}; "
+                f"items={included_count} selected_view={','.join(selected_views)} "
+                f"packed={packed_tokens}/{full_tokens}t compressed={compressed_count}"
+            ),
+        )
+
     items = metrics.get("items")
     if not isinstance(items, list) or not items:
         return AdapterDiagnosticCheck(
@@ -134,8 +185,6 @@ def diagnose_layered_context_pack_evidence(
         for item in item_metrics
         if item.get("selected_view")
     })
-    packed_tokens = metrics.get("packed_tokens")
-    full_tokens = metrics.get("full_tokens")
     if not selected_views or not isinstance(packed_tokens, int) or not isinstance(full_tokens, int):
         return AdapterDiagnosticCheck(
             name=check_name,

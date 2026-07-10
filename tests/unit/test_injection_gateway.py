@@ -149,12 +149,15 @@ def test_gateway_metrics_are_aggregate_only():
     rejected_candidate = candidate(rejected)
     metrics = build_injection_context(
         [safe_candidate, rejected_candidate],
+        requested="detail",
     ).metrics()
 
     assert "items" not in metrics
     assert metrics["candidate_count"] == 2
     assert metrics["included_count"] == 1
     assert metrics["excluded_count"] == 1
+    assert metrics["selected_views"] == {"detail": 1}
+    assert metrics["compressed_count"] == 0
     rendered_metrics = repr(metrics)
     for value, context_candidate in (
         (safe, safe_candidate),
