@@ -45,3 +45,44 @@ def test_bounded_jsonl_rejects_short_js_unsafe_and_nonfinite_numbers(tmp_path) -
     )
 
     assert list(iter_bounded_jsonl(path)) == [{"ok": 1}, {"ok": 0.5}]
+
+
+def test_bounded_jsonl_skips_recursion_bomb_and_keeps_following_row(tmp_path) -> None:
+    from agent_brain.platform.bounded_jsonl import iter_bounded_jsonl
+
+    path = tmp_path / "deep-recursion.jsonl"
+    depth = 10_000
+    deep_row = '{"nested":' + ("[" * depth) + "0" + ("]" * depth) + "}"
+    path.write_text(deep_row + '\n{"ok":1}\n', encoding="utf-8")
+
+    assert list(iter_bounded_jsonl(path)) == [{"ok": 1}]
+
+
+def test_bounded_jsonl_enforces_exported_iterative_nesting_limit(tmp_path) -> None:
+    from agent_brain.platform.bounded_jsonl import (
+        MAX_JSON_NESTING,
+        iter_bounded_jsonl,
+    )
+
+    path = tmp_path / "bounded-nesting.jsonl"
+    at_limit_lists = MAX_JSON_NESTING - 1
+    at_limit = (
+        '{"nested":'
+        + ("[" * at_limit_lists)
+        + "0"
+        + ("]" * at_limit_lists)
+        + "}"
+    )
+    over_limit = (
+        '{"nested":'
+        + ("[" * MAX_JSON_NESTING)
+        + "0"
+        + ("]" * MAX_JSON_NESTING)
+        + "}"
+    )
+    path.write_text(at_limit + "\n" + over_limit + '\n{"ok":1}\n', encoding="utf-8")
+
+    rows = list(iter_bounded_jsonl(path))
+
+    assert len(rows) == 2
+    assert rows[-1] == {"ok": 1}

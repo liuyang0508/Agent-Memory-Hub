@@ -77,6 +77,41 @@ def test_data_flow_skips_task_outcomes_with_invalid_confidence_and_continues(
     json.dumps([event.to_dict() for event in events], allow_nan=False)
 
 
+def test_task_outcome_reader_and_data_flow_continue_after_deep_json_row(
+    tmp_brain: Path,
+) -> None:
+    from agent_brain.memory.governance.recall_events import (
+        iter_task_outcomes,
+        task_outcomes_path,
+    )
+    from agent_brain.observability.data_flow import DataFlowLedger
+
+    timestamp = datetime.now(timezone.utc).isoformat()
+    valid = {
+        "outcome_id": "out-after-deep-json",
+        "timestamp": timestamp,
+        "task_id": "task-after-deep-json",
+        "question": "q",
+        "normalized_question": "q",
+        "outcome": "accepted",
+        "confidence": 0.75,
+    }
+    depth = 10_000
+    deep_row = '{"nested":' + ("[" * depth) + "0" + ("]" * depth) + "}"
+    path = task_outcomes_path(tmp_brain)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        deep_row + "\n" + json.dumps(valid) + "\n",
+        encoding="utf-8",
+    )
+
+    outcomes = list(iter_task_outcomes(tmp_brain))
+    events = DataFlowLedger(tmp_brain).list_events(source="task_outcome")
+
+    assert [outcome.outcome_id for outcome in outcomes] == ["out-after-deep-json"]
+    assert [event.event_id for event in events] == ["out-after-deep-json"]
+
+
 def test_data_flow_ledger_merges_recent_runtime_sources_and_redacts_raw_text(tmp_brain: Path):
     from agent_brain.agent_integrations.runtime_events import record_runtime_event
     from agent_brain.agent_integrations.verifications import record_adapter_verification
