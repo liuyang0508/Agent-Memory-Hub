@@ -297,3 +297,128 @@ def test_gateway_refills_max_item_slot_after_pack_budget_exclusion():
     assert "pack_budget_exceeded" in result.excluded[0].reasons
     assert result.used_tokens == result.included[0].pack.packed_tokens
     assert result.full_tokens == result.included[0].pack.full_tokens
+
+
+def test_gateway_packs_each_candidate_once_during_multiple_refills(monkeypatch):
+    from collections import Counter
+
+    import agent_brain.memory.context.injection_gateway as gateway
+
+    stable = item("stable-multi-refill")
+    broken_one = item("broken-one-multi-refill")
+    broken_two = item("broken-two-multi-refill")
+    replacement = item("replacement-multi-refill")
+    broken_ids = {broken_one.id, broken_two.id}
+    real_pack = gateway.pack_decisions
+    pack_calls = Counter()
+
+    def conditional_pack(decisions, **kwargs):
+        item_id = decisions[0].candidate.item.id
+        pack_calls[item_id] += 1
+        if item_id in broken_ids:
+            raise RuntimeError("synthetic pack failure")
+        return real_pack(decisions, **kwargs)
+
+    monkeypatch.setattr(gateway, "pack_decisions", conditional_pack)
+    result = gateway.build_injection_context(
+        [
+            candidate(stable, 4.0),
+            candidate(broken_one, 3.0),
+            candidate(broken_two, 2.0),
+            candidate(replacement, 1.0),
+        ],
+        max_items=2,
+    )
+
+    assert [entry.decision.candidate.item.id for entry in result.included] == [
+        stable.id,
+        replacement.id,
+    ]
+    assert pack_calls == Counter({
+        stable.id: 1,
+        broken_one.id: 1,
+        broken_two.id: 1,
+        replacement.id: 1,
+    })
+
+
+def test_gateway_runs_semantic_answerability_once_per_candidate(monkeypatch):
+    from collections import Counter
+
+    import agent_brain.memory.context.injection_gateway as gateway
+    from agent_brain.memory.context.answerability import SemanticAnswerabilityDecision
+    from agent_brain.memory.context.context_firewall import ContextFirewall
+
+    stable = item("stable-semantic-refill")
+    broken = item("broken-semantic-refill")
+    replacement = item("replacement-semantic-refill")
+    verify_calls = Counter()
+
+    class CountingVerifier:
+        def verify(self, *, query, candidate, signal, deterministic):
+            del query, signal, deterministic
+            verify_calls[candidate.item.id] += 1
+            return SemanticAnswerabilityDecision(answerable=True)
+
+    verifier = CountingVerifier()
+    monkeypatch.setattr(
+        gateway,
+        "ContextFirewall",
+        lambda: ContextFirewall(answerability_verifier=verifier),
+    )
+    real_pack = gateway.pack_decisions
+
+    def conditional_pack(decisions, **kwargs):
+        if decisions[0].candidate.item.id == broken.id:
+            raise RuntimeError("synthetic pack failure")
+        return real_pack(decisions, **kwargs)
+
+    monkeypatch.setattr(gateway, "pack_decisions", conditional_pack)
+    result = gateway.build_injection_context(
+        [
+            candidate(stable, 3.0),
+            candidate(broken, 2.0),
+            candidate(replacement, 1.0),
+        ],
+        query="injection gateway semantic refill",
+        max_items=2,
+    )
+
+    assert [entry.decision.candidate.item.id for entry in result.included] == [
+        stable.id,
+        replacement.id,
+    ]
+    assert verify_calls == Counter({
+        stable.id: 1,
+        broken.id: 1,
+        replacement.id: 1,
+    })
+
+
+def test_gateway_revalidates_final_max_limited_cohort() -> None:
+    from agent_brain.memory.context.injection_gateway import build_injection_context
+
+    alpha = item("alpha-only").model_copy(update={
+        "title": "Alpha implementation",
+        "summary": "Alpha implementation detail",
+    })
+    beta = item("beta-only").model_copy(update={
+        "title": "Alpha beta implementation",
+        "summary": "Alpha beta implementation detail",
+    })
+
+    result = build_injection_context(
+        [candidate(alpha, 2.0), candidate(beta, 1.0)],
+        query="alpha beta",
+        max_items=1,
+    )
+
+    assert result.included == []
+    assert result.used_tokens == 0
+    assert result.full_tokens == 0
+    rejected = {
+        decision.candidate.item.id: decision
+        for decision in result.excluded
+    }
+    assert "cohort_strong_anchor_undercovered" in rejected[alpha.id].reasons
+    assert "max_items_exceeded" in rejected[beta.id].reasons

@@ -155,6 +155,15 @@ class ContextFirewall:
             cohort_reasons=(*temporal_conflicts.reasons, *cohort.reasons),
         )
 
+    def validate_cohort(
+        self,
+        included: list[FirewallDecision],
+        *,
+        query_signal: QuerySignal | None,
+    ) -> CohortGateResult:
+        """Recheck query-level cohort rules without repeating item evaluation."""
+        return self._apply_cohort_gate(included, signal=query_signal)
+
     def _apply_temporal_conflict_gate(
         self,
         included: list[FirewallDecision],

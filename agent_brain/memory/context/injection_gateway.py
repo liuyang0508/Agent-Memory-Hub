@@ -91,60 +91,70 @@ def build_injection_context(
     signal = query_signal
     if signal is None and query is not None:
         signal = analyze_injection_query(query.replace("|", " "))
-    active_candidates = list(candidates)
+    firewall_engine = ContextFirewall()
+    firewall = firewall_engine.filter(
+        candidates,
+        query=query,
+        query_signal=signal,
+        max_items=None,
+        current_scope=current_scope,
+    )
+    included: list[PackedDecision] = []
     packing_excluded: list[FirewallDecision] = []
-    while True:
-        firewall = evaluate_injection_candidates(
-            active_candidates,
-            query=query,
-            query_signal=signal,
-            max_items=max_items,
-            current_scope=current_scope,
+    max_excluded: list[FirewallDecision] = []
+    slot_limit = None if max_items is None else max(0, max_items)
+    used_tokens = 0
+
+    for decision in firewall.included:
+        if slot_limit is not None and len(included) >= slot_limit:
+            max_excluded.append(exclude_with(decision, "max_items_exceeded"))
+            continue
+        remaining = (
+            None if budget_tokens is None else max(0, budget_tokens - used_tokens)
         )
-        included: list[PackedDecision] = []
-        used_tokens = 0
-        full_tokens = 0
-        failed_decision: FirewallDecision | None = None
-        for decision in firewall.included:
-            remaining = (
-                None if budget_tokens is None else max(0, budget_tokens - used_tokens)
+        try:
+            packed = pack_decisions(
+                [decision],
+                requested=requested,
+                budget_tokens=remaining,
             )
-            try:
-                packed = pack_decisions(
-                    [decision],
-                    requested=requested,
-                    budget_tokens=remaining,
-                )
-            except Exception:
-                failed_decision = exclude_with(decision, "pack_error")
-                break
-            if not packed.included:
-                failed_decision = (
-                    packed.excluded[0]
-                    if packed.excluded
-                    else exclude_with(decision, "pack_error")
-                )
-                break
-            included.extend(packed.included)
-            used_tokens += packed.used_tokens
-            full_tokens += packed.full_tokens
-
-        if failed_decision is None:
-            return InjectionResult(
-                included=included,
-                excluded=[*firewall.excluded, *packing_excluded],
-                cohort_reasons=firewall.cohort_reasons,
-                used_tokens=used_tokens,
-                full_tokens=full_tokens,
+        except Exception:
+            packing_excluded.append(exclude_with(decision, "pack_error"))
+            continue
+        if not packed.included:
+            packing_excluded.extend(
+                packed.excluded or [exclude_with(decision, "pack_error")]
             )
+            continue
+        included.extend(packed.included)
+        used_tokens += packed.used_tokens
 
-        packing_excluded.append(failed_decision)
-        failed_id = failed_decision.candidate.item.id
-        active_candidates = [
-            candidate
-            for candidate in active_candidates
-            if candidate.item.id != failed_id
-        ]
+    final_cohort = firewall_engine.validate_cohort(
+        [entry.decision for entry in included],
+        query_signal=signal,
+    )
+    final_ids = {decision.candidate.item.id for decision in final_cohort.included}
+    final_included = [
+        entry
+        for entry in included
+        if entry.decision.candidate.item.id in final_ids
+    ]
+    cohort_reasons = tuple(dict.fromkeys([
+        *firewall.cohort_reasons,
+        *final_cohort.reasons,
+    ]))
+    return InjectionResult(
+        included=final_included,
+        excluded=[
+            *firewall.excluded,
+            *packing_excluded,
+            *max_excluded,
+            *final_cohort.excluded,
+        ],
+        cohort_reasons=cohort_reasons,
+        used_tokens=sum(entry.pack.packed_tokens for entry in final_included),
+        full_tokens=sum(entry.pack.full_tokens for entry in final_included),
+    )
 
 
 __all__ = [

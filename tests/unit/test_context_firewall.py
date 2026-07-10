@@ -49,6 +49,29 @@ def _decision_by_id(result, item_id: str):
     return next(d for d in result.decisions if d.candidate.item.id == item_id)
 
 
+def test_validate_cohort_rechecks_coverage_without_item_evaluation() -> None:
+    from agent_brain.memory.context.context_firewall import ContextCandidate, ContextFirewall
+    from agent_brain.memory.context.query_signal import analyze_injection_query
+
+    item = _item(
+        "cohort-only",
+        "episode",
+        "Alpha implementation",
+        "Alpha implementation detail",
+    )
+    firewall = ContextFirewall(now=NOW)
+    decision = firewall.filter([ContextCandidate(item, score=1.0)]).included[0]
+
+    result = firewall.validate_cohort(
+        [decision],
+        query_signal=analyze_injection_query("alpha beta"),
+    )
+
+    assert result.included == []
+    assert result.reasons == ("cohort_strong_anchor_undercovered",)
+    assert "cohort_strong_anchor_undercovered" in result.excluded[0].reasons
+
+
 def test_missing_source_fact_is_excluded_but_sourced_fact_is_included() -> None:
     from agent_brain.memory.context.context_firewall import ContextCandidate, ContextFirewall
 
