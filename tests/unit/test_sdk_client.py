@@ -1,11 +1,19 @@
 """Unit tests for the Agent SDK (MemoryClient)."""
 from __future__ import annotations
 
+import inspect
 from types import SimpleNamespace
 
 import pytest
 
 from agent_brain.interfaces.sdk import MemoryClient, SearchResult
+
+
+def test_sdk_search_firewall_defaults_are_secure():
+    from agent_brain.interfaces.sdk.query import search_items
+
+    assert inspect.signature(MemoryClient.search).parameters["context_firewall"].default is True
+    assert inspect.signature(search_items).parameters["context_firewall"].default is True
 
 
 def test_sdk_query_helpers_are_split_and_reexported():
@@ -139,21 +147,216 @@ class TestMemoryClientWrite:
 
 class TestMemoryClientSearch:
     def test_search_finds_written_items(self, client):
-        client.write(type="decision", title="SSE over WebSocket",
-                     summary="Chose SSE for push", tags=["api"])
-        client.write(type="fact", title="Redis cache TTL",
-                     summary="TTL set to 300s", tags=["cache"])
+        client.write(
+            type="decision",
+            title="SSE over WebSocket",
+            summary="Chose SSE for push",
+            tags=["api"],
+            refs={"urls": ["https://example.test/sse"]},
+        )
+        client.write(
+            type="fact",
+            title="Redis cache TTL",
+            summary="TTL set to 300s",
+            tags=["cache"],
+            refs={"urls": ["https://example.test/redis"]},
+        )
 
-        results = client.search("SSE push")
-        assert len(results) >= 1
-        assert any("SSE" in r.title for r in results)
+        results = client.search("SSE WebSocket push")
+        assert results
+        assert any("SSE" in result.title for result in results)
 
     def test_search_returns_search_result_objects(self, client):
-        client.write(type="fact", title="Test item", summary="Testing")
-        results = client.search("test")
-        assert all(isinstance(r, SearchResult) for r in results)
-        if results:
-            assert results[0].score > 0
+        client.write(
+            type="episode",
+            title="SDK search result object",
+            summary="SDK search result object contract",
+        )
+
+        results = client.search("SDK search result object")
+
+        assert results
+        assert all(isinstance(result, SearchResult) for result in results)
+        assert results[0].score > 0
+
+    def test_search_defaults_to_gateway_and_hides_forbidden_items(self, client):
+        safe_id = client.write(
+            type="episode",
+            title="SDK gateway cohort safe",
+            summary="SDK gateway cohort boundary",
+        )
+        forbidden = [
+            client.write(
+                type="episode",
+                title="SDK gateway cohort private",
+                summary="SDK private forbidden summary",
+                body="SDK private forbidden body",
+                sensitivity="private",
+                allow_unsafe=True,
+            ),
+            client.write(
+                type="episode",
+                title="SDK gateway cohort secret",
+                summary="SDK secret forbidden summary",
+                body="SDK secret forbidden body",
+                sensitivity="secret",
+                allow_unsafe=True,
+            ),
+            client.write(
+                type="episode",
+                title="SDK gateway cohort review",
+                summary="SDK review forbidden summary",
+                body="SDK review forbidden body",
+                tags=["needs-review"],
+                allow_unsafe=True,
+            ),
+            client.write(
+                type="episode",
+                title="SDK gateway cohort superseded",
+                summary="SDK superseded forbidden summary",
+                body="SDK superseded forbidden body",
+            ),
+        ]
+        client._components.get_store().update_frontmatter(
+            forbidden[-1],
+            superseded_by=safe_id,
+        )
+
+        results = client.search("SDK gateway cohort boundary", top_k=10)
+
+        assert [result.id for result in results] == [safe_id]
+        serialized = repr(results)
+        for item_id in forbidden:
+            assert item_id not in serialized
+        for marker in ("private", "secret", "review", "superseded"):
+            assert f"SDK gateway cohort {marker}" not in serialized
+            assert f"SDK {marker} forbidden summary" not in serialized
+            assert f"SDK {marker} forbidden body" not in serialized
+
+    def test_explicit_raw_search_keeps_diagnostics_without_context_pack(self, client):
+        item_id = client.write(
+            type="episode",
+            title="SDK raw injection gateway",
+            summary="SDK raw boundary",
+            body="sdk raw body",
+            sensitivity="secret",
+            allow_unsafe=True,
+        )
+
+        results = client.search(
+            "SDK raw injection gateway",
+            context_firewall=False,
+            include_trace=True,
+        )
+
+        assert len(results) == 1
+        assert results[0].id == item_id
+        assert results[0].title == "SDK raw injection gateway"
+        assert results[0].summary == "SDK raw boundary"
+        assert results[0].snippet.strip() == "sdk raw body"
+        assert results[0].retrieval_trace is not None
+        assert results[0].context_pack is None
+        assert results[0].firewall is None
+
+    def test_gateway_failure_never_falls_back_to_raw(self, client, monkeypatch):
+        client.write(
+            type="episode",
+            title="SDK gateway failure boundary",
+            summary="SDK gateway failure boundary",
+        )
+        import agent_brain.memory.context.injection_gateway as gateway_module
+
+        def fail_closed(*_args, **_kwargs):
+            raise RuntimeError("synthetic gateway failure")
+
+        monkeypatch.setattr(gateway_module, "build_injection_context", fail_closed)
+
+        with pytest.raises(RuntimeError, match="synthetic gateway failure"):
+            client.search("SDK gateway failure boundary")
+
+    @pytest.mark.parametrize("context_firewall", [True, False])
+    def test_invalid_verbosity_is_rejected_in_safe_and_raw_modes(
+        self,
+        client,
+        context_firewall,
+    ):
+        client.write(
+            type="episode",
+            title="SDK invalid verbosity boundary",
+            summary="SDK invalid verbosity boundary",
+        )
+
+        with pytest.raises(
+            ValueError,
+            match="verbosity must be one of: locator, overview, detail, auto",
+        ):
+            client.search(
+                "SDK invalid verbosity boundary",
+                verbosity="bogus",
+                context_firewall=context_firewall,
+            )
+
+    def test_search_items_secure_path_overfetches_and_restores_record_access(self, tmp_path):
+        from agent_brain.interfaces.sdk.query import search_items
+        from agent_brain.memory.store.items_store import ItemsStore
+
+        calls = []
+
+        class FakeRetriever:
+            record_access = True
+
+            def search(self, _query, *, top_k, filters, explain):
+                calls.append((top_k, filters, explain, self.record_access))
+                return []
+
+        retriever = FakeRetriever()
+
+        results = search_items(
+            query="SDK overfetch boundary",
+            top_k=2,
+            type=None,
+            project=None,
+            tags=None,
+            default_project=None,
+            retriever=retriever,
+            store=ItemsStore(tmp_path / "items"),
+        )
+
+        assert results == []
+        assert calls == [(6, None, False, False)]
+        assert retriever.record_access is True
+
+    def test_search_items_reports_ghost_hydrate_only_as_aggregate(
+        self,
+        tmp_path,
+        caplog,
+    ):
+        from agent_brain.interfaces.sdk.query import search_items
+        from agent_brain.memory.store.items_store import ItemsStore
+
+        ghost_id = "mem-20260711-010000-sdk-ghost-private-title"
+        ghost_hit = SimpleNamespace(id=ghost_id, score=0.9, trace=None)
+        retriever = SimpleNamespace(
+            record_access=True,
+            search=lambda *_args, **_kwargs: [ghost_hit],
+        )
+
+        results = search_items(
+            query="SDK ghost private query content",
+            top_k=1,
+            type=None,
+            project=None,
+            tags=None,
+            default_project=None,
+            retriever=retriever,
+            store=ItemsStore(tmp_path / "items"),
+            context_firewall=True,
+        )
+
+        assert results == []
+        assert "surface=sdk-search reason=hydrate_error count=1" in caplog.text
+        assert ghost_id not in caplog.text
+        assert "SDK ghost private query content" not in caplog.text
 
     def test_search_can_return_trace_context_and_firewall_diagnostics(self, client):
         client.write(
@@ -168,13 +371,14 @@ class TestMemoryClientSearch:
             top_k=1,
             verbosity="auto",
             include_trace=True,
-            context_firewall=True,
         )
 
         assert len(results) == 1
         result = results[0]
         assert result.context_pack is not None
+        assert result.context_pack["item_id"] == result.id
         assert result.context_pack["detail_uri"].startswith("memory://items/")
+        assert result.snippet == result.context_pack["text"]
         assert result.retrieval_trace is not None
         assert result.retrieval_trace["final_rank"] == 1
         assert result.firewall is not None

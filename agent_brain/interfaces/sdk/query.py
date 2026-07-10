@@ -35,14 +35,23 @@ def search_items(
     brain_dir: Path | None = None,
     verbosity: str = "locator",
     include_trace: bool = False,
-    context_firewall: bool = False,
+    context_firewall: bool = True,
     include_resources: bool = False,
 ) -> list[SearchResult]:
-    """Search stored memory items and convert retriever hits into SDK results."""
-    from agent_brain.memory.recall.retrieval import SearchFilter
-    from agent_brain.memory.context.context_firewall import ContextCandidate, ContextFirewall
-    from agent_brain.memory.context.context_packing import build_context_pack
+    """Search stored memory items and convert retriever hits into SDK results.
 
+    The default path returns only Gateway-authorized prompt context. Pass
+    ``context_firewall=False`` only for explicit raw retrieval diagnostics; raw
+    results preserve metadata and snippets but never include a context pack.
+    """
+    from agent_brain.memory.recall.retrieval import SearchFilter
+    from agent_brain.memory.context.context_firewall_types import ContextCandidate
+    from agent_brain.memory.context.injection_gateway import (
+        _record_injection_diagnostic,
+        build_injection_context,
+    )
+
+    parsed_verbosity = _parse_verbosity(verbosity)
     items_by_id: dict[str, tuple[Any, str]] = {}
     for item, body in store.iter_all():
         items_by_id[item.id] = (item, body)
@@ -67,27 +76,42 @@ def search_items(
         if context_firewall and old_record_access is not None:
             retriever.record_access = old_record_access
 
+    packed_by_id: dict[str, Any] = {}
     firewall_by_id: dict[str, Any] = {}
     if context_firewall:
+        _record_injection_diagnostic(
+            surface="sdk-search",
+            reason="hydrate_error",
+            count=sum(1 for hit in hits if hit.id not in items_by_id),
+        )
         hit_by_id = {hit.id: hit for hit in hits}
-        candidates = [
-            ContextCandidate(
-                item=items_by_id[hit.id][0],
-                body=items_by_id[hit.id][1],
-                score=hit.score,
-            )
-            for hit in hits
-            if hit.id in items_by_id
-        ]
-        firewall_result = ContextFirewall().filter(candidates, query=query, max_items=top_k)
+        injection = build_injection_context(
+            [
+                ContextCandidate(
+                    item=items_by_id[hit.id][0],
+                    body=items_by_id[hit.id][1],
+                    score=hit.score,
+                    source="sdk-search",
+                )
+                for hit in hits
+                if hit.id in items_by_id
+            ],
+            query=query,
+            requested=parsed_verbosity,
+            max_items=top_k,
+        )
+        packed_by_id = {
+            entry.decision.candidate.item.id: entry.pack
+            for entry in injection.included
+        }
         firewall_by_id = {
-            decision.candidate.item.id: decision
-            for decision in firewall_result.decisions
+            entry.decision.candidate.item.id: entry.decision
+            for entry in injection.included
         }
         hits = [
-            hit_by_id[decision.candidate.item.id]
-            for decision in firewall_result.included
-            if decision.candidate.item.id in hit_by_id
+            hit_by_id[item_id]
+            for item_id in packed_by_id
+            if item_id in hit_by_id
         ]
     else:
         hits = hits[:top_k]
@@ -97,13 +121,8 @@ def search_items(
         if hit.id not in items_by_id:
             continue
         item, body = items_by_id[hit.id]
+        pack = packed_by_id.get(hit.id)
         firewall_decision = firewall_by_id.get(hit.id)
-        context_pack = build_context_pack(
-            item,
-            body,
-            requested=_parse_verbosity(verbosity),
-            firewall_decision=firewall_decision,
-        )
         results.append(
             SearchResult(
                 id=hit.id,
@@ -112,8 +131,8 @@ def search_items(
                 score=hit.score,
                 type=str(item.type),
                 confidence=item.confidence,
-                snippet=body[:200],
-                context_pack=context_pack.to_dict(),
+                snippet=pack.text if pack is not None else body[:200],
+                context_pack=pack.to_dict() if pack is not None else None,
                 retrieval_trace=hit.trace.to_dict() if getattr(hit, "trace", None) else None,
                 firewall=_firewall_to_dict(firewall_decision) if firewall_decision else None,
                 resource_context=_resource_context_for_item(

@@ -150,7 +150,7 @@ class MemoryClient:
         tags: list[str] | None = None,
         verbosity: str = "locator",
         include_trace: bool = False,
-        context_firewall: bool = False,
+        context_firewall: bool = True,
         include_resources: bool = False,
     ) -> list[SearchResult]:
         """Search the brain pool. Returns ranked results.
@@ -163,7 +163,9 @@ class MemoryClient:
             tags: Filter by tags (all must match)
             verbosity: Context view to pack: locator, overview, detail, or auto
             include_trace: Include retrieval trace diagnostics
-            context_firewall: Run before-inject firewall over retrieved candidates
+            context_firewall: Enforce the Injection Gateway (default). Pass False
+                only for explicit raw retrieval diagnostics; raw results have no
+                context_pack or firewall decision.
             include_resources: Include resource sidecar context referenced by hits
         """
         return search_items(
