@@ -15,7 +15,6 @@ from typing import Any, Iterable
 
 from agent_brain.agent_integrations.runtime_events import iter_runtime_events
 from agent_brain.agent_integrations.verifications import iter_adapter_verifications
-from agent_brain.contracts.memory_item import is_valid_memory_item_id
 from agent_brain.memory.context.injection_cohorts import iter_injection_cohorts
 from agent_brain.memory.context.injection_gateway import INJECTION_EXCLUSION_REASONS
 from agent_brain.memory.context.injection_metrics import (
@@ -25,8 +24,13 @@ from agent_brain.memory.context.injection_metrics import (
     sanitize_pack_metrics,
     sanitize_query_sha256,
 )
-from agent_brain.memory.governance.recall_events import iter_gap_records, iter_task_outcomes
+from agent_brain.memory.governance.recall_events import (
+    iter_gap_records,
+    iter_task_outcomes,
+    sanitize_recall_gap_reason,
+)
 from agent_brain.memory.loops.loop_events import iter_loop_events
+from agent_brain.memory.store.item_ids import known_memory_item_ids
 
 
 MAX_WINDOW_HOURS = 72
@@ -49,16 +53,6 @@ RECALL_GAP_AGGREGATE_KEY_ORDER = (
 )
 RECALL_GAP_AGGREGATE_KEYS = frozenset(RECALL_GAP_AGGREGATE_KEY_ORDER)
 MAX_RECALL_GAP_COUNT_DIGITS = 12
-RECALL_GAP_REASONS = frozenset({
-    "all_candidates_rejected",
-    "empty_recall",
-    "manual_revalidation",
-    "multimodal_extraction_missing",
-    "only_rejected",
-    "partial_candidates_rejected",
-    "query_not_injectable",
-})
-UNCLASSIFIED_RECALL_GAP_REASON = "unclassified"
 
 
 @dataclass(frozen=True)
@@ -245,7 +239,7 @@ class DataFlowLedger:
     def _recall_gap_events(self) -> list[DataFlowEvent]:
         events: list[DataFlowEvent] = []
         for record in iter_gap_records(self.brain_dir):
-            reason = _sanitize_recall_gap_reason(record.reason)
+            reason = sanitize_recall_gap_reason(record.reason)
             adapter = sanitize_adapter_name(record.adapter)
             injected_ids = self._safe_item_ids(record.injected_ids)
             rejected_ids = self._safe_item_ids(record.rejected_ids)
@@ -335,15 +329,7 @@ class DataFlowLedger:
 
     def _known_item_ids(self) -> frozenset[str]:
         if self._known_item_ids_cache is None:
-            items_dir = self.brain_dir / "items"
-            if not items_dir.exists():
-                self._known_item_ids_cache = frozenset()
-            else:
-                self._known_item_ids_cache = frozenset(
-                    path.stem
-                    for path in items_dir.rglob("*.md")
-                    if path.is_file() and is_valid_memory_item_id(path.stem)
-                )
+            self._known_item_ids_cache = known_memory_item_ids(self.brain_dir / "items")
         return self._known_item_ids_cache
 
 
@@ -416,12 +402,6 @@ def _sanitize_recall_gap_evidence(
             for reason, count in sorted(reason_counts.items())
         ]
     )
-
-
-def _sanitize_recall_gap_reason(reason: object) -> str:
-    if isinstance(reason, str) and reason in RECALL_GAP_REASONS:
-        return reason
-    return UNCLASSIFIED_RECALL_GAP_REASON
 
 
 def _is_bounded_ascii_count(value: str) -> bool:

@@ -12,8 +12,8 @@ from agent_brain.memory.context.injection_gateway import (
     HYDRATE_ERROR_REASON,
     INJECTION_EXCLUSION_REASONS,
 )
+from agent_brain.platform.bounded_jsonl import MAX_SAFE_INTEGER
 
-MAX_SAFE_INTEGER = 2**53 - 1
 INJECTION_SOURCES = frozenset({"search"})
 PACK_METRICS_ALLOWED_KEYS = {
     "candidate_count",

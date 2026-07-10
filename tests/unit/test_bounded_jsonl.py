@@ -26,3 +26,22 @@ def test_bounded_jsonl_skips_hostile_rows_and_continues_without_logging_content(
     assert list(iter_bounded_jsonl(path)) == [{"ok": 1}]
     assert "SECRET" not in caplog.text
 
+
+def test_bounded_jsonl_rejects_short_js_unsafe_and_nonfinite_numbers(tmp_path) -> None:
+    from agent_brain.platform.bounded_jsonl import iter_bounded_jsonl
+
+    path = tmp_path / "hostile-numbers.jsonl"
+    hostile_rows = [
+        '{"value":' + ("9" * 400) + "}",
+        '{"value":9007199254740992}',
+        '{"value":NaN}',
+        '{"value":Infinity}',
+        '{"value":-Infinity}',
+        '{"value":1e400}',
+    ]
+    path.write_text(
+        "\n".join([*hostile_rows, '{"ok":1}', '{"ok":0.5}']) + "\n",
+        encoding="utf-8",
+    )
+
+    assert list(iter_bounded_jsonl(path)) == [{"ok": 1}, {"ok": 0.5}]

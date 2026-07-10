@@ -32,6 +32,51 @@ def _write_item(brain_dir: Path, item_id: str) -> MemoryItem:
     return item
 
 
+def test_data_flow_skips_task_outcomes_with_invalid_confidence_and_continues(
+    tmp_brain: Path,
+) -> None:
+    from agent_brain.memory.governance.recall_events import task_outcomes_path
+    from agent_brain.observability.data_flow import DataFlowLedger
+
+    timestamp = datetime.now(timezone.utc).isoformat()
+
+    def row(outcome_id: str, confidence_literal: str) -> str:
+        payload = {
+            "outcome_id": outcome_id,
+            "timestamp": timestamp,
+            "task_id": "task-confidence",
+            "question": "q",
+            "normalized_question": "q",
+            "outcome": "accepted",
+            "confidence": "__CONFIDENCE__",
+        }
+        return json.dumps(payload).replace('"__CONFIDENCE__"', confidence_literal)
+
+    path = task_outcomes_path(tmp_brain)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "\n".join(
+            [
+                row("out-bool", "true"),
+                row("out-nan", "NaN"),
+                row("out-infinity", "Infinity"),
+                row("out-overflow", "1e400"),
+                row("out-too-high", "1.01"),
+                row("out-negative", "-0.01"),
+                row("out-valid", "0.75"),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    events = DataFlowLedger(tmp_brain).list_events(source="task_outcome")
+
+    assert [event.event_id for event in events] == ["out-valid"]
+    assert events[0].metadata["confidence"] == 0.75
+    json.dumps([event.to_dict() for event in events], allow_nan=False)
+
+
 def test_data_flow_ledger_merges_recent_runtime_sources_and_redacts_raw_text(tmp_brain: Path):
     from agent_brain.agent_integrations.runtime_events import record_runtime_event
     from agent_brain.agent_integrations.verifications import record_adapter_verification

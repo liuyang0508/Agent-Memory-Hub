@@ -4,12 +4,32 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
 MAX_JSONL_LINE_BYTES = 256 * 1024
+MAX_SAFE_INTEGER = 2**53 - 1
 _log = logging.getLogger(__name__)
+
+
+def _parse_int(value: str) -> int:
+    parsed = int(value)
+    if abs(parsed) > MAX_SAFE_INTEGER:
+        raise ValueError("integer exceeds the JSON safe-number boundary")
+    return parsed
+
+
+def _parse_float(value: str) -> float:
+    parsed = float(value)
+    if not math.isfinite(parsed) or abs(parsed) > MAX_SAFE_INTEGER:
+        raise ValueError("float exceeds the JSON safe-number boundary")
+    return parsed
+
+
+def _reject_constant(value: str) -> float:
+    raise ValueError(f"non-finite JSON number is not allowed: {value}")
 
 
 def iter_bounded_jsonl(
@@ -37,7 +57,12 @@ def iter_bounded_jsonl(
                 continue
             try:
                 decoded = stripped.decode("utf-8")
-                data = json.loads(decoded)
+                data = json.loads(
+                    decoded,
+                    parse_int=_parse_int,
+                    parse_float=_parse_float,
+                    parse_constant=_reject_constant,
+                )
             except (UnicodeDecodeError, json.JSONDecodeError, ValueError, OverflowError) as exc:
                 _log.warning(
                     "skip invalid JSONL row in %s: %s",
@@ -49,4 +74,4 @@ def iter_bounded_jsonl(
                 yield data
 
 
-__all__ = ["MAX_JSONL_LINE_BYTES", "iter_bounded_jsonl"]
+__all__ = ["MAX_JSONL_LINE_BYTES", "MAX_SAFE_INTEGER", "iter_bounded_jsonl"]

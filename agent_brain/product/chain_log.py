@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import hashlib
 from collections import Counter
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable
@@ -17,12 +17,21 @@ from agent_brain.agent_integrations.runtime_events import AdapterRuntimeEvent, i
 from agent_brain.memory.context.injection_metrics import (
     is_safe_nonnegative_int,
     legacy_trimmed_count_from_ids,
+    sanitize_adapter_name,
     sanitize_pack_metric_aggregate_bundle,
     sanitize_pack_metrics,
     sanitize_retrieval_trace,
 )
 from agent_brain.memory.context.injection_cohorts import InjectionCohort, iter_injection_cohorts
-from agent_brain.memory.governance.recall_events import GapRecord, TaskOutcome, iter_gap_records, iter_task_outcomes
+from agent_brain.memory.context.injection_gateway import INJECTION_EXCLUSION_REASONS
+from agent_brain.memory.governance.recall_events import (
+    GapRecord,
+    TaskOutcome,
+    iter_gap_records,
+    iter_task_outcomes,
+    sanitize_recall_gap_reason,
+)
+from agent_brain.memory.store.item_ids import known_memory_item_ids
 from agent_brain.memory.store.items_store import ItemsStore
 
 
@@ -268,33 +277,39 @@ def build_chain_log_detail(brain_dir: Path, chain_id: str, hours: int = MAX_WIND
 
 
 def _chain_details(brain_dir: Path, *, hours: int) -> list[ChainDetail]:
+    brain = Path(brain_dir)
     bounded_hours = _bounded_hours(hours)
     now = datetime.now(timezone.utc)
     start = now - timedelta(hours=bounded_hours)
     grouped: dict[str, list[tuple[datetime, str, Any]]] = {}
+    known_item_ids = known_memory_item_ids(brain / "items")
 
-    for event in iter_runtime_events(Path(brain_dir)):
+    for event in iter_runtime_events(brain):
         parsed = _parse_time(event.timestamp)
         if parsed is None or not _within(event.timestamp, start, end=now):
             continue
+        event = replace(event, adapter=sanitize_adapter_name(event.adapter))
         _grouped_records(grouped, _bucket_key(event.session_id, event.adapter, event.cwd)).append((parsed, "runtime", event))
 
-    for cohort in iter_injection_cohorts(Path(brain_dir)):
+    for cohort in iter_injection_cohorts(brain):
         parsed = _parse_time(cohort.timestamp)
         if parsed is None or not _within(cohort.timestamp, start, end=now):
             continue
+        cohort = _safe_injection_cohort(cohort, known_item_ids)
         _grouped_records(grouped, _bucket_key(cohort.session_id, cohort.adapter, cohort.cwd)).append((parsed, "injection", cohort))
 
-    for gap in iter_gap_records(Path(brain_dir)):
+    for gap in iter_gap_records(brain):
         parsed = _parse_time(gap.timestamp)
         if parsed is None or not _within(gap.timestamp, start, end=now):
             continue
+        gap = _safe_gap_record(gap, known_item_ids)
         _grouped_records(grouped, _bucket_key(gap.session_id, gap.adapter, gap.cwd)).append((parsed, "gap", gap))
 
-    for outcome in iter_task_outcomes(Path(brain_dir)):
+    for outcome in iter_task_outcomes(brain):
         parsed = _parse_time(outcome.timestamp)
         if parsed is None or not _within(outcome.timestamp, start, end=now):
             continue
+        outcome = _safe_task_outcome(outcome, known_item_ids)
         _grouped_records(grouped, _bucket_key(outcome.session_id, outcome.adapter, outcome.cwd)).append((parsed, "outcome", outcome))
 
     buckets: dict[str, _ChainBucket] = {}
@@ -303,8 +318,76 @@ def _chain_details(brain_dir: Path, *, hours: int) -> list[ChainDetail]:
         for chain_key, bucket in chain_buckets.items():
             buckets[chain_key] = bucket
 
-    item_meta = _items_by_id(Path(brain_dir))
+    item_meta = _items_by_id(brain)
     return [_detail_from_bucket(bucket, item_meta) for bucket in buckets.values()]
+
+
+def _safe_injection_cohort(
+    cohort: InjectionCohort,
+    known_item_ids: frozenset[str],
+) -> InjectionCohort:
+    original_ids = cohort.item_ids
+    safe_ids = _allowlisted_item_ids(original_ids, known_item_ids)
+    return replace(
+        cohort,
+        item_ids=safe_ids,
+        adapter=sanitize_adapter_name(cohort.adapter),
+        pack_metrics=sanitize_pack_metrics(
+            cohort.pack_metrics,
+            cohort_item_ids=original_ids,
+            allowed_item_ids=safe_ids,
+        ),
+    )
+
+
+def _safe_gap_record(
+    gap: GapRecord,
+    known_item_ids: frozenset[str],
+) -> GapRecord:
+    return replace(
+        gap,
+        reason=sanitize_recall_gap_reason(gap.reason),
+        injected_ids=_allowlisted_item_ids(gap.injected_ids, known_item_ids),
+        rejected_ids=_allowlisted_item_ids(gap.rejected_ids, known_item_ids),
+        evidence=_safe_gap_candidate_evidence(gap.evidence, known_item_ids),
+        adapter=sanitize_adapter_name(gap.adapter),
+    )
+
+
+def _safe_task_outcome(
+    outcome: TaskOutcome,
+    known_item_ids: frozenset[str],
+) -> TaskOutcome:
+    return replace(
+        outcome,
+        injected_ids=_allowlisted_item_ids(outcome.injected_ids, known_item_ids),
+        adopted_ids=_allowlisted_item_ids(outcome.adopted_ids, known_item_ids),
+        rejected_ids=_allowlisted_item_ids(outcome.rejected_ids, known_item_ids),
+        adapter=sanitize_adapter_name(outcome.adapter),
+    )
+
+
+def _allowlisted_item_ids(
+    item_ids: Iterable[str],
+    known_item_ids: frozenset[str],
+) -> tuple[str, ...]:
+    return tuple(dict.fromkeys(item_id for item_id in item_ids if item_id in known_item_ids))
+
+
+def _safe_gap_candidate_evidence(
+    evidence: Iterable[str],
+    known_item_ids: frozenset[str],
+) -> tuple[str, ...]:
+    safe: list[str] = []
+    for value in evidence:
+        item_id, separator, reason = value.partition(":")
+        if (
+            separator
+            and item_id in known_item_ids
+            and reason in INJECTION_EXCLUSION_REASONS
+        ):
+            safe.append(f"{item_id}:{reason}")
+    return tuple(dict.fromkeys(safe))
 
 
 def _grouped_records(

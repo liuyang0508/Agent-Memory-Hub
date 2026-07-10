@@ -65,6 +65,7 @@ def test_chain_log_groups_hook_injection_and_gap_by_session(tmp_path: Path) -> N
     from agent_brain.product.chain_log import build_chain_log_detail, build_chain_log_report
 
     item_id = _write_item(tmp_path)
+    rejected_id = _write_item(tmp_path, "mem-20260706-010203-rejected")
     record_runtime_event(
         tmp_path,
         adapter="codex",
@@ -95,8 +96,8 @@ def test_chain_log_groups_hook_injection_and_gap_by_session(tmp_path: Path) -> N
         query="another raw query should not leak",
         reason="partial_candidates_rejected",
         injected_ids=[item_id],
-        rejected_ids=["mem-20260706-010203-rejected"],
-        evidence=["mem-20260706-010203-rejected:query_mismatch"],
+        rejected_ids=[rejected_id],
+        evidence=[f"{rejected_id}:query_mismatch"],
         adapter="codex",
         session_id="sess-chain",
         cwd="/repo/agent-memory-hub",
@@ -157,6 +158,106 @@ def test_chain_log_candidate_trace_preserves_reject_reason_without_raw_query(tmp
     assert candidate["firewall_action"] == "exclude"
     assert "answerability_mismatch" in candidate["firewall_reasons"]
     assert "raw rejected query should not leak" not in json.dumps(detail)
+
+
+def test_chain_log_binds_ordered_traces_before_filtering_all_raw_identity_sources(
+    tmp_path: Path,
+) -> None:
+    from agent_brain.agent_integrations.runtime_events import record_runtime_event
+    from agent_brain.memory.context.injection_cohorts import record_injection_cohort
+    from agent_brain.memory.governance.recall_events import record_gap, record_task_outcome
+    from agent_brain.product.chain_log import build_chain_log_detail, build_chain_log_report
+
+    first_id = _write_item(tmp_path, "mem-20260711-010203-chain-safe-first")
+    second_id = _write_item(tmp_path, "mem-20260711-010204-chain-safe-second")
+    rejected_id = _write_item(tmp_path, "mem-20260711-010205-chain-safe-rejected")
+    dirty_id = "mem-20260711-010206-chain-dirty-SECRET_ID"
+
+    record_runtime_event(
+        tmp_path,
+        adapter="codex",
+        event_name="UserPromptSubmit",
+        session_id="sess-chain-identity",
+        cwd="/repo",
+    )
+    record_injection_cohort(
+        tmp_path,
+        item_ids=[first_id, dirty_id, second_id],
+        adapter="codex",
+        session_id="sess-chain-identity",
+        cwd="/repo",
+        pack_metrics={
+            "candidate_count": 2,
+            "included_count": 2,
+            "excluded_count": 0,
+            "selected_views": {"overview": 2},
+            "retrieval_trace": [
+                {"final_rank": 11},
+                {"final_rank": 999},
+                {"final_rank": 33},
+            ],
+        },
+    )
+    record_gap(
+        tmp_path,
+        query="raw gap query",
+        reason="SECRET_GAP_REASON",
+        injected_ids=[first_id, dirty_id],
+        rejected_ids=[rejected_id, dirty_id],
+        evidence=[
+            f"{rejected_id}:answerability_mismatch",
+            f"{dirty_id}:answerability_mismatch",
+            "SECRET_FREE_EVIDENCE:missing_source",
+        ],
+        adapter="codex",
+        session_id="sess-chain-identity",
+        cwd="/repo",
+    )
+    record_task_outcome(
+        tmp_path,
+        task_id="task-dirty-identity",
+        question="raw outcome question",
+        outcome="accepted",
+        injected_ids=[first_id, dirty_id],
+        adopted_ids=[first_id, dirty_id],
+        rejected_ids=[dirty_id],
+        adapter="SECRET_OUTCOME_ADAPTER",
+        session_id="sess-outcome-identity",
+        cwd="/repo",
+    )
+
+    report = build_chain_log_report(tmp_path, hours=72, limit=20).to_dict()
+    injection_summary = next(
+        row for row in report["chains"] if row["session_id"] == "sess-chain-identity"
+    )
+    outcome_summary = next(
+        row for row in report["chains"] if row["session_id"] == "sess-outcome-identity"
+    )
+    detail = build_chain_log_detail(tmp_path, injection_summary["chain_id"]).to_dict()
+    outcome_detail = build_chain_log_detail(tmp_path, outcome_summary["chain_id"]).to_dict()
+    packing = next(stage for stage in detail["stages"] if stage["stage_id"] == "packing")
+    candidates = {row["item_id"]: row for row in detail["candidates"]}
+    serialized = json.dumps({"report": report, "detail": detail, "outcome": outcome_detail})
+
+    assert injection_summary["injected_count"] == 2
+    assert injection_summary["rejected_count"] == 1
+    assert detail["final_outcome"] == "partial"
+    assert set(candidates) == {first_id, second_id, rejected_id}
+    assert candidates[first_id]["score_trace"] == {"final_rank": 11}
+    assert candidates[second_id]["score_trace"] == {"final_rank": 33}
+    assert "answerability_mismatch" in candidates[rejected_id]["firewall_reasons"]
+    assert packing["preview"]["pack_metrics"] == [{
+        "candidate_count": 2,
+        "excluded_count": 0,
+        "included_count": 2,
+        "retrieval_trace": [{"final_rank": 11}, {"final_rank": 33}],
+        "selected_views": {"overview": 2},
+    }]
+    assert next(
+        stage for stage in detail["stages"] if stage["stage_id"] == "query_gate"
+    )["preview"]["gap_reason"] == "unclassified"
+    assert outcome_detail["adapter"] == "unknown"
+    assert "SECRET" not in serialized
 
 
 def test_chain_log_keeps_user_prompt_requests_from_same_session_as_separate_chains(
@@ -743,7 +844,7 @@ def test_chain_log_field_schema_rejects_sentinels_and_unbound_ids(
                 item_id: {
                     "initial_bm25_rank": "SECRET_BM25_RANK",
                     "initial_vector_rank": True,
-                    "initial_score": float("inf"),
+                    "initial_score": "SECRET_INITIAL_SCORE",
                     "final_rank": -1,
                     "final_score": "SECRET_FINAL_SCORE",
                     "signals": [
@@ -760,7 +861,7 @@ def test_chain_log_field_schema_rejects_sentinels_and_unbound_ids(
                             "before_rank": "SECRET_BEFORE_RANK",
                             "after_rank": True,
                             "before_score": "SECRET_BEFORE_SCORE",
-                            "after_score": float("nan"),
+                            "after_score": "SECRET_AFTER_SCORE",
                         },
                         {
                             "name": "SECRET_STAGE_NAME",
@@ -966,7 +1067,7 @@ def test_chain_log_accepts_id_free_ordered_retrieval_trace_metrics(tmp_path: Pat
     assert _algorithm_status(detail, "feedback_value") == "applied"
 
 
-def test_chain_log_drops_integer_scores_beyond_javascript_safe_range(
+def test_chain_log_drops_cohort_rows_with_integers_beyond_javascript_safe_range(
     tmp_path: Path,
 ) -> None:
     from agent_brain.memory.context.injection_cohorts import record_injection_cohort
@@ -990,10 +1091,8 @@ def test_chain_log_drops_integer_scores_beyond_javascript_safe_range(
     )
 
     report = build_chain_log_report(tmp_path, hours=72).to_dict()
-    detail = build_chain_log_detail(tmp_path, report["chains"][0]["chain_id"]).to_dict()
-
-    assert detail["candidates"][0]["score_trace"] == {"final_rank": 1}
-    assert str(oversized_score) not in json.dumps(detail)
+    assert report["chains"] == []
+    assert str(oversized_score) not in json.dumps(report)
 
 
 def test_chain_log_metrics_are_json_safe_and_bounded_for_web_consumers(
@@ -1038,33 +1137,10 @@ def test_chain_log_metrics_are_json_safe_and_bounded_for_web_consumers(
     )
 
     report = build_chain_log_report(tmp_path, hours=72).to_dict()
-    detail = build_chain_log_detail(tmp_path, report["chains"][0]["chain_id"]).to_dict()
-    serialized = json.dumps(detail, allow_nan=False)
-    roundtripped = json.loads(serialized)
-    packing = next(
-        stage for stage in detail["stages"] if stage["stage_id"] == "packing"
-    )
-    metrics = packing["preview"]["pack_metrics"][0]
+    serialized = json.dumps(report, allow_nan=False)
 
+    assert report["chains"] == []
     assert str(oversized) not in serialized
-    assert roundtripped == detail
-    assert metrics == {
-        "retrieval_trace": [
-            {
-                "final_rank": 1,
-                "final_score": 0.5,
-                "stages": [
-                    {
-                        "name": "feedback_value",
-                        "effect": "rescored",
-                        "after_rank": 1,
-                        "after_score": 0.5,
-                    }
-                ],
-            }
-        ]
-    }
-    assert detail["candidates"][0]["score_trace"] == metrics["retrieval_trace"][0]
 
 
 def test_chain_log_does_not_bind_mismatched_id_free_trace_rows(tmp_path: Path) -> None:
@@ -1204,9 +1280,13 @@ def test_chain_log_tolerates_malformed_retrieval_trace_without_leaking_unknown_f
     from agent_brain.product.chain_log import build_chain_log_detail, build_chain_log_report
 
     valid_item_id = _write_item(tmp_path)
-    non_dict_item_id = "mem-20260706-010204-non-dict"
-    non_list_stages_item_id = "mem-20260706-010205-non-list-stages"
-    non_dict_stage_item_id = "mem-20260706-010206-non-dict-stage"
+    non_dict_item_id = _write_item(tmp_path, "mem-20260706-010204-non-dict")
+    non_list_stages_item_id = _write_item(
+        tmp_path, "mem-20260706-010205-non-list-stages"
+    )
+    non_dict_stage_item_id = _write_item(
+        tmp_path, "mem-20260706-010206-non-dict-stage"
+    )
     record_injection_cohort(
         tmp_path,
         item_ids=[

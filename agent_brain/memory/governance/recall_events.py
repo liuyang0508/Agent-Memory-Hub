@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 import uuid
 from dataclasses import asdict, dataclass
@@ -16,6 +17,16 @@ from agent_brain.platform.bounded_jsonl import iter_bounded_jsonl
 RECALL_GAPS_RELATIVE_PATH = "runtime/recall-gaps.jsonl"
 TASK_OUTCOMES_RELATIVE_PATH = "runtime/task-outcomes.jsonl"
 TASK_OUTCOME_FEEDBACK_RELATIVE_PATH = "runtime/task-outcome-feedback.jsonl"
+RECALL_GAP_REASONS = frozenset({
+    "all_candidates_rejected",
+    "empty_recall",
+    "manual_revalidation",
+    "multimodal_extraction_missing",
+    "only_rejected",
+    "partial_candidates_rejected",
+    "query_not_injectable",
+})
+UNCLASSIFIED_RECALL_GAP_REASON = "unclassified"
 
 
 @dataclass(frozen=True)
@@ -213,7 +224,7 @@ def iter_gap_records(brain_dir: Path) -> Iterator[GapRecord]:
                 session_id=data.get("session_id"),
                 cwd=data.get("cwd"),
             )
-        except (KeyError, TypeError, ValueError):
+        except (KeyError, TypeError, ValueError, OverflowError):
             continue
 
 
@@ -231,7 +242,7 @@ def iter_task_outcomes(brain_dir: Path) -> Iterator[TaskOutcome]:
                     str(value) for value in data.get("feedback_signals", [])
                 ),
                 value_tags=tuple(str(value) for value in data.get("value_tags", [])),
-                confidence=float(data.get("confidence", 0.5)),
+                confidence=_strict_confidence(data.get("confidence", 0.5)),
                 injected_ids=tuple(str(value) for value in data.get("injected_ids", [])),
                 adopted_ids=tuple(str(value) for value in data.get("adopted_ids", [])),
                 rejected_ids=tuple(str(value) for value in data.get("rejected_ids", [])),
@@ -239,7 +250,7 @@ def iter_task_outcomes(brain_dir: Path) -> Iterator[TaskOutcome]:
                 session_id=data.get("session_id"),
                 cwd=data.get("cwd"),
             )
-        except (KeyError, TypeError, ValueError):
+        except (KeyError, TypeError, ValueError, OverflowError):
             continue
 
 
@@ -259,7 +270,7 @@ def iter_task_outcome_feedback_applications(
                 adapter=str(data.get("adapter") or "unknown"),
                 session_id=data.get("session_id"),
             )
-        except (KeyError, TypeError, ValueError):
+        except (KeyError, TypeError, ValueError, OverflowError):
             continue
 
 
@@ -304,13 +315,32 @@ def _clamp(value: float) -> float:
     return min(1.0, max(0.0, value))
 
 
+def _strict_confidence(value: object) -> float:
+    if type(value) not in {int, float}:
+        raise TypeError("confidence must be a JSON number")
+    confidence = float(value)
+    if not math.isfinite(confidence) or not 0.0 <= confidence <= 1.0:
+        raise ValueError("confidence must be finite and between zero and one")
+    return confidence
+
+
+def sanitize_recall_gap_reason(reason: object) -> str:
+    """Return a closed, non-sensitive recall-gap reason label."""
+
+    if isinstance(reason, str) and reason in RECALL_GAP_REASONS:
+        return reason
+    return UNCLASSIFIED_RECALL_GAP_REASON
+
+
 __all__ = [
     "GapRecord",
     "RECALL_GAPS_RELATIVE_PATH",
+    "RECALL_GAP_REASONS",
     "TASK_OUTCOMES_RELATIVE_PATH",
     "TASK_OUTCOME_FEEDBACK_RELATIVE_PATH",
     "TaskOutcome",
     "TaskOutcomeFeedbackApplication",
+    "UNCLASSIFIED_RECALL_GAP_REASON",
     "iter_gap_records",
     "iter_task_outcome_feedback_applications",
     "iter_task_outcomes",
@@ -318,6 +348,7 @@ __all__ = [
     "record_gap",
     "record_task_outcome",
     "record_task_outcome_feedback_application",
+    "sanitize_recall_gap_reason",
     "task_outcome_feedback_path",
     "task_outcomes_path",
 ]
