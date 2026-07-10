@@ -48,7 +48,7 @@
 - Create: `tests/unit/test_injection_gateway.py`
 - Create: `agent_brain/memory/context/injection_gateway.py`
 
-- [ ] **Step 1: 写缺失 Gateway 时必红的测试**
+- [x] **Step 1: 写缺失 Gateway 时必红的测试**
 
 创建 `tests/unit/test_injection_gateway.py`：
 
@@ -214,7 +214,7 @@ def test_gateway_excludes_one_pack_error_without_dropping_safe_peer(monkeypatch)
     assert broken.title not in repr(result.metrics())
 ```
 
-- [ ] **Step 2: 运行测试确认 RED**
+- [x] **Step 2: 运行测试确认 RED**
 
 Run:
 
@@ -225,7 +225,7 @@ PYTHONPATH=. /Users/liuyang/Desktop/AIAgent/agent-memory-hub/.venv/bin/python \
 
 Expected: `ModuleNotFoundError: No module named 'agent_brain.memory.context.injection_gateway'`。
 
-- [ ] **Step 3: 写最小 Gateway 实现**
+- [x] **Step 3: 写最小 Gateway 实现**
 
 创建 `agent_brain/memory/context/injection_gateway.py`：
 
@@ -364,7 +364,7 @@ __all__ = [
 ]
 ```
 
-- [ ] **Step 4: 验证 GREEN**
+- [x] **Step 4: 验证 GREEN**
 
 ```bash
 PYTHONPATH=. /Users/liuyang/Desktop/AIAgent/agent-memory-hub/.venv/bin/python \
@@ -374,12 +374,27 @@ PYTHONPATH=. /Users/liuyang/Desktop/AIAgent/agent-memory-hub/.venv/bin/python \
 
 Expected: 全部 PASS，0 warning。
 
-- [ ] **Step 5: 提交 Gateway 核心**
+- [x] **Step 5: 提交 Gateway 核心**
 
 ```bash
 git add agent_brain/memory/context/injection_gateway.py tests/unit/test_injection_gateway.py
 git commit -m "fix: add fail-closed injection gateway"
 ```
+
+#### Task 1 实施审查修订（已落地）
+
+上方代码块是初始 TDD 起点；经规格与代码质量双审后，实际实现已由
+`43581a6`、`fe16ddf`、`612f85b`、`46c5ac7` supersede，后续任务以当前源码和
+以下不变量为准，不得重新套用初始样例：
+
+- 显式空 query 也 fail-close；查询在 Gateway 中只分析一次。
+- 非法 verbosity 在进入逐项 packing 前抛 `ValueError`，不记为 `pack_error`。
+- Gateway metrics 仅含聚合计数、原因和 token；不含 included/excluded item ID
+  或 title/summary/body。
+- `pack_error` / `pack_budget_exceeded` 不占用最终 `max_items` slot；安全候选可补位。
+- 每个候选最多执行一次逐项/语义 eligibility 与一次 pack；最终成功集通过
+  `ContextFirewall.validate_cohort` 做 cohort-only 复核，不得重复调用语义验证器。
+- 最终 Task 1 定向矩阵：`67 passed`；规格审查和代码质量审查均 PASS。
 
 ---
 
