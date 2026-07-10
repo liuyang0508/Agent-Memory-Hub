@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import os
 import json
 import inspect
@@ -161,6 +160,12 @@ def test_data_flow_and_lineage_routes_use_fastapi_sync_threadpool_contract():
 
     assert inspect.iscoroutinefunction(data_flow) is False
     assert inspect.iscoroutinefunction(memory_lineage) is False
+
+
+def test_prompt_search_route_uses_fastapi_sync_threadpool_contract():
+    from web.api.routes.item_search import search_items
+
+    assert inspect.iscoroutinefunction(search_items) is False
 
 
 @pytest.fixture()
@@ -1187,7 +1192,7 @@ class TestSemanticSearch:
             is True
         )
 
-        payload = asyncio.run(item_search.search_items(
+        payload = item_search.search_items(
             q="web gateway boundary",
             top_k=10,
             type=None,
@@ -1198,7 +1203,7 @@ class TestSemanticSearch:
             context_firewall=True,
             include_resources=False,
             user=CurrentUser("alice", "team-a", "user"),
-        ))
+        )
 
         assert [row["id"] for row in payload["results"]] == [safe.id]
         assert payload["results"][0]["context_pack"]["text"] == rows[0][1]
@@ -1252,7 +1257,7 @@ class TestSemanticSearch:
             lambda: (Store(), object(), retriever, object()),
         )
 
-        payload = asyncio.run(item_search.search_items(
+        payload = item_search.search_items(
             q="memory",
             top_k=1,
             type=None,
@@ -1263,10 +1268,56 @@ class TestSemanticSearch:
             context_firewall=True,
             include_resources=False,
             user=CurrentUser("alice", "team-a", "user"),
-        ))
+        )
 
         assert payload["results"] == []
         assert retriever.accessed == []
+
+    def test_search_gateway_tolerates_legacy_retriever_without_batch_access(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from web.api.routes import item_search
+        from web.auth import CurrentUser
+
+        item = MemoryItem(
+            id="mem-20260711-120013-web-legacy-retriever",
+            type=MemoryType.episode,
+            created_at=datetime.now(timezone.utc),
+            title="Web legacy retriever boundary",
+            summary="Web legacy retriever boundary",
+        )
+
+        class Store:
+            def iter_all(self):
+                return iter([(item, "Web legacy retriever boundary body")])
+
+        class LegacyRetriever:
+            record_access = True
+
+            def search(self, _query, **_kwargs):
+                return [SimpleNamespace(id=item.id, score=1.0, trace=None)]
+
+        monkeypatch.setattr(
+            item_search,
+            "_components",
+            lambda: (Store(), object(), LegacyRetriever(), object()),
+        )
+
+        payload = item_search.search_items(
+            q="web legacy retriever boundary",
+            top_k=1,
+            type=None,
+            project=None,
+            exclude_tags=None,
+            verbosity="locator",
+            include_trace=False,
+            context_firewall=True,
+            include_resources=False,
+            user=CurrentUser("alice", "team-a", "user"),
+        )
+
+        assert [row["id"] for row in payload["results"]] == [item.id]
 
     def test_search_raw_diagnostics_are_admin_only_and_never_build_prompt_context(
         self,
@@ -1325,7 +1376,7 @@ class TestSemanticSearch:
         )
 
         with pytest.raises(HTTPException) as exc:
-            asyncio.run(item_search.search_items(
+            item_search.search_items(
                 q="web raw secret",
                 top_k=1,
                 type=None,
@@ -1336,11 +1387,11 @@ class TestSemanticSearch:
                 context_firewall=False,
                 include_resources=True,
                 user=CurrentUser("alice", "team-a", "user"),
-            ))
+            )
         assert exc.value.status_code == 403
         assert retriever.calls == []
 
-        payload = asyncio.run(item_search.search_items(
+        payload = item_search.search_items(
             q="web raw secret",
             top_k=1,
             type=None,
@@ -1351,7 +1402,7 @@ class TestSemanticSearch:
             context_firewall=False,
             include_resources=True,
             user=CurrentUser("admin", "default", "admin"),
-        ))
+        )
 
         assert len(payload["results"]) == 1
         assert payload["results"][0]["snippet"] == "WEB_RAW_SECRET_BODY"

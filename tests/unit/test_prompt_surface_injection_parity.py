@@ -20,6 +20,7 @@ def close_mcp_components(monkeypatch):
     import agent_brain.interfaces.cli as cli_module
     from agent_brain.interfaces.mcp.tools import _shared as mcp_shared, search_tools
     from agent_brain.interfaces.mcp.tools._shared import _components_cache
+    from agent_brain.platform import embedding as embedding_module
     from agent_brain.platform.embedding import reset_embedder_cache
 
     monkeypatch.setenv("MEMORY_HUB_TEST_EMBEDDING", "1")
@@ -28,6 +29,7 @@ def close_mcp_components(monkeypatch):
     monkeypatch.setattr(cli_module, "get_default_embedder", lambda: embedder)
     monkeypatch.setattr(mcp_shared, "get_default_embedder", lambda: embedder)
     monkeypatch.setattr(search_tools, "get_default_embedder", lambda: embedder)
+    monkeypatch.setattr(embedding_module, "get_default_embedder", lambda: embedder)
     for _store, index, _retriever in _components_cache.values():
         index.close()
     _components_cache.clear()
@@ -195,7 +197,7 @@ def test_mcp_sdk_cli_refill_past_three_x_top_k_with_same_safe_id(
     assert mcp_ids == sdk_ids == cli_ids == {safe.id}
 
 
-def test_mcp_sdk_cli_share_metadata_backed_cjk_query_signal(
+def test_mcp_sdk_cli_web_share_metadata_backed_cjk_query_signal(
     tmp_path,
     monkeypatch,
 ):
@@ -207,7 +209,8 @@ def test_mcp_sdk_cli_share_metadata_backed_cjk_query_signal(
     mcp_brain = tmp_path / "mcp-metadata-query"
     sdk_brain = tmp_path / "sdk-metadata-query"
     cli_brain = tmp_path / "cli-metadata-query"
-    for brain in (mcp_brain, sdk_brain, cli_brain):
+    web_brain = tmp_path / "web-metadata-query"
+    for brain in (mcp_brain, sdk_brain, cli_brain, web_brain):
         seed(brain, [safe])
 
     import agent_brain.interfaces.mcp.server as mcp
@@ -226,7 +229,29 @@ def test_mcp_sdk_cli_share_metadata_backed_cjk_query_signal(
     assert cli.exit_code == 0, cli.output
     cli_ids = set(re.findall(r"\(id:(mem-[^\s)]+)", cli.output))
 
-    assert mcp_ids == sdk_ids == cli_ids == {safe.id}
+    from web._base import _components_cache as web_components_cache
+    from web.api.routes import item_search
+    from web.auth import CurrentUser
+
+    monkeypatch.setenv("BRAIN_DIR", str(web_brain))
+    try:
+        web_payload = item_search.search_items(
+            q=query,
+            top_k=5,
+            type=None,
+            project=None,
+            exclude_tags=None,
+            verbosity="locator",
+            include_trace=False,
+            context_firewall=True,
+            include_resources=False,
+            user=CurrentUser("admin", "default", "admin"),
+        )
+    finally:
+        web_components_cache.clear()
+    web_ids = {row["id"] for row in web_payload["results"]}
+
+    assert mcp_ids == sdk_ids == cli_ids == web_ids == {safe.id}
 
 
 def test_cli_text_and_table_formats_emit_the_same_gateway_id(tmp_path, monkeypatch):

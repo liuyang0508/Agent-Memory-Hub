@@ -28,7 +28,7 @@ _PROMPT_RESOURCE_SENSITIVITIES = ("public", "internal")
 
 
 @router.get("/api/search")
-async def search_items(
+def search_items(
     q: str = Query(..., min_length=1),
     top_k: int = Query(10, le=50),
     type: str | None = None,
@@ -79,6 +79,7 @@ async def search_items(
         injection = build_injection_context(
             candidates,
             query=q,
+            brain_dir=_brain_dir(),
             requested=verbosity,
             max_items=top_k,
         )
@@ -95,7 +96,9 @@ async def search_items(
             for item_id in context_packs_by_id
             if item_id in hit_by_id
         ]
-        retriever.record_accesses(hits)
+        record_accesses = getattr(retriever, "record_accesses", None)
+        if callable(record_accesses):
+            record_accesses(hits)
     else:
         hits = hits[:top_k]
 
