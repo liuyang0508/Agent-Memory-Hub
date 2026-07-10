@@ -62,13 +62,14 @@ def search_items(
         tags=tags or [],
     )
 
-    hits = retriever.search(
-        query,
-        top_k=top_k * 3 if context_firewall else top_k,
-        filters=search_filter if not search_filter.is_empty else None,
-        explain=include_trace,
-        record_access=False if context_firewall else None,
-    )
+    search_kwargs: dict[str, Any] = {
+        "top_k": top_k * 3 if context_firewall else top_k,
+        "filters": search_filter if not search_filter.is_empty else None,
+        "explain": include_trace,
+    }
+    if context_firewall:
+        search_kwargs["record_access"] = False
+    hits = retriever.search(query, **search_kwargs)
 
     packed_by_id: dict[str, Any] = {}
     firewall_by_id: dict[str, Any] = {}

@@ -326,6 +326,37 @@ class TestMemoryClientSearch:
         assert calls == [(6, None, False, False, True)]
         assert retriever.record_access is True
 
+    def test_search_items_raw_mode_supports_legacy_retriever_signature(self, tmp_path):
+        from agent_brain.interfaces.sdk.query import search_items
+        from agent_brain.memory.store.items_store import ItemsStore
+
+        calls = []
+
+        class LegacyRetriever:
+            record_access = True
+
+            def search(self, _query, *, top_k, filters, explain):
+                calls.append((top_k, filters, explain, self.record_access))
+                return []
+
+        retriever = LegacyRetriever()
+
+        results = search_items(
+            query="SDK legacy raw retriever boundary",
+            top_k=2,
+            type=None,
+            project=None,
+            tags=None,
+            default_project=None,
+            retriever=retriever,
+            store=ItemsStore(tmp_path / "items"),
+            context_firewall=False,
+        )
+
+        assert results == []
+        assert calls == [(2, None, False, True)]
+        assert retriever.record_access is True
+
     def test_search_items_override_does_not_mutate_retriever_when_search_raises(
         self,
         tmp_path,
