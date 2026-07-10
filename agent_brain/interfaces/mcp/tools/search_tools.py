@@ -144,6 +144,7 @@ def search_memory(
     injection = build_injection_context(
         candidates,
         query=query,
+        brain_dir=_brain_dir(),
         requested=verbosity,
         max_items=top_k,
     )

@@ -93,6 +93,7 @@ def search_items(
                 if hit.id in items_by_id
             ],
             query=query,
+            brain_dir=brain_dir,
             requested=parsed_verbosity,
             max_items=top_k,
         )

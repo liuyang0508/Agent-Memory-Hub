@@ -1,4 +1,6 @@
 from datetime import datetime, timezone
+import json
+import math
 
 import pytest
 
@@ -571,3 +573,76 @@ def test_gateway_revalidates_final_max_limited_cohort() -> None:
     }
     assert "cohort_strong_anchor_undercovered" in rejected[alpha.id].reasons
     assert "max_items_exceeded" in rejected[beta.id].reasons
+
+
+def test_gateway_metrics_ignore_pack_annotations_on_final_cohort_exclusions() -> None:
+    from agent_brain.memory.context.injection_gateway import build_injection_context
+
+    alpha = item(
+        "alpha-budget-downgrade",
+        validity={"cwd": "/repo/alpha"},
+        context_views={
+            "locator": "alpha",
+            "overview": "alpha overview " * 20,
+        },
+    ).model_copy(update={
+        "title": "Alpha implementation",
+        "summary": "Alpha implementation detail",
+    })
+    beta = item("beta-budget-peer").model_copy(update={
+        "title": "Alpha beta implementation",
+        "summary": "Alpha beta implementation detail",
+    })
+
+    result = build_injection_context(
+        [candidate(alpha, 2.0), candidate(beta, 1.0)],
+        query="alpha beta",
+        requested="auto",
+        max_items=1,
+        budget_tokens=3,
+    )
+
+    rejected = {
+        decision.candidate.item.id: decision.reasons
+        for decision in result.excluded
+    }
+    assert "budget_downgraded_to_locator" in rejected[alpha.id]
+    assert result.metrics()["excluded_reasons"] == {
+        "cohort_strong_anchor_undercovered": 1,
+        "max_items_exceeded": 1,
+    }
+    assert result.metrics()["candidate_count"] == 2
+    assert result.metrics()["included_count"] == 0
+    assert result.metrics()["excluded_count"] == 2
+
+
+@pytest.mark.parametrize(
+    "unsafe_score",
+    [float("nan"), float("inf"), float("-inf"), 2**53, -(2**53)],
+)
+def test_gateway_rejects_nonfinite_and_javascript_unsafe_candidate_scores(
+    unsafe_score,
+    monkeypatch,
+) -> None:
+    import agent_brain.memory.context.injection_gateway as gateway
+
+    value = item("unsafe-retrieval-score")
+
+    def fail_pack(*_args, **_kwargs):
+        raise AssertionError("unsafe candidate scores must never reach packing")
+
+    monkeypatch.setattr(gateway, "pack_decisions", fail_pack)
+
+    result = gateway.build_injection_context(
+        [candidate(value, unsafe_score)],
+        query="unsafe retrieval score boundary",
+    )
+
+    assert result.included == []
+    assert len(result.excluded) == 1
+    decision = result.excluded[0]
+    assert decision.reasons == ("invalid_candidate_score",)
+    assert math.isfinite(decision.score)
+    assert decision.score == 0.0
+    assert result.metrics()["excluded_reasons"] == {"invalid_candidate_score": 1}
+    json.dumps(result.metrics(), allow_nan=False)

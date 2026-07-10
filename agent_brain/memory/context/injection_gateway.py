@@ -3,6 +3,7 @@
 import logging
 from collections import Counter
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Iterable, Mapping, get_args
 
 from agent_brain.memory.context.context_firewall import ContextFirewall
@@ -31,6 +32,7 @@ INJECTION_EXCLUSION_REASONS = frozenset({
     "cohort_strong_anchor_undercovered",
     "contested",
     "duplicate_cluster",
+    "invalid_candidate_score",
     "l0_evidence_only",
     "low_confidence",
     "max_items_exceeded",
@@ -53,6 +55,10 @@ INJECTION_EXCLUSION_REASONS = frozenset({
     "topic_recency_newer",
     "very_low_confidence",
 }) | GATEWAY_SYNTHETIC_EXCLUSION_REASONS
+_PACKING_ANNOTATION_REASONS = frozenset({
+    "budget_downgraded_to_locator",
+    "budget_downgraded_to_overview",
+})
 
 
 @dataclass(frozen=True)
@@ -86,14 +92,20 @@ def injection_exclusion_reason_counts(
 ) -> dict[str, int]:
     """Return closed-set aggregate exclusion counts without item identity."""
     _require_nonnegative_int(hydrate_error_count, "hydrate_error_count")
+    observed_reasons = {
+        reason
+        for decision in decisions
+        for reason in set(decision.reasons)
+    }
     reason_counts = Counter(
         reason
         for decision in decisions
         for reason in set(decision.reasons)
+        if reason in INJECTION_EXCLUSION_REASONS
     )
     if hydrate_error_count:
         reason_counts[HYDRATE_ERROR_REASON] += hydrate_error_count
-    unknown = set(reason_counts) - INJECTION_EXCLUSION_REASONS
+    unknown = observed_reasons - INJECTION_EXCLUSION_REASONS - _PACKING_ANNOTATION_REASONS
     if unknown:
         raise ValueError(_UNKNOWN_EXCLUSION_REASON_ERROR)
     return dict(sorted(reason_counts.items()))
@@ -166,12 +178,13 @@ def evaluate_injection_candidates(
     *,
     query: str | None = None,
     query_signal: QuerySignal | None = None,
+    brain_dir: Path | None = None,
     max_items: int | None = None,
     current_scope: Mapping[str, str] | None = None,
 ) -> FirewallResult:
     signal = query_signal
     if signal is None and query is not None:
-        signal = analyze_injection_query(query.replace("|", " "))
+        signal = _analyze_query(query, brain_dir=brain_dir)
     return ContextFirewall().filter(
         candidates,
         query=query,
@@ -186,6 +199,7 @@ def build_injection_context(
     *,
     query: str | None = None,
     query_signal: QuerySignal | None = None,
+    brain_dir: Path | None = None,
     requested: ContextVerbosity = "auto",
     max_items: int | None = None,
     budget_tokens: int | None = None,
@@ -195,7 +209,7 @@ def build_injection_context(
         raise ValueError(f"unsupported context verbosity: {requested!r}")
     signal = query_signal
     if signal is None and query is not None:
-        signal = analyze_injection_query(query.replace("|", " "))
+        signal = _analyze_query(query, brain_dir=brain_dir)
     firewall_engine = ContextFirewall()
     firewall = firewall_engine.filter(
         candidates,
@@ -260,6 +274,13 @@ def build_injection_context(
         used_tokens=sum(entry.pack.packed_tokens for entry in final_included),
         full_tokens=sum(entry.pack.full_tokens for entry in final_included),
     )
+
+
+def _analyze_query(query: str, *, brain_dir: Path | None) -> QuerySignal:
+    normalized = query.replace("|", " ")
+    if brain_dir is None:
+        return analyze_injection_query(normalized)
+    return analyze_injection_query(normalized, brain_dir=brain_dir)
 
 
 __all__ = [

@@ -280,6 +280,30 @@ class TestMemoryClientSearch:
         with pytest.raises(RuntimeError, match="synthetic gateway failure"):
             client.search("SDK gateway failure boundary")
 
+    def test_search_rejects_nonfinite_retrieval_score_before_json(
+        self,
+        client,
+        monkeypatch,
+    ):
+        item_id = client.write(
+            type="episode",
+            title="SDK nonfinite retrieval score boundary",
+            summary="SDK nonfinite retrieval score boundary",
+        )
+        retriever = client._components.get_retriever()
+        monkeypatch.setattr(
+            retriever,
+            "search",
+            lambda *_args, **_kwargs: [
+                SimpleNamespace(id=item_id, score=float("inf"), trace=None)
+            ],
+        )
+
+        results = client.search("SDK nonfinite retrieval score boundary")
+
+        assert results == []
+        assert client._components.get_index().get_decay_data([item_id])[item_id][4] == 0
+
     @pytest.mark.parametrize("context_firewall", [True, False])
     def test_invalid_verbosity_is_rejected_in_safe_and_raw_modes(
         self,

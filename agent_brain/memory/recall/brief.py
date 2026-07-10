@@ -116,6 +116,7 @@ def build_brief(
             for item, body in rows
         ],
         query=query,
+        brain_dir=store.items_dir.parent,
     )
     included_by_type: dict[str, list] = {}
     for decision in firewall.included:

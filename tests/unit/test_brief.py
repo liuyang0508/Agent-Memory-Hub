@@ -93,6 +93,22 @@ def test_brief_explicit_noninjectable_query_withholds_all_items(tmp_path, query)
     assert brief.total_withheld == 1
 
 
+def test_brief_uses_store_metadata_for_cjk_query_eligibility(tmp_path):
+    store = ItemsStore(items_dir=tmp_path / "items")
+    value = _seed(
+        store,
+        "episode",
+        "AMH README 深度叙事和算法解释二次打磨",
+        "多智能体共享第二大脑叙事算法打磨结果",
+    )
+    query = "关于多智能体共享第二单的深度叙事和算法解释二次打磨，都做了什么"
+
+    brief = build_brief(store, budget_tokens=1500, query=query)
+
+    assert [item.id for tier in brief.tiers for item in tier.shown] == [value.id]
+    assert brief.total_withheld == 0
+
+
 def test_brief_respects_budget_and_announces_withheld(tmp_path):
     store = ItemsStore(items_dir=tmp_path / "items")
     for n in range(40):

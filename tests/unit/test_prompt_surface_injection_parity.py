@@ -195,6 +195,40 @@ def test_mcp_sdk_cli_refill_past_three_x_top_k_with_same_safe_id(
     assert mcp_ids == sdk_ids == cli_ids == {safe.id}
 
 
+def test_mcp_sdk_cli_share_metadata_backed_cjk_query_signal(
+    tmp_path,
+    monkeypatch,
+):
+    query = "关于多智能体共享第二单的深度叙事和算法解释二次打磨，都做了什么"
+    safe = memory("metadata-backed-cjk").model_copy(update={
+        "title": "AMH README 深度叙事和算法解释二次打磨",
+        "summary": "多智能体共享第二大脑叙事算法打磨结果",
+    })
+    mcp_brain = tmp_path / "mcp-metadata-query"
+    sdk_brain = tmp_path / "sdk-metadata-query"
+    cli_brain = tmp_path / "cli-metadata-query"
+    for brain in (mcp_brain, sdk_brain, cli_brain):
+        seed(brain, [safe])
+
+    import agent_brain.interfaces.mcp.server as mcp
+
+    monkeypatch.setenv("BRAIN_DIR", str(mcp_brain))
+    mcp_ids = {row["id"] for row in mcp.search_memory(query, top_k=5)}
+    client = MemoryClient(brain_dir=sdk_brain)
+    try:
+        sdk_ids = {row.id for row in client.search(query, top_k=5)}
+    finally:
+        client._components.get_index().close()
+    monkeypatch.setenv("BRAIN_DIR", str(cli_brain))
+    cli = runner.invoke(app, [
+        "search", query, "--top-k", "5", "--format", "text", "--context-firewall",
+    ])
+    assert cli.exit_code == 0, cli.output
+    cli_ids = set(re.findall(r"\(id:(mem-[^\s)]+)", cli.output))
+
+    assert mcp_ids == sdk_ids == cli_ids == {safe.id}
+
+
 def test_cli_text_and_table_formats_emit_the_same_gateway_id(tmp_path, monkeypatch):
     item = MemoryItem(
         id="mem-20260711-030000-cli-parity",

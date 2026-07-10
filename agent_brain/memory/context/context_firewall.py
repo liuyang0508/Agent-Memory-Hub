@@ -47,6 +47,16 @@ from agent_brain.memory.context.context_firewall_types import (
 from agent_brain.memory.context.context_packing import pack_decisions
 from agent_brain.memory.context.query_signal import QuerySignal, analyze_injection_query
 from agent_brain.memory.governance.temporal_state import TemporalStateGate
+from agent_brain.platform.bounded_jsonl import MAX_SAFE_INTEGER
+
+
+def _is_safe_candidate_score(value: object) -> bool:
+    """Return whether a retrieval score is finite and JSON-number safe."""
+    if type(value) is int:
+        return abs(value) <= MAX_SAFE_INTEGER
+    if type(value) is float:
+        return value == value and abs(value) <= MAX_SAFE_INTEGER
+    return False
 
 
 class ContextFirewall:
@@ -306,6 +316,14 @@ class ContextFirewall:
         item_type = str(item.type)
         reasons: list[str] = []
         action: FirewallAction = "include"
+        if not _is_safe_candidate_score(candidate.score):
+            return FirewallDecision(
+                candidate,
+                "exclude",
+                ("invalid_candidate_score",),
+                0.0,
+                0.0,
+            )
         base_score = candidate.score if candidate.score > 0 else item.confidence
         effective_score = base_score
 

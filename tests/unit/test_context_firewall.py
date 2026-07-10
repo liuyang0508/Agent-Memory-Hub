@@ -49,6 +49,28 @@ def _decision_by_id(result, item_id: str):
     return next(d for d in result.decisions if d.candidate.item.id == item_id)
 
 
+def test_invalid_retrieval_score_is_excluded_before_other_firewall_gates() -> None:
+    from agent_brain.memory.context.context_firewall import ContextCandidate, ContextFirewall
+
+    value = _item(
+        "invalid-score",
+        "episode",
+        "Invalid retrieval score boundary",
+        "Invalid retrieval score boundary",
+        sensitivity="secret",
+    )
+
+    result = ContextFirewall(now=NOW).filter([
+        ContextCandidate(value, score=float("nan")),
+    ])
+
+    decision = _decision_by_id(result, value.id)
+    assert result.included == []
+    assert decision.reasons == ("invalid_candidate_score",)
+    assert decision.score == 0.0
+    assert decision.effective_score == 0.0
+
+
 def test_validate_cohort_rechecks_coverage_without_item_evaluation() -> None:
     from agent_brain.memory.context.context_firewall import ContextCandidate, ContextFirewall
     from agent_brain.memory.context.query_signal import analyze_injection_query

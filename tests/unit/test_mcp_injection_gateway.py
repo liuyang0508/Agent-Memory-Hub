@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from types import SimpleNamespace
 
 import pytest
 
@@ -213,3 +214,27 @@ def test_mcp_search_only_returns_trace_for_gateway_included_items(tmp_brain):
     assert "retrieval_trace" in result[0]
     assert private.id not in repr(result)
     assert private.title not in repr(result)
+
+
+def test_mcp_search_rejects_nonfinite_retrieval_score_before_json(
+    tmp_brain,
+    monkeypatch,
+):
+    value = memory("nonfinite-score")
+    seed(tmp_brain, [value])
+
+    from agent_brain.memory.recall.retrieval import Retriever
+
+    monkeypatch.setattr(
+        Retriever,
+        "search",
+        lambda *_args, **_kwargs: [
+            SimpleNamespace(id=value.id, score=float("nan"), trace=None)
+        ],
+    )
+
+    import agent_brain.interfaces.mcp.server as mcp
+
+    result = mcp.search_memory("injection gateway boundary nonfinite score", top_k=1)
+
+    assert result == []

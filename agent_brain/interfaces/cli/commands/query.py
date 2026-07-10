@@ -229,6 +229,7 @@ def search(
             candidates,
             query=answerability_query,
             query_signal=query_signal,
+            brain_dir=_brain_dir(),
             requested=verbosity,
             max_items=top_k,
             current_scope=current_scope or None,
