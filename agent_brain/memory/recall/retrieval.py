@@ -411,8 +411,14 @@ class Retriever:
                 )
         return candidates, traces
 
-    def _record_access(self, results: list[RetrievedItem]) -> None:
-        if not self.record_access or not results:
+    def _record_access(
+        self,
+        results: list[RetrievedItem],
+        *,
+        enabled: bool | None = None,
+    ) -> None:
+        should_record = self.record_access if enabled is None else enabled
+        if not should_record or not results:
             return
         RetrievalAccessRecorder(
             index=self.index,
@@ -427,6 +433,7 @@ class Retriever:
         filters: SearchFilter | None = None,
         *,
         explain: bool = False,
+        record_access: bool | None = None,
     ) -> list[RetrievedItem]:
         """Return the top matching memory IDs after retrieval policy stages.
 
@@ -434,6 +441,8 @@ class Retriever:
         candidate pipeline for handoff supplementation, optional reranking,
         decay, value weighting, runtime/status boosts, stale-state filtering,
         supersession filtering, optional MMR, and optional graph expansion.
+        ``record_access`` overrides the instance setting for this call without
+        mutating shared retriever state.
         """
         filters = filters or SearchFilter()
         allowed_ids = self._allowed_ids_for_filter(filters)
@@ -477,7 +486,7 @@ class Retriever:
                 )
                 for rank, candidate in enumerate(final, start=1)
             ]
-        self._record_access(final)
+        self._record_access(final, enabled=record_access)
         return final
 
 

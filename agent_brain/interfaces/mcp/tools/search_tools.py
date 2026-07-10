@@ -117,19 +117,13 @@ def search_memory(
         since_days=since_days, tenant_id=tenant_id,
     )
     raw_top_k = top_k * 3 if top_k > 0 else top_k
-    old_record_access = getattr(retriever, "record_access", None)
-    if old_record_access is not None:
-        retriever.record_access = False
-    try:
-        hits = retriever.search(
-            query,
-            top_k=raw_top_k,
-            filters=sf,
-            explain=include_trace,
-        )
-    finally:
-        if old_record_access is not None:
-            retriever.record_access = old_record_access
+    hits = retriever.search(
+        query,
+        top_k=raw_top_k,
+        filters=sf,
+        explain=include_trace,
+        record_access=False,
+    )
     _record_injection_diagnostic(
         surface="mcp-search",
         reason="hydrate_error",

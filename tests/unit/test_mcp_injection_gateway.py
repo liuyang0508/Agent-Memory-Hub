@@ -144,6 +144,39 @@ def test_mcp_search_raw_retrieval_does_not_record_access(tmp_brain):
     assert index.get_decay_data([value.id])[value.id][4] == 0
 
 
+def test_mcp_search_uses_per_call_record_access_override(
+    tmp_brain,
+    monkeypatch,
+):
+    value = memory("per-call-access")
+    seed(tmp_brain, [value])
+
+    from agent_brain.memory.recall.retrieval import Retriever
+
+    original_search = Retriever.search
+    calls = []
+
+    def capture_search(self, *args, record_access=None, **kwargs):
+        calls.append((record_access, self.record_access))
+        if record_access is None:
+            return original_search(self, *args, **kwargs)
+        return original_search(
+            self,
+            *args,
+            record_access=record_access,
+            **kwargs,
+        )
+
+    monkeypatch.setattr(Retriever, "search", capture_search)
+
+    import agent_brain.interfaces.mcp.server as mcp
+
+    result = mcp.search_memory("injection gateway boundary per call access", top_k=10)
+
+    assert [row["id"] for row in result] == [value.id]
+    assert calls == [(False, True)]
+
+
 def test_mcp_search_only_returns_trace_for_gateway_included_items(tmp_brain):
     safe = memory("safe-trace")
     private = memory("private-trace", sensitivity=Sensitivity.private)

@@ -62,19 +62,13 @@ def search_items(
         tags=tags or [],
     )
 
-    old_record_access = getattr(retriever, "record_access", None)
-    if context_firewall and old_record_access is not None:
-        retriever.record_access = False
-    try:
-        hits = retriever.search(
-            query,
-            top_k=top_k * 3 if context_firewall else top_k,
-            filters=search_filter if not search_filter.is_empty else None,
-            explain=include_trace,
-        )
-    finally:
-        if context_firewall and old_record_access is not None:
-            retriever.record_access = old_record_access
+    hits = retriever.search(
+        query,
+        top_k=top_k * 3 if context_firewall else top_k,
+        filters=search_filter if not search_filter.is_empty else None,
+        explain=include_trace,
+        record_access=False if context_firewall else None,
+    )
 
     packed_by_id: dict[str, Any] = {}
     firewall_by_id: dict[str, Any] = {}

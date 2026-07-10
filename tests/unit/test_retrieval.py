@@ -56,6 +56,36 @@ def test_rrf_top_k_respected(tmp_brain_dir: Path):
     assert len(hits) == 2
 
 
+def test_search_record_access_override_is_per_call_and_does_not_mutate_instance(
+    tmp_brain_dir: Path,
+):
+    from agent_brain.memory.recall.retrieval import Retriever
+
+    idx = _build_index(tmp_brain_dir, [
+        ("override", "Per call access override", "record access override boundary"),
+    ])
+    retriever = Retriever(
+        index=idx,
+        embedder=HashingEmbedder(dim=8),
+        record_access=True,
+    )
+
+    hits = retriever.search(
+        "record access override boundary",
+        top_k=1,
+        record_access=False,
+    )
+
+    assert [hit.id for hit in hits] == ["mem-20260519-100000-override"]
+    assert retriever.record_access is True
+    assert idx.get_decay_data([hits[0].id])[hits[0].id][4] == 0
+
+    retriever.search("record access override boundary", top_k=1)
+
+    assert retriever.record_access is True
+    assert idx.get_decay_data([hits[0].id])[hits[0].id][4] == 1
+
+
 def test_bm25_weight_boost(tmp_brain_dir: Path):
     from agent_brain.memory.recall.retrieval import Retriever
 

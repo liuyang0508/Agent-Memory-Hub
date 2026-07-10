@@ -305,8 +305,8 @@ class TestMemoryClientSearch:
         class FakeRetriever:
             record_access = True
 
-            def search(self, _query, *, top_k, filters, explain):
-                calls.append((top_k, filters, explain, self.record_access))
+            def search(self, _query, *, top_k, filters, explain, record_access=None):
+                calls.append((top_k, filters, explain, record_access, self.record_access))
                 return []
 
         retriever = FakeRetriever()
@@ -323,7 +323,84 @@ class TestMemoryClientSearch:
         )
 
         assert results == []
-        assert calls == [(6, None, False, False)]
+        assert calls == [(6, None, False, False, True)]
+        assert retriever.record_access is True
+
+    def test_search_items_override_does_not_mutate_retriever_when_search_raises(
+        self,
+        tmp_path,
+    ):
+        from agent_brain.interfaces.sdk.query import search_items
+        from agent_brain.memory.store.items_store import ItemsStore
+
+        calls = []
+
+        class FailingRetriever:
+            record_access = True
+
+            def search(self, _query, *, record_access=None, **_kwargs):
+                calls.append((record_access, self.record_access))
+                raise RuntimeError("synthetic retrieval failure")
+
+        retriever = FailingRetriever()
+
+        with pytest.raises(RuntimeError, match="synthetic retrieval failure"):
+            search_items(
+                query="SDK retrieval failure boundary",
+                top_k=1,
+                type=None,
+                project=None,
+                tags=None,
+                default_project=None,
+                retriever=retriever,
+                store=ItemsStore(tmp_path / "items"),
+            )
+
+        assert calls == [(False, True)]
+        assert retriever.record_access is True
+
+    def test_search_items_interleaved_raw_call_does_not_observe_secure_override(
+        self,
+        tmp_path,
+    ):
+        from agent_brain.interfaces.sdk.query import search_items
+        from agent_brain.memory.store.items_store import ItemsStore
+
+        calls = []
+        store = ItemsStore(tmp_path / "items")
+
+        class InterleavedRetriever:
+            record_access = True
+
+            def search(self, _query, *, record_access=None, **_kwargs):
+                calls.append((record_access, self.record_access))
+                if len(calls) == 1:
+                    assert search_items(
+                        query="SDK interleaved raw boundary",
+                        top_k=1,
+                        type=None,
+                        project=None,
+                        tags=None,
+                        default_project=None,
+                        retriever=self,
+                        store=store,
+                        context_firewall=False,
+                    ) == []
+                return []
+
+        retriever = InterleavedRetriever()
+
+        assert search_items(
+            query="SDK interleaved secure boundary",
+            top_k=1,
+            type=None,
+            project=None,
+            tags=None,
+            default_project=None,
+            retriever=retriever,
+            store=store,
+        ) == []
+        assert calls == [(False, True), (None, True)]
         assert retriever.record_access is True
 
     def test_search_items_reports_ghost_hydrate_only_as_aggregate(
