@@ -209,6 +209,15 @@ def test_surface_metrics_count_hydrate_failures_without_fake_candidates(
     assert metrics["hydrate_error_count"] == 1
     assert metrics["excluded_count"] == 1
     assert metrics["excluded_reasons"] == {HYDRATE_ERROR_REASON: 1}
+    for count_key in (
+        "candidate_count",
+        "raw_candidate_count",
+        "gateway_candidate_count",
+        "included_count",
+        "hydrate_error_count",
+        "excluded_count",
+    ):
+        assert type(metrics[count_key]) is int
     rendered = repr(metrics)
     for forbidden in (safe.id, safe.title, safe.summary, "body:"):
         assert forbidden not in rendered
@@ -233,6 +242,77 @@ def test_gateway_synthetic_exclusion_reasons_are_canonical(monkeypatch):
     assert gateway.HYDRATE_ERROR_REASON in gateway.INJECTION_EXCLUSION_REASONS
     assert gateway.PACK_ERROR_REASON in emitted
     assert emitted <= gateway.INJECTION_EXCLUSION_REASONS
+
+
+def test_unknown_exclusion_reason_error_never_echoes_reason_content():
+    from agent_brain.memory.context.context_firewall_types import FirewallDecision
+    from agent_brain.memory.context.injection_gateway import (
+        injection_exclusion_reason_counts,
+    )
+
+    sentinel = "SECRET_PRIVATE_UNKNOWN_EXCLUSION_REASON"
+    context_candidate = candidate(item("unknown-reason-sentinel"))
+    decision = FirewallDecision(
+        candidate=context_candidate,
+        action="exclude",
+        reasons=(sentinel,),
+        score=context_candidate.score,
+        effective_score=0.0,
+    )
+
+    with pytest.raises(ValueError) as raised:
+        injection_exclusion_reason_counts([decision])
+
+    rendered = f"{raised.value!s} {raised.value!r}"
+    assert sentinel not in rendered
+    assert str(raised.value) == "unsupported injection exclusion reason"
+
+
+@pytest.mark.parametrize("invalid_count", [False, True, 0.0, 1.0, -1])
+def test_exclusion_reason_counts_require_nonnegative_plain_int(invalid_count):
+    from agent_brain.memory.context.injection_gateway import (
+        injection_exclusion_reason_counts,
+    )
+
+    with pytest.raises(ValueError):
+        injection_exclusion_reason_counts(
+            [],
+            hydrate_error_count=invalid_count,
+        )
+
+
+@pytest.mark.parametrize(
+    ("raw_candidate_count", "hydrate_error_count"),
+    [
+        (False, 0),
+        (True, 1),
+        (0.0, 0),
+        (1.0, 1),
+        (-1, 0),
+        (0, False),
+        (1, True),
+        (0, 0.0),
+        (1, 1.0),
+        (0, -1),
+    ],
+)
+def test_surface_metrics_require_nonnegative_plain_int_counts(
+    raw_candidate_count,
+    hydrate_error_count,
+):
+    from agent_brain.memory.context.injection_gateway import (
+        build_injection_context,
+        surface_injection_metrics,
+    )
+
+    result = build_injection_context([])
+
+    with pytest.raises(ValueError):
+        surface_injection_metrics(
+            result,
+            raw_candidate_count=raw_candidate_count,
+            hydrate_error_count=hydrate_error_count,
+        )
 
 
 def test_gateway_diagnostic_logs_only_aggregate_reason(caplog):

@@ -19,6 +19,7 @@ from agent_brain.memory.context.query_signal import QuerySignal, analyze_injecti
 logger = logging.getLogger(__name__)
 _CONTEXT_VERBOSITIES = frozenset(get_args(ContextVerbosity))
 _INJECTION_OVERFETCH_CAP = 50
+_UNKNOWN_EXCLUSION_REASON_ERROR = "unsupported injection exclusion reason"
 HYDRATE_ERROR_REASON = "hydrate_error"
 PACK_ERROR_REASON = "pack_error"
 GATEWAY_SYNTHETIC_EXCLUSION_REASONS = frozenset({
@@ -84,8 +85,7 @@ def injection_exclusion_reason_counts(
     hydrate_error_count: int = 0,
 ) -> dict[str, int]:
     """Return closed-set aggregate exclusion counts without item identity."""
-    if hydrate_error_count < 0:
-        raise ValueError("hydrate_error_count must be non-negative")
+    _require_nonnegative_int(hydrate_error_count, "hydrate_error_count")
     reason_counts = Counter(
         reason
         for decision in decisions
@@ -95,10 +95,7 @@ def injection_exclusion_reason_counts(
         reason_counts[HYDRATE_ERROR_REASON] += hydrate_error_count
     unknown = set(reason_counts) - INJECTION_EXCLUSION_REASONS
     if unknown:
-        raise ValueError(
-            "unsupported injection exclusion reasons: "
-            + ", ".join(sorted(unknown))
-        )
+        raise ValueError(_UNKNOWN_EXCLUSION_REASON_ERROR)
     return dict(sorted(reason_counts.items()))
 
 
@@ -114,10 +111,8 @@ def surface_injection_metrics(
     Surface ``candidate_count`` and ``raw_candidate_count`` cover every raw hit,
     while ``gateway_candidate_count`` covers only hydrated Gateway inputs.
     """
-    if raw_candidate_count < 0:
-        raise ValueError("raw_candidate_count must be non-negative")
-    if hydrate_error_count < 0:
-        raise ValueError("hydrate_error_count must be non-negative")
+    _require_nonnegative_int(raw_candidate_count, "raw_candidate_count")
+    _require_nonnegative_int(hydrate_error_count, "hydrate_error_count")
     metrics = result.metrics()
     gateway_candidate_count = int(metrics["candidate_count"])
     expected_raw_count = gateway_candidate_count + hydrate_error_count
@@ -139,6 +134,11 @@ def surface_injection_metrics(
         ),
     })
     return metrics
+
+
+def _require_nonnegative_int(value: object, field: str) -> None:
+    if type(value) is not int or value < 0:
+        raise ValueError(f"{field} must be a non-negative integer")
 
 
 def injection_retrieval_top_k(top_k: int) -> int:
