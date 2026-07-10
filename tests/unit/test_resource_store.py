@@ -239,6 +239,54 @@ def test_resource_reader_searches_resources_and_extractions(tmp_path) -> None:
     assert [hit.resource.id for hit in filtered] == [beta.id]
 
 
+def test_resource_reader_applies_tenant_and_sensitivity_before_top_k(tmp_path) -> None:
+    from agent_brain.contracts.resource import ResourceKind, ResourceRecord, make_resource_id
+    from agent_brain.memory.evidence.resource_reading import (
+        ResourceReader,
+        ResourceSearchFilter,
+    )
+    from agent_brain.memory.evidence.resource_store import ResourceStore
+
+    store = ResourceStore(tmp_path)
+    other_tenant = ResourceRecord(
+        id=make_resource_id("A boundary other tenant"),
+        kind=ResourceKind.document,
+        uri="/tmp/other.md",
+        title="A web resource boundary",
+        tenant_id="team-b",
+        sensitivity="internal",
+    )
+    secret = ResourceRecord(
+        id=make_resource_id("B boundary secret"),
+        kind=ResourceKind.document,
+        uri="/tmp/secret.md",
+        title="B web resource boundary",
+        tenant_id="team-a",
+        sensitivity="secret",
+    )
+    allowed = ResourceRecord(
+        id=make_resource_id("Z boundary allowed"),
+        kind=ResourceKind.document,
+        uri="/tmp/allowed.md",
+        title="Z web resource boundary",
+        tenant_id="team-a",
+        sensitivity="internal",
+    )
+    for resource in (other_tenant, secret, allowed):
+        store.write_resource(resource)
+
+    hits = ResourceReader(store).search_resource(
+        "web resource boundary",
+        top_k=1,
+        filters=ResourceSearchFilter(
+            tenant_ids=(None, "team-a"),
+            allowed_sensitivities=("public", "internal"),
+        ),
+    )
+
+    assert [hit.resource.id for hit in hits] == [allowed.id]
+
+
 def test_resource_reader_reads_summary_outline_segment_and_degraded(tmp_path) -> None:
     from agent_brain.memory.evidence.resource_reading import ResourceReader
     from agent_brain.memory.evidence.resource_store import ResourceStore

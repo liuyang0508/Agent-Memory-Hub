@@ -13,6 +13,8 @@ class ResourceSearchFilter:
     project: str | None = None
     tags: list[str] | None = None
     kind: ResourceKind | str | None = None
+    tenant_ids: tuple[str | None, ...] | None = None
+    allowed_sensitivities: tuple[str, ...] | None = None
 
 
 @dataclass(frozen=True)
@@ -128,6 +130,19 @@ class ResourceReader:
         if filters.project is not None and resource.project != filters.project:
             return False
         if filters.kind is not None and str(resource.kind) != _kind_value(filters.kind):
+            return False
+        if (
+            filters.tenant_ids is not None
+            and resource.tenant_id not in filters.tenant_ids
+        ):
+            return False
+        sensitivity = str(
+            getattr(resource.sensitivity, "value", resource.sensitivity)
+        )
+        if (
+            filters.allowed_sensitivities is not None
+            and sensitivity not in filters.allowed_sensitivities
+        ):
             return False
         if filters.tags:
             tags = set(resource.tags)

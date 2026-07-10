@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 import json
 import inspect
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -1105,6 +1107,350 @@ class TestSemanticSearch:
         assert result["retrieval_trace"]["final_rank"] == 1
         assert result["firewall"]["action"] in {"include", "demote"}
         assert result["resource_context"][0]["resource_id"] == resource.id
+
+    def test_search_defaults_to_gateway_and_records_only_final_safe_hits(
+        self,
+        brain_dir: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from agent_brain.contracts.memory_enums import Sensitivity
+        from agent_brain.memory.context.injection_gateway import injection_retrieval_top_k
+        from web.api.routes import item_search
+        from web.auth import CurrentUser
+
+        def memory(
+            suffix: str,
+            *,
+            sensitivity: Sensitivity = Sensitivity.internal,
+            tags: list[str] | None = None,
+            superseded_by: str | None = None,
+        ) -> MemoryItem:
+            return MemoryItem(
+                id=f"mem-20260711-12000{len(rows)}-web-{suffix}",
+                type=MemoryType.episode,
+                created_at=datetime.now(timezone.utc),
+                tenant_id="team-a",
+                sensitivity=sensitivity,
+                tags=tags or [],
+                superseded_by=superseded_by,
+                title=f"Web gateway boundary {suffix}",
+                summary=f"Web gateway boundary summary {suffix}",
+            )
+
+        rows: list[tuple[MemoryItem, str]] = []
+        safe = memory("safe")
+        rows.append((safe, "Web gateway boundary safe body"))
+        rows.append((memory("private", sensitivity=Sensitivity.private), "PRIVATE_BODY"))
+        rows.append((memory("secret", sensitivity=Sensitivity.secret), "SECRET_BODY"))
+        rows.append((memory("review", tags=["needs-review"]), "REVIEW_BODY"))
+        rows.append((memory("superseded", superseded_by=safe.id), "SUPERSEDED_BODY"))
+
+        class Store:
+            def iter_all(self):
+                return iter(rows)
+
+        class Retriever:
+            record_access = True
+
+            def __init__(self) -> None:
+                self.calls: list[dict[str, object]] = []
+                self.accessed: list[str] = []
+                self.hits = [
+                    SimpleNamespace(id=item.id, score=1.0 - index * 0.01, trace=None)
+                    for index, (item, _body) in enumerate(rows)
+                ]
+
+            def search(self, _query, **kwargs):
+                self.calls.append(kwargs)
+                hits = self.hits[: kwargs["top_k"]]
+                enabled = kwargs.get("record_access")
+                if enabled is None:
+                    enabled = self.record_access
+                if enabled:
+                    self.accessed.extend(hit.id for hit in hits)
+                return hits
+
+            def record_accesses(self, hits) -> None:
+                if self.record_access:
+                    self.accessed.extend(hit.id for hit in hits)
+
+        retriever = Retriever()
+        monkeypatch.setattr(
+            item_search,
+            "_components",
+            lambda: (Store(), object(), retriever, object()),
+        )
+        assert (
+            inspect.signature(item_search.search_items)
+            .parameters["context_firewall"]
+            .default
+            is True
+        )
+
+        payload = asyncio.run(item_search.search_items(
+            q="web gateway boundary",
+            top_k=10,
+            type=None,
+            project=None,
+            exclude_tags=None,
+            verbosity="detail",
+            include_trace=False,
+            context_firewall=True,
+            include_resources=False,
+            user=CurrentUser("alice", "team-a", "user"),
+        ))
+
+        assert [row["id"] for row in payload["results"]] == [safe.id]
+        assert payload["results"][0]["context_pack"]["text"] == rows[0][1]
+        assert payload["results"][0]["snippet"] == rows[0][1]
+        assert payload["results"][0]["firewall"]["action"] in {"include", "demote"}
+        assert retriever.calls == [{
+            "top_k": injection_retrieval_top_k(10),
+            "filters": None,
+            "explain": False,
+            "record_access": False,
+        }]
+        assert retriever.accessed == [safe.id]
+        serialized = json.dumps(payload, ensure_ascii=False)
+        for marker in ("PRIVATE_BODY", "SECRET_BODY", "REVIEW_BODY", "SUPERSEDED_BODY"):
+            assert marker not in serialized
+
+    def test_search_gateway_rejects_weak_query_without_access_record(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from web.api.routes import item_search
+        from web.auth import CurrentUser
+
+        item = MemoryItem(
+            id="mem-20260711-120010-web-weak-query",
+            type=MemoryType.episode,
+            created_at=datetime.now(timezone.utc),
+            title="Unrelated web item",
+            summary="Unrelated web item",
+        )
+        hit = SimpleNamespace(id=item.id, score=1.0, trace=None)
+
+        class Store:
+            def iter_all(self):
+                return iter([(item, "unrelated body")])
+
+        class Retriever:
+            record_access = True
+            accessed: list[str] = []
+
+            def search(self, _query, **_kwargs):
+                return [hit]
+
+            def record_accesses(self, hits) -> None:
+                self.accessed.extend(value.id for value in hits)
+
+        retriever = Retriever()
+        monkeypatch.setattr(
+            item_search,
+            "_components",
+            lambda: (Store(), object(), retriever, object()),
+        )
+
+        payload = asyncio.run(item_search.search_items(
+            q="memory",
+            top_k=1,
+            type=None,
+            project=None,
+            exclude_tags=None,
+            verbosity="locator",
+            include_trace=False,
+            context_firewall=True,
+            include_resources=False,
+            user=CurrentUser("alice", "team-a", "user"),
+        ))
+
+        assert payload["results"] == []
+        assert retriever.accessed == []
+
+    def test_search_raw_diagnostics_are_admin_only_and_never_build_prompt_context(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from fastapi import HTTPException
+
+        from web.api.routes import item_search
+        from web.auth import CurrentUser
+
+        item = MemoryItem(
+            id="mem-20260711-120011-web-raw-secret",
+            type=MemoryType.episode,
+            created_at=datetime.now(timezone.utc),
+            sensitivity="secret",
+            title="Web raw secret",
+            summary="Web raw secret",
+        )
+        hit = SimpleNamespace(id=item.id, score=1.0, trace=None)
+
+        class Store:
+            def iter_all(self):
+                return iter([(item, "WEB_RAW_SECRET_BODY")])
+
+        class Retriever:
+            record_access = True
+
+            def __init__(self) -> None:
+                self.calls: list[dict[str, object]] = []
+                self.accessed: list[str] = []
+
+            def search(self, _query, **kwargs):
+                self.calls.append(kwargs)
+                if kwargs.get("record_access") is not False and self.record_access:
+                    self.accessed.append(hit.id)
+                return [hit]
+
+            def record_accesses(self, hits) -> None:
+                self.accessed.extend(value.id for value in hits)
+
+        retriever = Retriever()
+        monkeypatch.setattr(
+            item_search,
+            "_components",
+            lambda: (Store(), object(), retriever, object()),
+        )
+        monkeypatch.setattr(
+            item_search,
+            "_resource_context_for_item",
+            lambda *_args, **_kwargs: pytest.fail("raw diagnostics must not load resources"),
+        )
+        monkeypatch.setattr(
+            item_search,
+            "_resource_results",
+            lambda *_args, **_kwargs: pytest.fail("raw diagnostics must not search resources"),
+        )
+
+        with pytest.raises(HTTPException) as exc:
+            asyncio.run(item_search.search_items(
+                q="web raw secret",
+                top_k=1,
+                type=None,
+                project=None,
+                exclude_tags=None,
+                verbosity="detail",
+                include_trace=False,
+                context_firewall=False,
+                include_resources=True,
+                user=CurrentUser("alice", "team-a", "user"),
+            ))
+        assert exc.value.status_code == 403
+        assert retriever.calls == []
+
+        payload = asyncio.run(item_search.search_items(
+            q="web raw secret",
+            top_k=1,
+            type=None,
+            project=None,
+            exclude_tags=None,
+            verbosity="detail",
+            include_trace=False,
+            context_firewall=False,
+            include_resources=True,
+            user=CurrentUser("admin", "default", "admin"),
+        ))
+
+        assert len(payload["results"]) == 1
+        assert payload["results"][0]["snippet"] == "WEB_RAW_SECRET_BODY"
+        assert payload["results"][0]["context_pack"] is None
+        assert payload["results"][0]["firewall"] is None
+        assert payload["results"][0]["resource_context"] == []
+        assert payload["resource_results"] == []
+        assert payload["diagnostics"]["resource_sidecar"] is False
+        assert retriever.calls == [{
+            "top_k": 1,
+            "filters": None,
+            "explain": False,
+        }]
+        assert retriever.accessed == [item.id]
+
+    def test_search_resource_context_rechecks_tenant_and_sensitivity(
+        self,
+        brain_dir: Path,
+    ) -> None:
+        from agent_brain.contracts.memory_item import Refs
+        from agent_brain.contracts.resource import (
+            ExtractionKind,
+            ExtractionRecord,
+            ResourceKind,
+            ResourceRecord,
+            make_extraction_id,
+            make_resource_id,
+            sha256_text,
+        )
+        from agent_brain.memory.evidence.resource_store import ResourceStore
+        from web.api.routes import item_search
+        from web.auth import CurrentUser
+
+        store = ResourceStore(brain_dir)
+
+        def resource(title: str, *, tenant_id: str | None, sensitivity: str, text: str):
+            value = ResourceRecord(
+                id=make_resource_id(title),
+                kind=ResourceKind.document,
+                uri=f"/tmp/{title}.md",
+                title=title,
+                tenant_id=tenant_id,
+                sensitivity=sensitivity,
+            )
+            extraction = ExtractionRecord(
+                id=make_extraction_id(f"{title} summary"),
+                resource_id=value.id,
+                kind=ExtractionKind.summary,
+                extractor="pytest",
+                content_text=text,
+                content_sha256=sha256_text(text),
+            )
+            store.write_resource(value)
+            store.write_extraction(extraction)
+            return value
+
+        own = resource(
+            "Z web resource boundary own",
+            tenant_id="team-a",
+            sensitivity="internal",
+            text="OWN_RESOURCE_CONTEXT",
+        )
+        other = resource(
+            "A web resource boundary other",
+            tenant_id="team-b",
+            sensitivity="internal",
+            text="OTHER_TENANT_RESOURCE_CONTEXT",
+        )
+        secret = resource(
+            "B web resource boundary secret",
+            tenant_id="team-a",
+            sensitivity="secret",
+            text="SECRET_RESOURCE_CONTEXT",
+        )
+        item = MemoryItem(
+            id="mem-20260711-120012-web-resource-item",
+            type=MemoryType.episode,
+            created_at=datetime.now(timezone.utc),
+            tenant_id="team-a",
+            title="Web resource boundary item",
+            summary="Web resource boundary item",
+            refs=Refs(resources=[own.id, other.id, secret.id]),
+        )
+        user = CurrentUser("alice", "team-a", "user")
+
+        context = item_search._resource_context_for_item(item, user=user)
+        results = item_search._resource_results(
+            "web resource boundary",
+            project=None,
+            top_k=1,
+            user=user,
+        )
+
+        assert [row["resource_id"] for row in context] == [own.id]
+        assert [row["id"] for row in results] == [own.id]
+        serialized = json.dumps({"context": context, "results": results})
+        assert "OWN_RESOURCE_CONTEXT" in serialized
+        assert "OTHER_TENANT_RESOURCE_CONTEXT" not in serialized
+        assert "SECRET_RESOURCE_CONTEXT" not in serialized
 
 
 class TestStats:

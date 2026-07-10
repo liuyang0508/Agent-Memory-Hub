@@ -9,6 +9,7 @@ PROMPT_SURFACES = (
     "agent_brain/interfaces/sdk/query.py",
     "agent_brain/interfaces/cli/commands/query.py",
     "agent_brain/memory/recall/brief.py",
+    "web/api/routes/item_search.py",
 )
 FORBIDDEN_FROM_IMPORTS = {
     "agent_brain.memory.context.context_packing": {

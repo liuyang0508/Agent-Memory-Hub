@@ -7,8 +7,11 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from agent_brain.memory.context.context_firewall import ContextCandidate, ContextFirewall
-from agent_brain.memory.context.context_packing import build_context_pack
+from agent_brain.memory.context.context_firewall_types import ContextCandidate
+from agent_brain.memory.context.injection_gateway import (
+    build_injection_context,
+    injection_retrieval_top_k,
+)
 from agent_brain.memory.evidence.resource_reading import (
     ResourceSearchFilter,
     read_resource_context,
@@ -21,6 +24,7 @@ from web.auth import CurrentUser, get_current_user
 
 
 router = APIRouter()
+_PROMPT_RESOURCE_SENSITIVITIES = ("public", "internal")
 
 
 @router.get("/api/search")
@@ -32,32 +36,33 @@ async def search_items(
     exclude_tags: str | None = None,
     verbosity: str = Query("locator", pattern="^(locator|overview|detail|auto)$"),
     include_trace: bool = False,
-    context_firewall: bool = False,
+    context_firewall: bool = True,
     include_resources: bool = False,
     user: CurrentUser = Depends(get_current_user),
 ):
+    if not context_firewall and not user.is_admin:
+        raise HTTPException(status_code=403, detail="raw search diagnostics are admin only")
+
     store, _, retriever, _ = _components()
     sf = SearchFilter(
         type=type,
         project=project,
         exclude_tags=[tag.strip() for tag in (exclude_tags or "").split(",") if tag.strip()],
     )
-    old_record_access = retriever.record_access
+    search_kwargs: dict[str, Any] = {
+        "top_k": injection_retrieval_top_k(top_k) if context_firewall else top_k,
+        "filters": sf if not sf.is_empty else None,
+        "explain": include_trace,
+    }
     if context_firewall:
-        retriever.record_access = False
-    try:
-        hits = retriever.search(
-            q,
-            top_k=top_k * 3 if context_firewall else top_k,
-            filters=sf if not sf.is_empty else None,
-            explain=include_trace,
-        )
-    finally:
-        retriever.record_access = old_record_access
+        search_kwargs["record_access"] = False
+    hits = retriever.search(q, **search_kwargs)
+
     items_by_id: dict[str, tuple[Any, str]] = {}
     for item, body in store.iter_all():
         if _visible(item, user):
             items_by_id[item.id] = (item, body)
+    context_packs_by_id: dict[str, Any] = {}
     firewall_by_id: dict[str, Any] = {}
     if context_firewall:
         hit_by_id = {hit.id: hit for hit in hits}
@@ -66,34 +71,41 @@ async def search_items(
                 item=items_by_id[hit.id][0],
                 body=items_by_id[hit.id][1],
                 score=hit.score,
+                source="web-search",
             )
             for hit in hits
             if hit.id in items_by_id
         ]
-        firewall_result = ContextFirewall().filter(candidates, query=q, max_items=top_k)
+        injection = build_injection_context(
+            candidates,
+            query=q,
+            requested=verbosity,
+            max_items=top_k,
+        )
+        context_packs_by_id = {
+            entry.decision.candidate.item.id: entry.pack
+            for entry in injection.included
+        }
         firewall_by_id = {
-            decision.candidate.item.id: decision
-            for decision in firewall_result.decisions
+            entry.decision.candidate.item.id: entry.decision
+            for entry in injection.included
         }
         hits = [
-            hit_by_id[decision.candidate.item.id]
-            for decision in firewall_result.included
-            if decision.candidate.item.id in hit_by_id
+            hit_by_id[item_id]
+            for item_id in context_packs_by_id
+            if item_id in hit_by_id
         ]
+        retriever.record_accesses(hits)
     else:
         hits = hits[:top_k]
+
     results = []
     for h in hits:
         if h.id not in items_by_id:
             continue
         item, body = items_by_id[h.id]
         firewall_decision = firewall_by_id.get(h.id)
-        context_pack = build_context_pack(
-            item,
-            body,
-            requested=verbosity,
-            firewall_decision=firewall_decision,
-        )
+        context_pack = context_packs_by_id.get(h.id)
         results.append(
             {
                 "id": h.id,
@@ -102,21 +114,31 @@ async def search_items(
                 "summary": item.summary,
                 "score": h.score,
                 "confidence": item.confidence,
-                "snippet": body[:200],
-                "context_pack": context_pack.to_dict(),
+                "snippet": context_pack.text if context_pack is not None else body[:200],
+                "context_pack": (
+                    context_pack.to_dict() if context_pack is not None else None
+                ),
                 "retrieval_trace": h.trace.to_dict() if h.trace is not None else None,
                 "firewall": _firewall_to_dict(firewall_decision) if firewall_decision else None,
-                "resource_context": _resource_context_for_item(item) if include_resources else [],
+                "resource_context": (
+                    _resource_context_for_item(item, user=user)
+                    if context_firewall and include_resources
+                    else []
+                ),
             }
         )
-    resource_results = _resource_results(q, project=project, top_k=top_k) if include_resources else []
+    resource_results = (
+        _resource_results(q, project=project, top_k=top_k, user=user)
+        if context_firewall and include_resources
+        else []
+    )
     return {
         "results": results,
         "query": q,
         "diagnostics": {
             "retrieval_trace": include_trace,
             "context_firewall": context_firewall,
-            "resource_sidecar": include_resources,
+            "resource_sidecar": context_firewall and include_resources,
             "verbosity": verbosity,
         },
         "resource_results": resource_results,
@@ -132,11 +154,18 @@ def _firewall_to_dict(decision) -> dict[str, Any]:
     }
 
 
-def _resource_context_for_item(item) -> list[dict[str, Any]]:
+def _resource_context_for_item(
+    item,
+    *,
+    user: CurrentUser,
+) -> list[dict[str, Any]]:
     store = ResourceStore(_brain_dir())
     contexts: list[dict[str, Any]] = []
     for resource_id in item.refs.resources:
         try:
+            resource = store.get_resource(resource_id)
+            if not _resource_visible_to(resource, user):
+                continue
             entries = read_resource_context(store, resource_id, max_tokens=80)
         except FileNotFoundError:
             continue
@@ -153,16 +182,28 @@ def _resource_context_for_item(item) -> list[dict[str, Any]]:
     return contexts
 
 
-def _resource_results(query: str, *, project: str | None, top_k: int) -> list[dict[str, Any]]:
+def _resource_results(
+    query: str,
+    *,
+    project: str | None,
+    top_k: int,
+    user: CurrentUser,
+) -> list[dict[str, Any]]:
     store = ResourceStore(_brain_dir())
     hits = search_resource(
         store,
         query,
         top_k=top_k,
-        filters=ResourceSearchFilter(project=project),
+        filters=ResourceSearchFilter(
+            project=project,
+            tenant_ids=None if user.is_admin else (None, user.tenant_id),
+            allowed_sensitivities=_PROMPT_RESOURCE_SENSITIVITIES,
+        ),
     )
     rows: list[dict[str, Any]] = []
     for hit in hits:
+        if not _resource_visible_to(hit.resource, user):
+            continue
         context = []
         try:
             for entry in read_resource_context(store, hit.resource.id, max_tokens=80):
@@ -185,6 +226,17 @@ def _resource_results(query: str, *, project: str | None, top_k: int) -> list[di
             "context": context,
         })
     return rows
+
+
+def _resource_visible_to(resource, user: CurrentUser) -> bool:
+    sensitivity = str(getattr(resource.sensitivity, "value", resource.sensitivity))
+    if sensitivity not in _PROMPT_RESOURCE_SENSITIVITIES:
+        return False
+    return bool(
+        user.is_admin
+        or resource.tenant_id is None
+        or resource.tenant_id == user.tenant_id
+    )
 
 
 @router.get("/api/items/{item_id}/related")
