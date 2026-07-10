@@ -30,7 +30,8 @@ from agent_brain.memory.governance.recall_events import (
     sanitize_recall_gap_reason,
 )
 from agent_brain.memory.loops.loop_events import iter_loop_events
-from agent_brain.memory.store.item_ids import known_memory_item_ids
+from agent_brain.memory.store.item_ids import observable_memory_items
+from agent_brain.platform.telemetry_safety import parse_utc_timestamp, sanitize_task_id
 
 
 MAX_WINDOW_HOURS = 72
@@ -100,7 +101,7 @@ class DataFlowLedger:
 
     def __init__(self, brain_dir: Path):
         self.brain_dir = Path(brain_dir)
-        self._known_item_ids_cache: frozenset[str] | None = None
+        self._observable_items_cache: dict[str, Any] | None = None
 
     def list_events(
         self,
@@ -152,9 +153,9 @@ class DataFlowLedger:
         )
 
     def _all_events(self, *, source: str | None = None) -> list[DataFlowEvent]:
-        # Keep one lightweight filename scan per read while reflecting archive
-        # moves when a long-lived ledger instance is queried again.
-        self._known_item_ids_cache = None
+        # Keep one bounded frontmatter authorization scan per read while
+        # reflecting archive moves when a long-lived ledger is queried again.
+        self._observable_items_cache = None
         builders = {
             "adapter_runtime": self._adapter_runtime_events,
             "adapter_verification": self._adapter_verification_events,
@@ -282,7 +283,7 @@ class DataFlowLedger:
                 session_id=record.session_id,
                 item_ids=_dedupe((*injected_ids, *adopted_ids, *rejected_ids)),
                 metadata={
-                    "task_id": record.task_id,
+                    "task_id": sanitize_task_id(record.task_id),
                     "confidence": record.confidence,
                     "feedback_signals": record.feedback_signals,
                     "value_tags": record.value_tags,
@@ -328,9 +329,11 @@ class DataFlowLedger:
         return _dedupe(item_id for item_id in item_ids if item_id in known_ids)
 
     def _known_item_ids(self) -> frozenset[str]:
-        if self._known_item_ids_cache is None:
-            self._known_item_ids_cache = known_memory_item_ids(self.brain_dir / "items")
-        return self._known_item_ids_cache
+        if self._observable_items_cache is None:
+            self._observable_items_cache = observable_memory_items(
+                self.brain_dir / "items"
+            )
+        return frozenset(self._observable_items_cache)
 
 
 def _sanitize(value: Any) -> Any:
@@ -435,13 +438,7 @@ def _sort_key(timestamp: str) -> datetime:
 
 
 def _parse_timestamp(timestamp: str) -> datetime | None:
-    try:
-        value = datetime.fromisoformat(str(timestamp).replace("Z", "+00:00"))
-    except ValueError:
-        return None
-    if value.tzinfo is None:
-        value = value.replace(tzinfo=timezone.utc)
-    return value.astimezone(timezone.utc)
+    return parse_utc_timestamp(timestamp)
 
 
 def _aware(now: datetime | None = None) -> datetime:

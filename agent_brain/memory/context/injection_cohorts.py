@@ -21,6 +21,7 @@ from agent_brain.memory.context.injection_metrics import (
     sanitize_query_sha256,
 )
 from agent_brain.platform.bounded_jsonl import iter_bounded_jsonl
+from agent_brain.platform.telemetry_safety import sanitize_cwd, sanitize_session_id
 
 
 INJECTION_COHORTS_RELATIVE_PATH = "runtime/injection-cohorts.jsonl"
@@ -106,8 +107,8 @@ def iter_injection_cohorts(
                 timestamp=str(data["timestamp"]),
                 item_ids=tuple(str(item_id) for item_id in data["item_ids"]),
                 adapter=sanitize_adapter_name(data.get("adapter")),
-                session_id=data.get("session_id"),
-                cwd=data.get("cwd"),
+                session_id=sanitize_session_id(data.get("session_id")),
+                cwd=sanitize_cwd(data.get("cwd")),
                 source=sanitize_injection_source(data.get("source")),
                 query_sha256=sanitize_query_sha256(data.get("query_sha256")),
                 query_terms=tuple(str(term) for term in data.get("query_terms") or []),

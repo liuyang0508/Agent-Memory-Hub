@@ -31,8 +31,8 @@ from agent_brain.memory.governance.recall_events import (
     iter_task_outcomes,
     sanitize_recall_gap_reason,
 )
-from agent_brain.memory.store.item_ids import known_memory_item_ids
-from agent_brain.memory.store.items_store import ItemsStore
+from agent_brain.memory.store.item_ids import observable_memory_items
+from agent_brain.platform.telemetry_safety import parse_utc_timestamp, sanitize_task_id
 
 
 MAX_WINDOW_HOURS = 72
@@ -282,7 +282,8 @@ def _chain_details(brain_dir: Path, *, hours: int) -> list[ChainDetail]:
     now = datetime.now(timezone.utc)
     start = now - timedelta(hours=bounded_hours)
     grouped: dict[str, list[tuple[datetime, str, Any]]] = {}
-    known_item_ids = known_memory_item_ids(brain / "items")
+    item_meta = observable_memory_items(brain / "items")
+    known_item_ids = frozenset(item_meta)
 
     for event in iter_runtime_events(brain):
         parsed = _parse_time(event.timestamp)
@@ -318,7 +319,6 @@ def _chain_details(brain_dir: Path, *, hours: int) -> list[ChainDetail]:
         for chain_key, bucket in chain_buckets.items():
             buckets[chain_key] = bucket
 
-    item_meta = _items_by_id(brain)
     return [_detail_from_bucket(bucket, item_meta) for bucket in buckets.values()]
 
 
@@ -360,6 +360,7 @@ def _safe_task_outcome(
 ) -> TaskOutcome:
     return replace(
         outcome,
+        task_id=sanitize_task_id(outcome.task_id),
         injected_ids=_allowlisted_item_ids(outcome.injected_ids, known_item_ids),
         adopted_ids=_allowlisted_item_ids(outcome.adopted_ids, known_item_ids),
         rejected_ids=_allowlisted_item_ids(outcome.rejected_ids, known_item_ids),
@@ -490,7 +491,15 @@ def _detail_from_bucket(bucket: _ChainBucket, item_meta: dict[str, Any]) -> Chai
 
     final_outcome = _final_outcome(bucket)
     trace_by_item = _retrieval_trace_by_item(bucket)
-    candidates = tuple(_candidate_traces(bucket, item_meta, trace_by_item))
+    loaded_views_by_item = _loaded_views_by_item(bucket)
+    candidates = tuple(
+        _candidate_traces(
+            bucket,
+            item_meta,
+            trace_by_item,
+            loaded_views_by_item,
+        )
+    )
     stages = tuple(_chain_stages(bucket, final_outcome))
     algorithms = tuple(_algorithm_stages(bucket, candidates, trace_by_item))
     completeness = _completeness(stages, algorithms, final_outcome)
@@ -600,6 +609,36 @@ def _retrieval_trace_by_item(bucket: _ChainBucket) -> dict[str, dict[str, Any]]:
             if sanitized:
                 trace_by_item[str(item_id)] = sanitized
     return trace_by_item
+
+
+def _loaded_views_by_item(bucket: _ChainBucket) -> dict[str, str]:
+    loaded_views: dict[str, str] = {}
+    ambiguous_ids: set[str] = set()
+    for cohort in bucket.injections:
+        if not isinstance(cohort.pack_metrics, dict):
+            continue
+        item_metrics = cohort.pack_metrics.get("items")
+        if not isinstance(item_metrics, list):
+            continue
+        for row in item_metrics:
+            if not isinstance(row, dict):
+                continue
+            item_id = row.get("id")
+            selected_view = row.get("selected_view")
+            if not isinstance(item_id, str) or selected_view not in {
+                "locator",
+                "overview",
+                "detail",
+            }:
+                continue
+            prior = loaded_views.get(item_id)
+            if prior is not None and prior != selected_view:
+                ambiguous_ids.add(item_id)
+                continue
+            loaded_views[item_id] = selected_view
+    for item_id in ambiguous_ids:
+        loaded_views.pop(item_id, None)
+    return loaded_views
 
 
 def _algorithm_stages(
@@ -712,6 +751,7 @@ def _candidate_traces(
     bucket: _ChainBucket,
     item_meta: dict[str, Any],
     trace_by_item: dict[str, dict[str, Any]],
+    loaded_views_by_item: dict[str, str],
 ) -> list[CandidateTrace]:
     injected = list(_dedupe(_iter_item_ids(cohort.item_ids for cohort in bucket.injections)))
     rejected_reasons: dict[str, list[str]] = {}
@@ -737,6 +777,7 @@ def _candidate_traces(
                 item_meta,
                 action="include",
                 rank=rank,
+                loaded_view=loaded_views_by_item.get(item_id),
                 score_trace=trace_by_item.get(item_id, {}),
             )
         )
@@ -764,6 +805,7 @@ def _candidate(
     action: str,
     rank: int | None = None,
     reasons: tuple[str, ...] = (),
+    loaded_view: str | None = None,
     score_trace: dict[str, Any] | None = None,
 ) -> CandidateTrace:
     item = item_meta.get(item_id)
@@ -777,7 +819,7 @@ def _candidate(
         final_rank=rank,
         firewall_action=action,
         firewall_reasons=reasons,
-        loaded_view="overview" if action == "include" else None,
+        loaded_view=loaded_view if action == "include" else None,
         score_trace=score_trace or {},
     )
 
@@ -801,13 +843,6 @@ def _summary_from_detail(detail: ChainDetail) -> ChainSummary:
         ),
         completeness=detail.completeness,
     )
-
-
-def _items_by_id(brain: Path) -> dict[str, Any]:
-    return {
-        item.id: item
-        for item, _body in ItemsStore(brain / "items").iter_all()
-    }
 
 
 def _bucket(buckets: dict[str, _ChainBucket], key: str, anchor_id: str) -> _ChainBucket:
@@ -941,13 +976,7 @@ def _within(timestamp: str, start: datetime, *, end: datetime | None = None) -> 
 
 
 def _parse_time(timestamp: str) -> datetime | None:
-    try:
-        value = datetime.fromisoformat(str(timestamp).replace("Z", "+00:00"))
-    except ValueError:
-        return None
-    if value.tzinfo is None:
-        value = value.replace(tzinfo=timezone.utc)
-    return value.astimezone(timezone.utc)
+    return parse_utc_timestamp(timestamp)
 
 
 def _iter_item_ids(groups: Iterable[Iterable[str]]) -> list[str]:

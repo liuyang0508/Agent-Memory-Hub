@@ -12,6 +12,11 @@ from pathlib import Path
 from typing import Iterator
 
 from agent_brain.platform.bounded_jsonl import iter_bounded_jsonl
+from agent_brain.platform.telemetry_safety import (
+    sanitize_cwd,
+    sanitize_observation_id,
+    sanitize_session_id,
+)
 
 
 RECALL_GAPS_RELATIVE_PATH = "runtime/recall-gaps.jsonl"
@@ -212,7 +217,7 @@ def iter_gap_records(brain_dir: Path) -> Iterator[GapRecord]:
     for data in _iter_jsonl(recall_gaps_path(brain_dir)):
         try:
             yield GapRecord(
-                gap_id=str(data["gap_id"]),
+                gap_id=sanitize_observation_id(data["gap_id"], prefix="gap"),
                 timestamp=str(data["timestamp"]),
                 query=str(data["query"]),
                 normalized_query=str(data["normalized_query"]),
@@ -221,8 +226,8 @@ def iter_gap_records(brain_dir: Path) -> Iterator[GapRecord]:
                 rejected_ids=tuple(str(value) for value in data.get("rejected_ids", [])),
                 evidence=tuple(str(value) for value in data.get("evidence", [])),
                 adapter=str(data.get("adapter") or "unknown"),
-                session_id=data.get("session_id"),
-                cwd=data.get("cwd"),
+                session_id=sanitize_session_id(data.get("session_id")),
+                cwd=sanitize_cwd(data.get("cwd")),
             )
         except (KeyError, TypeError, ValueError, OverflowError):
             continue
@@ -232,8 +237,10 @@ def iter_task_outcomes(brain_dir: Path) -> Iterator[TaskOutcome]:
     for data in _iter_jsonl(task_outcomes_path(brain_dir)):
         try:
             yield TaskOutcome(
-                outcome_id=str(data["outcome_id"]),
+                outcome_id=sanitize_observation_id(data["outcome_id"], prefix="out"),
                 timestamp=str(data["timestamp"]),
+                # Keep the internal correlation key for hook feedback; public
+                # DataFlow/Chain read models replace it with an opaque digest.
                 task_id=str(data["task_id"]),
                 question=str(data["question"]),
                 normalized_question=str(data["normalized_question"]),
@@ -247,8 +254,8 @@ def iter_task_outcomes(brain_dir: Path) -> Iterator[TaskOutcome]:
                 adopted_ids=tuple(str(value) for value in data.get("adopted_ids", [])),
                 rejected_ids=tuple(str(value) for value in data.get("rejected_ids", [])),
                 adapter=str(data.get("adapter") or "unknown"),
-                session_id=data.get("session_id"),
-                cwd=data.get("cwd"),
+                session_id=sanitize_session_id(data.get("session_id")),
+                cwd=sanitize_cwd(data.get("cwd")),
             )
         except (KeyError, TypeError, ValueError, OverflowError):
             continue
@@ -268,7 +275,7 @@ def iter_task_outcome_feedback_applications(
                 rejected_ids=tuple(str(value) for value in data.get("rejected_ids", [])),
                 skipped_reason=data.get("skipped_reason"),
                 adapter=str(data.get("adapter") or "unknown"),
-                session_id=data.get("session_id"),
+                session_id=sanitize_session_id(data.get("session_id")),
             )
         except (KeyError, TypeError, ValueError, OverflowError):
             continue

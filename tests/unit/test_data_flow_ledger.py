@@ -32,6 +32,147 @@ def _write_item(brain_dir: Path, item_id: str) -> MemoryItem:
     return item
 
 
+def test_data_flow_skips_extreme_offset_timestamp_and_keeps_later_valid_event(
+    tmp_brain: Path,
+) -> None:
+    from agent_brain.memory.context.injection_cohorts import (
+        injection_cohorts_path,
+        record_injection_cohort,
+    )
+    from agent_brain.observability.data_flow import DataFlowLedger
+    from agent_brain.product.chain_log import build_chain_log_report
+    from agent_brain.product.memory_lineage import build_memory_lineage_report
+
+    item = _write_item(tmp_brain, "mem-20260711-000001-extreme-time-safe")
+    path = injection_cohorts_path(tmp_brain)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps({
+            "cohort_id": "inj-00010101T000000+1400-00000000",
+            "timestamp": "0001-01-01T00:00:00+14:00",
+            "item_ids": [item.id],
+            "adapter": "codex",
+            "session_id": "poisoned-time",
+            "source": "search",
+        })
+        + "\n",
+        encoding="utf-8",
+    )
+    record_injection_cohort(
+        tmp_brain,
+        item_ids=[item.id],
+        adapter="codex",
+        session_id="valid-after-poison",
+    )
+
+    events = DataFlowLedger(tmp_brain).list_events(source="injection")
+    chain = build_chain_log_report(tmp_brain, hours=72).to_dict()
+    lineage = build_memory_lineage_report(tmp_brain, hours=72).to_dict()
+
+    assert [event.session_id for event in events] == ["valid-after-poison"]
+    assert [row["session_id"] for row in chain["chains"]] == ["valid-after-poison"]
+    assert any(
+        row["session_id"] == "valid-after-poison" and row["kind"] == "load"
+        for row in lineage["events"]
+    )
+    assert "poisoned-time" not in json.dumps(
+        {"events": [event.to_dict() for event in events], "chain": chain, "lineage": lineage}
+    )
+
+
+def test_data_flow_uses_opaque_task_and_observation_ids_for_dirty_outcome_sidecar(
+    tmp_brain: Path,
+) -> None:
+    from agent_brain.memory.governance.recall_events import recall_gaps_path, task_outcomes_path
+    from agent_brain.observability.data_flow import DataFlowLedger
+    from agent_brain.product.chain_log import build_chain_log_report
+
+    timestamp = datetime.now(timezone.utc).isoformat()
+    path = task_outcomes_path(tmp_brain)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps({
+            "outcome_id": "SECRET_RAW_OUTCOME_ID",
+            "timestamp": timestamp,
+            "task_id": "SECRET_ARBITRARY_TASK_TEXT",
+            "question": "q",
+            "normalized_question": "q",
+            "outcome": "accepted",
+            "confidence": 0.5,
+            "session_id": {"SECRET_SESSION": "raw"},
+        })
+        + "\n",
+        encoding="utf-8",
+    )
+    recall_gaps_path(tmp_brain).write_text(
+        json.dumps({
+            "gap_id": "SECRET_RAW_GAP_ID",
+            "timestamp": timestamp,
+            "query": "q",
+            "normalized_query": "q",
+            "reason": "empty_recall",
+            "session_id": {"SECRET_GAP_SESSION": "raw"},
+        })
+        + "\n",
+        encoding="utf-8",
+    )
+
+    event = DataFlowLedger(tmp_brain).list_events(source="task_outcome")[0]
+    chain = build_chain_log_report(tmp_brain, hours=72).to_dict()
+    serialized = json.dumps({"event": event.to_dict(), "chain": chain})
+
+    assert event.event_id.startswith("out-invalid-")
+    assert event.session_id is None
+    assert event.metadata["task_id"].startswith("task-observed-")
+    assert "SECRET" not in serialized
+
+
+def test_runtime_and_injection_sidecars_reject_non_string_grouping_identities(
+    tmp_brain: Path,
+) -> None:
+    from agent_brain.agent_integrations.runtime_events import runtime_events_path
+    from agent_brain.memory.context.injection_cohorts import injection_cohorts_path
+    from agent_brain.observability.data_flow import DataFlowLedger
+    from agent_brain.product.chain_log import build_chain_log_report
+
+    item = _write_item(tmp_brain, "mem-20260711-000002-sidecar-identity-safe")
+    timestamp = datetime.now(timezone.utc).isoformat()
+    runtime_path = runtime_events_path(tmp_brain)
+    runtime_path.parent.mkdir(parents=True, exist_ok=True)
+    runtime_path.write_text(
+        json.dumps({
+            "adapter": "codex",
+            "event_name": "UserPromptSubmit",
+            "timestamp": timestamp,
+            "session_id": {"SECRET_RUNTIME_SESSION": "raw"},
+            "cwd": ["SECRET_RUNTIME_CWD"],
+            "source": "hook",
+        })
+        + "\n",
+        encoding="utf-8",
+    )
+    injection_cohorts_path(tmp_brain).write_text(
+        json.dumps({
+            "cohort_id": "inj-20260711T000002+0000-00000000",
+            "timestamp": timestamp,
+            "item_ids": [item.id],
+            "adapter": "codex",
+            "session_id": ["SECRET_INJECTION_SESSION"],
+            "cwd": {"SECRET_INJECTION_CWD": "raw"},
+            "source": "search",
+        })
+        + "\n",
+        encoding="utf-8",
+    )
+
+    events = DataFlowLedger(tmp_brain).list_events()
+    chain = build_chain_log_report(tmp_brain, hours=72).to_dict()
+    serialized = json.dumps({"events": [event.to_dict() for event in events], "chain": chain})
+
+    assert {event.session_id for event in events} == {None}
+    assert "SECRET" not in serialized
+
+
 def test_data_flow_skips_task_outcomes_with_invalid_confidence_and_continues(
     tmp_brain: Path,
 ) -> None:
@@ -63,7 +204,7 @@ def test_data_flow_skips_task_outcomes_with_invalid_confidence_and_continues(
                 row("out-overflow", "1e400"),
                 row("out-too-high", "1.01"),
                 row("out-negative", "-0.01"),
-                row("out-valid", "0.75"),
+                row("out-20260711T000000-deadbeef", "0.75"),
             ]
         )
         + "\n",
@@ -72,7 +213,7 @@ def test_data_flow_skips_task_outcomes_with_invalid_confidence_and_continues(
 
     events = DataFlowLedger(tmp_brain).list_events(source="task_outcome")
 
-    assert [event.event_id for event in events] == ["out-valid"]
+    assert [event.event_id for event in events] == ["out-20260711T000000-deadbeef"]
     assert events[0].metadata["confidence"] == 0.75
     json.dumps([event.to_dict() for event in events], allow_nan=False)
 
@@ -88,7 +229,7 @@ def test_task_outcome_reader_and_data_flow_continue_after_deep_json_row(
 
     timestamp = datetime.now(timezone.utc).isoformat()
     valid = {
-        "outcome_id": "out-after-deep-json",
+        "outcome_id": "out-20260711T000001-cafebabe",
         "timestamp": timestamp,
         "task_id": "task-after-deep-json",
         "question": "q",
@@ -108,8 +249,12 @@ def test_task_outcome_reader_and_data_flow_continue_after_deep_json_row(
     outcomes = list(iter_task_outcomes(tmp_brain))
     events = DataFlowLedger(tmp_brain).list_events(source="task_outcome")
 
-    assert [outcome.outcome_id for outcome in outcomes] == ["out-after-deep-json"]
-    assert [event.event_id for event in events] == ["out-after-deep-json"]
+    assert [outcome.outcome_id for outcome in outcomes] == [
+        "out-20260711T000001-cafebabe"
+    ]
+    assert [event.event_id for event in events] == [
+        "out-20260711T000001-cafebabe"
+    ]
 
 
 def test_data_flow_ledger_merges_recent_runtime_sources_and_redacts_raw_text(tmp_brain: Path):

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 
@@ -89,6 +91,61 @@ def test_iterators_skip_malformed_jsonl_rows(tmp_path: Path) -> None:
 
     assert len(rows) == 1
     assert rows[0].query == "q"
+
+
+def test_recall_sidecar_readers_sanitize_observation_and_session_identities(
+    tmp_path: Path,
+) -> None:
+    from agent_brain.memory.governance.recall_events import (
+        iter_gap_records,
+        iter_task_outcomes,
+        recall_gaps_path,
+        task_outcomes_path,
+    )
+
+    timestamp = datetime.now(timezone.utc).isoformat()
+    gap_path = recall_gaps_path(tmp_path)
+    gap_path.parent.mkdir(parents=True, exist_ok=True)
+    gap_path.write_text(
+        json.dumps({
+            "gap_id": "SECRET_RAW_GAP_ID",
+            "timestamp": timestamp,
+            "query": "q",
+            "normalized_query": "q",
+            "reason": "empty_recall",
+            "session_id": {"SECRET_SESSION": "raw"},
+        })
+        + "\n",
+        encoding="utf-8",
+    )
+    outcome_path = task_outcomes_path(tmp_path)
+    outcome_path.write_text(
+        json.dumps({
+            "outcome_id": "SECRET_RAW_OUTCOME_ID",
+            "timestamp": timestamp,
+            "task_id": "injection-feedback:inj-internal-correlation",
+            "question": "q",
+            "normalized_question": "q",
+            "outcome": "accepted",
+            "confidence": 0.5,
+            "session_id": ["SECRET_SESSION"],
+        })
+        + "\n",
+        encoding="utf-8",
+    )
+
+    gap = next(iter_gap_records(tmp_path))
+    outcome = next(iter_task_outcomes(tmp_path))
+    serialized = repr((gap, outcome))
+
+    assert gap.gap_id.startswith("gap-invalid-")
+    assert outcome.outcome_id.startswith("out-invalid-")
+    assert outcome.task_id == "injection-feedback:inj-internal-correlation"
+    assert gap.session_id is None
+    assert outcome.session_id is None
+    assert "SECRET_RAW_GAP_ID" not in serialized
+    assert "SECRET_RAW_OUTCOME_ID" not in serialized
+    assert "SECRET_SESSION" not in serialized
 
 
 def test_recall_drift_report_summarizes_gap_and_outcome_jsonl(tmp_path: Path) -> None:

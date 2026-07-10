@@ -26,6 +26,216 @@ def _item(item_id: str = "mem-20260623-010203-lineage-demo") -> MemoryItem:
     )
 
 
+def test_observability_surfaces_exclude_private_and_secret_items_from_legacy_cohort(
+    tmp_path: Path,
+) -> None:
+    import json
+
+    from agent_brain.memory.context.injection_cohorts import record_injection_cohort
+    from agent_brain.memory.store.items_store import ItemsStore
+    from agent_brain.memory.store.write_service import WriteService
+    from agent_brain.observability.data_flow import DataFlowLedger
+    from agent_brain.product.chain_log import build_chain_log_detail, build_chain_log_report
+    from agent_brain.product.memory_lineage import build_memory_lineage_report
+
+    internal = _item("mem-20260711-040501-observable-internal")
+    private = _item("mem-20260711-040502-private-title-sentinel").model_copy(
+        update={
+            "sensitivity": "private",
+            "title": "SECRET_PRIVATE_TITLE",
+            "summary": "SECRET_PRIVATE_SUMMARY",
+        }
+    )
+    secret = _item("mem-20260711-040503-secret-title-sentinel").model_copy(
+        update={
+            "sensitivity": "secret",
+            "title": "SECRET_SECRET_TITLE",
+            "summary": "SECRET_SECRET_SUMMARY",
+        }
+    )
+    service = WriteService(ItemsStore(tmp_path / "items"), brain_dir=tmp_path)
+    for item in (internal, private, secret):
+        service.write(item=item, body="body sentinel", allow_unsafe=True)
+    archive_dir = tmp_path / "items" / "archived"
+    archive_dir.mkdir()
+    (tmp_path / "items" / f"{secret.id}.md").replace(
+        archive_dir / f"{secret.id}.md"
+    )
+    record_injection_cohort(
+        tmp_path,
+        item_ids=[internal.id, private.id, secret.id],
+        adapter="codex",
+        session_id="sess-sensitive-legacy",
+        source="legacy-sidecar",
+        pack_metrics={
+            "items": [
+                {"id": internal.id, "selected_view": "detail"},
+                {"id": private.id, "selected_view": "overview"},
+                {"id": secret.id, "selected_view": "locator"},
+            ]
+        },
+    )
+
+    data_flow = [event.to_dict() for event in DataFlowLedger(tmp_path).list_events()]
+    lineage = build_memory_lineage_report(tmp_path, hours=72).to_dict()
+    chain_report = build_chain_log_report(tmp_path, hours=72).to_dict()
+    chain = build_chain_log_detail(
+        tmp_path,
+        next(row["chain_id"] for row in chain_report["chains"] if row["session_id"] == "sess-sensitive-legacy"),
+    ).to_dict()
+    serialized = json.dumps(
+        {"data_flow": data_flow, "lineage": lineage, "chain": chain},
+        ensure_ascii=False,
+    )
+
+    assert internal.id in serialized
+    assert private.id not in serialized
+    assert secret.id not in serialized
+    assert "SECRET_PRIVATE" not in serialized
+    assert "SECRET_SECRET" not in serialized
+    assert [candidate["item_id"] for candidate in chain["candidates"]] == [internal.id]
+    assert chain["candidates"][0]["loaded_view"] == "detail"
+
+
+def test_memory_lineage_skips_extreme_write_timestamp_and_keeps_later_valid_write(
+    tmp_path: Path,
+) -> None:
+    import json
+
+    from agent_brain.memory.store.items_store import ItemsStore
+    from agent_brain.memory.store.write_service import WriteService
+    from agent_brain.product.memory_lineage import build_memory_lineage_report
+
+    poison = _item("mem-20260711-040504-lineage-poison-time")
+    valid = _item("mem-20260711-040505-lineage-valid-after-poison")
+    store = ItemsStore(tmp_path / "items")
+    store.write(poison, "poison body")
+    writes_dir = tmp_path / "sources" / "writes"
+    writes_dir.mkdir(parents=True)
+    (writes_dir / f"{poison.id}.json").write_text(
+        json.dumps({
+            "item_id": poison.id,
+            "created_at": "0001-01-01T00:00:00+14:00",
+            "agent": "codex",
+            "session": {"SECRET_SESSION": "raw"},
+            "type": "fact",
+            "title": "SECRET_POISON_WRITE_TITLE",
+            "refs": {},
+        })
+        + "\n",
+        encoding="utf-8",
+    )
+    WriteService(store, brain_dir=tmp_path).write(
+        item=valid,
+        body="valid body",
+        allow_unsafe=True,
+    )
+    valid_write_path = writes_dir / f"{valid.id}.json"
+    valid_write = json.loads(valid_write_path.read_text(encoding="utf-8"))
+    valid_write["writer"] = "SECRET_WRITER_METHOD"
+    valid_write_path.write_text(json.dumps(valid_write) + "\n", encoding="utf-8")
+
+    report = build_memory_lineage_report(tmp_path, hours=72).to_dict()
+    serialized = json.dumps(report, ensure_ascii=False)
+
+    valid_event = next(
+        event
+        for event in report["events"]
+        if event["kind"] == "write" and event["item_ids"] == [valid.id]
+    )
+    assert valid_event["method"] == "unknown"
+    assert poison.id not in serialized
+    assert "SECRET_SESSION" not in serialized
+    assert "SECRET_POISON_WRITE_TITLE" not in serialized
+    assert "SECRET_WRITER_METHOD" not in serialized
+
+
+def test_memory_lineage_bounds_and_nofollows_write_sidecars_then_continues(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    import json
+
+    import agent_brain.platform.bounded_json as bounded_json
+    from agent_brain.memory.store.items_store import ItemsStore
+    from agent_brain.memory.store.write_service import WriteService
+    from agent_brain.platform.bounded_jsonl import MAX_JSON_NESTING
+    from agent_brain.product.memory_lineage import build_memory_lineage_report
+
+    oversized = _item("mem-20260711-060001-lineage-oversized-sidecar")
+    too_deep = _item("mem-20260711-060002-lineage-deep-sidecar")
+    recursion_bomb = _item("mem-20260711-060003-lineage-recursion-sidecar")
+    symlinked = _item("mem-20260711-060004-lineage-symlink-sidecar")
+    valid = _item("mem-20260711-060005-lineage-valid-after-sidecars")
+    store = ItemsStore(tmp_path / "items")
+    for item in (oversized, too_deep, recursion_bomb, symlinked):
+        store.write(item, "body")
+
+    writes_dir = tmp_path / "sources" / "writes"
+    writes_dir.mkdir(parents=True)
+    timestamp = datetime.now(timezone.utc).isoformat()
+
+    def payload(item: MemoryItem) -> dict[str, object]:
+        return {
+            "item_id": item.id,
+            "created_at": timestamp,
+            "writer": "WriteService",
+            "refs": {},
+        }
+
+    oversized_payload = payload(oversized)
+    oversized_payload["padding"] = "SECRET_OVERSIZED" * (20 * 1024)
+    (writes_dir / f"{oversized.id}.json").write_text(
+        json.dumps(oversized_payload),
+        encoding="utf-8",
+    )
+
+    nested: object = 0
+    for _ in range(MAX_JSON_NESTING):
+        nested = [nested]
+    deep_payload = payload(too_deep)
+    deep_payload["nested"] = nested
+    (writes_dir / f"{too_deep.id}.json").write_text(
+        json.dumps(deep_payload),
+        encoding="utf-8",
+    )
+
+    recursion_prefix = json.dumps(payload(recursion_bomb))[:-1] + ', "nested": '
+    (writes_dir / f"{recursion_bomb.id}.json").write_text(
+        recursion_prefix + ("[" * 10_000) + "0" + ("]" * 10_000) + "}",
+        encoding="utf-8",
+    )
+
+    outside = tmp_path / "outside-write-sidecar.json"
+    outside.write_text(json.dumps(payload(symlinked)), encoding="utf-8")
+    (writes_dir / f"{symlinked.id}.json").symlink_to(outside)
+
+    WriteService(store, brain_dir=tmp_path).write(
+        item=valid,
+        body="valid body",
+        allow_unsafe=True,
+    )
+
+    report = build_memory_lineage_report(tmp_path, hours=72).to_dict()
+    write_ids = [
+        event["item_ids"][0]
+        for event in report["events"]
+        if event["kind"] == "write"
+    ]
+    serialized = json.dumps(report, ensure_ascii=False)
+
+    assert write_ids == [valid.id]
+    assert "SECRET_OVERSIZED" not in serialized
+
+    monkeypatch.setattr(
+        bounded_json,
+        "MAX_JSON_DIRECTORY_ENTRIES",
+        2,
+    )
+    over_entry_budget = build_memory_lineage_report(tmp_path, hours=72).to_dict()
+    assert not any(event["kind"] == "write" for event in over_entry_budget["events"])
+
+
 def test_memory_lineage_report_connects_writes_loads_storage_and_formulas(tmp_path: Path):
     from agent_brain.memory.context.injection_cohorts import record_injection_cohort
     from agent_brain.memory.governance.recall_events import record_gap

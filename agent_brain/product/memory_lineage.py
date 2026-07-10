@@ -8,7 +8,6 @@ query, or memory body text.
 
 from __future__ import annotations
 
-import json
 from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -16,8 +15,14 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from agent_brain.contracts.memory_item import DECAY_HALF_LIFE_DAYS
-from agent_brain.memory.store.items_store import ItemsStore
+from agent_brain.memory.context.injection_metrics import (
+    is_safe_nonnegative_int,
+    sanitize_adapter_name,
+)
+from agent_brain.memory.store.item_ids import observable_memory_items
 from agent_brain.observability.data_flow import DataFlowEvent, DataFlowLedger
+from agent_brain.platform.bounded_json import open_bounded_json_directory
+from agent_brain.platform.telemetry_safety import parse_utc_timestamp, sanitize_session_id
 
 
 MAX_WINDOW_HOURS = 72
@@ -115,7 +120,13 @@ def build_memory_lineage_report(
     max_events = _bounded_limit(limit)
     now = datetime.now(timezone.utc)
     start = now - timedelta(hours=window_hours)
-    write_events = _write_events(brain, start=start, end=now)
+    items_by_id = observable_memory_items(brain / "items")
+    write_events = _write_events(
+        brain,
+        start=start,
+        end=now,
+        items_by_id=items_by_id,
+    )
     data_events = _runtime_events(brain, since_hours=window_hours)
     events = [*write_events, *data_events]
     if agent:
@@ -128,7 +139,6 @@ def build_memory_lineage_report(
     events.sort(key=lambda event: _parse_timestamp(event.timestamp) or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
     events = events[:max_events]
     storage_counts = _storage_counts(brain)
-    items_by_id = _items_by_id(brain)
     agents = _agent_summary(events)
     return MemoryLineageReport(
         filters={"hours": window_hours, "agent": agent, "mode": selected_mode, "item_id": item_id, "limit": max_events},
@@ -141,7 +151,10 @@ def build_memory_lineage_report(
             "by_stage": dict(Counter(event.stage for event in events)),
             "last_event_at": events[0].timestamp if events else None,
             "storage_counts": storage_counts,
-            "item_counts": _item_counts(brain),
+            "item_counts": _item_counts(
+                items_by_id,
+                skipped_count=max(0, storage_counts["items"] - len(items_by_id)),
+            ),
         },
         agent_activity=tuple(_agent_activity(events)),
         memory_activity=tuple(_memory_activity(events, items_by_id)),
@@ -159,68 +172,107 @@ def build_memory_lineage_report(
     )
 
 
-def _write_events(brain: Path, *, start: datetime, end: datetime) -> list[MemoryLineageEvent]:
+def _write_events(
+    brain: Path,
+    *,
+    start: datetime,
+    end: datetime,
+    items_by_id: dict[str, Any],
+) -> list[MemoryLineageEvent]:
     events: list[MemoryLineageEvent] = []
-    for path in sorted((brain / "sources" / "writes").glob("*.json")):
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            continue
-        timestamp = str(data.get("created_at") or "")
-        parsed = _parse_timestamp(timestamp)
-        if parsed is None or not (start <= parsed <= end):
-            continue
-        refs = data.get("refs") if isinstance(data.get("refs"), dict) else {}
-        resources = list(refs.get("resources") or [])
-        extractions = list(refs.get("extractions") or [])
-        files = list(refs.get("files") or [])
-        targets = ["items/*.md", "sources/writes/*.json"]
-        if resources:
-            targets.append("resources/*.json")
-        if extractions:
-            targets.append("extractions/*.json")
-        targets.append("index.db(meta/FTS/vector/refs_graph) best-effort")
-        events.append(
-            MemoryLineageEvent(
-                event_id=f"write-{data.get('item_id') or path.stem}",
-                timestamp=timestamp,
-                agent=str(data.get("agent") or "unknown"),
-                session_id=data.get("session"),
-                kind="write",
-                mode="maintain",
-                stage="写入维护",
-                moment="主动写入 / hook 候选批准 / MCP 或 SDK 写入",
-                method=str(data.get("writer") or "WriteService"),
-                summary=f"{data.get('type', 'memory')} · {data.get('title', data.get('item_id', path.stem))}",
-                status="written",
-                item_ids=(str(data.get("item_id") or path.stem),),
-                storage_targets=tuple(targets),
-                evidence=(str(path),),
-                trace_steps=(
-                    "入口归一为 MemoryItem + Markdown body。",
-                    "audit_memory_text fail-close；field_enrichment / quality_warnings 补治理字段。",
-                    "ItemsStore.write 写入 items/<id>.md，作为唯一长期事实源。",
-                    "WriteService 写 sources/writes/<id>.json，记录 writer、agent、session、refs、validity、body_sha256。",
-                    "refs.files 或 write-input 生成 resources/extractions sidecar；多模态 placeholder 不被伪装成文本证据。",
-                    "HubIndex upsert 投影 meta/FTS/vector/refs_graph；失败只标 dirty，不撤销 Markdown 写入。",
-                ),
-                metrics={
-                    "body_size_bytes": data.get("body_size_bytes"),
-                    "has_body_sha256": bool(data.get("body_sha256")),
-                    "refs": {
-                        "files": len(files),
-                        "resources": len(resources),
-                        "extractions": len(extractions),
-                        "mems": len(refs.get("mems") or []),
-                        "urls": len(refs.get("urls") or []),
-                        "commits": len(refs.get("commits") or []),
+    writes_dir = brain / "sources" / "writes"
+    with open_bounded_json_directory(writes_dir) as writes:
+        if writes is None:
+            return events
+        sidecar_names = writes.entry_names()
+        if sidecar_names is None:
+            return events
+        # Both the sidecar directory and observable item map are capped at 20k;
+        # exact openat reads avoid following names outside this bounded set.
+        for item_id in sorted(items_by_id):
+            item = items_by_id[item_id]
+            filename = f"{item_id}.json"
+            if filename not in sidecar_names:
+                continue
+            data = writes.read_object(filename)
+            if data is None or data.get("item_id") != item.id:
+                continue
+            parsed = _parse_timestamp(data.get("created_at"))
+            if parsed is None or not (start <= parsed <= end):
+                continue
+            timestamp = parsed.isoformat()
+            refs = data.get("refs") if isinstance(data.get("refs"), dict) else {}
+            ref_counts = {
+                key: _sidecar_list_count(refs.get(key))
+                for key in (
+                    "files",
+                    "resources",
+                    "extractions",
+                    "mems",
+                    "urls",
+                    "commits",
+                )
+            }
+            targets = ["items/*.md", "sources/writes/*.json"]
+            if ref_counts["resources"]:
+                targets.append("resources/*.json")
+            if ref_counts["extractions"]:
+                targets.append("extractions/*.json")
+            targets.append("index.db(meta/FTS/vector/refs_graph) best-effort")
+            source_kind = str(getattr(item.source, "kind", "manual") or "manual")
+            if source_kind not in {"manual", "harvested", "pending-replay", "remember"}:
+                source_kind = "unknown"
+            writer = data.get("writer")
+            method = writer if writer == "WriteService" else "unknown"
+            body_size = data.get("body_size_bytes")
+            if not is_safe_nonnegative_int(body_size):
+                body_size = None
+            events.append(
+                MemoryLineageEvent(
+                    event_id=f"write-{item.id}",
+                    timestamp=timestamp,
+                    agent=sanitize_adapter_name(item.agent),
+                    session_id=sanitize_session_id(data.get("session")),
+                    kind="write",
+                    mode="maintain",
+                    stage="写入维护",
+                    moment="主动写入 / hook 候选批准 / MCP 或 SDK 写入",
+                    method=method,
+                    summary=f"{item.type} · {item.title}",
+                    status="written",
+                    item_ids=(item.id,),
+                    storage_targets=tuple(targets),
+                    evidence=(str(writes_dir / filename),),
+                    trace_steps=(
+                        "入口归一为 MemoryItem + Markdown body。",
+                        "audit_memory_text fail-close；field_enrichment / quality_warnings 补治理字段。",
+                        "ItemsStore.write 写入 items/<id>.md，作为唯一长期事实源。",
+                        "WriteService 写 sources/writes/<id>.json，记录 writer、agent、session、refs、validity、body_sha256。",
+                        "refs.files 或 write-input 生成 resources/extractions sidecar；多模态 placeholder 不被伪装成文本证据。",
+                        "HubIndex upsert 投影 meta/FTS/vector/refs_graph；失败只标 dirty，不撤销 Markdown 写入。",
+                    ),
+                    metrics={
+                        "body_size_bytes": body_size,
+                        "has_body_sha256": _is_sha256(data.get("body_sha256")),
+                        "refs": ref_counts,
+                        "sensitivity": str(item.sensitivity),
+                        "source_kind": source_kind,
                     },
-                    "sensitivity": data.get("sensitivity"),
-                    "source_kind": data.get("source_kind"),
-                },
+                )
             )
-        )
     return events
+
+
+def _sidecar_list_count(value: object) -> int:
+    return len(value) if isinstance(value, list) else 0
+
+
+def _is_sha256(value: object) -> bool:
+    return (
+        isinstance(value, str)
+        and len(value) == 64
+        and all(character in "0123456789abcdef" for character in value)
+    )
 
 
 def _runtime_events(brain: Path, *, since_hours: int) -> list[MemoryLineageEvent]:
@@ -396,7 +448,7 @@ def _storage_counts(brain: Path) -> dict[str, int]:
     return {
         "items": _count_files(brain / "items", "*.md"),
         "sources_conversations": _count_files(brain / "sources" / "conversations", "messages.jsonl"),
-        "sources_writes": _count_files(brain / "sources" / "writes", "*.json"),
+        "sources_writes": _bounded_write_sidecar_count(brain / "sources" / "writes"),
         "resources": _count_files(brain / "resources", "*.json"),
         "extractions": _count_files(brain / "extractions", "*.json"),
         "runtime_jsonl": _count_files(brain / "runtime", "*.jsonl"),
@@ -404,12 +456,25 @@ def _storage_counts(brain: Path) -> dict[str, int]:
     }
 
 
-def _item_counts(brain: Path) -> dict[str, dict[str, int]]:
-    store = ItemsStore(brain / "items")
+def _bounded_write_sidecar_count(writes_dir: Path) -> int:
+    with open_bounded_json_directory(writes_dir) as writes:
+        if writes is None:
+            return 0
+        names = writes.entry_names()
+        if names is None:
+            return 0
+        return sum(1 for name in names if name.endswith(".json"))
+
+
+def _item_counts(
+    items_by_id: dict[str, Any],
+    *,
+    skipped_count: int,
+) -> dict[str, dict[str, int]]:
     by_type: Counter[str] = Counter()
     by_maturity: Counter[str] = Counter()
     by_agent: Counter[str] = Counter()
-    for item, _body in store.iter_all():
+    for item in items_by_id.values():
         by_type[str(item.type)] += 1
         by_maturity[str(item.maturity)] += 1
         by_agent[str(item.agent or "unknown")] += 1
@@ -417,13 +482,8 @@ def _item_counts(brain: Path) -> dict[str, dict[str, int]]:
         "by_type": dict(by_type),
         "by_maturity": dict(by_maturity),
         "by_agent": dict(by_agent),
-        "skipped": {"count": store.last_scan.skipped_count},
+        "skipped": {"count": skipped_count},
     }
-
-
-def _items_by_id(brain: Path) -> dict[str, Any]:
-    store = ItemsStore(brain / "items")
-    return {item.id: item for item, _body in store.iter_all()}
 
 
 def _agent_summary(events: Iterable[MemoryLineageEvent]) -> dict[str, dict[str, int]]:
@@ -719,15 +779,7 @@ def _bounded_mode(value: str | None) -> str | None:
 
 
 def _parse_timestamp(value: object) -> datetime | None:
-    if not value:
-        return None
-    try:
-        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
-    except ValueError:
-        return None
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
-    return parsed.astimezone(timezone.utc)
+    return parse_utc_timestamp(value)
 
 
 __all__ = [

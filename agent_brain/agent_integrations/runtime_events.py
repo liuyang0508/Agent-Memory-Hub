@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Iterator
 
 from agent_brain.platform.bounded_jsonl import iter_bounded_jsonl
+from agent_brain.platform.telemetry_safety import sanitize_cwd, sanitize_session_id
 
 
 RUNTIME_EVENTS_RELATIVE_PATH = "runtime/adapter-events.jsonl"
@@ -83,8 +84,8 @@ def iter_runtime_events(
                 adapter=str(data["adapter"]),
                 event_name=str(data["event_name"]),
                 timestamp=str(data["timestamp"]),
-                session_id=data.get("session_id"),
-                cwd=data.get("cwd"),
+                session_id=sanitize_session_id(data.get("session_id")),
+                cwd=sanitize_cwd(data.get("cwd")),
                 source=str(data.get("source") or "hook"),
             )
         except (KeyError, TypeError, ValueError, OverflowError):

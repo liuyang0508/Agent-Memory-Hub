@@ -18,7 +18,7 @@ def _require_chain_log_admin(user: CurrentUser) -> None:
 
 
 @router.get("/api/chain-logs")
-async def chain_logs(
+def chain_logs(
     hours: int = Query(72, ge=1, le=72),
     limit: int = Query(100, ge=1, le=500),
     adapter: str | None = Query(None),
@@ -42,7 +42,7 @@ async def chain_logs(
 
 
 @router.get("/api/chain-logs/{chain_id}")
-async def chain_log_detail(
+def chain_log_detail(
     chain_id: str,
     hours: int = Query(72, ge=1, le=72),
     user: CurrentUser = Depends(get_current_user),

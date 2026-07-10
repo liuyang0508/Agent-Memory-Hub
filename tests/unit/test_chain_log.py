@@ -58,6 +58,38 @@ def _algorithm_status(detail: dict[str, object], algorithm_id: str) -> str:
     return str(stage["status"])
 
 
+def test_chain_candidate_loaded_view_requires_unambiguous_item_bound_pack_metric(
+    tmp_path: Path,
+) -> None:
+    from agent_brain.memory.context.injection_cohorts import record_injection_cohort
+    from agent_brain.product.chain_log import build_chain_log_detail, build_chain_log_report
+
+    detail_id = _write_item(tmp_path, "mem-20260711-050601-loaded-detail")
+    missing_id = _write_item(tmp_path, "mem-20260711-050602-loaded-missing")
+    conflicting_id = _write_item(tmp_path, "mem-20260711-050603-loaded-conflicting")
+    record_injection_cohort(
+        tmp_path,
+        item_ids=[detail_id, missing_id, conflicting_id],
+        adapter="codex",
+        session_id="sess-loaded-view",
+        pack_metrics={
+            "items": [
+                {"id": detail_id, "selected_view": "detail"},
+                {"id": conflicting_id, "selected_view": "overview"},
+                {"id": conflicting_id, "selected_view": "locator"},
+            ]
+        },
+    )
+
+    report = build_chain_log_report(tmp_path, hours=72).to_dict()
+    detail = build_chain_log_detail(tmp_path, report["chains"][0]["chain_id"]).to_dict()
+    candidates = {row["item_id"]: row for row in detail["candidates"]}
+
+    assert candidates[detail_id]["loaded_view"] == "detail"
+    assert candidates[missing_id]["loaded_view"] is None
+    assert candidates[conflicting_id]["loaded_view"] is None
+
+
 def test_chain_log_groups_hook_injection_and_gap_by_session(tmp_path: Path) -> None:
     from agent_brain.agent_integrations.runtime_events import record_runtime_event
     from agent_brain.memory.context.injection_cohorts import record_injection_cohort
