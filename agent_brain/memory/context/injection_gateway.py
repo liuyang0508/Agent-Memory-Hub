@@ -3,7 +3,7 @@
 import logging
 from collections import Counter
 from dataclasses import dataclass
-from typing import Mapping
+from typing import Mapping, get_args
 
 from agent_brain.memory.context.context_firewall import ContextFirewall
 from agent_brain.memory.context.context_firewall_rules import exclude_with
@@ -17,6 +17,7 @@ from agent_brain.memory.context.context_packing import PackedDecision, pack_deci
 from agent_brain.memory.context.query_signal import QuerySignal, analyze_injection_query
 
 logger = logging.getLogger(__name__)
+_CONTEXT_VERBOSITIES = frozenset(get_args(ContextVerbosity))
 
 
 @dataclass(frozen=True)
@@ -38,16 +39,6 @@ class InjectionResult:
             "included_count": len(self.included),
             "excluded_count": len(self.excluded),
             "excluded_reasons": dict(sorted(reason_counts.items())),
-            "items": [
-                {
-                    "id": entry.decision.candidate.item.id,
-                    "selected_view": entry.pack.selected_view,
-                    "packed_tokens": entry.pack.packed_tokens,
-                    "full_tokens": entry.pack.full_tokens,
-                    "compressed": entry.pack.compressed,
-                }
-                for entry in self.included
-            ],
             "packed_tokens": self.used_tokens,
             "full_tokens": self.full_tokens,
         }
@@ -74,7 +65,7 @@ def evaluate_injection_candidates(
     current_scope: Mapping[str, str] | None = None,
 ) -> FirewallResult:
     signal = query_signal
-    if signal is None and query:
+    if signal is None and query is not None:
         signal = analyze_injection_query(query.replace("|", " "))
     return ContextFirewall().filter(
         candidates,
@@ -95,6 +86,8 @@ def build_injection_context(
     budget_tokens: int | None = None,
     current_scope: Mapping[str, str] | None = None,
 ) -> InjectionResult:
+    if requested not in _CONTEXT_VERBOSITIES:
+        raise ValueError(f"unsupported context verbosity: {requested!r}")
     firewall = evaluate_injection_candidates(
         candidates,
         query=query,

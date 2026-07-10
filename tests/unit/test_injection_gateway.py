@@ -45,6 +45,15 @@ def test_gateway_keeps_noninjectable_query_signal_fail_closed():
     assert "query_not_injectable" in result.cohort_reasons
 
 
+def test_gateway_keeps_empty_query_fail_closed():
+    from agent_brain.memory.context.injection_gateway import evaluate_injection_candidates
+
+    value = item("empty-query")
+    result = evaluate_injection_candidates([candidate(value)], query="")
+    assert result.included == []
+    assert "query_not_injectable" in result.cohort_reasons
+
+
 @pytest.mark.parametrize(
     ("value", "reason"),
     [
@@ -119,6 +128,42 @@ def test_gateway_applies_final_pack_budget():
     )
     assert result.included == []
     assert "pack_budget_exceeded" in result.excluded[0].reasons
+
+
+def test_gateway_rejects_invalid_context_verbosity_before_packing():
+    from agent_brain.memory.context.injection_gateway import build_injection_context
+
+    with pytest.raises(ValueError):
+        build_injection_context(
+            [candidate(item("invalid-verbosity"))],
+            requested="bogus",
+        )
+
+
+def test_gateway_metrics_are_aggregate_only():
+    from agent_brain.memory.context.injection_gateway import build_injection_context
+
+    safe = item("safe-metrics")
+    rejected = item("rejected-metrics", sensitivity=Sensitivity.private)
+    safe_candidate = candidate(safe)
+    rejected_candidate = candidate(rejected)
+    metrics = build_injection_context(
+        [safe_candidate, rejected_candidate],
+    ).metrics()
+
+    assert "items" not in metrics
+    assert metrics["candidate_count"] == 2
+    assert metrics["included_count"] == 1
+    assert metrics["excluded_count"] == 1
+    rendered_metrics = repr(metrics)
+    for value, context_candidate in (
+        (safe, safe_candidate),
+        (rejected, rejected_candidate),
+    ):
+        assert value.id not in rendered_metrics
+        assert value.title not in rendered_metrics
+        assert value.summary not in rendered_metrics
+        assert context_candidate.body not in rendered_metrics
 
 
 def test_gateway_diagnostic_logs_only_aggregate_reason(caplog):
