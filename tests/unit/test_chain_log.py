@@ -6,6 +6,8 @@ import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import pytest
+
 from agent_brain.contracts.memory_item import MemoryItem, MemoryType, Refs
 from agent_brain.memory.store.items_store import ItemsStore
 from agent_brain.memory.store.write_service import WriteService
@@ -82,6 +84,8 @@ def test_chain_log_groups_hook_injection_and_gap_by_session(tmp_path: Path) -> N
             "context_pack_chars": 128,
             "detail_refs": 1,
             "candidate_count": 3,
+            "included_count": 1,
+            "excluded_count": 2,
             "query_terms_count": 4,
         },
     )
@@ -323,15 +327,15 @@ def test_chain_log_preserves_aggregate_gateway_metrics_without_content(
         session_id="sess-aggregate-pack",
         cwd="/repo",
         pack_metrics={
-            "candidate_count": 3,
+            "candidate_count": 4,
             "raw_candidate_count": 4,
             "gateway_candidate_count": 3,
             "hydrate_error_count": 1,
             "included_count": 1,
-            "excluded_count": 2,
+            "excluded_count": 3,
             "excluded_reasons": {
                 "missing_source": 2,
-                "secret_private_title": 1,
+                "hydrate_error": 1,
             },
             "selected_views": {"locator": 1},
             "compressed_count": 0,
@@ -348,25 +352,219 @@ def test_chain_log_preserves_aggregate_gateway_metrics_without_content(
     packing = next(stage for stage in detail["stages"] if stage["stage_id"] == "packing")
     metrics = packing["preview"]["pack_metrics"]
 
-    assert metrics == [{
-        "candidate_count": 3,
-        "compressed_count": 0,
-        "excluded_count": 2,
-        "excluded_reasons": {"missing_source": 2},
-        "full_tokens": 30,
-        "gateway_candidate_count": 3,
-        "hydrate_error_count": 1,
-        "included_count": 1,
-        "packed_tokens": 12,
-        "raw_candidate_count": 4,
-        "selected_views": {"locator": 1},
-    }]
+    assert metrics == [
+        {
+            "candidate_count": 4,
+            "compressed_count": 0,
+            "excluded_count": 3,
+            "excluded_reasons": {"hydrate_error": 1, "missing_source": 2},
+            "full_tokens": 30,
+            "gateway_candidate_count": 3,
+            "hydrate_error_count": 1,
+            "included_count": 1,
+            "packed_tokens": 12,
+            "raw_candidate_count": 4,
+            "selected_views": {"locator": 1},
+        }
+    ]
     serialized = json.dumps(detail)
     assert "SECRET_PRIVATE" not in serialized
     assert "title" not in _collect_pack_metric_keys(metrics)
     assert "body" not in _collect_pack_metric_keys(metrics)
     assert "query" not in _collect_pack_metric_keys(metrics)
-    assert "secret_private_title" not in _collect_pack_metric_keys(metrics)
+
+
+def test_chain_log_preserves_valid_bare_gateway_aggregate_bundle(
+    tmp_path: Path,
+) -> None:
+    from agent_brain.memory.context.injection_cohorts import record_injection_cohort
+    from agent_brain.product.chain_log import build_chain_log_detail, build_chain_log_report
+
+    item_id = _write_item(tmp_path)
+    record_injection_cohort(
+        tmp_path,
+        item_ids=[item_id],
+        adapter="codex",
+        session_id="sess-bare-aggregate",
+        cwd="/repo",
+        pack_metrics={
+            "candidate_count": 3,
+            "included_count": 1,
+            "excluded_count": 2,
+            "excluded_reasons": {"missing_source": 2},
+            "selected_views": {"overview": 1},
+            "compressed_count": 1,
+            "packed_tokens": 7,
+            "full_tokens": 21,
+        },
+    )
+
+    report = build_chain_log_report(tmp_path, hours=72).to_dict()
+    detail = build_chain_log_detail(tmp_path, report["chains"][0]["chain_id"]).to_dict()
+    packing = next(stage for stage in detail["stages"] if stage["stage_id"] == "packing")
+
+    assert packing["preview"]["pack_metrics"] == [
+        {
+            "candidate_count": 3,
+            "compressed_count": 1,
+            "excluded_count": 2,
+            "excluded_reasons": {"missing_source": 2},
+            "full_tokens": 21,
+            "included_count": 1,
+            "packed_tokens": 7,
+            "selected_views": {"overview": 1},
+        }
+    ]
+
+
+@pytest.mark.parametrize(
+    "aggregate_metrics",
+    [
+        {
+            "candidate_count": 2,
+            "included_count": 1,
+            "excluded_count": 1,
+            "selected_views": {"locator": 2},
+            "compressed_count": 0,
+        },
+        {
+            "candidate_count": 1,
+            "included_count": 1,
+            "excluded_count": 0,
+            "selected_views": {"locator": 1},
+            "compressed_count": 2,
+        },
+        {
+            "candidate_count": 3,
+            "included_count": 1,
+            "excluded_count": 1,
+        },
+        {
+            "candidate_count": 2,
+            "included_count": 1,
+        },
+        {
+            "candidate_count": 2,
+            "included_count": 1,
+            "excluded_count": 1,
+            "raw_candidate_count": 2,
+            "gateway_candidate_count": 1,
+        },
+        {
+            "candidate_count": 3,
+            "included_count": 1,
+            "excluded_count": 2,
+            "raw_candidate_count": 3,
+            "gateway_candidate_count": 1,
+            "hydrate_error_count": 1,
+        },
+        {
+            "candidate_count": 3,
+            "included_count": 1,
+            "excluded_count": 1,
+            "raw_candidate_count": 3,
+            "gateway_candidate_count": 2,
+            "hydrate_error_count": 1,
+        },
+        {
+            "candidate_count": 2,
+            "included_count": 1,
+            "excluded_count": 1,
+            "raw_candidate_count": 2,
+            "gateway_candidate_count": 1,
+            "hydrate_error_count": 1,
+            "excluded_reasons": {"hydrate_error": 0},
+        },
+        {
+            "candidate_count": True,
+            "included_count": 1,
+            "excluded_count": 0,
+        },
+        {
+            "candidate_count": 1,
+            "included_count": 1,
+            "excluded_count": 0,
+            "selected_views": {"overview": 1, "secret_view": 0},
+        },
+        {
+            "candidate_count": 2,
+            "included_count": 1,
+            "excluded_count": 1,
+            "raw_candidate_count": 2,
+            "gateway_candidate_count": 1,
+            "hydrate_error_count": True,
+        },
+    ],
+    ids=[
+        "selected-views-sum",
+        "compressed-over-included",
+        "bare-equation",
+        "bare-missing-field",
+        "surface-missing-field",
+        "surface-gateway-equation",
+        "surface-total-equation",
+        "surface-hydrate-reason",
+        "malformed-base-count",
+        "malformed-selected-views",
+        "malformed-surface-count",
+    ],
+)
+def test_chain_log_drops_entire_inconsistent_aggregate_bundle(
+    tmp_path: Path,
+    aggregate_metrics: dict[str, object],
+) -> None:
+    from agent_brain.memory.context.injection_cohorts import record_injection_cohort
+    from agent_brain.product.chain_log import build_chain_log_detail, build_chain_log_report
+
+    item_id = _write_item(tmp_path)
+    record_injection_cohort(
+        tmp_path,
+        item_ids=[item_id],
+        adapter="codex",
+        session_id="sess-inconsistent-aggregate",
+        cwd="/repo",
+        pack_metrics={
+            **aggregate_metrics,
+            "packed_tokens": 7,
+            "full_tokens": 21,
+            "retrieval_trace": [
+                {
+                    "initial_score": 0.4,
+                    "final_rank": 1,
+                    "final_score": 0.5,
+                }
+            ],
+        },
+    )
+
+    report = build_chain_log_report(tmp_path, hours=72).to_dict()
+    detail = build_chain_log_detail(tmp_path, report["chains"][0]["chain_id"]).to_dict()
+    packing = next(stage for stage in detail["stages"] if stage["stage_id"] == "packing")
+    metrics = packing["preview"]["pack_metrics"][0]
+    aggregate_keys = {
+        "candidate_count",
+        "compressed_count",
+        "excluded_count",
+        "excluded_reasons",
+        "gateway_candidate_count",
+        "hydrate_error_count",
+        "included_count",
+        "raw_candidate_count",
+        "selected_views",
+    }
+
+    assert aggregate_keys.isdisjoint(metrics)
+    assert metrics == {
+        "full_tokens": 21,
+        "packed_tokens": 7,
+        "retrieval_trace": [
+            {
+                "initial_score": 0.4,
+                "final_rank": 1,
+                "final_score": 0.5,
+            }
+        ],
+    }
 
 
 def test_chain_log_field_schema_rejects_sentinels_and_unbound_ids(
@@ -384,6 +582,8 @@ def test_chain_log_field_schema_rejects_sentinels_and_unbound_ids(
         cwd="/repo",
         pack_metrics={
             "candidate_count": 1,
+            "included_count": 1,
+            "excluded_count": 0,
             "context_pack_chars": "SECRET_CONTEXT_CHARS",
             "detail_refs": True,
             "packed_tokens": "SECRET_PACKED_TOKENS",
@@ -452,6 +652,8 @@ def test_chain_log_field_schema_rejects_sentinels_and_unbound_ids(
     assert "SECRET" not in json.dumps(detail)
     assert metrics == {
         "candidate_count": 1,
+        "excluded_count": 0,
+        "included_count": 1,
         "items": [{"id": item_id}],
         "retrieval_trace": {
             item_id: {

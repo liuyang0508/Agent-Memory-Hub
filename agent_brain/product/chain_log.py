@@ -15,7 +15,10 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from agent_brain.agent_integrations.runtime_events import AdapterRuntimeEvent, iter_runtime_events
-from agent_brain.memory.context.injection_gateway import INJECTION_EXCLUSION_REASONS
+from agent_brain.memory.context.injection_gateway import (
+    HYDRATE_ERROR_REASON,
+    INJECTION_EXCLUSION_REASONS,
+)
 from agent_brain.memory.context.injection_cohorts import InjectionCohort, iter_injection_cohorts
 from agent_brain.memory.governance.recall_events import GapRecord, TaskOutcome, iter_gap_records, iter_task_outcomes
 from agent_brain.memory.store.items_store import ItemsStore
@@ -106,6 +109,27 @@ PACK_METRIC_NONNEGATIVE_INT_KEYS = {
     "raw_candidate_count",
     "trimmed_count",
 }
+PACK_METRIC_AGGREGATE_KEYS = frozenset({
+    "candidate_count",
+    "compressed_count",
+    "excluded_count",
+    "excluded_reasons",
+    "gateway_candidate_count",
+    "hydrate_error_count",
+    "included_count",
+    "raw_candidate_count",
+    "selected_views",
+})
+PACK_METRIC_BASE_AGGREGATE_COUNT_KEYS = frozenset({
+    "candidate_count",
+    "excluded_count",
+    "included_count",
+})
+PACK_METRIC_SURFACE_KEYS = frozenset({
+    "gateway_candidate_count",
+    "hydrate_error_count",
+    "raw_candidate_count",
+})
 CONTEXT_PACK_VIEWS = frozenset({"locator", "overview", "detail"})
 RETRIEVAL_TRACE_RANK_KEYS = frozenset({
     "initial_bm25_rank",
@@ -593,7 +617,12 @@ def _sanitize_pack_metrics(
 ) -> dict[str, Any]:
     cohort_ids = set(cohort_item_ids)
     sanitized: dict[str, Any] = {}
-    for key in sorted(PACK_METRICS_ALLOWED_KEYS - {"retrieval_trace"}):
+    independent_keys = (
+        PACK_METRICS_ALLOWED_KEYS
+        - PACK_METRIC_AGGREGATE_KEYS
+        - {"retrieval_trace"}
+    )
+    for key in sorted(independent_keys):
         if key not in pack_metrics:
             continue
         value = _sanitize_pack_metric_value(
@@ -603,6 +632,7 @@ def _sanitize_pack_metrics(
         )
         if value not in (None, [], {}):
             sanitized[key] = value
+    sanitized.update(_sanitize_pack_metric_aggregate_bundle(pack_metrics))
     if "trimmed_count" not in sanitized:
         legacy_trimmed_count = _legacy_trimmed_count(pack_metrics.get("trimmed_ids"))
         if legacy_trimmed_count:
@@ -634,6 +664,96 @@ def _sanitize_pack_metrics(
     return _sanitize(sanitized)
 
 
+def _sanitize_pack_metric_aggregate_bundle(
+    pack_metrics: dict[str, Any],
+) -> dict[str, Any]:
+    present_keys = PACK_METRIC_AGGREGATE_KEYS & pack_metrics.keys()
+    if not present_keys:
+        return {}
+    if not PACK_METRIC_BASE_AGGREGATE_COUNT_KEYS <= pack_metrics.keys():
+        return {}
+
+    candidate_count = pack_metrics["candidate_count"]
+    included_count = pack_metrics["included_count"]
+    excluded_count = pack_metrics["excluded_count"]
+    if not all(
+        _is_nonnegative_int(value) for value in (candidate_count, included_count, excluded_count)
+    ):
+        return {}
+    if candidate_count != included_count + excluded_count:
+        return {}
+
+    sanitized: dict[str, Any] = {
+        "candidate_count": candidate_count,
+        "excluded_count": excluded_count,
+        "included_count": included_count,
+    }
+
+    selected_views: dict[str, int] | None = None
+    if "selected_views" in pack_metrics:
+        selected_views = _sanitize_strict_count_map(
+            pack_metrics["selected_views"],
+            allowed_keys=CONTEXT_PACK_VIEWS,
+        )
+        if selected_views is None or sum(selected_views.values()) != included_count:
+            return {}
+        if selected_views:
+            sanitized["selected_views"] = selected_views
+
+    if "compressed_count" in pack_metrics:
+        compressed_count = pack_metrics["compressed_count"]
+        if not _is_nonnegative_int(compressed_count) or compressed_count > included_count:
+            return {}
+        sanitized["compressed_count"] = compressed_count
+
+    excluded_reasons: dict[str, int] | None = None
+    if "excluded_reasons" in pack_metrics:
+        excluded_reasons = _sanitize_strict_count_map(
+            pack_metrics["excluded_reasons"],
+            allowed_keys=INJECTION_EXCLUSION_REASONS,
+        )
+        if excluded_reasons is None:
+            return {}
+        if excluded_reasons:
+            sanitized["excluded_reasons"] = excluded_reasons
+
+    present_surface_keys = PACK_METRIC_SURFACE_KEYS & pack_metrics.keys()
+    if present_surface_keys:
+        if present_surface_keys != PACK_METRIC_SURFACE_KEYS:
+            return {}
+        raw_candidate_count = pack_metrics["raw_candidate_count"]
+        gateway_candidate_count = pack_metrics["gateway_candidate_count"]
+        hydrate_error_count = pack_metrics["hydrate_error_count"]
+        if not all(
+            _is_nonnegative_int(value)
+            for value in (
+                raw_candidate_count,
+                gateway_candidate_count,
+                hydrate_error_count,
+            )
+        ):
+            return {}
+        if (
+            candidate_count != raw_candidate_count
+            or raw_candidate_count != gateway_candidate_count + hydrate_error_count
+        ):
+            return {}
+        if (
+            excluded_reasons is not None
+            and excluded_reasons.get(HYDRATE_ERROR_REASON, 0) != hydrate_error_count
+        ):
+            return {}
+        sanitized.update(
+            {
+                "gateway_candidate_count": gateway_candidate_count,
+                "hydrate_error_count": hydrate_error_count,
+                "raw_candidate_count": raw_candidate_count,
+            }
+        )
+
+    return sanitized
+
+
 def _sanitize_pack_metric_value(
     key: str,
     value: Any,
@@ -644,16 +764,6 @@ def _sanitize_pack_metric_value(
         return _sanitize_pack_metric_items(
             value,
             cohort_item_ids=cohort_item_ids,
-        )
-    if key == "selected_views":
-        return _sanitize_count_map(
-            value,
-            allowed_keys=set(CONTEXT_PACK_VIEWS),
-        )
-    if key == "excluded_reasons":
-        return _sanitize_count_map(
-            value,
-            allowed_keys=set(INJECTION_EXCLUSION_REASONS),
         )
     if key in PACK_METRIC_NONNEGATIVE_INT_KEYS:
         return value if _is_nonnegative_int(value) else None
@@ -666,22 +776,22 @@ def _legacy_trimmed_count(value: Any) -> int:
     return len({item_id for item_id in value if isinstance(item_id, str) and item_id})
 
 
-def _sanitize_count_map(
+def _sanitize_strict_count_map(
     value: Any,
     *,
-    allowed_keys: set[str],
-) -> dict[str, int]:
+    allowed_keys: frozenset[str],
+) -> dict[str, int] | None:
     if not isinstance(value, dict):
-        return {}
+        return None
     sanitized: dict[str, int] = {}
     for raw_key, raw_count in value.items():
         if not isinstance(raw_key, str):
-            continue
+            return None
         key = raw_key.strip().lower()
-        if key not in allowed_keys:
-            continue
-        if not isinstance(raw_count, int) or isinstance(raw_count, bool) or raw_count < 0:
-            continue
+        if key not in allowed_keys or key in sanitized:
+            return None
+        if not _is_nonnegative_int(raw_count):
+            return None
         sanitized[key] = raw_count
     return dict(sorted(sanitized.items()))
 
