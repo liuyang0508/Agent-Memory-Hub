@@ -752,10 +752,9 @@ def _sanitize_pack_metric_aggregate_bundle(
             and HYDRATE_ERROR_REASON in excluded_reasons
         ):
             return {}
-        if excluded_reasons is not None and any(
-            count > gateway_excluded_count
-            for reason, count in excluded_reasons.items()
-            if reason != HYDRATE_ERROR_REASON
+        if not _nonhydrate_reasons_cover_partition(
+            excluded_reasons,
+            partition_count=gateway_excluded_count,
         ):
             return {}
         sanitized.update(
@@ -765,10 +764,16 @@ def _sanitize_pack_metric_aggregate_bundle(
                 "raw_candidate_count": raw_candidate_count,
             }
         )
-    elif excluded_reasons is not None:
-        if HYDRATE_ERROR_REASON in excluded_reasons:
+    else:
+        if (
+            excluded_reasons is not None
+            and HYDRATE_ERROR_REASON in excluded_reasons
+        ):
             return {}
-        if any(count > excluded_count for count in excluded_reasons.values()):
+        if not _nonhydrate_reasons_cover_partition(
+            excluded_reasons,
+            partition_count=excluded_count,
+        ):
             return {}
 
     return sanitized
@@ -810,10 +815,29 @@ def _sanitize_strict_count_map(
         key = raw_key.strip().lower()
         if key not in allowed_keys or key in sanitized:
             return None
-        if not _is_nonnegative_int(raw_count):
+        if not _is_nonnegative_int(raw_count) or raw_count == 0:
             return None
         sanitized[key] = raw_count
     return dict(sorted(sanitized.items()))
+
+
+def _nonhydrate_reasons_cover_partition(
+    excluded_reasons: dict[str, int] | None,
+    *,
+    partition_count: int,
+) -> bool:
+    if partition_count < 0:
+        return False
+    counts = [
+        count
+        for reason, count in (excluded_reasons or {}).items()
+        if reason != HYDRATE_ERROR_REASON
+    ]
+    if any(count > partition_count for count in counts):
+        return False
+    if partition_count == 0:
+        return not counts
+    return sum(counts) >= partition_count
 
 
 def _sanitize_pack_metric_items(
