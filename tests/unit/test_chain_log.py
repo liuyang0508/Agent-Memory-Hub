@@ -417,6 +417,47 @@ def test_chain_log_preserves_valid_bare_gateway_aggregate_bundle(
     ]
 
 
+def test_chain_log_preserves_surface_bundle_without_hydrate_reason_at_zero(
+    tmp_path: Path,
+) -> None:
+    from agent_brain.memory.context.injection_cohorts import record_injection_cohort
+    from agent_brain.product.chain_log import build_chain_log_detail, build_chain_log_report
+
+    item_id = _write_item(tmp_path)
+    record_injection_cohort(
+        tmp_path,
+        item_ids=[item_id],
+        adapter="codex",
+        session_id="sess-surface-zero-hydrate",
+        cwd="/repo",
+        pack_metrics={
+            "candidate_count": 2,
+            "included_count": 1,
+            "excluded_count": 1,
+            "excluded_reasons": {"missing_source": 1},
+            "raw_candidate_count": 2,
+            "gateway_candidate_count": 2,
+            "hydrate_error_count": 0,
+            "packed_tokens": 7,
+        },
+    )
+
+    report = build_chain_log_report(tmp_path, hours=72).to_dict()
+    detail = build_chain_log_detail(tmp_path, report["chains"][0]["chain_id"]).to_dict()
+    packing = next(stage for stage in detail["stages"] if stage["stage_id"] == "packing")
+
+    assert packing["preview"]["pack_metrics"] == [{
+        "candidate_count": 2,
+        "excluded_count": 1,
+        "excluded_reasons": {"missing_source": 1},
+        "gateway_candidate_count": 2,
+        "hydrate_error_count": 0,
+        "included_count": 1,
+        "packed_tokens": 7,
+        "raw_candidate_count": 2,
+    }]
+
+
 @pytest.mark.parametrize(
     "aggregate_metrics",
     [
@@ -494,6 +535,59 @@ def test_chain_log_preserves_valid_bare_gateway_aggregate_bundle(
             "gateway_candidate_count": 1,
             "hydrate_error_count": True,
         },
+        {
+            "candidate_count": 1,
+            "included_count": 0,
+            "excluded_count": 1,
+            "excluded_reasons": {"missing_source": 999},
+        },
+        {
+            "candidate_count": 3,
+            "included_count": 1,
+            "excluded_count": 2,
+            "raw_candidate_count": 3,
+            "gateway_candidate_count": 2,
+            "hydrate_error_count": 1,
+            "excluded_reasons": {"hydrate_error": 1, "missing_source": 999},
+        },
+        {
+            "candidate_count": 1,
+            "included_count": 0,
+            "excluded_count": 1,
+            "excluded_reasons": {"hydrate_error": 1},
+        },
+        {
+            "candidate_count": 2,
+            "included_count": 1,
+            "excluded_count": 1,
+            "raw_candidate_count": 2,
+            "gateway_candidate_count": 1,
+            "hydrate_error_count": 1,
+        },
+        {
+            "candidate_count": 2,
+            "included_count": 1,
+            "excluded_count": 1,
+            "raw_candidate_count": 2,
+            "gateway_candidate_count": 2,
+            "hydrate_error_count": 0,
+            "excluded_reasons": {"hydrate_error": 0, "missing_source": 1},
+        },
+        {
+            "candidate_count": 1,
+            "included_count": 0,
+            "excluded_count": 1,
+            "excluded_reasons": {"hydrate_error": 0},
+        },
+        {
+            "candidate_count": 2,
+            "included_count": 2,
+            "excluded_count": 0,
+            "raw_candidate_count": 2,
+            "gateway_candidate_count": 0,
+            "hydrate_error_count": 2,
+            "excluded_reasons": {"hydrate_error": 2},
+        },
     ],
     ids=[
         "selected-views-sum",
@@ -507,6 +601,13 @@ def test_chain_log_preserves_valid_bare_gateway_aggregate_bundle(
         "malformed-base-count",
         "malformed-selected-views",
         "malformed-surface-count",
+        "bare-reason-over-excluded",
+        "surface-reason-over-gateway-excluded",
+        "bare-hydrate-reason",
+        "surface-hydrate-reason-missing",
+        "surface-zero-hydrate-reason-present",
+        "bare-zero-hydrate-reason-present",
+        "surface-negative-gateway-excluded",
     ],
 )
 def test_chain_log_drops_entire_inconsistent_aggregate_bundle(

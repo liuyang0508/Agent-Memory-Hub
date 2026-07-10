@@ -738,9 +738,24 @@ def _sanitize_pack_metric_aggregate_bundle(
             or raw_candidate_count != gateway_candidate_count + hydrate_error_count
         ):
             return {}
-        if (
+        gateway_excluded_count = excluded_count - hydrate_error_count
+        if gateway_excluded_count < 0:
+            return {}
+        if hydrate_error_count > 0:
+            if (
+                excluded_reasons is None
+                or excluded_reasons.get(HYDRATE_ERROR_REASON) != hydrate_error_count
+            ):
+                return {}
+        elif (
             excluded_reasons is not None
-            and excluded_reasons.get(HYDRATE_ERROR_REASON, 0) != hydrate_error_count
+            and HYDRATE_ERROR_REASON in excluded_reasons
+        ):
+            return {}
+        if excluded_reasons is not None and any(
+            count > gateway_excluded_count
+            for reason, count in excluded_reasons.items()
+            if reason != HYDRATE_ERROR_REASON
         ):
             return {}
         sanitized.update(
@@ -750,6 +765,11 @@ def _sanitize_pack_metric_aggregate_bundle(
                 "raw_candidate_count": raw_candidate_count,
             }
         )
+    elif excluded_reasons is not None:
+        if HYDRATE_ERROR_REASON in excluded_reasons:
+            return {}
+        if any(count > excluded_count for count in excluded_reasons.values()):
+            return {}
 
     return sanitized
 
