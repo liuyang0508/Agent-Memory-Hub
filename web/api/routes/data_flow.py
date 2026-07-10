@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, Query
 
 from agent_brain.observability.data_flow import DataFlowLedger
 from web._base import _brain_dir
-from web.auth import CurrentUser, get_current_user
+from web.auth import CurrentUser, get_current_user, require_admin
 
 
 router = APIRouter()
@@ -21,6 +21,7 @@ def data_flow(
 ):
     """Return the last three days of sanitized AMH data-flow events."""
 
+    require_admin(user)
     ledger = DataFlowLedger(_brain_dir())
     events = ledger.list_events(since_hours=hours, limit=limit, source=source)
     return {

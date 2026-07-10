@@ -31,6 +31,7 @@ from web.auth import (
     create_token,
     create_user,
     get_current_user,
+    require_admin,
 )
 from web.health_payloads import build_health_detail_payload
 
@@ -42,6 +43,7 @@ router = APIRouter()
 @router.get("/api/health-detail")
 async def health_detail(user: CurrentUser = Depends(get_current_user)):
     """Run governance + drift checks and return a detailed health report."""
+    require_admin(user)
     store, _, _, _ = _components()
 
     try:

@@ -124,6 +124,13 @@ class CurrentUser:
         return self.role == "admin"
 
 
+def require_admin(user: CurrentUser) -> None:
+    """Reject authenticated users that lack global admin authority."""
+
+    if not user.is_admin:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="admin only")
+
+
 def _find_user_by_api_key(key: str) -> dict[str, Any] | None:
     for u in _load_users():
         if u.get("api_key") == key:

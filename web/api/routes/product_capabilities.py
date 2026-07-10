@@ -26,15 +26,10 @@ from agent_brain.platform.headroom_integration import (
 from agent_brain.product.hierarchical_memory import build_hierarchical_memory
 from agent_brain.product.memory_profiles import export_memory_profile
 from web._base import _brain_dir, _components
-from web.auth import CurrentUser, get_current_user
+from web.auth import CurrentUser, get_current_user, require_admin
 
 
 router = APIRouter()
-
-
-def _require_admin(user: CurrentUser) -> None:
-    if not user.is_admin:
-        raise HTTPException(status_code=403, detail="admin only")
 
 
 class MemoryProfileRequest(BaseModel):
@@ -121,8 +116,7 @@ async def memory_profile_export(
 ):
     """Render or apply a managed agent memory profile."""
 
-    if payload.apply:
-        _require_admin(user)
+    require_admin(user)
     output_root = Path(payload.output_root) if payload.output_root else None
     return export_memory_profile(
         _brain_dir(),
@@ -138,6 +132,7 @@ async def memory_profile_export(
 async def hierarchical_memory(user: CurrentUser = Depends(get_current_user)):
     """Return the current deterministic L2/L3 hierarchy preview."""
 
+    require_admin(user)
     return build_hierarchical_memory(_brain_dir(), apply=False).to_dict()
 
 
@@ -148,8 +143,7 @@ async def hierarchical_memory_build(
 ):
     """Build the deterministic L2/L3 hierarchy sidecar."""
 
-    if payload.apply:
-        _require_admin(user)
+    require_admin(user)
     return build_hierarchical_memory(
         _brain_dir(),
         apply=payload.apply,
@@ -165,6 +159,7 @@ async def retrieval_gate(
 ):
     """Run a retrieval benchmark gate against the current index."""
 
+    require_admin(user)
     _store, _idx, retriever, _embedder = _components()
     cases = [
         RetrievalCase(query=case.query, expected_ids=case.expected_ids, weight=case.weight)
@@ -276,6 +271,7 @@ async def headroom_retrieve_route(
 ):
     """Retrieve an AMH-local compression sidecar by CCR key."""
 
+    require_admin(user)
     text = retrieve_compressed_original(key, brain_dir=_brain_dir())
     if text is None:
         raise HTTPException(status_code=404, detail="compressed original not found")

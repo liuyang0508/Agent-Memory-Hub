@@ -175,6 +175,84 @@ def admin_token(client: TestClient):
     return resp.json()["token"]
 
 
+@pytest.fixture()
+def user_token(client: TestClient, admin_token: str) -> str:
+    headers = {"Authorization": f"Bearer {admin_token}"}
+    registered = client.post(
+        "/api/auth/register",
+        json={
+            "username": "tenant-viewer",
+            "password": "pass123",
+            "tenant_id": "team-a",
+        },
+        headers=headers,
+    )
+    assert registered.status_code == 200
+    login = client.post(
+        "/api/auth/login",
+        json={"username": "tenant-viewer", "password": "pass123"},
+    )
+    assert login.status_code == 200
+    return login.json()["token"]
+
+
+@pytest.mark.parametrize(
+    ("method", "path", "payload"),
+    [
+        ("GET", "/api/cockpit/summary", None),
+        ("GET", "/api/data-flow", None),
+        ("GET", "/api/memory-lineage", None),
+        ("GET", "/api/memory-candidates", None),
+        ("GET", "/api/health-detail", None),
+        ("GET", "/api/hierarchical-memory", None),
+        ("POST", "/api/hierarchical-memory/build", {"apply": False}),
+        ("POST", "/api/memory-profiles/export", {"target": "codex", "apply": False}),
+        ("POST", "/api/retrieval-gate", {"cases": []}),
+    ],
+)
+def test_unscoped_global_content_surfaces_are_admin_only(
+    client: TestClient,
+    user_token: str,
+    method: str,
+    path: str,
+    payload: dict[str, object] | None,
+) -> None:
+    response = client.request(
+        method,
+        path,
+        headers={"Authorization": f"Bearer {user_token}"},
+        json=payload,
+    )
+
+    assert response.status_code == 403
+
+
+def test_headroom_original_retrieval_is_admin_only(
+    client: TestClient,
+    user_token: str,
+    brain_dir: Path,
+) -> None:
+    from agent_brain.memory.context.adaptive_compression import (
+        store_compressed_original,
+    )
+
+    original = "TEAM_B_CCR_ORIGINAL_SENTINEL"
+    key = store_compressed_original(
+        brain_dir,
+        original,
+        content_type="plain_text",
+        strategy="test",
+    )
+
+    response = client.get(
+        f"/api/headroom/retrieve/{key}",
+        headers={"Authorization": f"Bearer {user_token}"},
+    )
+
+    assert response.status_code == 403
+    assert original not in response.text
+
+
 class TestCockpitSummaryAPI:
     def test_cockpit_summary_requires_auth(self, client: TestClient):
         resp = client.get("/api/cockpit/summary")
@@ -774,7 +852,7 @@ class TestProductCapabilitiesAPI:
         assert payload["metrics"]["num_cases"] >= 4
         assert payload["metrics"]["unsafe_promotion_count"] == 0
 
-    def test_profile_preview_is_readable_but_apply_is_admin_only(
+    def test_profile_preview_and_apply_are_admin_only(
         self,
         client: TestClient,
         admin_token: str,
@@ -804,14 +882,20 @@ class TestProductCapabilitiesAPI:
             json={"target": "codex", "apply": True},
             headers=admin_headers,
         )
+        admin_preview = client.post(
+            "/api/memory-profiles/export",
+            json={"target": "codex", "apply": False},
+            headers=admin_headers,
+        )
 
-        assert preview.status_code == 200
-        assert preview.json()["applied"] is False
+        assert preview.status_code == 403
         assert denied.status_code == 403
+        assert admin_preview.status_code == 200
+        assert admin_preview.json()["applied"] is False
         assert applied.status_code == 200
         assert applied.json()["applied"] is True
 
-    def test_hierarchy_preview_is_readable_but_apply_is_admin_only(
+    def test_hierarchy_preview_and_apply_are_admin_only(
         self,
         client: TestClient,
         admin_token: str,
@@ -841,10 +925,16 @@ class TestProductCapabilitiesAPI:
             json={"apply": True},
             headers=admin_headers,
         )
+        admin_preview = client.post(
+            "/api/hierarchical-memory/build",
+            json={"apply": False},
+            headers=admin_headers,
+        )
 
-        assert preview.status_code == 200
-        assert preview.json()["applied"] is False
+        assert preview.status_code == 403
         assert denied.status_code == 403
+        assert admin_preview.status_code == 200
+        assert admin_preview.json()["applied"] is False
         assert applied.status_code == 200
         assert applied.json()["applied"] is True
 

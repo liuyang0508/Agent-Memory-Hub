@@ -14,7 +14,7 @@ from agent_brain.product.history_sync import HistorySyncRequest, run_history_syn
 from agent_brain.product.local_history_sources import scan_local_history_sources
 from agent_brain.product.memory_drafts import DraftStore
 from web._base import _audit, _brain_dir
-from web.auth import CurrentUser, get_current_user
+from web.auth import CurrentUser, get_current_user, require_admin
 
 
 router = APIRouter()
@@ -36,11 +36,6 @@ class DraftUpdateRequest(BaseModel):
     type: str | None = None
     tags: list[str] | None = None
     risk_flags: list[str] | None = None
-
-
-def _require_admin(user: CurrentUser) -> None:
-    if not user.is_admin:
-        raise HTTPException(status_code=403, detail="admin only")
 
 
 def _local_history_cache_ttl() -> float:
@@ -71,16 +66,19 @@ def _cached_local_history_report(*, refresh: bool = False) -> dict[str, object]:
 
 @router.get("/api/agents/local-history")
 async def local_history(user: CurrentUser = Depends(get_current_user)):
+    require_admin(user)
     return await run_in_threadpool(_cached_local_history_report)
 
 
 @router.post("/api/agents/local-history/scan")
 async def local_history_scan(user: CurrentUser = Depends(get_current_user)):
+    require_admin(user)
     return await run_in_threadpool(_cached_local_history_report, refresh=True)
 
 
 @router.get("/api/agents/local-history/drafts")
 async def local_history_drafts(status: str | None = None, user: CurrentUser = Depends(get_current_user)):
+    require_admin(user)
     drafts = DraftStore(_brain_dir()).list(status=status)
     return {"drafts": [draft.to_dict() for draft in drafts]}
 
@@ -91,7 +89,7 @@ async def update_local_history_draft(
     req: DraftUpdateRequest,
     user: CurrentUser = Depends(get_current_user),
 ):
-    _require_admin(user)
+    require_admin(user)
     try:
         draft = DraftStore(_brain_dir()).update(draft_id, **req.model_dump(exclude_none=True))
     except ValueError as exc:
@@ -102,7 +100,7 @@ async def update_local_history_draft(
 
 @router.post("/api/agents/local-history/drafts/{draft_id}/apply")
 async def apply_local_history_draft(draft_id: str, user: CurrentUser = Depends(get_current_user)):
-    _require_admin(user)
+    require_admin(user)
     try:
         draft = DraftStore(_brain_dir()).apply(draft_id)
     except ValueError as exc:
@@ -113,7 +111,7 @@ async def apply_local_history_draft(draft_id: str, user: CurrentUser = Depends(g
 
 @router.post("/api/agents/local-history/drafts/{draft_id}/skip")
 async def skip_local_history_draft(draft_id: str, user: CurrentUser = Depends(get_current_user)):
-    _require_admin(user)
+    require_admin(user)
     try:
         draft = DraftStore(_brain_dir()).skip(draft_id)
     except ValueError as exc:
@@ -124,6 +122,7 @@ async def skip_local_history_draft(draft_id: str, user: CurrentUser = Depends(ge
 
 @router.get("/api/agents/{agent}/local-history/sources")
 async def local_history_sources(agent: str, user: CurrentUser = Depends(get_current_user)):
+    require_admin(user)
     report = await run_in_threadpool(_cached_local_history_report)
     for row in report["agents"]:
         if row["agent"] == agent:
@@ -133,7 +132,7 @@ async def local_history_sources(agent: str, user: CurrentUser = Depends(get_curr
 
 @router.post("/api/agents/{agent}/local-history/sync")
 async def local_history_sync(agent: str, req: SyncRequest, user: CurrentUser = Depends(get_current_user)):
-    _require_admin(user)
+    require_admin(user)
     result = run_history_sync(
         _brain_dir(),
         HistorySyncRequest(

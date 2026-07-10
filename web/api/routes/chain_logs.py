@@ -6,15 +6,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from agent_brain.product.chain_log import build_chain_log_detail, build_chain_log_report
 from web._base import _brain_dir
-from web.auth import CurrentUser, get_current_user
+from web.auth import CurrentUser, get_current_user, require_admin
 
 
 router = APIRouter()
-
-
-def _require_chain_log_admin(user: CurrentUser) -> None:
-    if not user.is_admin:
-        raise HTTPException(status_code=403, detail="admin only")
 
 
 @router.get("/api/chain-logs")
@@ -29,7 +24,7 @@ def chain_logs(
 ):
     """List sanitized request-chain log summaries."""
 
-    _require_chain_log_admin(user)
+    require_admin(user)
     return build_chain_log_report(
         _brain_dir(),
         hours=hours,
@@ -49,7 +44,7 @@ def chain_log_detail(
 ):
     """Return one sanitized request-chain log detail."""
 
-    _require_chain_log_admin(user)
+    require_admin(user)
     try:
         return build_chain_log_detail(_brain_dir(), chain_id, hours=hours).to_dict()
     except KeyError as exc:

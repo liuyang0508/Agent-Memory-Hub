@@ -4,6 +4,7 @@ import json
 import sqlite3
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 
@@ -21,12 +22,69 @@ def _admin_token(client: TestClient) -> str:
     return resp.json()["token"]
 
 
+def _user_token() -> str:
+    from web.auth import create_token
+
+    return create_token({
+        "username": "tenant-viewer",
+        "tenant_id": "team-a",
+        "role": "user",
+    })
+
+
 def test_local_history_requires_auth(tmp_path: Path, monkeypatch) -> None:
     client = _client(tmp_path, monkeypatch)
 
     resp = client.get("/api/agents/local-history")
 
     assert resp.status_code == 401
+
+
+@pytest.mark.parametrize(
+    ("method", "path"),
+    [
+        ("GET", "/api/agents/local-history"),
+        ("POST", "/api/agents/local-history/scan"),
+        ("GET", "/api/agents/local-history/drafts"),
+        ("GET", "/api/agents/codex/local-history/sources"),
+    ],
+)
+def test_unscoped_local_history_reads_are_admin_only(
+    tmp_path: Path,
+    monkeypatch,
+    method: str,
+    path: str,
+) -> None:
+    client = _client(tmp_path, monkeypatch)
+    token = _user_token()
+    from web.api.routes import agent_history as route
+
+    monkeypatch.setattr(
+        route,
+        "_cached_local_history_report",
+        lambda **_kwargs: {
+            "generated_at": "now",
+            "scope": "local",
+            "total_sources": 1,
+            "total_messages": 1,
+            "agents": [{
+                "agent": "codex",
+                "source_count": 1,
+                "session_count": 1,
+                "message_count": 1,
+                "risk_flags": [],
+                "sources": [{"path": "/team-b/private/session.jsonl"}],
+            }],
+        },
+    )
+
+    response = client.request(
+        method,
+        path,
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 403
 
 
 def test_local_history_scan_returns_agents(tmp_path: Path, monkeypatch) -> None:

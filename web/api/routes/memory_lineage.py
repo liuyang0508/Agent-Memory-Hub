@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, Query
 
 from agent_brain.product.memory_lineage import build_memory_lineage_report
 from web._base import _brain_dir
-from web.auth import CurrentUser, get_current_user
+from web.auth import CurrentUser, get_current_user, require_admin
 
 
 router = APIRouter()
@@ -23,6 +23,7 @@ def memory_lineage(
 ):
     """Explain how agents write, retrieve, score, load, and inject memory."""
 
+    require_admin(user)
     return build_memory_lineage_report(
         _brain_dir(),
         hours=hours,
