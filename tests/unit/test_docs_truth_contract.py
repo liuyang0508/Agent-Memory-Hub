@@ -44,6 +44,67 @@ def test_architecture_exposes_the_single_prompt_injection_authorization_chain():
     assert "  -> access recording\n  -> ContextFirewall" not in architecture
 
 
+def test_architecture_exact_retrieval_order_and_brief_branch_do_not_conflate_paths():
+    architecture = _read("docs/architecture.md")
+    heading = "## Exact retrieval order — `agent_brain/memory/recall/retrieval.py`"
+    heading_at = architecture.index(heading)
+    fence_start = architecture.index("```", heading_at) + 3
+    fence_end = architecture.index("```", fence_start)
+    retrieval = architecture[fence_start:fence_end]
+
+    ordered_steps = [
+        "user question / search call / UserPromptSubmit",
+        "BM25 full-text recall and vector recall over allowed ids",
+        "RRF fusion",
+        "InjectionGateway",
+        "ContextFirewall",
+        "ContextPack budget / view selection",
+        "approved-hit access recording (once)",
+        "prompt surface",
+    ]
+    positions = [retrieval.index(step) for step in ordered_steps]
+    assert positions == sorted(positions)
+
+    assert (
+        "This canonical retrieval chain applies only to retrieval-backed search and UserPromptSubmit Hook surfaces."
+        in architecture
+    )
+    assert "The single safe prompt path is:" not in architecture
+    assert "Safe prompt surfaces call retrieval" not in architecture
+    assert "The retrieval-backed safe prompt path is:" in architecture
+    assert "Safe retrieval-backed prompt surfaces call retrieval" in architecture
+    brief_heading = "### Budgeted brief authorization boundary"
+    brief_at = architecture.index(brief_heading)
+    brief_end = architecture.index("\n### ", brief_at + len(brief_heading))
+    brief_section = architecture[brief_at:brief_end]
+    brief_chain = (
+        "ItemsStore candidates -> InjectionGateway eligibility -> ContextFirewall -> "
+        "tier/brief budget -> brief response"
+    )
+    assert architecture.count(brief_chain) == 1
+    assert "Retriever" not in brief_section
+    assert "ContextPack" not in brief_section
+    assert "access recording" not in brief_section
+
+    assert (
+        "Explicit raw diagnostics keep their normal single raw access record, return no ContextPack, and cannot write an injection cohort."
+        in architecture
+    )
+    assert (
+        "An injection cohort is a neutral observation; authorization is established only by the secure Gateway path that records it."
+        in architecture
+    )
+
+
+def test_architecture_distinguishes_doctor_report_grade_from_cli_process_exit():
+    architecture = _read("docs/architecture.md")
+
+    assert "`run_doctor(offline=True)` returns the graded `DoctorReport.exit_code`" in architecture
+    assert "(`0` / `1` / `2`)" in architecture
+    assert "`memory doctor --offline` CLI remains a compatibility" in architecture
+    assert "presenter with process exit `0` and displays that report grade" in architecture
+
+
 def test_release_manifest_keeps_public_readme_and_evaluation_assets_present():
     required_paths = [
         "agent_brain/evaluation/professional_report.py",

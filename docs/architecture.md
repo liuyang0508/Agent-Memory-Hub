@@ -46,7 +46,11 @@ still a real write, and why `reindex` can reconstruct everything from the md alo
   → the record is appended to `$BRAIN_DIR/pending/`. `memory sync-pending` replays the
   queue through the same `WriteService` funnel; repeatedly-failing records park under
   `pending/dead/`. `memory doctor --offline` grades embedder tier + pending depth +
-  local MCP reachability and returns a graded exit code.
+  local MCP reachability and returns a graded report.
+
+`run_doctor(offline=True)` returns the graded `DoctorReport.exit_code`
+(`0` / `1` / `2`). The `memory doctor --offline` CLI remains a compatibility
+presenter with process exit `0` and displays that report grade.
 
 ## Raw conversation evidence — `agent_brain/memory/evidence/conversation_store.py`
 
@@ -122,6 +126,8 @@ recording, Markdown source data, MCP tool count, or default search output.
 
 AMH retrieval is a staged pipeline, not a single "semantic search" call:
 
+This canonical retrieval chain applies only to retrieval-backed search and UserPromptSubmit Hook surfaces.
+
 ```
 user question / search call / UserPromptSubmit
   -> query signal + SearchFilter
@@ -147,11 +153,11 @@ user question / search call / UserPromptSubmit
 
 ### Prompt-facing injection authorization boundary
 
-The single safe prompt path is:
+The retrieval-backed safe prompt path is:
 
 `Retriever raw hits -> InjectionGateway -> ContextFirewall -> ContextPack -> prompt surface`
 
-Safe prompt surfaces call retrieval with `record_access=False`, hydrate raw hits,
+Safe retrieval-backed prompt surfaces call retrieval with `record_access=False`, hydrate raw hits,
 submit hydrated candidates to InjectionGateway, and expose only final included
 ContextPack entries. A prompt-facing surface must never call `build_context_pack`
 directly on raw hits.
@@ -160,12 +166,20 @@ Explicit raw CLI diagnostics do not grant injection authorization and do not tur
 Explicit raw diagnostics keep their normal single raw access record, return no ContextPack, and cannot write an injection cohort.
 If InjectionGateway fails, prompt-facing callers fail closed; there is no raw-hit fallback.
 Raw overfetch runs with access recording disabled; after Gateway authorization, final included hits are recorded exactly once before the prompt surface returns.
+An injection cohort is a neutral observation; authorization is established only by the secure Gateway path that records it.
 
 Prompt-facing recall-gap records persist only a query fingerprint and aggregate counts; they do not store rejected IDs or id:reason evidence.
 The lower-level explicit record_gap API may still store rejected_ids and diagnostic evidence for deliberate diagnostic callers.
 DataFlow and memory-lineage outputs apply a closed aggregate allowlist to recall-gap evidence, so historical free-text evidence is not re-exposed.
 
-Scoring invariants:
+### Budgeted brief authorization boundary
+
+`ItemsStore candidates -> InjectionGateway eligibility -> ContextFirewall -> tier/brief budget -> brief response`
+
+The budgeted resume branch starts from stored candidates, applies eligibility and
+policy gates, then enforces its own tier budget before returning the briefing.
+
+### Retrieval scoring invariants
 
 - BM25 and vector recall are fused by reciprocal rank fusion:
   `RRF(d)=Σ_s w_s/(k+rank_s(d)+1)`.

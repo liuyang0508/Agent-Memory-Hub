@@ -73,7 +73,7 @@ def test_doctor_offline_reports(monkeypatch):
     assert "offline" in out
     assert "bm25" in out
     assert "prompt injection gateway" in out
-    assert "gateway apis" in out
+    assert "gateway api import/callable probe" in out
     assert "gateway unavailable" not in out
 
 
@@ -96,7 +96,8 @@ def test_doctor_offline_reports_injection_gateway_degraded(monkeypatch):
     assert res.exit_code == 0
     out = " ".join(res.stdout.lower().split())
     assert "prompt injection gateway" in out
-    assert "gateway apis" in out
+    assert "gateway api import/callable probe" in out
+    assert "gateway apis importable" not in out
     assert "gateway unavailable" in out
 
 

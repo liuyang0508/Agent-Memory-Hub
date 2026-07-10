@@ -556,7 +556,7 @@ def _chain_stages(bucket: _ChainBucket, final_outcome: str) -> list[ChainStage]:
         "context_firewall": {"rejected_count": rejected_count},
         "packing": {
             "pack_metrics": [
-                _sanitize_pack_metrics(
+                sanitize_pack_metrics(
                     cohort.pack_metrics or {},
                     cohort_item_ids=cohort.item_ids,
                 )
@@ -610,11 +610,15 @@ def _retrieval_trace_by_item(bucket: _ChainBucket) -> dict[str, dict[str, Any]]:
     return trace_by_item
 
 
-def _sanitize_pack_metrics(
-    pack_metrics: dict[str, Any],
+def sanitize_pack_metrics(
+    pack_metrics: Any,
     *,
     cohort_item_ids: tuple[str, ...],
 ) -> dict[str, Any]:
+    """Return only schema-valid metrics bound to the public cohort IDs."""
+
+    if not isinstance(pack_metrics, dict):
+        return {}
     cohort_ids = set(cohort_item_ids)
     sanitized: dict[str, Any] = {}
     independent_keys = (
@@ -632,7 +636,9 @@ def _sanitize_pack_metrics(
         )
         if value not in (None, [], {}):
             sanitized[key] = value
-    sanitized.update(_sanitize_pack_metric_aggregate_bundle(pack_metrics))
+    aggregate = sanitize_pack_metric_aggregate_bundle(pack_metrics)
+    if aggregate.get("included_count") == len(cohort_item_ids):
+        sanitized.update(aggregate)
     if "trimmed_count" not in sanitized:
         legacy_trimmed_count = _legacy_trimmed_count(pack_metrics.get("trimmed_ids"))
         if legacy_trimmed_count:
@@ -664,9 +670,13 @@ def _sanitize_pack_metrics(
     return _sanitize(sanitized)
 
 
-def _sanitize_pack_metric_aggregate_bundle(
-    pack_metrics: dict[str, Any],
+def sanitize_pack_metric_aggregate_bundle(
+    pack_metrics: Any,
 ) -> dict[str, Any]:
+    """Validate an aggregate metrics bundle atomically."""
+
+    if not isinstance(pack_metrics, dict):
+        return {}
     present_keys = PACK_METRIC_AGGREGATE_KEYS & pack_metrics.keys()
     if not present_keys:
         return {}
@@ -1339,4 +1349,6 @@ __all__ = [
     "STAGE_CONTRACT",
     "build_chain_log_detail",
     "build_chain_log_report",
+    "sanitize_pack_metric_aggregate_bundle",
+    "sanitize_pack_metrics",
 ]

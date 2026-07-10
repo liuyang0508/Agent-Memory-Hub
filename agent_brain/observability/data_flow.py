@@ -19,6 +19,11 @@ from agent_brain.memory.context.injection_cohorts import iter_injection_cohorts
 from agent_brain.memory.context.injection_gateway import INJECTION_EXCLUSION_REASONS
 from agent_brain.memory.governance.recall_events import iter_gap_records, iter_task_outcomes
 from agent_brain.memory.loops.loop_events import iter_loop_events
+from agent_brain.memory.store.items_store import ItemsStore
+from agent_brain.product.chain_log import (
+    sanitize_pack_metric_aggregate_bundle,
+    sanitize_pack_metrics,
+)
 
 
 MAX_WINDOW_HOURS = 72
@@ -33,13 +38,24 @@ REDACTED_KEYS = {
     "query",
     "question",
 }
-RECALL_GAP_AGGREGATE_KEYS = frozenset({
-    "excluded_count",
-    "hydrate_error_count",
-    "included_count",
+RECALL_GAP_AGGREGATE_KEY_ORDER = (
     "retrieved_count",
-})
+    "included_count",
+    "hydrate_error_count",
+    "excluded_count",
+)
+RECALL_GAP_AGGREGATE_KEYS = frozenset(RECALL_GAP_AGGREGATE_KEY_ORDER)
 MAX_RECALL_GAP_COUNT_DIGITS = 12
+RECALL_GAP_REASONS = frozenset({
+    "all_candidates_rejected",
+    "empty_recall",
+    "manual_revalidation",
+    "multimodal_extraction_missing",
+    "only_rejected",
+    "partial_candidates_rejected",
+    "query_not_injectable",
+})
+UNCLASSIFIED_RECALL_GAP_REASON = "unclassified"
 
 
 @dataclass(frozen=True)
@@ -87,6 +103,7 @@ class DataFlowLedger:
 
     def __init__(self, brain_dir: Path):
         self.brain_dir = Path(brain_dir)
+        self._known_item_ids_cache: frozenset[str] | None = None
 
     def list_events(
         self,
@@ -138,6 +155,9 @@ class DataFlowLedger:
         )
 
     def _all_events(self) -> list[DataFlowEvent]:
+        # Keep one ItemsStore scan per read while reflecting changes when a
+        # long-lived ledger instance is queried again.
+        self._known_item_ids_cache = None
         events: list[DataFlowEvent] = []
         events.extend(self._adapter_runtime_events())
         events.extend(self._adapter_verification_events())
@@ -206,32 +226,39 @@ class DataFlowLedger:
         ]
 
     def _recall_gap_events(self) -> list[DataFlowEvent]:
-        return [
-            DataFlowEvent(
+        events: list[DataFlowEvent] = []
+        for record in iter_gap_records(self.brain_dir):
+            reason = _sanitize_recall_gap_reason(record.reason)
+            injected_ids = self._safe_item_ids(record.injected_ids)
+            rejected_ids = self._safe_item_ids(record.rejected_ids)
+            events.append(DataFlowEvent(
                 event_id=record.gap_id,
                 timestamp=record.timestamp,
                 source="recall_gap",
                 stage="召回诊断",
-                summary=f"召回缺口：{record.reason}",
+                summary=f"召回缺口：{reason}",
                 status="gap",
                 adapter=record.adapter,
                 session_id=record.session_id,
-                item_ids=tuple(record.injected_ids + record.rejected_ids),
+                item_ids=_dedupe((*injected_ids, *rejected_ids)),
                 evidence=_sanitize_recall_gap_evidence(record.evidence),
                 metadata={
-                    "reason": record.reason,
-                    "injected_count": len(record.injected_ids),
-                    "rejected_count": len(record.rejected_ids),
+                    "reason": reason,
+                    "injected_count": len(injected_ids),
+                    "rejected_count": len(rejected_ids),
                     "has_query": bool(record.query),
                     "cwd": record.cwd,
                 },
-            )
-            for record in iter_gap_records(self.brain_dir)
-        ]
+            ))
+        return events
 
     def _task_outcome_events(self) -> list[DataFlowEvent]:
-        return [
-            DataFlowEvent(
+        events: list[DataFlowEvent] = []
+        for record in iter_task_outcomes(self.brain_dir):
+            injected_ids = self._safe_item_ids(record.injected_ids)
+            adopted_ids = self._safe_item_ids(record.adopted_ids)
+            rejected_ids = self._safe_item_ids(record.rejected_ids)
+            events.append(DataFlowEvent(
                 event_id=record.outcome_id,
                 timestamp=record.timestamp,
                 source="task_outcome",
@@ -240,43 +267,61 @@ class DataFlowLedger:
                 status=record.outcome,
                 adapter=record.adapter,
                 session_id=record.session_id,
-                item_ids=tuple(record.injected_ids + record.adopted_ids + record.rejected_ids),
+                item_ids=_dedupe((*injected_ids, *adopted_ids, *rejected_ids)),
                 metadata={
                     "task_id": record.task_id,
                     "confidence": record.confidence,
                     "feedback_signals": record.feedback_signals,
                     "value_tags": record.value_tags,
-                    "injected_count": len(record.injected_ids),
-                    "adopted_count": len(record.adopted_ids),
-                    "rejected_count": len(record.rejected_ids),
+                    "injected_count": len(injected_ids),
+                    "adopted_count": len(adopted_ids),
+                    "rejected_count": len(rejected_ids),
                     "has_question": bool(record.question),
                     "cwd": record.cwd,
                 },
-            )
-            for record in iter_task_outcomes(self.brain_dir)
-        ]
+            ))
+        return events
 
     def _injection_events(self) -> list[DataFlowEvent]:
-        return [
-            DataFlowEvent(
+        events: list[DataFlowEvent] = []
+        for cohort in iter_injection_cohorts(self.brain_dir):
+            item_ids = self._safe_item_ids(cohort.item_ids)
+            events.append(DataFlowEvent(
                 event_id=cohort.cohort_id,
                 timestamp=cohort.timestamp,
                 source="injection",
                 stage="上下文注入",
-                summary=f"注入 {len(cohort.item_ids)} 条已授权记忆",
+                summary=f"记录 {len(item_ids)} 条 injection cohort 记忆",
                 status="injected",
                 adapter=cohort.adapter,
                 session_id=cohort.session_id,
-                item_ids=tuple(cohort.item_ids),
+                item_ids=item_ids,
                 metadata={
                     "source": cohort.source,
                     "query_sha256": cohort.query_sha256,
-                    "pack_metrics": _sanitize(cohort.pack_metrics or {}),
+                    "pack_metrics": sanitize_pack_metrics(
+                        cohort.pack_metrics,
+                        cohort_item_ids=item_ids,
+                    ),
                     "cwd": cohort.cwd,
                 },
-            )
-            for cohort in iter_injection_cohorts(self.brain_dir)
-        ]
+            ))
+        return events
+
+    def _safe_item_ids(self, item_ids: Iterable[str]) -> tuple[str, ...]:
+        known_ids = self._known_item_ids()
+        return _dedupe(item_id for item_id in item_ids if item_id in known_ids)
+
+    def _known_item_ids(self) -> frozenset[str]:
+        if self._known_item_ids_cache is None:
+            if not (self.brain_dir / "items").exists():
+                self._known_item_ids_cache = frozenset()
+            else:
+                self._known_item_ids_cache = frozenset(
+                    item.id
+                    for item, _body in ItemsStore(self.brain_dir / "items").iter_all()
+                )
+        return self._known_item_ids_cache
 
 
 def _sanitize(value: Any) -> Any:
@@ -296,25 +341,64 @@ def _sanitize(value: Any) -> Any:
 def _sanitize_recall_gap_evidence(
     evidence: Iterable[object],
 ) -> tuple[str, ...]:
-    safe: list[str] = []
+    counts: dict[str, int] = {}
+    reason_counts: dict[str, int] = {}
     for raw_value in evidence:
         if not isinstance(raw_value, str):
             continue
         key, separator, raw_count = raw_value.partition("=")
-        if not separator or not _is_bounded_ascii_count(raw_count):
-            continue
         if key in RECALL_GAP_AGGREGATE_KEYS:
-            safe.append(raw_value)
+            if (
+                key in counts
+                or not separator
+                or not _is_bounded_ascii_count(raw_count)
+            ):
+                return ()
+            counts[key] = int(raw_count)
             continue
         prefix = "excluded_reason."
+        if not key.startswith(prefix):
+            continue
         reason = key.removeprefix(prefix)
+        if reason not in INJECTION_EXCLUSION_REASONS:
+            continue
         if (
-            key.startswith(prefix)
-            and reason in INJECTION_EXCLUSION_REASONS
-            and int(raw_count) > 0
+            reason in reason_counts
+            or not separator
+            or not _is_bounded_ascii_count(raw_count)
+            or int(raw_count) <= 0
         ):
-            safe.append(raw_value)
-    return tuple(safe)
+            return ()
+        reason_counts[reason] = int(raw_count)
+
+    if set(counts) != RECALL_GAP_AGGREGATE_KEYS:
+        return ()
+    retrieved_count = counts["retrieved_count"]
+    hydrate_error_count = counts["hydrate_error_count"]
+    aggregate = sanitize_pack_metric_aggregate_bundle({
+        "candidate_count": retrieved_count,
+        "included_count": counts["included_count"],
+        "excluded_count": counts["excluded_count"],
+        "raw_candidate_count": retrieved_count,
+        "gateway_candidate_count": retrieved_count - hydrate_error_count,
+        "hydrate_error_count": hydrate_error_count,
+        "excluded_reasons": reason_counts,
+    })
+    if not aggregate:
+        return ()
+    return tuple(
+        [f"{key}={counts[key]}" for key in RECALL_GAP_AGGREGATE_KEY_ORDER]
+        + [
+            f"excluded_reason.{reason}={count}"
+            for reason, count in sorted(reason_counts.items())
+        ]
+    )
+
+
+def _sanitize_recall_gap_reason(reason: object) -> str:
+    if isinstance(reason, str) and reason in RECALL_GAP_REASONS:
+        return reason
+    return UNCLASSIFIED_RECALL_GAP_REASON
 
 
 def _is_bounded_ascii_count(value: str) -> bool:
@@ -324,6 +408,10 @@ def _is_bounded_ascii_count(value: str) -> bool:
         and value.isascii()
         and value.isdecimal()
     )
+
+
+def _dedupe(values: Iterable[str]) -> tuple[str, ...]:
+    return tuple(dict.fromkeys(values))
 
 
 def _loop_status(event_type: str) -> str:

@@ -5,6 +5,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from pathlib import Path
 
+import pytest
+
 from agent_brain.contracts.memory_item import MemoryItem, MemoryType, Refs
 
 
@@ -62,7 +64,13 @@ def test_memory_lineage_report_connects_writes_loads_storage_and_formulas(tmp_pa
         query="another raw query should not leak",
         reason="partial_candidates_rejected",
         injected_ids=[item.id],
-        evidence=["retrieved_count=1", "SECRET_LINEAGE_GAP_EVIDENCE"],
+        evidence=[
+            "retrieved_count=1",
+            "included_count=1",
+            "hydrate_error_count=0",
+            "excluded_count=0",
+            "SECRET_LINEAGE_GAP_EVIDENCE",
+        ],
         adapter="codex",
         session_id="sess-lineage",
         cwd="/repo",
@@ -86,7 +94,12 @@ def test_memory_lineage_report_connects_writes_loads_storage_and_formulas(tmp_pa
     assert any(event["kind"] == "write" for event in report["events"])
     assert any(event["kind"] == "load" and event["item_ids"] == [item.id] for event in report["events"])
     gap_event = next(event for event in report["events"] if event["kind"] == "gap")
-    assert gap_event["evidence"] == ["retrieved_count=1"]
+    assert gap_event["evidence"] == [
+        "retrieved_count=1",
+        "included_count=1",
+        "hydrate_error_count=0",
+        "excluded_count=0",
+    ]
     assert "runtime/recall-gaps.jsonl" in gap_event["storage_reads"]
     assert "runtime/injection-cohorts.jsonl" not in gap_event["storage_reads"]
     injection_event = next(event for event in report["events"] if event["kind"] == "load")
@@ -307,7 +320,109 @@ def test_memory_lineage_classifies_query_gate_and_post_retrieval_gaps_truthfully
     assert _method_for_data_flow(query_gate) == "record_gap"
     assert _moment_for_data_flow(query_gate) == "检索前 query gate 判定不可注入时"
     assert _reads_for_data_flow(query_gate) == ("runtime/recall-gaps.jsonl",)
-    assert _moment_for_data_flow(post_retrieval) == "检索与 InjectionGateway 后记录聚合诊断时"
+    assert _moment_for_data_flow(post_retrieval) == (
+        "Retriever 与 InjectionGateway 后记录聚合诊断时"
+    )
     assert "runtime/recall-gaps.jsonl" in _reads_for_data_flow(post_retrieval)
     assert "runtime/injection-cohorts.jsonl" not in _reads_for_data_flow(post_retrieval)
     assert "index.db items_fts" in _reads_for_data_flow(post_retrieval)
+
+
+@pytest.mark.parametrize(
+    ("reason", "moment", "reads"),
+    [
+        (
+            "query_not_injectable",
+            "检索前 query gate 判定不可注入时",
+            ("runtime/recall-gaps.jsonl",),
+        ),
+        (
+            "multimodal_extraction_missing",
+            "检索前多模态证据抽取缺失时",
+            (
+                "resources/*.json",
+                "extractions/*.json",
+                "runtime/recall-gaps.jsonl",
+            ),
+        ),
+        (
+            "empty_recall",
+            "Retriever 返回空候选后、InjectionGateway/hydrate 前",
+            (
+                "index.db items_meta",
+                "index.db items_fts",
+                "index.db items_vec",
+                "runtime/recall-gaps.jsonl",
+            ),
+        ),
+        (
+            "only_rejected",
+            "显式反馈处理后记录 only-rejected 诊断时",
+            (
+                "runtime/recall-gaps.jsonl",
+                "runtime/injection-cohorts.jsonl",
+                "runtime/task-outcomes.jsonl",
+            ),
+        ),
+        (
+            "all_candidates_rejected",
+            "Retriever 与 InjectionGateway 后记录聚合诊断时",
+            (
+                "index.db items_meta",
+                "index.db items_fts",
+                "index.db items_vec",
+                "items/*.md context_views",
+                "runtime/recall-gaps.jsonl",
+            ),
+        ),
+        (
+            "partial_candidates_rejected",
+            "Retriever 与 InjectionGateway 后记录聚合诊断时",
+            (
+                "index.db items_meta",
+                "index.db items_fts",
+                "index.db items_vec",
+                "items/*.md context_views",
+                "runtime/recall-gaps.jsonl",
+            ),
+        ),
+        (
+            "manual_revalidation",
+            "显式 recall-gap 诊断记录时",
+            ("runtime/recall-gaps.jsonl",),
+        ),
+        (
+            "unclassified",
+            "显式 recall-gap 诊断记录时",
+            ("runtime/recall-gaps.jsonl",),
+        ),
+    ],
+)
+def test_memory_lineage_gap_phase_and_storage_reads_are_reason_specific(
+    reason: str,
+    moment: str,
+    reads: tuple[str, ...],
+) -> None:
+    from agent_brain.observability.data_flow import DataFlowEvent
+    from agent_brain.product.memory_lineage import (
+        _moment_for_data_flow,
+        _reads_for_data_flow,
+    )
+
+    event = DataFlowEvent(
+        event_id=f"gap-{reason}",
+        timestamp="2026-07-11T03:00:00+00:00",
+        source="recall_gap",
+        stage="召回诊断",
+        summary="safe aggregate gap",
+        metadata={"reason": reason},
+    )
+
+    assert _moment_for_data_flow(event) == moment
+    assert _reads_for_data_flow(event) == reads
+
+    if reason in {"manual_revalidation", "unclassified"}:
+        assert "Gateway" not in _moment_for_data_flow(event)
+    if reason in {"query_not_injectable", "multimodal_extraction_missing"}:
+        assert not any(read.startswith("index.db") for read in reads)
+        assert not any(read.startswith("items/") for read in reads)

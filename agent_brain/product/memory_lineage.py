@@ -277,9 +277,15 @@ def _moment_for_data_flow(event: DataFlowEvent) -> str:
     if event.source == "injection":
         return "查询后、上下文注入前"
     if event.source == "recall_gap":
-        if event.metadata.get("reason") == "query_not_injectable":
-            return "检索前 query gate 判定不可注入时"
-        return "检索与 InjectionGateway 后记录聚合诊断时"
+        reason = event.metadata.get("reason")
+        return {
+            "query_not_injectable": "检索前 query gate 判定不可注入时",
+            "multimodal_extraction_missing": "检索前多模态证据抽取缺失时",
+            "empty_recall": "Retriever 返回空候选后、InjectionGateway/hydrate 前",
+            "only_rejected": "显式反馈处理后记录 only-rejected 诊断时",
+            "all_candidates_rejected": "Retriever 与 InjectionGateway 后记录聚合诊断时",
+            "partial_candidates_rejected": "Retriever 与 InjectionGateway 后记录聚合诊断时",
+        }.get(str(reason), "显式 recall-gap 诊断记录时")
     if event.source == "task_outcome":
         return "任务结束或用户反馈后"
     if event.source == "adapter_verification":
@@ -313,15 +319,40 @@ def _reads_for_data_flow(event: DataFlowEvent) -> tuple[str, ...]:
             "runtime/injection-cohorts.jsonl",
         )
     if event.source == "recall_gap":
-        if event.metadata.get("reason") == "query_not_injectable":
+        reason = event.metadata.get("reason")
+        if reason == "query_not_injectable":
             return ("runtime/recall-gaps.jsonl",)
-        return (
-            "index.db items_meta",
-            "index.db items_fts",
-            "index.db items_vec",
-            "items/*.md context_views",
-            "runtime/recall-gaps.jsonl",
-        )
+        if reason == "multimodal_extraction_missing":
+            return (
+                "resources/*.json",
+                "extractions/*.json",
+                "runtime/recall-gaps.jsonl",
+            )
+        if reason == "empty_recall":
+            return (
+                "index.db items_meta",
+                "index.db items_fts",
+                "index.db items_vec",
+                "runtime/recall-gaps.jsonl",
+            )
+        if reason == "only_rejected":
+            return (
+                "runtime/recall-gaps.jsonl",
+                "runtime/injection-cohorts.jsonl",
+                "runtime/task-outcomes.jsonl",
+            )
+        if reason in {
+            "all_candidates_rejected",
+            "partial_candidates_rejected",
+        }:
+            return (
+                "index.db items_meta",
+                "index.db items_fts",
+                "index.db items_vec",
+                "items/*.md context_views",
+                "runtime/recall-gaps.jsonl",
+            )
+        return ("runtime/recall-gaps.jsonl",)
     if event.source == "task_outcome":
         return (
             "items/*.md context_views",

@@ -8,7 +8,9 @@ What it does:
     and the depth of the durable pending queue (plus any parked "dead" records).
     It returns a graded
     :class:`DoctorReport` whose ``overall`` is one of ``OK`` / ``DEGRADED`` /
-    ``BROKEN`` with a matching ``exit_code`` of ``0`` / ``1`` / ``2``.
+    ``BROKEN`` with a matching programmatic ``exit_code`` of ``0`` / ``1`` /
+    ``2``. The compatibility CLI presents that grade while retaining process
+    exit 0.
 
     The single hard requirement is that markdown is writable: if it is not, the
     brain cannot accept writes and the report is ``BROKEN``. Everything below the
@@ -50,7 +52,7 @@ class DoctorReport:
     ``checks`` holds each probe's raw value keyed by a stable dotted name (so
     callers/tests can assert on individual signals); ``overall`` summarizes them
     as ``OK`` / ``DEGRADED`` / ``BROKEN`` and ``exit_code`` mirrors that grade
-    as ``0`` / ``1`` / ``2`` for shell callers.
+    as ``0`` / ``1`` / ``2`` for programmatic callers.
     """
 
     checks: dict = field(default_factory=dict)

@@ -1,3 +1,5 @@
+import builtins
+import socket
 from pathlib import Path
 
 from agent_brain.platform.doctor import run_doctor
@@ -14,6 +16,44 @@ def test_doctor_reports_injection_gateway_available(tmp_brain):
     rep = run_doctor(offline=True)
 
     assert rep.checks["security.injection_gateway.available"] is True
+
+
+def test_doctor_gateway_probe_fails_closed_on_real_import_exception(
+    tmp_brain,
+    monkeypatch,
+):
+    import agent_brain.platform.doctor as doctor
+
+    real_import = builtins.__import__
+
+    def fail_gateway_import(name, *args, **kwargs):
+        if name == "agent_brain.memory.context.injection_gateway":
+            raise ImportError("simulated unavailable gateway")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", fail_gateway_import)
+
+    assert doctor._probe_injection_gateway_available() is False
+
+
+def test_doctor_gateway_probe_rejects_noncallable_api(tmp_brain, monkeypatch):
+    import agent_brain.memory.context.injection_gateway as gateway
+    import agent_brain.platform.doctor as doctor
+
+    monkeypatch.setattr(gateway, "build_injection_context", None)
+
+    assert doctor._probe_injection_gateway_available() is False
+
+
+def test_doctor_offline_probe_never_opens_a_socket(tmp_brain, monkeypatch):
+    def fail_socket(*args, **kwargs):
+        raise AssertionError("offline doctor attempted network access")
+
+    monkeypatch.setattr(socket, "socket", fail_socket)
+
+    rep = run_doctor(offline=True)
+
+    assert rep.checks["core.md_store.writable"] is True
 
 
 def test_doctor_degrades_when_injection_gateway_is_unavailable(

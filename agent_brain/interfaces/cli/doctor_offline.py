@@ -37,7 +37,7 @@ def doctor_offline(
     gateway_available = rep.checks["security.injection_gateway.available"]
     rows.append((
         "prompt injection gateway",
-        "Gateway APIs importable; surface contract tests prove mandatory enforcement",
+        "Gateway API import/callable probe; mandatory enforcement is verified separately",
         "available" if gateway_available else "degraded -> gateway unavailable",
     ))
     rows.append(("govern / audit / anti-drift", "offline by construction", "available"))
