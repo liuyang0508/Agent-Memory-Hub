@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 建立唯一、强制、fail-closed 的 prompt injection gateway，阻止 MCP search/brief、SDK 和 Hook 将 private/secret、待审核、已废止或弱查询候选直接装入模型上下文。
+**Goal:** 建立唯一、强制、fail-closed 的 prompt injection gateway，阻止 MCP search/brief、SDK、Hook 和 Web prompt search 将 private/secret、待审核、已废止或弱查询候选直接装入模型上下文。
 
-**Architecture:** Retriever 保留 raw hits；新增 `agent_brain.memory.context.injection_gateway` 统一执行 query-signal、ContextFirewall 和 ContextPack。MCP prompt tools、SDK firewall 模式、CLI `--context-firewall` 与 brief 全部依赖该入口；显式 raw diagnostics 保留但不生成未经防火墙授权的 `context_pack`。
+**Architecture:** Retriever 保留 raw hits；新增 `agent_brain.memory.context.injection_gateway` 统一执行 query-signal、ContextFirewall 和 ContextPack。MCP prompt tools、SDK firewall 模式、CLI `--context-firewall`、brief 与 Web prompt search 全部依赖该入口；显式 raw diagnostics 保留但不生成未经防火墙授权的 `context_pack`。
 
 **Tech Stack:** Python 3.11+、dataclasses、Pydantic MemoryItem、SQLite/FTS Retriever、Typer CLI、FastMCP、pytest、Ruff。
 
@@ -219,7 +219,7 @@ def test_gateway_excludes_one_pack_error_without_dropping_safe_peer(monkeypatch)
 Run:
 
 ```bash
-PYTHONPATH=. /Users/liuyang/Desktop/AIAgent/agent-memory-hub/.venv/bin/python \
+PYTHONPATH=. .venv/bin/python \
   -m pytest -q tests/unit/test_injection_gateway.py
 ```
 
@@ -367,7 +367,7 @@ __all__ = [
 - [x] **Step 4: 验证 GREEN**
 
 ```bash
-PYTHONPATH=. /Users/liuyang/Desktop/AIAgent/agent-memory-hub/.venv/bin/python \
+PYTHONPATH=. .venv/bin/python \
   -m pytest -q tests/unit/test_injection_gateway.py tests/unit/test_context_firewall.py \
   tests/unit/test_context_loading_views.py
 ```
@@ -404,7 +404,7 @@ git commit -m "fix: add fail-closed injection gateway"
 - Create: `tests/unit/test_mcp_injection_gateway.py`
 - Modify: `agent_brain/interfaces/mcp/tools/search_tools.py:5-154`
 
-- [ ] **Step 1: 写 MCP 泄漏与弱查询回归测试**
+- [x] **Step 1: 写 MCP 泄漏与弱查询回归测试**
 
 创建 `tests/unit/test_mcp_injection_gateway.py`：
 
@@ -521,16 +521,16 @@ def test_mcp_search_never_falls_back_to_raw_when_gateway_fails(
         mcp.search_memory("injection gateway boundary", top_k=10)
 ```
 
-- [ ] **Step 2: 运行测试确认 RED**
+- [x] **Step 2: 运行测试确认 RED**
 
 ```bash
-PYTHONPATH=. /Users/liuyang/Desktop/AIAgent/agent-memory-hub/.venv/bin/python \
+PYTHONPATH=. .venv/bin/python \
   -m pytest -q tests/unit/test_mcp_injection_gateway.py
 ```
 
 Expected: FAIL；当前 MCP 返回禁止项，弱查询不会 fail-close。
 
-- [ ] **Step 3: 用 Gateway 重写 MCP search**
+- [x] **Step 3: 用 Gateway 重写 MCP search**
 
 将 context imports 改为：
 
@@ -617,17 +617,17 @@ from agent_brain.memory.context.injection_gateway import (
     return results
 ```
 
-- [ ] **Step 4: 验证 MCP GREEN**
+- [x] **Step 4: 验证 MCP GREEN**
 
 ```bash
-PYTHONPATH=. /Users/liuyang/Desktop/AIAgent/agent-memory-hub/.venv/bin/python \
+PYTHONPATH=. .venv/bin/python \
   -m pytest -q tests/unit/test_mcp_injection_gateway.py \
   tests/unit/test_context_loading_views.py tests/unit/test_mcp_onboarding.py
 ```
 
 Expected: 全部 PASS。
 
-- [ ] **Step 5: 提交 MCP 迁移**
+- [x] **Step 5: 提交 MCP 迁移**
 
 ```bash
 git add agent_brain/interfaces/mcp/tools/search_tools.py tests/unit/test_mcp_injection_gateway.py
@@ -644,7 +644,7 @@ git commit -m "fix: gate MCP search context"
 - Modify: `tests/unit/test_brief_mcp.py`
 - Modify: `tests/unit/test_sdk_client.py:284-288`
 
-- [ ] **Step 1: 写 brief 禁止项与 withheld RED 测试**
+- [x] **Step 1: 写 brief 禁止项与 withheld RED 测试**
 
 先把 `tests/unit/test_brief_mcp.py` 的 contract import 改为：
 
@@ -736,17 +736,17 @@ def test_brief_memory_noninjectable_query_returns_no_items(tmp_brain):
         ]
 ```
 
-- [ ] **Step 2: 运行 brief tests 并确认 RED**
+- [x] **Step 2: 运行 brief tests 并确认 RED**
 
 ```bash
-PYTHONPATH=. /Users/liuyang/Desktop/AIAgent/agent-memory-hub/.venv/bin/python \
+PYTHONPATH=. .venv/bin/python \
   -m pytest -q tests/unit/test_brief.py tests/unit/test_brief_mcp.py \
   tests/unit/test_sdk_client.py::TestMemoryClientBrief
 ```
 
 Expected: FAIL；当前 brief 会显示禁止项。
 
-- [ ] **Step 3: 重构 `build_brief`**
+- [x] **Step 3: 重构 `build_brief`**
 
 新增 imports：
 
@@ -857,17 +857,17 @@ Gateway 会对 `decision` 执行现有 source gate；为保留 `tests/unit/test_
 
 这是测试数据的证据边界修正，不是在 brief 中关闭 source gate。
 
-- [ ] **Step 4: 验证 MCP/SDK brief GREEN**
+- [x] **Step 4: 验证 MCP/SDK brief GREEN**
 
 ```bash
-PYTHONPATH=. /Users/liuyang/Desktop/AIAgent/agent-memory-hub/.venv/bin/python \
+PYTHONPATH=. .venv/bin/python \
   -m pytest -q tests/unit/test_brief.py tests/unit/test_brief_mcp.py \
   tests/unit/test_sdk_client.py::TestMemoryClientBrief
 ```
 
 Expected: PASS。
 
-- [ ] **Step 5: 提交 brief 迁移**
+- [x] **Step 5: 提交 brief 迁移**
 
 ```bash
 git add agent_brain/memory/recall/brief.py tests/unit/test_brief.py \
@@ -884,7 +884,7 @@ git commit -m "fix: gate resume brief candidates"
 - Modify: `agent_brain/interfaces/sdk/query.py:25-127`
 - Modify: `agent_brain/interfaces/sdk/sdk.py:143-183`
 
-- [ ] **Step 1: 写 SDK 默认安全与显式 raw RED 测试**
+- [x] **Step 1: 写 SDK 默认安全与显式 raw RED 测试**
 
 在 `tests/unit/test_sdk_client.py` 添加：
 
@@ -972,16 +972,16 @@ class TestMemoryClientSearch:
         assert results[0].score > 0
 ```
 
-- [ ] **Step 2: 运行 SDK tests 并确认 RED**
+- [x] **Step 2: 运行 SDK tests 并确认 RED**
 
 ```bash
-PYTHONPATH=. /Users/liuyang/Desktop/AIAgent/agent-memory-hub/.venv/bin/python \
+PYTHONPATH=. .venv/bin/python \
   -m pytest -q tests/unit/test_sdk_client.py
 ```
 
 Expected: FAIL；默认仍为 raw，secret 可见，raw 仍生成 pack。
 
-- [ ] **Step 3: 将 SDK firewall path 改为 Gateway**
+- [x] **Step 3: 将 SDK firewall path 改为 Gateway**
 
 在 `search_items` 函数体的现有延迟导入位置使用：
 
@@ -1055,17 +1055,17 @@ from agent_brain.memory.context.injection_gateway import (
 
 把 `query.py::search_items` 和 `sdk.py::MemoryClient.search` 的 `context_firewall` 默认值都改为 `True`。Docstring 明确：传 `False` 只用于显式 raw diagnostics，且 raw 没有 `context_pack`。
 
-- [ ] **Step 4: 验证 SDK GREEN**
+- [x] **Step 4: 验证 SDK GREEN**
 
 ```bash
-PYTHONPATH=. /Users/liuyang/Desktop/AIAgent/agent-memory-hub/.venv/bin/python \
+PYTHONPATH=. .venv/bin/python \
   -m pytest -q tests/unit/test_sdk_client.py tests/unit/test_mcp_injection_gateway.py \
   tests/unit/test_brief_mcp.py
 ```
 
 Expected: PASS。
 
-- [ ] **Step 5: 提交 SDK 安全默认**
+- [x] **Step 5: 提交 SDK 安全默认**
 
 ```bash
 git add agent_brain/interfaces/sdk/query.py agent_brain/interfaces/sdk/sdk.py tests/unit/test_sdk_client.py
@@ -1083,7 +1083,7 @@ git commit -m "fix: secure SDK search context by default"
 - Modify: `tests/unit/test_cli_smoke.py`
 - Verify: `agent_runtime_kit/hooks/inject-context.sh`
 
-- [ ] **Step 1: 写静态旁路契约与 CLI RED 测试**
+- [x] **Step 1: 写静态旁路契约与 CLI RED 测试**
 
 创建 `tests/unit/test_prompt_injection_gateway_contract.py`：
 
@@ -1339,10 +1339,10 @@ def test_mcp_sdk_cli_brief_share_eligible_items(tmp_brain):
         assert forbidden.title not in cli.output
 ```
 
-- [ ] **Step 2: 运行测试并确认 RED**
+- [x] **Step 2: 运行测试并确认 RED**
 
 ```bash
-PYTHONPATH=. /Users/liuyang/Desktop/AIAgent/agent-memory-hub/.venv/bin/python \
+PYTHONPATH=. .venv/bin/python \
   -m pytest -q tests/unit/test_prompt_injection_gateway_contract.py \
   tests/unit/test_prompt_surface_injection_parity.py \
   tests/unit/test_cli_smoke.py::test_cli_gateway_noninjectable_query_never_falls_back_to_raw_hits \
@@ -1352,7 +1352,7 @@ PYTHONPATH=. /Users/liuyang/Desktop/AIAgent/agent-memory-hub/.venv/bin/python \
 Expected: 静态契约 FAIL，因为 CLI 仍直接 filter/pack；parity 测试在
 Tasks 2–4 后可以已经 PASS，它用于锁定迁移前后的跨 surface 行为契约。
 
-- [ ] **Step 3: 将 CLI firewall 分支改为一次 Gateway 调用**
+- [x] **Step 3: 将 CLI firewall 分支改为一次 Gateway 调用**
 
 Imports 改为：
 
@@ -1487,10 +1487,10 @@ if include_audit_metadata:
 
 调用处传 `context_pack=context_packs_by_id.get(hit.id)`。
 
-- [ ] **Step 4: 验证 CLI/Hook 契约 GREEN**
+- [x] **Step 4: 验证 CLI/Hook 契约 GREEN**
 
 ```bash
-PYTHONPATH=. /Users/liuyang/Desktop/AIAgent/agent-memory-hub/.venv/bin/python \
+PYTHONPATH=. .venv/bin/python \
   -m pytest -q tests/unit/test_prompt_injection_gateway_contract.py \
   tests/unit/test_prompt_surface_injection_parity.py \
   tests/unit/test_cli_smoke.py tests/unit/test_context_loading_views.py \
@@ -1499,7 +1499,7 @@ PYTHONPATH=. /Users/liuyang/Desktop/AIAgent/agent-memory-hub/.venv/bin/python \
 
 Expected: PASS；既有 overfetch、prefer-type、scope、retrieve-hint 与 Hook flag 合同保持。
 
-- [ ] **Step 5: 提交 CLI/Hook 统一**
+- [x] **Step 5: 提交 CLI/Hook 统一**
 
 ```bash
 git add agent_brain/interfaces/cli/commands/query.py tests/unit/test_cli_smoke.py \
@@ -1520,7 +1520,7 @@ git commit -m "refactor: route prompt CLI through gateway"
 - Modify: `agent_brain/product/memory_lineage.py:290-330`
 - Modify: `docs/architecture.md:130-160`
 
-- [ ] **Step 1: 写 doctor 与 lineage RED 合同**
+- [x] **Step 1: 写 doctor 与 lineage RED 合同**
 
 在 `test_doctor_offline.py` 添加：
 
@@ -1551,16 +1551,16 @@ def test_memory_lineage_names_the_mandatory_injection_gateway():
     )
 ```
 
-- [ ] **Step 2: 运行 tests 并确认 RED**
+- [x] **Step 2: 运行 tests 并确认 RED**
 
 ```bash
-PYTHONPATH=. /Users/liuyang/Desktop/AIAgent/agent-memory-hub/.venv/bin/python \
+PYTHONPATH=. .venv/bin/python \
   -m pytest -q tests/unit/test_doctor_offline.py tests/unit/test_memory_lineage.py
 ```
 
 Expected: doctor 稳定键不存在；lineage 仍返回旧链路。
 
-- [ ] **Step 3: 增加 Gateway availability probe**
+- [x] **Step 3: 增加 Gateway availability probe**
 
 在 `platform/doctor.py` 添加：
 
@@ -1599,7 +1599,7 @@ rows.append((
 ))
 ```
 
-- [ ] **Step 4: 更新 lineage 与架构文档**
+- [x] **Step 4: 更新 lineage 与架构文档**
 
 将 `_method_for_data_flow` 的 injection 返回值改为：
 
@@ -1623,10 +1623,10 @@ Retriever raw hits -> InjectionGateway -> ContextFirewall -> ContextPack -> prom
 
 并注明 raw CLI diagnostics 不产生注入授权。
 
-- [ ] **Step 5: 验证并提交 observability/docs**
+- [x] **Step 5: 验证并提交 observability/docs**
 
 ```bash
-PYTHONPATH=. /Users/liuyang/Desktop/AIAgent/agent-memory-hub/.venv/bin/python \
+PYTHONPATH=. .venv/bin/python \
   -m pytest -q tests/unit/test_doctor_offline.py tests/unit/test_memory_lineage.py \
   tests/unit/test_docs_truth_contract.py
 ```
@@ -1647,10 +1647,10 @@ git commit -m "docs: expose injection gateway boundary"
 **Files:**
 - Verify: Tasks 1-6 的全部修改文件
 
-- [ ] **Step 1: 运行精确安全矩阵**
+- [x] **Step 1: 运行精确安全矩阵**
 
 ```bash
-PYTHONPATH=. /Users/liuyang/Desktop/AIAgent/agent-memory-hub/.venv/bin/python \
+PYTHONPATH=. .venv/bin/python \
   -m pytest -q \
   tests/unit/test_injection_gateway.py \
   tests/unit/test_mcp_injection_gateway.py \
@@ -1669,22 +1669,23 @@ PYTHONPATH=. /Users/liuyang/Desktop/AIAgent/agent-memory-hub/.venv/bin/python \
 
 Expected: 0 failed，0 errors。
 
-- [ ] **Step 2: 扫描 prompt surface 旁路**
+- [x] **Step 2: 扫描 prompt surface 旁路**
 
 ```bash
 rg -n "build_context_pack\(|pack_decisions\(|ContextFirewall\(\)\.filter\(" \
   agent_brain/interfaces/mcp/tools/search_tools.py \
   agent_brain/interfaces/sdk/query.py \
   agent_brain/interfaces/cli/commands/query.py \
-  agent_brain/memory/recall/brief.py
+  agent_brain/memory/recall/brief.py \
+  web/api/routes/item_search.py
 ```
 
 Expected: 无输出；退出码 1 代表没有命中。
 
-- [ ] **Step 3: 运行 Ruff 与 diff hygiene**
+- [x] **Step 3: 运行 Ruff 与 diff hygiene**
 
 ```bash
-/Users/liuyang/Desktop/AIAgent/agent-memory-hub/.venv/bin/python -m ruff check \
+.venv/bin/python -m ruff check \
   agent_brain/memory/context/injection_gateway.py \
   agent_brain/interfaces/mcp/tools/search_tools.py \
   agent_brain/memory/recall/brief.py \
@@ -1703,15 +1704,15 @@ git status --short --branch
 
 Expected: Ruff `All checks passed!`；diff check 无输出。
 
-- [ ] **Step 4: 运行仓库级回归并记录既有基线**
+- [x] **Step 4: 运行仓库级回归并记录既有基线**
 
 ```bash
-PYTHONPATH=. /Users/liuyang/Desktop/AIAgent/agent-memory-hub/.venv/bin/python -m pytest -x -q
+PYTHONPATH=. .venv/bin/python -m pytest -x -q
 ```
 
 Expected baseline on `main@56b1287`: 可能仍先停在已登记的 public-hygiene/readiness 误报。若最早失败属于 Gateway、MCP、SDK、CLI、brief、doctor 或 lineage，本计划不得完成。不要把既有 public-hygiene 或 Python 3.14 FD 问题改写成 P0-A 已通过。
 
-- [ ] **Step 5: 核对提交序列与隔离边界**
+- [x] **Step 5: 核对提交序列与隔离边界**
 
 ```bash
 git log --oneline --decorate main..HEAD
@@ -1719,6 +1720,85 @@ git status --short --branch
 ```
 
 Expected: 设计提交加 Tasks 1-6 的小提交；产品修改只存在于 `codex/p0-injection-gateway`。
+
+---
+
+## 最终实施与对抗审计记录（2026-07-11）
+
+### 实际范围扩展
+
+初稿只列 MCP、SDK、CLI/Hook 与 brief。最终对抗审查证明 Web
+`/api/search` 也是 prompt-facing surface，且旧实现默认关闭 firewall、直接
+`build_context_pack`。因此本次在不改变 P0-B/P0-C 边界的前提下，把 Web
+search 纳入同一静态旁路合同，并继续收口审查过程中实证的 tenant 与
+observability 泄漏；这些扩展均有独立 RED/GREEN 回归和小提交。
+
+### 关键非显然修复
+
+- raw overfetch 一律 `record_access=False`；只有 Gateway 最终 included hits
+  精确 `record_accesses` 一次。显式 raw diagnostics 不生成 ContextPack。
+- 统一 overfetch 为 `max(top_k * 4, top_k + 8)`，上限 50；hydrate、pack、
+  max-items 和最终 cohort gate 都允许安全候选补位。
+- metrics 只接受闭集排除原因和严格 aggregate partition；packing downgrade
+  annotation 不再被误算成 exclusion。NaN、无穷值和超 JavaScript 安全范围
+  retrieval score 在 packing 前 fail-close。
+- Gateway 接收 `brain_dir`，MCP、SDK、CLI、brief 和 Web 对 metadata-backed
+  中文 query 使用同一 query-signal 语义，显式 `query_signal` 仍优先且只分析一次。
+- Web search 默认 Gateway-on；raw 模式仅 admin 可用且无 pack/resource
+  sidecar。ResourceRecord 在排序前按 tenant 与 `public/internal` 过滤，item-ref
+  读取再次校验。
+- Web 全局诊断与内容面因缺少完整 tenant attribution 统一改为 admin-only；
+  History、Graph/Link、Related Items 在读、检索和写入前执行 item visibility，
+  hidden peer 不展示也不记 access。
+- injection cohort 只被视为 observation。DataFlow、Chain、Lineage 共用有界
+  frontmatter 授权索引，不再凭文件名 hydrate private/secret 元数据，也不读取 body。
+- JSONL/JSON sidecar 增加单行/单文件、嵌套、数字和总读取预算；坏 UTF-8、
+  极端时区、递归炸弹、FIFO、symlink、超大文件和非法 identity 都按单记录
+  fail-close，后续合法记录继续。
+- secure IO 使用 fd-relative `openat + O_NOFOLLOW + O_NONBLOCK + fstat`；
+  item 目录深度上限 32，并使用进程内非阻塞单扫描 gate。并发 follower 返回
+  空授权，不等待也不制造 FD 饥饿。
+- Chain Log 不再猜测 `loaded_view=overview`；只有严格 per-item pack metrics
+  能绑定 ID 时才展示具体 view。同步文件扫描路由交给 FastAPI threadpool。
+
+关键 hardening commits：`ebf4fa5`、`e48e57e`、`b862e9b`、`c9bf8c8`、
+`17e3c19`、`b02f6de`、`9cd91ca`、`3303be0`。
+
+### 最终验证证据
+
+- 合并安全矩阵：`661 passed, 1 skipped, 1 warning`。
+- 独立最终安全复审矩阵：`421 passed, 1 warning`，原始与新增 P0-P2 finding
+  均无法再复现，结论为 Scoped PASS。
+- 仓库级回归（只 deselect 下述两个同源既有基线）：
+  `2231 passed, 6 skipped, 2 deselected, 1 warning`，耗时 `259.62s`。
+- prompt surface 旁路扫描覆盖 MCP、SDK、CLI、brief 与 Web，无命中。
+- `ruff check agent_brain web`、`compileall agent_brain web`、
+  `git diff --check` 全部通过。
+- 唯一 warning 是 Starlette/httpx 的既有 deprecation；skip 为两个 opt-in
+  conformance、两个缺少可选 `reportlab`、两个真实 brain opt-in query-intent 测试。
+
+### 未宣称全绿的既有基线
+
+`tests/conformance/test_public_hygiene.py::test_git_tracked_public_surface_has_no_sensitive_literals`
+仍报告 4 条既有命中：
+
+- `.github/workflows/sync-gitee.yml:46`：Gitee SSH user/host 字面量
+- `docs/release-publishing.md:81`：同一 Gitee SSH user/host 字面量
+- `tests/unit/test_web_admin_security.py:37`：RFC1918 测试地址字面量
+- `tests/unit/test_web_admin_security.py:42`：同一 RFC1918 测试地址字面量
+
+`tests/unit/test_governance_readiness.py::test_govern_readiness_json_reports_release_query_and_lifecycle_lanes`
+消费同一 public-hygiene 结果，因此是派生失败。本计划没有把这两项写成通过，
+也没有为扩大 P0-A 范围而改写既有发布与测试字面量。
+
+### 已知安全取舍
+
+- 不支持安全 dir-fd/no-follow 读取的平台，observability item hydration 返回空，
+  不回退到 path-based 不安全扫描。
+- 同一进程已有 observable-item scan 时，并发 follower 返回空授权；这是安全优先
+  的降级，避免在低 `RLIMIT_NOFILE` 环境中阻塞或耗尽 FD。
+- 缺少 tenant attribution 的全局诊断只对 admin 开放；本轮不伪造不完整的
+  per-tenant 过滤语义。
 
 ---
 
@@ -1733,5 +1813,8 @@ Expected: 设计提交加 Tasks 1-6 的小提交；产品修改只存在于 `cod
 | CLI/Hook 复用 Gateway，禁止直接 pack；MCP/SDK/CLI 同集 | Task 5 |
 | Doctor、lineage、架构事实源 | Task 6 |
 | 安全矩阵、旁路扫描、Ruff、仓库回归 | Task 7 |
+| Web Gateway、tenant visibility、secure observability hardening | 最终对抗审计扩展 |
 
-本计划不包含 P0-B、P0-C，也不扩展到 Web tenant、MCP principal、explicit `read_memory` 授权或 benchmark 修复。
+本计划仍不包含 P0-B、P0-C、MCP principal、explicit `read_memory` 授权或
+benchmark 修复。Web tenant 仅收口本次对抗审计中已经实证的跨租户读取、写入、
+关系图、历史、资源 sidecar 与全局诊断旁路。
