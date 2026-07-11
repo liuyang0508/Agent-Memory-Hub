@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -25,8 +26,10 @@ from agent_brain.platform.secure_io import (
 MAX_OBSERVABILITY_FRONTMATTER_BYTES = 64 * 1024
 MAX_OBSERVABILITY_STORE_ENTRIES = 20_000
 MAX_OBSERVABILITY_TOTAL_BYTES = 64 * 1024 * 1024
+MAX_OBSERVABILITY_DIRECTORY_DEPTH = 32
 
 _OBSERVABLE_SENSITIVITIES = frozenset({"public", "internal"})
+_OBSERVABLE_SCAN_GATE = threading.Lock()
 _UTF8_BOM = b"\xef\xbb\xbf"
 
 
@@ -51,11 +54,21 @@ def observable_memory_items(items_dir: Path) -> dict[str, MemoryItem]:
     # cannot anchor both directory traversal and file opens to descriptors.
     if not secure_dir_fd_io_supported():
         return {}
+    if not _OBSERVABLE_SCAN_GATE.acquire(blocking=False):
+        return {}
+    try:
+        return _observable_memory_items(Path(items_dir))
+    finally:
+        _OBSERVABLE_SCAN_GATE.release()
+
+
+def _observable_memory_items(items_dir: Path) -> dict[str, MemoryItem]:
+    """Scan one store while the process-wide nonblocking gate is held."""
 
     observable: dict[str, MemoryItem] = {}
     seen_ids: set[str] = set()
     duplicate_ids: set[str] = set()
-    scan_stack: list[tuple[int, Any]] = []
+    scan_stack: list[tuple[int, Any, int]] = []
     entry_count = 0
     total_bytes = 0
 
@@ -63,16 +76,17 @@ def observable_memory_items(items_dir: Path) -> dict[str, MemoryItem]:
     try:
         root_descriptor = open_directory_path_without_symlinks(Path(items_dir))
         root_entries = os.scandir(root_descriptor)
-        scan_stack.append((root_descriptor, root_entries))
+        scan_stack.append((root_descriptor, root_entries, 0))
         root_descriptor = None
     except OSError:
+        return {}
+    finally:
         if root_descriptor is not None:
             close_descriptor(root_descriptor)
-        return {}
 
     try:
         while scan_stack:
-            directory_descriptor, entries = scan_stack[-1]
+            directory_descriptor, entries, depth = scan_stack[-1]
             try:
                 entry = next(entries)
             except StopIteration:
@@ -90,6 +104,8 @@ def observable_memory_items(items_dir: Path) -> dict[str, MemoryItem]:
                 if entry.is_symlink():
                     continue
                 if entry.is_dir(follow_symlinks=False):
+                    if depth >= MAX_OBSERVABILITY_DIRECTORY_DEPTH:
+                        return {}
                     child_descriptor = open_child_directory(
                         directory_descriptor,
                         entry.name,
@@ -99,7 +115,10 @@ def observable_memory_items(items_dir: Path) -> dict[str, MemoryItem]:
                     except OSError:
                         close_descriptor(child_descriptor)
                         return {}
-                    scan_stack.append((child_descriptor, child_entries))
+                    except BaseException:
+                        close_descriptor(child_descriptor)
+                        raise
+                    scan_stack.append((child_descriptor, child_entries, depth + 1))
                     continue
                 if not entry.is_file(follow_symlinks=False):
                     continue
@@ -232,8 +251,8 @@ def _open_regular_binary(
             close_descriptor(descriptor)
 
 
-def _close_scan_frame(frame: tuple[int, Any]) -> None:
-    descriptor, entries = frame
+def _close_scan_frame(frame: tuple[int, Any, int]) -> None:
+    descriptor, entries, _depth = frame
     try:
         entries.close()
     except OSError:

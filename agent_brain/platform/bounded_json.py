@@ -20,6 +20,7 @@ from agent_brain.platform.secure_io import (
 
 MAX_JSON_OBJECT_BYTES = 256 * 1024
 MAX_JSON_DIRECTORY_ENTRIES = 20_000
+MAX_JSON_TOTAL_BYTES = 64 * 1024 * 1024
 
 
 class BoundedJsonDirectory:
@@ -27,6 +28,14 @@ class BoundedJsonDirectory:
 
     def __init__(self, descriptor: int):
         self._descriptor: int | None = descriptor
+        self._remaining_bytes = MAX_JSON_TOTAL_BYTES
+        self._budget_exhausted = False
+
+    @property
+    def budget_exhausted(self) -> bool:
+        """Return whether a read was rejected for exceeding the total budget."""
+
+        return self._budget_exhausted
 
     def read_object(
         self,
@@ -36,16 +45,31 @@ class BoundedJsonDirectory:
     ) -> dict[str, Any] | None:
         """Return one safe JSON mapping, or ``None`` for any invalid file."""
 
-        if self._descriptor is None or type(max_bytes) is not int or max_bytes <= 0:
+        if (
+            self._descriptor is None
+            or self._budget_exhausted
+            or type(max_bytes) is not int
+            or max_bytes <= 0
+        ):
             return None
         descriptor: int | None = None
         try:
             descriptor = open_regular_file_at(self._descriptor, filename)
-            if os.fstat(descriptor).st_size > max_bytes:
+            file_size = os.fstat(descriptor).st_size
+            if file_size > max_bytes:
                 return None
+            if file_size > self._remaining_bytes:
+                self._budget_exhausted = True
+                return None
+            read_limit = min(max_bytes, self._remaining_bytes)
             with os.fdopen(descriptor, "rb", buffering=0) as handle:
                 descriptor = None
-                raw = handle.read(max_bytes + 1)
+                raw = handle.read(read_limit + 1)
+            if len(raw) > self._remaining_bytes:
+                self._remaining_bytes = 0
+                self._budget_exhausted = True
+                return None
+            self._remaining_bytes -= len(raw)
             if len(raw) > max_bytes:
                 return None
             return _decode_json_object(raw)
@@ -165,5 +189,6 @@ __all__ = [
     "BoundedJsonDirectory",
     "MAX_JSON_DIRECTORY_ENTRIES",
     "MAX_JSON_OBJECT_BYTES",
+    "MAX_JSON_TOTAL_BYTES",
     "open_bounded_json_directory",
 ]

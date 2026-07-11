@@ -195,6 +195,8 @@ def _write_events(
             if filename not in sidecar_names:
                 continue
             data = writes.read_object(filename)
+            if writes.budget_exhausted:
+                return []
             if data is None or data.get("item_id") != item.id:
                 continue
             parsed = _parse_timestamp(data.get("created_at"))

@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import os
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
+
+import pytest
 
 from agent_brain.contracts.memory_item import MemoryItem, MemoryType
 
@@ -252,4 +255,240 @@ def test_observable_item_scan_directory_descriptors_scale_with_depth_not_width(
 
     assert item_ids.known_memory_item_ids(items_dir) == frozenset()
     assert peak_open_directory_descriptors <= 4
+    assert open_directory_descriptors == set()
+
+
+def test_observable_item_scan_enforces_depth_budget_and_releases_after_fail_closed(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    import agent_brain.memory.store.item_ids as item_ids
+    from agent_brain.memory.store.items_store import ItemsStore
+
+    max_depth = 32
+    items_dir = tmp_path / "items"
+    deepest = items_dir
+    for _ in range(max_depth):
+        deepest /= "d"
+    deepest.mkdir(parents=True)
+    item = _item("mem-20260711-140001-depth-budget")
+    ItemsStore(deepest).write(item, "body")
+
+    real_open = os.open
+    real_close = os.close
+    open_directory_descriptors: set[int] = set()
+    peak_open_directory_descriptors = 0
+
+    def tracking_open(path, flags, mode=0o777, *, dir_fd=None):
+        nonlocal peak_open_directory_descriptors
+        if dir_fd is None:
+            descriptor = real_open(path, flags, mode)
+        else:
+            descriptor = real_open(path, flags, mode, dir_fd=dir_fd)
+        if flags & item_ids.os.O_DIRECTORY:
+            open_directory_descriptors.add(descriptor)
+            peak_open_directory_descriptors = max(
+                peak_open_directory_descriptors,
+                len(open_directory_descriptors),
+            )
+        return descriptor
+
+    def tracking_close(descriptor):
+        open_directory_descriptors.discard(descriptor)
+        return real_close(descriptor)
+
+    monkeypatch.setattr(item_ids.os, "open", tracking_open)
+    monkeypatch.setattr(item_ids.os, "close", tracking_close)
+
+    assert item_ids.known_memory_item_ids(items_dir) == frozenset({item.id})
+
+    over_depth = deepest / "too-deep"
+    over_depth.mkdir()
+    assert item_ids.known_memory_item_ids(items_dir) == frozenset()
+
+    over_depth.rmdir()
+    assert item_ids.known_memory_item_ids(items_dir) == frozenset({item.id})
+    assert peak_open_directory_descriptors <= max_depth + 4
+    assert open_directory_descriptors == set()
+
+
+def test_observable_item_scan_nonblocking_gate_bounds_concurrent_descriptors(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    import agent_brain.memory.store.item_ids as item_ids
+    from agent_brain.memory.store.items_store import ItemsStore
+
+    items_dir = tmp_path / "items"
+    deepest = items_dir
+    nested_depth = 8
+    for _ in range(nested_depth):
+        deepest /= "d"
+    deepest.mkdir(parents=True)
+    item = _item("mem-20260711-140002-concurrent-gate")
+    ItemsStore(items_dir).write(item, "body")
+
+    real_open_directory = item_ids.open_directory_path_without_symlinks
+    real_open = os.open
+    real_close = os.close
+    real_scandir = os.scandir
+    leader_entered = threading.Event()
+    release_leader = threading.Event()
+    follower_start = threading.Barrier(4)
+    state_lock = threading.Lock()
+    results: list[frozenset[str]] = []
+    open_directory_descriptors: set[int] = set()
+    peak_open_directory_descriptors = 0
+    peak_process_descriptors = 0
+    entered_count = 0
+
+    def process_descriptor_count() -> int:
+        with real_scandir("/dev/fd") as entries:
+            return sum(1 for _ in entries)
+
+    baseline_process_descriptors = process_descriptor_count()
+    peak_process_descriptors = baseline_process_descriptors
+
+    def blocking_open_directory(path):
+        nonlocal entered_count
+        with state_lock:
+            entered_count += 1
+        leader_entered.set()
+        assert release_leader.wait(timeout=5)
+        return real_open_directory(path)
+
+    def tracking_open(path, flags, mode=0o777, *, dir_fd=None):
+        nonlocal peak_open_directory_descriptors, peak_process_descriptors
+        if dir_fd is None:
+            descriptor = real_open(path, flags, mode)
+        else:
+            descriptor = real_open(path, flags, mode, dir_fd=dir_fd)
+        if flags & item_ids.os.O_DIRECTORY:
+            with state_lock:
+                open_directory_descriptors.add(descriptor)
+                peak_open_directory_descriptors = max(
+                    peak_open_directory_descriptors,
+                    len(open_directory_descriptors),
+                )
+                peak_process_descriptors = max(
+                    peak_process_descriptors,
+                    process_descriptor_count(),
+                )
+        return descriptor
+
+    def tracking_close(descriptor):
+        with state_lock:
+            open_directory_descriptors.discard(descriptor)
+        return real_close(descriptor)
+
+    def tracking_scandir(path="."):
+        nonlocal peak_process_descriptors
+        entries = real_scandir(path)
+        if isinstance(path, int):
+            with state_lock:
+                peak_process_descriptors = max(
+                    peak_process_descriptors,
+                    process_descriptor_count(),
+                )
+        return entries
+
+    def scan(*, wait_for_followers: bool) -> None:
+        if wait_for_followers:
+            follower_start.wait()
+        result = item_ids.known_memory_item_ids(items_dir)
+        with state_lock:
+            results.append(result)
+
+    monkeypatch.setattr(
+        item_ids,
+        "open_directory_path_without_symlinks",
+        blocking_open_directory,
+    )
+    monkeypatch.setattr(item_ids.os, "open", tracking_open)
+    monkeypatch.setattr(item_ids.os, "close", tracking_close)
+    monkeypatch.setattr(item_ids.os, "scandir", tracking_scandir)
+
+    leader = threading.Thread(target=scan, kwargs={"wait_for_followers": False})
+    leader.start()
+    assert leader_entered.wait(timeout=2)
+    followers = [
+        threading.Thread(target=scan, kwargs={"wait_for_followers": True})
+        for _ in range(3)
+    ]
+    for follower in followers:
+        follower.start()
+    follower_start.wait()
+    for follower in followers:
+        follower.join(timeout=0.5)
+    followers_finished_without_waiting = all(
+        not follower.is_alive() for follower in followers
+    )
+
+    release_leader.set()
+    leader.join(timeout=2)
+    for follower in followers:
+        follower.join(timeout=2)
+
+    assert followers_finished_without_waiting is True
+    assert entered_count == 1
+    assert results.count(frozenset({item.id})) == 1
+    assert results.count(frozenset()) == 3
+    assert peak_open_directory_descriptors <= nested_depth + 4
+    assert open_directory_descriptors == set()
+    assert peak_process_descriptors <= (
+        baseline_process_descriptors + (2 * (nested_depth + 2))
+    )
+    assert process_descriptor_count() == baseline_process_descriptors
+
+
+@pytest.mark.parametrize("fail_on_scandir_call", [1, 2])
+def test_observable_item_scan_gate_releases_after_unexpected_exception(
+    tmp_path: Path,
+    monkeypatch,
+    fail_on_scandir_call: int,
+) -> None:
+    import agent_brain.memory.store.item_ids as item_ids
+    from agent_brain.memory.store.items_store import ItemsStore
+
+    assert getattr(item_ids, "_OBSERVABLE_SCAN_GATE", None) is not None
+
+    items_dir = tmp_path / "items"
+    item = _item("mem-20260711-140003-gate-exception")
+    ItemsStore(items_dir).write(item, "body")
+    (items_dir / "child").mkdir()
+    real_open = os.open
+    real_close = os.close
+    real_scandir = os.scandir
+    open_directory_descriptors: set[int] = set()
+    calls = 0
+
+    def tracking_open(path, flags, mode=0o777, *, dir_fd=None):
+        if dir_fd is None:
+            descriptor = real_open(path, flags, mode)
+        else:
+            descriptor = real_open(path, flags, mode, dir_fd=dir_fd)
+        if flags & item_ids.os.O_DIRECTORY:
+            open_directory_descriptors.add(descriptor)
+        return descriptor
+
+    def tracking_close(descriptor):
+        open_directory_descriptors.discard(descriptor)
+        return real_close(descriptor)
+
+    def fail_once(path="."):
+        nonlocal calls
+        if isinstance(path, int):
+            calls += 1
+            if calls == fail_on_scandir_call:
+                raise RuntimeError("unexpected scan failure")
+        return real_scandir(path)
+
+    monkeypatch.setattr(item_ids.os, "open", tracking_open)
+    monkeypatch.setattr(item_ids.os, "close", tracking_close)
+    monkeypatch.setattr(item_ids.os, "scandir", fail_once)
+
+    with pytest.raises(RuntimeError, match="unexpected scan failure"):
+        item_ids.known_memory_item_ids(items_dir)
+
+    assert item_ids.known_memory_item_ids(items_dir) == frozenset({item.id})
     assert open_directory_descriptors == set()

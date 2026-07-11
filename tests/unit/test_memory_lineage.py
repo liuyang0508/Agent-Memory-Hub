@@ -236,6 +236,33 @@ def test_memory_lineage_bounds_and_nofollows_write_sidecars_then_continues(
     assert not any(event["kind"] == "write" for event in over_entry_budget["events"])
 
 
+def test_memory_lineage_discards_all_write_events_when_total_sidecar_budget_exhausts(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    import agent_brain.platform.bounded_json as bounded_json
+    from agent_brain.memory.store.items_store import ItemsStore
+    from agent_brain.memory.store.write_service import WriteService
+    from agent_brain.product.memory_lineage import build_memory_lineage_report
+
+    first = _item("mem-20260711-140004-sidecar-budget-first")
+    second = _item("mem-20260711-140005-sidecar-budget-second")
+    service = WriteService(ItemsStore(tmp_path / "items"), brain_dir=tmp_path)
+    for item in (first, second):
+        service.write(item=item, body="body", allow_unsafe=True)
+    first_sidecar = tmp_path / "sources" / "writes" / f"{first.id}.json"
+    monkeypatch.setattr(
+        bounded_json,
+        "MAX_JSON_TOTAL_BYTES",
+        first_sidecar.stat().st_size,
+        raising=False,
+    )
+
+    report = build_memory_lineage_report(tmp_path, hours=72, limit=1).to_dict()
+
+    assert not any(event["kind"] == "write" for event in report["events"])
+
+
 def test_memory_lineage_report_connects_writes_loads_storage_and_formulas(tmp_path: Path):
     from agent_brain.memory.context.injection_cohorts import record_injection_cohort
     from agent_brain.memory.governance.recall_events import record_gap
