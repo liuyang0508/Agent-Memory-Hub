@@ -19,7 +19,7 @@ from agent_brain.memory.evidence.resource_reading import (
 )
 from agent_brain.memory.evidence.resource_store import ResourceStore
 from agent_brain.memory.recall.retrieval import SearchFilter
-from web._base import _brain_dir, _components, _visible
+from web._base import _brain_dir, _components, _require_visible, _visible
 from web.auth import CurrentUser, get_current_user
 
 
@@ -250,13 +250,11 @@ async def related_items(
 ):
     """Find items semantically similar to the given item."""
     store, _, retriever, _ = _components()
-    try:
-        item, body = store.get(item_id)
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail="item not found")
+    item, body = _require_visible(store, item_id, user)
     query_text = f"{item.title} {item.summary} {body[:500]}"
-    hits = retriever.search(query_text, top_k=top_k + 1)
+    hits = retriever.search(query_text, top_k=top_k + 1, record_access=False)
     results = []
+    selected_hits = []
     for h in hits:
         if h.id == item_id:
             continue
@@ -276,8 +274,12 @@ async def related_items(
                 "confidence": rel_item.confidence,
             }
         )
+        selected_hits.append(h)
         if len(results) >= top_k:
             break
+    record_accesses = getattr(retriever, "record_accesses", None)
+    if callable(record_accesses):
+        record_accesses(selected_hits)
     return {"item_id": item_id, "related": results}
 
 

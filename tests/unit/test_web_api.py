@@ -55,6 +55,42 @@ def seed_items(brain_dir: Path):
 
 
 @pytest.fixture()
+def tenant_items(brain_dir: Path):
+    from agent_brain.memory.store.items_store import ItemsStore
+
+    store = ItemsStore(items_dir=brain_dir / "items")
+    rows = SimpleNamespace(
+        team_a_root=MemoryItem(
+            id="mem-20260711-150001-tenant-a-root",
+            type=MemoryType.fact,
+            created_at=datetime.now(timezone.utc),
+            tenant_id="team-a",
+            title="Team A graph root",
+            summary="Team A graph root",
+        ),
+        team_a_peer=MemoryItem(
+            id="mem-20260711-150002-tenant-a-peer",
+            type=MemoryType.fact,
+            created_at=datetime.now(timezone.utc),
+            tenant_id="team-a",
+            title="Team A graph peer",
+            summary="Team A graph peer",
+        ),
+        team_b_hidden=MemoryItem(
+            id="mem-20260711-150003-tenant-b-hidden",
+            type=MemoryType.fact,
+            created_at=datetime.now(timezone.utc),
+            tenant_id="team-b",
+            title="TEAM_B_HIDDEN_TITLE_SENTINEL",
+            summary="TEAM_B_HIDDEN_SUMMARY_SENTINEL",
+        ),
+    )
+    for item in (rows.team_a_root, rows.team_a_peer, rows.team_b_hidden):
+        store.write(item, f"body for {item.title}")
+    return rows
+
+
+@pytest.fixture()
 def client(brain_dir: Path):
     from web.app import app
 
@@ -2103,6 +2139,148 @@ class TestGraph:
         assert resp2.status_code == 200
         assert resp2.json()["unlinked"] is True
 
+    @pytest.mark.parametrize(
+        "case",
+        [
+            "read_graph",
+            "write_legacy_link",
+            "delete_legacy_link",
+            "write_state_link",
+            "read_state_links",
+            "delete_state_link",
+        ],
+    )
+    def test_cross_tenant_graph_and_link_access_is_rejected(
+        self,
+        client: TestClient,
+        user_token: str,
+        tenant_items,
+        case: str,
+    ) -> None:
+        source = tenant_items.team_b_hidden.id
+        target = tenant_items.team_a_root.id
+        headers = {"Authorization": f"Bearer {user_token}"}
+        if case == "read_graph":
+            response = client.get(f"/api/graph/{source}", headers=headers)
+        elif case == "write_legacy_link":
+            response = client.post(
+                "/api/link",
+                json={"source": source, "target": target, "label": "related"},
+                headers=headers,
+            )
+        elif case == "delete_legacy_link":
+            response = client.delete(
+                f"/api/link?source={source}&target={target}",
+                headers=headers,
+            )
+        elif case == "write_state_link":
+            response = client.post(
+                "/api/links",
+                json={"source_id": source, "target_id": target},
+                headers=headers,
+            )
+        elif case == "read_state_links":
+            response = client.get(f"/api/links/{source}", headers=headers)
+        else:
+            response = client.delete(
+                f"/api/links?source_id={source}&target_id={target}",
+                headers=headers,
+            )
+
+        assert response.status_code == 403
+
+    @pytest.mark.parametrize("method", ["POST", "DELETE"])
+    def test_legacy_link_rejects_nonexistent_items(
+        self,
+        client: TestClient,
+        admin_token: str,
+        tenant_items,
+        method: str,
+    ) -> None:
+        source = tenant_items.team_a_root.id
+        target = "mem-20260711-150004-missing-link-target"
+        headers = {"Authorization": f"Bearer {admin_token}"}
+        if method == "POST":
+            response = client.post(
+                "/api/link",
+                json={"source": source, "target": target},
+                headers=headers,
+            )
+        else:
+            response = client.delete(
+                f"/api/link?source={source}&target={target}",
+                headers=headers,
+            )
+
+        assert response.status_code == 404
+
+    def test_graph_reads_filter_hidden_neighbors_and_links(
+        self,
+        client: TestClient,
+        admin_token: str,
+        user_token: str,
+        tenant_items,
+    ) -> None:
+        root = tenant_items.team_a_root.id
+        visible = tenant_items.team_a_peer.id
+        hidden = tenant_items.team_b_hidden.id
+        admin_headers = {"Authorization": f"Bearer {admin_token}"}
+        user_headers = {"Authorization": f"Bearer {user_token}"}
+        for target in (visible, hidden):
+            assert client.post(
+                "/api/link",
+                json={"source": root, "target": target},
+                headers=admin_headers,
+            ).status_code == 200
+            assert client.post(
+                "/api/links",
+                json={"source_id": root, "target_id": target},
+                headers=admin_headers,
+            ).status_code == 200
+
+        graph = client.get(f"/api/graph/{root}", headers=user_headers)
+        links = client.get(f"/api/links/{root}", headers=user_headers)
+
+        assert graph.status_code == 200
+        assert links.status_code == 200
+        graph_text = json.dumps(graph.json(), ensure_ascii=False)
+        links_text = json.dumps(links.json(), ensure_ascii=False)
+        assert visible in graph_text
+        assert visible in links_text
+        assert hidden not in graph_text
+        assert hidden not in links_text
+
+    def test_same_tenant_graph_and_link_operations_remain_available(
+        self,
+        client: TestClient,
+        user_token: str,
+        tenant_items,
+    ) -> None:
+        source = tenant_items.team_a_root.id
+        target = tenant_items.team_a_peer.id
+        headers = {"Authorization": f"Bearer {user_token}"}
+
+        assert client.post(
+            "/api/link",
+            json={"source": source, "target": target},
+            headers=headers,
+        ).status_code == 200
+        assert client.get(f"/api/graph/{source}", headers=headers).status_code == 200
+        assert client.delete(
+            f"/api/link?source={source}&target={target}",
+            headers=headers,
+        ).status_code == 200
+        assert client.post(
+            "/api/links",
+            json={"source_id": source, "target_id": target},
+            headers=headers,
+        ).status_code == 200
+        assert client.get(f"/api/links/{source}", headers=headers).status_code == 200
+        assert client.delete(
+            f"/api/links?source_id={source}&target_id={target}",
+            headers=headers,
+        ).status_code == 200
+
 
 class TestPagination:
     def test_offset_pagination(self, client: TestClient, admin_token: str, seed_items):
@@ -2159,6 +2337,100 @@ class TestRelated:
         headers = {"Authorization": f"Bearer {admin_token}"}
         resp = client.get("/api/items/nonexistent/related", headers=headers)
         assert resp.status_code == 404
+
+    def test_related_rejects_hidden_source_before_retrieval(
+        self,
+        client: TestClient,
+        user_token: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from web.api.routes import item_search
+
+        hidden = MemoryItem(
+            id="mem-20260711-150005-related-hidden",
+            type=MemoryType.episode,
+            created_at=datetime.now(timezone.utc),
+            tenant_id="team-b",
+            title="TEAM_B_RELATED_TITLE_SENTINEL",
+            summary="TEAM_B_RELATED_SUMMARY_SENTINEL",
+        )
+        visible = hidden.model_copy(update={
+            "id": "mem-20260711-150006-related-visible",
+            "tenant_id": "team-a",
+            "title": "Team A related source",
+            "summary": "Team A related source",
+        })
+        visible_peer = hidden.model_copy(update={
+            "id": "mem-20260711-150007-related-visible-peer",
+            "tenant_id": "team-a",
+            "title": "Team A related peer",
+            "summary": "Team A related peer",
+        })
+        hidden_peer = hidden.model_copy(update={
+            "id": "mem-20260711-150008-related-hidden-peer",
+            "title": "TEAM_B_RELATED_PEER_SENTINEL",
+            "summary": "TEAM_B_RELATED_PEER_SENTINEL",
+        })
+
+        class Store:
+            def get(self, item_id):
+                if item_id == hidden.id:
+                    return hidden, "TEAM_B_RELATED_BODY_SENTINEL"
+                if item_id == visible.id:
+                    return visible, "Team A related body"
+                if item_id == visible_peer.id:
+                    return visible_peer, "Team A related peer body"
+                if item_id == hidden_peer.id:
+                    return hidden_peer, "TEAM_B_RELATED_PEER_BODY_SENTINEL"
+                raise FileNotFoundError(item_id)
+
+        class Retriever:
+            def __init__(self) -> None:
+                self.queries: list[str] = []
+                self.search_kwargs: list[dict[str, object]] = []
+                self.accessed: list[str] = []
+
+            def search(self, query, **kwargs):
+                self.queries.append(query)
+                self.search_kwargs.append(kwargs)
+                hits = [
+                    SimpleNamespace(id=hidden_peer.id, score=1.0),
+                    SimpleNamespace(id=visible_peer.id, score=0.9),
+                ]
+                if kwargs.get("record_access") is not False:
+                    self.accessed.extend(hit.id for hit in hits)
+                return hits
+
+            def record_accesses(self, hits) -> None:
+                self.accessed.extend(hit.id for hit in hits)
+
+        retriever = Retriever()
+        monkeypatch.setattr(
+            item_search,
+            "_components",
+            lambda: (Store(), object(), retriever, object()),
+        )
+        headers = {"Authorization": f"Bearer {user_token}"}
+
+        hidden_response = client.get(
+            f"/api/items/{hidden.id}/related",
+            headers=headers,
+        )
+        visible_response = client.get(
+            f"/api/items/{visible.id}/related",
+            headers=headers,
+        )
+
+        assert hidden_response.status_code == 403
+        assert visible_response.status_code == 200
+        assert retriever.queries == [
+            "Team A related source Team A related source Team A related body"
+        ]
+        assert retriever.search_kwargs == [{"top_k": 6, "record_access": False}]
+        assert retriever.accessed == [visible_peer.id]
+        assert [row["id"] for row in visible_response.json()["related"]] == [
+            visible_peer.id
+        ]
 
 
 class TestResponseTiming:
@@ -2549,8 +2821,46 @@ class TestItemHistory:
     def test_nonexistent_history(self, client: TestClient, admin_token: str, brain_dir):
         headers = {"Authorization": f"Bearer {admin_token}"}
         resp = client.get("/api/items/mem-00000000-000000-no-exist/history", headers=headers)
-        assert resp.status_code == 200
-        assert resp.json()["count"] == 0
+        assert resp.status_code == 404
+
+    def test_history_and_snapshot_enforce_current_item_tenant(
+        self,
+        client: TestClient,
+        admin_token: str,
+        user_token: str,
+        tenant_items,
+    ) -> None:
+        item_id = tenant_items.team_b_hidden.id
+        admin_headers = {"Authorization": f"Bearer {admin_token}"}
+        user_headers = {"Authorization": f"Bearer {user_token}"}
+        patched = client.patch(
+            f"/api/items/{item_id}",
+            json={"title": "Updated hidden title"},
+            headers=admin_headers,
+        )
+        assert patched.status_code == 200
+
+        hidden_list = client.get(
+            f"/api/items/{item_id}/history",
+            headers=user_headers,
+        )
+        hidden_snapshot = client.get(
+            f"/api/items/{item_id}/history/0",
+            headers=user_headers,
+        )
+        admin_list = client.get(
+            f"/api/items/{item_id}/history",
+            headers=admin_headers,
+        )
+        admin_snapshot = client.get(
+            f"/api/items/{item_id}/history/0",
+            headers=admin_headers,
+        )
+
+        assert hidden_list.status_code == 403
+        assert hidden_snapshot.status_code == 403
+        assert admin_list.status_code == 200
+        assert admin_snapshot.status_code == 200
 
 
 class TestBackupRestore:
