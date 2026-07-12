@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Unified Injection Gateway** — MCP, SDK, CLI/hooks, brief, and Web prompt
+  surfaces now use one fail-closed policy and bounded ContextPack contract.
+
+### Changed
+
+- **Breaking / next-major:** Python SDK search now enables
+  `context_firewall=True` by default. Callers that explicitly need raw retrieval
+  diagnostics must pass `context_firewall=False`; raw mode returns no ContextPack,
+  firewall decision, or resource sidecar content.
+
+### Security
+
+- Prompt resource sidecars enforce public/internal sensitivity plus tenant
+  visibility before content is loaded; a MemoryItem can no longer expand prompt
+  access to a cross-tenant, private, or secret ResourceRecord.
+- Runtime JSONL ledgers reject files above 64 MiB or 20,000 physical rows,
+  reject unsafe final-file types, and retain requested tails with bounded memory.
+- Public-hygiene scanning distinguishes SCP-style SSH remotes and RFC 5737
+  documentation addresses without suppressing real email or RFC1918 findings.
+
 ### Planned
 
 - **M5 Platform v0.1** — Next.js admin UI + multi-tenant sync server (L2→L3 bridge)

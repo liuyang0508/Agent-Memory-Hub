@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from collections import deque
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -77,7 +78,19 @@ def iter_runtime_events(
     limit: int | None = None,
 ) -> Iterator[AdapterRuntimeEvent]:
     path = runtime_events_path(brain_dir)
-    events: list[AdapterRuntimeEvent] = []
+    events = _iter_parsed_runtime_events(path, adapter=adapter)
+    if limit is None:
+        return events
+    if type(limit) is not int or limit <= 0:
+        return iter(())
+    return iter(deque(events, maxlen=limit))
+
+
+def _iter_parsed_runtime_events(
+    path: Path,
+    *,
+    adapter: str | None,
+) -> Iterator[AdapterRuntimeEvent]:
     for data in iter_bounded_jsonl(path):
         try:
             event = AdapterRuntimeEvent(
@@ -92,18 +105,18 @@ def iter_runtime_events(
             continue
         if adapter and event.adapter != adapter:
             continue
-        events.append(event)
-    if limit is not None:
-        events = events[-limit:]
-    return iter(events)
+        yield event
 
 
 def runtime_event_summary(brain_dir: Path, adapter: str) -> AdapterRuntimeSummary:
-    events = list(iter_runtime_events(brain_dir, adapter=adapter))
-    last = events[-1].to_dict() if events else None
+    count = 0
+    last = None
+    for event in iter_runtime_events(brain_dir, adapter=adapter):
+        count += 1
+        last = event.to_dict()
     return AdapterRuntimeSummary(
-        observed=bool(events),
-        count=len(events),
+        observed=bool(count),
+        count=count,
         last_event=last,
     )
 

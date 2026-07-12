@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import uuid
+from collections import deque
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -99,7 +100,24 @@ def iter_injection_cohorts(
     limit: int | None = None,
 ) -> Iterator[InjectionCohort]:
     path = injection_cohorts_path(brain_dir)
-    cohorts: list[InjectionCohort] = []
+    cohorts = _iter_parsed_injection_cohorts(
+        path,
+        adapter=adapter,
+        session_id=session_id,
+    )
+    if limit is None:
+        return cohorts
+    if type(limit) is not int or limit <= 0:
+        return iter(())
+    return iter(deque(cohorts, maxlen=limit))
+
+
+def _iter_parsed_injection_cohorts(
+    path: Path,
+    *,
+    adapter: str | None,
+    session_id: str | None,
+) -> Iterator[InjectionCohort]:
     for data in iter_bounded_jsonl(path):
         try:
             cohort = InjectionCohort(
@@ -120,10 +138,7 @@ def iter_injection_cohorts(
             continue
         if session_id and cohort.session_id != session_id:
             continue
-        cohorts.append(cohort)
-    if limit is not None:
-        cohorts = cohorts[-limit:]
-    return iter(cohorts)
+        yield cohort
 
 
 def latest_injection_cohort(
@@ -132,8 +147,14 @@ def latest_injection_cohort(
     adapter: str | None = None,
     session_id: str | None = None,
 ) -> InjectionCohort | None:
-    cohorts = list(iter_injection_cohorts(brain_dir, adapter=adapter, session_id=session_id))
-    return cohorts[-1] if cohorts else None
+    latest = None
+    for cohort in iter_injection_cohorts(
+        brain_dir,
+        adapter=adapter,
+        session_id=session_id,
+    ):
+        latest = cohort
+    return latest
 
 
 def _dedupe(item_ids: list[str] | tuple[str, ...]) -> tuple[str, ...]:

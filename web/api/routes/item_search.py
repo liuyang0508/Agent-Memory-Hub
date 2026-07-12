@@ -13,8 +13,10 @@ from agent_brain.memory.context.injection_gateway import (
     injection_retrieval_top_k,
 )
 from agent_brain.memory.evidence.resource_reading import (
+    PROMPT_RESOURCE_SENSITIVITIES,
     ResourceSearchFilter,
     read_resource_context,
+    resource_visible_for_prompt,
     search_resource,
 )
 from agent_brain.memory.evidence.resource_store import ResourceStore
@@ -24,7 +26,6 @@ from web.auth import CurrentUser, get_current_user
 
 
 router = APIRouter()
-_PROMPT_RESOURCE_SENSITIVITIES = ("public", "internal")
 
 
 @router.get("/api/search")
@@ -200,7 +201,7 @@ def _resource_results(
         filters=ResourceSearchFilter(
             project=project,
             tenant_ids=None if user.is_admin else (None, user.tenant_id),
-            allowed_sensitivities=_PROMPT_RESOURCE_SENSITIVITIES,
+            allowed_sensitivities=PROMPT_RESOURCE_SENSITIVITIES,
         ),
     )
     rows: list[dict[str, Any]] = []
@@ -232,13 +233,10 @@ def _resource_results(
 
 
 def _resource_visible_to(resource, user: CurrentUser) -> bool:
-    sensitivity = str(getattr(resource.sensitivity, "value", resource.sensitivity))
-    if sensitivity not in _PROMPT_RESOURCE_SENSITIVITIES:
-        return False
-    return bool(
-        user.is_admin
-        or resource.tenant_id is None
-        or resource.tenant_id == user.tenant_id
+    return resource_visible_for_prompt(
+        resource,
+        tenant_id=user.tenant_id,
+        is_admin=user.is_admin,
     )
 
 

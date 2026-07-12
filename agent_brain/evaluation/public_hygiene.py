@@ -148,6 +148,14 @@ _PLACEHOLDER_VALUES = {
     "test",
     "xxx",
 }
+_DOCUMENTATION_IPV4_NETWORKS = tuple(
+    ipaddress.ip_network(cidr)
+    for cidr in (
+        "192.0.2.0/24",
+        "198.51.100.0/24",
+        "203.0.113.0/24",
+    )
+)
 
 _DEFAULT_SKIP_PREFIXES = (
     ".git/",
@@ -336,7 +344,7 @@ def _dynamic_findings(line: str, *, identities: Sequence[str]) -> Iterable[tuple
 
     for match in _EMAIL_RE.finditer(line):
         email = match.group(0)
-        if _is_sensitive_email(email):
+        if _is_sensitive_email(email) and not _looks_like_scp_ssh_remote(match):
             yield "email_address", email
 
     for match in _UUID_RE.finditer(line):
@@ -448,6 +456,8 @@ def _is_sensitive_ip_literal(value: str, *, line: str) -> bool:
         return False
     if ip.is_loopback or ip.is_link_local or ip.is_unspecified:
         return False
+    if any(ip in network for network in _DOCUMENTATION_IPV4_NETWORKS):
+        return False
     if _looks_like_network_range_example(value, line=line):
         return False
     return ip.is_private
@@ -468,12 +478,36 @@ def _is_sensitive_email(email: str) -> bool:
 
 def _redact_email_match(match: re.Match[str]) -> str:
     email = match.group(0)
-    if not _is_sensitive_email(email):
+    if not _is_sensitive_email(email) or _looks_like_scp_ssh_remote(match):
         return email
     replacement = "user@example.com"
     if _has_odd_backslash_prefix(match.string, match.start()):
         return "\\" + replacement
     return replacement
+
+
+def _looks_like_scp_ssh_remote(match: re.Match[str]) -> bool:
+    suffix = match.string[match.end():]
+    path_match = re.match(r":(?P<path>[^\s`\"'<>]+)", suffix)
+    if path_match is None:
+        return False
+    path = path_match.group("path").rstrip(".,;)")
+    if not path:
+        return False
+
+    prefix = match.string[:match.start()].rstrip().rstrip("`\"'").rstrip()
+    return bool(
+        re.search(
+            r"(?i)(?:"
+            r"(?:^|\s)git\s+(?:clone|fetch|pull|push)"
+            r"(?:\s+--?[^\s]+)*|"
+            r"(?:^|\s)git\s+remote\s+(?:add|set-url)"
+            r"(?:\s+--?[^\s]+)*\s+[^\s]+|"
+            r"\bremote(?:\s+path)?(?:\s+as)?\s*(?:=|:)?\s*"
+            r")$",
+            prefix,
+        )
+    )
 
 
 def _has_odd_backslash_prefix(text: str, index: int) -> bool:

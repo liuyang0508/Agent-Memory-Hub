@@ -237,6 +237,189 @@ class TestMemoryClientSearch:
             assert f"SDK {marker} forbidden summary" not in serialized
             assert f"SDK {marker} forbidden body" not in serialized
 
+    @pytest.mark.parametrize(
+        ("resource_tenant", "resource_sensitivity"),
+        [
+            ("team-b", "internal"),
+            ("team-a", "secret"),
+        ],
+    )
+    def test_search_rejects_invisible_resource_sidecars(
+        self,
+        client,
+        resource_tenant,
+        resource_sensitivity,
+    ):
+        from agent_brain.contracts.resource import (
+            ExtractionKind,
+            ExtractionRecord,
+            ResourceKind,
+            ResourceRecord,
+            make_extraction_id,
+            make_resource_id,
+            sha256_text,
+        )
+        from agent_brain.memory.evidence.resource_store import ResourceStore
+
+        marker = f"SDK_RESOURCE_{resource_tenant}_{resource_sensitivity}_SENTINEL"
+        resource_id = make_resource_id(marker)
+        extraction_id = make_extraction_id(marker)
+        resource_store = ResourceStore(client.brain_dir)
+        resource_store.write_resource(
+            ResourceRecord(
+                id=resource_id,
+                kind=ResourceKind.document,
+                uri=f"memory://resource/{resource_id}",
+                title=marker,
+                tenant_id=resource_tenant,
+                sensitivity=resource_sensitivity,
+            )
+        )
+        resource_store.write_extraction(
+            ExtractionRecord(
+                id=extraction_id,
+                resource_id=resource_id,
+                kind=ExtractionKind.summary,
+                extractor="sdk-security-test",
+                content_text=marker,
+                content_sha256=sha256_text(marker),
+            )
+        )
+        item_id = client.write(
+            type="episode",
+            title="SDK resource visibility boundary",
+            summary="SDK resource visibility boundary",
+            refs={"resources": [resource_id]},
+        )
+        client._components.get_store().update_frontmatter(
+            item_id,
+            tenant_id="team-a",
+        )
+
+        results = client.search(
+            "SDK resource visibility boundary",
+            top_k=1,
+            include_resources=True,
+        )
+
+        assert len(results) == 1
+        assert all(
+            entry["resource_id"] != resource_id
+            for entry in results[0].resource_context
+        )
+        assert marker not in repr(results)
+
+    def test_raw_search_never_loads_resource_sidecars(self, client):
+        from agent_brain.contracts.resource import (
+            ExtractionKind,
+            ExtractionRecord,
+            ResourceKind,
+            ResourceRecord,
+            make_extraction_id,
+            make_resource_id,
+            sha256_text,
+        )
+        from agent_brain.memory.evidence.resource_store import ResourceStore
+
+        marker = "SDK_RAW_RESOURCE_SENTINEL"
+        resource_id = make_resource_id(marker)
+        resource_store = ResourceStore(client.brain_dir)
+        resource_store.write_resource(
+            ResourceRecord(
+                id=resource_id,
+                kind=ResourceKind.document,
+                uri=f"memory://resource/{resource_id}",
+                title=marker,
+                sensitivity="internal",
+            )
+        )
+        resource_store.write_extraction(
+            ExtractionRecord(
+                id=make_extraction_id(marker),
+                resource_id=resource_id,
+                kind=ExtractionKind.summary,
+                extractor="sdk-security-test",
+                content_text=marker,
+                content_sha256=sha256_text(marker),
+            )
+        )
+        client.write(
+            type="episode",
+            title="SDK raw resource boundary",
+            summary="SDK raw resource boundary",
+            refs={"resources": [resource_id]},
+        )
+
+        results = client.search(
+            "SDK raw resource boundary",
+            top_k=1,
+            context_firewall=False,
+            include_resources=True,
+        )
+
+        assert len(results) == 1
+        assert results[0].resource_context == []
+        assert marker not in repr(results)
+
+    def test_search_keeps_same_tenant_internal_resource_sidecar(self, client):
+        from agent_brain.contracts.resource import (
+            ExtractionKind,
+            ExtractionRecord,
+            ResourceKind,
+            ResourceRecord,
+            make_extraction_id,
+            make_resource_id,
+            sha256_text,
+        )
+        from agent_brain.memory.evidence.resource_store import ResourceStore
+
+        marker = "SDK_SAME_TENANT_RESOURCE_SENTINEL"
+        resource_id = make_resource_id(marker)
+        resource_store = ResourceStore(client.brain_dir)
+        resource_store.write_resource(
+            ResourceRecord(
+                id=resource_id,
+                kind=ResourceKind.document,
+                uri=f"memory://resource/{resource_id}",
+                title=marker,
+                tenant_id="team-a",
+                sensitivity="internal",
+            )
+        )
+        resource_store.write_extraction(
+            ExtractionRecord(
+                id=make_extraction_id(marker),
+                resource_id=resource_id,
+                kind=ExtractionKind.summary,
+                extractor="sdk-security-test",
+                content_text=marker,
+                content_sha256=sha256_text(marker),
+            )
+        )
+        item_id = client.write(
+            type="episode",
+            title="SDK same tenant resource boundary",
+            summary="SDK same tenant resource boundary",
+            refs={"resources": [resource_id]},
+        )
+        client._components.get_store().update_frontmatter(
+            item_id,
+            tenant_id="team-a",
+        )
+
+        results = client.search(
+            "SDK same tenant resource boundary",
+            top_k=1,
+            include_resources=True,
+        )
+
+        assert len(results) == 1
+        assert any(
+            entry["resource_id"] == resource_id
+            and entry["content_text"] == marker
+            for entry in results[0].resource_context
+        )
+
     def test_explicit_raw_search_keeps_diagnostics_without_context_pack(self, client):
         item_id = client.write(
             type="episode",

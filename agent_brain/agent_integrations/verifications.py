@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from collections import deque
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -77,7 +78,19 @@ def iter_adapter_verifications(
     limit: int | None = None,
 ) -> Iterator[AdapterVerificationRecord]:
     path = adapter_verifications_path(brain_dir)
-    records: list[AdapterVerificationRecord] = []
+    records = _iter_parsed_adapter_verifications(path, adapter=adapter)
+    if limit is None:
+        return records
+    if type(limit) is not int or limit <= 0:
+        return iter(())
+    return iter(deque(records, maxlen=limit))
+
+
+def _iter_parsed_adapter_verifications(
+    path: Path,
+    *,
+    adapter: str | None,
+) -> Iterator[AdapterVerificationRecord]:
     for data in iter_bounded_jsonl(path):
         try:
             record = AdapterVerificationRecord(
@@ -92,20 +105,20 @@ def iter_adapter_verifications(
             continue
         if adapter and record.adapter != adapter:
             continue
-        records.append(record)
-    if limit is not None:
-        records = records[-limit:]
-    return iter(records)
+        yield record
 
 
 def adapter_verification_summary(brain_dir: Path, adapter: str) -> AdapterVerificationSummary:
-    records = list(iter_adapter_verifications(brain_dir, adapter=adapter))
-    last = records[-1] if records else None
+    count = 0
+    last = None
+    for record in iter_adapter_verifications(brain_dir, adapter=adapter):
+        count += 1
+        last = record
     verified = bool(last and last.status == "passed")
     evidence = tuple(last.evidence) if last else ()
     return AdapterVerificationSummary(
         verified=verified,
-        count=len(records),
+        count=count,
         last_record=last.to_dict() if last else None,
         evidence=evidence,
     )

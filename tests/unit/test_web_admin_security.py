@@ -34,10 +34,10 @@ def test_cors_extra_origins_are_explicit_env_list(monkeypatch):
 
     monkeypatch.setenv(
         "MEMORY_HUB_CORS_ORIGINS",
-        "https://admin.example.internal, http://10.0.0.2:8765, ",
+        "https://admin.example.internal, http://192.0.2.2:8765, ",
     )
 
     assert web_app._cors_origins_from_env() == [
         "https://admin.example.internal",
-        "http://10.0.0.2:8765",
+        "http://192.0.2.2:8765",
     ]

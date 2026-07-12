@@ -1769,18 +1769,21 @@ observability 泄漏；这些扩展均有独立 RED/GREEN 回归和小提交。
 - 合并安全矩阵：`661 passed, 1 skipped, 1 warning`。
 - 独立最终安全复审矩阵：`421 passed, 1 warning`，原始与新增 P0-P2 finding
   均无法再复现，结论为 Scoped PASS。
-- 仓库级回归（只 deselect 下述两个同源既有基线）：
-  `2231 passed, 6 skipped, 2 deselected, 1 warning`，耗时 `259.62s`。
+- 发布前复审修复 SDK resource sidecar 的 tenant/sensitivity/raw 绕过、
+  JSONL ledger 无总预算，以及 public-hygiene 误报门禁；对应定向回归为
+  `327 passed, 1 skipped, 1 warning` 与 `15 passed, 1 warning`。
+- 最终仓库级回归不再 deselect 任何测试：
+  `2246 passed, 6 skipped, 1 warning`，耗时 `280.54s`。
 - prompt surface 旁路扫描覆盖 MCP、SDK、CLI、brief 与 Web，无命中。
 - `ruff check agent_brain web`、`compileall agent_brain web`、
   `git diff --check` 全部通过。
 - 唯一 warning 是 Starlette/httpx 的既有 deprecation；skip 为两个 opt-in
   conformance、两个缺少可选 `reportlab`、两个真实 brain opt-in query-intent 测试。
 
-### 未宣称全绿的既有基线
+### 首次实施时的既有基线（发布前复审已闭环）
 
 `tests/conformance/test_public_hygiene.py::test_git_tracked_public_surface_has_no_sensitive_literals`
-仍报告 4 条既有命中：
+曾报告 4 条既有命中：
 
 - `.github/workflows/sync-gitee.yml:46`：Gitee SSH user/host 字面量
 - `docs/release-publishing.md:81`：同一 Gitee SSH user/host 字面量
@@ -1788,8 +1791,15 @@ observability 泄漏；这些扩展均有独立 RED/GREEN 回归和小提交。
 - `tests/unit/test_web_admin_security.py:42`：同一 RFC1918 测试地址字面量
 
 `tests/unit/test_governance_readiness.py::test_govern_readiness_json_reports_release_query_and_lifecycle_lanes`
-消费同一 public-hygiene 结果，因此是派生失败。本计划没有把这两项写成通过，
-也没有为扩大 P0-A 范围而改写既有发布与测试字面量。
+消费同一 public-hygiene 结果，因此是派生失败。发布前复审通过上下文感知的
+SCP-style SSH remote 识别，以及将测试 fixture 改为 RFC 5737 文档地址消除了误报；
+真实邮箱与 RFC1918 地址仍由回归测试确认会被拦截。
+
+同一轮复审还增加了 JSONL ledger 的 64 MiB / 20,000 物理行总预算、最终文件
+no-follow/regular-file 校验和有界 tail 消费；SDK resource sidecar 在读取内容前
+复用 Web 的 prompt resource policy，只允许 public/internal 且 tenant 可见的资源。
+SDK `context_firewall=True` 默认值已在 `CHANGELOG.md` 标为 next-major breaking change，
+raw diagnostics 明确不返回 ContextPack、firewall decision 或 resource sidecar。
 
 ### 已知安全取舍
 

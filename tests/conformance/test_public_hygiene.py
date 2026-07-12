@@ -80,6 +80,59 @@ def test_public_hygiene_scanner_uses_risk_features_beyond_named_examples() -> No
     }
 
 
+def test_public_hygiene_scanner_distinguishes_ssh_authority_from_email() -> None:
+    from agent_brain.evaluation.public_hygiene import redact_public_text, scan_text
+
+    ssh_authority = "git" + "@" + "gitee.com"
+    email = "release.operator" + "@" + "orion-platform.dev"
+    findings = scan_text(
+        f"remote={ssh_authority}:team/example.git\n"
+        f"git remote add mirror {ssh_authority}:repo\n"
+        f"owner={email}\n"
+        f"owner={email}:docs/private\n"
+        f"git clone {ssh_authority}:repo owner={email}:docs/private\n",
+        path="fixture.txt",
+    )
+
+    assert [
+        (finding.line, finding.rule, finding.match)
+        for finding in findings
+    ] == [
+        (3, "email_address", email),
+        (4, "email_address", email),
+        (5, "email_address", email),
+    ]
+    assert redact_public_text(
+        f"remote={ssh_authority}:team/example.git owner={email}:docs/private"
+    ) == (
+        f"remote={ssh_authority}:team/example.git "
+        "owner=user@example.com:docs/private"
+    )
+    assert redact_public_text(
+        f"git clone {ssh_authority}:repo owner={email}:docs/private"
+    ) == (
+        f"git clone {ssh_authority}:repo "
+        "owner=user@example.com:docs/private"
+    )
+
+
+def test_public_hygiene_scanner_allows_documentation_ips_but_flags_private_ips() -> None:
+    from agent_brain.evaluation.public_hygiene import scan_text
+
+    documentation_ip = "192.0" + ".2.2"
+    private_ip = "10.24" + ".5.6"
+    findings = scan_text(
+        f"example=http://{documentation_ip}:8765\n"
+        f"internal=http://{private_ip}:8765\n",
+        path="fixture.txt",
+    )
+
+    assert [
+        (finding.line, finding.rule, finding.match)
+        for finding in findings
+    ] == [(2, "private_network_address", private_ip)]
+
+
 def test_public_hygiene_redacts_report_text() -> None:
     from agent_brain.evaluation.public_hygiene import public_path, redact_public_text
 

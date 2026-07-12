@@ -8,6 +8,28 @@ from agent_brain.memory.recall.retrieval_budget import estimate_tokens
 from agent_brain.contracts.resource import ExtractionKind, ExtractionRecord, ResourceKind, ResourceRecord
 
 
+PROMPT_RESOURCE_SENSITIVITIES = ("public", "internal")
+
+
+def resource_visible_for_prompt(
+    resource: ResourceRecord,
+    *,
+    tenant_id: str | None,
+    is_admin: bool = False,
+) -> bool:
+    """Return whether a resource may be added to generated prompt context."""
+    sensitivity = str(
+        getattr(resource.sensitivity, "value", resource.sensitivity)
+    )
+    if sensitivity not in PROMPT_RESOURCE_SENSITIVITIES:
+        return False
+    return bool(
+        is_admin
+        or resource.tenant_id is None
+        or resource.tenant_id == tenant_id
+    )
+
+
 @dataclass(frozen=True)
 class ResourceSearchFilter:
     project: str | None = None
@@ -266,6 +288,7 @@ def read_resource_context(
 
 
 __all__ = [
+    "PROMPT_RESOURCE_SENSITIVITIES",
     "ResourceHit",
     "ResourceReadResult",
     "ResourceReader",
@@ -275,5 +298,6 @@ __all__ = [
     "read_resource_outline",
     "read_resource_segment",
     "read_resource_summary",
+    "resource_visible_for_prompt",
     "search_resource",
 ]

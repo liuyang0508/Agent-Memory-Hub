@@ -166,7 +166,8 @@ class MemoryClient:
             context_firewall: Enforce the Injection Gateway (default). Pass False
                 only for explicit raw retrieval diagnostics; raw results have no
                 context_pack or firewall decision.
-            include_resources: Include resource sidecar context referenced by hits
+            include_resources: Include prompt-safe resource sidecars referenced by
+                Gateway-approved hits. Ignored when context_firewall is False.
         """
         return search_items(
             query=query,

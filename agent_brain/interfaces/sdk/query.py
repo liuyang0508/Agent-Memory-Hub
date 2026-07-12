@@ -138,7 +138,7 @@ def search_items(
                 resource_context=_resource_context_for_item(
                     brain_dir,
                     item,
-                    include_resources=include_resources,
+                    include_resources=include_resources and context_firewall,
                 ),
             )
         )
@@ -170,13 +170,26 @@ def _resource_context_for_item(
 ) -> list[dict[str, Any]]:
     if not include_resources or brain_dir is None:
         return []
-    from agent_brain.memory.evidence.resource_reading import read_resource_context
+    from agent_brain.memory.evidence.resource_reading import (
+        read_resource_context,
+        resource_visible_for_prompt,
+    )
     from agent_brain.memory.evidence.resource_store import ResourceStore
 
     store = ResourceStore(brain_dir)
     contexts: list[dict[str, Any]] = []
     for resource_id in getattr(item.refs, "resources", []):
-        for entry in read_resource_context(store, resource_id, max_tokens=80):
+        try:
+            resource = store.get_resource(resource_id)
+            if not resource_visible_for_prompt(
+                resource,
+                tenant_id=getattr(item, "tenant_id", None),
+            ):
+                continue
+            entries = read_resource_context(store, resource_id, max_tokens=80)
+        except FileNotFoundError:
+            continue
+        for entry in entries:
             contexts.append({
                 "resource_id": entry.resource_id,
                 "level": entry.level,
