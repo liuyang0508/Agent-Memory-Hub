@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import FrozenInstanceError
+import hashlib
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -17,6 +19,7 @@ from agent_brain.agent_integrations.diagnostics import (
     AdapterDiagnosticCheck,
     AdapterDiagnosticReport,
 )
+from agent_brain.agent_integrations.hook_config import adapter_hook_command
 from agent_brain.platform.adapter_health import (
     CoreAdapterHealth,
     bounded_diagnostic_text,
@@ -132,6 +135,131 @@ def test_valid_hooks_json_ignores_markers_outside_hook_commands(
     assert has_managed_footprint("claude_code") is False
 
 
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"hooks": CURRENT_HOOK},
+        {"hooks": {"UserPromptSubmit": {"hooks": [{"type": "command", "command": CURRENT_HOOK}]}}},
+        {"hooks": {"UserPromptSubmit": [{"hooks": {"type": "command", "command": CURRENT_HOOK}}]}},
+        {"hooks": {"UserPromptSubmit": [{"hooks": CURRENT_HOOK}]}},
+        {"hooks": {"UserPromptSubmit": [{"hooks": [CURRENT_HOOK]}]}},
+    ],
+)
+@pytest.mark.parametrize("adapter_name", ["codex", "claude_code"])
+def test_valid_but_structurally_damaged_owned_hooks_are_detected(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    adapter_name: str,
+    payload: dict[str, object],
+) -> None:
+    paths = _patch_paths(tmp_path, monkeypatch)
+    target = paths["codex_hooks"] if adapter_name == "codex" else paths["claude_settings"]
+    _write(target, json.dumps(payload))
+
+    assert has_managed_footprint(adapter_name) is True
+
+
+@pytest.mark.parametrize("adapter_name", ["codex", "claude_code"])
+def test_valid_damaged_hooks_ignore_description_marker(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    adapter_name: str,
+) -> None:
+    paths = _patch_paths(tmp_path, monkeypatch)
+    target = paths["codex_hooks"] if adapter_name == "codex" else paths["claude_settings"]
+    payload = {
+        "hooks": {
+            "UserPromptSubmit": {
+                "description": CURRENT_HOOK,
+                "metadata": {"path": LEGACY_HOOK},
+            }
+        }
+    }
+    _write(target, json.dumps(payload))
+
+    assert has_managed_footprint(adapter_name) is False
+
+
+@pytest.mark.parametrize("adapter_name", ["codex", "claude_code"])
+def test_malformed_json_ignores_marker_in_description(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    adapter_name: str,
+) -> None:
+    paths = _patch_paths(tmp_path, monkeypatch)
+    target = paths["codex_hooks"] if adapter_name == "codex" else paths["claude_settings"]
+    _write(target, f'{{"description": "{CURRENT_HOOK}"')
+
+    assert has_managed_footprint(adapter_name) is False
+
+
+@pytest.mark.parametrize("field", ["command", "hooks"])
+@pytest.mark.parametrize("adapter_name", ["codex", "claude_code"])
+def test_malformed_json_accepts_restricted_owned_hook_fields(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    adapter_name: str,
+    field: str,
+) -> None:
+    paths = _patch_paths(tmp_path, monkeypatch)
+    target = paths["codex_hooks"] if adapter_name == "codex" else paths["claude_settings"]
+    _write(target, f'{{"{field}": "{CURRENT_HOOK}"')
+
+    assert has_managed_footprint(adapter_name) is True
+
+
+@pytest.mark.parametrize("adapter_name", ["codex", "claude_code"])
+@pytest.mark.parametrize("legacy", [False, True])
+def test_real_adapter_hook_commands_with_spaced_paths_are_detected(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    adapter_name: str,
+    legacy: bool,
+) -> None:
+    paths = _patch_paths(tmp_path, monkeypatch)
+    target = paths["codex_hooks"] if adapter_name == "codex" else paths["claude_settings"]
+    hook_dir = "brain" if legacy else "agent_runtime_kit"
+    script = Path(f"/repo with space/{hook_dir}/hooks/inject-context.sh")
+    command = adapter_hook_command(adapter_name, script)
+    payload = {
+        "hooks": {
+            "SessionStart": [
+                {
+                    "matcher": "startup|resume" if adapter_name == "codex" else "",
+                    "hooks": [
+                        {"type": "command", "command": "/user/hooks/foreign.sh"},
+                        {"type": "command", "command": command},
+                    ],
+                }
+            ]
+        }
+    }
+    _write(target, json.dumps(payload))
+
+    assert has_managed_footprint(adapter_name) is True
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        r"C:\repo\agent_runtime_kit\hooks\inject-context.sh",
+        r"C:\repo\brain\hooks\inject-context.sh",
+    ],
+)
+@pytest.mark.parametrize("adapter_name", ["codex", "claude_code"])
+def test_windows_current_and_legacy_hook_commands_are_detected(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    adapter_name: str,
+    command: str,
+) -> None:
+    paths = _patch_paths(tmp_path, monkeypatch)
+    target = paths["codex_hooks"] if adapter_name == "codex" else paths["claude_settings"]
+    _write(target, _hook_payload(command))
+
+    assert has_managed_footprint(adapter_name) is True
+
+
 def test_codex_mcp_comment_is_not_a_managed_section(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -140,6 +268,70 @@ def test_codex_mcp_comment_is_not_a_managed_section(
     _write(paths["codex_config"], f"# {MCP_SECTION}\nmodel = 'gpt-5'\n")
 
     assert has_managed_footprint("codex") is False
+
+
+def test_codex_valid_mcp_table_with_inline_comment_is_detected(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    paths = _patch_paths(tmp_path, monkeypatch)
+    _write(
+        paths["codex_config"],
+        f"{MCP_SECTION} # managed by AMH\ncommand = 'memory'\n",
+    )
+
+    assert has_managed_footprint("codex") is True
+
+
+def test_codex_mcp_text_inside_valid_multiline_string_is_ignored(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    paths = _patch_paths(tmp_path, monkeypatch)
+    _write(
+        paths["codex_config"],
+        f"notes = '''\n{MCP_SECTION}\nnot a managed table\n'''\n",
+    )
+
+    assert has_managed_footprint("codex") is False
+
+
+def test_codex_mcp_key_with_wrong_value_type_is_still_a_footprint(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    paths = _patch_paths(tmp_path, monkeypatch)
+    _write(paths["codex_config"], 'mcp_servers."agent-memory-hub" = "broken"\n')
+
+    assert has_managed_footprint("codex") is True
+
+
+def test_codex_malformed_owned_toml_uses_restricted_header_fallback(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    paths = _patch_paths(tmp_path, monkeypatch)
+    _write(
+        paths["codex_config"],
+        f"{MCP_SECTION} # managed by AMH\ncommand = \n",
+    )
+
+    assert has_managed_footprint("codex") is True
+
+
+@pytest.mark.parametrize("adapter_name", ["codex", "claude_code"])
+def test_utf8_bom_valid_json_does_not_fall_back_to_raw_marker_scan(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    adapter_name: str,
+) -> None:
+    paths = _patch_paths(tmp_path, monkeypatch)
+    target = paths["codex_hooks"] if adapter_name == "codex" else paths["claude_settings"]
+    target.parent.mkdir(parents=True, exist_ok=True)
+    payload = json.dumps({"command": CURRENT_HOOK}).encode("utf-8")
+    target.write_bytes(b"\xef\xbb\xbf" + payload)
+
+    assert has_managed_footprint(adapter_name) is False
 
 
 def test_has_managed_footprint_skips_non_amh_and_unknown_config(
@@ -164,6 +356,21 @@ def test_has_managed_footprint_skips_non_amh_and_unknown_config(
     assert has_managed_footprint("codex") is False
     assert has_managed_footprint("claude_code") is False
     assert has_managed_footprint("other") is False
+
+
+@pytest.mark.parametrize("server_value", [None, "broken", [], 42])
+def test_claude_mcp_key_is_a_footprint_regardless_of_value_type(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    server_value: object,
+) -> None:
+    paths = _patch_paths(tmp_path, monkeypatch)
+    _write(
+        paths["claude_settings"],
+        json.dumps({"mcpServers": {"agent-memory-hub": server_value}}),
+    )
+
+    assert has_managed_footprint("claude_code") is True
 
 
 @pytest.mark.parametrize("adapter_name", ["codex", "claude_code"])
@@ -198,12 +405,20 @@ def test_malformed_owned_hook_json_is_diagnosed_not_skipped(
     assert any("malformed" in check.detail for check in reports[0].non_ok_checks)
 
 
+@pytest.mark.parametrize(
+    "content",
+    [
+        '{"mcpServers": {"agent-memory-hub": ',
+        ('{"mcpServers": {"other": {"command": "tool"}, "agent-memory-hub": '),
+    ],
+)
 def test_malformed_owned_mcp_json_is_diagnosed_not_skipped(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    content: str,
 ) -> None:
     paths = _patch_paths(tmp_path, monkeypatch)
-    _write(paths["claude_settings"], '{"mcpServers": {"agent-memory-hub": ')
+    _write(paths["claude_settings"], content)
     brain = tmp_path / "brain"
     (brain / "items").mkdir(parents=True)
 
@@ -344,6 +559,181 @@ def test_diagnose_exception_becomes_bounded_error(
     assert check.detail.endswith("…")
 
 
+def test_footprint_parser_exception_becomes_bounded_adapter_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_paths(tmp_path, monkeypatch)
+    brain = tmp_path / "brain"
+    brain.mkdir()
+
+    from agent_brain.platform import adapter_health
+
+    def fail_toml(*args: object, **kwargs: object) -> bool:
+        raise RuntimeError("footprint\x00 failed " + "x" * 2000)
+
+    monkeypatch.setattr(adapter_health, "_toml_mcp_footprint", fail_toml)
+
+    reports = diagnose_configured_core_adapters(brain)
+
+    assert [report.adapter for report in reports] == ["codex"]
+    assert reports[0].status == "error"
+    detail = reports[0].non_ok_checks[0].detail
+    assert "\x00" not in detail
+    assert len(detail) == 1200
+    assert detail.endswith("…")
+
+
+def test_discovery_is_skipped_when_no_core_adapter_is_configured(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_paths(tmp_path, monkeypatch)
+    brain = tmp_path / "brain"
+    brain.mkdir()
+
+    from agent_brain import agent_integrations
+
+    def unexpected_discovery() -> list[str]:
+        raise AssertionError("discovery must be skipped")
+
+    monkeypatch.setattr(agent_integrations, "discover_adapters", unexpected_discovery)
+
+    assert diagnose_configured_core_adapters(brain) == ()
+
+
+def test_discovery_exception_errors_each_configured_adapter(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    paths = _patch_paths(tmp_path, monkeypatch)
+    _write(paths["codex_agents"], CODEX_BEGIN)
+    _write(paths["claude_awareness"], AWARENESS_BEGIN)
+    brain = tmp_path / "brain"
+    brain.mkdir()
+
+    from agent_brain import agent_integrations
+    from agent_brain.agent_integrations import registry
+
+    def fail_discovery() -> list[str]:
+        raise RuntimeError("adapter discovery failed")
+
+    def unexpected_get_adapter(name: str, brain_dir: Path) -> None:
+        raise AssertionError("get_adapter must not run after discovery failure")
+
+    monkeypatch.setattr(agent_integrations, "discover_adapters", fail_discovery)
+    monkeypatch.setattr(registry, "get_adapter", unexpected_get_adapter)
+
+    reports = diagnose_configured_core_adapters(brain)
+
+    assert [report.adapter for report in reports] == ["codex", "claude_code"]
+    assert [report.status for report in reports] == ["error", "error"]
+    assert all("adapter discovery failed" in report.non_ok_checks[0].detail for report in reports)
+
+
+def test_adapter_exception_does_not_short_circuit_later_configured_adapter(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    paths = _patch_paths(tmp_path, monkeypatch)
+    _write(paths["codex_agents"], CODEX_BEGIN)
+    _write(paths["claude_awareness"], AWARENESS_BEGIN)
+    brain = tmp_path / "brain"
+    brain.mkdir()
+    requested: list[str] = []
+    claude_report = AdapterDiagnosticReport(
+        adapter="claude_code",
+        overall_status="warn",
+        checks=[AdapterDiagnosticCheck("runtime", "warn", "not observed")],
+        brain_dir=brain,
+    )
+
+    class BrokenAdapter:
+        def diagnose(self) -> AdapterDiagnosticReport:
+            raise RuntimeError("codex failed")
+
+    from agent_brain.agent_integrations import registry
+
+    def get_adapter(name: str, brain_dir: Path) -> object:
+        requested.append(name)
+        return BrokenAdapter() if name == "codex" else _Adapter(claude_report)
+
+    monkeypatch.setattr(registry, "get_adapter", get_adapter)
+
+    reports = diagnose_configured_core_adapters(brain)
+
+    assert requested == ["codex", "claude_code"]
+    assert [report.adapter for report in reports] == ["codex", "claude_code"]
+    assert [report.status for report in reports] == ["error", "warn"]
+
+
+@pytest.mark.parametrize(
+    ("report", "detail_fragment"),
+    [
+        (None, "report"),
+        (SimpleNamespace(overall_status="invalid", checks=[]), "status"),
+        (SimpleNamespace(overall_status="error", checks=None), "checks"),
+        (SimpleNamespace(overall_status="error", checks=[object()]), "AdapterDiagnosticCheck"),
+        (
+            SimpleNamespace(
+                overall_status="error",
+                checks=[AdapterDiagnosticCheck("bad", "invalid", "broken")],
+            ),
+            "check status",
+        ),
+    ],
+)
+def test_malformed_diagnostic_report_becomes_adapter_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    report: object,
+    detail_fragment: str,
+) -> None:
+    paths = _patch_paths(tmp_path, monkeypatch)
+    _write(paths["codex_agents"], CODEX_BEGIN)
+    brain = tmp_path / "brain"
+    brain.mkdir()
+
+    class ReturningAdapter:
+        def diagnose(self) -> object:
+            return report
+
+    from agent_brain.agent_integrations import registry
+
+    monkeypatch.setattr(registry, "get_adapter", lambda name, brain_dir: ReturningAdapter())
+
+    reports = diagnose_configured_core_adapters(brain)
+
+    assert len(reports) == 1
+    assert reports[0].adapter == "codex"
+    assert reports[0].status == "error"
+    assert detail_fragment.lower() in reports[0].non_ok_checks[0].detail.lower()
+
+
+def test_diagnostic_report_accepts_any_iterable_of_checks(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    paths = _patch_paths(tmp_path, monkeypatch)
+    _write(paths["codex_agents"], CODEX_BEGIN)
+    brain = tmp_path / "brain"
+    brain.mkdir()
+    warn = AdapterDiagnosticCheck("runtime", "warn", "not observed")
+    report = SimpleNamespace(overall_status="warn", checks=(check for check in [warn]))
+
+    class ReturningAdapter:
+        def diagnose(self) -> object:
+            return report
+
+    from agent_brain.agent_integrations import registry
+
+    monkeypatch.setattr(registry, "get_adapter", lambda name, brain_dir: ReturningAdapter())
+
+    reports = diagnose_configured_core_adapters(brain)
+
+    assert reports == (CoreAdapterHealth("codex", "warn", (warn,)),)
+
+
 def test_core_adapter_health_is_immutable() -> None:
     health = CoreAdapterHealth("codex", "ok", ())
 
@@ -361,6 +751,61 @@ def test_bounded_diagnostic_text_preserves_lines_tabs_and_limits_length() -> Non
     assert "\x1b" not in result
     assert len(result) == 1200
     assert result.endswith("…")
+
+
+def test_bounded_diagnostic_text_handles_zero_and_one_character_limits() -> None:
+    assert bounded_diagnostic_text("abc", limit=0) == ""
+    assert bounded_diagnostic_text("abc", limit=1) == "…"
+    assert bounded_diagnostic_text("x", limit=1) == "x"
+
+
+def test_footprint_and_diagnosis_leave_config_bytes_hashes_and_modes_unchanged(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    paths = _patch_paths(tmp_path, monkeypatch)
+    _write(paths["codex_agents"], f"{CODEX_BEGIN}\nmanaged\n{CODEX_END}\n")
+    _write(paths["codex_hooks"], _hook_payload(CURRENT_HOOK))
+    _write(paths["codex_config"], f"{MCP_SECTION}\ncommand = 'memory'\n")
+    _write(
+        paths["claude_settings"],
+        json.dumps(
+            {
+                "hooks": json.loads(_hook_payload(CURRENT_HOOK))["hooks"],
+                "mcpServers": {"agent-memory-hub": None},
+            }
+        ),
+    )
+    _write(
+        paths["claude_awareness"],
+        f"{AWARENESS_BEGIN}\nmanaged\n{AWARENESS_END}\n",
+    )
+    for index, path in enumerate(paths.values()):
+        path.chmod(0o600 + index)
+
+    def snapshot() -> dict[str, tuple[bytes, str, int]]:
+        result: dict[str, tuple[bytes, str, int]] = {}
+        for name, path in paths.items():
+            content = path.read_bytes()
+            result[name] = (
+                content,
+                hashlib.sha256(content).hexdigest(),
+                path.stat().st_mode & 0o7777,
+            )
+        return result
+
+    before = snapshot()
+    brain = tmp_path / "brain"
+    (brain / "items").mkdir(parents=True)
+
+    assert has_managed_footprint("codex") is True
+    assert has_managed_footprint("claude_code") is True
+    assert [report.adapter for report in diagnose_configured_core_adapters(brain)] == [
+        "codex",
+        "claude_code",
+    ]
+
+    assert snapshot() == before
 
 
 class _Adapter:
