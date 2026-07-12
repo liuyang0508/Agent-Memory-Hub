@@ -3,24 +3,46 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import importlib
 import json
 from pathlib import Path
 import re
+import sys
 import tomllib
 from typing import Any, Literal, Protocol, cast
 
-from agent_brain.agent_integrations.diagnostics import (
-    AdapterDiagnosticCheck,
-    CheckStatus,
-)
-from agent_brain.agent_integrations.hook_config import HUB_HOOK_DIR_MARKERS
+from agent_brain.diagnostic_types import AdapterDiagnosticCheck, CheckStatus
 from agent_brain.platform.install_repair import CORE_HOOK_ADAPTERS
 
 
 DETAIL_LIMIT = 1200
 _VALID_STATUSES = frozenset({"ok", "warn", "error"})
+_STATUS_SEVERITY: dict[CheckStatus, int] = {"ok": 0, "warn": 1, "error": 2}
 _RAW_HOOK_FIELD = re.compile(r'(?<!\\)"(?:command|hooks)"\s*:\s*"((?:\\.|[^"\\])*)')
 _TomlLexState = Literal["normal", "multiline-basic", "multiline-literal"]
+_JsonContainer = Literal["object", "array"]
+_JsonRole = Literal["root", "mcp-servers", "other"]
+_CODEX_MODULE = "agent_brain.agent_integrations.codex"
+_CLAUDE_MODULE = "agent_brain.agent_integrations.claude_code"
+_REGISTRY_MODULE = "agent_brain.agent_integrations.registry"
+_CODEX_AGENTS_MD = Path.home() / ".codex" / "AGENTS.md"
+_CODEX_HOOKS_JSON = Path.home() / ".codex" / "hooks.json"
+_CODEX_CONFIG_TOML = Path.home() / ".codex" / "config.toml"
+_CLAUDE_SETTINGS = Path.home() / ".claude" / "settings.json"
+_CLAUDE_AWARENESS = Path.home() / ".claude" / "CLAUDE.md"
+_CODEX_SENTINELS = (
+    "<!-- BEGIN agent-memory-hub -->",
+    "<!-- END agent-memory-hub -->",
+)
+_AWARENESS_SENTINELS = (
+    "<!-- BEGIN agent-memory-hub-awareness -->",
+    "<!-- END agent-memory-hub-awareness -->",
+)
+_HUB_HOOK_DIR_MARKERS = (
+    "/agent_runtime_kit/hooks/",
+    "/brain/hooks/",
+)
+_SERVER_NAME = "agent-memory-hub"
 
 
 @dataclass(frozen=True)
@@ -32,6 +54,21 @@ class CoreAdapterHealth:
 
 class _DiagnosticAdapter(Protocol):
     def diagnose(self) -> object: ...
+
+
+class _IntegrationPackage(Protocol):
+    def discover_adapters(self) -> list[str]: ...
+
+
+class _RegistryModule(Protocol):
+    def get_adapter(self, name: str, brain_dir: Path) -> object: ...
+
+
+@dataclass
+class _JsonFrame:
+    container: _JsonContainer
+    role: _JsonRole
+    expecting_key: bool = False
 
 
 def bounded_diagnostic_text(value: object, *, limit: int = DETAIL_LIMIT) -> str:
@@ -57,11 +94,23 @@ def _contains_any(path: Path, markers: tuple[str, ...]) -> bool:
     return any(marker in content for marker in markers)
 
 
+def _loaded_path(module_name: str, attribute: str, default: Path) -> Path:
+    module = sys.modules.get(module_name)
+    value = getattr(module, attribute, default) if module is not None else default
+    return value if isinstance(value, Path) else default
+
+
+def _loaded_server_name(module_name: str, default: str) -> str:
+    module = sys.modules.get(module_name)
+    value = getattr(module, "SERVER_NAME", default) if module is not None else default
+    return value if isinstance(value, str) else default
+
+
 def _command_references_hub_hook(command: object) -> bool:
     if not isinstance(command, str):
         return False
     normalized = re.sub(r"/+", "/", command.replace("\\", "/"))
-    return any(marker in normalized for marker in HUB_HOOK_DIR_MARKERS)
+    return any(marker in normalized for marker in _HUB_HOOK_DIR_MARKERS)
 
 
 def _hooks_subtree_has_hub_hook(value: Any, *, direct_hooks_value: bool) -> bool:
@@ -100,57 +149,80 @@ def _malformed_json_has_hub_hook(content: str) -> bool:
     )
 
 
-def _json_object_has_direct_key(content: str, open_brace: int, key: str) -> bool:
-    stack = ["{"]
-    index = open_brace + 1
-    while index < len(content) and stack:
-        char = content[index]
-        if char == '"':
-            token_start = index
-            index += 1
-            escaped = False
-            while index < len(content):
-                current = content[index]
-                if escaped:
-                    escaped = False
-                elif current == "\\":
-                    escaped = True
-                elif current == '"':
-                    break
-                index += 1
-            if index >= len(content):
-                return False
-
-            if len(stack) == 1 and stack[-1] == "{":
-                after = index + 1
-                while after < len(content) and content[after] in " \t\r\n":
-                    after += 1
-                if after < len(content) and content[after] == ":":
-                    raw_token = content[token_start : index + 1]
-                    try:
-                        decoded_token = json.loads(raw_token)
-                    except json.JSONDecodeError:
-                        decoded_token = raw_token[1:-1]
-                    if decoded_token == key:
-                        return True
-        elif char in "{[":
-            stack.append(char)
-        elif char == "}" and stack[-1] == "{":
-            stack.pop()
-        elif char == "]" and stack[-1] == "[":
-            stack.pop()
+def _skip_json_whitespace(content: str, index: int) -> int:
+    while index < len(content) and content[index] in " \t\r\n":
         index += 1
-    return False
+    return index
+
+
+def _read_json_string(content: str, start: int) -> tuple[str | None, int]:
+    index = start + 1
+    escaped = False
+    while index < len(content):
+        char = content[index]
+        if escaped:
+            escaped = False
+        elif char == "\\":
+            escaped = True
+        elif char == '"':
+            raw_token = content[start : index + 1]
+            try:
+                decoded = json.loads(raw_token)
+            except json.JSONDecodeError:
+                decoded = None
+            return decoded if isinstance(decoded, str) else None, index
+        index += 1
+    return None, len(content)
 
 
 def _malformed_json_has_mcp_ownership(content: str, server_name: str) -> bool:
-    container = re.compile(
-        r'(?<!\\)"mcpServers"\s*:\s*\{',
-    )
-    return any(
-        _json_object_has_direct_key(content, match.end() - 1, server_name)
-        for match in container.finditer(content)
-    )
+    root = _skip_json_whitespace(content, 0)
+    if root >= len(content) or content[root] != "{":
+        return False
+
+    stack = [_JsonFrame("object", "root", expecting_key=True)]
+    pending_mcp_object: int | None = None
+    index = root + 1
+    while index < len(content) and stack:
+        char = content[index]
+        frame = stack[-1]
+
+        if char == '"':
+            token, end = _read_json_string(content, index)
+            if frame.container == "object" and frame.expecting_key:
+                colon = _skip_json_whitespace(content, end + 1)
+                if colon < len(content) and content[colon] == ":":
+                    frame.expecting_key = False
+                    value = _skip_json_whitespace(content, colon + 1)
+                    if frame.role == "mcp-servers" and token == server_name:
+                        return True
+                    if (
+                        frame.role == "root"
+                        and token == "mcpServers"
+                        and value < len(content)
+                        and content[value] == "{"
+                    ):
+                        pending_mcp_object = value
+            index = end + 1
+            continue
+
+        if char == "{":
+            role: _JsonRole = "mcp-servers" if index == pending_mcp_object else "other"
+            stack.append(_JsonFrame("object", role, expecting_key=True))
+            if index == pending_mcp_object:
+                pending_mcp_object = None
+        elif char == "[":
+            stack.append(_JsonFrame("array", "other"))
+        elif char == "}" and frame.container == "object":
+            stack.pop()
+            if not stack:
+                return False
+        elif char == "]" and frame.container == "array":
+            stack.pop()
+        elif char == "," and frame.container == "object":
+            frame.expecting_key = True
+        index += 1
+    return False
 
 
 def _json_footprint(path: Path, *, server_name: str | None = None) -> bool:
@@ -223,10 +295,8 @@ def _toml_state_after_line(line: str, state: _TomlLexState) -> _TomlLexState:
     return state
 
 
-def _toml_line_starts_managed_table(line: str, server_name: str) -> bool:
+def _toml_line_has_managed_mcp(line: str, server_name: str) -> bool:
     candidate = line.lstrip(" \t")
-    if not candidate.startswith("["):
-        return False
     try:
         payload = tomllib.loads(f"{candidate}\n__amh_footprint_probe__ = true\n")
     except tomllib.TOMLDecodeError:
@@ -237,9 +307,15 @@ def _toml_line_starts_managed_table(line: str, server_name: str) -> bool:
 
 def _malformed_toml_has_mcp_table(content: str, server_name: str) -> bool:
     state: _TomlLexState = "normal"
+    at_root = True
     for line in content.splitlines():
-        if state == "normal" and _toml_line_starts_managed_table(line, server_name):
-            return True
+        if state == "normal":
+            candidate = line.lstrip(" \t")
+            starts_table = candidate.startswith("[")
+            if (starts_table or at_root) and _toml_line_has_managed_mcp(line, server_name):
+                return True
+            if starts_table:
+                at_root = False
         state = _toml_state_after_line(line, state)
     return False
 
@@ -259,23 +335,24 @@ def _toml_mcp_footprint(path: Path, *, server_name: str) -> bool:
 def has_managed_footprint(adapter_name: str) -> bool:
     """Return whether an adapter has any AMH-owned managed configuration."""
     if adapter_name == "codex":
-        from agent_brain.agent_integrations import codex as codex_mod
-        from agent_brain.agent_integrations.codex_config import BEGIN, END
-
         return (
-            _contains_any(codex_mod.AGENTS_MD, (BEGIN, END))
-            or _json_footprint(codex_mod.CODEX_HOOKS_JSON)
+            _contains_any(
+                _loaded_path(_CODEX_MODULE, "AGENTS_MD", _CODEX_AGENTS_MD),
+                _CODEX_SENTINELS,
+            )
+            or _json_footprint(_loaded_path(_CODEX_MODULE, "CODEX_HOOKS_JSON", _CODEX_HOOKS_JSON))
             or _toml_mcp_footprint(
-                codex_mod.CODEX_CONFIG_TOML,
-                server_name="agent-memory-hub",
+                _loaded_path(_CODEX_MODULE, "CODEX_CONFIG_TOML", _CODEX_CONFIG_TOML),
+                server_name=_SERVER_NAME,
             )
         )
     if adapter_name == "claude_code":
-        from agent_brain.agent_integrations import claude_code as claude_mod
-        from agent_brain.agent_integrations.awareness import BEGIN, END
-
-        return _contains_any(claude_mod.AWARENESS_PATH, (BEGIN, END)) or _json_footprint(
-            claude_mod.SETTINGS_PATH, server_name=claude_mod.SERVER_NAME
+        return _contains_any(
+            _loaded_path(_CLAUDE_MODULE, "AWARENESS_PATH", _CLAUDE_AWARENESS),
+            _AWARENESS_SENTINELS,
+        ) or _json_footprint(
+            _loaded_path(_CLAUDE_MODULE, "SETTINGS_PATH", _CLAUDE_SETTINGS),
+            server_name=_loaded_server_name(_CLAUDE_MODULE, _SERVER_NAME),
         )
     return False
 
@@ -309,15 +386,16 @@ def _normalize_diagnostic_report(adapter_name: str, report: object) -> CoreAdapt
         if check.status not in _VALID_STATUSES:
             raise ValueError(f"invalid check status: {check.status!r}")
 
+    normalized_status = cast(CheckStatus, status)
+    for check in checks:
+        if _STATUS_SEVERITY[check.status] > _STATUS_SEVERITY[normalized_status]:
+            normalized_status = check.status
     non_ok = tuple(check for check in checks if check.status != "ok")
-    return CoreAdapterHealth(adapter_name, status, non_ok)
+    return CoreAdapterHealth(adapter_name, normalized_status, non_ok)
 
 
 def diagnose_configured_core_adapters(brain_dir: Path) -> tuple[CoreAdapterHealth, ...]:
     """Diagnose only core adapters with an AMH-owned footprint."""
-    from agent_brain import agent_integrations
-    from agent_brain.agent_integrations import registry
-
     results: dict[str, CoreAdapterHealth] = {}
     configured: list[str] = []
     for adapter_name in CORE_HOOK_ADAPTERS:
@@ -333,7 +411,12 @@ def diagnose_configured_core_adapters(brain_dir: Path) -> tuple[CoreAdapterHealt
         return tuple(results[name] for name in CORE_HOOK_ADAPTERS if name in results)
 
     try:
-        agent_integrations.discover_adapters()
+        integrations = cast(
+            _IntegrationPackage,
+            importlib.import_module("agent_brain.agent_integrations"),
+        )
+        integrations.discover_adapters()
+        registry = cast(_RegistryModule, importlib.import_module(_REGISTRY_MODULE))
     except Exception as exc:
         for adapter_name in configured:
             results[adapter_name] = _adapter_error(adapter_name, exc)

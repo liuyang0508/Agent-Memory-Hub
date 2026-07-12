@@ -3,7 +3,11 @@ from __future__ import annotations
 from dataclasses import FrozenInstanceError
 import hashlib
 import json
+import os
 from pathlib import Path
+import subprocess
+import sys
+import textwrap
 from types import SimpleNamespace
 
 import pytest
@@ -56,6 +60,28 @@ def _write(path: Path, content: str) -> None:
 def _hook_payload(command: str) -> str:
     return json.dumps(
         {"hooks": {"UserPromptSubmit": [{"hooks": [{"type": "command", "command": command}]}]}}
+    )
+
+
+def _run_isolated_python(tmp_path: Path, code: str) -> subprocess.CompletedProcess[str]:
+    repo = Path(__file__).resolve().parents[2]
+    home = tmp_path / "home"
+    home.mkdir(parents=True, exist_ok=True)
+    env = os.environ.copy()
+    env.update(
+        {
+            "HOME": str(home),
+            "USERPROFILE": str(home),
+            "PYTHONPATH": str(repo),
+        }
+    )
+    return subprocess.run(
+        [sys.executable, "-c", textwrap.dedent(code)],
+        cwd=repo,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
     )
 
 
@@ -353,6 +379,32 @@ def test_codex_malformed_toml_accepts_semantic_managed_table_headers(
     assert has_managed_footprint("codex") is True
 
 
+def test_codex_malformed_toml_accepts_root_dotted_mcp_assignment(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    paths = _patch_paths(tmp_path, monkeypatch)
+    _write(
+        paths["codex_config"],
+        'mcp_servers."agent-memory-hub" = "broken"\nbroken =\n',
+    )
+
+    assert has_managed_footprint("codex") is True
+
+
+def test_codex_malformed_toml_rejects_dotted_mcp_assignment_inside_other_table(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    paths = _patch_paths(tmp_path, monkeypatch)
+    _write(
+        paths["codex_config"],
+        ('[metadata]\nmcp_servers."agent-memory-hub" = "not-root"\nbroken =\n'),
+    )
+
+    assert has_managed_footprint("codex") is False
+
+
 @pytest.mark.parametrize("adapter_name", ["codex", "claude_code"])
 def test_utf8_bom_valid_json_does_not_fall_back_to_raw_marker_scan(
     tmp_path: Path,
@@ -461,6 +513,37 @@ def test_malformed_owned_mcp_json_is_diagnosed_not_skipped(
     assert [report.adapter for report in reports] == ["claude_code"]
     assert reports[0].status == "error"
     assert any("malformed" in check.detail for check in reports[0].non_ok_checks)
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        '{"metadata": {"mcpServers": {"agent-memory-hub": null}}, "broken": ',
+        '{"first": true} {"mcpServers": {"agent-memory-hub": ',
+        ('{"note": "\\"mcpServers\\": {\\"agent-memory-hub\\": null}", "broken": '),
+        '{"mcpServers": {"wrapper": {"agent-memory-hub": null}}, "broken": ',
+    ],
+)
+def test_malformed_mcp_fallback_rejects_non_root_or_non_direct_ownership(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    content: str,
+) -> None:
+    paths = _patch_paths(tmp_path, monkeypatch)
+    _write(paths["claude_settings"], content)
+
+    assert has_managed_footprint("claude_code") is False
+
+
+def test_malformed_mcp_fallback_handles_deep_repeated_nested_content(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    paths = _patch_paths(tmp_path, monkeypatch)
+    content = '{"metadata": ' + '{"mcpServers": ' * 500 + '{"agent-memory-hub": null'
+    _write(paths["claude_settings"], content)
+
+    assert has_managed_footprint("claude_code") is False
 
 
 def test_diagnose_only_configured_adapters_and_keeps_non_ok_checks(
@@ -676,7 +759,10 @@ def test_missing_and_broken_symlink_configs_remain_unconfigured(
 ) -> None:
     paths = _patch_paths(tmp_path, monkeypatch)
     paths["codex_hooks"].parent.mkdir(parents=True)
-    paths["codex_hooks"].symlink_to(tmp_path / "missing-hooks.json")
+    try:
+        paths["codex_hooks"].symlink_to(tmp_path / "missing-hooks.json")
+    except (NotImplementedError, OSError) as exc:
+        pytest.skip(f"symlink creation unavailable: {exc}")
     brain = tmp_path / "brain"
     brain.mkdir()
 
@@ -834,11 +920,148 @@ def test_diagnostic_report_accepts_any_iterable_of_checks(
     assert reports == (CoreAdapterHealth("codex", "warn", (warn,)),)
 
 
+@pytest.mark.parametrize(
+    ("report_status", "check_status", "expected_status"),
+    [
+        ("ok", "warn", "warn"),
+        ("ok", "error", "error"),
+        ("warn", "error", "error"),
+        ("error", "ok", "error"),
+    ],
+)
+def test_diagnostic_status_uses_more_severe_report_or_check_status(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    report_status: str,
+    check_status: str,
+    expected_status: str,
+) -> None:
+    paths = _patch_paths(tmp_path, monkeypatch)
+    _write(paths["codex_agents"], CODEX_BEGIN)
+    brain = tmp_path / "brain"
+    brain.mkdir()
+    check = AdapterDiagnosticCheck("check", check_status, "detail")
+    report = AdapterDiagnosticReport(
+        adapter="codex",
+        overall_status=report_status,
+        checks=[check],
+        brain_dir=brain,
+    )
+
+    from agent_brain.agent_integrations import registry
+
+    monkeypatch.setattr(registry, "get_adapter", lambda name, brain_dir: _Adapter(report))
+
+    reports = diagnose_configured_core_adapters(brain)
+
+    assert reports[0].status == expected_status
+
+
 def test_core_adapter_health_is_immutable() -> None:
     health = CoreAdapterHealth("codex", "ok", ())
 
     with pytest.raises(FrozenInstanceError):
         health.status = "error"  # type: ignore[misc]
+
+
+def test_importing_adapter_health_does_not_import_agent_integrations(
+    tmp_path: Path,
+) -> None:
+    result = _run_isolated_python(
+        tmp_path,
+        """
+        import sys
+
+        assert "agent_brain.agent_integrations" not in sys.modules
+        import agent_brain.platform.adapter_health
+        assert "agent_brain.agent_integrations" not in sys.modules
+        """,
+    )
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_unconfigured_diagnosis_does_not_import_agent_integrations(
+    tmp_path: Path,
+) -> None:
+    result = _run_isolated_python(
+        tmp_path,
+        """
+        import os
+        from pathlib import Path
+        import sys
+
+        from agent_brain.platform.adapter_health import diagnose_configured_core_adapters
+
+        brain = Path(os.environ["HOME"]) / "brain"
+        brain.mkdir()
+        assert diagnose_configured_core_adapters(brain) == ()
+        assert "agent_brain.agent_integrations" not in sys.modules
+        """,
+    )
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_configured_first_package_import_failure_becomes_bounded_error(
+    tmp_path: Path,
+) -> None:
+    home = tmp_path / "home"
+    agents_md = home / ".codex" / "AGENTS.md"
+    _write(agents_md, CODEX_BEGIN)
+    result = _run_isolated_python(
+        tmp_path,
+        """
+        import importlib
+        import os
+        from pathlib import Path
+
+        from agent_brain.platform import adapter_health
+
+        real_import = importlib.import_module
+        calls = []
+
+        def failing_import(name, package=None):
+            if name == "agent_brain.agent_integrations":
+                calls.append(name)
+                raise RuntimeError("first package import failed")
+            return real_import(name, package)
+
+        importlib.import_module = failing_import
+        brain = Path(os.environ["HOME"]) / "brain"
+        brain.mkdir()
+        reports = adapter_health.diagnose_configured_core_adapters(brain)
+
+        assert calls == ["agent_brain.agent_integrations"]
+        assert [report.adapter for report in reports] == ["codex"]
+        assert reports[0].status == "error"
+        assert "first package import failed" in reports[0].non_ok_checks[0].detail
+        assert adapter_health.has_managed_footprint("codex") is True
+        assert adapter_health.bounded_diagnostic_text("still usable") == "still usable"
+        """,
+    )
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_neutral_diagnostic_types_are_legacy_identity_reexports() -> None:
+    from agent_brain.diagnostic_types import (
+        AdapterDiagnosticCheck as NeutralCheck,
+    )
+    from agent_brain.diagnostic_types import CheckStatus as NeutralStatus
+    from agent_brain.agent_integrations.diagnostics import (
+        AdapterDiagnosticCheck as LegacyCheck,
+    )
+    from agent_brain.agent_integrations.diagnostics import CheckStatus as LegacyStatus
+
+    assert NeutralCheck is LegacyCheck
+    assert NeutralStatus is LegacyStatus
+    assert NeutralCheck("name", "warn", "detail", "fix").to_dict() == {
+        "name": "name",
+        "status": "warn",
+        "detail": "detail",
+        "fix": "fix",
+    }
 
 
 def test_bounded_diagnostic_text_preserves_lines_tabs_and_limits_length() -> None:

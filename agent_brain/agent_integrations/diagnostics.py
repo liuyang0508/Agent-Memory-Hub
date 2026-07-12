@@ -2,25 +2,12 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+
+from agent_brain.diagnostic_types import AdapterDiagnosticCheck, CheckStatus
 
 from .runtime_events import runtime_event_summary
-
-
-CheckStatus = Literal["ok", "warn", "error"]
-
-
-@dataclass(frozen=True)
-class AdapterDiagnosticCheck:
-    name: str
-    status: CheckStatus
-    detail: str
-    fix: str = ""
-
-    def to_dict(self) -> dict[str, str]:
-        return asdict(self)
 
 
 @dataclass(frozen=True)
@@ -55,8 +42,7 @@ def overall_status(checks: list[AdapterDiagnosticCheck]) -> CheckStatus:
 
 def _native_memory_observed(checks: list[AdapterDiagnosticCheck]) -> bool:
     return any(
-        check.status == "ok" and "native memory bridge" in check.name.lower()
-        for check in checks
+        check.status == "ok" and "native memory bridge" in check.name.lower() for check in checks
     )
 
 
@@ -129,11 +115,9 @@ def diagnose_layered_context_pack_evidence(
         )
 
     item_metrics = [item for item in items if isinstance(item, dict)]
-    selected_views = sorted({
-        str(item.get("selected_view"))
-        for item in item_metrics
-        if item.get("selected_view")
-    })
+    selected_views = sorted(
+        {str(item.get("selected_view")) for item in item_metrics if item.get("selected_view")}
+    )
     packed_tokens = metrics.get("packed_tokens")
     full_tokens = metrics.get("full_tokens")
     if not selected_views or not isinstance(packed_tokens, int) or not isinstance(full_tokens, int):
