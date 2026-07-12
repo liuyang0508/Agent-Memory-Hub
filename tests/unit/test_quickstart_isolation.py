@@ -3,10 +3,12 @@ from __future__ import annotations
 import hashlib
 import os
 import re
+import shlex
 import shutil
 import signal
 import stat
 import subprocess
+import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -71,11 +73,80 @@ class QuickstartFixture:
     script: Path
     env: dict[str, str]
     outer_tmp: Path
+    install_script: Path
+    search_script: Path
+    git_wrapper: Path
+    mktemp_wrapper: Path
+    mkdir_wrapper: Path
+    git_env_record: Path
+    attack_sentinels: tuple[Path, ...]
     host_roots: tuple[Path, Path, Path]
     host_manifests: tuple[TreeManifest, ...]
 
     def assert_host_unchanged(self) -> None:
         assert tuple(_tree_manifest(root) for root in self.host_roots) == self.host_manifests
+
+    @staticmethod
+    def _set_assignments(path: Path, assignments: dict[str, str | int]) -> None:
+        content = path.read_text(encoding="utf-8")
+        for key, value in assignments.items():
+            replacement = f"{key}={shlex.quote(str(value))}"
+            content, count = re.subn(
+                rf"^{re.escape(key)}=.*$",
+                lambda _match: replacement,
+                content,
+                count=1,
+                flags=re.MULTILINE,
+            )
+            assert count == 1, f"missing fixture assignment {key} in {path}"
+        path.write_text(content, encoding="utf-8")
+
+    def _commit_repo_config(self, message: str) -> None:
+        subprocess.run(
+            ["git", "add", "install.sh", "agent_runtime_kit/tools/search-memory.sh"],
+            cwd=self.repo,
+            check=True,
+        )
+        subprocess.run(
+            ["git", "commit", "-m", message],
+            cwd=self.repo,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+    def configure_install(
+        self,
+        mode: str,
+        *,
+        ready_file: Path | None = None,
+        process_state_file: Path | None = None,
+    ) -> None:
+        self._set_assignments(
+            self.install_script,
+            {
+                "INSTALL_MODE": mode,
+                "SIGNAL_READY_FILE": ready_file or "/dev/null",
+                "PROCESS_STATE_FILE": process_state_file or "/dev/null",
+            },
+        )
+        self._commit_repo_config(f"fixture install mode {mode}")
+
+    def configure_search_exit(self, exit_code: int) -> None:
+        self._set_assignments(self.search_script, {"SEARCH_EXIT": exit_code})
+        self._commit_repo_config(f"fixture search exit {exit_code}")
+
+    def configure_clone_failure(self) -> None:
+        self._set_assignments(self.git_wrapper, {"CLONE_FAIL": 1})
+
+    def configure_mktemp_failure(self, output_path: Path) -> None:
+        self._set_assignments(
+            self.mktemp_wrapper,
+            {"MKTEMP_MODE": "fail_existing", "MKTEMP_OUTPUT": output_path},
+        )
+
+    def configure_bootstrap_failure(self) -> None:
+        self._set_assignments(self.mkdir_wrapper, {"BOOTSTRAP_MKDIR_FAIL": 1})
 
 
 @pytest.fixture
@@ -106,6 +177,14 @@ def quickstart_fixture(tmp_path: Path) -> QuickstartFixture:
         repo / "install.sh",
         """#!/usr/bin/env bash
 set -u
+INSTALL_MODE=success
+SIGNAL_READY_FILE=/dev/null
+PROCESS_STATE_FILE=/dev/null
+PROBE_PYTHON=/dev/null
+
+"$PROBE_PYTHON" -c 'pass'
+if [ -n "${MEMORY_PYTHON-}" ]; then "$MEMORY_PYTHON" -c 'pass'; fi
+if [ -n "${AGENT_MEMORY_HUB_PYTHON-}" ]; then "$AGENT_MEMORY_HUB_PYTHON" -c 'pass'; fi
 
 BIN_DIR="${AGENT_MEMORY_HUB_BIN:-$HOME/.local/bin}"
 VENV_MEMORY="${AGENT_MEMORY_HUB_HOME:?}/.venv/bin/memory"
@@ -168,15 +247,40 @@ fi
   printf 'ENV=%s\\n' "${ENV-<unset>}"
   printf 'CDPATH=%s\\n' "${CDPATH-<unset>}"
   printf 'PATH=%s\\n' "$PATH"
+  printf 'LANG=%s\\n' "${LANG-<unset>}"
   printf 'LC_ALL=%s\\n' "${LC_ALL-<unset>}"
+  printf 'LC_CTYPE=%s\\n' "${LC_CTYPE-<unset>}"
+  printf 'HTTP_PROXY=%s\\n' "${HTTP_PROXY-<unset>}"
   printf 'HTTPS_PROXY=%s\\n' "${HTTPS_PROXY-<unset>}"
+  printf 'ALL_PROXY=%s\\n' "${ALL_PROXY-<unset>}"
+  printf 'NO_PROXY=%s\\n' "${NO_PROXY-<unset>}"
+  printf 'http_proxy=%s\\n' "${http_proxy-<unset>}"
+  printf 'https_proxy=%s\\n' "${https_proxy-<unset>}"
+  printf 'all_proxy=%s\\n' "${all_proxy-<unset>}"
+  printf 'no_proxy=%s\\n' "${no_proxy-<unset>}"
+  printf 'SSL_CERT_FILE=%s\\n' "${SSL_CERT_FILE-<unset>}"
+  printf 'SSL_CERT_DIR=%s\\n' "${SSL_CERT_DIR-<unset>}"
+  printf 'REQUESTS_CA_BUNDLE=%s\\n' "${REQUESTS_CA_BUNDLE-<unset>}"
   printf 'CURL_CA_BUNDLE=%s\\n' "${CURL_CA_BUNDLE-<unset>}"
+  printf 'PIP_CERT=%s\\n' "${PIP_CERT-<unset>}"
+  printf 'GIT_SSL_CAINFO=%s\\n' "${GIT_SSL_CAINFO-<unset>}"
   printf 'SSH_AUTH_SOCK=%s\\n' "${SSH_AUTH_SOCK-<unset>}"
   printf 'AMH_TEST_PRESERVED=%s\\n' "${AMH_TEST_PRESERVED-<unset>}"
+  printf 'GIT_CONFIG_GLOBAL=%s\\n' "${GIT_CONFIG_GLOBAL-<unset>}"
+  printf 'PYTHONPATH=%s\\n' "${PYTHONPATH-<unset>}"
+  printf 'PYTHONSTARTUP=%s\\n' "${PYTHONSTARTUP-<unset>}"
+  printf 'PYTHONINSPECT=%s\\n' "${PYTHONINSPECT-<unset>}"
+  printf 'MEMORY_PYTHON=%s\\n' "${MEMORY_PYTHON-<unset>}"
+  printf 'AGENT_MEMORY_HUB_PYTHON=%s\\n' "${AGENT_MEMORY_HUB_PYTHON-<unset>}"
 } > "$HOME/install-env.txt"
 
-case "${FAKE_INSTALL_MODE:-success}" in
+case "$INSTALL_MODE" in
   exit42)
+    line=1
+    while [ "$line" -le 100 ]; do
+      printf 'install-log-%03d\\n' "$line"
+      line=$((line + 1))
+    done
     exit 42
     ;;
   wait_resistant)
@@ -190,8 +294,8 @@ case "${FAKE_INSTALL_MODE:-success}" in
       printf 'phase_pgid=%s\\n' "$phase_pgid"
       printf 'child_pid=%s\\n' "$child_pid"
       printf 'child_pgid=%s\\n' "$child_pgid"
-    } > "${FAKE_PROCESS_STATE_FILE:?}"
-    : > "${FAKE_SIGNAL_READY_FILE:?}"
+    } > "$PROCESS_STATE_FILE"
+    : > "$SIGNAL_READY_FILE"
     while :; do wait "$child_pid" || true; done
     ;;
 esac
@@ -201,6 +305,11 @@ esac
         repo / "agent_runtime_kit" / "tools" / "search-memory.sh",
         """#!/usr/bin/env bash
 set -u
+SEARCH_EXIT=0
+PROBE_PYTHON=/dev/null
+"$PROBE_PYTHON" -c 'pass'
+if [ -n "${MEMORY_PYTHON-}" ]; then "$MEMORY_PYTHON" -c 'pass'; fi
+if [ -n "${AGENT_MEMORY_HUB_PYTHON-}" ]; then "$AGENT_MEMORY_HUB_PYTHON" -c 'pass'; fi
 {
   printf 'HOME=%s\\n' "$HOME"
   printf 'BRAIN_DIR=%s\\n' "${BRAIN_DIR-<unset>}"
@@ -208,16 +317,32 @@ set -u
   printf 'AGENT_MEMORY_HUB_HOME=%s\\n' "${AGENT_MEMORY_HUB_HOME-<unset>}"
   printf 'TMPDIR=%s\\n' "${TMPDIR-<unset>}"
   printf 'PIP_TARGET=%s\\n' "${PIP_TARGET-<unset>}"
+  printf 'GIT_CONFIG_GLOBAL=%s\\n' "${GIT_CONFIG_GLOBAL-<unset>}"
+  printf 'PYTHONPATH=%s\\n' "${PYTHONPATH-<unset>}"
+  printf 'PYTHONSTARTUP=%s\\n' "${PYTHONSTARTUP-<unset>}"
+  printf 'PYTHONINSPECT=%s\\n' "${PYTHONINSPECT-<unset>}"
+  printf 'MEMORY_PYTHON=%s\\n' "${MEMORY_PYTHON-<unset>}"
+  printf 'AGENT_MEMORY_HUB_PYTHON=%s\\n' "${AGENT_MEMORY_HUB_PYTHON-<unset>}"
 } > "$HOME/search-env.txt"
 printf 'search-line-1\\nsearch-line-2\\nsearch-line-3\\nsearch-line-4\\n'
-exit "${FAKE_SEARCH_EXIT:-0}"
+if [ "$SEARCH_EXIT" -ne 0 ]; then
+  line=1
+  while [ "$line" -le 100 ]; do
+    printf 'search-log-%03d\\n' "$line"
+    line=$((line + 1))
+  done
+fi
+exit "$SEARCH_EXIT"
 """,
+    )
+    QuickstartFixture._set_assignments(repo / "install.sh", {"PROBE_PYTHON": sys.executable})
+    QuickstartFixture._set_assignments(
+        repo / "agent_runtime_kit" / "tools" / "search-memory.sh",
+        {"PROBE_PYTHON": sys.executable},
     )
 
     subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True, text=True)
-    subprocess.run(
-        ["git", "config", "user.email", "quickstart@example.test"], cwd=repo, check=True
-    )
+    subprocess.run(["git", "config", "user.email", "quickstart@example.test"], cwd=repo, check=True)
     subprocess.run(["git", "config", "user.name", "Quickstart Test"], cwd=repo, check=True)
     subprocess.run(["git", "add", "."], cwd=repo, check=True)
     subprocess.run(
@@ -230,15 +355,23 @@ exit "${FAKE_SEARCH_EXIT:-0}"
 
     real_git = shutil.which("git")
     real_mktemp = shutil.which("mktemp")
-    real_chmod = shutil.which("chmod")
+    real_mkdir = shutil.which("mkdir")
     assert real_git is not None
     assert real_mktemp is not None
-    assert real_chmod is not None
+    assert real_mkdir is not None
     tool_bin = tmp_path / "tool-bin"
     _write_executable(
         tool_bin / "git",
         """#!/usr/bin/env bash
 set -u
+REAL_GIT=/dev/null
+GIT_ENV_RECORD=/dev/null
+CLONE_FAIL=0
+PROBE_PYTHON=/dev/null
+
+"$PROBE_PYTHON" -c 'pass'
+if [ -n "${MEMORY_PYTHON-}" ]; then "$MEMORY_PYTHON" -c 'pass'; fi
+if [ -n "${AGENT_MEMORY_HUB_PYTHON-}" ]; then "$AGENT_MEMORY_HUB_PYTHON" -c 'pass'; fi
 
 {
   printf 'HOME=%s\\n' "${HOME-<unset>}"
@@ -267,14 +400,20 @@ set -u
   printf 'HTTPS_PROXY=%s\\n' "${HTTPS_PROXY-<unset>}"
   printf 'CURL_CA_BUNDLE=%s\\n' "${CURL_CA_BUNDLE-<unset>}"
   printf 'SSH_AUTH_SOCK=%s\\n' "${SSH_AUTH_SOCK-<unset>}"
-} > "${FAKE_GIT_ENV_RECORD:?}"
+  printf 'GIT_CONFIG_GLOBAL=%s\\n' "${GIT_CONFIG_GLOBAL-<unset>}"
+  printf 'PYTHONPATH=%s\\n' "${PYTHONPATH-<unset>}"
+  printf 'PYTHONSTARTUP=%s\\n' "${PYTHONSTARTUP-<unset>}"
+  printf 'PYTHONINSPECT=%s\\n' "${PYTHONINSPECT-<unset>}"
+  printf 'MEMORY_PYTHON=%s\\n' "${MEMORY_PYTHON-<unset>}"
+  printf 'AGENT_MEMORY_HUB_PYTHON=%s\\n' "${AGENT_MEMORY_HUB_PYTHON-<unset>}"
+} > "$GIT_ENV_RECORD"
 
 if [ -n "${GIT_OBJECT_DIRECTORY-}" ]; then
   mkdir -p "$GIT_OBJECT_DIRECTORY"
   printf 'git objects escaped\\n' > "$GIT_OBJECT_DIRECTORY/quickstart-pollution.txt"
 fi
 
-if [ "${FAKE_CLONE_FAIL:-0}" = 1 ] && [ "${1:-}" = clone ]; then
+if [ "$CLONE_FAIL" -eq 1 ] && [ "${1:-}" = clone ]; then
   line=1
   while [ "$line" -le 100 ]; do
     printf 'clone-log-%03d\\n' "$line"
@@ -289,38 +428,85 @@ unset GIT_TRACE GIT_TRACE2 GIT_TRACE2_EVENT GIT_TRACE2_PERF
 unset GIT_TRACE_PERFORMANCE GIT_TRACE_PACKET GIT_TRACE_PACK_ACCESS
 unset GIT_TRACE_SETUP GIT_TRACE_CURL GIT_TRACE_SHALLOW GIT_TRACE_FSMONITOR
 unset GIT_TRACE_REFS GIT_TRACE_PACKFILE
-exec "${AMH_TEST_REAL_GIT:?}" "$@"
+exec "$REAL_GIT" "$@"
 """,
     )
     _write_executable(
         tool_bin / "mktemp",
         """#!/usr/bin/env bash
 set -u
-if [ "${FAKE_MKTEMP_FAIL:-0}" = 1 ]; then
-  mkdir -p "${FAKE_MKTEMP_PARTIAL_ROOT:?}"
-  printf '%s\\n' "$FAKE_MKTEMP_PARTIAL_ROOT"
-  exit 71
-fi
-exec "${AMH_TEST_REAL_MKTEMP:?}" "$@"
+REAL_MKTEMP=/dev/null
+MKTEMP_MODE=success
+MKTEMP_OUTPUT=/dev/null
+case "$MKTEMP_MODE" in
+  fail_existing)
+    printf '%s\\n' "$MKTEMP_OUTPUT"
+    exit 71
+    ;;
+esac
+exec "$REAL_MKTEMP" "$@"
 """,
     )
     _write_executable(
-        tool_bin / "chmod",
+        tool_bin / "mkdir",
         """#!/usr/bin/env bash
 set -u
-if [ "${FAKE_BOOTSTRAP_CHMOD_FAIL:-0}" = 1 ]; then
+REAL_MKDIR=/dev/null
+BOOTSTRAP_MKDIR_FAIL=0
+if [ "$BOOTSTRAP_MKDIR_FAIL" -eq 1 ]; then
   for arg in "$@"; do
     case "$arg" in
-      */xdg-runtime) exit 72 ;;
+      */amh-bench-*/home) exit 72 ;;
     esac
   done
 fi
-exec "${AMH_TEST_REAL_CHMOD:?}" "$@"
+exec "$REAL_MKDIR" "$@"
 """,
     )
 
     inherited = tmp_path / "inherited-env"
     git_env_record = tmp_path / "git-clone-env.txt"
+    QuickstartFixture._set_assignments(
+        tool_bin / "git",
+        {
+            "REAL_GIT": real_git,
+            "GIT_ENV_RECORD": git_env_record,
+            "PROBE_PYTHON": sys.executable,
+        },
+    )
+    QuickstartFixture._set_assignments(tool_bin / "mktemp", {"REAL_MKTEMP": real_mktemp})
+    QuickstartFixture._set_assignments(tool_bin / "mkdir", {"REAL_MKDIR": real_mkdir})
+
+    hook_sentinel = host_pip_target / "git-hook-ran.txt"
+    hook_dir = tmp_path / "host-git-hooks"
+    _write_executable(
+        hook_dir / "post-checkout",
+        f"#!/bin/sh\nprintf 'hook escaped\\n' > {shlex.quote(str(hook_sentinel))}\n",
+    )
+    git_config = tmp_path / "host-gitconfig"
+    git_config.write_text(f"[core]\n\thooksPath = {hook_dir}\n", encoding="utf-8")
+
+    sitecustomize_sentinel = host_pip_target / "sitecustomize-ran.txt"
+    malicious_pythonpath = tmp_path / "host-pythonpath"
+    malicious_pythonpath.mkdir()
+    (malicious_pythonpath / "sitecustomize.py").write_text(
+        "from pathlib import Path\n"
+        f"Path({str(sitecustomize_sentinel)!r}).write_text('sitecustomize escaped\\n')\n",
+        encoding="utf-8",
+    )
+    memory_python_sentinel = host_pip_target / "memory-python-ran.txt"
+    agent_python_sentinel = host_pip_target / "agent-python-ran.txt"
+    memory_python = tmp_path / "host-memory-python"
+    agent_python = tmp_path / "host-agent-python"
+    _write_executable(
+        memory_python,
+        f"#!/bin/sh\nprintf 'memory python escaped\\n' > {shlex.quote(str(memory_python_sentinel))}\n",
+    )
+    _write_executable(
+        agent_python,
+        f"#!/bin/sh\nprintf 'agent python escaped\\n' > {shlex.quote(str(agent_python_sentinel))}\n",
+    )
+
     env = os.environ.copy()
     env.update(
         {
@@ -375,15 +561,31 @@ exec "${AMH_TEST_REAL_CHMOD:?}" "$@"
             "GIT_TRACE_FSMONITOR": str(host_pip_target / "git-trace-fsmonitor.log"),
             "GIT_TRACE_REFS": str(host_pip_target / "git-trace-refs.log"),
             "GIT_TRACE_PACKFILE": str(host_pip_target / "git-trace-packfile.log"),
+            "GIT_CONFIG_GLOBAL": str(git_config),
+            "PYTHONPATH": str(malicious_pythonpath),
+            "PYTHONSTARTUP": str(tmp_path / "host-python-startup.py"),
+            "PYTHONINSPECT": "1",
+            "MEMORY_PYTHON": str(memory_python),
+            "AGENT_MEMORY_HUB_PYTHON": str(agent_python),
+            "LANG": "C",
             "LC_ALL": "C",
+            "LC_CTYPE": "C",
+            "HTTP_PROXY": "http://127.0.0.1:8",
             "HTTPS_PROXY": "http://127.0.0.1:9",
+            "ALL_PROXY": "socks5://127.0.0.1:7",
+            "NO_PROXY": "localhost,127.0.0.1",
+            "http_proxy": "http://127.0.0.1:18",
+            "https_proxy": "http://127.0.0.1:19",
+            "all_proxy": "socks5://127.0.0.1:17",
+            "no_proxy": "localhost,127.0.0.1",
+            "SSL_CERT_FILE": "fixture-ssl-cert-file",
+            "SSL_CERT_DIR": "fixture-ssl-cert-dir",
+            "REQUESTS_CA_BUNDLE": "fixture-requests-ca",
             "CURL_CA_BUNDLE": "fixture-ca-preserved",
+            "PIP_CERT": "fixture-pip-cert",
+            "GIT_SSL_CAINFO": "fixture-git-ca",
             "SSH_AUTH_SOCK": str(inherited / "ssh-agent.sock"),
             "AMH_TEST_PRESERVED": "preserved",
-            "AMH_TEST_REAL_GIT": real_git,
-            "AMH_TEST_REAL_MKTEMP": real_mktemp,
-            "AMH_TEST_REAL_CHMOD": real_chmod,
-            "FAKE_GIT_ENV_RECORD": str(git_env_record),
             "AMH_QUICKSTART_TARGET_SECONDS": "120",
         }
     )
@@ -394,6 +596,18 @@ exec "${AMH_TEST_REAL_CHMOD:?}" "$@"
         script=repo / "benchmarks" / "quickstart-60s.sh",
         env=env,
         outer_tmp=outer_tmp,
+        install_script=repo / "install.sh",
+        search_script=repo / "agent_runtime_kit" / "tools" / "search-memory.sh",
+        git_wrapper=tool_bin / "git",
+        mktemp_wrapper=tool_bin / "mktemp",
+        mkdir_wrapper=tool_bin / "mkdir",
+        git_env_record=git_env_record,
+        attack_sentinels=(
+            hook_sentinel,
+            sitecustomize_sentinel,
+            memory_python_sentinel,
+            agent_python_sentinel,
+        ),
         host_roots=host_roots,
         host_manifests=tuple(_tree_manifest(root) for root in host_roots),
     )
@@ -443,11 +657,7 @@ def _same_process_is_running(identity: ProcessIdentity) -> bool:
 
 def _identity_still_matches(identity: ProcessIdentity) -> bool:
     current = _process_identity(identity.pid)
-    return bool(
-        current
-        and current.pgid == identity.pgid
-        and current.command == identity.command
-    )
+    return bool(current and current.pgid == identity.pgid and current.command == identity.command)
 
 
 def _live_processes_in_group(pgid: int) -> list[ProcessIdentity]:
@@ -491,9 +701,7 @@ def _cleanup_benchmark_process(
     process: subprocess.Popen[str], known_phase_processes: tuple[ProcessIdentity, ...] = ()
 ) -> None:
     groups = {
-        identity.pgid
-        for identity in known_phase_processes
-        if _identity_still_matches(identity)
+        identity.pgid for identity in known_phase_processes if _identity_still_matches(identity)
     }
     if process.poll() is None:
         groups.update(_descendant_process_groups(process.pid))
@@ -508,12 +716,8 @@ def _cleanup_benchmark_process(
         process.communicate(timeout=5)
 
 
-def _run_quickstart(
-    fixture: QuickstartFixture, *args: str, env_updates: dict[str, str] | None = None
-) -> subprocess.CompletedProcess[str]:
+def _run_quickstart(fixture: QuickstartFixture, *args: str) -> subprocess.CompletedProcess[str]:
     env = fixture.env.copy()
-    if env_updates:
-        env.update(env_updates)
     process = subprocess.Popen(
         [str(fixture.script), *args],
         cwd=fixture.repo,
@@ -539,17 +743,57 @@ def _bench_root(output: str) -> Path:
     return Path(match.group(1).strip())
 
 
-def _remove_kept_benchmark_root(bench_root: Path, allowed_parent: Path) -> None:
+def _assert_owned_benchmark_root(bench_root: Path, allowed_parent: Path) -> None:
+    assert bench_root.is_dir()
+    assert not bench_root.is_symlink()
     resolved_root = bench_root.resolve()
     resolved_parent = allowed_parent.resolve()
     assert resolved_root != resolved_parent
     assert resolved_root.is_relative_to(resolved_parent)
     assert resolved_root.name.startswith("amh-bench-")
-    shutil.rmtree(resolved_root, ignore_errors=True)
+    marker = resolved_root / ".amh-quickstart-owned"
+    assert marker.is_file()
+    assert not marker.is_symlink()
+    assert re.fullmatch(r"amh-quickstart:[0-9]+:[0-9]+", marker.read_text(encoding="utf-8").strip())
+
+
+def _remove_kept_benchmark_root(bench_root: Path, allowed_parent: Path) -> None:
+    try:
+        _assert_owned_benchmark_root(bench_root, allowed_parent)
+    except (AssertionError, OSError, UnicodeError):
+        return
+    shutil.rmtree(bench_root.resolve())
 
 
 def _read_env(path: Path) -> dict[str, str]:
     return dict(line.split("=", 1) for line in path.read_text(encoding="utf-8").splitlines())
+
+
+def _recover_phase_identities(process_state_file: Path) -> tuple[ProcessIdentity, ...]:
+    """Best-effort cleanup evidence; a partial state file must never hide a test failure."""
+    try:
+        saved_state = _read_env(process_state_file)
+    except (OSError, UnicodeError, ValueError):
+        return ()
+
+    identities: list[ProcessIdentity] = []
+    for pid_key, pgid_key, command_marker in (
+        ("phase_pid", "phase_pgid", "install.sh"),
+        ("child_pid", "child_pgid", "quickstart-resistant-descendant"),
+    ):
+        try:
+            pid = int(saved_state[pid_key])
+            expected_pgid = int(saved_state[pgid_key])
+        except (KeyError, ValueError):
+            continue
+        current = _process_identity(pid)
+        if (
+            current is not None
+            and current.pgid == expected_pgid
+            and command_marker in current.command
+        ):
+            identities.append(current)
+    return tuple(identities)
 
 
 def test_default_success_preserves_host_trees_and_removes_benchmark_root(
@@ -566,33 +810,32 @@ def test_default_success_preserves_host_trees_and_removes_benchmark_root(
     quickstart_fixture.assert_host_unchanged()
 
 
-def test_mktemp_failure_is_fail_closed_and_cleans_partial_root(
+def test_mktemp_failure_stdout_cannot_delete_existing_sentinel_root(
     quickstart_fixture: QuickstartFixture,
-    tmp_path: Path,
 ) -> None:
-    partial_root = tmp_path / "partial-benchmark-root"
-    result = _run_quickstart(
-        quickstart_fixture,
-        env_updates={
-            "FAKE_MKTEMP_FAIL": "1",
-            "FAKE_MKTEMP_PARTIAL_ROOT": str(partial_root),
-        },
-    )
+    sentinel_root = quickstart_fixture.outer_tmp / "amh-bench-existing-sentinel"
+    sentinel_root.mkdir()
+    sentinel = sentinel_root / "do-not-delete.txt"
+    sentinel.write_text("host sentinel\n", encoding="utf-8")
+    before = _tree_manifest(sentinel_root)
+    quickstart_fixture.configure_mktemp_failure(sentinel_root)
+
+    result = _run_quickstart(quickstart_fixture)
     output = result.stdout + result.stderr
 
     assert result.returncode == 1, output
     assert "failed to create benchmark root" in output
     assert "✅ PASS" not in output
-    assert not partial_root.exists()
+    assert sentinel_root.is_dir()
+    assert _tree_manifest(sentinel_root) == before
     quickstart_fixture.assert_host_unchanged()
 
 
 def test_bootstrap_failure_is_fail_closed_and_cleans_benchmark_root(
     quickstart_fixture: QuickstartFixture,
 ) -> None:
-    result = _run_quickstart(
-        quickstart_fixture, env_updates={"FAKE_BOOTSTRAP_CHMOD_FAIL": "1"}
-    )
+    quickstart_fixture.configure_bootstrap_failure()
+    result = _run_quickstart(quickstart_fixture)
     output = result.stdout + result.stderr
 
     assert result.returncode == 1, output
@@ -602,6 +845,40 @@ def test_bootstrap_failure_is_fail_closed_and_cleans_benchmark_root(
     quickstart_fixture.assert_host_unchanged()
 
 
+def test_explicit_allowlist_blocks_host_execution_injection(
+    quickstart_fixture: QuickstartFixture,
+) -> None:
+    result = _run_quickstart(quickstart_fixture, "--keep")
+    output = result.stdout + result.stderr
+    bench_root = _bench_root(output)
+
+    try:
+        assert result.returncode == 0, output
+        _assert_owned_benchmark_root(bench_root, quickstart_fixture.outer_tmp)
+        escaped = [str(path) for path in quickstart_fixture.attack_sentinels if path.exists()]
+        assert escaped == []
+        forbidden_keys = (
+            "GIT_CONFIG_GLOBAL",
+            "PYTHONPATH",
+            "PYTHONSTARTUP",
+            "PYTHONINSPECT",
+            "MEMORY_PYTHON",
+            "AGENT_MEMORY_HUB_PYTHON",
+        )
+        phase_envs = (
+            _read_env(quickstart_fixture.git_env_record),
+            _read_env(bench_root / "home" / "install-env.txt"),
+            _read_env(bench_root / "home" / "search-env.txt"),
+        )
+        for phase_env in phase_envs:
+            assert {key: phase_env[key] for key in forbidden_keys} == {
+                key: "<unset>" for key in forbidden_keys
+            }
+        quickstart_fixture.assert_host_unchanged()
+    finally:
+        _remove_kept_benchmark_root(bench_root, quickstart_fixture.outer_tmp)
+
+
 def test_known_git_and_pip_write_overrides_cannot_escape_benchmark_root(
     quickstart_fixture: QuickstartFixture,
 ) -> None:
@@ -609,8 +886,7 @@ def test_known_git_and_pip_write_overrides_cannot_escape_benchmark_root(
     output = result.stdout + result.stderr
     bench_root = _bench_root(output)
     escaped_paths = [
-        Path(quickstart_fixture.env["GIT_OBJECT_DIRECTORY"])
-        / "quickstart-pollution.txt",
+        Path(quickstart_fixture.env["GIT_OBJECT_DIRECTORY"]) / "quickstart-pollution.txt",
         Path(quickstart_fixture.env["PIP_LOG"]),
     ]
 
@@ -629,23 +905,21 @@ def test_keep_contains_every_managed_output_inside_printed_benchmark_root(
 
     try:
         assert result.returncode == 0, output
-        assert bench_root.is_dir()
+        _assert_owned_benchmark_root(bench_root, quickstart_fixture.outer_tmp)
         for relative in (
             "home",
             "brain",
             "cache/pip",
-            "cache/uv",
             "tmp",
             "xdg-config",
             "xdg-data",
             "xdg-state",
-            "xdg-runtime",
             "pyuserbase",
             "pycache",
-            "pip-src",
             "cargo",
             "cargo-target",
             "rustup",
+            "uv-cache",
             "agent-memory-hub",
         ):
             assert (bench_root / relative).is_dir(), relative
@@ -663,20 +937,20 @@ def test_keep_contains_every_managed_output_inside_printed_benchmark_root(
             "XDG_CACHE_HOME": str(bench_root / "cache"),
             "XDG_DATA_HOME": str(bench_root / "xdg-data"),
             "XDG_STATE_HOME": str(bench_root / "xdg-state"),
-            "XDG_RUNTIME_DIR": str(bench_root / "xdg-runtime"),
+            "XDG_RUNTIME_DIR": "<unset>",
             "PIP_CONFIG_FILE": "/dev/null",
             "PIP_CACHE_DIR": str(bench_root / "cache" / "pip"),
             "PIP_LOG": "<unset>",
             "PIP_REPORT": "<unset>",
             "PIP_BUILD_TRACKER": "<unset>",
             "PIP_DOWNLOAD_CACHE": "<unset>",
-            "PIP_SRC": str(bench_root / "pip-src"),
+            "PIP_SRC": "<unset>",
             "PYTHONUSERBASE": str(bench_root / "pyuserbase"),
             "PYTHONPYCACHEPREFIX": str(bench_root / "pycache"),
             "CARGO_HOME": str(bench_root / "cargo"),
             "RUSTUP_HOME": str(bench_root / "rustup"),
             "CARGO_TARGET_DIR": str(bench_root / "cargo-target"),
-            "UV_CACHE_DIR": str(bench_root / "cache" / "uv"),
+            "UV_CACHE_DIR": str(bench_root / "uv-cache"),
             "PIP_TARGET": "<unset>",
             "PIP_PREFIX": "<unset>",
             "PIP_ROOT": "<unset>",
@@ -687,11 +961,31 @@ def test_keep_contains_every_managed_output_inside_printed_benchmark_root(
             "ENV": "<unset>",
             "CDPATH": "<unset>",
             "PATH": quickstart_fixture.env["PATH"],
+            "LANG": "C",
             "LC_ALL": "C",
+            "LC_CTYPE": "C",
+            "HTTP_PROXY": "http://127.0.0.1:8",
             "HTTPS_PROXY": "http://127.0.0.1:9",
+            "ALL_PROXY": "socks5://127.0.0.1:7",
+            "NO_PROXY": "localhost,127.0.0.1",
+            "http_proxy": "http://127.0.0.1:18",
+            "https_proxy": "http://127.0.0.1:19",
+            "all_proxy": "socks5://127.0.0.1:17",
+            "no_proxy": "localhost,127.0.0.1",
+            "SSL_CERT_FILE": "fixture-ssl-cert-file",
+            "SSL_CERT_DIR": "fixture-ssl-cert-dir",
+            "REQUESTS_CA_BUNDLE": "fixture-requests-ca",
             "CURL_CA_BUNDLE": "fixture-ca-preserved",
+            "PIP_CERT": "fixture-pip-cert",
+            "GIT_SSL_CAINFO": "fixture-git-ca",
             "SSH_AUTH_SOCK": str(quickstart_fixture.env["SSH_AUTH_SOCK"]),
-            "AMH_TEST_PRESERVED": "preserved",
+            "AMH_TEST_PRESERVED": "<unset>",
+            "GIT_CONFIG_GLOBAL": "<unset>",
+            "PYTHONPATH": "<unset>",
+            "PYTHONSTARTUP": "<unset>",
+            "PYTHONINSPECT": "<unset>",
+            "MEMORY_PYTHON": "<unset>",
+            "AGENT_MEMORY_HUB_PYTHON": "<unset>",
         }
         install_env = _read_env(bench_root / "home" / "install-env.txt")
         assert install_env == expected_env
@@ -706,6 +1000,12 @@ def test_keep_contains_every_managed_output_inside_printed_benchmark_root(
                 "AGENT_MEMORY_HUB_HOME",
                 "TMPDIR",
                 "PIP_TARGET",
+                "GIT_CONFIG_GLOBAL",
+                "PYTHONPATH",
+                "PYTHONSTARTUP",
+                "PYTHONINSPECT",
+                "MEMORY_PYTHON",
+                "AGENT_MEMORY_HUB_PYTHON",
             )
         }
         shim = bench_root / "home" / ".local" / "bin" / "memory"
@@ -713,6 +1013,54 @@ def test_keep_contains_every_managed_output_inside_printed_benchmark_root(
         assert shim.is_relative_to(bench_root)
         assert (bench_root / "home" / ".claude" / "commands" / "remember.md").is_file()
         assert "search-line-4" not in output
+        quickstart_fixture.assert_host_unchanged()
+    finally:
+        _remove_kept_benchmark_root(bench_root, quickstart_fixture.outer_tmp)
+
+
+def test_keep_clone_failure_retains_owned_root_and_complete_clone_log(
+    quickstart_fixture: QuickstartFixture,
+) -> None:
+    quickstart_fixture.configure_clone_failure()
+    result = _run_quickstart(quickstart_fixture, "--keep")
+    output = result.stdout + result.stderr
+    bench_root = _bench_root(output)
+
+    try:
+        assert result.returncode == 1, output
+        assert "clone failed" in output
+        _assert_owned_benchmark_root(bench_root, quickstart_fixture.outer_tmp)
+        clone_log = bench_root / "clone.log"
+        assert clone_log.is_file()
+        clone_lines = clone_log.read_text(encoding="utf-8").splitlines()
+        assert clone_lines == [f"clone-log-{line:03d}" for line in range(1, 101)]
+        output_clone_lines = [line for line in output.splitlines() if line.startswith("clone-log-")]
+        assert output_clone_lines == clone_lines[-80:]
+        quickstart_fixture.assert_host_unchanged()
+    finally:
+        _remove_kept_benchmark_root(bench_root, quickstart_fixture.outer_tmp)
+
+
+def test_keep_install_failure_retains_owned_root_and_complete_install_log(
+    quickstart_fixture: QuickstartFixture,
+) -> None:
+    quickstart_fixture.configure_install("exit42")
+    result = _run_quickstart(quickstart_fixture, "--keep")
+    output = result.stdout + result.stderr
+    bench_root = _bench_root(output)
+
+    try:
+        assert result.returncode == 1, output
+        assert "install.sh failed" in output
+        _assert_owned_benchmark_root(bench_root, quickstart_fixture.outer_tmp)
+        install_log = bench_root / "install.log"
+        assert install_log.is_file()
+        install_lines = install_log.read_text(encoding="utf-8").splitlines()
+        assert install_lines == [f"install-log-{line:03d}" for line in range(1, 101)]
+        output_install_lines = [
+            line for line in output.splitlines() if line.startswith("install-log-")
+        ]
+        assert output_install_lines == install_lines[-80:]
         quickstart_fixture.assert_host_unchanged()
     finally:
         _remove_kept_benchmark_root(bench_root, quickstart_fixture.outer_tmp)
@@ -727,6 +1075,7 @@ def test_keep_shim_targets_real_clone_venv_inside_benchmark_root(
 
     try:
         assert result.returncode == 0, output
+        _assert_owned_benchmark_root(bench_root, quickstart_fixture.outer_tmp)
         shim = bench_root / "home" / ".local" / "bin" / "memory"
         match = re.search(
             r'^exec "([^"]+)" "\$@"$',
@@ -753,9 +1102,8 @@ def test_keep_shim_targets_real_clone_venv_inside_benchmark_root(
 def test_install_failure_is_nonzero_cleans_up_and_preserves_host(
     quickstart_fixture: QuickstartFixture,
 ) -> None:
-    result = _run_quickstart(
-        quickstart_fixture, env_updates={"FAKE_INSTALL_MODE": "exit42"}
-    )
+    quickstart_fixture.configure_install("exit42")
+    result = _run_quickstart(quickstart_fixture)
     output = result.stdout + result.stderr
     bench_root = _bench_root(output)
 
@@ -769,12 +1117,11 @@ def test_install_failure_is_nonzero_cleans_up_and_preserves_host(
 def test_clone_failure_is_bounded_cleans_up_and_uses_sanitized_environment(
     quickstart_fixture: QuickstartFixture,
 ) -> None:
-    result = _run_quickstart(
-        quickstart_fixture, env_updates={"FAKE_CLONE_FAIL": "1"}
-    )
+    quickstart_fixture.configure_clone_failure()
+    result = _run_quickstart(quickstart_fixture)
     output = result.stdout + result.stderr
     bench_root = _bench_root(output)
-    clone_env = _read_env(Path(quickstart_fixture.env["FAKE_GIT_ENV_RECORD"]))
+    clone_env = _read_env(quickstart_fixture.git_env_record)
     clone_log_lines = [line for line in output.splitlines() if line.startswith("clone-log-")]
 
     assert result.returncode == 1, output
@@ -800,7 +1147,8 @@ def test_clone_failure_is_bounded_cleans_up_and_uses_sanitized_environment(
 def test_first_search_failure_is_nonzero_cleans_up_and_preserves_host(
     quickstart_fixture: QuickstartFixture,
 ) -> None:
-    result = _run_quickstart(quickstart_fixture, env_updates={"FAKE_SEARCH_EXIT": "43"})
+    quickstart_fixture.configure_search_exit(43)
+    result = _run_quickstart(quickstart_fixture)
     output = result.stdout + result.stderr
     bench_root = _bench_root(output)
 
@@ -812,25 +1160,29 @@ def test_first_search_failure_is_nonzero_cleans_up_and_preserves_host(
 
 
 @pytest.mark.parametrize(
-    ("sent_signal", "expected_returncode"),
-    [(signal.SIGINT, 130), (signal.SIGTERM, 143)],
+    ("signal_sequence", "expected_returncode"),
+    [
+        ((signal.SIGINT,), 130),
+        ((signal.SIGTERM,), 143),
+        ((signal.SIGINT, signal.SIGTERM), 130),
+        ((signal.SIGTERM, signal.SIGINT), 143),
+    ],
 )
-def test_signal_exit_cleans_only_benchmark_root_and_preserves_host(
+def test_signal_sequence_cleans_only_benchmark_root_and_preserves_host(
     quickstart_fixture: QuickstartFixture,
     tmp_path: Path,
-    sent_signal: signal.Signals,
+    signal_sequence: tuple[signal.Signals, ...],
     expected_returncode: int,
 ) -> None:
-    ready_file = tmp_path / f"install-ready-{sent_signal.name}"
-    process_state_file = tmp_path / f"install-processes-{sent_signal.name}"
-    env = quickstart_fixture.env.copy()
-    env.update(
-        {
-            "FAKE_INSTALL_MODE": "wait_resistant",
-            "FAKE_SIGNAL_READY_FILE": str(ready_file),
-            "FAKE_PROCESS_STATE_FILE": str(process_state_file),
-        }
+    sequence_name = "-".join(item.name for item in signal_sequence)
+    ready_file = tmp_path / f"install-ready-{sequence_name}"
+    process_state_file = tmp_path / f"install-processes-{sequence_name}"
+    quickstart_fixture.configure_install(
+        "wait_resistant",
+        ready_file=ready_file,
+        process_state_file=process_state_file,
     )
+    env = quickstart_fixture.env.copy()
     process = subprocess.Popen(
         [str(quickstart_fixture.script)],
         cwd=quickstart_fixture.repo,
@@ -864,7 +1216,10 @@ def test_signal_exit_cleans_only_benchmark_root_and_preserves_host(
         assert "install.sh" in phase_identity.command
         assert "quickstart-resistant-descendant" in child_identity.command
 
-        process.send_signal(sent_signal)
+        process.send_signal(signal_sequence[0])
+        if len(signal_sequence) == 2:
+            time.sleep(0.1)
+            process.send_signal(signal_sequence[1])
         output, _ = process.communicate(timeout=10)
 
         child_deadline = time.monotonic() + 3
@@ -876,19 +1231,7 @@ def test_signal_exit_cleans_only_benchmark_root_and_preserves_host(
         known_phase_processes = [
             identity for identity in (phase_identity, child_identity) if identity is not None
         ]
-        if process_state_file.exists():
-            saved_state = _read_env(process_state_file)
-            for pid_key, pgid_key, command_marker in (
-                ("phase_pid", "phase_pgid", "install.sh"),
-                ("child_pid", "child_pgid", "quickstart-resistant-descendant"),
-            ):
-                current = _process_identity(int(saved_state[pid_key]))
-                if (
-                    current is not None
-                    and current.pgid == int(saved_state[pgid_key])
-                    and command_marker in current.command
-                ):
-                    known_phase_processes.append(current)
+        known_phase_processes.extend(_recover_phase_identities(process_state_file))
         _cleanup_benchmark_process(process, tuple(known_phase_processes))
 
     bench_root = _bench_root(output)
