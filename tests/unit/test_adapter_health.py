@@ -319,6 +319,40 @@ def test_codex_malformed_owned_toml_uses_restricted_header_fallback(
     assert has_managed_footprint("codex") is True
 
 
+@pytest.mark.parametrize("delimiter", ["'''", '"""'])
+def test_codex_malformed_toml_ignores_headers_inside_multiline_strings(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    delimiter: str,
+) -> None:
+    paths = _patch_paths(tmp_path, monkeypatch)
+    content = f"notes = {delimiter}\n{MCP_SECTION}\n{delimiter}\nbroken =\n"
+    _write(paths["codex_config"], content)
+
+    assert has_managed_footprint("codex") is False
+
+
+@pytest.mark.parametrize(
+    "header",
+    [
+        MCP_SECTION,
+        '[mcp_servers."agent-memory-hub"]',
+    ],
+)
+def test_codex_malformed_toml_accepts_semantic_managed_table_headers(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    header: str,
+) -> None:
+    paths = _patch_paths(tmp_path, monkeypatch)
+    _write(
+        paths["codex_config"],
+        f"{header} # managed by AMH\ncommand = \n",
+    )
+
+    assert has_managed_footprint("codex") is True
+
+
 @pytest.mark.parametrize("adapter_name", ["codex", "claude_code"])
 def test_utf8_bom_valid_json_does_not_fall_back_to_raw_marker_scan(
     tmp_path: Path,
@@ -582,6 +616,72 @@ def test_footprint_parser_exception_becomes_bounded_adapter_error(
     assert "\x00" not in detail
     assert len(detail) == 1200
     assert detail.endswith("…")
+
+
+@pytest.mark.parametrize(
+    "read_error",
+    [
+        PermissionError("read failure: permission denied"),
+        IsADirectoryError("read failure: path is a directory"),
+        OSError("read failure: I/O error"),
+    ],
+)
+def test_has_managed_footprint_propagates_non_missing_read_errors(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    read_error: OSError,
+) -> None:
+    paths = _patch_paths(tmp_path, monkeypatch)
+    target = paths["codex_hooks"]
+    original_read_text = Path.read_text
+
+    def controlled_read_text(path: Path, *args: object, **kwargs: object) -> str:
+        if path == target:
+            raise read_error
+        return original_read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", controlled_read_text)
+
+    with pytest.raises(type(read_error), match="read failure"):
+        has_managed_footprint("codex")
+
+
+def test_diagnose_converts_config_read_failure_to_bounded_adapter_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    paths = _patch_paths(tmp_path, monkeypatch)
+    target = paths["codex_hooks"]
+    brain = tmp_path / "brain"
+    brain.mkdir()
+    original_read_text = Path.read_text
+
+    def controlled_read_text(path: Path, *args: object, **kwargs: object) -> str:
+        if path == target:
+            raise PermissionError("read failure: permission denied")
+        return original_read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", controlled_read_text)
+
+    reports = diagnose_configured_core_adapters(brain)
+
+    assert [report.adapter for report in reports] == ["codex"]
+    assert reports[0].status == "error"
+    assert "read failure: permission denied" in reports[0].non_ok_checks[0].detail
+
+
+def test_missing_and_broken_symlink_configs_remain_unconfigured(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    paths = _patch_paths(tmp_path, monkeypatch)
+    paths["codex_hooks"].parent.mkdir(parents=True)
+    paths["codex_hooks"].symlink_to(tmp_path / "missing-hooks.json")
+    brain = tmp_path / "brain"
+    brain.mkdir()
+
+    assert has_managed_footprint("codex") is False
+    assert diagnose_configured_core_adapters(brain) == ()
 
 
 def test_discovery_is_skipped_when_no_core_adapter_is_configured(

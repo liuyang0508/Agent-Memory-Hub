@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 import re
 import tomllib
-from typing import Any, Protocol, cast
+from typing import Any, Literal, Protocol, cast
 
 from agent_brain.agent_integrations.diagnostics import (
     AdapterDiagnosticCheck,
@@ -20,6 +20,7 @@ from agent_brain.platform.install_repair import CORE_HOOK_ADAPTERS
 DETAIL_LIMIT = 1200
 _VALID_STATUSES = frozenset({"ok", "warn", "error"})
 _RAW_HOOK_FIELD = re.compile(r'(?<!\\)"(?:command|hooks)"\s*:\s*"((?:\\.|[^"\\])*)')
+_TomlLexState = Literal["normal", "multiline-basic", "multiline-literal"]
 
 
 @dataclass(frozen=True)
@@ -47,7 +48,7 @@ def bounded_diagnostic_text(value: object, *, limit: int = DETAIL_LIMIT) -> str:
 def _read_text(path: Path) -> str:
     try:
         return path.read_text(encoding="utf-8-sig", errors="replace")
-    except OSError:
+    except FileNotFoundError:
         return ""
 
 
@@ -171,22 +172,86 @@ def _json_footprint(path: Path, *, server_name: str | None = None) -> bool:
     return isinstance(servers, dict) and server_name in servers
 
 
-def _malformed_toml_has_section(content: str, section: str) -> bool:
-    pattern = re.compile(
-        rf"^[ \t]*{re.escape(section)}[ \t]*(?:#[^\r\n]*)?$",
-        re.MULTILINE,
-    )
-    return pattern.search(content) is not None
+def _toml_state_after_line(line: str, state: _TomlLexState) -> _TomlLexState:
+    index = 0
+    while index < len(line):
+        if state == "multiline-basic":
+            if line.startswith('"""', index):
+                state = "normal"
+                index += 3
+            elif line[index] == "\\":
+                index += 2
+            else:
+                index += 1
+            continue
+
+        if state == "multiline-literal":
+            if line.startswith("'''", index):
+                state = "normal"
+                index += 3
+            else:
+                index += 1
+            continue
+
+        char = line[index]
+        if char == "#":
+            break
+        if line.startswith('"""', index):
+            state = "multiline-basic"
+            index += 3
+            continue
+        if line.startswith("'''", index):
+            state = "multiline-literal"
+            index += 3
+            continue
+        if char == '"':
+            index += 1
+            while index < len(line):
+                if line[index] == "\\":
+                    index += 2
+                elif line[index] == '"':
+                    index += 1
+                    break
+                else:
+                    index += 1
+            continue
+        if char == "'":
+            closing = line.find("'", index + 1)
+            index = len(line) if closing < 0 else closing + 1
+            continue
+        index += 1
+    return state
 
 
-def _toml_mcp_footprint(path: Path, *, server_name: str, section: str) -> bool:
+def _toml_line_starts_managed_table(line: str, server_name: str) -> bool:
+    candidate = line.lstrip(" \t")
+    if not candidate.startswith("["):
+        return False
+    try:
+        payload = tomllib.loads(f"{candidate}\n__amh_footprint_probe__ = true\n")
+    except tomllib.TOMLDecodeError:
+        return False
+    servers = payload.get("mcp_servers")
+    return isinstance(servers, dict) and server_name in servers
+
+
+def _malformed_toml_has_mcp_table(content: str, server_name: str) -> bool:
+    state: _TomlLexState = "normal"
+    for line in content.splitlines():
+        if state == "normal" and _toml_line_starts_managed_table(line, server_name):
+            return True
+        state = _toml_state_after_line(line, state)
+    return False
+
+
+def _toml_mcp_footprint(path: Path, *, server_name: str) -> bool:
     content = _read_text(path)
     if not content:
         return False
     try:
         payload = tomllib.loads(content)
     except tomllib.TOMLDecodeError:
-        return _malformed_toml_has_section(content, section)
+        return _malformed_toml_has_mcp_table(content, server_name)
     servers = payload.get("mcp_servers")
     return isinstance(servers, dict) and server_name in servers
 
@@ -195,7 +260,7 @@ def has_managed_footprint(adapter_name: str) -> bool:
     """Return whether an adapter has any AMH-owned managed configuration."""
     if adapter_name == "codex":
         from agent_brain.agent_integrations import codex as codex_mod
-        from agent_brain.agent_integrations.codex_config import BEGIN, END, MCP_SECTION
+        from agent_brain.agent_integrations.codex_config import BEGIN, END
 
         return (
             _contains_any(codex_mod.AGENTS_MD, (BEGIN, END))
@@ -203,7 +268,6 @@ def has_managed_footprint(adapter_name: str) -> bool:
             or _toml_mcp_footprint(
                 codex_mod.CODEX_CONFIG_TOML,
                 server_name="agent-memory-hub",
-                section=MCP_SECTION,
             )
         )
     if adapter_name == "claude_code":
