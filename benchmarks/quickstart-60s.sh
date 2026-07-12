@@ -22,20 +22,40 @@ OWNERSHIP_TOKEN="amh-quickstart:$$:${RANDOM}"
 OWNERSHIP_MARKER_NAME=".amh-quickstart-owned"
 ACTIVE_PID=""
 ACTIVE_PGID=""
+ACTIVE_BENCHMARK_PGID=""
+ACTIVE_GROUP_ANCHORED=0
 FIRST_SIGNAL_CODE=0
 PHASE_STARTING=0
 SHUTDOWN_IN_PROGRESS=0
+CLEANUP_IN_PROGRESS=0
+
+root_path_is_canonical_direct_child() {
+  local root raw_parent base expected_root canonical_root
+  root="$1"
+  [ -n "$root" ] || return 1
+  case "$root" in /*) ;; *) return 1 ;; esac
+  case "$root" in */) return 1 ;; esac
+  raw_parent=${root%/*}
+  [ -n "$raw_parent" ] || raw_parent="/"
+  [ "$raw_parent" = "$EXPECTED_TMP_PARENT" ] || return 1
+  base=${root##*/}
+  case "$base" in amh-bench-*) ;; *) return 1 ;; esac
+  if [ "$EXPECTED_TMP_PARENT" = "/" ]; then
+    expected_root="/$base"
+  else
+    expected_root="$EXPECTED_TMP_PARENT/$base"
+  fi
+  [ "$root" = "$expected_root" ] || return 1
+  [ -d "$root" ] || return 1
+  [ ! -L "$root" ] || return 1
+  canonical_root=$(cd "$root" && pwd -P) || return 1
+  [ "$canonical_root" = "$root" ]
+}
 
 owned_root_is_valid() {
-  local parent base marker
+  local marker
   [ "$BENCH_ROOT_OWNED" -eq 1 ] || return 1
-  [ -n "$BENCH_ROOT" ] || return 1
-  [ -d "$BENCH_ROOT" ] || return 1
-  [ ! -L "$BENCH_ROOT" ] || return 1
-  parent=$(cd "$(dirname "$BENCH_ROOT")" && pwd -P) || return 1
-  [ "$parent" = "$EXPECTED_TMP_PARENT" ] || return 1
-  base=$(basename "$BENCH_ROOT")
-  case "$base" in amh-bench-*) ;; *) return 1 ;; esac
+  root_path_is_canonical_direct_child "$BENCH_ROOT" || return 1
   marker="$BENCH_ROOT/$OWNERSHIP_MARKER_NAME"
   [ -f "$marker" ] || return 1
   [ ! -L "$marker" ] || return 1
@@ -44,26 +64,30 @@ owned_root_is_valid() {
 
 cleanup() {
   local owned_root
+  [ "$CLEANUP_IN_PROGRESS" -eq 0 ] || return 0
+  CLEANUP_IN_PROGRESS=1
+  trap '' INT TERM
   [ "$KEEP" -eq 0 ] || return 0
   owned_root_is_valid || return 0
   owned_root="$BENCH_ROOT"
-  BENCH_ROOT_OWNED=0
-  BENCH_ROOT=""
-  rm -rf -- "$owned_root"
+  if rm -rf -- "$owned_root"; then
+    BENCH_ROOT_OWNED=0
+    BENCH_ROOT=""
+  else
+    echo "warning: failed to remove owned benchmark root: $owned_root (ownership retained)" >&2
+  fi
+  return 0
 }
 
 create_bench_root() {
-  local candidate parent base marker
+  local candidate marker
   candidate=$(mktemp -d "$EXPECTED_TMP_PARENT/amh-bench-XXXXXX") || return 1
-  [ -n "$candidate" ] || return 1
-  [ -d "$candidate" ] || return 1
-  [ ! -L "$candidate" ] || return 1
-  parent=$(cd "$(dirname "$candidate")" && pwd -P) || return 1
-  [ "$parent" = "$EXPECTED_TMP_PARENT" ] || return 1
-  base=$(basename "$candidate")
-  case "$base" in amh-bench-*) ;; *) return 1 ;; esac
+  root_path_is_canonical_direct_child "$candidate" || return 1
   marker="$candidate/$OWNERSHIP_MARKER_NAME"
   (set -C; printf '%s\n' "$OWNERSHIP_TOKEN" > "$marker") || return 1
+  [ -f "$marker" ] || return 1
+  [ ! -L "$marker" ] || return 1
+  printf '%s\n' "$OWNERSHIP_TOKEN" | cmp -s - "$marker" || return 1
   BENCH_ROOT="$candidate"
   BENCH_ROOT_OWNED=1
   owned_root_is_valid
@@ -82,24 +106,25 @@ process_state_for_pid() {
 }
 
 stop_active_phase() {
-  local phase_pid phase_pgid current_pgid benchmark_pgid grace_step
+  local phase_pid phase_pgid benchmark_pgid group_anchored grace_step
   phase_pid="$ACTIVE_PID"
   phase_pgid="$ACTIVE_PGID"
-  ACTIVE_PID="" ACTIVE_PGID=""
+  benchmark_pgid="$ACTIVE_BENCHMARK_PGID"
+  group_anchored="$ACTIVE_GROUP_ANCHORED"
+  ACTIVE_PID="" ACTIVE_PGID="" ACTIVE_BENCHMARK_PGID="" ACTIVE_GROUP_ANCHORED=0
 
   if [ -z "$phase_pid" ]; then
     return
   fi
 
-  current_pgid=$(process_group_for_pid "$phase_pid")
-  benchmark_pgid=$(process_group_for_pid "$$")
+  [ "$group_anchored" -eq 1 ] || return
   [ -n "$phase_pgid" ] || return
-  [ -n "$current_pgid" ] || return
-  [ "$current_pgid" = "$phase_pgid" ] || return
+  [ "$phase_pgid" = "$phase_pid" ] || return
   [ -n "$benchmark_pgid" ] || return
-  [ "$current_pgid" != "$benchmark_pgid" ] || return
-  process_group_exists "$current_pgid" || return
+  [ "$phase_pgid" != "$benchmark_pgid" ] || return
 
+  # The paused-launch anchor proves PGID == the direct child PID, so the
+  # negative-PGID signals include the leader without a PID-reuse fallback.
   kill -TERM -- "-$phase_pgid" 2>/dev/null || true
 
   grace_step=0
@@ -228,6 +253,8 @@ start_isolated_phase() {
     "$@" > "$log_file" 2>&1 &
   ACTIVE_PID=$!
   ACTIVE_PGID=""
+  ACTIVE_BENCHMARK_PGID=""
+  ACTIVE_GROUP_ANCHORED=0
   pgid_attempt=0
   while [ "$pgid_attempt" -lt 50 ] && [ -z "$ACTIVE_PGID" ]; do
     candidate_pgid=$(process_group_for_pid "$ACTIVE_PID")
@@ -237,8 +264,12 @@ start_isolated_phase() {
       T*)
         if [ -n "$candidate_pgid" ] \
           && [ -n "$benchmark_pgid" ] \
-          && [ "$candidate_pgid" != "$benchmark_pgid" ]; then
+          && [ "$candidate_pgid" = "$ACTIVE_PID" ] \
+          && [ "$candidate_pgid" != "$benchmark_pgid" ] \
+          && process_group_exists "$candidate_pgid"; then
           ACTIVE_PGID="$candidate_pgid"
+          ACTIVE_BENCHMARK_PGID="$benchmark_pgid"
+          ACTIVE_GROUP_ANCHORED=1
         fi
         ;;
     esac
@@ -248,7 +279,7 @@ start_isolated_phase() {
   if [ -z "$ACTIVE_PGID" ]; then
     kill -KILL "$ACTIVE_PID" 2>/dev/null || true
     wait "$ACTIVE_PID" 2>/dev/null || true
-    ACTIVE_PID="" ACTIVE_PGID=""
+    ACTIVE_PID="" ACTIVE_PGID="" ACTIVE_BENCHMARK_PGID="" ACTIVE_GROUP_ANCHORED=0
     PHASE_STARTING=0
     if [ "$FIRST_SIGNAL_CODE" -ne 0 ]; then
       handle_signal "$FIRST_SIGNAL_CODE"
@@ -262,7 +293,7 @@ start_isolated_phase() {
   if ! kill -CONT "$ACTIVE_PID" 2>/dev/null; then
     kill -KILL -- "-$ACTIVE_PGID" 2>/dev/null || true
     wait "$ACTIVE_PID" 2>/dev/null || true
-    ACTIVE_PID="" ACTIVE_PGID=""
+    ACTIVE_PID="" ACTIVE_PGID="" ACTIVE_BENCHMARK_PGID="" ACTIVE_GROUP_ANCHORED=0
     return 1
   fi
 }
@@ -284,7 +315,7 @@ if ! start_isolated_phase "$CLONE_LOG" git clone --depth=1 "$SOURCE_REPO" "$CLON
   exit 1
 fi
 wait "$ACTIVE_PID"
-CLONE_STATUS=$? ACTIVE_PID="" ACTIVE_PGID=""
+CLONE_STATUS=$? ACTIVE_PID="" ACTIVE_PGID="" ACTIVE_BENCHMARK_PGID="" ACTIVE_GROUP_ANCHORED=0
 if [ "$CLONE_STATUS" -ne 0 ]; then
   echo "  ✗ git clone failed:"
   tail -n 80 "$CLONE_LOG"
@@ -302,7 +333,7 @@ if ! start_isolated_phase "$INSTALL_LOG" "$CLONE_DIR/install.sh" --minimal; then
   exit 1
 fi
 wait "$ACTIVE_PID"
-INSTALL_STATUS=$? ACTIVE_PID="" ACTIVE_PGID=""
+INSTALL_STATUS=$? ACTIVE_PID="" ACTIVE_PGID="" ACTIVE_BENCHMARK_PGID="" ACTIVE_GROUP_ANCHORED=0
 if [ "$INSTALL_STATUS" -ne 0 ]; then
   echo "  ✗ install.sh failed:"
   tail -n 80 "$INSTALL_LOG"
@@ -322,7 +353,7 @@ if ! start_isolated_phase \
   exit 1
 fi
 wait "$ACTIVE_PID"
-SEARCH_STATUS=$? ACTIVE_PID="" ACTIVE_PGID=""
+SEARCH_STATUS=$? ACTIVE_PID="" ACTIVE_PGID="" ACTIVE_BENCHMARK_PGID="" ACTIVE_GROUP_ANCHORED=0
 if [ "$SEARCH_STATUS" -ne 0 ]; then
   echo "  ✗ first search failed:"
   tail -n 80 "$SEARCH_LOG"

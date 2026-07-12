@@ -79,6 +79,7 @@ class QuickstartFixture:
     mktemp_wrapper: Path
     mkdir_wrapper: Path
     ps_wrapper: Path
+    rm_wrapper: Path
     git_env_record: Path
     attack_sentinels: tuple[Path, ...]
     host_roots: tuple[Path, Path, Path]
@@ -146,11 +147,23 @@ class QuickstartFixture:
             {"MKTEMP_MODE": "fail_existing", "MKTEMP_OUTPUT": output_path},
         )
 
+    def configure_mktemp_symlink_success(self, output_path: str) -> None:
+        self._set_assignments(
+            self.mktemp_wrapper,
+            {"MKTEMP_MODE": "success_existing", "MKTEMP_OUTPUT": output_path},
+        )
+
     def configure_bootstrap_failure(self) -> None:
         self._set_assignments(self.mkdir_wrapper, {"BOOTSTRAP_MKDIR_FAIL": 1})
 
     def configure_pgid_failure(self, mode: str) -> None:
         self._set_assignments(self.ps_wrapper, {"PS_MODE": mode})
+
+    def configure_runtime_ps_mode(self, mode_file: Path) -> None:
+        self._set_assignments(self.ps_wrapper, {"PS_MODE_FILE": mode_file})
+
+    def configure_cleanup_rm_failure(self, mode: str) -> None:
+        self._set_assignments(self.rm_wrapper, {"RM_MODE": mode})
 
     def configure_startup_signal_handoff(
         self,
@@ -430,10 +443,12 @@ exit "$SEARCH_EXIT"
     real_mktemp = shutil.which("mktemp")
     real_mkdir = shutil.which("mkdir")
     real_ps = shutil.which("ps")
+    real_rm = shutil.which("rm")
     assert real_git is not None
     assert real_mktemp is not None
     assert real_mkdir is not None
     assert real_ps is not None
+    assert real_rm is not None
     tool_bin = tmp_path / "tool-bin"
     _write_executable(
         tool_bin / "git",
@@ -518,6 +533,10 @@ case "$MKTEMP_MODE" in
     printf '%s\\n' "$MKTEMP_OUTPUT"
     exit 71
     ;;
+  success_existing)
+    printf '%s\\n' "$MKTEMP_OUTPUT"
+    exit 0
+    ;;
 esac
 exec "$REAL_MKTEMP" "$@"
 """,
@@ -544,6 +563,17 @@ exec "$REAL_MKDIR" "$@"
 set -u
 REAL_PS=/dev/null
 PS_MODE=normal
+PS_MODE_FILE=/dev/null
+if [ "$PS_MODE_FILE" != /dev/null ] && [ -f "$PS_MODE_FILE" ]; then
+  IFS= read -r PS_MODE < "$PS_MODE_FILE" || true
+fi
+if [ "$PS_MODE" = fail_process_queries ] \
+  && [ "$#" -eq 4 ] \
+  && [ "$1" = -o ] \
+  && { [ "$2" = pgid= ] || [ "$2" = stat= ]; } \
+  && [ "$3" = -p ]; then
+  exit 74
+fi
 if [ "$PS_MODE" = hide_pgid ] \
   && [ "$#" -eq 4 ] \
   && [ "$1" = -o ] \
@@ -561,6 +591,31 @@ fi
 exec "$REAL_PS" "$@"
 """,
     )
+    _write_executable(
+        tool_bin / "rm",
+        """#!/usr/bin/env bash
+set -u
+REAL_RM=/dev/null
+RM_MODE=normal
+if [ "$RM_MODE" = fail_cleanup ]; then
+  for arg in "$@"; do
+    case "$arg" in */amh-bench-*) exit 75 ;; esac
+  done
+fi
+if [ "$RM_MODE" = signal_cleanup ]; then
+  for arg in "$@"; do
+    case "$arg" in
+      */amh-bench-*)
+        kill -INT "$PPID"
+        sleep 0.02
+        exit 75
+        ;;
+    esac
+  done
+fi
+exec "$REAL_RM" "$@"
+""",
+    )
 
     inherited = tmp_path / "inherited-env"
     git_env_record = tmp_path / "git-clone-env.txt"
@@ -575,6 +630,7 @@ exec "$REAL_PS" "$@"
     QuickstartFixture._set_assignments(tool_bin / "mktemp", {"REAL_MKTEMP": real_mktemp})
     QuickstartFixture._set_assignments(tool_bin / "mkdir", {"REAL_MKDIR": real_mkdir})
     QuickstartFixture._set_assignments(tool_bin / "ps", {"REAL_PS": real_ps})
+    QuickstartFixture._set_assignments(tool_bin / "rm", {"REAL_RM": real_rm})
 
     hook_sentinel = host_pip_target / "git-hook-ran.txt"
     hook_dir = tmp_path / "host-git-hooks"
@@ -701,6 +757,7 @@ exec "$REAL_PS" "$@"
         mktemp_wrapper=tool_bin / "mktemp",
         mkdir_wrapper=tool_bin / "mkdir",
         ps_wrapper=tool_bin / "ps",
+        rm_wrapper=tool_bin / "rm",
         git_env_record=git_env_record,
         attack_sentinels=(
             hook_sentinel,
@@ -974,6 +1031,40 @@ def test_mktemp_failure_stdout_cannot_delete_existing_sentinel_root(
     quickstart_fixture.assert_host_unchanged()
 
 
+def test_successful_mktemp_symlink_with_trailing_slash_cannot_escape_root(
+    quickstart_fixture: QuickstartFixture,
+    tmp_path: Path,
+) -> None:
+    external_root = tmp_path / "external-sentinel-root"
+    external_root.mkdir()
+    sentinel = external_root / "do-not-delete.txt"
+    sentinel.write_text("external sentinel\n", encoding="utf-8")
+    sentinel.chmod(0o640)
+    before = _tree_manifest(external_root)
+    symlink_root = quickstart_fixture.outer_tmp / "amh-bench-symlink"
+    symlink_root.symlink_to(external_root, target_is_directory=True)
+    quickstart_fixture.configure_mktemp_symlink_success(f"{symlink_root}/")
+
+    try:
+        result = _run_quickstart(quickstart_fixture)
+        output = result.stdout + result.stderr
+
+        assert result.returncode == 1, output
+        assert "failed to create benchmark root" in output
+        assert "✅ PASS" not in output
+        assert symlink_root.is_symlink()
+        assert external_root.is_dir()
+        assert sentinel.is_file()
+        assert stat.S_IMODE(sentinel.stat().st_mode) == 0o640
+        assert sentinel.read_text(encoding="utf-8") == "external sentinel\n"
+        assert _tree_manifest(external_root) == before
+        quickstart_fixture.assert_host_unchanged()
+    finally:
+        if symlink_root.is_symlink():
+            symlink_root.unlink()
+        shutil.rmtree(external_root, ignore_errors=True)
+
+
 def test_bootstrap_failure_is_fail_closed_and_cleans_benchmark_root(
     quickstart_fixture: QuickstartFixture,
 ) -> None:
@@ -986,6 +1077,26 @@ def test_bootstrap_failure_is_fail_closed_and_cleans_benchmark_root(
     assert "✅ PASS" not in output
     assert list(quickstart_fixture.outer_tmp.iterdir()) == []
     quickstart_fixture.assert_host_unchanged()
+
+
+@pytest.mark.parametrize("rm_mode", ["fail_cleanup", "signal_cleanup"])
+def test_cleanup_rm_failure_warns_and_retains_owned_root(
+    quickstart_fixture: QuickstartFixture,
+    rm_mode: str,
+) -> None:
+    quickstart_fixture.configure_cleanup_rm_failure(rm_mode)
+    result = _run_quickstart(quickstart_fixture)
+    output = result.stdout + result.stderr
+    bench_root = _bench_root(output)
+    ownership_token = _ownership_token(output)
+
+    try:
+        assert result.returncode == 0, output
+        assert f"warning: failed to remove owned benchmark root: {bench_root}" in output
+        _assert_owned_benchmark_root(bench_root, quickstart_fixture.outer_tmp, ownership_token)
+        quickstart_fixture.assert_host_unchanged()
+    finally:
+        _remove_kept_benchmark_root(bench_root, quickstart_fixture.outer_tmp, ownership_token)
 
 
 @pytest.mark.parametrize("ps_mode", ["hide_pgid", "report_benchmark_pgid"])
@@ -1453,6 +1564,80 @@ def test_startup_cross_signal_preserves_first_code_without_starting_phase(
     assert process.returncode == expected_returncode, output
     assert "✅ PASS" not in output
     assert not quickstart_fixture.git_env_record.exists()
+    assert not bench_root.exists()
+    quickstart_fixture.assert_host_unchanged()
+
+
+@pytest.mark.parametrize(
+    ("sent_signal", "expected_returncode"),
+    [(signal.SIGINT, 130), (signal.SIGTERM, 143)],
+)
+def test_signal_teardown_uses_anchored_group_when_runtime_ps_fails(
+    quickstart_fixture: QuickstartFixture,
+    tmp_path: Path,
+    sent_signal: signal.Signals,
+    expected_returncode: int,
+) -> None:
+    ready_file = tmp_path / f"runtime-ps-ready-{sent_signal.name}"
+    process_state_file = tmp_path / f"runtime-ps-processes-{sent_signal.name}"
+    ps_mode_file = tmp_path / f"runtime-ps-mode-{sent_signal.name}"
+    ps_mode_file.write_text("normal\n", encoding="utf-8")
+    quickstart_fixture.configure_install(
+        "wait_resistant",
+        ready_file=ready_file,
+        process_state_file=process_state_file,
+    )
+    quickstart_fixture.configure_runtime_ps_mode(ps_mode_file)
+    process = subprocess.Popen(
+        [str(quickstart_fixture.script)],
+        cwd=quickstart_fixture.repo,
+        env=quickstart_fixture.env.copy(),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        start_new_session=True,
+    )
+    output = ""
+    phase_identity: ProcessIdentity | None = None
+    child_identity: ProcessIdentity | None = None
+    phase_pgid = 0
+    try:
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline and not ready_file.exists():
+            assert process.poll() is None, "quickstart exited before resistant phase was ready"
+            time.sleep(0.05)
+        assert ready_file.exists(), "resistant phase never became ready"
+        process_state = _read_env(process_state_file)
+        phase_pid = int(process_state["phase_pid"])
+        phase_pgid = int(process_state["phase_pgid"])
+        child_pid = int(process_state["child_pid"])
+        phase_identity = _process_identity(phase_pid)
+        child_identity = _process_identity(child_pid)
+        assert phase_identity is not None
+        assert child_identity is not None
+        assert phase_identity.pgid == phase_pgid
+        assert child_identity.pgid == phase_pgid
+
+        ps_mode_file.write_text("fail_process_queries\n", encoding="utf-8")
+        process.send_signal(sent_signal)
+        output, _ = process.communicate(timeout=10)
+
+        group_deadline = time.monotonic() + 3
+        while time.monotonic() < group_deadline and _live_processes_in_group(phase_pgid):
+            time.sleep(0.05)
+        assert not _same_process_is_running(phase_identity)
+        assert not _same_process_is_running(child_identity)
+        assert not _live_processes_in_group(phase_pgid)
+    finally:
+        known_phase_processes = [
+            identity for identity in (phase_identity, child_identity) if identity is not None
+        ]
+        known_phase_processes.extend(_recover_phase_identities(process_state_file))
+        _cleanup_benchmark_process(process, tuple(known_phase_processes))
+
+    bench_root = _bench_root(output)
+    assert process.returncode == expected_returncode, output
+    assert "✅ PASS" not in output
     assert not bench_root.exists()
     quickstart_fixture.assert_host_unchanged()
 
