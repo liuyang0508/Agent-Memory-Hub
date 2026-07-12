@@ -152,6 +152,75 @@ class QuickstartFixture:
     def configure_pgid_failure(self, mode: str) -> None:
         self._set_assignments(self.ps_wrapper, {"PS_MODE": mode})
 
+    def configure_startup_signal_handoff(
+        self,
+        *,
+        first_signal_file: Path,
+        phase_state_file: Path,
+        startup_ready_file: Path,
+        handoff_ready_file: Path,
+        handoff_release_file: Path,
+    ) -> None:
+        content = self.script.read_text(encoding="utf-8")
+
+        signal_assignment = next(
+            (
+                assignment
+                for assignment in ('    PENDING_SIGNAL_CODE="$1"\n', '    FIRST_SIGNAL_CODE="$1"\n')
+                if assignment in content
+            ),
+            None,
+        )
+        assert signal_assignment is not None, "missing first-signal assignment anchor"
+        content = content.replace(
+            signal_assignment,
+            signal_assignment
+            + f"    printf '%s\\n' \"$1\" > {shlex.quote(str(first_signal_file))}\n",
+            1,
+        )
+
+        active_pid_anchor = "  ACTIVE_PID=$!\n"
+        assert content.count(active_pid_anchor) == 1
+        startup_gate = f"""{active_pid_anchor}  fixture_startup_attempt=0
+  fixture_startup_state=""
+  while [ "$fixture_startup_attempt" -lt 100 ]; do
+    fixture_startup_state=$(process_state_for_pid "$ACTIVE_PID")
+    case "$fixture_startup_state" in T*) break ;; esac
+    sleep 0.01
+    fixture_startup_attempt=$((fixture_startup_attempt + 1))
+  done
+  fixture_startup_pgid=$(process_group_for_pid "$ACTIVE_PID")
+  {{
+    printf 'phase_pid=%s\\n' "$ACTIVE_PID"
+    printf 'phase_pgid=%s\\n' "$fixture_startup_pgid"
+  }} > {shlex.quote(str(phase_state_file))}
+  : > {shlex.quote(str(startup_ready_file))}
+  while [ ! -s {shlex.quote(str(first_signal_file))} ]; do sleep 0.01; done
+"""
+        content = content.replace(active_pid_anchor, startup_gate, 1)
+
+        handoff_gate = f"""  : > {shlex.quote(str(handoff_ready_file))}
+  while [ ! -e {shlex.quote(str(handoff_release_file))} ]; do sleep 0.01; done
+"""
+        phase_start_anchor = '  PHASE_STARTING=0\n  if [ "$FIRST_SIGNAL_CODE" -ne 0 ]; then\n'
+        if phase_start_anchor in content:
+            handoff_index = content.rfind(phase_start_anchor)
+            content = content[:handoff_index] + handoff_gate + content[handoff_index:]
+        else:
+            legacy_anchor = (
+                "  trap 'handle_signal 143' TERM\n  pending_code=\"$PENDING_SIGNAL_CODE\"\n"
+            )
+            assert content.count(legacy_anchor) == 1, "missing legacy signal handoff anchor"
+            content = content.replace(
+                legacy_anchor,
+                "  trap 'handle_signal 143' TERM\n"
+                + handoff_gate
+                + '  pending_code="$PENDING_SIGNAL_CODE"\n',
+                1,
+            )
+
+        self.script.write_text(content, encoding="utf-8")
+
 
 @pytest.fixture
 def quickstart_fixture(tmp_path: Path) -> QuickstartFixture:
@@ -1284,6 +1353,106 @@ def test_first_search_failure_is_nonzero_cleans_up_and_preserves_host(
     assert result.returncode == 1, output
     assert "first search failed" in output
     assert "✅ PASS" not in output
+    assert not bench_root.exists()
+    quickstart_fixture.assert_host_unchanged()
+
+
+@pytest.mark.parametrize(
+    ("first_signal", "opposite_signal", "expected_returncode"),
+    [
+        (signal.SIGINT, signal.SIGTERM, 130),
+        (signal.SIGTERM, signal.SIGINT, 143),
+    ],
+)
+def test_startup_cross_signal_preserves_first_code_without_starting_phase(
+    quickstart_fixture: QuickstartFixture,
+    tmp_path: Path,
+    first_signal: signal.Signals,
+    opposite_signal: signal.Signals,
+    expected_returncode: int,
+) -> None:
+    case_name = f"{first_signal.name}-{opposite_signal.name}"
+    first_signal_file = tmp_path / f"startup-first-{case_name}"
+    phase_state_file = tmp_path / f"startup-phase-{case_name}"
+    startup_ready_file = tmp_path / f"startup-ready-{case_name}"
+    handoff_ready_file = tmp_path / f"handoff-ready-{case_name}"
+    handoff_release_file = tmp_path / f"handoff-release-{case_name}"
+    quickstart_fixture.configure_startup_signal_handoff(
+        first_signal_file=first_signal_file,
+        phase_state_file=phase_state_file,
+        startup_ready_file=startup_ready_file,
+        handoff_ready_file=handoff_ready_file,
+        handoff_release_file=handoff_release_file,
+    )
+    process = subprocess.Popen(
+        [str(quickstart_fixture.script)],
+        cwd=quickstart_fixture.repo,
+        env=quickstart_fixture.env.copy(),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        start_new_session=True,
+    )
+    output = ""
+    phase_identity: ProcessIdentity | None = None
+    phase_pgid = 0
+    try:
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline and not startup_ready_file.exists():
+            assert process.poll() is None, "quickstart exited before startup gate"
+            time.sleep(0.01)
+        assert startup_ready_file.exists(), "quickstart never reached startup gate"
+
+        phase_state = _read_env(phase_state_file)
+        phase_pid = int(phase_state["phase_pid"])
+        phase_pgid = int(phase_state["phase_pgid"])
+        phase_identity = _process_identity(phase_pid)
+        assert phase_identity is not None
+        assert phase_identity.pgid == phase_pgid
+        assert phase_identity.state.startswith("T"), phase_identity
+
+        process.send_signal(first_signal)
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline and not first_signal_file.exists():
+            assert process.poll() is None, "quickstart exited before recording first signal"
+            time.sleep(0.01)
+        assert first_signal_file.read_text(encoding="utf-8").strip() == str(expected_returncode)
+
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline and not handoff_ready_file.exists():
+            assert process.poll() is None, "quickstart exited before signal handoff gate"
+            time.sleep(0.01)
+        assert handoff_ready_file.exists(), "quickstart never reached signal handoff gate"
+        assert not quickstart_fixture.git_env_record.exists()
+
+        burst_started = time.monotonic()
+        released = False
+        while time.monotonic() - burst_started < 0.12 and process.poll() is None:
+            try:
+                process.send_signal(opposite_signal)
+            except ProcessLookupError:
+                break
+            if not released and time.monotonic() - burst_started >= 0.04:
+                handoff_release_file.touch()
+                released = True
+            time.sleep(0.005)
+        if not released:
+            handoff_release_file.touch()
+        output, _ = process.communicate(timeout=10)
+
+        group_deadline = time.monotonic() + 3
+        while time.monotonic() < group_deadline and _live_processes_in_group(phase_pgid):
+            time.sleep(0.05)
+        assert not _live_processes_in_group(phase_pgid)
+    finally:
+        handoff_release_file.touch(exist_ok=True)
+        known = (phase_identity,) if phase_identity is not None else ()
+        _cleanup_benchmark_process(process, known)
+
+    bench_root = _bench_root(output)
+    assert process.returncode == expected_returncode, output
+    assert "✅ PASS" not in output
+    assert not quickstart_fixture.git_env_record.exists()
     assert not bench_root.exists()
     quickstart_fixture.assert_host_unchanged()
 

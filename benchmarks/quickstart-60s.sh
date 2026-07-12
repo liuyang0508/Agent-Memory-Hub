@@ -22,7 +22,8 @@ OWNERSHIP_TOKEN="amh-quickstart:$$:${RANDOM}"
 OWNERSHIP_MARKER_NAME=".amh-quickstart-owned"
 ACTIVE_PID=""
 ACTIVE_PGID=""
-PENDING_SIGNAL_CODE=0
+FIRST_SIGNAL_CODE=0
+PHASE_STARTING=0
 SHUTDOWN_IN_PROGRESS=0
 
 owned_root_is_valid() {
@@ -114,11 +115,14 @@ stop_active_phase() {
   wait "$phase_pid" 2>/dev/null || true
 }
 
-defer_signal() {
-  if [ "$PENDING_SIGNAL_CODE" -eq 0 ]; then
-    PENDING_SIGNAL_CODE="$1"
+dispatch_signal() {
+  if [ "$FIRST_SIGNAL_CODE" -eq 0 ]; then
+    FIRST_SIGNAL_CODE="$1"
   fi
-  trap '' INT TERM
+  if [ "$PHASE_STARTING" -eq 1 ]; then
+    return
+  fi
+  handle_signal "$FIRST_SIGNAL_CODE"
 }
 
 handle_signal() {
@@ -133,8 +137,8 @@ handle_signal() {
 }
 
 trap cleanup EXIT
-trap 'handle_signal 130' INT
-trap 'handle_signal 143' TERM
+trap 'dispatch_signal 130' INT
+trap 'dispatch_signal 143' TERM
 
 if ! EXPECTED_TMP_PARENT=$(cd "${TMPDIR:-/tmp}" && pwd -P); then
   echo "failed to create benchmark root" >&2
@@ -212,12 +216,11 @@ run_isolated() {
 }
 
 start_isolated_phase() {
-  local log_file pgid_attempt pending_code candidate_pgid current_state benchmark_pgid
+  local log_file pgid_attempt candidate_pgid current_state benchmark_pgid
   log_file="$1"
   shift
-  PENDING_SIGNAL_CODE=0
-  trap 'defer_signal 130' INT
-  trap 'defer_signal 143' TERM
+  FIRST_SIGNAL_CODE=0
+  PHASE_STARTING=1
   run_isolated \
     "$BASH" \
     -c 'kill -STOP "$$"; exec "$@"' \
@@ -242,22 +245,19 @@ start_isolated_phase() {
     [ -n "$ACTIVE_PGID" ] || sleep 0.01
     pgid_attempt=$((pgid_attempt + 1))
   done
-  trap 'handle_signal 130' INT
-  trap 'handle_signal 143' TERM
-  pending_code="$PENDING_SIGNAL_CODE"
-  PENDING_SIGNAL_CODE=0
-
   if [ -z "$ACTIVE_PGID" ]; then
     kill -KILL "$ACTIVE_PID" 2>/dev/null || true
     wait "$ACTIVE_PID" 2>/dev/null || true
     ACTIVE_PID="" ACTIVE_PGID=""
-    if [ "$pending_code" -ne 0 ]; then
-      handle_signal "$pending_code"
+    PHASE_STARTING=0
+    if [ "$FIRST_SIGNAL_CODE" -ne 0 ]; then
+      handle_signal "$FIRST_SIGNAL_CODE"
     fi
     return 1
   fi
-  if [ "$pending_code" -ne 0 ]; then
-    handle_signal "$pending_code"
+  PHASE_STARTING=0
+  if [ "$FIRST_SIGNAL_CODE" -ne 0 ]; then
+    handle_signal "$FIRST_SIGNAL_CODE"
   fi
   if ! kill -CONT "$ACTIVE_PID" 2>/dev/null; then
     kill -KILL -- "-$ACTIVE_PGID" 2>/dev/null || true
