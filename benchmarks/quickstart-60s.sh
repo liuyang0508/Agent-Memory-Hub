@@ -26,7 +26,7 @@ PENDING_SIGNAL_CODE=0
 SHUTDOWN_IN_PROGRESS=0
 
 owned_root_is_valid() {
-  local parent base marker marker_content
+  local parent base marker
   [ "$BENCH_ROOT_OWNED" -eq 1 ] || return 1
   [ -n "$BENCH_ROOT" ] || return 1
   [ -d "$BENCH_ROOT" ] || return 1
@@ -38,8 +38,7 @@ owned_root_is_valid() {
   marker="$BENCH_ROOT/$OWNERSHIP_MARKER_NAME"
   [ -f "$marker" ] || return 1
   [ ! -L "$marker" ] || return 1
-  marker_content=$(<"$marker") || return 1
-  [ "$marker_content" = "$OWNERSHIP_TOKEN" ]
+  printf '%s\n' "$OWNERSHIP_TOKEN" | cmp -s - "$marker"
 }
 
 cleanup() {
@@ -77,8 +76,12 @@ process_group_for_pid() {
   ps -o pgid= -p "$1" 2>/dev/null | tr -d ' '
 }
 
+process_state_for_pid() {
+  ps -o stat= -p "$1" 2>/dev/null | tr -d ' '
+}
+
 stop_active_phase() {
-  local phase_pid phase_pgid use_group current_pgid benchmark_pgid grace_step
+  local phase_pid phase_pgid current_pgid benchmark_pgid grace_step
   phase_pid="$ACTIVE_PID"
   phase_pgid="$ACTIVE_PGID"
   ACTIVE_PID="" ACTIVE_PGID=""
@@ -87,35 +90,26 @@ stop_active_phase() {
     return
   fi
 
-  use_group=0
   current_pgid=$(process_group_for_pid "$phase_pid")
   benchmark_pgid=$(process_group_for_pid "$$")
-  if [ -n "$current_pgid" ] \
-    && [ "$current_pgid" = "$phase_pgid" ] \
-    && [ "$current_pgid" != "$benchmark_pgid" ] \
-    && process_group_exists "$current_pgid"; then
-    use_group=1
-    kill -TERM -- "-$phase_pgid" 2>/dev/null || true
-  fi
-  if [ "$use_group" -eq 0 ]; then
-    kill -TERM "$phase_pid" 2>/dev/null || true
-  fi
+  [ -n "$phase_pgid" ] || return
+  [ -n "$current_pgid" ] || return
+  [ "$current_pgid" = "$phase_pgid" ] || return
+  [ -n "$benchmark_pgid" ] || return
+  [ "$current_pgid" != "$benchmark_pgid" ] || return
+  process_group_exists "$current_pgid" || return
+
+  kill -TERM -- "-$phase_pgid" 2>/dev/null || true
 
   grace_step=0
   while [ "$grace_step" -lt 10 ]; do
-    if [ "$use_group" -eq 1 ]; then
-      process_group_exists "$phase_pgid" || break
-    else
-      kill -0 "$phase_pid" 2>/dev/null || break
-    fi
+    process_group_exists "$phase_pgid" || break
     sleep 0.1
     grace_step=$((grace_step + 1))
   done
 
-  if [ "$use_group" -eq 1 ] && process_group_exists "$phase_pgid"; then
+  if process_group_exists "$phase_pgid"; then
     kill -KILL -- "-$phase_pgid" 2>/dev/null || true
-  elif kill -0 "$phase_pid" 2>/dev/null; then
-    kill -KILL "$phase_pid" 2>/dev/null || true
   fi
   wait "$phase_pid" 2>/dev/null || true
 }
@@ -174,7 +168,7 @@ if ! mkdir -p \
 fi
 
 run_isolated() {
-  env -i \
+  exec env -i \
     PATH="${PATH:-/usr/bin:/bin}" \
     LANG="${LANG:-}" \
     LC_ALL="${LC_ALL:-}" \
@@ -218,18 +212,33 @@ run_isolated() {
 }
 
 start_isolated_phase() {
-  local log_file pgid_attempt pending_code
+  local log_file pgid_attempt pending_code candidate_pgid current_state benchmark_pgid
   log_file="$1"
   shift
   PENDING_SIGNAL_CODE=0
   trap 'defer_signal 130' INT
   trap 'defer_signal 143' TERM
-  run_isolated "$@" > "$log_file" 2>&1 &
+  run_isolated \
+    "$BASH" \
+    -c 'kill -STOP "$$"; exec "$@"' \
+    amh-quickstart-phase \
+    "$@" > "$log_file" 2>&1 &
   ACTIVE_PID=$!
   ACTIVE_PGID=""
   pgid_attempt=0
-  while [ "$pgid_attempt" -lt 20 ] && [ -z "$ACTIVE_PGID" ]; do
-    ACTIVE_PGID=$(process_group_for_pid "$ACTIVE_PID")
+  while [ "$pgid_attempt" -lt 50 ] && [ -z "$ACTIVE_PGID" ]; do
+    candidate_pgid=$(process_group_for_pid "$ACTIVE_PID")
+    current_state=$(process_state_for_pid "$ACTIVE_PID")
+    benchmark_pgid=$(process_group_for_pid "$$")
+    case "$current_state" in
+      T*)
+        if [ -n "$candidate_pgid" ] \
+          && [ -n "$benchmark_pgid" ] \
+          && [ "$candidate_pgid" != "$benchmark_pgid" ]; then
+          ACTIVE_PGID="$candidate_pgid"
+        fi
+        ;;
+    esac
     [ -n "$ACTIVE_PGID" ] || sleep 0.01
     pgid_attempt=$((pgid_attempt + 1))
   done
@@ -237,14 +246,31 @@ start_isolated_phase() {
   trap 'handle_signal 143' TERM
   pending_code="$PENDING_SIGNAL_CODE"
   PENDING_SIGNAL_CODE=0
+
+  if [ -z "$ACTIVE_PGID" ]; then
+    kill -KILL "$ACTIVE_PID" 2>/dev/null || true
+    wait "$ACTIVE_PID" 2>/dev/null || true
+    ACTIVE_PID="" ACTIVE_PGID=""
+    if [ "$pending_code" -ne 0 ]; then
+      handle_signal "$pending_code"
+    fi
+    return 1
+  fi
   if [ "$pending_code" -ne 0 ]; then
     handle_signal "$pending_code"
+  fi
+  if ! kill -CONT "$ACTIVE_PID" 2>/dev/null; then
+    kill -KILL -- "-$ACTIVE_PGID" 2>/dev/null || true
+    wait "$ACTIVE_PID" 2>/dev/null || true
+    ACTIVE_PID="" ACTIVE_PGID=""
+    return 1
   fi
 }
 
 TARGET_SECONDS="${AMH_QUICKSTART_TARGET_SECONDS:-120}"
 echo "=== Quickstart benchmark — target < ${TARGET_SECONDS}s ==="
 echo "Tmp: $BENCH_ROOT"
+echo "Ownership: $OWNERSHIP_TOKEN"
 echo "Source: $SOURCE_REPO"
 echo ""
 
@@ -253,7 +279,10 @@ START=$(date +%s)
 # Phase 1: clone (simulates new user)
 PHASE1_START=$(date +%s)
 CLONE_LOG="$BENCH_ROOT/clone.log"
-start_isolated_phase "$CLONE_LOG" git clone --depth=1 "$SOURCE_REPO" "$CLONE_DIR"
+if ! start_isolated_phase "$CLONE_LOG" git clone --depth=1 "$SOURCE_REPO" "$CLONE_DIR"; then
+  echo "failed to establish isolated process group" >&2
+  exit 1
+fi
 wait "$ACTIVE_PID"
 CLONE_STATUS=$? ACTIVE_PID="" ACTIVE_PGID=""
 if [ "$CLONE_STATUS" -ne 0 ]; then
@@ -268,7 +297,10 @@ echo "  ✓ clone: ${PHASE1}s"
 # Phase 2: minimal install keeps the quickstart target focused on first-use setup.
 PHASE2_START=$(date +%s)
 INSTALL_LOG="$BENCH_ROOT/install.log"
-start_isolated_phase "$INSTALL_LOG" "$CLONE_DIR/install.sh" --minimal
+if ! start_isolated_phase "$INSTALL_LOG" "$CLONE_DIR/install.sh" --minimal; then
+  echo "failed to establish isolated process group" >&2
+  exit 1
+fi
 wait "$ACTIVE_PID"
 INSTALL_STATUS=$? ACTIVE_PID="" ACTIVE_PGID=""
 if [ "$INSTALL_STATUS" -ne 0 ]; then
@@ -282,10 +314,13 @@ echo "  ✓ install.sh: ${PHASE2}s"
 # Phase 3: first query (search-memory.sh against empty brain)
 PHASE3_START=$(date +%s)
 SEARCH_LOG="$BENCH_ROOT/search.log"
-start_isolated_phase \
+if ! start_isolated_phase \
   "$SEARCH_LOG" \
   "$CLONE_DIR/agent_runtime_kit/tools/search-memory.sh" \
-  "anything"
+  "anything"; then
+  echo "failed to establish isolated process group" >&2
+  exit 1
+fi
 wait "$ACTIVE_PID"
 SEARCH_STATUS=$? ACTIVE_PID="" ACTIVE_PGID=""
 if [ "$SEARCH_STATUS" -ne 0 ]; then

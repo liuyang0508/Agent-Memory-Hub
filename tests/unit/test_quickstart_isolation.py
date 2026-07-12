@@ -78,6 +78,7 @@ class QuickstartFixture:
     git_wrapper: Path
     mktemp_wrapper: Path
     mkdir_wrapper: Path
+    ps_wrapper: Path
     git_env_record: Path
     attack_sentinels: tuple[Path, ...]
     host_roots: tuple[Path, Path, Path]
@@ -147,6 +148,9 @@ class QuickstartFixture:
 
     def configure_bootstrap_failure(self) -> None:
         self._set_assignments(self.mkdir_wrapper, {"BOOTSTRAP_MKDIR_FAIL": 1})
+
+    def configure_pgid_failure(self, mode: str) -> None:
+        self._set_assignments(self.ps_wrapper, {"PS_MODE": mode})
 
 
 @pytest.fixture
@@ -356,9 +360,11 @@ exit "$SEARCH_EXIT"
     real_git = shutil.which("git")
     real_mktemp = shutil.which("mktemp")
     real_mkdir = shutil.which("mkdir")
+    real_ps = shutil.which("ps")
     assert real_git is not None
     assert real_mktemp is not None
     assert real_mkdir is not None
+    assert real_ps is not None
     tool_bin = tmp_path / "tool-bin"
     _write_executable(
         tool_bin / "git",
@@ -463,6 +469,29 @@ fi
 exec "$REAL_MKDIR" "$@"
 """,
     )
+    _write_executable(
+        tool_bin / "ps",
+        """#!/usr/bin/env bash
+set -u
+REAL_PS=/dev/null
+PS_MODE=normal
+if [ "$PS_MODE" = hide_pgid ] \
+  && [ "$#" -eq 4 ] \
+  && [ "$1" = -o ] \
+  && [ "$2" = pgid= ] \
+  && [ "$3" = -p ]; then
+  exit 0
+fi
+if [ "$PS_MODE" = report_benchmark_pgid ] \
+  && [ "$#" -eq 4 ] \
+  && [ "$1" = -o ] \
+  && [ "$2" = pgid= ] \
+  && [ "$3" = -p ]; then
+  exec "$REAL_PS" -o pgid= -p "$PPID"
+fi
+exec "$REAL_PS" "$@"
+""",
+    )
 
     inherited = tmp_path / "inherited-env"
     git_env_record = tmp_path / "git-clone-env.txt"
@@ -476,6 +505,7 @@ exec "$REAL_MKDIR" "$@"
     )
     QuickstartFixture._set_assignments(tool_bin / "mktemp", {"REAL_MKTEMP": real_mktemp})
     QuickstartFixture._set_assignments(tool_bin / "mkdir", {"REAL_MKDIR": real_mkdir})
+    QuickstartFixture._set_assignments(tool_bin / "ps", {"REAL_PS": real_ps})
 
     hook_sentinel = host_pip_target / "git-hook-ran.txt"
     hook_dir = tmp_path / "host-git-hooks"
@@ -601,6 +631,7 @@ exec "$REAL_MKDIR" "$@"
         git_wrapper=tool_bin / "git",
         mktemp_wrapper=tool_bin / "mktemp",
         mkdir_wrapper=tool_bin / "mkdir",
+        ps_wrapper=tool_bin / "ps",
         git_env_record=git_env_record,
         attack_sentinels=(
             hook_sentinel,
@@ -743,23 +774,33 @@ def _bench_root(output: str) -> Path:
     return Path(match.group(1).strip())
 
 
-def _assert_owned_benchmark_root(bench_root: Path, allowed_parent: Path) -> None:
+def _ownership_token(output: str) -> str:
+    match = re.search(r"^Ownership:\s+(amh-quickstart:[0-9]+:[0-9]+)$", output, re.MULTILINE)
+    assert match, f"quickstart did not print its ownership token:\n{output}"
+    return match.group(1)
+
+
+def _assert_owned_benchmark_root(
+    bench_root: Path, allowed_parent: Path, expected_token: str
+) -> None:
     assert bench_root.is_dir()
     assert not bench_root.is_symlink()
     resolved_root = bench_root.resolve()
     resolved_parent = allowed_parent.resolve()
     assert resolved_root != resolved_parent
-    assert resolved_root.is_relative_to(resolved_parent)
+    assert resolved_root.parent == resolved_parent
     assert resolved_root.name.startswith("amh-bench-")
     marker = resolved_root / ".amh-quickstart-owned"
     assert marker.is_file()
     assert not marker.is_symlink()
-    assert re.fullmatch(r"amh-quickstart:[0-9]+:[0-9]+", marker.read_text(encoding="utf-8").strip())
+    assert marker.read_text(encoding="utf-8") == f"{expected_token}\n"
 
 
-def _remove_kept_benchmark_root(bench_root: Path, allowed_parent: Path) -> None:
+def _remove_kept_benchmark_root(
+    bench_root: Path, allowed_parent: Path, expected_token: str
+) -> None:
     try:
-        _assert_owned_benchmark_root(bench_root, allowed_parent)
+        _assert_owned_benchmark_root(bench_root, allowed_parent, expected_token)
     except (AssertionError, OSError, UnicodeError):
         return
     shutil.rmtree(bench_root.resolve())
@@ -794,6 +835,39 @@ def _recover_phase_identities(process_state_file: Path) -> tuple[ProcessIdentity
         ):
             identities.append(current)
     return tuple(identities)
+
+
+def test_keep_cleanup_refuses_nested_parent_and_wrong_run_token(tmp_path: Path) -> None:
+    allowed_parent = tmp_path / "allowed"
+    allowed_parent.mkdir()
+
+    nested_root = allowed_parent / "nested" / "amh-bench-nested"
+    nested_root.mkdir(parents=True)
+    nested_sentinel = nested_root / "sentinel.txt"
+    nested_sentinel.write_text("keep\n", encoding="utf-8")
+    (nested_root / ".amh-quickstart-owned").write_text("amh-quickstart:123:456\n", encoding="utf-8")
+    _remove_kept_benchmark_root(nested_root, allowed_parent, "amh-quickstart:123:456")
+    assert nested_sentinel.is_file()
+
+    wrong_token_root = allowed_parent / "amh-bench-wrong-token"
+    wrong_token_root.mkdir()
+    wrong_token_sentinel = wrong_token_root / "sentinel.txt"
+    wrong_token_sentinel.write_text("keep\n", encoding="utf-8")
+    (wrong_token_root / ".amh-quickstart-owned").write_text(
+        "amh-quickstart:123:456\n", encoding="utf-8"
+    )
+    _remove_kept_benchmark_root(wrong_token_root, allowed_parent, "amh-quickstart:999:999")
+    assert wrong_token_sentinel.is_file()
+
+    whitespace_root = allowed_parent / "amh-bench-whitespace"
+    whitespace_root.mkdir()
+    whitespace_sentinel = whitespace_root / "sentinel.txt"
+    whitespace_sentinel.write_text("keep\n", encoding="utf-8")
+    (whitespace_root / ".amh-quickstart-owned").write_text(
+        " amh-quickstart:123:456\n", encoding="utf-8"
+    )
+    _remove_kept_benchmark_root(whitespace_root, allowed_parent, "amh-quickstart:123:456")
+    assert whitespace_sentinel.is_file()
 
 
 def test_default_success_preserves_host_trees_and_removes_benchmark_root(
@@ -845,16 +919,35 @@ def test_bootstrap_failure_is_fail_closed_and_cleans_benchmark_root(
     quickstart_fixture.assert_host_unchanged()
 
 
+@pytest.mark.parametrize("ps_mode", ["hide_pgid", "report_benchmark_pgid"])
+def test_invalid_phase_pgid_fails_closed_before_phase_command_executes(
+    quickstart_fixture: QuickstartFixture,
+    ps_mode: str,
+) -> None:
+    quickstart_fixture.configure_pgid_failure(ps_mode)
+    result = _run_quickstart(quickstart_fixture)
+    output = result.stdout + result.stderr
+    bench_root = _bench_root(output)
+
+    assert result.returncode == 1, output
+    assert "failed to establish isolated process group" in output
+    assert "✅ PASS" not in output
+    assert not quickstart_fixture.git_env_record.exists()
+    assert not bench_root.exists()
+    quickstart_fixture.assert_host_unchanged()
+
+
 def test_explicit_allowlist_blocks_host_execution_injection(
     quickstart_fixture: QuickstartFixture,
 ) -> None:
     result = _run_quickstart(quickstart_fixture, "--keep")
     output = result.stdout + result.stderr
     bench_root = _bench_root(output)
+    ownership_token = _ownership_token(output)
 
     try:
         assert result.returncode == 0, output
-        _assert_owned_benchmark_root(bench_root, quickstart_fixture.outer_tmp)
+        _assert_owned_benchmark_root(bench_root, quickstart_fixture.outer_tmp, ownership_token)
         escaped = [str(path) for path in quickstart_fixture.attack_sentinels if path.exists()]
         assert escaped == []
         forbidden_keys = (
@@ -876,7 +969,7 @@ def test_explicit_allowlist_blocks_host_execution_injection(
             }
         quickstart_fixture.assert_host_unchanged()
     finally:
-        _remove_kept_benchmark_root(bench_root, quickstart_fixture.outer_tmp)
+        _remove_kept_benchmark_root(bench_root, quickstart_fixture.outer_tmp, ownership_token)
 
 
 def test_known_git_and_pip_write_overrides_cannot_escape_benchmark_root(
@@ -902,10 +995,11 @@ def test_keep_contains_every_managed_output_inside_printed_benchmark_root(
     result = _run_quickstart(quickstart_fixture, "--keep")
     output = result.stdout + result.stderr
     bench_root = _bench_root(output)
+    ownership_token = _ownership_token(output)
 
     try:
         assert result.returncode == 0, output
-        _assert_owned_benchmark_root(bench_root, quickstart_fixture.outer_tmp)
+        _assert_owned_benchmark_root(bench_root, quickstart_fixture.outer_tmp, ownership_token)
         for relative in (
             "home",
             "brain",
@@ -1015,7 +1109,7 @@ def test_keep_contains_every_managed_output_inside_printed_benchmark_root(
         assert "search-line-4" not in output
         quickstart_fixture.assert_host_unchanged()
     finally:
-        _remove_kept_benchmark_root(bench_root, quickstart_fixture.outer_tmp)
+        _remove_kept_benchmark_root(bench_root, quickstart_fixture.outer_tmp, ownership_token)
 
 
 def test_keep_clone_failure_retains_owned_root_and_complete_clone_log(
@@ -1025,11 +1119,12 @@ def test_keep_clone_failure_retains_owned_root_and_complete_clone_log(
     result = _run_quickstart(quickstart_fixture, "--keep")
     output = result.stdout + result.stderr
     bench_root = _bench_root(output)
+    ownership_token = _ownership_token(output)
 
     try:
         assert result.returncode == 1, output
         assert "clone failed" in output
-        _assert_owned_benchmark_root(bench_root, quickstart_fixture.outer_tmp)
+        _assert_owned_benchmark_root(bench_root, quickstart_fixture.outer_tmp, ownership_token)
         clone_log = bench_root / "clone.log"
         assert clone_log.is_file()
         clone_lines = clone_log.read_text(encoding="utf-8").splitlines()
@@ -1038,7 +1133,7 @@ def test_keep_clone_failure_retains_owned_root_and_complete_clone_log(
         assert output_clone_lines == clone_lines[-80:]
         quickstart_fixture.assert_host_unchanged()
     finally:
-        _remove_kept_benchmark_root(bench_root, quickstart_fixture.outer_tmp)
+        _remove_kept_benchmark_root(bench_root, quickstart_fixture.outer_tmp, ownership_token)
 
 
 def test_keep_install_failure_retains_owned_root_and_complete_install_log(
@@ -1048,11 +1143,12 @@ def test_keep_install_failure_retains_owned_root_and_complete_install_log(
     result = _run_quickstart(quickstart_fixture, "--keep")
     output = result.stdout + result.stderr
     bench_root = _bench_root(output)
+    ownership_token = _ownership_token(output)
 
     try:
         assert result.returncode == 1, output
         assert "install.sh failed" in output
-        _assert_owned_benchmark_root(bench_root, quickstart_fixture.outer_tmp)
+        _assert_owned_benchmark_root(bench_root, quickstart_fixture.outer_tmp, ownership_token)
         install_log = bench_root / "install.log"
         assert install_log.is_file()
         install_lines = install_log.read_text(encoding="utf-8").splitlines()
@@ -1063,7 +1159,39 @@ def test_keep_install_failure_retains_owned_root_and_complete_install_log(
         assert output_install_lines == install_lines[-80:]
         quickstart_fixture.assert_host_unchanged()
     finally:
-        _remove_kept_benchmark_root(bench_root, quickstart_fixture.outer_tmp)
+        _remove_kept_benchmark_root(bench_root, quickstart_fixture.outer_tmp, ownership_token)
+
+
+def test_keep_search_failure_retains_owned_root_and_complete_search_log(
+    quickstart_fixture: QuickstartFixture,
+) -> None:
+    quickstart_fixture.configure_search_exit(43)
+    result = _run_quickstart(quickstart_fixture, "--keep")
+    output = result.stdout + result.stderr
+    bench_root = _bench_root(output)
+    ownership_token = _ownership_token(output)
+
+    try:
+        assert result.returncode == 1, output
+        assert "first search failed" in output
+        _assert_owned_benchmark_root(bench_root, quickstart_fixture.outer_tmp, ownership_token)
+        search_log = bench_root / "search.log"
+        assert search_log.is_file()
+        search_lines = search_log.read_text(encoding="utf-8").splitlines()
+        assert search_lines == [
+            "search-line-1",
+            "search-line-2",
+            "search-line-3",
+            "search-line-4",
+            *(f"search-log-{line:03d}" for line in range(1, 101)),
+        ]
+        output_search_lines = [
+            line for line in output.splitlines() if line.startswith("search-log-")
+        ]
+        assert output_search_lines == search_lines[-80:]
+        quickstart_fixture.assert_host_unchanged()
+    finally:
+        _remove_kept_benchmark_root(bench_root, quickstart_fixture.outer_tmp, ownership_token)
 
 
 def test_keep_shim_targets_real_clone_venv_inside_benchmark_root(
@@ -1072,10 +1200,11 @@ def test_keep_shim_targets_real_clone_venv_inside_benchmark_root(
     result = _run_quickstart(quickstart_fixture, "--keep")
     output = result.stdout + result.stderr
     bench_root = _bench_root(output)
+    ownership_token = _ownership_token(output)
 
     try:
         assert result.returncode == 0, output
-        _assert_owned_benchmark_root(bench_root, quickstart_fixture.outer_tmp)
+        _assert_owned_benchmark_root(bench_root, quickstart_fixture.outer_tmp, ownership_token)
         shim = bench_root / "home" / ".local" / "bin" / "memory"
         match = re.search(
             r'^exec "([^"]+)" "\$@"$',
@@ -1096,7 +1225,7 @@ def test_keep_shim_targets_real_clone_venv_inside_benchmark_root(
         assert shim_result.stdout == "fixture-memory-ok:probe\n"
         quickstart_fixture.assert_host_unchanged()
     finally:
-        _remove_kept_benchmark_root(bench_root, quickstart_fixture.outer_tmp)
+        _remove_kept_benchmark_root(bench_root, quickstart_fixture.outer_tmp, ownership_token)
 
 
 def test_install_failure_is_nonzero_cleans_up_and_preserves_host(
