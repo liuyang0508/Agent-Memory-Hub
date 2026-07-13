@@ -10,7 +10,6 @@
     HubIndex.update_confidence clamped — inconsistent. Now both clamp.
 #47 HealthScore.grade ignored drift once issue_rate dropped below the B tier.
 """
-
 from __future__ import annotations
 
 import json
@@ -39,7 +38,6 @@ def _combined(result) -> str:
 
 # ----- #47 HealthScore.grade -----
 
-
 def test_grade_demoted_by_high_drift_with_low_issue_rate():
     # issue_rate == 0 but 50 drift findings. Before the fix the B/C/D tiers
     # ignored drift entirely, so this returned "B"; now drift demotes it.
@@ -57,7 +55,6 @@ def test_grade_existing_tiers_preserved():
 
 
 # ----- #33 gc --dry-run counter -----
-
 
 def _write_item(store, suffix, tags, days_old):
     item = MemoryItem(
@@ -86,7 +83,6 @@ def test_gc_dry_run_reports_candidate_count(tmp_path, monkeypatch):
 
 # ----- #34 read silent on parse failure -----
 
-
 def test_read_errors_on_unparseable_item(tmp_path, monkeypatch):
     monkeypatch.setenv("BRAIN_DIR", str(tmp_path))
     items = tmp_path / "items"
@@ -101,7 +97,6 @@ def test_read_errors_on_unparseable_item(tmp_path, monkeypatch):
 
 
 # ----- #35 doctor adapter footprint aggregation -----
-
 
 def _isolate_doctor_adapter_paths(home, monkeypatch):
     monkeypatch.setattr(codex, "AGENTS_MD", home / ".codex" / "AGENTS.md")
@@ -147,15 +142,13 @@ def test_doctor_counts_only_amh_claude_hooks(tmp_path, monkeypatch):
             event: [
                 {"hooks": [{"type": "command", "command": "/usr/local/bin/foreign-audit"}]},
                 {
-                    "hooks": [
-                        {
-                            "type": "command",
-                            "command": (
-                                "PATH=/usr/bin:/bin AGENT_MEMORY_HUB_ADAPTER=claude_code "
-                                f"/repo/agent_runtime_kit/hooks/{event}.sh"
-                            ),
-                        }
-                    ]
+                    "hooks": [{
+                        "type": "command",
+                        "command": (
+                            "PATH=/usr/bin:/bin AGENT_MEMORY_HUB_ADAPTER=claude_code "
+                            f"/repo/agent_runtime_kit/hooks/{event}.sh"
+                        ),
+                    }]
                 },
             ]
             for event in hook_events
@@ -215,7 +208,6 @@ def test_doctor_reports_broken_memory_cli_shim_row(tmp_path, monkeypatch):
 
 # ----- #36 archived items addressable -----
 
-
 def _archive(tmp_path, item, body):
     store = ItemsStore(tmp_path / "items")
     store.write(item, body)
@@ -260,7 +252,6 @@ def test_delete_resolves_archived_item(tmp_path, monkeypatch):
 
 # ----- MCP-based fixtures (#37, #38) -----
 
-
 @pytest.fixture
 def mcp_env(tmp_path, monkeypatch):
     monkeypatch.setenv("BRAIN_DIR", str(tmp_path))
@@ -275,7 +266,6 @@ def mcp_env(tmp_path, monkeypatch):
 
 # ----- #37 update_memory type -> decay_class -----
 
-
 def test_update_memory_type_change_updates_decay_class(mcp_env):
     m = mcp_env
     item_id = m.write_memory(type="fact", title="Decay item", summary="s", body="b")["id"]
@@ -289,7 +279,6 @@ def test_update_memory_type_change_updates_decay_class(mcp_env):
 
 
 # ----- #38 confirm / batch_confirm clamp -----
-
 
 def test_confirm_memory_clamps_out_of_range(mcp_env):
     m = mcp_env
