@@ -15,9 +15,10 @@
 执行目录：
 
 ```bash
-cd <hotfix-worktree>
-export AMH_PYTHON=<repo-venv>/bin/python
-export AMH_RUFF=<repo-venv>/bin/ruff
+export HOTFIX_WORKTREE="${HOTFIX_WORKTREE:-/path/to/install-health-hotfix}"
+export AMH_PYTHON="${AMH_PYTHON:-/path/to/repo-venv/bin/python}"
+export AMH_RUFF="${AMH_RUFF:-/path/to/repo-venv/bin/ruff}"
+cd "$HOTFIX_WORKTREE"
 export PYTHONPATH="$PWD"
 ```
 

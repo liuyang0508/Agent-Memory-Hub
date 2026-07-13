@@ -80,6 +80,7 @@ _PUBLIC_DOMAIN_ALLOWLIST = {
     "example.internal",
     "example.invalid",
     "github.com",
+    "gitee.com",
     "gitlab.com",
     "bitbucket.org",
     "codeberg.org",
@@ -337,7 +338,7 @@ def _dynamic_findings(line: str, *, identities: Sequence[str]) -> Iterable[tuple
 
     for match in _EMAIL_RE.finditer(line):
         email = match.group(0)
-        if not _looks_like_scp_ssh_authority(match) and _is_sensitive_email(email):
+        if _is_sensitive_email(email):
             yield "email_address", email
 
     for match in _UUID_RE.finditer(line):
@@ -469,24 +470,12 @@ def _is_sensitive_email(email: str) -> bool:
 
 def _redact_email_match(match: re.Match[str]) -> str:
     email = match.group(0)
-    if _looks_like_scp_ssh_authority(match) or not _is_sensitive_email(email):
+    if not _is_sensitive_email(email):
         return email
     replacement = "user@example.com"
     if _has_odd_backslash_prefix(match.string, match.start()):
         return "\\" + replacement
     return replacement
-
-
-def _looks_like_scp_ssh_authority(match: re.Match[str]) -> bool:
-    """Return true for the ``user@host:path`` authority in an SCP-style remote."""
-
-    colon = match.end()
-    path_start = colon + 1
-    return (
-        path_start < len(match.string)
-        and match.string[colon] == ":"
-        and not match.string[path_start].isspace()
-    )
 
 
 def _has_odd_backslash_prefix(text: str, index: int) -> bool:
