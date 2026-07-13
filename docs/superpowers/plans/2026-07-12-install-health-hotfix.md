@@ -1310,18 +1310,16 @@ Expected：全部 exit 0。
 
 - [ ] **Step 5: 在真实 dogfood 安装上做只读验收**
 
-从主仓安装环境调用 CLI，但显式让 Python 加载 hotfix worktree 代码：
+使用真实安装入口检查真实安装路径；hotfix worktree 的行为由前面的隔离 HOME subprocess E2E 覆盖。不要通过 `PYTHONPATH` 强制让另一个 worktree 的 adapter 实例检查主仓安装，因为 adapter trust/diagnose 会有意把“配置指向不同 checkout”报告为 error：
 
 ```bash
-PYTHONPATH="$PWD" "$AMH_PYTHON" \
-  -m agent_brain.interfaces.cli doctor
-PYTHONPATH="$PWD" "$AMH_PYTHON" \
-  -m agent_brain.interfaces.cli adapter doctor codex --format json
-PYTHONPATH="$PWD" "$AMH_PYTHON" \
-  -m agent_brain.interfaces.cli adapter doctor claude_code --format json
+command -v memory
+memory doctor
+memory adapter doctor codex --format json
+memory adapter doctor claude_code --format json
 ```
 
-Expected：当前已修复 dogfood 的总 doctor 不出现 adapter error；Codex、Claude Code adapter doctor 均非 error。该步骤禁止执行 `--fix`，避免用验收动作修改真实配置。
+Expected：真实安装入口存在；总 doctor 通过；Codex、Claude Code adapter doctor 均非 error。该步骤禁止执行 `--fix`，避免用验收动作修改真实配置。若需要验证 hotfix 总 doctor 的新聚合输出，必须在临时 HOME 中安装同一 hotfix checkout 后再运行，不能把跨 checkout mismatch 当作用户安装损坏。
 
 - [ ] **Step 6: 最终代码审查和 PR 准备**
 
