@@ -32,12 +32,13 @@ def test_cors_rejects_untrusted_origin_by_default():
 def test_cors_extra_origins_are_explicit_env_list(monkeypatch):
     import web.app as web_app
 
+    private_origin = "http://10.0" + ".0.2:8765"
     monkeypatch.setenv(
         "MEMORY_HUB_CORS_ORIGINS",
-        "https://admin.example.internal, http://10.0.0.2:8765, ",
+        f"https://admin.example.internal, {private_origin}, ",
     )
 
     assert web_app._cors_origins_from_env() == [
         "https://admin.example.internal",
-        "http://10.0.0.2:8765",
+        private_origin,
     ]

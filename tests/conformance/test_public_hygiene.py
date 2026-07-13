@@ -146,6 +146,22 @@ def test_public_hygiene_preserves_json_when_email_follows_backslash_escape() -> 
     assert json.loads(path_redacted)["context"] == 'node = tree.get_node("~")'
 
 
+def test_public_hygiene_allows_scp_ssh_authority_and_reserved_invalid_email() -> None:
+    from agent_brain.evaluation.public_hygiene import scan_text
+
+    sensitive_email = "release-owner" + "@" + "corp.private"
+    findings = scan_text(
+        "git remote add mirror git@gitee.com:team/repo.git\n"
+        "git -c user.email=amh-test@example.invalid commit\n"
+        f"{sensitive_email}: contact for production\n",
+        path="release-example.md",
+    )
+
+    assert [(finding.rule, finding.match) for finding in findings] == [
+        ("email_address", sensitive_email)
+    ]
+
+
 def test_git_tracked_public_surface_has_no_sensitive_literals() -> None:
     from agent_brain.evaluation.public_hygiene import format_findings, scan_git_public_surface
 

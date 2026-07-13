@@ -15,9 +15,9 @@
 执行目录：
 
 ```bash
-cd /Users/liuyang/.config/superpowers/worktrees/agent-memory-hub/install-health-hotfix
-export AMH_PYTHON=/Users/liuyang/Desktop/AIAgent/agent-memory-hub/.venv/bin/python
-export AMH_RUFF=/Users/liuyang/Desktop/AIAgent/agent-memory-hub/.venv/bin/ruff
+cd <hotfix-worktree>
+export AMH_PYTHON=<repo-venv>/bin/python
+export AMH_RUFF=<repo-venv>/bin/ruff
 export PYTHONPATH="$PWD"
 ```
 
@@ -1312,11 +1312,11 @@ Expected：全部 exit 0。
 从主仓安装环境调用 CLI，但显式让 Python 加载 hotfix worktree 代码：
 
 ```bash
-PYTHONPATH="$PWD" /Users/liuyang/Desktop/AIAgent/agent-memory-hub/.venv/bin/python \
+PYTHONPATH="$PWD" "$AMH_PYTHON" \
   -m agent_brain.interfaces.cli doctor
-PYTHONPATH="$PWD" /Users/liuyang/Desktop/AIAgent/agent-memory-hub/.venv/bin/python \
+PYTHONPATH="$PWD" "$AMH_PYTHON" \
   -m agent_brain.interfaces.cli adapter doctor codex --format json
-PYTHONPATH="$PWD" /Users/liuyang/Desktop/AIAgent/agent-memory-hub/.venv/bin/python \
+PYTHONPATH="$PWD" "$AMH_PYTHON" \
   -m agent_brain.interfaces.cli adapter doctor claude_code --format json
 ```
 
