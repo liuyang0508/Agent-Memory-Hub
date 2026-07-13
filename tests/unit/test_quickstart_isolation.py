@@ -780,7 +780,7 @@ class ProcessIdentity:
 
 def _process_rows() -> list[tuple[int, int, int, str, str]]:
     result = subprocess.run(
-        ["ps", "-axo", "pid=,ppid=,pgid=,stat=,command="],
+        ["ps", "-ww", "-axo", "pid=,ppid=,pgid=,stat=,command="],
         capture_output=True,
         text=True,
         check=True,
@@ -793,6 +793,27 @@ def _process_rows() -> list[tuple[int, int, int, str, str]]:
         command = parts[4] if len(parts) == 5 else ""
         rows.append((int(parts[0]), int(parts[1]), int(parts[2]), parts[3], command))
     return rows
+
+
+def test_process_rows_requests_unlimited_command_width(monkeypatch: pytest.MonkeyPatch) -> None:
+    long_command = "bash /tmp/" + ("nested-path/" * 20) + "install.sh"
+    observed_args: list[str] = []
+
+    def fake_run(args: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        observed_args.extend(args)
+        return subprocess.CompletedProcess(
+            args,
+            0,
+            stdout=f"101 1 101 S {long_command}\n",
+            stderr="",
+        )
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    rows = _process_rows()
+
+    assert observed_args == ["ps", "-ww", "-axo", "pid=,ppid=,pgid=,stat=,command="]
+    assert rows == [(101, 1, 101, "S", long_command)]
 
 
 def _process_identity(pid: int) -> ProcessIdentity | None:
