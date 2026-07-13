@@ -10,6 +10,7 @@
     HubIndex.update_confidence clamped — inconsistent. Now both clamp.
 #47 HealthScore.grade ignored drift once issue_rate dropped below the B tier.
 """
+
 from __future__ import annotations
 
 import json
@@ -22,6 +23,7 @@ from agent_brain.interfaces.cli import app
 from agent_brain.memory.store.items_store import ItemsStore
 from agent_brain.observability import HealthScore
 from agent_brain.contracts.memory_item import MemoryItem, MemoryType
+from agent_brain.agent_integrations import claude_code, codex
 
 runner = CliRunner()
 
@@ -36,6 +38,7 @@ def _combined(result) -> str:
 
 
 # ----- #47 HealthScore.grade -----
+
 
 def test_grade_demoted_by_high_drift_with_low_issue_rate():
     # issue_rate == 0 but 50 drift findings. Before the fix the B/C/D tiers
@@ -54,6 +57,7 @@ def test_grade_existing_tiers_preserved():
 
 
 # ----- #33 gc --dry-run counter -----
+
 
 def _write_item(store, suffix, tags, days_old):
     item = MemoryItem(
@@ -82,6 +86,7 @@ def test_gc_dry_run_reports_candidate_count(tmp_path, monkeypatch):
 
 # ----- #34 read silent on parse failure -----
 
+
 def test_read_errors_on_unparseable_item(tmp_path, monkeypatch):
     monkeypatch.setenv("BRAIN_DIR", str(tmp_path))
     items = tmp_path / "items"
@@ -95,9 +100,19 @@ def test_read_errors_on_unparseable_item(tmp_path, monkeypatch):
     assert "could not be parsed" in combined or "not found" in combined
 
 
-# ----- #35 doctor malformed settings.json -----
+# ----- #35 doctor adapter footprint aggregation -----
 
-def test_doctor_survives_malformed_settings(tmp_path, monkeypatch):
+
+def _isolate_doctor_adapter_paths(home, monkeypatch):
+    monkeypatch.setattr(codex, "AGENTS_MD", home / ".codex" / "AGENTS.md")
+    monkeypatch.setattr(codex, "CODEX_HOOKS_JSON", home / ".codex" / "hooks.json")
+    monkeypatch.setattr(codex, "CODEX_CONFIG_TOML", home / ".codex" / "config.toml")
+    monkeypatch.setattr(claude_code, "SETTINGS_PATH", home / ".claude" / "settings.json")
+    monkeypatch.setattr(claude_code, "AWARENESS_PATH", home / ".claude" / "CLAUDE.md")
+    monkeypatch.setenv("AGENT_MEMORY_HUB_BIN", str(home / ".local" / "bin"))
+
+
+def test_doctor_skips_non_amh_malformed_settings(tmp_path, monkeypatch):
     home = tmp_path / "home"
     (home / ".claude").mkdir(parents=True)
     (home / ".claude" / "settings.json").write_text("{ this is not valid json ", encoding="utf-8")
@@ -105,11 +120,12 @@ def test_doctor_survives_malformed_settings(tmp_path, monkeypatch):
     (brain / "items").mkdir(parents=True)
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.setenv("BRAIN_DIR", str(brain))
+    _isolate_doctor_adapter_paths(home, monkeypatch)
     result = runner.invoke(app, ["doctor"])
-    # Before the fix: json.loads raised and CliRunner captured the exception.
     assert result.exception is None, result.exception
     assert result.exit_code == 0
-    assert "malformed" in result.output
+    assert "claude_code" not in result.output
+    assert "Claude Code settings" not in result.output
 
 
 def test_doctor_counts_only_amh_claude_hooks(tmp_path, monkeypatch):
@@ -131,13 +147,15 @@ def test_doctor_counts_only_amh_claude_hooks(tmp_path, monkeypatch):
             event: [
                 {"hooks": [{"type": "command", "command": "/usr/local/bin/foreign-audit"}]},
                 {
-                    "hooks": [{
-                        "type": "command",
-                        "command": (
-                            "PATH=/usr/bin:/bin AGENT_MEMORY_HUB_ADAPTER=claude_code "
-                            f"/repo/agent_runtime_kit/hooks/{event}.sh"
-                        ),
-                    }]
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": (
+                                "PATH=/usr/bin:/bin AGENT_MEMORY_HUB_ADAPTER=claude_code "
+                                f"/repo/agent_runtime_kit/hooks/{event}.sh"
+                            ),
+                        }
+                    ]
                 },
             ]
             for event in hook_events
@@ -146,11 +164,14 @@ def test_doctor_counts_only_amh_claude_hooks(tmp_path, monkeypatch):
     (home / ".claude" / "settings.json").write_text(json.dumps(settings), encoding="utf-8")
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.setenv("BRAIN_DIR", str(brain))
+    _isolate_doctor_adapter_paths(home, monkeypatch)
 
     result = runner.invoke(app, ["doctor"])
 
-    assert result.exit_code == 0
-    assert "7 AMH registered" in result.output
+    assert result.exit_code == 1
+    assert "claude_code" in result.output
+    assert "ERROR" in result.output
+    assert "7 AMH registered" not in result.output
 
 
 def test_doctor_reports_invalid_empty_search_index(tmp_path, monkeypatch):
@@ -158,6 +179,10 @@ def test_doctor_reports_invalid_empty_search_index(tmp_path, monkeypatch):
     (brain / "items").mkdir(parents=True)
     (brain / "index.db").touch()
     monkeypatch.setenv("BRAIN_DIR", str(brain))
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    _isolate_doctor_adapter_paths(home, monkeypatch)
 
     result = runner.invoke(app, ["doctor"])
 
@@ -178,6 +203,7 @@ def test_doctor_reports_broken_memory_cli_shim_row(tmp_path, monkeypatch):
     shim.chmod(0o755)
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.setenv("BRAIN_DIR", str(brain))
+    _isolate_doctor_adapter_paths(home, monkeypatch)
 
     result = runner.invoke(app, ["doctor"])
 
@@ -188,6 +214,7 @@ def test_doctor_reports_broken_memory_cli_shim_row(tmp_path, monkeypatch):
 
 
 # ----- #36 archived items addressable -----
+
 
 def _archive(tmp_path, item, body):
     store = ItemsStore(tmp_path / "items")
@@ -233,6 +260,7 @@ def test_delete_resolves_archived_item(tmp_path, monkeypatch):
 
 # ----- MCP-based fixtures (#37, #38) -----
 
+
 @pytest.fixture
 def mcp_env(tmp_path, monkeypatch):
     monkeypatch.setenv("BRAIN_DIR", str(tmp_path))
@@ -247,6 +275,7 @@ def mcp_env(tmp_path, monkeypatch):
 
 # ----- #37 update_memory type -> decay_class -----
 
+
 def test_update_memory_type_change_updates_decay_class(mcp_env):
     m = mcp_env
     item_id = m.write_memory(type="fact", title="Decay item", summary="s", body="b")["id"]
@@ -260,6 +289,7 @@ def test_update_memory_type_change_updates_decay_class(mcp_env):
 
 
 # ----- #38 confirm / batch_confirm clamp -----
+
 
 def test_confirm_memory_clamps_out_of_range(mcp_env):
     m = mcp_env
