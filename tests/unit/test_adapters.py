@@ -2160,6 +2160,33 @@ class TestQoderAdapterRealInstall:
         assert "native SearchMemory" in effectiveness.detail
         assert "new-native-only.jsonl" in effectiveness.detail
 
+    def test_qoder_transcript_timestamp_skips_non_object_json_rows(self, tmp_path):
+        from datetime import datetime
+
+        from agent_brain.agent_integrations import qoder as qoder_mod
+
+        transcript = tmp_path / "mixed.jsonl"
+        transcript.write_text(
+            "\n".join([
+                json.dumps("plain string"),
+                json.dumps(["list"]),
+                json.dumps(42),
+                json.dumps(True),
+                json.dumps(None),
+                json.dumps({"timestamp": "2026-07-15T00:00:00Z"}),
+            ])
+            + "\n",
+            encoding="utf-8",
+        )
+
+        observed = qoder_mod.QoderAdapter(
+            brain_dir=tmp_path / ".brain"
+        )._transcript_observed_time(transcript)
+
+        assert observed == datetime.fromisoformat(
+            "2026-07-15T00:00:00+00:00"
+        ).timestamp()
+
     def test_diagnose_reports_qoder_native_memory_redirect(self, tmp_path, monkeypatch):
         from agent_brain.agent_integrations import qoder as qoder_mod
 

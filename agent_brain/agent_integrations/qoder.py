@@ -1312,6 +1312,8 @@ class QoderAdapter(AdapterBase):
                 record = json.loads(line)
             except json.JSONDecodeError:
                 continue
+            if not isinstance(record, dict):
+                continue
             timestamp = record.get("timestamp")
             if not isinstance(timestamp, str) or not timestamp:
                 continue
