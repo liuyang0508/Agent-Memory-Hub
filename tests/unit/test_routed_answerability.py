@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import sys
+from types import SimpleNamespace
 
 import pytest
 
@@ -287,6 +289,82 @@ def test_routed_admission_false_rejects_entire_cohort() -> None:
     assert "query_not_injectable" in result.excluded[0].reasons
 
 
+def test_routed_admission_false_never_calls_legacy_answerability_verifier() -> None:
+    from agent_brain.memory.context.answerability import SemanticAnswerabilityDecision
+    from agent_brain.memory.context.context_firewall import ContextFirewall
+
+    class SpyVerifier:
+        call_count = 0
+
+        def verify(self, **_kwargs):
+            self.call_count += 1
+            return SemanticAnswerabilityDecision(True, 0.99, "allow")
+
+    verifier = SpyVerifier()
+    value = _item("admission-block-verifier")
+    context = _context(
+        allowed=False,
+        signal=_signal(terms=("atlas",), strong_terms=("atlas",), injectable=True),
+        evidence_by_id={value.id: _evidence("lexical_terms")},
+    )
+
+    result = ContextFirewall(
+        now=NOW,
+        answerability_verifier=verifier,
+    ).filter([_candidate(value, body="Atlas evidence")], query_context=context)
+
+    assert result.included == []
+    assert "query_not_injectable" in result.excluded[0].reasons
+    assert verifier.call_count == 0
+
+
+@pytest.mark.parametrize(
+    "routes",
+    [
+        (),
+        ("unknown_route",),
+        ("lexical_terms", "unknown_route"),
+    ],
+)
+def test_strong_terms_require_closed_route_provenance(routes: tuple[str, ...]) -> None:
+    from agent_brain.memory.context.context_firewall import ContextFirewall
+
+    value = _item("strong-invalid-route")
+    context = _context(
+        signal=_signal(terms=("atlas",), strong_terms=("atlas",), injectable=False),
+        evidence_by_id={value.id: _evidence(*routes)},
+    )
+
+    result = ContextFirewall(now=NOW).filter(
+        [_candidate(value, body="Atlas evidence")],
+        query_context=context,
+    )
+
+    assert result.included == []
+    assert result.excluded[0].reasons == ("route_answerability_insufficient",)
+
+
+@pytest.mark.parametrize(
+    "route",
+    ["semantic_raw", "lexical_terms", "lexical_raw_fallback"],
+)
+def test_strong_terms_accept_each_recognized_route(route: str) -> None:
+    from agent_brain.memory.context.context_firewall import ContextFirewall
+
+    value = _item(f"strong-valid-{route}")
+    context = _context(
+        signal=_signal(terms=("atlas",), strong_terms=("atlas",), injectable=False),
+        evidence_by_id={value.id: _evidence(route)},
+    )
+
+    result = ContextFirewall(now=NOW).filter(
+        [_candidate(value, body="Atlas evidence")],
+        query_context=context,
+    )
+
+    assert [decision.candidate.item.id for decision in result.included] == [value.id]
+
+
 def test_routed_topic_recency_uses_admission_not_signal_injectability() -> None:
     from agent_brain.memory.context.context_firewall import ContextFirewall
 
@@ -349,6 +427,86 @@ def test_semantic_verifier_cannot_override_route_deterministic_failure() -> None
     assert result.included == []
     assert result.excluded[0].reasons == ("route_answerability_insufficient",)
     assert verifier.called is False
+
+
+def test_routed_verifier_exception_is_private_and_fails_closed(caplog) -> None:
+    from agent_brain.memory.context.context_firewall import ContextFirewall
+
+    raw_sentinel = "SECRET_RAW_QUERY_SENTINEL"
+    body_sentinel = "SECRET_CANDIDATE_BODY_SENTINEL"
+    value = _item("SECRET_ITEM_ID_SENTINEL")
+
+    class FailingVerifier:
+        def verify(self, **_kwargs):
+            raise RuntimeError(f"{raw_sentinel} {body_sentinel} {value.id}")
+
+    context = _context(
+        raw_query=raw_sentinel,
+        evidence_by_id={value.id: _evidence("semantic_raw", similarity=0.82)},
+    )
+    result = ContextFirewall(
+        now=NOW,
+        answerability_verifier=FailingVerifier(),
+    ).filter(
+        [_candidate(value, body=body_sentinel)],
+        query_context=context,
+    )
+
+    assert result.included == []
+    assert "semantic_answerability_mismatch" in result.excluded[0].reasons
+    for sentinel in (raw_sentinel, body_sentinel, value.id):
+        assert sentinel not in caplog.text
+
+
+def test_legacy_verifier_exception_log_is_private_and_keeps_legacy_fallback(caplog) -> None:
+    from agent_brain.memory.context.answerability import verify_candidate_answerability
+
+    raw_sentinel = "SECRET_LEGACY_RAW_SENTINEL"
+    body_sentinel = "SECRET_LEGACY_BODY_SENTINEL"
+    value = _item("SECRET_LEGACY_ITEM_SENTINEL")
+
+    class FailingVerifier:
+        def verify(self, **_kwargs):
+            raise RuntimeError(f"{raw_sentinel} {body_sentinel} {value.id}")
+
+    decision = verify_candidate_answerability(
+        _candidate(value, body=f"Atlas {body_sentinel}"),
+        _signal(terms=("atlas",), strong_terms=("atlas",), injectable=True),
+        query=raw_sentinel,
+        verifier=FailingVerifier(),
+    )
+
+    assert decision.answerable is True
+    for sentinel in (raw_sentinel, body_sentinel, value.id):
+        assert sentinel not in caplog.text
+
+
+def test_llm_provider_exception_log_is_private(monkeypatch, caplog) -> None:
+    from agent_brain.memory.context.answerability import (
+        CandidateAnswerability,
+        LLMAnswerabilityVerifier,
+    )
+
+    sentinel = "SECRET_LLM_PROVIDER_SENTINEL"
+
+    def fail_completion(**_kwargs):
+        raise RuntimeError(sentinel)
+
+    monkeypatch.setitem(
+        sys.modules,
+        "litellm",
+        SimpleNamespace(completion=fail_completion),
+    )
+    candidate = _candidate(_item("llm-provider-private"), body="Atlas evidence")
+    decision = LLMAnswerabilityVerifier().verify(
+        query="Atlas query",
+        candidate=candidate,
+        signal=_signal(terms=("atlas",), strong_terms=("atlas",), injectable=True),
+        deterministic=CandidateAnswerability(True, ("atlas",), ("atlas",), ()),
+    )
+
+    assert decision is None
+    assert sentinel not in caplog.text
 
 
 @pytest.mark.parametrize(

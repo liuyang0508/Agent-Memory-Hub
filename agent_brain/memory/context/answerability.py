@@ -179,8 +179,8 @@ class LLMAnswerabilityVerifier:
             if text.startswith("```"):
                 text = text.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
             return json.loads(text)
-        except Exception as exc:
-            _LOG.warning("LLM answerability verifier failed: %s", exc)
+        except Exception:
+            _LOG.warning("LLM answerability verifier failed")
             return None
 
 
@@ -190,6 +190,7 @@ def verify_candidate_answerability(
     *,
     query: str | None = None,
     verifier: AnswerabilityVerifier | None = None,
+    fail_closed_on_verifier_error: bool = False,
 ) -> CandidateAnswerability:
     """Return whether a candidate has the primary anchor needed for injection.
 
@@ -220,6 +221,7 @@ def verify_candidate_answerability(
                 signal=signal,
                 query=query,
                 verifier=verifier,
+                fail_closed_on_error=fail_closed_on_verifier_error,
             )
         return CandidateAnswerability(False, (), (), (), query_intent, "query_mismatch")
 
@@ -265,6 +267,7 @@ def verify_candidate_answerability(
         signal=signal,
         query=query,
         verifier=verifier,
+        fail_closed_on_error=fail_closed_on_verifier_error,
     )
 
 
@@ -282,19 +285,17 @@ def verify_routed_candidate_answerability(
     if not query_context.admission.allowed:
         return _route_answerability_failure(query_intent)
 
+    evidence = query_context.evidence_by_id.get(candidate.item.id)
+    if evidence is None or not _has_recognized_route_provenance(evidence.routes):
+        return _route_answerability_failure(query_intent)
+
     if signal.strong_terms:
-        if query_context.evidence_by_id.get(candidate.item.id) is None:
-            return _route_answerability_failure(query_intent)
         return _verify_term_answerability(
             candidate,
             signal,
             query=query,
             verifier=verifier,
         )
-
-    evidence = query_context.evidence_by_id.get(candidate.item.id)
-    if evidence is None:
-        return _route_answerability_failure(query_intent)
 
     routes = set(evidence.routes)
     if "semantic_raw" in routes:
@@ -321,6 +322,7 @@ def verify_routed_candidate_answerability(
                 signal=signal,
                 query=query,
                 verifier=verifier,
+                fail_closed_on_error=True,
             )
 
     if "lexical_raw_fallback" in routes:
@@ -340,6 +342,7 @@ def verify_routed_candidate_answerability(
                 signal=signal,
                 query=query,
                 verifier=verifier,
+                fail_closed_on_error=True,
             )
 
     if "lexical_terms" in routes and signal.terms:
@@ -367,6 +370,7 @@ def _verify_term_answerability(
         allowed_signal,
         query=query,
         verifier=verifier,
+        fail_closed_on_verifier_error=True,
     )
 
 
@@ -379,6 +383,18 @@ def _route_answerability_failure(query_intent: str) -> CandidateAnswerability:
         query_intent,
         "route_answerability_insufficient",
     )
+
+
+_ROUTED_ANSWERABILITY_ROUTES = frozenset({
+    "semantic_raw",
+    "lexical_terms",
+    "lexical_raw_fallback",
+})
+
+
+def _has_recognized_route_provenance(routes: tuple[str, ...]) -> bool:
+    route_set = set(routes)
+    return bool(route_set) and route_set <= _ROUTED_ANSWERABILITY_ROUTES
 
 
 _RAW_QUERY_ASCII_NOISE = frozenset({
@@ -502,6 +518,7 @@ def _apply_semantic_verifier(
     signal: QuerySignal,
     query: str | None,
     verifier: AnswerabilityVerifier | None,
+    fail_closed_on_error: bool = False,
 ) -> CandidateAnswerability:
     if not deterministic.answerable or verifier is None or not (query or "").strip():
         return deterministic
@@ -513,8 +530,17 @@ def _apply_semantic_verifier(
             signal=signal,
             deterministic=deterministic,
         )
-    except Exception as exc:
-        _LOG.warning("semantic answerability verifier failed; falling back: %s", exc)
+    except Exception:
+        _LOG.warning("semantic answerability verifier failed")
+        if fail_closed_on_error:
+            return CandidateAnswerability(
+                answerable=False,
+                required_terms=deterministic.required_terms,
+                covered_terms=deterministic.covered_terms,
+                missing_terms=(),
+                query_intent=deterministic.query_intent,
+                reason="semantic_answerability_mismatch",
+            )
         return deterministic
 
     if semantic is None:

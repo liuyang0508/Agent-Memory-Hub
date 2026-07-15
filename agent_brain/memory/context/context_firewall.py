@@ -385,7 +385,16 @@ class ContextFirewall:
             reasons.append("requires_review")
             return FirewallDecision(candidate, "exclude", tuple(reasons), base_score, 0.0)
 
-        if query_context is not None and query_context.admission.allowed:
+        if query_context is not None:
+            if not query_context.admission.allowed:
+                reasons.append("query_not_injectable")
+                return FirewallDecision(
+                    candidate,
+                    "exclude",
+                    tuple(reasons),
+                    base_score,
+                    0.0,
+                )
             answerability = verify_routed_candidate_answerability(
                 candidate,
                 query_context,
