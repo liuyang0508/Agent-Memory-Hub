@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+from pathlib import Path
 from types import MethodType, SimpleNamespace
 from typing import Any
 
@@ -191,6 +192,19 @@ def _low_variable_limit_index(tmp_path):
             embedding=[0.9, 0.1] if target else [0.0, 1.0],
         )
     return index, target_id, allowed_ids
+
+
+class _ConnectionSetLimitSpy:
+    def __init__(self, connection: sqlite3.Connection) -> None:
+        self.connection = connection
+        self.setlimit_calls: list[tuple[int, int]] = []
+
+    def __getattr__(self, name: str):
+        return getattr(self.connection, name)
+
+    def setlimit(self, category: int, limit: int) -> int:
+        self.setlimit_calls.append((category, limit))
+        return self.connection.setlimit(category, limit)
 
 
 def test_fuse_routes_accumulates_shared_hits_and_preserves_stable_evidence() -> None:
@@ -677,6 +691,100 @@ def test_bm25_allowed_ids_support_extreme_variable_limits(
         assert [hit.id for hit in hits] == [target_id]
     finally:
         index.connection.setlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER, previous_limit)
+        index.close()
+
+
+def test_limit_one_bm25_does_not_mutate_shared_connection(tmp_path) -> None:
+    index, target_id, allowed_ids = _low_variable_limit_index(tmp_path)
+    connection = index.connection
+    previous_limit = connection.setlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER, 1)
+    spy = _ConnectionSetLimitSpy(connection)
+    index.connection = spy  # type: ignore[assignment]
+    try:
+        hits = index.bm25_search(
+            '"chunkneedle"',
+            top_k=1,
+            allowed_ids=allowed_ids,
+        )
+
+        assert [hit.id for hit in hits] == [target_id]
+        assert spy.setlimit_calls == []
+        assert connection.getlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER) == 1
+    finally:
+        index.connection = connection
+        connection.setlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER, previous_limit)
+        index.close()
+
+
+def test_limit_one_bm25_exception_does_not_mutate_shared_connection(tmp_path) -> None:
+    index, _target_id, allowed_ids = _low_variable_limit_index(tmp_path)
+    connection = index.connection
+    previous_limit = connection.setlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER, 1)
+    spy = _ConnectionSetLimitSpy(connection)
+    index.connection = spy  # type: ignore[assignment]
+    try:
+        with pytest.raises(sqlite3.OperationalError):
+            index.bm25_search(
+                '"unterminated',
+                top_k=1,
+                allowed_ids=allowed_ids,
+            )
+
+        assert spy.setlimit_calls == []
+        assert connection.getlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER) == 1
+    finally:
+        index.connection = connection
+        connection.setlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER, previous_limit)
+        index.close()
+
+
+def test_limit_one_bm25_memory_database_fails_closed() -> None:
+    from agent_brain.contracts.memory_item import MemoryItem, MemoryType
+    from agent_brain.platform.indexing.index import HubIndex
+
+    index = HubIndex(Path(":memory:"), embedding_dim=2)
+    index.upsert(
+        MemoryItem(
+            id="mem-20260715-120000-memory-db",
+            type=MemoryType.fact,
+            created_at="2026-07-15T12:00:00+08:00",
+            title="memory db candidate",
+            summary="chunkneedle",
+            project="project-a",
+        ),
+        "chunkneedle",
+        embedding=[1.0, 0.0],
+    )
+    previous_limit = index.connection.setlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER, 1)
+    try:
+        with pytest.raises(RuntimeError, match="file-backed"):
+            index.bm25_search(
+                '"chunkneedle"',
+                top_k=1,
+                allowed_ids={"mem-20260715-120000-memory-db"},
+            )
+    finally:
+        index.connection.setlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER, previous_limit)
+        index.close()
+
+
+@pytest.mark.parametrize("top_k", [True, 1.5, object()])
+@pytest.mark.parametrize("filter_mode", ["allowed", "excluded"])
+def test_bm25_inline_limit_rejects_non_integer_top_k(
+    tmp_path,
+    top_k: object,
+    filter_mode: str,
+) -> None:
+    index, _target_id, allowed_ids = _low_variable_limit_index(tmp_path)
+    try:
+        kwargs = (
+            {"allowed_ids": allowed_ids}
+            if filter_mode == "allowed"
+            else {"excluded_ids": set()}
+        )
+        with pytest.raises(TypeError, match="top_k"):
+            index.bm25_search('"chunkneedle"', top_k=top_k, **kwargs)  # type: ignore[arg-type]
+    finally:
         index.close()
 
 
