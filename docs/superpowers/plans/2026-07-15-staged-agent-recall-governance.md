@@ -104,7 +104,7 @@ def test_explicit_detail_still_selects_detail_for_raw_direct_evidence() -> None:
 Run:
 
 ```bash
-PYTHONPATH=. /Users/liuyang/Desktop/AIAgent/agent-memory-hub/.venv/bin/python \
+PYTHONPATH=. python \
   -m pytest tests/unit/test_context_loading_views.py \
   -k 'raw_item_with_direct_evidence or raw_overview_is_empty or explicit_detail_still' -q
 ```
@@ -175,7 +175,7 @@ def test_broad_explicit_detail_search_is_warned_but_not_blocked() -> None:
 Run:
 
 ```bash
-PYTHONPATH=. /Users/liuyang/Desktop/AIAgent/agent-memory-hub/.venv/bin/python \
+PYTHONPATH=. python \
   -m pytest tests/unit/test_context_loading_views.py tests/unit/test_headroom_adaptive_compression.py -q
 ```
 
@@ -224,7 +224,7 @@ Seed a raw L0 item with a direct evidence ref in `tests/unit/test_context_loadin
 Run:
 
 ```bash
-PYTHONPATH=. /Users/liuyang/Desktop/AIAgent/agent-memory-hub/.venv/bin/python \
+PYTHONPATH=. python \
   -m pytest tests/unit/test_context_loading_views.py -k 'mcp and staged' -q
 ```
 
@@ -300,7 +300,7 @@ In `tests/unit/test_query_intent_fewshot.py`, reuse its real `inject-context.sh`
 - [ ] **Step 7: Run MCP, CLI, and hook tests**
 
 ```bash
-PYTHONPATH=. /Users/liuyang/Desktop/AIAgent/agent-memory-hub/.venv/bin/python \
+PYTHONPATH=. python \
   -m pytest tests/unit/test_context_loading_views.py \
   tests/unit/test_cli_smoke.py tests/unit/test_query_intent_fewshot.py -q
 ```
@@ -365,7 +365,7 @@ def test_sdk_read_supports_bounded_detail_without_breaking_full_read(client):
 - [ ] **Step 2: Run SDK tests and verify failure**
 
 ```bash
-PYTHONPATH=. /Users/liuyang/Desktop/AIAgent/agent-memory-hub/.venv/bin/python \
+PYTHONPATH=. python \
   -m pytest tests/unit/test_sdk_client.py -k 'staged or bounded' -q
 ```
 
@@ -427,7 +427,7 @@ Reject unknown views with the same locator/overview/detail vocabulary used elsew
 - [ ] **Step 5: Run SDK tests**
 
 ```bash
-PYTHONPATH=. /Users/liuyang/Desktop/AIAgent/agent-memory-hub/.venv/bin/python \
+PYTHONPATH=. python \
   -m pytest tests/unit/test_sdk_client.py -q
 ```
 
@@ -490,7 +490,7 @@ Add bounded item read coverage:
 - [ ] **Step 2: Run focused Web tests and verify failure**
 
 ```bash
-PYTHONPATH=. /Users/liuyang/Desktop/AIAgent/agent-memory-hub/.venv/bin/python \
+PYTHONPATH=. python \
   -m pytest tests/unit/test_web_api.py -k 'staged or bounded_item' -q
 ```
 
@@ -537,7 +537,7 @@ Keep the existing no-argument detail/full response. Locator/overview returns the
 - [ ] **Step 5: Run Web tests**
 
 ```bash
-PYTHONPATH=. /Users/liuyang/Desktop/AIAgent/agent-memory-hub/.venv/bin/python \
+PYTHONPATH=. python \
   -m pytest tests/unit/test_web_api.py tests/conformance/test_web_surface_lock.py -q
 ```
 
@@ -580,7 +580,7 @@ In MCP onboarding and docs truth-contract tests, require the same order and asse
 - [ ] **Step 2: Run contract tests and verify the stricter wording fails**
 
 ```bash
-PYTHONPATH=. /Users/liuyang/Desktop/AIAgent/agent-memory-hub/.venv/bin/python \
+PYTHONPATH=. python \
   -m pytest tests/unit/test_adapters.py tests/unit/test_mcp_onboarding.py \
   tests/unit/test_docs_truth_contract.py -q
 ```
@@ -613,7 +613,7 @@ Do not claim `/api/search/fulltext`, export, or manual single-item reads are res
 - [ ] **Step 5: Run adapter/docs tests**
 
 ```bash
-PYTHONPATH=. /Users/liuyang/Desktop/AIAgent/agent-memory-hub/.venv/bin/python \
+PYTHONPATH=. python \
   -m pytest tests/unit/test_adapters.py tests/unit/test_cli_adapter.py \
   tests/unit/test_mcp_onboarding.py tests/unit/test_docs_truth_contract.py -q
 ```
@@ -670,7 +670,7 @@ def test_qoder_transcript_timestamp_skips_non_object_json_rows(tmp_path) -> None
 - [ ] **Step 2: Run the test and verify the `str.get` crash**
 
 ```bash
-PYTHONPATH=. /Users/liuyang/Desktop/AIAgent/agent-memory-hub/.venv/bin/python \
+PYTHONPATH=. python \
   -m pytest tests/unit/test_adapters.py \
   -k 'transcript_timestamp_skips_non_object' -q
 ```
@@ -692,11 +692,11 @@ Expected: `AttributeError` from `record.get`.
 - [ ] **Step 4: Run Qoder adapter tests and a live doctor smoke**
 
 ```bash
-PYTHONPATH=. /Users/liuyang/Desktop/AIAgent/agent-memory-hub/.venv/bin/python \
+PYTHONPATH=. python \
   -m pytest tests/unit/test_adapters.py tests/unit/test_cli_adapter.py \
   tests/unit/test_adapter_onboarding.py -q
 
-PYTHONPATH=. /Users/liuyang/Desktop/AIAgent/agent-memory-hub/.venv/bin/python \
+PYTHONPATH=. python \
   -m agent_brain.interfaces.cli adapter doctor qoder --format json \
   > /tmp/amh-qoder-doctor-staged-recall.json || true
 
@@ -722,7 +722,7 @@ git commit -m "fix: tolerate scalar qoder transcript rows"
 - [ ] **Step 1: Run the focused cross-surface suite**
 
 ```bash
-PYTHONPATH=. /Users/liuyang/Desktop/AIAgent/agent-memory-hub/.venv/bin/python \
+PYTHONPATH=. python \
   -m pytest \
   tests/unit/test_context_loading_views.py \
   tests/unit/test_headroom_adaptive_compression.py \
@@ -745,7 +745,7 @@ Expected: zero failures.
 - [ ] **Step 2: Run the full Python suite**
 
 ```bash
-PYTHONPATH=. /Users/liuyang/Desktop/AIAgent/agent-memory-hub/.venv/bin/python \
+PYTHONPATH=. python \
   -m pytest tests/ -q
 ```
 
@@ -754,7 +754,7 @@ Expected: zero failures; record the exact passed/skipped counts.
 - [ ] **Step 3: Run static and repository hygiene checks**
 
 ```bash
-PYTHONPATH=. /Users/liuyang/Desktop/AIAgent/agent-memory-hub/.venv/bin/python \
+PYTHONPATH=. python \
   -m ruff check agent_brain web tests
 git diff --check
 git status --short --branch
