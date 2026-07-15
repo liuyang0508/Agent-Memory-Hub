@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sqlite3
 from types import MethodType, SimpleNamespace
 from typing import Any
 
@@ -142,6 +143,43 @@ def _retriever(index: _Index, embedder: _Embedder, **kwargs: Any) -> Retriever:
         embedder=embedder,  # type: ignore[arg-type]
         **options,
     )
+
+
+def _low_variable_limit_index(tmp_path):
+    from agent_brain.contracts.memory_item import MemoryItem, MemoryType
+    from agent_brain.platform.indexing.index import HubIndex
+
+    index = HubIndex(tmp_path / "low-variable-limit.db", embedding_dim=2)
+    allowed_ids: set[str] = set()
+    # Sort the best candidate into the final chunk so the tests also prove
+    # cross-chunk merge, rather than only proving that the first chunk works.
+    target_id = "mem-20260715-112059-chunk-target"
+    for item_number in range(12):
+        item_id = (
+            target_id
+            if item_number == 0
+            else f"mem-20260715-1120{item_number:02d}-chunk-{item_number:02d}"
+        )
+        allowed_ids.add(item_id)
+        target = item_number == 0
+        summary = (
+            "chunk target summary " + "chunkneedle " * 40
+            if target
+            else f"chunk candidate {item_number} summary chunkneedle"
+        )
+        index.upsert(
+            MemoryItem(
+                id=item_id,
+                type=MemoryType.fact,
+                created_at=f"2026-07-15T11:20:{item_number:02d}+08:00",
+                title=f"chunk candidate {item_number}",
+                summary=summary,
+                project="project-a",
+            ),
+            summary,
+            embedding=[1.0, 0.0] if target else [0.0, 1.0],
+        )
+    return index, target_id, allowed_ids
 
 
 def test_fuse_routes_accumulates_shared_hits_and_preserves_stable_evidence() -> None:
@@ -521,6 +559,69 @@ def test_semantic_hit_without_embedding_is_not_fused_or_fallbacked() -> None:
     assert semantic_trace.status == "ok"
     assert semantic_trace.candidate_count == 0
     assert all(trace.route != "lexical_raw_fallback" for trace in result.routes)
+
+
+def test_bm25_allowed_ids_are_chunked_to_connection_variable_limit(tmp_path) -> None:
+    index, target_id, allowed_ids = _low_variable_limit_index(tmp_path)
+    previous_limit = index.connection.setlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER, 10)
+    try:
+        try:
+            hits = index.bm25_search(
+                '"chunkneedle"',
+                top_k=1,
+                allowed_ids=allowed_ids,
+            )
+        except sqlite3.OperationalError as exc:
+            pytest.fail(f"BM25 allowed_ids exceeded connection variable limit: {exc}")
+        assert [hit.id for hit in hits] == [target_id]
+    finally:
+        index.connection.setlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER, previous_limit)
+        index.close()
+
+
+def test_vector_allowed_ids_are_chunked_to_connection_variable_limit(tmp_path) -> None:
+    index, target_id, allowed_ids = _low_variable_limit_index(tmp_path)
+    previous_limit = index.connection.setlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER, 10)
+    try:
+        try:
+            hits = index.vector_search(
+                [1.0, 0.0],
+                top_k=1,
+                allowed_ids=allowed_ids,
+            )
+        except sqlite3.OperationalError as exc:
+            pytest.fail(f"vector allowed_ids exceeded connection variable limit: {exc}")
+        assert [hit.id for hit in hits] == [target_id]
+    finally:
+        index.connection.setlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER, previous_limit)
+        index.close()
+
+
+def test_routed_hard_filter_chunks_allowed_ids_without_route_errors(tmp_path) -> None:
+    index, target_id, _allowed_ids = _low_variable_limit_index(tmp_path)
+    previous_limit = index.connection.setlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER, 10)
+    try:
+        result = Retriever(
+            index,
+            _Embedder([1.0, 0.0]),  # type: ignore[arg-type]
+            bm25_top=1,
+            vector_top=1,
+            rerank=False,
+            apply_decay=False,
+            record_access=False,
+        ).search_routed(
+            _request(
+                normalized_query="chunkneedle",
+                lexical_terms=("chunkneedle",),
+                project_scope=ProjectScope("project-a", "explicit", hard_filter=True),
+            ),
+            filters=SearchFilter(include_superseded=True, include_stale_state=True),
+        )
+        assert [hit.id for hit in result.hits] == [target_id]
+        assert all(trace.status != "error" for trace in result.routes)
+    finally:
+        index.connection.setlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER, previous_limit)
+        index.close()
 
 
 @pytest.mark.parametrize("source", ["cwd", "agent_inferred"])

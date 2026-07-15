@@ -15,6 +15,7 @@ from agent_brain.platform.indexing.vector_index import VectorIndex
 from agent_brain.contracts.memory_item import MemoryItem
 
 _segment_cjk = segment_cjk
+_FALLBACK_SQLITE_VARIABLE_LIMIT = 900
 
 
 class HubIndex:
@@ -115,23 +116,33 @@ class HubIndex:
         *,
         allowed_ids: set[str] | None = None,
     ) -> list[Hit]:
-        sql = (
-            "SELECT id, bm25(items_fts) AS score "
-            "FROM items_fts WHERE items_fts MATCH ?"
-        )
-        params: list[object] = [query]
-        if allowed_ids is not None:
-            if not allowed_ids:
-                return []
-            ordered_ids = sorted(allowed_ids)
-            placeholders = ",".join("?" for _ in ordered_ids)
-            sql += f" AND id IN ({placeholders})"
-            params.extend(ordered_ids)
-        sql += " ORDER BY score LIMIT ?"
-        params.append(top_k)
-        rows = self.connection.execute(sql, params).fetchall()
-        # bm25() returns lower=better; invert so higher=better for caller
-        return [Hit(id=row[0], score=-row[1]) for row in rows]
+        if allowed_ids is None:
+            rows = self.connection.execute(
+                "SELECT id, bm25(items_fts) AS score "
+                "FROM items_fts WHERE items_fts MATCH ? "
+                "ORDER BY score LIMIT ?",
+                (query, top_k),
+            ).fetchall()
+            # bm25() returns lower=better; invert so higher=better for caller
+            return [Hit(id=row[0], score=-row[1]) for row in rows]
+        if not allowed_ids or top_k <= 0:
+            return []
+
+        variable_limit = _sqlite_variable_limit(self.connection)
+        chunk_size = max(1, variable_limit - 2)  # query and LIMIT also bind values
+        hits: list[Hit] = []
+        for chunk in _chunked(sorted(allowed_ids), chunk_size):
+            placeholders = ",".join("?" for _ in chunk)
+            rows = self.connection.execute(
+                "SELECT id, bm25(items_fts) AS score "
+                "FROM items_fts WHERE items_fts MATCH ? "
+                f"AND id IN ({placeholders}) "
+                "ORDER BY score LIMIT ?",
+                [query, *chunk, top_k],
+            ).fetchall()
+            hits.extend(Hit(id=row[0], score=-row[1]) for row in rows)
+        hits.sort(key=lambda hit: (-hit.score, hit.id))
+        return hits[:top_k]
 
     def vector_search(
         self,
@@ -148,7 +159,10 @@ class HubIndex:
             raise ValueError(
                 f"embedding dim {len(embedding)} != index dim {self.embedding_dim}"
             )
-        embeddings = self.vector.get_embeddings(sorted(allowed_ids))
+        variable_limit = _sqlite_variable_limit(self.connection)
+        embeddings: dict[str, list[float]] = {}
+        for chunk in _chunked(sorted(allowed_ids), variable_limit):
+            embeddings.update(self.vector.get_embeddings(chunk))
         scored = [
             Hit(
                 id=item_id,
@@ -293,3 +307,21 @@ class HubIndex:
 
     def close(self) -> None:
         self.connection.close()
+
+
+def _sqlite_variable_limit(connection: sqlite3.Connection) -> int:
+    getlimit = getattr(connection, "getlimit", None)
+    if callable(getlimit):
+        try:
+            limit = int(getlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER))
+        except (AttributeError, sqlite3.Error, TypeError, ValueError):
+            pass
+        else:
+            if limit > 0:
+                return limit
+    return _FALLBACK_SQLITE_VARIABLE_LIMIT
+
+
+def _chunked(values: list[str], chunk_size: int) -> list[list[str]]:
+    size = max(1, chunk_size)
+    return [values[offset : offset + size] for offset in range(0, len(values), size)]
