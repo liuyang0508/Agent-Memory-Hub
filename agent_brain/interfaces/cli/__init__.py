@@ -11,6 +11,7 @@ from agent_brain.interfaces.cli._shared import (  # noqa: F401
     _store_only,
     _resolve_id,
     _open_components,
+    _open_hook_components,
     _parse_enum,
     _evict_from_index,
     _doctor_offline,

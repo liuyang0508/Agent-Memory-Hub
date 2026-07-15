@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 
 from agent_brain.interfaces.cli._app import app
@@ -21,6 +22,7 @@ from agent_brain.memory.context.injection_gateway import (
     surface_injection_metrics,
 )
 from agent_brain.memory.context.query_signal import analyze_injection_query
+from agent_brain.interfaces.cli.routed_query import execute_routed_query
 import agent_brain.interfaces.cli as _cli  # noqa: E402  late binding for test-patched helpers
 
 _CONTEXT_VERBOSITIES = {"locator", "overview", "detail", "auto"}
@@ -100,7 +102,12 @@ def search(
     exclude_tag: str | None = typer.Option(None, "--exclude-tag", help="Comma-separated tags to exclude"),
     since: int | None = typer.Option(None, "--since", help="Only items created within N days"),
     prefer_type: str | None = typer.Option(None, "--prefer-type", help="Comma-separated type priority for reranking"),
-    output_format: str = typer.Option("table", "--format", help="Output format: table or text"),
+    output_format: str = typer.Option("table", "--format", help="Output format: table, text, or hook-json"),
+    routed_recall: bool = typer.Option(
+        False,
+        "--routed-recall",
+        help="Use route-aware recall generation before prompt governance.",
+    ),
     explain: bool = typer.Option(False, "--explain", help="Show retrieval trace in text output."),
     verbosity: str | None = typer.Option(
         None,
@@ -132,17 +139,23 @@ def search(
     cwd: str | None = typer.Option(None, "--cwd", help="Working directory for injection cohort records"),
 ) -> None:
     """Search memory items by query (BM25 + vector RRF)."""
-    if record_injection_cohort and not context_firewall:
+    hook_json = output_format == "hook-json"
+    effective_context_firewall = context_firewall or hook_json
+    if record_injection_cohort and not effective_context_firewall:
         typer.echo(
             "--record-injection-cohort requires --context-firewall",
             err=True,
         )
         raise typer.Exit(2)
     verbosity = _parse_context_verbosity(
-        verbosity or ("auto" if context_firewall else "locator"),
+        verbosity or ("auto" if effective_context_firewall else "locator"),
         "--verbosity",
     )
-    store, _, retriever = _cli._open_components()
+    store, _, retriever = (
+        _cli._open_hook_components()
+        if hook_json
+        else _cli._open_components()
+    )
     sf = SearchFilter(
         type=type,
         project=project,
@@ -151,6 +164,30 @@ def search(
         since_days=since,
         include_stale_state=include_stale_state,
     )
+    if routed_recall or hook_json:
+        payload = execute_routed_query(
+            raw_query=query,
+            store=store,
+            retriever=retriever,
+            top_k=top_k,
+            filters=sf,
+            requested=verbosity,
+            project=project,
+            adapter=adapter,
+            session_id=session,
+            cwd=cwd,
+            brain_dir=_brain_dir(),
+            prefer_type=_parse_type_order(prefer_type),
+            record_injection_cohort=record_injection_cohort,
+            record_recall_gap=record_recall_gap,
+        )
+        if hook_json:
+            typer.echo(json.dumps(payload.to_dict(), ensure_ascii=False))
+        elif payload.context:
+            typer.echo(payload.context)
+        else:
+            typer.echo("no matches")
+        return
     query_signal = None
     effective_query = query
     answerability_query = os.environ.get("AGENT_MEMORY_HUB_RAW_QUERY") or query

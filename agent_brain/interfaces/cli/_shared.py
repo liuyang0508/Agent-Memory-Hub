@@ -18,7 +18,7 @@ from agent_brain.memory.governance.audit.outbound import list_outbound_events
 from agent_brain.memory.governance.audit.custom_rules import load_merged_rules
 from agent_brain.memory.governance.audit.rules import load_builtin_rules, load_rules_from_file
 from agent_brain.memory.governance.audit.scanner import SkillScanner
-from agent_brain.platform.embedding import get_default_embedder
+from agent_brain.platform.embedding import HashingEmbedder, get_default_embedder
 from agent_brain.platform.indexing.index import HubIndex
 from agent_brain.memory.store.items_store import ItemsStore, make_item_id
 from agent_brain.memory.recall.retrieval import Retriever, SearchFilter
@@ -79,6 +79,16 @@ def _open_components() -> tuple[ItemsStore, HubIndex, Retriever]:
     return store, idx, Retriever(index=idx, embedder=embedder)
 
 
+def _open_hook_components() -> tuple[ItemsStore, HubIndex, Retriever]:
+    """Open local-only, model-free components for short-lived hook queries."""
+    brain = _brain_dir()
+    store = ItemsStore(items_dir=brain / "items")
+    embedder = HashingEmbedder()
+    embedder.degraded = True
+    idx = HubIndex(db_path=brain / "index.db", embedding_dim=embedder.dim)
+    return store, idx, Retriever(index=idx, embedder=embedder)
+
+
 def _parse_enum(enum_cls, value: str, flag: str):
     """Validate a CLI enum option, exiting cleanly with a usage message instead
     of dumping a raw ValueError traceback when the user passes e.g. --type bogus.
@@ -114,4 +124,4 @@ def _evict_from_index(item_id: str) -> None:
 
 CURRENT_SCHEMA_VERSION = _SCHEMA_COMPAT_VERSION
 
-__all__ = ['_brain_dir', '_store_only', '_resolve_id', '_open_components', '_parse_enum', '_evict_from_index', '_doctor_offline', 'console', 'CURRENT_SCHEMA_VERSION', '_SCHEMA_COMPAT_VERSION', 'os', 'sys', 'uuid', 'datetime', 'timedelta', 'timezone', 'Path', 'typer', 'Console', 'Table', '__version__', 'list_outbound_events', 'load_merged_rules', 'load_builtin_rules', 'load_rules_from_file', 'SkillScanner', 'get_default_embedder', 'HubIndex', 'ItemsStore', 'make_item_id', 'Retriever', 'SearchFilter', 'EvolveEngine', 'EvolveReport', 'BrainStats', 'HealthScore', 'collect_stats', 'MemoryItem', 'MemoryType', 'Sensitivity']
+__all__ = ['_brain_dir', '_store_only', '_resolve_id', '_open_components', '_open_hook_components', '_parse_enum', '_evict_from_index', '_doctor_offline', 'console', 'CURRENT_SCHEMA_VERSION', '_SCHEMA_COMPAT_VERSION', 'os', 'sys', 'uuid', 'datetime', 'timedelta', 'timezone', 'Path', 'typer', 'Console', 'Table', '__version__', 'list_outbound_events', 'load_merged_rules', 'load_builtin_rules', 'load_rules_from_file', 'SkillScanner', 'get_default_embedder', 'HashingEmbedder', 'HubIndex', 'ItemsStore', 'make_item_id', 'Retriever', 'SearchFilter', 'EvolveEngine', 'EvolveReport', 'BrainStats', 'HealthScore', 'collect_stats', 'MemoryItem', 'MemoryType', 'Sensitivity']
