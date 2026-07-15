@@ -412,38 +412,48 @@ def test_mcp_staged_search_preserves_explicit_detail_and_warns_when_broad(
     from agent_brain.interfaces.mcp.tools.search_tools import search_memory
 
     _components_cache.clear()
-    item = MemoryItem(
-        id="mem-20260715-020005-staged-mcp",
-        type=MemoryType.artifact,
-        created_at=datetime.now(timezone.utc),
-        title="Staged MCP recall",
-        summary="staged mcp locator",
-        abstraction="L0",
-        refs={"files": ["/tmp/staged-mcp.log"]},
-        context_views={
-            "locator": "staged mcp locator",
-            "overview": "",
-            "detail_uri": "memory://items/mem-20260715-020005-staged-mcp/body",
-        },
-    )
-    body = "detail-only marker"
-    ItemsStore(tmp_brain / "items").write(item, body)
     idx = HubIndex(db_path=tmp_brain / "index.db", embedding_dim=384)
     emb = HashingEmbedder()
-    idx.upsert(item, body, embedding=emb.embed(item.context_views.locator))
+    for index in range(5):
+        item_id = f"mem-20260715-02000{index}-staged-mcp"
+        item = MemoryItem(
+            id=item_id,
+            type=MemoryType.artifact,
+            created_at=datetime.now(timezone.utc),
+            title=f"Staged MCP recall {index}",
+            summary=f"staged mcp locator {index}",
+            abstraction="L0",
+            refs={"files": [f"/tmp/staged-mcp-{index}.log"]},
+            context_views={
+                "locator": f"staged mcp locator {index}",
+                "overview": "",
+                "detail_uri": f"memory://items/{item_id}/body",
+            },
+        )
+        body = f"detail-only marker {index}"
+        ItemsStore(tmp_brain / "items").write(item, body)
+        idx.upsert(item, body, embedding=emb.embed(item.context_views.locator))
 
-    auto_hit = search_memory("staged mcp", top_k=5, verbosity="auto")[0]
-    detail_hit = search_memory("staged mcp", top_k=5, verbosity="detail")[0]
-    bounded_detail_hit = search_memory("staged mcp", top_k=3, verbosity="detail")[0]
+    auto_hits = search_memory("staged mcp", top_k=5, verbosity="auto")
+    detail_hits = search_memory("staged mcp", top_k=5, verbosity="detail")
+    bounded_detail_hits = search_memory("staged mcp", top_k=3, verbosity="detail")
 
-    assert auto_hit["selected_view"] == "locator"
-    assert "body" not in auto_hit
-    assert "detail-only marker" not in auto_hit["context_pack"]["text"]
-    assert detail_hit["body"].rstrip() == "detail-only marker"
-    assert detail_hit["context_pack"]["selected_view"] == "detail"
-    assert detail_hit["governance_warnings"]
-    assert bounded_detail_hit["body"].rstrip() == "detail-only marker"
-    assert "governance_warnings" not in bounded_detail_hit
+    assert len(auto_hits) == 5
+    assert all(hit["selected_view"] == "locator" for hit in auto_hits)
+    assert all("body" not in hit for hit in auto_hits)
+    assert all(
+        "detail-only marker" not in hit["context_pack"]["text"]
+        for hit in auto_hits
+    )
+
+    assert len(detail_hits) == 5
+    assert all("detail-only marker" in hit["body"] for hit in detail_hits)
+    assert all(hit["context_pack"]["selected_view"] == "detail" for hit in detail_hits)
+    assert all(hit["governance_warnings"] for hit in detail_hits)
+
+    assert len(bounded_detail_hits) == 3
+    assert all("detail-only marker" in hit["body"] for hit in bounded_detail_hits)
+    assert all("governance_warnings" not in hit for hit in bounded_detail_hits)
 
 
 def test_mcp_search_can_return_retrieval_trace(tmp_brain: Path):
