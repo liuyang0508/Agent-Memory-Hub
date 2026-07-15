@@ -182,9 +182,20 @@ class MemoryClient:
             include_resources=include_resources,
         )
 
-    def read(self, item_id: str) -> dict[str, Any] | None:
+    def read(
+        self,
+        item_id: str,
+        *,
+        head: int | None = None,
+        view: str = "detail",
+    ) -> dict[str, Any] | None:
         """Read a single item by ID. Returns dict with 'item' and 'body' or None."""
-        return read_item(self._components.get_store(), item_id)
+        return read_item(
+            self._components.get_store(),
+            item_id,
+            head=head,
+            view=view,
+        )
 
     def reaffirm(self, item_id: str) -> None:
         """Signal that a retrieved item was useful (support_count+1, gain+0.1)."""
