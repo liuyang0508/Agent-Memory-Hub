@@ -68,6 +68,7 @@ class _Index:
         self.vector_queries: list[list[float]] = []
         self.filter_calls: list[dict[str, Any]] = []
         self.get_projects_calls: list[list[str]] = []
+        self.get_embeddings_calls: list[list[str]] = []
         self.bm25_error_for: dict[str, BaseException] = {}
         self.vector_error: BaseException | None = None
 
@@ -77,6 +78,7 @@ class _Index:
         top_k: int = 10,
         *,
         allowed_ids: set[str] | None = None,
+        excluded_ids: set[str] | None = None,
     ) -> list[Any]:
         self.bm25_queries.append(query)
         for marker, error in self.bm25_error_for.items():
@@ -87,6 +89,8 @@ class _Index:
                 eligible = hits
                 if allowed_ids is not None:
                     eligible = [hit for hit in hits if hit.id in allowed_ids]
+                if excluded_ids:
+                    eligible = [hit for hit in eligible if hit.id not in excluded_ids]
                 return eligible[:top_k]
         return []
 
@@ -96,6 +100,7 @@ class _Index:
         top_k: int = 10,
         *,
         allowed_ids: set[str] | None = None,
+        excluded_ids: set[str] | None = None,
     ) -> list[Any]:
         self.vector_queries.append(embedding)
         if self.vector_error is not None:
@@ -103,9 +108,12 @@ class _Index:
         eligible = self.vector_hits
         if allowed_ids is not None:
             eligible = [hit for hit in self.vector_hits if hit.id in allowed_ids]
+        if excluded_ids:
+            eligible = [hit for hit in eligible if hit.id not in excluded_ids]
         return eligible[:top_k]
 
     def get_embeddings(self, item_ids: list[str]) -> dict[str, list[float]]:
+        self.get_embeddings_calls.append(list(item_ids))
         return {
             item_id: self.embeddings[item_id] for item_id in item_ids if item_id in self.embeddings
         }
@@ -120,6 +128,9 @@ class _Index:
     def get_projects(self, item_ids: list[str]) -> dict[str, str | None]:
         self.get_projects_calls.append(list(item_ids))
         return {item_id: self.projects.get(item_id) for item_id in item_ids}
+
+    def get_superseded_ids(self) -> set[str]:
+        return set()
 
     def get_feedback_data(self, item_ids: list[str]) -> dict[str, tuple[int, int, float]]:
         return {}
@@ -177,7 +188,7 @@ def _low_variable_limit_index(tmp_path):
                 project="project-a",
             ),
             summary,
-            embedding=[1.0, 0.0] if target else [0.0, 1.0],
+            embedding=[0.9, 0.1] if target else [0.0, 1.0],
         )
     return index, target_id, allowed_ids
 
@@ -195,8 +206,8 @@ def test_fuse_routes_accumulates_shared_hits_and_preserves_stable_evidence() -> 
 
     assert [hit.id for hit in hits] == [
         "shared",
-        "terms-first",
         "raw-only",
+        "terms-first",
         "semantic-only",
     ]
     by_id = {hit.id: hit for hit in hits}
@@ -211,6 +222,34 @@ def test_fuse_routes_accumulates_shared_hits_and_preserves_stable_evidence() -> 
     assert evidence["raw-only"].routes == ("lexical_raw_fallback",)
     assert evidence["raw-only"].lexical_raw_rank == 1
     assert by_id["shared"].score != evidence["shared"].semantic_similarity
+
+
+def test_fuse_routes_breaks_equal_scores_by_item_id() -> None:
+    from agent_brain.memory.recall.routed_fusion import fuse_routes
+
+    hits, _evidence = fuse_routes(
+        lexical_terms_hits=[SimpleNamespace(id="z-item")],
+        semantic_hits=[SimpleNamespace(id="a-item")],
+    )
+
+    assert [hit.id for hit in hits] == ["a-item", "z-item"]
+
+
+def test_fuse_routes_duplicate_hits_do_not_consume_rank_positions() -> None:
+    from agent_brain.memory.recall.routed_fusion import fuse_routes
+
+    hits, evidence = fuse_routes(
+        lexical_terms_hits=[
+            SimpleNamespace(id="duplicate"),
+            SimpleNamespace(id="duplicate"),
+            SimpleNamespace(id="next-unique"),
+        ],
+    )
+
+    by_id = {hit.id: hit for hit in hits}
+    assert by_id["next-unique"].bm25_rank == 2
+    assert evidence["next-unique"].lexical_terms_rank == 2
+    assert by_id["next-unique"].score == pytest.approx(1 / 62)
 
 
 def test_routed_queries_keep_rule_terms_and_normalized_semantic_query_separate() -> None:
@@ -378,6 +417,43 @@ def test_admission_rejection_touches_no_index_or_embedder() -> None:
     assert result.routes
     assert all(trace.status == "skipped" for trace in result.routes)
     assert all(trace.reason == "admission_rejected" for trace in result.routes)
+
+
+def test_routed_negative_top_k_is_rejected_before_touching_index() -> None:
+    with pytest.raises(ValueError, match="top_k"):
+        _retriever(_Index(), _Embedder()).search_routed(_request(), top_k=-1)
+
+
+def test_routed_zero_top_k_touches_no_index_embedder_or_access() -> None:
+    class ExplodingIndex:
+        def __getattr__(self, name: str) -> Any:
+            raise AssertionError(f"index must not be touched: {name}")
+
+    embedder = _Embedder()
+    result = _retriever(ExplodingIndex(), embedder).search_routed(  # type: ignore[arg-type]
+        _request(),
+        top_k=0,
+    )
+
+    assert result.hits == []
+    assert result.routes == ()
+    assert result.evidence_by_id == {}
+    assert embedder.queries == []
+
+
+def test_routed_top_k_one_still_returns_one_hit() -> None:
+    index = _Index()
+    index.bm25_hits = {
+        "rule_term": [SimpleNamespace(id="one"), SimpleNamespace(id="two")]
+    }
+
+    result = _retriever(index, _Embedder(), vector_weight=0.0).search_routed(
+        _request(),
+        top_k=1,
+        filters=SearchFilter(include_superseded=True, include_stale_state=True),
+    )
+
+    assert [hit.id for hit in result.hits] == ["one"]
 
 
 def test_explicit_project_scope_is_a_hard_filter() -> None:
@@ -579,6 +655,31 @@ def test_bm25_allowed_ids_are_chunked_to_connection_variable_limit(tmp_path) -> 
         index.close()
 
 
+@pytest.mark.parametrize("variable_limit", [1, 2, 3])
+def test_bm25_allowed_ids_support_extreme_variable_limits(
+    tmp_path,
+    variable_limit: int,
+) -> None:
+    index, target_id, allowed_ids = _low_variable_limit_index(tmp_path)
+    previous_limit = index.connection.setlimit(
+        sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER,
+        variable_limit,
+    )
+    try:
+        try:
+            hits = index.bm25_search(
+                '"chunkneedle"',
+                top_k=1,
+                allowed_ids=allowed_ids,
+            )
+        except sqlite3.OperationalError as exc:
+            pytest.fail(f"BM25 failed at variable limit {variable_limit}: {exc}")
+        assert [hit.id for hit in hits] == [target_id]
+    finally:
+        index.connection.setlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER, previous_limit)
+        index.close()
+
+
 def test_vector_allowed_ids_are_chunked_to_connection_variable_limit(tmp_path) -> None:
     index, target_id, allowed_ids = _low_variable_limit_index(tmp_path)
     previous_limit = index.connection.setlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER, 10)
@@ -620,6 +721,69 @@ def test_routed_hard_filter_chunks_allowed_ids_without_route_errors(tmp_path) ->
         assert [hit.id for hit in result.hits] == [target_id]
         assert all(trace.status != "error" for trace in result.routes)
     finally:
+        index.connection.setlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER, previous_limit)
+        index.close()
+
+
+def test_default_filter_uses_complement_plan_and_backend_knn(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from agent_brain.contracts.memory_item import MemoryItem, MemoryType
+
+    index, target_id, _allowed_ids = _low_variable_limit_index(tmp_path)
+    superseded_id = "mem-20260715-112100-superseded-hot-hit"
+    index.upsert(
+        MemoryItem(
+            id=superseded_id,
+            type=MemoryType.fact,
+            created_at="2026-07-15T11:21:00+08:00",
+            title="superseded hot candidate",
+            summary="superseded summary " + "chunkneedle " * 100,
+            project="project-a",
+            superseded_by=target_id,
+        ),
+        "superseded",
+        embedding=[1.0, 0.0],
+    )
+    embedding_batch_sizes: list[int] = []
+    original_get_embeddings = index.vector.get_embeddings
+
+    def get_embeddings_spy(item_ids: list[str]):
+        embedding_batch_sizes.append(len(item_ids))
+        return original_get_embeddings(item_ids)
+
+    monkeypatch.setattr(index.vector, "get_embeddings", get_embeddings_spy)
+    bm25_statements: list[str] = []
+    index.connection.set_trace_callback(
+        lambda sql: bm25_statements.append(sql)
+        if "FROM items_fts WHERE items_fts MATCH" in sql
+        else None
+    )
+    previous_limit = index.connection.setlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER, 10)
+    try:
+        result = Retriever(
+            index,
+            _Embedder([1.0, 0.0]),  # type: ignore[arg-type]
+            bm25_top=1,
+            vector_top=1,
+            rerank=False,
+            apply_decay=False,
+            record_access=False,
+        ).search_routed(
+            _request(
+                normalized_query="chunkneedle",
+                lexical_terms=("chunkneedle",),
+            ),
+            filters=SearchFilter(include_stale_state=True),
+        )
+
+        assert [hit.id for hit in result.hits] == [target_id]
+        assert len(bm25_statements) == 1
+        assert embedding_batch_sizes == [1]
+        assert all(trace.status == "ok" for trace in result.routes)
+    finally:
+        index.connection.set_trace_callback(None)
         index.connection.setlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER, previous_limit)
         index.close()
 

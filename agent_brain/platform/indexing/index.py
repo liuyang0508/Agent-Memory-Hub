@@ -115,8 +115,27 @@ class HubIndex:
         top_k: int = 10,
         *,
         allowed_ids: set[str] | None = None,
+        excluded_ids: set[str] | None = None,
     ) -> list[Hit]:
+        if allowed_ids is not None and excluded_ids is not None:
+            raise ValueError("allowed_ids and excluded_ids are mutually exclusive")
         if allowed_ids is None:
+            if excluded_ids is not None:
+                if top_k <= 0:
+                    return []
+                fetch_k = top_k + len(excluded_ids)
+                rows = self.connection.execute(
+                    "SELECT id, bm25(items_fts) AS score "
+                    "FROM items_fts WHERE items_fts MATCH ? "
+                    f"ORDER BY score LIMIT {fetch_k}",
+                    (query,),
+                ).fetchall()
+                hits = [
+                    Hit(id=row[0], score=-row[1])
+                    for row in rows
+                    if row[0] not in excluded_ids
+                ]
+                return hits[:top_k]
             rows = self.connection.execute(
                 "SELECT id, bm25(items_fts) AS score "
                 "FROM items_fts WHERE items_fts MATCH ? "
@@ -129,7 +148,27 @@ class HubIndex:
             return []
 
         variable_limit = _sqlite_variable_limit(self.connection)
-        chunk_size = max(1, variable_limit - 2)  # query and LIMIT also bind values
+        if variable_limit < 2:
+            setlimit = getattr(self.connection, "setlimit", None)
+            previous_limit = None
+            if callable(setlimit):
+                previous_limit = setlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER, 2)
+            try:
+                rows = self.connection.execute(
+                    "SELECT id, bm25(items_fts) AS score "
+                    "FROM items_fts WHERE items_fts MATCH ? ORDER BY score",
+                    (query,),
+                ).fetchall()
+            finally:
+                if previous_limit is not None:
+                    setlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER, previous_limit)
+            hits = [
+                Hit(id=row[0], score=-row[1])
+                for row in rows
+                if row[0] in allowed_ids
+            ]
+            return hits[:top_k]
+        chunk_size = variable_limit - 1  # query is the only fixed bind
         hits: list[Hit] = []
         for chunk in _chunked(sorted(allowed_ids), chunk_size):
             placeholders = ",".join("?" for _ in chunk)
@@ -137,8 +176,8 @@ class HubIndex:
                 "SELECT id, bm25(items_fts) AS score "
                 "FROM items_fts WHERE items_fts MATCH ? "
                 f"AND id IN ({placeholders}) "
-                "ORDER BY score LIMIT ?",
-                [query, *chunk, top_k],
+                f"ORDER BY score LIMIT {top_k}",
+                [query, *chunk],
             ).fetchall()
             hits.extend(Hit(id=row[0], score=-row[1]) for row in rows)
         hits.sort(key=lambda hit: (-hit.score, hit.id))
@@ -150,7 +189,18 @@ class HubIndex:
         top_k: int = 10,
         *,
         allowed_ids: set[str] | None = None,
+        excluded_ids: set[str] | None = None,
     ) -> list[Hit]:
+        if allowed_ids is not None and excluded_ids is not None:
+            raise ValueError("allowed_ids and excluded_ids are mutually exclusive")
+        if excluded_ids is not None:
+            if top_k <= 0:
+                return []
+            hits = self.vector.search(
+                embedding,
+                top_k=top_k + len(excluded_ids),
+            )
+            return [hit for hit in hits if hit.id not in excluded_ids][:top_k]
         if allowed_ids is None:
             return self.vector.search(embedding, top_k=top_k)
         if not allowed_ids or top_k <= 0:
@@ -192,6 +242,10 @@ class HubIndex:
     def get_projects(self, item_ids: Sequence[str]) -> dict[str, str | None]:
         """Return the stored project value for each existing item ID."""
         return self.metadata.get_projects(item_ids)
+
+    def get_superseded_ids(self) -> set[str]:
+        """Return IDs whose metadata marks them as superseded."""
+        return self.metadata.get_superseded_ids()
 
     def get_feedback_data(self, item_ids: list[str]) -> dict[str, tuple[int, int, float]]:
         """Return {id: (support_count, contradict_count, gain_score)} for ids."""

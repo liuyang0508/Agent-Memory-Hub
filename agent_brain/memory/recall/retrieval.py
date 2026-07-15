@@ -95,6 +95,12 @@ class _SearchPipelineOptions:
     include_stale_state: bool
 
 
+@dataclass(frozen=True)
+class _RoutedFilterPlan:
+    allowed_ids: set[str] | None
+    excluded_ids: set[str]
+
+
 class Retriever:
     """BM25 + vector retrieval fused via Reciprocal Rank Fusion."""
 
@@ -511,6 +517,10 @@ class Retriever:
         record_access: bool | None = None,
     ) -> RoutedSearchResult:
         """Generate and fuse independent lexical and semantic recall routes."""
+        if top_k < 0:
+            raise ValueError("top_k must be non-negative")
+        if top_k == 0:
+            return RoutedSearchResult([], (), request.admission, {})
         if not request.admission.allowed:
             routes = tuple(
                 RouteTrace(route, "skipped", 0.0, 0, "admission_rejected")
@@ -524,17 +534,9 @@ class Retriever:
 
         filters = filters or SearchFilter()
         scope = request.project_scope
-        if (
-            scope is not None
-            and scope.hard_filter
-            and filters.project is not None
-            and filters.project != scope.value
-        ):
-            return RoutedSearchResult([], (), request.admission, {})
-        effective_filters = filters
-        if scope is not None and scope.hard_filter:
-            effective_filters = replace(filters, project=scope.value)
-        allowed_ids = self._allowed_ids_for_filter(effective_filters)
+        filter_plan = self._routed_filter_plan(request, filters)
+        allowed_ids = filter_plan.allowed_ids
+        excluded_ids = filter_plan.excluded_ids
         if allowed_ids is not None and not allowed_ids:
             return RoutedSearchResult([], (), request.admission, {})
 
@@ -556,11 +558,13 @@ class Retriever:
                         terms_query,
                         top_k=self.bm25_top,
                         allowed_ids=allowed_ids,
+                        excluded_ids=excluded_ids or None,
                     )
                 )
                 lexical_terms_hits = _filter_route_hits(
                     lexical_terms_hits,
                     allowed_ids,
+                    excluded_ids,
                 )
                 route_traces.append(
                     _completed_route_trace(
@@ -624,9 +628,14 @@ class Retriever:
                         query_embedding,
                         top_k=self.vector_top,
                         allowed_ids=allowed_ids,
+                        excluded_ids=excluded_ids or None,
                     )
                 )
-                semantic_hits = _filter_route_hits(semantic_hits, allowed_ids)
+                semantic_hits = _filter_route_hits(
+                    semantic_hits,
+                    allowed_ids,
+                    excluded_ids,
+                )
                 result_embeddings = self.index.get_embeddings(
                     [str(hit.id) for hit in semantic_hits]
                 )
@@ -680,9 +689,14 @@ class Retriever:
                         raw_query,
                         top_k=self.bm25_top,
                         allowed_ids=allowed_ids,
+                        excluded_ids=excluded_ids or None,
                     )
                 )
-                lexical_raw_hits = _filter_route_hits(lexical_raw_hits, allowed_ids)
+                lexical_raw_hits = _filter_route_hits(
+                    lexical_raw_hits,
+                    allowed_ids,
+                    excluded_ids,
+                )
                 route_traces.append(
                     _completed_route_trace(
                         "lexical_raw_fallback",
@@ -742,6 +756,10 @@ class Retriever:
             )
         else:
             candidates = self._run_candidate_pipeline(candidates, options)
+        if excluded_ids:
+            candidates = [
+                candidate for candidate in candidates if candidate.id not in excluded_ids
+            ]
         final = candidates[:top_k]
         if explain:
             final = [
@@ -775,6 +793,34 @@ class Retriever:
             final_evidence,
         )
 
+    def _routed_filter_plan(
+        self,
+        request: RecallRequest,
+        filters: SearchFilter,
+    ) -> _RoutedFilterPlan:
+        scope = request.project_scope
+        if (
+            scope is not None
+            and scope.hard_filter
+            and filters.project is not None
+            and filters.project != scope.value
+        ):
+            return _RoutedFilterPlan(set(), set())
+        effective_filters = filters
+        if scope is not None and scope.hard_filter:
+            effective_filters = replace(filters, project=scope.value)
+        if effective_filters.is_empty:
+            excluded_ids = (
+                set()
+                if effective_filters.include_superseded
+                else self.index.get_superseded_ids()
+            )
+            return _RoutedFilterPlan(None, excluded_ids)
+        return _RoutedFilterPlan(
+            self._allowed_ids_for_filter(effective_filters),
+            set(),
+        )
+
 
 def _snapshot(candidates: list[RetrievedItem]) -> dict[str, tuple[int, float]]:
     return {
@@ -786,10 +832,14 @@ def _snapshot(candidates: list[RetrievedItem]) -> dict[str, tuple[int, float]]:
 def _filter_route_hits(
     hits: list[Hit],
     allowed_ids: set[str] | None,
+    excluded_ids: set[str],
 ) -> list[Hit]:
-    if allowed_ids is None:
-        return hits
-    return [hit for hit in hits if str(getattr(hit, "id")) in allowed_ids]
+    return [
+        hit
+        for hit in hits
+        if (allowed_ids is None or str(getattr(hit, "id")) in allowed_ids)
+        and str(getattr(hit, "id")) not in excluded_ids
+    ]
 
 
 def _completed_route_trace(

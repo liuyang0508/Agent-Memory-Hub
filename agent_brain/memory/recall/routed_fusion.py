@@ -3,17 +3,21 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from typing import Any
+from typing import Protocol
 
 from agent_brain.memory.recall.retrieval_types import RetrievedItem
 from agent_brain.memory.recall.routed_types import RouteEvidence
 
 
+class _RouteHit(Protocol):
+    id: str
+
+
 def fuse_routes(
     *,
-    lexical_terms_hits: Sequence[Any] = (),
-    semantic_hits: Sequence[Any] = (),
-    lexical_raw_hits: Sequence[Any] = (),
+    lexical_terms_hits: Sequence[_RouteHit] = (),
+    semantic_hits: Sequence[_RouteHit] = (),
+    lexical_raw_hits: Sequence[_RouteHit] = (),
     semantic_similarities: Mapping[str, float] | None = None,
     rrf_k: int = 60,
 ) -> tuple[list[RetrievedItem], dict[str, RouteEvidence]]:
@@ -26,7 +30,6 @@ def fuse_routes(
 
     similarities = semantic_similarities or {}
     scores: dict[str, float] = {}
-    first_seen: dict[str, int] = {}
     route_names: dict[str, list[str]] = {}
     semantic_ranks: dict[str, int] = {}
     lexical_terms_ranks: dict[str, int] = {}
@@ -39,12 +42,12 @@ def fuse_routes(
     )
     for route_name, hits, ranks in route_specs:
         seen_on_route: set[str] = set()
-        for rank, hit in enumerate(hits, start=1):
+        for hit in hits:
             item_id = str(hit.id)
             if item_id in seen_on_route:
                 continue
+            rank = len(seen_on_route) + 1
             seen_on_route.add(item_id)
-            first_seen.setdefault(item_id, len(first_seen))
             ranks[item_id] = rank
             route_names.setdefault(item_id, []).append(route_name)
             scores[item_id] = scores.get(item_id, 0.0) + 1.0 / (rrf_k + rank)
@@ -58,7 +61,7 @@ def fuse_routes(
         )
         for item_id, score in scores.items()
     ]
-    items.sort(key=lambda item: (-item.score, first_seen[item.id]))
+    items.sort(key=lambda item: (-item.score, item.id))
 
     evidence = {
         item.id: RouteEvidence(

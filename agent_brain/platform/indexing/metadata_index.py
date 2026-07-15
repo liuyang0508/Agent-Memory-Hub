@@ -90,6 +90,13 @@ class MetadataIndex:
         ).fetchall()
         return {str(row[0]): row[1] for row in rows}
 
+    def get_superseded_ids(self) -> set[str]:
+        """Return IDs whose metadata marks them as superseded."""
+        rows = self.connection.execute(
+            "SELECT id FROM items_meta WHERE superseded_by IS NOT NULL AND superseded_by != ''"
+        ).fetchall()
+        return {str(row[0]) for row in rows}
+
     def get_feedback_data(self, item_ids: list[str]) -> dict[str, tuple[int, int, float]]:
         """Return {id: (support_count, contradict_count, gain_score)} for ids."""
         if not item_ids:
