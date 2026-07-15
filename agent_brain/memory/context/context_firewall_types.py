@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 from typing import Literal
 
 from agent_brain.contracts.memory_item import MemoryItem
@@ -77,6 +78,22 @@ class ContextFirewallConfig:
     min_strong_term_coverage: float = 1.0
     topic_recency_min_shared_terms: int = 3
     query_term_coverage_bonus: float = 0.01
+    semantic_route_min_similarity: float = 0.60
+    raw_route_min_coverage: float = 0.50
+
+    def __post_init__(self) -> None:
+        for field in (
+            "semantic_route_min_similarity",
+            "raw_route_min_coverage",
+        ):
+            value = getattr(self, field)
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(value)
+                or not 0.0 <= value <= 1.0
+            ):
+                raise ValueError(f"{field} must be a finite number in [0, 1]")
 
 
 __all__ = [

@@ -14,6 +14,7 @@ from agent_brain.memory.context.answerability import (
     AnswerabilityVerifier,
     answerability_verifier_from_env,
     verify_candidate_answerability,
+    verify_routed_candidate_answerability,
 )
 from agent_brain.memory.context.context_firewall_rules import (
     CONTESTED_TAGS,
@@ -45,6 +46,7 @@ from agent_brain.memory.context.context_firewall_types import (
     FirewallResult,
 )
 from agent_brain.memory.context.context_packing import pack_decisions
+from agent_brain.memory.context.injection_query_context import InjectionQueryContext
 from agent_brain.memory.context.query_signal import QuerySignal, analyze_injection_query
 from agent_brain.memory.governance.temporal_state import TemporalStateGate
 from agent_brain.platform.bounded_jsonl import MAX_SAFE_INTEGER
@@ -86,6 +88,7 @@ class ContextFirewall:
         max_items: int | None = None,
         budget_tokens: int | None = None,
         current_scope: Mapping[str, str] | None = None,
+        query_context: InjectionQueryContext | None = None,
     ) -> FirewallResult:
         """Evaluate and pack candidates for injection.
 
@@ -93,18 +96,30 @@ class ContextFirewall:
         gates, duplicate limits, optional item count and token budget limits,
         and finally query-cohort coverage checks.
         """
-        query_text = query.replace("|", " ") if query else None
-        signal = query_signal
-        if signal is None and query:
-            signal = analyze_injection_query(query_text or "")
-            if not signal.injectable:
-                signal = None
+        query_context = _validated_query_context(
+            query_context,
+            query=query,
+            query_signal=query_signal,
+        )
+        query_text: str | None
+        signal: QuerySignal | None
+        if query_context is not None:
+            query_text = query_context.raw_query
+            signal = query_context.query_signal
+        else:
+            query_text = query.replace("|", " ") if query else None
+            signal = query_signal
+            if signal is None and query:
+                signal = analyze_injection_query(query_text or "")
+                if not signal.injectable:
+                    signal = None
         evaluated = [
             self._evaluate(
                 candidate,
                 signal=signal,
                 query=query_text,
                 current_scope=current_scope,
+                query_context=query_context,
             )
             for candidate in candidates
         ]
@@ -117,7 +132,11 @@ class ContextFirewall:
         temporal_conflicts = self._apply_temporal_conflict_gate(packable)
         packable = temporal_conflicts.included
         extra_excluded.extend(temporal_conflicts.excluded)
-        topic_conflicts = self._apply_topic_recency_gate(packable, signal=signal)
+        topic_conflicts = self._apply_topic_recency_gate(
+            packable,
+            signal=signal,
+            query_context=query_context,
+        )
         packable = topic_conflicts.included
         extra_excluded.extend(topic_conflicts.excluded)
         cluster_counts: dict[str, int] = {}
@@ -151,7 +170,11 @@ class ContextFirewall:
             cluster_counts[cluster_key] = count + 1
             included.append(decision)
 
-        cohort = self._apply_cohort_gate(included, signal=signal)
+        cohort = self._apply_cohort_gate(
+            included,
+            signal=signal,
+            query_context=query_context,
+        )
         included = cohort.included
         extra_excluded.extend(cohort.excluded)
 
@@ -170,9 +193,20 @@ class ContextFirewall:
         included: list[FirewallDecision],
         *,
         query_signal: QuerySignal | None,
+        query_context: InjectionQueryContext | None = None,
     ) -> CohortGateResult:
         """Recheck query-level cohort rules without repeating item evaluation."""
-        return self._apply_cohort_gate(included, signal=query_signal)
+        query_context = _validated_query_context(
+            query_context,
+            query=None,
+            query_signal=query_signal,
+        )
+        signal = query_context.query_signal if query_context is not None else query_signal
+        return self._apply_cohort_gate(
+            included,
+            signal=signal,
+            query_context=query_context,
+        )
 
     def _apply_temporal_conflict_gate(
         self,
@@ -226,8 +260,14 @@ class ContextFirewall:
         included: list[FirewallDecision],
         *,
         signal: QuerySignal | None,
+        query_context: InjectionQueryContext | None = None,
     ) -> CohortGateResult:
-        if len(included) < 2 or signal is None or not signal.injectable:
+        eligible = (
+            query_context.admission.allowed
+            if query_context is not None
+            else signal is not None and signal.injectable
+        )
+        if len(included) < 2 or signal is None or not eligible:
             return CohortGateResult(included=included, excluded=[], reasons=())
 
         excluded_ids: set[str] = set()
@@ -286,11 +326,15 @@ class ContextFirewall:
         included: list[FirewallDecision],
         *,
         signal: QuerySignal | None,
+        query_context: InjectionQueryContext | None = None,
     ) -> CohortGateResult:
+        if query_context is not None and not query_context.admission.allowed:
+            return reject_cohort(included, "query_not_injectable")
+
         if signal is None:
             return CohortGateResult(included=included, excluded=[], reasons=())
 
-        if not signal.injectable:
+        if query_context is None and not signal.injectable:
             return reject_cohort(included, "query_not_injectable")
 
         if not included:
@@ -311,6 +355,7 @@ class ContextFirewall:
         signal: QuerySignal | None = None,
         query: str | None = None,
         current_scope: Mapping[str, str] | None = None,
+        query_context: InjectionQueryContext | None = None,
     ) -> FirewallDecision:
         item = candidate.item
         item_type = str(item.type)
@@ -340,7 +385,19 @@ class ContextFirewall:
             reasons.append("requires_review")
             return FirewallDecision(candidate, "exclude", tuple(reasons), base_score, 0.0)
 
-        if signal and signal.injectable:
+        if query_context is not None and query_context.admission.allowed:
+            answerability = verify_routed_candidate_answerability(
+                candidate,
+                query_context,
+                self.config,
+                verifier=self.answerability_verifier,
+            )
+            if not answerability.answerable:
+                reasons.append(answerability.reason)
+                if answerability.reason == "query_mismatch":
+                    reasons.append("answerability_mismatch")
+                return FirewallDecision(candidate, "exclude", tuple(reasons), base_score, 0.0)
+        elif signal and signal.injectable:
             answerability = verify_candidate_answerability(
                 candidate,
                 signal,
@@ -405,7 +462,12 @@ class ContextFirewall:
             action = "demote"
             effective_score *= self.config.l0_evidence_only_penalty
 
-        if signal and signal.injectable and signal.terms:
+        query_eligible = (
+            query_context.admission.allowed
+            if query_context is not None
+            else signal is not None and signal.injectable
+        )
+        if signal and query_eligible and signal.terms:
             effective_score += (
                 len(covered_query_terms(candidate, signal.terms))
                 * self.config.query_term_coverage_bonus
@@ -419,6 +481,23 @@ class ContextFirewall:
         item = candidate.item
         payload = f"{item.project or ''}\n{item.title.strip().lower()}\n{item.summary.strip().lower()}"
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _validated_query_context(
+    query_context: InjectionQueryContext | None,
+    *,
+    query: str | None,
+    query_signal: QuerySignal | None,
+) -> InjectionQueryContext | None:
+    if query_context is None:
+        return None
+    if not isinstance(query_context, InjectionQueryContext):
+        raise TypeError("query_context must be an InjectionQueryContext")
+    if query is not None and query != query_context.raw_query:
+        raise ValueError("query conflicts with routed query context")
+    if query_signal is not None and query_signal != query_context.query_signal:
+        raise ValueError("query_signal conflicts with routed query context")
+    return query_context
 
 
 __all__ = [

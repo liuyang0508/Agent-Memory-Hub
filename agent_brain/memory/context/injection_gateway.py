@@ -15,6 +15,7 @@ from agent_brain.memory.context.context_firewall_types import (
 )
 from agent_brain.memory.context.context_loading import ContextVerbosity
 from agent_brain.memory.context.context_packing import PackedDecision, pack_decisions
+from agent_brain.memory.context.injection_query_context import InjectionQueryContext
 from agent_brain.memory.context.query_signal import QuerySignal, analyze_injection_query
 
 logger = logging.getLogger(__name__)
@@ -41,6 +42,7 @@ INJECTION_EXCLUSION_REASONS = frozenset({
     "pack_budget_exceeded",
     "query_mismatch",
     "query_not_injectable",
+    "route_answerability_insufficient",
     "requires_review",
     "scope_mismatch",
     "semantic_answerability_mismatch",
@@ -181,9 +183,10 @@ def evaluate_injection_candidates(
     brain_dir: Path | None = None,
     max_items: int | None = None,
     current_scope: Mapping[str, str] | None = None,
+    query_context: InjectionQueryContext | None = None,
 ) -> FirewallResult:
     signal = query_signal
-    if signal is None and query is not None:
+    if query_context is None and signal is None and query is not None:
         signal = _analyze_query(query, brain_dir=brain_dir)
     return ContextFirewall().filter(
         candidates,
@@ -191,6 +194,7 @@ def evaluate_injection_candidates(
         query_signal=signal,
         max_items=max_items,
         current_scope=current_scope,
+        query_context=query_context,
     )
 
 
@@ -204,11 +208,12 @@ def build_injection_context(
     max_items: int | None = None,
     budget_tokens: int | None = None,
     current_scope: Mapping[str, str] | None = None,
+    query_context: InjectionQueryContext | None = None,
 ) -> InjectionResult:
     if requested not in _CONTEXT_VERBOSITIES:
         raise ValueError(f"unsupported context verbosity: {requested!r}")
     signal = query_signal
-    if signal is None and query is not None:
+    if query_context is None and signal is None and query is not None:
         signal = _analyze_query(query, brain_dir=brain_dir)
     firewall_engine = ContextFirewall()
     firewall = firewall_engine.filter(
@@ -217,6 +222,7 @@ def build_injection_context(
         query_signal=signal,
         max_items=None,
         current_scope=current_scope,
+        query_context=query_context,
     )
     included: list[PackedDecision] = []
     packing_excluded: list[FirewallDecision] = []
@@ -251,6 +257,7 @@ def build_injection_context(
     final_cohort = firewall_engine.validate_cohort(
         [entry.decision for entry in included],
         query_signal=signal,
+        query_context=query_context,
     )
     final_ids = {decision.candidate.item.id for decision in final_cohort.included}
     final_included = [

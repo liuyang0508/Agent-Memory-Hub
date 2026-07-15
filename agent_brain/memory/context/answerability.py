@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 import re
 from collections.abc import Callable, Mapping
@@ -15,8 +16,14 @@ from agent_brain.memory.context.context_firewall_rules import (
     covered_query_terms,
     matches_query,
 )
-from agent_brain.memory.context.context_firewall_types import ContextCandidate
+from agent_brain.memory.context.context_firewall_types import (
+    ContextCandidate,
+    ContextFirewallConfig,
+)
+from agent_brain.memory.context.injection_query_context import InjectionQueryContext
+from agent_brain.memory.context.prompt_normalization import normalize_hook_prompt_for_recall
 from agent_brain.memory.context.query_signal import QuerySignal
+from agent_brain.memory.recall.query_tokens import _tokenize_mixed
 
 _LOG = logging.getLogger(__name__)
 
@@ -259,6 +266,198 @@ def verify_candidate_answerability(
         query=query,
         verifier=verifier,
     )
+
+
+def verify_routed_candidate_answerability(
+    candidate: ContextCandidate,
+    query_context: InjectionQueryContext,
+    config: ContextFirewallConfig,
+    *,
+    verifier: AnswerabilityVerifier | None = None,
+) -> CandidateAnswerability:
+    """Verify one routed candidate from admission and independent route evidence."""
+    signal = query_context.query_signal
+    query = query_context.raw_query
+    query_intent = answerability_intent(query)
+    if not query_context.admission.allowed:
+        return _route_answerability_failure(query_intent)
+
+    if signal.strong_terms:
+        if query_context.evidence_by_id.get(candidate.item.id) is None:
+            return _route_answerability_failure(query_intent)
+        return _verify_term_answerability(
+            candidate,
+            signal,
+            query=query,
+            verifier=verifier,
+        )
+
+    evidence = query_context.evidence_by_id.get(candidate.item.id)
+    if evidence is None:
+        return _route_answerability_failure(query_intent)
+
+    routes = set(evidence.routes)
+    if "semantic_raw" in routes:
+        similarity = evidence.semantic_similarity
+        if (
+            similarity is not None
+            and not isinstance(similarity, bool)
+            and isinstance(similarity, (int, float))
+            and math.isfinite(similarity)
+            and -1.0 <= similarity <= 1.0
+            and similarity >= config.semantic_route_min_similarity
+        ):
+            deterministic = CandidateAnswerability(
+                True,
+                (),
+                (),
+                (),
+                query_intent,
+                "ok",
+            )
+            return _apply_semantic_verifier(
+                deterministic,
+                candidate=candidate,
+                signal=signal,
+                query=query,
+                verifier=verifier,
+            )
+
+    if "lexical_raw_fallback" in routes:
+        coverage, covered = raw_query_candidate_coverage(query, candidate)
+        if covered and coverage >= config.raw_route_min_coverage:
+            deterministic = CandidateAnswerability(
+                True,
+                (),
+                covered,
+                (),
+                query_intent,
+                "ok",
+            )
+            return _apply_semantic_verifier(
+                deterministic,
+                candidate=candidate,
+                signal=signal,
+                query=query,
+                verifier=verifier,
+            )
+
+    if "lexical_terms" in routes and signal.terms:
+        return _verify_term_answerability(
+            candidate,
+            signal,
+            query=query,
+            verifier=verifier,
+        )
+
+    return _route_answerability_failure(query_intent)
+
+
+def _verify_term_answerability(
+    candidate: ContextCandidate,
+    signal: QuerySignal,
+    *,
+    query: str,
+    verifier: AnswerabilityVerifier | None,
+) -> CandidateAnswerability:
+    """Apply legacy anchor rules without consulting signal injectability."""
+    allowed_signal = replace(signal, injectable=True)
+    return verify_candidate_answerability(
+        candidate,
+        allowed_signal,
+        query=query,
+        verifier=verifier,
+    )
+
+
+def _route_answerability_failure(query_intent: str) -> CandidateAnswerability:
+    return CandidateAnswerability(
+        False,
+        (),
+        (),
+        (),
+        query_intent,
+        "route_answerability_insufficient",
+    )
+
+
+_RAW_QUERY_ASCII_NOISE = frozenset({
+    "a",
+    "an",
+    "and",
+    "are",
+    "at",
+    "be",
+    "changed",
+    "did",
+    "do",
+    "for",
+    "from",
+    "how",
+    "in",
+    "is",
+    "it",
+    "of",
+    "on",
+    "please",
+    "the",
+    "to",
+    "what",
+    "when",
+    "where",
+    "which",
+    "why",
+    "with",
+})
+_RAW_QUERY_CJK_NOISE = frozenset("的了吗呢吧啊呀我你他她它请把给在和与及是有")
+_CJK_RUN_RE = re.compile(r"[\u3400-\u9fff]+")
+_RAW_QUERY_CJK_NOISE_PHRASE_RE = re.compile(
+    r"都做了什么|告诉我|帮我|麻烦|继续|接着|排查|处理|修复|优化|修改|"
+    r"分析|说明|看看|一下|怎么|如何|为什么|什么|哪些|是否|请"
+)
+
+
+def raw_query_candidate_coverage(
+    raw_query: str,
+    candidate: ContextCandidate,
+) -> tuple[float, tuple[str, ...]]:
+    """Return non-noise raw-query token coverage and matched substantive phrases."""
+    normalized = normalize_hook_prompt_for_recall(raw_query).casefold()
+    substantive_text = _RAW_QUERY_CJK_NOISE_PHRASE_RE.sub(" ", normalized)
+    tokens = tuple(dict.fromkeys(
+        token.casefold()
+        for token in _tokenize_mixed(substantive_text)
+        if _is_substantive_raw_token(token)
+    ))
+    if not tokens:
+        return 0.0, ()
+
+    covered_tokens = covered_query_terms(candidate, tokens)
+    coverage = len(covered_tokens) / len(tokens)
+    phrases = tuple(dict.fromkeys([
+        *(token for token in tokens if token.isascii()),
+        *(
+            run[index:index + 2]
+            for run in _CJK_RUN_RE.findall(substantive_text)
+            for index in range(len(run) - 1)
+            if not set(run[index:index + 2]) <= _RAW_QUERY_CJK_NOISE
+        ),
+    ]))
+    covered_phrases = tuple(
+        phrase
+        for phrase in phrases
+        if covered_query_terms(candidate, (phrase,))
+    )
+    return coverage, covered_phrases
+
+
+def _is_substantive_raw_token(token: str) -> bool:
+    lowered = token.casefold().strip("._-+")
+    if not lowered:
+        return False
+    if lowered.isascii():
+        return len(lowered) >= 2 and lowered not in _RAW_QUERY_ASCII_NOISE
+    return lowered not in _RAW_QUERY_CJK_NOISE
 
 
 def primary_answerability_terms(signal: QuerySignal) -> tuple[str, ...]:

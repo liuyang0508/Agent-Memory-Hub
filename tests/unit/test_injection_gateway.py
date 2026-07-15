@@ -56,6 +56,72 @@ def test_gateway_keeps_empty_query_fail_closed():
     assert "query_not_injectable" in result.cohort_reasons
 
 
+def test_gateway_builds_routed_context_when_legacy_signal_is_blocked():
+    from agent_brain.memory.context.injection_gateway import build_injection_context
+    from agent_brain.memory.context.injection_query_context import InjectionQueryContext
+    from agent_brain.memory.context.query_signal import QuerySignal
+    from agent_brain.memory.recall.admission import RecallAdmission
+    from agent_brain.memory.recall.routed_types import RouteEvidence
+
+    value = item("routed-safe")
+    signal = QuerySignal((), (), (), False, "too_weak", 0.0)
+    query_context = InjectionQueryContext(
+        raw_query="complete routed raw query sentinel",
+        admission=RecallAdmission(True, "meaningful_query"),
+        query_signal=signal,
+        evidence_by_id={
+            value.id: RouteEvidence(
+                routes=("semantic_raw",),
+                semantic_similarity=0.82,
+                semantic_rank=1,
+                lexical_terms_rank=None,
+                lexical_raw_rank=None,
+            ),
+        },
+    )
+
+    result = build_injection_context(
+        [candidate(value)],
+        query_context=query_context,
+    )
+
+    assert [entry.decision.candidate.item.id for entry in result.included] == [value.id]
+
+
+def test_gateway_rejects_invalid_or_conflicting_routed_context_without_query_leak():
+    from agent_brain.memory.context.injection_gateway import evaluate_injection_candidates
+    from agent_brain.memory.context.injection_query_context import InjectionQueryContext
+    from agent_brain.memory.context.query_signal import QuerySignal
+    from agent_brain.memory.recall.admission import RecallAdmission
+
+    value = item("routed-context-conflict")
+    raw_sentinel = "SECRET_RAW_QUERY_SENTINEL"
+    context = InjectionQueryContext(
+        raw_query=raw_sentinel,
+        admission=RecallAdmission(True, "meaningful_query"),
+        query_signal=QuerySignal((), (), (), False, "too_weak", 0.0),
+        evidence_by_id={},
+    )
+
+    with pytest.raises(TypeError):
+        evaluate_injection_candidates([candidate(value)], query_context=object())
+    with pytest.raises(ValueError) as raised:
+        evaluate_injection_candidates(
+            [candidate(value)],
+            query="different query",
+            query_context=context,
+        )
+
+    rendered = f"{raised.value!s} {raised.value!r}"
+    assert raw_sentinel not in rendered
+
+
+def test_route_answerability_reason_is_in_gateway_closed_contract():
+    from agent_brain.memory.context.injection_gateway import INJECTION_EXCLUSION_REASONS
+
+    assert "route_answerability_insufficient" in INJECTION_EXCLUSION_REASONS
+
+
 @pytest.mark.parametrize(
     ("value", "reason"),
     [
