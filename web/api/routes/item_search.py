@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from agent_brain.memory.context.context_firewall import ContextCandidate, ContextFirewall
 from agent_brain.memory.context.context_packing import build_context_pack
+from agent_brain.memory.context.recall_policy import search_governance_warnings
 from agent_brain.memory.evidence.resource_reading import (
     ResourceSearchFilter,
     read_resource_context,
@@ -36,6 +37,10 @@ async def search_items(
     include_resources: bool = False,
     user: CurrentUser = Depends(get_current_user),
 ):
+    governance_warnings = search_governance_warnings(
+        verbosity=verbosity,
+        top_k=top_k,
+    )
     store, _, retriever, _ = _components()
     sf = SearchFilter(
         type=type,
@@ -102,7 +107,7 @@ async def search_items(
                 "summary": item.summary,
                 "score": h.score,
                 "confidence": item.confidence,
-                "snippet": body[:200],
+                "snippet": context_pack.text[:200],
                 "context_pack": context_pack.to_dict(),
                 "retrieval_trace": h.trace.to_dict() if h.trace is not None else None,
                 "firewall": _firewall_to_dict(firewall_decision) if firewall_decision else None,
@@ -118,6 +123,7 @@ async def search_items(
             "context_firewall": context_firewall,
             "resource_sidecar": include_resources,
             "verbosity": verbosity,
+            "governance_warnings": list(governance_warnings),
         },
         "resource_results": resource_results,
     }

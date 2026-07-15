@@ -988,6 +988,29 @@ class TestItems:
         assert data["item"]["title"] == "Python GIL behavior"
         assert "Body content" in data["body"]
 
+    def test_get_item_supports_bounded_detail_without_breaking_full_read(
+        self,
+        client: TestClient,
+        admin_token: str,
+        seed_items,
+    ):
+        headers = {"Authorization": f"Bearer {admin_token}"}
+        item_id = "mem-20260101-000000-test-fact"
+
+        full = client.get(f"/api/items/{item_id}", headers=headers)
+        bounded = client.get(
+            f"/api/items/{item_id}?head=4&view=detail",
+            headers=headers,
+        )
+
+        assert full.status_code == 200
+        assert bounded.status_code == 200
+        full_data = full.json()
+        bounded_data = bounded.json()
+        assert bounded_data["body"] == full_data["body"][:4]
+        assert bounded_data["body_truncated"] is True
+        assert bounded_data["full_chars"] == len(full_data["body"])
+
     def test_get_item_not_found(self, client: TestClient, admin_token: str, brain_dir):
         resp = client.get("/api/items/nonexistent", headers={"Authorization": f"Bearer {admin_token}"})
         assert resp.status_code == 404
@@ -1017,6 +1040,55 @@ class TestSemanticSearch:
         data = resp.json()
         assert data["query"] == "Python"
         assert isinstance(data["results"], list)
+
+    def test_auto_search_uses_compact_snippet_and_preserves_explicit_detail(
+        self,
+        client: TestClient,
+        admin_token: str,
+        brain_dir: Path,
+    ):
+        from agent_brain.contracts.memory_item import Refs
+        from web._base import _components, _components_cache
+
+        _components_cache.clear()
+        store, idx, _retriever, embedder = _components()
+        item = MemoryItem(
+            id="mem-20260715-101010-web-staged-recall",
+            type=MemoryType.artifact,
+            created_at=datetime.now(timezone.utc),
+            title="Web staged recall",
+            summary="web staged locator",
+            abstraction="L0",
+            refs=Refs(files=["/tmp/web-staged.log"]),
+            context_views={
+                "locator": "web staged locator",
+                "overview": "web staged overview",
+                "detail_uri": "memory://items/mem-20260715-101010-web-staged-recall/body",
+            },
+        )
+        body = "web detail-only marker"
+        store.write(item, body)
+        idx.upsert(item, body, embedding=embedder.embed(item.context_views.locator))
+        headers = {"Authorization": f"Bearer {admin_token}"}
+
+        auto = client.get(
+            "/api/search?q=Web%20staged%20recall&top_k=5&verbosity=auto",
+            headers=headers,
+        )
+        detail = client.get(
+            "/api/search?q=Web%20staged%20recall&top_k=5&verbosity=detail",
+            headers=headers,
+        )
+
+        assert auto.status_code == 200
+        assert detail.status_code == 200
+        auto_result = auto.json()["results"][0]
+        detail_data = detail.json()
+        assert auto_result["id"] == item.id
+        assert "web detail-only marker" not in auto_result["snippet"]
+        assert "web detail-only marker" not in auto_result["context_pack"]["text"]
+        assert "web detail-only marker" in detail_data["results"][0]["context_pack"]["text"]
+        assert detail_data["diagnostics"]["governance_warnings"]
 
     def test_search_can_return_trace_context_firewall_and_resource_context(
         self,
