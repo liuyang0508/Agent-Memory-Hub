@@ -70,21 +70,39 @@ class _Index:
         self.bm25_error_for: dict[str, BaseException] = {}
         self.vector_error: BaseException | None = None
 
-    def bm25_search(self, query: str, top_k: int = 10) -> list[Any]:
+    def bm25_search(
+        self,
+        query: str,
+        top_k: int = 10,
+        *,
+        allowed_ids: set[str] | None = None,
+    ) -> list[Any]:
         self.bm25_queries.append(query)
         for marker, error in self.bm25_error_for.items():
             if marker in query:
                 raise error
         for marker, hits in self.bm25_hits.items():
             if marker in query:
-                return hits[:top_k]
+                eligible = hits
+                if allowed_ids is not None:
+                    eligible = [hit for hit in hits if hit.id in allowed_ids]
+                return eligible[:top_k]
         return []
 
-    def vector_search(self, embedding: list[float], top_k: int = 10) -> list[Any]:
+    def vector_search(
+        self,
+        embedding: list[float],
+        top_k: int = 10,
+        *,
+        allowed_ids: set[str] | None = None,
+    ) -> list[Any]:
         self.vector_queries.append(embedding)
         if self.vector_error is not None:
             raise self.vector_error
-        return self.vector_hits[:top_k]
+        eligible = self.vector_hits
+        if allowed_ids is not None:
+            eligible = [hit for hit in self.vector_hits if hit.id in allowed_ids]
+        return eligible[:top_k]
 
     def get_embeddings(self, item_ids: list[str]) -> dict[str, list[float]]:
         return {
@@ -344,6 +362,165 @@ def test_explicit_project_scope_is_a_hard_filter() -> None:
 
     assert [hit.id for hit in result.hits] == ["in"]
     assert any(call.get("project") == "project-a" for call in index.filter_calls)
+
+
+def test_lexical_terms_hard_filter_applies_before_real_bm25_limit(tmp_path) -> None:
+    from agent_brain.contracts.memory_item import MemoryItem, MemoryType
+    from agent_brain.platform.indexing.index import HubIndex
+
+    index = HubIndex(tmp_path / "index.db", embedding_dim=2)
+    try:
+        blocked = MemoryItem(
+            id="mem-20260715-110000-blocked-bm25",
+            type=MemoryType.fact,
+            created_at="2026-07-15T11:00:00+08:00",
+            title="blocked item",
+            summary="blocked summary " + "needle " * 40,
+            project="project-b",
+        )
+        allowed = MemoryItem(
+            id="mem-20260715-110001-allowed-bm25",
+            type=MemoryType.fact,
+            created_at="2026-07-15T11:00:01+08:00",
+            title="allowed item",
+            summary="allowed summary needle",
+            project="project-a",
+        )
+        index.upsert(blocked, "needle " * 40, embedding=None)
+        index.upsert(allowed, "needle", embedding=None)
+        assert index.bm25_search('"needle"', top_k=1)[0].id == blocked.id
+
+        embedder = _Embedder()
+        embedder.degraded = True
+        result = Retriever(
+            index,
+            embedder,  # type: ignore[arg-type]
+            bm25_top=1,
+            rerank=False,
+            apply_decay=False,
+            record_access=False,
+        ).search_routed(
+            _request(
+                normalized_query="needle",
+                lexical_terms=("needle",),
+                project_scope=ProjectScope("project-a", "explicit", hard_filter=True),
+            ),
+            filters=SearchFilter(include_superseded=True, include_stale_state=True),
+        )
+
+        assert [hit.id for hit in result.hits] == [allowed.id]
+        assert result.evidence_by_id[allowed.id].lexical_terms_rank == 1
+    finally:
+        index.close()
+
+
+def test_semantic_hard_filter_applies_before_vector_limit() -> None:
+    index = _Index()
+    index.projects = {"blocked": "project-b", "allowed": "project-a"}
+    index.vector_hits = [
+        SimpleNamespace(id="blocked", score=2.0),
+        SimpleNamespace(id="allowed", score=1.0),
+    ]
+    index.embeddings = {"blocked": [1.0, 0.0], "allowed": [0.9, 0.1]}
+
+    result = _retriever(index, _Embedder(), vector_top=1).search_routed(
+        _request(
+            lexical_terms=(),
+            project_scope=ProjectScope("project-a", "explicit", hard_filter=True),
+        ),
+        filters=SearchFilter(include_superseded=True, include_stale_state=True),
+    )
+
+    assert [hit.id for hit in result.hits] == ["allowed"]
+    assert result.evidence_by_id["allowed"].semantic_rank == 1
+
+
+def test_semantic_hard_filter_applies_before_real_vector_limit(tmp_path) -> None:
+    from agent_brain.contracts.memory_item import MemoryItem, MemoryType
+    from agent_brain.platform.indexing.index import HubIndex
+
+    index = HubIndex(tmp_path / "vector-index.db", embedding_dim=2)
+    try:
+        blocked = MemoryItem(
+            id="mem-20260715-111000-blocked-vector",
+            type=MemoryType.fact,
+            created_at="2026-07-15T11:10:00+08:00",
+            title="blocked vector item",
+            summary="blocked vector summary",
+            project="project-b",
+        )
+        allowed = MemoryItem(
+            id="mem-20260715-111001-allowed-vector",
+            type=MemoryType.fact,
+            created_at="2026-07-15T11:10:01+08:00",
+            title="allowed vector item",
+            summary="allowed vector summary",
+            project="project-a",
+        )
+        index.upsert(blocked, "blocked", embedding=[1.0, 0.0])
+        index.upsert(allowed, "allowed", embedding=[0.9, 0.1])
+        assert index.vector_search([1.0, 0.0], top_k=1)[0].id == blocked.id
+
+        result = Retriever(
+            index,
+            _Embedder([1.0, 0.0]),  # type: ignore[arg-type]
+            vector_top=1,
+            rerank=False,
+            apply_decay=False,
+            record_access=False,
+        ).search_routed(
+            _request(
+                normalized_query="semantic route query",
+                lexical_terms=(),
+                project_scope=ProjectScope("project-a", "explicit", hard_filter=True),
+            ),
+            filters=SearchFilter(include_superseded=True, include_stale_state=True),
+        )
+
+        assert [hit.id for hit in result.hits] == [allowed.id]
+        assert result.evidence_by_id[allowed.id].semantic_rank == 1
+    finally:
+        index.close()
+
+
+def test_lexical_raw_fallback_hard_filter_applies_before_bm25_limit() -> None:
+    index = _Index()
+    index.projects = {"blocked": "project-b", "allowed": "project-a"}
+    index.bm25_hits = {
+        "unique_raw": [
+            SimpleNamespace(id="blocked", score=2.0),
+            SimpleNamespace(id="allowed", score=1.0),
+        ]
+    }
+
+    result = _retriever(index, _Embedder(), vector_weight=0.0, bm25_top=1).search_routed(
+        _request(
+            normalized_query="full unique_raw question",
+            lexical_terms=(),
+            project_scope=ProjectScope("project-a", "explicit", hard_filter=True),
+        ),
+        filters=SearchFilter(include_superseded=True, include_stale_state=True),
+    )
+
+    assert [hit.id for hit in result.hits] == ["allowed"]
+    assert result.evidence_by_id["allowed"].lexical_raw_rank == 1
+
+
+def test_semantic_hit_without_embedding_is_not_fused_or_fallbacked() -> None:
+    index = _Index()
+    index.vector_hits = [SimpleNamespace(id="missing-embedding", score=-1.0)]
+
+    result = _retriever(index, _Embedder()).search_routed(
+        _request(lexical_terms=()),
+        filters=SearchFilter(include_superseded=True, include_stale_state=True),
+    )
+
+    assert result.hits == []
+    assert result.evidence_by_id == {}
+    semantic_trace = next(trace for trace in result.routes if trace.route == "semantic_raw")
+    assert semantic_trace.status == "ok"
+    assert semantic_trace.candidate_count == 0
+    assert all(trace.route != "lexical_raw_fallback" for trace in result.routes)
 
 
 @pytest.mark.parametrize("source", ["cwd", "agent_inferred"])

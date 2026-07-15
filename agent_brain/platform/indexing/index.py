@@ -108,18 +108,57 @@ class HubIndex:
         """Remove an item from all index tables (meta + FTS + vec + refs_graph)."""
         self.writer.delete(item_id)
 
-    def bm25_search(self, query: str, top_k: int = 10) -> list[Hit]:
-        rows = self.connection.execute(
+    def bm25_search(
+        self,
+        query: str,
+        top_k: int = 10,
+        *,
+        allowed_ids: set[str] | None = None,
+    ) -> list[Hit]:
+        sql = (
             "SELECT id, bm25(items_fts) AS score "
-            "FROM items_fts WHERE items_fts MATCH ? "
-            "ORDER BY score LIMIT ?",
-            (query, top_k),
-        ).fetchall()
+            "FROM items_fts WHERE items_fts MATCH ?"
+        )
+        params: list[object] = [query]
+        if allowed_ids is not None:
+            if not allowed_ids:
+                return []
+            ordered_ids = sorted(allowed_ids)
+            placeholders = ",".join("?" for _ in ordered_ids)
+            sql += f" AND id IN ({placeholders})"
+            params.extend(ordered_ids)
+        sql += " ORDER BY score LIMIT ?"
+        params.append(top_k)
+        rows = self.connection.execute(sql, params).fetchall()
         # bm25() returns lower=better; invert so higher=better for caller
         return [Hit(id=row[0], score=-row[1]) for row in rows]
 
-    def vector_search(self, embedding: list[float], top_k: int = 10) -> list[Hit]:
-        return self.vector.search(embedding, top_k=top_k)
+    def vector_search(
+        self,
+        embedding: list[float],
+        top_k: int = 10,
+        *,
+        allowed_ids: set[str] | None = None,
+    ) -> list[Hit]:
+        if allowed_ids is None:
+            return self.vector.search(embedding, top_k=top_k)
+        if not allowed_ids or top_k <= 0:
+            return []
+        if len(embedding) != self.embedding_dim:
+            raise ValueError(
+                f"embedding dim {len(embedding)} != index dim {self.embedding_dim}"
+            )
+        embeddings = self.vector.get_embeddings(sorted(allowed_ids))
+        scored = [
+            Hit(
+                id=item_id,
+                score=-sum((value - query_value) ** 2 for value, query_value in zip(vector, embedding)),
+            )
+            for item_id, vector in embeddings.items()
+            if len(vector) == self.embedding_dim
+        ]
+        scored.sort(key=lambda hit: (-hit.score, hit.id))
+        return scored[:top_k]
 
     def get_confidence_data(self, item_ids: list[str]) -> dict[str, tuple[float, str, str | None]]:
         """Return {id: (confidence, decay_class, last_accessed_iso)} for given ids."""

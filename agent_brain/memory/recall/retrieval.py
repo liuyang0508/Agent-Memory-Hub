@@ -551,7 +551,13 @@ class Retriever:
                     " ".join(request.lexical_terms),
                     use_or=self.query_expansion,
                 )
-                lexical_terms_hits = list(self.index.bm25_search(terms_query, top_k=self.bm25_top))
+                lexical_terms_hits = list(
+                    self.index.bm25_search(
+                        terms_query,
+                        top_k=self.bm25_top,
+                        allowed_ids=allowed_ids,
+                    )
+                )
                 lexical_terms_hits = _filter_route_hits(
                     lexical_terms_hits,
                     allowed_ids,
@@ -614,12 +620,19 @@ class Retriever:
             try:
                 query_embedding = self.embedder.embed(request.normalized_query)
                 semantic_hits = list(
-                    self.index.vector_search(query_embedding, top_k=self.vector_top)
+                    self.index.vector_search(
+                        query_embedding,
+                        top_k=self.vector_top,
+                        allowed_ids=allowed_ids,
+                    )
                 )
                 semantic_hits = _filter_route_hits(semantic_hits, allowed_ids)
                 result_embeddings = self.index.get_embeddings(
                     [str(hit.id) for hit in semantic_hits]
                 )
+                semantic_hits = [
+                    hit for hit in semantic_hits if str(hit.id) in result_embeddings
+                ]
                 semantic_similarities = {
                     str(hit.id): _cosine_sim(query_embedding, item_embedding)
                     for hit in semantic_hits
@@ -662,7 +675,13 @@ class Retriever:
                     request.normalized_query,
                     use_or=self.query_expansion,
                 )
-                lexical_raw_hits = list(self.index.bm25_search(raw_query, top_k=self.bm25_top))
+                lexical_raw_hits = list(
+                    self.index.bm25_search(
+                        raw_query,
+                        top_k=self.bm25_top,
+                        allowed_ids=allowed_ids,
+                    )
+                )
                 lexical_raw_hits = _filter_route_hits(lexical_raw_hits, allowed_ids)
                 route_traces.append(
                     _completed_route_trace(
