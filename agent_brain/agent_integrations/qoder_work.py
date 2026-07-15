@@ -619,6 +619,7 @@ class QoderWorkAdapter(AdapterBase):
                 "- `mcp__agent-memory-hub__brief_memory`：先拿有界全貌；",
                 "- `mcp__agent-memory-hub__search_memory`：按用户原词和项目关键词检索；",
                 "- `mcp__agent-memory-hub__read_memory`：只读取真正需要的 1-3 条详情。",
+                "- 普通检索使用 auto 的 locator/overview 候选；显式 detail 只用于有意、少量的诊断读取。",
                 "",
                 "如果界面只暴露通用 MCP 调用，请按 QoderWork 提示使用 `qw_mcp_list`、`qw_mcp_get`、`qw_mcp_call` 调用上述工具。",
                 "",

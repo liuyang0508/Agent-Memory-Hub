@@ -629,6 +629,10 @@ def test_docs_record_reversible_context_pack_contract():
     assert "Context packing" in architecture
     assert "read_memory(id, head=2000, view='detail')" in architecture
     assert "自动注入默认给压缩视图和 retrieve hint" in discipline
+    assert "Automatic and `auto` search never promotes a candidate to `detail`" in readme
+    assert "`auto` 搜索不会把候选自动提升到 `detail`" in readme_zh
+    assert "`auto` selects only `locator` or `overview`" in architecture
+    assert "先从候选中选出真正需要的 1–3 条" in discipline
 
 
 def test_docs_record_ml_dl_enhancement_boundary():

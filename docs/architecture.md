@@ -91,6 +91,11 @@ Automatic UserPromptSubmit injection and MCP `search_memory(..., verbosity="auto
 send the compact `text` and retrieve hint first; agents deep-read the canonical
 body only after the compact view proves relevant.
 
+Staged-recall invariant: **`auto` selects only `locator` or `overview`**. Agents
+select 1-3 relevant candidates before bounded `read_memory` calls. Explicit
+`verbosity="detail"` still returns the canonical body for deliberate diagnostics;
+broad explicit-detail searches receive a non-blocking governance warning.
+
 ## Loop Contract — `agent_brain/memory/loops/`
 
 Loop Engineering uses a contract plus runtime ledger instead of prompt-only

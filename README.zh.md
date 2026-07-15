@@ -1082,6 +1082,10 @@ canonical body = memory://items/<id>/body
 retrieve hint = memory read <id> --head 2000 --view detail
 ```
 
+`auto` 搜索不会把候选自动提升到 `detail`：普通发现阶段只返回 locator / overview，
+Agent 再选择真正相关的 1–3 条做有界深读。显式 `verbosity="detail"` 的正文返回能力
+保持不变；宽泛显式 detail 搜索只产生治理告警，不会被阻断。
+
 预算不足时，detail 会降到 overview，再降到 locator。README 里把这组三层也写作 `locator/overview/detail`，便于在代码和文档里检索同一个概念。这样上下文不会因为一个长 item 挤掉其他关键证据。
 
 ### 可选检索轨迹

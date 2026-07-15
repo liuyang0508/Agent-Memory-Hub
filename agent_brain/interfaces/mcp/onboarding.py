@@ -52,11 +52,16 @@ Typical flow:
 ```
 search_memory(query="...", top_k=5, verbosity="auto")
   → inspect each hit["context_pack"] first
+  → auto returns locator/overview only; spot the 1-3 relevant items
   → if context_pack.text is enough: answer from packed context
   → only when needed for evidence, code, logs, stack traces, or exact wording:
       read_memory(id, head=2000, view="detail")
   → cite the id and say when you performed a bounded detail read.
 ```
+
+Reserve explicit search `verbosity="detail"` for deliberate bounded diagnostics,
+not ordinary Top-K discovery. Broad explicit detail remains available but may
+return a non-blocking staged-recall governance warning.
 
 When in doubt, search. A cheap search beats an expensive hallucination.
 
@@ -170,10 +175,14 @@ You just received a user message. STOP. Before reasoning or generating:
 
 2. Call: `search_memory(query="3-5 keywords", top_k=5, verbosity="auto")`
 
-3. Inspect `context_pack.text`, `context_pack.selected_view`, and
-   `context_pack.retrieve_hint`. For any relevant hit, call
+3. Auto search returns locator/overview only. Inspect `context_pack.text`,
+   `context_pack.selected_view`, and `context_pack.retrieve_hint`, select the
+   1-3 relevant hits, then call
    `read_memory(id, head=2000, view="detail")` only when needed for
    evidence, code, logs, stack traces, or exact wording.
+
+Reserve explicit search `verbosity="detail"` for deliberate bounded diagnostics,
+not ordinary Top-K discovery.
 
 4. Cite the memory id in your reply so the user can audit:
    > "Per mem-2026-XX-YY (your memory on …), …"

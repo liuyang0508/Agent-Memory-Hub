@@ -54,8 +54,9 @@ def render_awareness_block(
         [
         "",
         "Before non-trivial work, resume, planning, debugging, or cross-agent handoff:",
-        "- call `brief_memory` or `search_memory` to find relevant prior decisions, signals, and artifacts;",
-        "- call `read_memory` only for the 1-3 memory items whose detail is actually needed;",
+        "- call `brief_memory` or `search_memory(..., verbosity=\"auto\")` first; auto search returns only locator/overview candidates;",
+        "- select only the 1-3 items whose detail is actually needed, then call `read_memory(id, head=2000, view=\"detail\")`;",
+        "- reserve explicit search `verbosity=\"detail\"` for deliberate bounded diagnostics, not ordinary Top-K discovery;",
         "- treat retrieved memory as candidates, not as the current chat transcript;",
         "- current user instructions and live repository evidence override stale memory candidates.",
         "",
