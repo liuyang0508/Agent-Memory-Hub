@@ -212,6 +212,119 @@ def test_raw_lexical_fallback_ignores_conversational_query_noise() -> None:
     assert [decision.candidate.item.id for decision in result.included] == [value.id]
 
 
+@pytest.mark.parametrize(
+    ("raw_query", "body"),
+    [
+        ("go api", "mango api"),
+        ("go api", "go migration api"),
+        ("E0583", "XE0583 is unrelated"),
+    ],
+)
+def test_raw_coverage_rejects_ascii_substrings_and_discontinuous_phrases(
+    raw_query: str,
+    body: str,
+) -> None:
+    from agent_brain.memory.context.answerability import raw_query_candidate_coverage
+
+    coverage, phrases = raw_query_candidate_coverage(
+        raw_query,
+        _candidate(_item("ascii-boundary-negative"), body=body),
+    )
+
+    assert coverage < 1.0 or not phrases
+    assert phrases == ()
+
+
+@pytest.mark.parametrize(
+    ("raw_query", "body"),
+    [
+        ("go api", "The go api migration is complete"),
+        ("E0583", "Rust compiler error E0583"),
+        ("请继续排查 go api", "The go api migration is complete"),
+    ],
+)
+def test_raw_coverage_accepts_bounded_ascii_phrases(
+    raw_query: str,
+    body: str,
+) -> None:
+    from agent_brain.memory.context.answerability import raw_query_candidate_coverage
+
+    coverage, phrases = raw_query_candidate_coverage(
+        raw_query,
+        _candidate(_item("ascii-boundary-positive"), body=body),
+    )
+
+    assert coverage == 1.0
+    assert phrases
+
+
+def test_raw_coverage_rejects_distributed_cjk_characters() -> None:
+    from agent_brain.memory.context.answerability import raw_query_candidate_coverage
+
+    coverage, phrases = raw_query_candidate_coverage(
+        "北京大学",
+        _candidate(
+            _item("cjk-distributed", title="北京天气", summary="大学申请"),
+            body="北京天气和大学申请",
+        ),
+    )
+
+    assert coverage == 0.0
+    assert phrases == ()
+
+
+@pytest.mark.parametrize(
+    ("raw_query", "body"),
+    [
+        ("北京大学", "北京大学招生信息"),
+        ("请继续排查北京大学 go api", "北京大学 go api 联调记录"),
+    ],
+)
+def test_raw_coverage_accepts_contiguous_cjk_and_mixed_phrases(
+    raw_query: str,
+    body: str,
+) -> None:
+    from agent_brain.memory.context.answerability import raw_query_candidate_coverage
+
+    coverage, phrases = raw_query_candidate_coverage(
+        raw_query,
+        _candidate(_item("cjk-contiguous"), body=body),
+    )
+
+    assert coverage == 1.0
+    assert phrases
+
+
+def test_raw_coverage_rejects_distributed_mixed_query() -> None:
+    from agent_brain.memory.context.answerability import raw_query_candidate_coverage
+
+    coverage, phrases = raw_query_candidate_coverage(
+        "请继续排查北京大学 go api",
+        _candidate(
+            _item("mixed-distributed", title="北京天气", summary="大学申请"),
+            body="mango migration api",
+        ),
+    )
+
+    assert coverage < 0.5
+    assert phrases == ()
+
+
+def test_mixed_raw_coverage_requires_its_ascii_phrase_even_when_cjk_matches() -> None:
+    from agent_brain.memory.context.answerability import raw_query_candidate_coverage
+
+    coverage, phrases = raw_query_candidate_coverage(
+        "北京大学 go api",
+        _candidate(
+            _item("mixed-ascii-phrase-required"),
+            body="北京大学 mango api",
+        ),
+    )
+
+    assert coverage == 0.75
+    assert phrases == ()
+
+
 def test_lexical_terms_route_keeps_existing_primary_anchor_rule() -> None:
     from agent_brain.memory.context.context_firewall import ContextFirewall
 
@@ -505,7 +618,74 @@ def test_llm_provider_exception_log_is_private(monkeypatch, caplog) -> None:
         deterministic=CandidateAnswerability(True, ("atlas",), ("atlas",), ()),
     )
 
-    assert decision is None
+    assert decision is not None
+    assert decision.answerable is False
+    assert decision.execution_failed is True
+    assert decision.reason == "llm_answerability_execution_failed"
+    assert sentinel not in caplog.text
+
+
+def test_routed_llm_provider_exception_fails_closed(monkeypatch, caplog) -> None:
+    from agent_brain.memory.context.answerability import LLMAnswerabilityVerifier
+    from agent_brain.memory.context.context_firewall import ContextFirewall
+
+    sentinel = "SECRET_ROUTED_LLM_PROVIDER_SENTINEL"
+
+    def fail_completion(**_kwargs):
+        raise RuntimeError(sentinel)
+
+    monkeypatch.setitem(
+        sys.modules,
+        "litellm",
+        SimpleNamespace(completion=fail_completion),
+    )
+    value = _item("routed-llm-provider")
+    context = _context(
+        raw_query="Atlas provider query",
+        evidence_by_id={value.id: _evidence("semantic_raw", similarity=0.82)},
+    )
+    result = ContextFirewall(
+        now=NOW,
+        answerability_verifier=LLMAnswerabilityVerifier(),
+    ).filter([_candidate(value, body="Atlas provider evidence")], query_context=context)
+
+    assert result.included == []
+    assert "semantic_answerability_mismatch" in result.excluded[0].reasons
+    assert sentinel not in caplog.text
+
+
+def test_legacy_llm_provider_exception_keeps_deterministic_allow(
+    monkeypatch,
+    caplog,
+) -> None:
+    from agent_brain.memory.context.answerability import LLMAnswerabilityVerifier
+    from agent_brain.memory.context.context_firewall import ContextFirewall
+
+    sentinel = "SECRET_LEGACY_LLM_PROVIDER_SENTINEL"
+
+    def fail_completion(**_kwargs):
+        raise RuntimeError(sentinel)
+
+    monkeypatch.setitem(
+        sys.modules,
+        "litellm",
+        SimpleNamespace(completion=fail_completion),
+    )
+    value = _item("legacy-llm-provider")
+    result = ContextFirewall(
+        now=NOW,
+        answerability_verifier=LLMAnswerabilityVerifier(),
+    ).filter(
+        [_candidate(value, body="Atlas provider evidence")],
+        query="Atlas provider query",
+        query_signal=_signal(
+            terms=("atlas",),
+            strong_terms=("atlas",),
+            injectable=True,
+        ),
+    )
+
+    assert [decision.candidate.item.id for decision in result.included] == [value.id]
     assert sentinel not in caplog.text
 
 

@@ -49,6 +49,7 @@ class SemanticAnswerabilityDecision:
     answerable: bool
     score: float | None = None
     reason: str = "semantic_answerability"
+    execution_failed: bool = False
 
 
 class AnswerabilityVerifier(Protocol):
@@ -181,7 +182,11 @@ class LLMAnswerabilityVerifier:
             return json.loads(text)
         except Exception:
             _LOG.warning("LLM answerability verifier failed")
-            return None
+            return SemanticAnswerabilityDecision(
+                answerable=False,
+                reason="llm_answerability_execution_failed",
+                execution_failed=True,
+            )
 
 
 def verify_candidate_answerability(
@@ -440,31 +445,82 @@ def raw_query_candidate_coverage(
     """Return non-noise raw-query token coverage and matched substantive phrases."""
     normalized = normalize_hook_prompt_for_recall(raw_query).casefold()
     substantive_text = _RAW_QUERY_CJK_NOISE_PHRASE_RE.sub(" ", normalized)
-    tokens = tuple(dict.fromkeys(
+    mixed_tokens = _tokenize_mixed(substantive_text)
+    ascii_tokens = tuple(dict.fromkeys(
         token.casefold()
-        for token in _tokenize_mixed(substantive_text)
-        if _is_substantive_raw_token(token)
+        for token in mixed_tokens
+        if token.isascii() and _is_substantive_raw_token(token)
     ))
-    if not tokens:
+    cjk_units = tuple(dict.fromkeys(
+        unit
+        for run in _substantive_cjk_runs(substantive_text)
+        for unit in _cjk_coverage_units(run)
+    ))
+    units = (*ascii_tokens, *cjk_units)
+    if not units:
         return 0.0, ()
 
-    covered_tokens = covered_query_terms(candidate, tokens)
-    coverage = len(covered_tokens) / len(tokens)
-    phrases = tuple(dict.fromkeys([
-        *(token for token in tokens if token.isascii()),
-        *(
-            run[index:index + 2]
-            for run in _CJK_RUN_RE.findall(substantive_text)
-            for index in range(len(run) - 1)
-            if not set(run[index:index + 2]) <= _RAW_QUERY_CJK_NOISE
-        ),
-    ]))
-    covered_phrases = tuple(
-        phrase
-        for phrase in phrases
-        if covered_query_terms(candidate, (phrase,))
+    haystack = candidate_haystack(candidate)
+    covered_ascii = tuple(
+        token for token in ascii_tokens
+        if _ascii_token_matches(token, haystack)
     )
+    covered_cjk = tuple(unit for unit in cjk_units if unit in haystack)
+    coverage = (len(covered_ascii) + len(covered_cjk)) / len(units)
+    covered_ascii_phrases = _covered_ascii_phrases(ascii_tokens, haystack)
+    if len(ascii_tokens) >= 2 and not covered_ascii_phrases:
+        return coverage, ()
+    covered_phrases = tuple(dict.fromkeys([
+        *covered_ascii_phrases,
+        *covered_cjk,
+    ]))
     return coverage, covered_phrases
+
+
+def _substantive_cjk_runs(text: str) -> tuple[str, ...]:
+    runs: list[str] = []
+    for raw_run in _CJK_RUN_RE.findall(text):
+        chunks = re.split(
+            f"[{re.escape(''.join(sorted(_RAW_QUERY_CJK_NOISE)))}]+",
+            raw_run,
+        )
+        runs.extend(chunk for chunk in chunks if chunk)
+    return tuple(runs)
+
+
+def _cjk_coverage_units(run: str) -> tuple[str, ...]:
+    if len(run) >= 3:
+        return tuple(run[index:index + 3] for index in range(len(run) - 2))
+    if len(run) == 2:
+        return (run,)
+    if len(run) == 1 and run not in _RAW_QUERY_CJK_NOISE:
+        return (run,)
+    return ()
+
+
+def _ascii_token_matches(token: str, haystack: str) -> bool:
+    return re.search(
+        rf"(?<![A-Za-z0-9_]){re.escape(token)}(?![A-Za-z0-9_])",
+        haystack,
+        re.IGNORECASE,
+    ) is not None
+
+
+def _covered_ascii_phrases(
+    tokens: tuple[str, ...],
+    haystack: str,
+) -> tuple[str, ...]:
+    if len(tokens) == 1:
+        return tokens if _ascii_token_matches(tokens[0], haystack) else ()
+    phrases: list[str] = []
+    for left, right in zip(tokens, tokens[1:], strict=False):
+        pattern = (
+            rf"(?<![A-Za-z0-9_]){re.escape(left)}"
+            rf"[^A-Za-z0-9_]+{re.escape(right)}(?![A-Za-z0-9_])"
+        )
+        if re.search(pattern, haystack, re.IGNORECASE):
+            phrases.append(f"{left} {right}")
+    return tuple(phrases)
 
 
 def _is_substantive_raw_token(token: str) -> bool:
@@ -545,6 +601,20 @@ def _apply_semantic_verifier(
 
     if semantic is None:
         return deterministic
+
+    if semantic.execution_failed:
+        if not fail_closed_on_error:
+            return deterministic
+        return CandidateAnswerability(
+            answerable=False,
+            required_terms=deterministic.required_terms,
+            covered_terms=deterministic.covered_terms,
+            missing_terms=(),
+            query_intent=deterministic.query_intent,
+            reason="semantic_answerability_mismatch",
+            semantic_score=semantic.score,
+            semantic_reason=semantic.reason,
+        )
 
     if semantic.answerable:
         return replace(
@@ -628,6 +698,7 @@ def _semantic_decision_from_raw(
         answerable=answerable and score >= threshold,
         score=score,
         reason=reason,
+        execution_failed=bool(raw.get("execution_failed", False)),
     )
 
 
