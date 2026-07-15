@@ -42,10 +42,10 @@ def select_context_view(
     view: ContextView = "locator"
     reasons: list[str] = ["default_locator"]
 
-    if _raw_with_direct_evidence(item) and body:
-        view = "detail"
+    if _raw_with_direct_evidence(item):
         reasons.append("raw_direct_evidence")
-    elif _should_load_overview(item, firewall_decision=firewall_decision):
+
+    if _should_load_overview(item, firewall_decision=firewall_decision):
         view = "overview"
         reasons.append(_overview_reason(item, firewall_decision=firewall_decision))
 
@@ -65,6 +65,8 @@ def render_context_view(item: MemoryItem, body: str, view: ContextView) -> str:
 def _should_load_overview(item: MemoryItem, *, firewall_decision) -> bool:
     if not item.context_views.overview:
         return False
+    if _raw_with_direct_evidence(item):
+        return True
     item_type = str(item.type)
     if item_type in _BOUNDARY_TYPES or item_type in _STATEFUL_TYPES:
         return True
