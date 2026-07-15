@@ -446,11 +446,12 @@ def raw_query_candidate_coverage(
     normalized = normalize_hook_prompt_for_recall(raw_query).casefold()
     substantive_text = _RAW_QUERY_CJK_NOISE_PHRASE_RE.sub(" ", normalized)
     mixed_tokens = _tokenize_mixed(substantive_text)
-    ascii_tokens = tuple(dict.fromkeys(
+    ascii_sequence = tuple(
         token.casefold()
         for token in mixed_tokens
         if token.isascii() and _is_substantive_raw_token(token)
-    ))
+    )
+    ascii_tokens = tuple(dict.fromkeys(ascii_sequence))
     cjk_units = tuple(dict.fromkeys(
         unit
         for run in _substantive_cjk_runs(substantive_text)
@@ -467,8 +468,8 @@ def raw_query_candidate_coverage(
     )
     covered_cjk = tuple(unit for unit in cjk_units if unit in haystack)
     coverage = (len(covered_ascii) + len(covered_cjk)) / len(units)
-    covered_ascii_phrases = _covered_ascii_phrases(ascii_tokens, haystack)
-    if len(ascii_tokens) >= 2 and not covered_ascii_phrases:
+    covered_ascii_phrases = _covered_ascii_phrases(ascii_sequence, haystack)
+    if len(ascii_sequence) >= 2 and not covered_ascii_phrases:
         return coverage, ()
     covered_phrases = tuple(dict.fromkeys([
         *covered_ascii_phrases,
@@ -492,8 +493,6 @@ def _cjk_coverage_units(run: str) -> tuple[str, ...]:
     if len(run) >= 3:
         return tuple(run[index:index + 3] for index in range(len(run) - 2))
     if len(run) == 2:
-        return (run,)
-    if len(run) == 1 and run not in _RAW_QUERY_CJK_NOISE:
         return (run,)
     return ()
 

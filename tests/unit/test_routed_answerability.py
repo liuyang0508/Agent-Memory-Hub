@@ -258,6 +258,36 @@ def test_raw_coverage_accepts_bounded_ascii_phrases(
     assert phrases
 
 
+def test_repeated_ascii_tokens_do_not_invent_nonadjacent_phrase() -> None:
+    from agent_brain.memory.context.answerability import raw_query_candidate_coverage
+
+    coverage, phrases = raw_query_candidate_coverage(
+        "api error api timeout",
+        _candidate(
+            _item("repeated-ascii-no-invented-phrase"),
+            body="error timeout",
+        ),
+    )
+
+    assert coverage == pytest.approx(2 / 3)
+    assert phrases == ()
+
+
+def test_repeated_ascii_tokens_preserve_real_later_phrase() -> None:
+    from agent_brain.memory.context.answerability import raw_query_candidate_coverage
+
+    coverage, phrases = raw_query_candidate_coverage(
+        "api error api timeout",
+        _candidate(
+            _item("repeated-ascii-real-phrase"),
+            body="api timeout",
+        ),
+    )
+
+    assert coverage == pytest.approx(2 / 3)
+    assert phrases == ("api timeout",)
+
+
 def test_raw_coverage_rejects_distributed_cjk_characters() -> None:
     from agent_brain.memory.context.answerability import raw_query_candidate_coverage
 
@@ -271,6 +301,50 @@ def test_raw_coverage_rejects_distributed_cjk_characters() -> None:
 
     assert coverage == 0.0
     assert phrases == ()
+
+
+@pytest.mark.parametrize(
+    ("raw_query", "body"),
+    [
+        ("库", "数据库迁移"),
+        ("库的迁", "数据库迁移"),
+    ],
+)
+def test_raw_coverage_rejects_single_cjk_units_after_noise_split(
+    raw_query: str,
+    body: str,
+) -> None:
+    from agent_brain.memory.context.answerability import raw_query_candidate_coverage
+
+    coverage, phrases = raw_query_candidate_coverage(
+        raw_query,
+        _candidate(_item("single-cjk-negative"), body=body),
+    )
+
+    assert coverage == 0.0
+    assert phrases == ()
+
+
+@pytest.mark.parametrize(
+    ("raw_query", "body"),
+    [
+        ("鹿鸣", "鹿鸣项目验收"),
+        ("数据库", "数据库迁移完成"),
+    ],
+)
+def test_raw_coverage_keeps_contiguous_two_and_three_cjk_units(
+    raw_query: str,
+    body: str,
+) -> None:
+    from agent_brain.memory.context.answerability import raw_query_candidate_coverage
+
+    coverage, phrases = raw_query_candidate_coverage(
+        raw_query,
+        _candidate(_item("cjk-minimum-positive"), body=body),
+    )
+
+    assert coverage == 1.0
+    assert phrases
 
 
 @pytest.mark.parametrize(
