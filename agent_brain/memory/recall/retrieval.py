@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Callable
 
 from agent_brain.platform.embedding import Embedder
+from agent_brain.platform.indexing.index_types import Hit
 from agent_brain.memory.recall.query_expansion import (
     _expand_with_synonyms as _expand_with_synonyms,
     _extract_words as _extract_words,
@@ -40,6 +42,12 @@ from agent_brain.memory.recall.retrieval_temporal import filter_stale_temporal_s
 from agent_brain.memory.recall.retrieval_trace import RetrievalStageTrace, RetrievalTrace
 from agent_brain.memory.recall.retrieval_types import RetrievedItem
 from agent_brain.memory.recall.retrieval_value import apply_feedback_value_weight
+from agent_brain.memory.recall.routed_fusion import fuse_routes
+from agent_brain.memory.recall.routed_types import (
+    RecallRequest,
+    RoutedSearchResult,
+    RouteTrace,
+)
 
 logger = logging.getLogger(__name__)
 _METADATA_TOKEN_RE = re.compile(r"[a-z0-9_]+|[\u4e00-\u9fff]", re.IGNORECASE)
@@ -493,12 +501,305 @@ class Retriever:
         self._record_access(final, enabled=record_access)
         return final
 
+    def search_routed(
+        self,
+        request: RecallRequest,
+        *,
+        top_k: int = 10,
+        filters: SearchFilter | None = None,
+        explain: bool = False,
+        record_access: bool | None = None,
+    ) -> RoutedSearchResult:
+        """Generate and fuse independent lexical and semantic recall routes."""
+        if not request.admission.allowed:
+            routes = tuple(
+                RouteTrace(route, "skipped", 0.0, 0, "admission_rejected")
+                for route in (
+                    "lexical_terms",
+                    "semantic_raw",
+                    "lexical_raw_fallback",
+                )
+            )
+            return RoutedSearchResult([], routes, request.admission, {})
+
+        filters = filters or SearchFilter()
+        scope = request.project_scope
+        if (
+            scope is not None
+            and scope.hard_filter
+            and filters.project is not None
+            and filters.project != scope.value
+        ):
+            return RoutedSearchResult([], (), request.admission, {})
+        effective_filters = filters
+        if scope is not None and scope.hard_filter:
+            effective_filters = replace(filters, project=scope.value)
+        allowed_ids = self._allowed_ids_for_filter(effective_filters)
+        if allowed_ids is not None and not allowed_ids:
+            return RoutedSearchResult([], (), request.admission, {})
+
+        route_traces: list[RouteTrace] = []
+        lexical_terms_hits: list[Hit] = []
+        semantic_hits: list[Hit] = []
+        lexical_raw_hits: list[Hit] = []
+        semantic_similarities: dict[str, float] = {}
+
+        if request.lexical_terms:
+            started = time.perf_counter()
+            try:
+                terms_query = expand_query(
+                    " ".join(request.lexical_terms),
+                    use_or=self.query_expansion,
+                )
+                lexical_terms_hits = list(self.index.bm25_search(terms_query, top_k=self.bm25_top))
+                lexical_terms_hits = _filter_route_hits(
+                    lexical_terms_hits,
+                    allowed_ids,
+                )
+                route_traces.append(
+                    _completed_route_trace(
+                        "lexical_terms",
+                        started,
+                        len(lexical_terms_hits),
+                    )
+                )
+            except TimeoutError:
+                lexical_terms_hits = []
+                route_traces.append(
+                    _failed_route_trace(
+                        "lexical_terms",
+                        started,
+                        timeout=True,
+                    )
+                )
+            except Exception:
+                lexical_terms_hits = []
+                route_traces.append(
+                    _failed_route_trace(
+                        "lexical_terms",
+                        started,
+                        timeout=False,
+                    )
+                )
+        else:
+            route_traces.append(
+                RouteTrace(
+                    "lexical_terms",
+                    "skipped",
+                    0.0,
+                    0,
+                    "lexical_terms_empty",
+                )
+            )
+
+        semantic_available = (
+            self.embedder is not None
+            and not getattr(self.embedder, "degraded", False)
+            and self.vector_weight > 0
+            and self.vector_top > 0
+        )
+        semantic_unavailable = not semantic_available
+        if not semantic_available:
+            route_traces.append(
+                RouteTrace(
+                    "semantic_raw",
+                    "skipped",
+                    0.0,
+                    0,
+                    "semantic_not_ready",
+                )
+            )
+        else:
+            started = time.perf_counter()
+            try:
+                query_embedding = self.embedder.embed(request.normalized_query)
+                semantic_hits = list(
+                    self.index.vector_search(query_embedding, top_k=self.vector_top)
+                )
+                semantic_hits = _filter_route_hits(semantic_hits, allowed_ids)
+                result_embeddings = self.index.get_embeddings(
+                    [str(hit.id) for hit in semantic_hits]
+                )
+                semantic_similarities = {
+                    str(hit.id): _cosine_sim(query_embedding, item_embedding)
+                    for hit in semantic_hits
+                    if (item_embedding := result_embeddings.get(str(hit.id))) is not None
+                }
+                route_traces.append(
+                    _completed_route_trace(
+                        "semantic_raw",
+                        started,
+                        len(semantic_hits),
+                    )
+                )
+            except TimeoutError:
+                semantic_hits = []
+                semantic_similarities = {}
+                semantic_unavailable = True
+                route_traces.append(
+                    _failed_route_trace(
+                        "semantic_raw",
+                        started,
+                        timeout=True,
+                    )
+                )
+            except Exception:
+                semantic_hits = []
+                semantic_similarities = {}
+                semantic_unavailable = True
+                route_traces.append(
+                    _failed_route_trace(
+                        "semantic_raw",
+                        started,
+                        timeout=False,
+                    )
+                )
+
+        if semantic_unavailable:
+            started = time.perf_counter()
+            try:
+                raw_query = expand_query(
+                    request.normalized_query,
+                    use_or=self.query_expansion,
+                )
+                lexical_raw_hits = list(self.index.bm25_search(raw_query, top_k=self.bm25_top))
+                lexical_raw_hits = _filter_route_hits(lexical_raw_hits, allowed_ids)
+                route_traces.append(
+                    _completed_route_trace(
+                        "lexical_raw_fallback",
+                        started,
+                        len(lexical_raw_hits),
+                    )
+                )
+            except TimeoutError:
+                lexical_raw_hits = []
+                route_traces.append(
+                    _failed_route_trace(
+                        "lexical_raw_fallback",
+                        started,
+                        timeout=True,
+                    )
+                )
+            except Exception:
+                lexical_raw_hits = []
+                route_traces.append(
+                    _failed_route_trace(
+                        "lexical_raw_fallback",
+                        started,
+                        timeout=False,
+                    )
+                )
+
+        candidates, evidence_by_id = fuse_routes(
+            lexical_terms_hits=lexical_terms_hits,
+            semantic_hits=semantic_hits,
+            lexical_raw_hits=lexical_raw_hits,
+            semantic_similarities=semantic_similarities,
+            rrf_k=self.rrf_k,
+        )
+        if scope is not None and not scope.hard_filter and candidates:
+            projects = self.index.get_projects([candidate.id for candidate in candidates])
+            candidates = [
+                replace(candidate, score=candidate.score * 1.05)
+                if projects.get(candidate.id) == scope.value
+                else candidate
+                for candidate in candidates
+            ]
+            candidates.sort(key=lambda candidate: candidate.score, reverse=True)
+
+        initial = {candidate.id: candidate for candidate in candidates}
+        options = _SearchPipelineOptions(
+            query=request.normalized_query,
+            top_k=top_k,
+            allowed_ids=allowed_ids,
+            include_superseded=filters.include_superseded,
+            include_stale_state=filters.include_stale_state,
+        )
+        stage_traces: dict[str, list[RetrievalStageTrace]] = {}
+        if explain:
+            candidates, stage_traces = self._run_candidate_pipeline_with_trace(
+                candidates,
+                options,
+            )
+        else:
+            candidates = self._run_candidate_pipeline(candidates, options)
+        final = candidates[:top_k]
+        if explain:
+            final = [
+                replace(
+                    candidate,
+                    trace=RetrievalTrace(
+                        initial_bm25_rank=initial.get(candidate.id, candidate).bm25_rank,
+                        initial_vector_rank=initial.get(candidate.id, candidate).vector_rank,
+                        initial_score=initial.get(candidate.id, candidate).score,
+                        final_rank=rank,
+                        final_score=candidate.score,
+                        stages=tuple(stage_traces.get(candidate.id, [])),
+                        signals=_signals_for_trace(
+                            initial.get(candidate.id, candidate),
+                            stage_traces.get(candidate.id, []),
+                        ),
+                    ),
+                )
+                for rank, candidate in enumerate(final, start=1)
+            ]
+        self._record_access(final, enabled=record_access)
+        final_evidence = {
+            candidate.id: evidence_by_id[candidate.id]
+            for candidate in final
+            if candidate.id in evidence_by_id
+        }
+        return RoutedSearchResult(
+            final,
+            tuple(route_traces),
+            request.admission,
+            final_evidence,
+        )
+
 
 def _snapshot(candidates: list[RetrievedItem]) -> dict[str, tuple[int, float]]:
     return {
         candidate.id: (rank, candidate.score)
         for rank, candidate in enumerate(candidates, start=1)
     }
+
+
+def _filter_route_hits(
+    hits: list[Hit],
+    allowed_ids: set[str] | None,
+) -> list[Hit]:
+    if allowed_ids is None:
+        return hits
+    return [hit for hit in hits if str(getattr(hit, "id")) in allowed_ids]
+
+
+def _completed_route_trace(
+    route: str,
+    started: float,
+    candidate_count: int,
+) -> RouteTrace:
+    return RouteTrace(
+        route,
+        "ok",
+        (time.perf_counter() - started) * 1000,
+        candidate_count,
+        "route_completed",
+    )
+
+
+def _failed_route_trace(
+    route: str,
+    started: float,
+    *,
+    timeout: bool,
+) -> RouteTrace:
+    return RouteTrace(
+        route,
+        "timeout" if timeout else "error",
+        (time.perf_counter() - started) * 1000,
+        0,
+        "route_timeout" if timeout else "route_error",
+    )
 
 
 def _stage_effect(

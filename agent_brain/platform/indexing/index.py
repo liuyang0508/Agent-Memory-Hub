@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Sequence
 from pathlib import Path
 
 import sqlite_vec
@@ -134,6 +135,10 @@ class HubIndex:
     def get_search_metadata(self, item_ids: list[str]) -> dict[str, dict[str, object]]:
         """Return lightweight metadata used by post-retrieval scoring."""
         return self.metadata.get_search_metadata(item_ids)
+
+    def get_projects(self, item_ids: Sequence[str]) -> dict[str, str | None]:
+        """Return the stored project value for each existing item ID."""
+        return self.metadata.get_projects(item_ids)
 
     def get_feedback_data(self, item_ids: list[str]) -> dict[str, tuple[int, int, float]]:
         """Return {id: (support_count, contradict_count, gain_score)} for ids."""

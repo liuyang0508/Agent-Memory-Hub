@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from collections.abc import Sequence
 from datetime import datetime, timedelta, timezone
 
 
@@ -76,6 +77,18 @@ class MetadataIndex:
             }
             for row in rows
         }
+
+    def get_projects(self, item_ids: Sequence[str]) -> dict[str, str | None]:
+        """Return the stored project value for each existing item ID."""
+        if not item_ids:
+            return {}
+        ids = list(item_ids)
+        placeholders = ",".join("?" for _ in ids)
+        rows = self.connection.execute(
+            f"SELECT id, project FROM items_meta WHERE id IN ({placeholders})",
+            ids,
+        ).fetchall()
+        return {str(row[0]): row[1] for row in rows}
 
     def get_feedback_data(self, item_ids: list[str]) -> dict[str, tuple[int, int, float]]:
         """Return {id: (support_count, contradict_count, gain_score)} for ids."""
