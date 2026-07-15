@@ -28,7 +28,6 @@ _ADAPTER_CONTROL_COMMAND_RE = re.compile(
     re.IGNORECASE,
 )
 _WEAK_CONFIRMATIONS = frozenset({"是", "确认", "继续", "ok", "okay", "1"})
-_WEAK_CONFIRMATION_EDGE_CHARS = " \t\r\n.,!?。，！？"
 
 
 @dataclass(frozen=True)
@@ -55,7 +54,7 @@ def analyze_recall_admission(raw_query: str) -> RecallAdmission:
         return RecallAdmission(False, "punctuation_only")
     if _ADAPTER_CONTROL_COMMAND_RE.fullmatch(normalized):
         return RecallAdmission(False, "adapter_control_command")
-    weak_candidate = normalized.strip(_WEAK_CONFIRMATION_EDGE_CHARS).casefold()
+    weak_candidate = _trim_unicode_edges(normalized).casefold()
     if weak_candidate in _WEAK_CONFIRMATIONS:
         return RecallAdmission(False, "weak_confirmation")
     return RecallAdmission(True, "meaningful_query")
@@ -94,9 +93,23 @@ def build_recall_request(
 def _is_punctuation_only(value: str) -> bool:
     visible = tuple(character for character in value if not character.isspace())
     return bool(visible) and all(
-        unicodedata.category(character).startswith(("P", "S"))
+        unicodedata.category(character).startswith("P")
         for character in visible
     )
+
+
+def _trim_unicode_edges(value: str) -> str:
+    start = 0
+    end = len(value)
+    while start < end and _is_unicode_edge(value[start]):
+        start += 1
+    while end > start and _is_unicode_edge(value[end - 1]):
+        end -= 1
+    return value[start:end]
+
+
+def _is_unicode_edge(character: str) -> bool:
+    return character.isspace() or unicodedata.category(character).startswith(("P", "S"))
 
 
 __all__ = [

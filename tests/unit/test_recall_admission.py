@@ -102,6 +102,26 @@ def test_standalone_absolute_paths_are_not_adapter_control_commands(query: str) 
     assert admission.reason == "meaningful_query"
 
 
+@pytest.mark.parametrize("query", ("🤔", "💾", "€"))
+def test_symbol_only_queries_default_to_allowed(query: str) -> None:
+    from agent_brain.memory.recall.admission import analyze_recall_admission
+
+    admission = analyze_recall_admission(query)
+
+    assert admission.allowed
+    assert admission.reason == "meaningful_query"
+
+
+@pytest.mark.parametrize("query", ("OK…", "确认：", "继续～"))
+def test_weak_confirmations_ignore_unicode_punctuation_and_symbol_edges(query: str) -> None:
+    from agent_brain.memory.recall.admission import analyze_recall_admission
+
+    admission = analyze_recall_admission(query)
+
+    assert not admission.allowed
+    assert admission.reason == "weak_confirmation"
+
+
 def test_admission_uses_shared_prompt_normalization() -> None:
     from agent_brain.memory.recall.admission import analyze_recall_admission
 
@@ -136,6 +156,17 @@ def test_project_scope_rejects_hard_filter_for_soft_sources() -> None:
         ProjectScope("agent-memory-hub", "cwd", hard_filter=True)
     with pytest.raises(ValueError, match="explicit"):
         ProjectScope("agent-memory-hub", "agent_inferred", hard_filter=True)
+
+
+def test_project_scope_strips_value_and_rejects_blank_values() -> None:
+    from agent_brain.memory.recall.routed_types import ProjectScope
+
+    scope = ProjectScope("  agent-memory-hub  ", "explicit")
+
+    assert scope.value == "agent-memory-hub"
+    for value in ("", "  \n\t"):
+        with pytest.raises(ValueError, match="non-empty"):
+            ProjectScope(value, "explicit")
 
 
 def test_build_request_preserves_payload_and_truncates_lexical_terms(
@@ -244,6 +275,62 @@ def test_route_literal_contracts_are_closed() -> None:
     }
 
 
+@pytest.mark.parametrize(
+    ("status", "reason"),
+    (
+        ("ok", "route_completed"),
+        ("skipped", "admission_rejected"),
+        ("skipped", "lexical_terms_empty"),
+        ("skipped", "semantic_not_ready"),
+        ("timeout", "route_timeout"),
+        ("error", "route_error"),
+    ),
+)
+def test_route_trace_accepts_only_coherent_status_reason_pairs(
+    status: str,
+    reason: str,
+) -> None:
+    from agent_brain.memory.recall.routed_types import RouteTrace
+
+    trace = RouteTrace("semantic", status, 1.0, 0, reason)  # type: ignore[arg-type]
+
+    assert trace.status == status
+    assert trace.reason == reason
+
+
+@pytest.mark.parametrize(
+    ("status", "reason"),
+    (
+        ("ok", "route_error"),
+        ("skipped", "route_completed"),
+        ("timeout", "semantic_not_ready"),
+        ("error", "route_timeout"),
+    ),
+)
+def test_route_trace_rejects_contradictory_status_reason_pairs(
+    status: str,
+    reason: str,
+) -> None:
+    from agent_brain.memory.recall.routed_types import RouteTrace
+
+    with pytest.raises(ValueError, match="status/reason"):
+        RouteTrace("semantic", status, 1.0, 0, reason)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    ("latency_ms", "candidate_count"),
+    ((-0.1, 0), (0.0, -1)),
+)
+def test_route_trace_rejects_negative_metrics(
+    latency_ms: float,
+    candidate_count: int,
+) -> None:
+    from agent_brain.memory.recall.routed_types import RouteTrace
+
+    with pytest.raises(ValueError, match="non-negative"):
+        RouteTrace("semantic", "ok", latency_ms, candidate_count, "route_completed")
+
+
 def test_route_evidence_keeps_cosine_separate_from_hit_score() -> None:
     from agent_brain.memory.recall.retrieval_types import RetrievedItem
     from agent_brain.memory.recall.routed_types import RouteEvidence, RoutedSearchResult
@@ -269,3 +356,24 @@ def test_route_evidence_keeps_cosine_separate_from_hit_score() -> None:
     assert get_type_hints(RoutedSearchResult)["hits"] == list[RetrievedItem]
     assert result.evidence_by_id[hit.id].semantic_similarity == 0.92
     assert not hasattr(result.hits[0], "semantic_similarity")
+
+
+def test_routed_result_copies_hits_input_but_keeps_a_mutable_list() -> None:
+    from agent_brain.memory.recall.admission import RecallAdmission
+    from agent_brain.memory.recall.retrieval_types import RetrievedItem
+    from agent_brain.memory.recall.routed_types import RoutedSearchResult
+
+    hit = RetrievedItem("mem-1", 0.03, 2, 1)
+    source_hits = [hit]
+    result = RoutedSearchResult(
+        hits=source_hits,
+        routes=(),
+        admission=RecallAdmission(True, "meaningful_query"),
+        evidence_by_id={},
+    )
+
+    assert result.hits is not source_hits
+    source_hits.clear()
+    assert result.hits == [hit]
+    result.hits.append(hit)
+    assert result.hits == [hit, hit]

@@ -24,6 +24,14 @@ RouteReason = Literal[
 _PROJECT_SCOPE_SOURCES = frozenset(get_args(ProjectScopeSource))
 _ROUTE_STATUSES = frozenset(get_args(RouteStatus))
 _ROUTE_REASONS = frozenset(get_args(RouteReason))
+_ROUTE_REASONS_BY_STATUS = {
+    "ok": frozenset({"route_completed"}),
+    "skipped": frozenset(
+        {"admission_rejected", "lexical_terms_empty", "semantic_not_ready"}
+    ),
+    "timeout": frozenset({"route_timeout"}),
+    "error": frozenset({"route_error"}),
+}
 
 
 @dataclass(frozen=True)
@@ -35,6 +43,10 @@ class ProjectScope:
     hard_filter: bool = False
 
     def __post_init__(self) -> None:
+        cleaned_value = self.value.strip()
+        if not cleaned_value:
+            raise ValueError("project scope value must be non-empty")
+        object.__setattr__(self, "value", cleaned_value)
         if self.source not in _PROJECT_SCOPE_SOURCES:
             raise ValueError(f"unsupported project scope source: {self.source!r}")
         if self.hard_filter and self.source != "explicit":
@@ -71,6 +83,14 @@ class RouteTrace:
             raise ValueError(f"unsupported route status: {self.status!r}")
         if self.reason not in _ROUTE_REASONS:
             raise ValueError(f"unsupported route reason: {self.reason!r}")
+        if self.reason not in _ROUTE_REASONS_BY_STATUS[self.status]:
+            raise ValueError(
+                f"incompatible route status/reason: {self.status!r}/{self.reason!r}"
+            )
+        if not self.latency_ms >= 0:
+            raise ValueError("route latency_ms must be non-negative")
+        if self.candidate_count < 0:
+            raise ValueError("route candidate_count must be non-negative")
 
 
 @dataclass(frozen=True)
@@ -90,7 +110,11 @@ class RouteEvidence:
 
 @dataclass(frozen=True)
 class RoutedSearchResult:
-    """Routed hits and their independent per-id evidence."""
+    """Routed hits and their independent per-id evidence.
+
+    Frozen dataclass semantics prevent field rebinding. ``hits`` intentionally
+    remains a mutable list for route-fusion compatibility.
+    """
 
     hits: list[RetrievedItem]
     routes: tuple[RouteTrace, ...]
@@ -98,6 +122,7 @@ class RoutedSearchResult:
     evidence_by_id: Mapping[str, RouteEvidence]
 
     def __post_init__(self) -> None:
+        object.__setattr__(self, "hits", list(self.hits))
         object.__setattr__(
             self,
             "evidence_by_id",
