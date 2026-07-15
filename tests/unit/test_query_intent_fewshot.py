@@ -4,6 +4,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -117,6 +118,68 @@ def test_query_signal_diagnose_json_cli_reports_real_prompt_trace(tmp_brain_dir:
     assert payload["keywords"] == "hybrid_amh.yaml|method|preset|其他竞品|统一标准"
     assert payload["weak_noise"] == ["到底是不是跟其他竞品基于统一标准"]
     assert "cjk_question_focus" in payload["anchors"]
+
+
+def test_hook_auto_injection_keeps_raw_direct_evidence_body_out_of_context(
+    tmp_path: Path,
+) -> None:
+    from agent_brain.platform.embedding import HashingEmbedder
+    from agent_brain.platform.indexing.index import HubIndex
+
+    brain_dir = tmp_path / "brain"
+    item = MemoryItem(
+        id="mem-20260715-020000-staged-hook",
+        type=MemoryType.artifact,
+        created_at=datetime.now(timezone.utc),
+        title="智能工牌 staged hook recall",
+        summary="智能工牌 hook locator candidate",
+        project="smart-badge",
+        tags=["智能工牌", "staged-hook"],
+        abstraction="L0",
+        refs={"files": ["/tmp/staged-hook-evidence.log"]},
+        context_views={
+            "locator": "智能工牌 hook locator candidate",
+            "overview": "",
+            "detail_uri": "memory://items/mem-20260715-020000-staged-hook/body",
+        },
+    )
+    body = "HOOK_DETAIL_ONLY_MARKER"
+    store = ItemsStore(brain_dir / "items")
+    store.write(item, body)
+    embedder = HashingEmbedder()
+    idx = HubIndex(brain_dir / "index.db", embedding_dim=embedder.dim)
+    idx.upsert(item, body, embedding=embedder.embed(item.context_views.locator))
+    idx.close()
+
+    script = Path(__file__).resolve().parents[2] / "agent_runtime_kit" / "hooks" / "inject-context.sh"
+    result = subprocess.run(
+        ["bash", str(script)],
+        input=json.dumps({
+            "prompt": "继续核对智能工牌 staged hook recall",
+            "session_id": "staged-hook-recall",
+            "cwd": str(tmp_path),
+            "hook_event_name": "UserPromptSubmit",
+        }),
+        env={
+            **os.environ,
+            "BRAIN_DIR": str(brain_dir),
+            "AGENT_MEMORY_HUB_ADAPTER": "codex",
+            "AGENT_MEMORY_HUB_PYTHON": sys.executable,
+            "AGENT_MEMORY_HUB_SEARCH_TIMEOUT_SECONDS": "10",
+            "MEMORY_HUB_TEST_EMBEDDING": "1",
+            "MEMORY_HUB_EMBEDDING_OFFLINE": "1",
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    context = payload["hookSpecificOutput"]["additionalContext"]
+    assert "智能工牌 hook locator candidate" in context
+    assert "HOOK_DETAIL_ONLY_MARKER" not in context
+    assert "--head 2000 --view detail" in context
 
 
 @pytest.mark.skipif(

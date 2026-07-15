@@ -11,6 +11,7 @@ from agent_brain.memory.context.context_packing import build_context_pack, pack_
 from agent_brain.memory.context.context_firewall import ContextCandidate, ContextFirewall
 from agent_brain.memory.context.prompt_frame import PromptFrame, analyze_prompt_frame
 from agent_brain.memory.context.query_signal import analyze_injection_query
+from agent_brain.memory.context.recall_policy import search_governance_warnings
 import agent_brain.interfaces.cli as _cli  # noqa: E402  late binding for test-patched helpers
 
 _CONTEXT_FIREWALL_OVERFETCH_CAP = 50
@@ -120,6 +121,8 @@ def search(
         verbosity or ("auto" if context_firewall else "locator"),
         "--verbosity",
     )
+    for warning in search_governance_warnings(verbosity=verbosity, top_k=top_k):
+        typer.echo(f"warning: {warning}", err=True)
     store, _, retriever = _cli._open_components()
     sf = SearchFilter(
         type=type,

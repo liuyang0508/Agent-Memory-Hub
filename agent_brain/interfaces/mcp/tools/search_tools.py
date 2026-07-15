@@ -2,8 +2,8 @@
 # ruff: noqa: F405
 from __future__ import annotations
 
-from agent_brain.memory.context.context_loading import select_context_view
 from agent_brain.memory.context.context_packing import build_context_pack
+from agent_brain.memory.context.recall_policy import search_governance_warnings
 from agent_brain.interfaces.mcp.tools._shared import *  # noqa: F401,F403
 
 
@@ -96,6 +96,10 @@ def search_memory(
     `search_memory(..., verbosity="auto")` results.
     """
     verbosity = _parse_context_verbosity(verbosity)
+    governance_warnings = search_governance_warnings(
+        verbosity=verbosity,
+        top_k=top_k,
+    )
     store, idx, _ = _components()
     embedder = get_default_embedder()
     retriever = Retriever(
@@ -131,13 +135,9 @@ def search_memory(
             result["context_pack"] = context_pack.to_dict()
             result["locator"] = item.context_views.locator
             if verbosity == "auto":
-                selection = select_context_view(item, body)
-                result["selected_view"] = selection.view
-                result["load_reason"] = list(selection.reasons)
-                if selection.view == "detail":
-                    result["overview"] = item.context_views.overview
-                    result["body"] = body
-                elif selection.view == "overview":
+                result["selected_view"] = context_pack.selected_view
+                result["load_reason"] = list(context_pack.load_reason)
+                if context_pack.selected_view == "overview":
                     result["overview"] = item.context_views.overview
                 else:
                     result["snippet"] = item.context_views.locator
@@ -148,6 +148,8 @@ def search_memory(
                 result["body"] = body
             else:
                 result["snippet"] = item.context_views.locator
+            if governance_warnings:
+                result["governance_warnings"] = list(governance_warnings)
         if h.trace is not None:
             result["retrieval_trace"] = h.trace.to_dict()
         results.append(result)

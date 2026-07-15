@@ -405,6 +405,47 @@ def test_mcp_search_auto_returns_selected_view_and_load_reason(tmp_brain: Path):
     assert "body" not in hits[0]
 
 
+def test_mcp_staged_search_preserves_explicit_detail_and_warns_when_broad(
+    tmp_brain: Path,
+):
+    from agent_brain.interfaces.mcp.tools._shared import _components_cache
+    from agent_brain.interfaces.mcp.tools.search_tools import search_memory
+
+    _components_cache.clear()
+    item = MemoryItem(
+        id="mem-20260715-020005-staged-mcp",
+        type=MemoryType.artifact,
+        created_at=datetime.now(timezone.utc),
+        title="Staged MCP recall",
+        summary="staged mcp locator",
+        abstraction="L0",
+        refs={"files": ["/tmp/staged-mcp.log"]},
+        context_views={
+            "locator": "staged mcp locator",
+            "overview": "",
+            "detail_uri": "memory://items/mem-20260715-020005-staged-mcp/body",
+        },
+    )
+    body = "detail-only marker"
+    ItemsStore(tmp_brain / "items").write(item, body)
+    idx = HubIndex(db_path=tmp_brain / "index.db", embedding_dim=384)
+    emb = HashingEmbedder()
+    idx.upsert(item, body, embedding=emb.embed(item.context_views.locator))
+
+    auto_hit = search_memory("staged mcp", top_k=5, verbosity="auto")[0]
+    detail_hit = search_memory("staged mcp", top_k=5, verbosity="detail")[0]
+    bounded_detail_hit = search_memory("staged mcp", top_k=3, verbosity="detail")[0]
+
+    assert auto_hit["selected_view"] == "locator"
+    assert "body" not in auto_hit
+    assert "detail-only marker" not in auto_hit["context_pack"]["text"]
+    assert detail_hit["body"].rstrip() == "detail-only marker"
+    assert detail_hit["context_pack"]["selected_view"] == "detail"
+    assert detail_hit["governance_warnings"]
+    assert bounded_detail_hit["body"].rstrip() == "detail-only marker"
+    assert "governance_warnings" not in bounded_detail_hit
+
+
 def test_mcp_search_can_return_retrieval_trace(tmp_brain: Path):
     from agent_brain.interfaces.mcp.tools._shared import _components_cache
     from agent_brain.interfaces.mcp.tools.search_tools import search_memory

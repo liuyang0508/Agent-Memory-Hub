@@ -702,7 +702,7 @@ def test_cli_search_context_firewall_text_includes_compact_context_pack_hint(tmp
         contradict_count=1,
         gain_score=0.25,
     )
-    body = "Python context with visible metadata"
+    body = "Python body-only audit marker"
     store.write(item, body)
     idx.upsert(item, body, embedding=embedder.embed(body))
     idx.close()
@@ -730,7 +730,8 @@ def test_cli_search_context_firewall_text_includes_compact_context_pack_hint(tmp
     ])
 
     assert injected.exit_code == 0, injected.output
-    assert "view=detail" in injected.output
+    assert "view=locator" in injected.output
+    assert "Python body-only audit marker" not in injected.output
     assert "packed=" in injected.output
     assert (
         'retrieve="memory read mem-20260101-000014-python-audit-metadata '
@@ -750,6 +751,40 @@ def test_cli_search_context_firewall_text_includes_compact_context_pack_hint(tmp
     assert "Python audit metadata" in plain.output
     assert "created_at=" not in plain.output
     assert "refs=urls:" not in plain.output
+
+
+def test_cli_broad_explicit_detail_warns_without_blocking_body(tmp_brain):
+    store = ItemsStore(tmp_brain / "items")
+    embedder = HashingEmbedder()
+    idx = HubIndex(tmp_brain / "index.db", embedding_dim=embedder.dim)
+    item = MemoryItem(
+        id="mem-20260715-000015-staged-detail-warning",
+        type=MemoryType.artifact,
+        created_at=datetime.now(timezone.utc),
+        title="Staged detail warning",
+        summary="staged warning locator",
+        abstraction="L0",
+        refs={"files": ["/tmp/staged-warning.log"]},
+    )
+    body = "staged cli body-only marker"
+    store.write(item, body)
+    idx.upsert(item, body, embedding=embedder.embed(item.context_views.locator))
+    idx.close()
+
+    result = runner.invoke(app, [
+        "search",
+        "Staged detail warning",
+        "--top-k",
+        "5",
+        "--format",
+        "text",
+        "--verbosity",
+        "detail",
+    ])
+
+    assert result.exit_code == 0, result.output
+    assert "staged cli body-only marker" in result.stdout
+    assert "bypasses staged recall" in result.stderr
 
 
 def test_cli_search_context_firewall_text_uses_full_ids_for_feedback(tmp_brain):
