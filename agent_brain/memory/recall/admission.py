@@ -22,8 +22,9 @@ AdmissionReason = Literal[
 ]
 
 _ADMISSION_REASONS = frozenset(get_args(AdmissionReason))
+_ADAPTER_CONTROL_COMMANDS = ("remember", "goal", "compact", "clear")
 _ADAPTER_CONTROL_COMMAND_RE = re.compile(
-    r"^\s*(?:(?:please\s+)?(?:run\s+)?)?/[A-Za-z][A-Za-z0-9_-]*(?:[^\n]*)$",
+    r"^\s*/(?:" + "|".join(_ADAPTER_CONTROL_COMMANDS) + r")(?=\s|$)[^\n]*$",
     re.IGNORECASE,
 )
 _WEAK_CONFIRMATIONS = frozenset({"是", "确认", "继续", "ok", "okay", "1"})

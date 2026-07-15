@@ -92,7 +92,7 @@ class RouteEvidence:
 class RoutedSearchResult:
     """Routed hits and their independent per-id evidence."""
 
-    hits: tuple[RetrievedItem, ...]
+    hits: list[RetrievedItem]
     routes: tuple[RouteTrace, ...]
     admission: RecallAdmission
     evidence_by_id: Mapping[str, RouteEvidence]

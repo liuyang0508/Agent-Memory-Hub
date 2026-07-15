@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import FrozenInstanceError
-from typing import get_args
+from typing import get_args, get_type_hints
 
 import pytest
 
@@ -64,6 +64,8 @@ def test_build_request_keeps_admission_when_query_signal_has_no_terms(
         ("？！...", "punctuation_only"),
         ("/remember", "adapter_control_command"),
         ("/goal pause", "adapter_control_command"),
+        ("/compact", "adapter_control_command"),
+        ("/clear", "adapter_control_command"),
         ("是", "weak_confirmation"),
         ("确认", "weak_confirmation"),
         ("继续", "weak_confirmation"),
@@ -82,6 +84,22 @@ def test_admission_rejects_only_fixed_non_meaningful_classes(
 
     assert not admission.allowed
     assert admission.reason == reason
+
+
+@pytest.mark.parametrize(
+    "query",
+    (
+        "/Users/liuyang/project/README.md",
+        "/tmp/agent-memory-hub",
+    ),
+)
+def test_standalone_absolute_paths_are_not_adapter_control_commands(query: str) -> None:
+    from agent_brain.memory.recall.admission import analyze_recall_admission
+
+    admission = analyze_recall_admission(query)
+
+    assert admission.allowed
+    assert admission.reason == "meaningful_query"
 
 
 def test_admission_uses_shared_prompt_normalization() -> None:
@@ -194,7 +212,7 @@ def test_routed_contract_dataclasses_are_frozen() -> None:
     )
     trace = RouteTrace("semantic", "ok", 3.5, 1, "route_completed")
     evidence = RouteEvidence(("semantic",), 0.91, 1, None, None)
-    result = RoutedSearchResult((), (trace,), admission, {"mem-1": evidence})
+    result = RoutedSearchResult([], (trace,), admission, {"mem-1": evidence})
 
     objects_and_fields = (
         (admission, "allowed"),
@@ -240,12 +258,14 @@ def test_route_evidence_keeps_cosine_separate_from_hit_score() -> None:
         lexical_raw_rank=3,
     )
     result = RoutedSearchResult(
-        hits=(hit,),
+        hits=[hit],
         routes=(),
         admission=RecallAdmission(True, "meaningful_query"),
         evidence_by_id={hit.id: evidence},
     )
 
     assert result.hits[0].score == 0.03
+    assert isinstance(result.hits, list)
+    assert get_type_hints(RoutedSearchResult)["hits"] == list[RetrievedItem]
     assert result.evidence_by_id[hit.id].semantic_similarity == 0.92
     assert not hasattr(result.hits[0], "semantic_similarity")
