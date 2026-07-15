@@ -438,6 +438,21 @@ def test_routed_negative_top_k_is_rejected_before_touching_index() -> None:
         _retriever(_Index(), _Embedder()).search_routed(_request(), top_k=-1)
 
 
+@pytest.mark.parametrize("top_k", [True, 1.5, object()])
+def test_routed_non_integer_top_k_is_rejected_before_touching_index(
+    top_k: object,
+) -> None:
+    class ExplodingIndex:
+        def __getattr__(self, name: str) -> Any:
+            raise AssertionError(f"index must not be touched: {name}")
+
+    with pytest.raises(TypeError, match="top_k"):
+        _retriever(ExplodingIndex(), _Embedder()).search_routed(  # type: ignore[arg-type]
+            _request(),
+            top_k=top_k,  # type: ignore[arg-type]
+        )
+
+
 def test_routed_zero_top_k_touches_no_index_embedder_or_access() -> None:
     class ExplodingIndex:
         def __getattr__(self, name: str) -> Any:
@@ -734,6 +749,93 @@ def test_limit_one_bm25_exception_does_not_mutate_shared_connection(tmp_path) ->
         assert connection.getlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER) == 1
     finally:
         index.connection = connection
+        connection.setlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER, previous_limit)
+        index.close()
+
+
+def test_limit_one_bm25_uses_one_snapshot_without_count_or_limit(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import agent_brain.platform.indexing.index as index_module
+
+    index, target_id, _allowed_ids = _low_variable_limit_index(tmp_path)
+    low_ranked_allowed_id = "mem-20260715-112011-chunk-11"
+    allowed_ids = {target_id, low_ranked_allowed_id}
+    connection = index.connection
+    previous_limit = connection.setlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER, 1)
+    original_connect = index_module.sqlite3.connect
+    statements: list[str] = []
+    readonly_closed: list[bool] = []
+    injected_ids: list[str] = []
+
+    def inject_concurrent_high_ranked_match() -> None:
+        injected_id = "mem-20260715-120001-concurrent-disallowed"
+        writer = original_connect(str(index.db_path))
+        try:
+            writer.execute(
+                "INSERT INTO items_fts (id, title, summary, body) VALUES (?, ?, ?, ?)",
+                (
+                    injected_id,
+                    "concurrent candidate",
+                    "chunkneedle " * 200,
+                    "chunkneedle " * 200,
+                ),
+            )
+            writer.commit()
+        finally:
+            writer.close()
+        injected_ids.append(injected_id)
+
+    class CountCursorProxy:
+        def __init__(self, cursor: sqlite3.Cursor) -> None:
+            self.cursor = cursor
+
+        def fetchone(self):
+            row = self.cursor.fetchone()
+            inject_concurrent_high_ranked_match()
+            return row
+
+        def __getattr__(self, name: str):
+            return getattr(self.cursor, name)
+
+    class ReadonlyConnectionProxy:
+        def __init__(self, delegate: sqlite3.Connection) -> None:
+            self.delegate = delegate
+
+        def execute(self, sql: str, parameters=()):
+            statements.append(sql)
+            cursor = self.delegate.execute(sql, parameters)
+            if "COUNT(*)" in sql:
+                return CountCursorProxy(cursor)
+            return cursor
+
+        def close(self) -> None:
+            readonly_closed.append(True)
+            self.delegate.close()
+
+        def __getattr__(self, name: str):
+            return getattr(self.delegate, name)
+
+    def connect_spy(*args, **kwargs):
+        return ReadonlyConnectionProxy(original_connect(*args, **kwargs))
+
+    monkeypatch.setattr(index_module.sqlite3, "connect", connect_spy)
+    try:
+        hits = index.bm25_search(
+            '"chunkneedle"',
+            top_k=2,
+            allowed_ids=allowed_ids,
+        )
+
+        assert [hit.id for hit in hits] == [target_id, low_ranked_allowed_id]
+        assert len(statements) == 1
+        assert "FROM items_fts WHERE items_fts MATCH ?" in statements[0]
+        assert "COUNT" not in statements[0]
+        assert "LIMIT" not in statements[0]
+        assert injected_ids == []
+        assert readonly_closed == [True]
+    finally:
         connection.setlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER, previous_limit)
         index.close()
 

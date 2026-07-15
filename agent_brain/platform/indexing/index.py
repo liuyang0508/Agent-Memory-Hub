@@ -399,15 +399,11 @@ def _bm25_allowed_via_readonly_connection(
 
     connection = sqlite3.connect(f"{resolved_path.as_uri()}?mode=ro", uri=True)
     try:
-        row = connection.execute("SELECT COUNT(*) FROM items_fts").fetchone()
-        fetch_k = int(row[0]) if row is not None else 0
-        if fetch_k == 0:
-            return []
         rows = connection.execute(
             "SELECT id, bm25(items_fts) AS score "
             "FROM items_fts WHERE items_fts MATCH ? "
-            "ORDER BY score LIMIT ?",
-            (query, fetch_k),
+            "ORDER BY score",
+            (query,),
         ).fetchall()
     finally:
         connection.close()

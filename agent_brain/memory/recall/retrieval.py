@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import logging
+import operator
 import re
 import time
 from dataclasses import dataclass, field, replace
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING, Callable, SupportsIndex, cast
 
 from agent_brain.platform.embedding import Embedder
 from agent_brain.platform.indexing.index_types import Hit
@@ -56,6 +57,18 @@ _CandidateStage = Callable[[list[RetrievedItem]], list[RetrievedItem]]
 
 if TYPE_CHECKING:
     from agent_brain.platform.indexing.index import HubIndex
+
+
+def _normalize_routed_top_k(value: object) -> int:
+    if isinstance(value, bool):
+        raise TypeError("top_k must be an integer")
+    try:
+        top_k = operator.index(cast(SupportsIndex, value))
+    except TypeError as exc:
+        raise TypeError("top_k must be an integer") from exc
+    if top_k < 0:
+        raise ValueError("top_k must be non-negative")
+    return top_k
 
 
 @dataclass(frozen=True)
@@ -517,8 +530,7 @@ class Retriever:
         record_access: bool | None = None,
     ) -> RoutedSearchResult:
         """Generate and fuse independent lexical and semantic recall routes."""
-        if top_k < 0:
-            raise ValueError("top_k must be non-negative")
+        top_k = _normalize_routed_top_k(top_k)
         if top_k == 0:
             return RoutedSearchResult([], (), request.admission, {})
         if not request.admission.allowed:
