@@ -13,6 +13,7 @@ from typing import Mapping
 from agent_brain.memory.context.answerability import (
     AnswerabilityVerifier,
     answerability_verifier_from_env,
+    preselect_routed_candidate_ids,
     verify_candidate_answerability,
     verify_routed_candidate_answerability,
 )
@@ -113,6 +114,11 @@ class ContextFirewall:
                 signal = analyze_injection_query(query_text or "")
                 if not signal.injectable:
                     signal = None
+        routed_candidate_ids = (
+            preselect_routed_candidate_ids(candidates, query_context, self.config)
+            if query_context is not None
+            else None
+        )
         evaluated = [
             self._evaluate(
                 candidate,
@@ -120,6 +126,7 @@ class ContextFirewall:
                 query=query_text,
                 current_scope=current_scope,
                 query_context=query_context,
+                routed_candidate_ids=routed_candidate_ids,
             )
             for candidate in candidates
         ]
@@ -356,6 +363,7 @@ class ContextFirewall:
         query: str | None = None,
         current_scope: Mapping[str, str] | None = None,
         query_context: InjectionQueryContext | None = None,
+        routed_candidate_ids: frozenset[str] | None = None,
     ) -> FirewallDecision:
         item = candidate.item
         item_type = str(item.type)
@@ -388,6 +396,18 @@ class ContextFirewall:
         if query_context is not None:
             if not query_context.admission.allowed:
                 reasons.append("query_not_injectable")
+                return FirewallDecision(
+                    candidate,
+                    "exclude",
+                    tuple(reasons),
+                    base_score,
+                    0.0,
+                )
+            if (
+                routed_candidate_ids is not None
+                and item.id not in routed_candidate_ids
+            ):
+                reasons.append("route_answerability_insufficient")
                 return FirewallDecision(
                     candidate,
                     "exclude",

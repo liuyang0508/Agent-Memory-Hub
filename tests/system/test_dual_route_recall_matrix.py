@@ -38,6 +38,44 @@ CATEGORIES = {
     "weak_or_no_value",
 }
 
+# Human-reviewed closed-set relevance contract. These notes document why the
+# labeled item contains information that can answer the query; retrieval scores
+# are deliberately not part of this audit.
+ANSWERABILITY_AUDIT = {
+    "semantic-zh-01": "item explains pre-answer retrieval of prior-session knowledge",
+    "semantic-zh-02": "item explains restoration of saved technical decisions",
+    "semantic-zh-03": "item covers missing knowledge learned in earlier sessions",
+    "semantic-zh-04": "item covers recovery of an established technical route",
+    "semantic-zh-05": "item explains automatic pre-answer experience injection",
+    "semantic-zh-06": "item explains retrieval of accumulated experience",
+    "semantic-zh-07": "item covers restoring knowledge from past sessions",
+    "semantic-zh-08": "item covers returning historical knowledge to the answer",
+    "multi-zh-01": "item states the browser proxy thirty-second timeout",
+    "multi-ru-02": "item states when the browser proxy request expires",
+    "multi-ar-03": "item states the seven-day workspace file retention period",
+    "multi-th-04": "item states how many days workspace files are retained",
+    "multi-ja-05": "item states the runtime installer path",
+    "multi-ko-06": "item states where the install script is located",
+    "multi-mix-07": "item states the recall cache ten-minute TTL",
+    "multi-hi-08": "item states the cache TTL despite the cross-language query",
+    "keyword-zh-01": "item lists narrative order and algorithm explanation changes",
+    "keyword-zh-02": "item states the revised README reading order",
+    "keyword-zh-03": "item explains runtime integration and maintenance flow",
+    "keyword-zh-04": "item connects recall observability with maintenance",
+    "keyword-zh-05": "item states why and how the formula explanation changed",
+    "keyword-zh-06": "item lists the second-pass introduction changes",
+    "keyword-zh-07": "item states the revised Chinese narrative sequence",
+    "keyword-mix-08": "item lists narrative and formula polish in README.zh.md",
+    "entity-01": "item directly identifies compiler error E0583",
+    "entity-02": "item directly identifies CVE-2026-1234",
+    "entity-03": "item directly identifies PR42",
+    "entity-04": "item directly identifies install-with-skills.sh",
+    "entity-05": "item directly identifies the requested memory detail URI",
+    "entity-06": "item directly identifies the routed-recall feature flag",
+    "entity-07": "item directly identifies host 47.96.229.35",
+    "entity-08": "item directly identifies commit bb9128a",
+}
+
 
 def _cases() -> list[dict[str, Any]]:
     return json.loads(FIXTURE_PATH.read_text(encoding="utf-8"))
@@ -69,6 +107,24 @@ def test_dual_route_fixture_schema_and_distribution() -> None:
     assert set(counts) == CATEGORIES
     assert all(counts[category] >= 8 for category in CATEGORIES)
     assert sum(bool(case["legacy_false_negative"]) for case in cases) >= 3
+    positive_case_ids = {
+        case["id"] for case in cases if case["expected_item_ids"]
+    }
+    assert set(ANSWERABILITY_AUDIT) == positive_case_ids
+    assert all(note.strip() for note in ANSWERABILITY_AUDIT.values())
+    known_gaps = {
+        case["id"]: case["known_capability_gap"]
+        for case in cases
+        if "known_capability_gap" in case
+    }
+    assert known_gaps == {
+        "multi-hi-08": "cross_language_without_shared_anchor",
+    }
+    assert all(
+        set(case["expected_item_ids"]) == {case["brain_item"]["id"]}
+        for case in cases
+        if case["expected_item_ids"]
+    )
     assert {
         "safety-private",
         "safety-secret",
@@ -83,6 +139,35 @@ def test_dual_route_fixture_schema_and_distribution() -> None:
         for item in case.get("hard_negative_items", [])
     }
     assert len(hard_negative_ids) >= 3
+    calibrated_categories = {
+        "semantic_paraphrase",
+        "multilingual",
+        "keyword_extraction_error",
+    }
+    calibrated_cases = [case for case in cases if case["category"] in calibrated_categories]
+    assert all(
+        case.get("calibration_split") in {"calibration", "heldout"}
+        for case in calibrated_cases
+    )
+    target_splits: dict[str, set[str]] = {}
+    for case in calibrated_cases:
+        for item_id in case["expected_item_ids"]:
+            target_splits.setdefault(item_id, set()).add(case["calibration_split"])
+    assert all(len(splits) == 1 for splits in target_splits.values()), target_splits
+    for category in calibrated_categories:
+        category_cases = [case for case in calibrated_cases if case["category"] == category]
+        targets_by_split = {
+            split: {
+                item_id
+                for case in category_cases
+                if case["calibration_split"] == split
+                for item_id in case["expected_item_ids"]
+            }
+            for split in ("calibration", "heldout")
+        }
+        assert targets_by_split["calibration"], (category, targets_by_split)
+        assert targets_by_split["heldout"], (category, targets_by_split)
+        assert len(targets_by_split["calibration"] | targets_by_split["heldout"]) >= 3
     gateway_case = next(case for case in cases if case["id"] == "safety-gateway-error")
     assert gateway_case["gateway_exception_test"] == (
         "test_gateway_exception_never_exposes_raw_candidate"
@@ -119,7 +204,12 @@ def test_precomputed_embedding_fixture_has_provenance_and_no_label_leakage() -> 
     generator_source = GENERATOR_PATH.read_text(encoding="utf-8")
     assert all(
         field not in generator_source
-        for field in ("expected_item_ids", "legacy_false_negative", "prohibited_item_ids")
+        for field in (
+            "expected_item_ids",
+            "legacy_false_negative",
+            "prohibited_item_ids",
+            "calibration_split",
+        )
     )
     assert not (
         PRECOMPUTED_EMBEDDING_PATH.parent / "dual_route_semantic_lexicon.json"
@@ -173,6 +263,7 @@ def test_precomputed_embedding_fixture_has_provenance_and_no_label_leakage() -> 
         case["expected_item_ids"] = ["annotation-must-not-enter-extraction"]
         case["legacy_false_negative"] = not case["legacy_false_negative"]
         case["prohibited_item_ids"] = ["annotation-must-not-enter-extraction"]
+        case["calibration_split"] = "annotation-must-not-enter-extraction"
     assert generator.extract_case_texts(altered_cases) == generator.extract_case_texts(_cases())
 
 
@@ -420,6 +511,20 @@ def test_dual_route_candidate_and_injection_governance_matrix(tmp_path: Path) ->
         index.close()
 
     positives = [(case, old, new) for case, old, new in rows if case["expected_item_ids"]]
+    label_mismatches = [
+        (
+            case["id"],
+            case["legacy_false_negative"],
+            not bool(set(case["expected_item_ids"]) & old.injected)
+            and bool(set(case["expected_item_ids"]) & new.injected),
+        )
+        for case, old, new in positives
+        if case["legacy_false_negative"]
+        != (
+            not bool(set(case["expected_item_ids"]) & old.injected)
+            and bool(set(case["expected_item_ids"]) & new.injected)
+        )
+    ]
     legacy_hits = sum(
         bool(set(case["expected_item_ids"]) & old.candidates) for case, old, _new in positives
     )
@@ -469,6 +574,46 @@ def test_dual_route_candidate_and_injection_governance_matrix(tmp_path: Path) ->
     assert new_false_negatives == [], new_false_negatives
     assert prohibited == [], prohibited
     assert expected_misses == [], expected_misses
+    assert label_mismatches == [], label_mismatches
+
+    per_case_quality = []
+    for case, _old, new in positives:
+        expected = set(case["expected_item_ids"])
+        allowed = set(case.get("allowed_related_item_ids", []))
+        injected = set(new.injected)
+        true_positive_count = len(expected & injected)
+        false_positive_count = len(injected - expected - allowed)
+        false_negative_count = len(expected - injected)
+        per_case_quality.append({
+            "id": case["id"],
+            "tp": true_positive_count,
+            "fp": false_positive_count,
+            "fn": false_negative_count,
+            "injected": sorted(injected),
+            "permitted": sorted(expected | allowed),
+        })
+    assert all(row["fp"] == 0 and row["fn"] == 0 for row in per_case_quality), (
+        per_case_quality
+    )
+    micro_tp = sum(row["tp"] for row in per_case_quality)
+    micro_fp = sum(row["fp"] for row in per_case_quality)
+    micro_fn = sum(row["fn"] for row in per_case_quality)
+    micro_precision = micro_tp / (micro_tp + micro_fp)
+    micro_recall = micro_tp / (micro_tp + micro_fn)
+    macro_precision = sum(
+        row["tp"] / (row["tp"] + row["fp"])
+        for row in per_case_quality
+    ) / len(per_case_quality)
+    macro_recall = sum(
+        row["tp"] / (row["tp"] + row["fn"])
+        for row in per_case_quality
+    ) / len(per_case_quality)
+    assert (micro_precision, macro_precision, micro_recall, macro_recall) == (
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+    )
 
     expected_targets = {
         item_id
@@ -482,7 +627,34 @@ def test_dual_route_candidate_and_injection_governance_matrix(tmp_path: Path) ->
     )
     assert len(expected_targets) >= 11
     assert len(target_clusters) >= 11
-    assert sorted(target_clusters.values()) == [1] * 8 + [8, 8, 8]
+    targets_by_category = {
+        category: {
+            item_id
+            for case in cases
+            if case["category"] == category
+            for item_id in case["expected_item_ids"]
+        }
+        for category in ("semantic_paraphrase", "multilingual", "keyword_extraction_error")
+    }
+    assert all(len(targets) >= 3 for targets in targets_by_category.values()), (
+        targets_by_category
+    )
+
+    target_quality: dict[str, list[dict[str, Any]]] = {}
+    for case, row in zip((case for case, _old, _new in positives), per_case_quality, strict=True):
+        for item_id in case["expected_item_ids"]:
+            target_quality.setdefault(item_id, []).append(row)
+    target_macro_precision = sum(
+        sum(row["tp"] for row in target_rows)
+        / sum(row["tp"] + row["fp"] for row in target_rows)
+        for target_rows in target_quality.values()
+    ) / len(target_quality)
+    target_macro_recall = sum(
+        sum(row["tp"] for row in target_rows)
+        / sum(row["tp"] + row["fn"] for row in target_rows)
+        for target_rows in target_quality.values()
+    ) / len(target_quality)
+    assert (target_macro_precision, target_macro_recall) == (1.0, 1.0)
 
     positive_similarities = [
         similarity

@@ -361,6 +361,86 @@ def verify_routed_candidate_answerability(
     return _route_answerability_failure(query_intent)
 
 
+def preselect_routed_candidate_ids(
+    candidates: list[ContextCandidate],
+    query_context: InjectionQueryContext,
+    config: ContextFirewallConfig,
+) -> frozenset[str] | None:
+    """Choose the bounded routed cohort allowed to reach item policy gates.
+
+    ``None`` means no semantic cohort was available and preserves the existing
+    lexical-only policy. An empty set means semantic evidence existed but was
+    too ambiguous, so the route fails closed.
+    """
+    semantic_candidates: list[tuple[ContextCandidate, float, int]] = []
+    fully_anchored_lexical: list[ContextCandidate] = []
+    for candidate in candidates:
+        evidence = query_context.evidence_by_id.get(candidate.item.id)
+        if evidence is None:
+            continue
+        if (
+            "lexical_terms" in evidence.routes
+            and query_context.query_signal.strong_terms
+            and set(query_context.query_signal.strong_terms)
+            <= covered_query_terms(
+                candidate,
+                query_context.query_signal.strong_terms,
+            )
+        ):
+            fully_anchored_lexical.append(candidate)
+        similarity = evidence.semantic_similarity
+        rank = evidence.semantic_rank
+        if (
+            "semantic_raw" in evidence.routes
+            and rank is not None
+            and rank > 0
+            and similarity is not None
+            and not isinstance(similarity, bool)
+            and isinstance(similarity, (int, float))
+            and math.isfinite(similarity)
+            and -1.0 <= similarity <= 1.0
+        ):
+            semantic_candidates.append((candidate, float(similarity), rank))
+
+    if not semantic_candidates:
+        return None
+    if fully_anchored_lexical:
+        return frozenset(candidate.item.id for candidate in fully_anchored_lexical)
+
+    semantic_candidates.sort(key=lambda row: (row[2], -row[1], row[0].item.id))
+    rank_one = next((row for row in semantic_candidates if row[2] == 1), None)
+    if rank_one is None:
+        return frozenset()
+
+    anchored = []
+    for candidate, similarity, rank in semantic_candidates:
+        if rank > 2 or similarity < config.semantic_route_anchor_rescue_min_similarity:
+            continue
+        coverage, phrases = raw_query_candidate_coverage(
+            query_context.raw_query,
+            candidate,
+        )
+        if phrases:
+            anchored.append((candidate, coverage, similarity, rank))
+    if len(anchored) == 1:
+        return frozenset({anchored[0][0].item.id})
+
+    winner, winner_similarity, _rank = rank_one
+    second_similarity = max(
+        (similarity for _candidate, similarity, rank in semantic_candidates if rank > 1),
+        default=-1.0,
+    )
+    margin = winner_similarity - second_similarity
+    if winner_similarity >= config.semantic_route_direct_min_similarity:
+        return frozenset({winner.item.id})
+    if (
+        winner_similarity >= config.semantic_route_min_similarity
+        and margin >= config.semantic_route_min_margin
+    ):
+        return frozenset({winner.item.id})
+    return frozenset()
+
+
 def _verify_term_answerability(
     candidate: ContextCandidate,
     signal: QuerySignal,

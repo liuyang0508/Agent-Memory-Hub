@@ -71,13 +71,28 @@ def _candidate(value: MemoryItem, *, body: str = "", score: float = 1.0) -> Cont
 def _evidence(
     *routes: str,
     similarity: float | None = None,
+    semantic_rank: int | None = None,
+    lexical_terms_rank: int | None = None,
+    lexical_raw_rank: int | None = None,
 ) -> RouteEvidence:
     return RouteEvidence(
         routes=routes,
         semantic_similarity=similarity,
-        semantic_rank=1 if "semantic_raw" in routes else None,
-        lexical_terms_rank=1 if "lexical_terms" in routes else None,
-        lexical_raw_rank=1 if "lexical_raw_fallback" in routes else None,
+        semantic_rank=(
+            semantic_rank
+            if semantic_rank is not None
+            else (1 if "semantic_raw" in routes else None)
+        ),
+        lexical_terms_rank=(
+            lexical_terms_rank
+            if lexical_terms_rank is not None
+            else (1 if "lexical_terms" in routes else None)
+        ),
+        lexical_raw_rank=(
+            lexical_raw_rank
+            if lexical_raw_rank is not None
+            else (1 if "lexical_raw_fallback" in routes else None)
+        ),
     )
 
 
@@ -126,6 +141,12 @@ def test_query_context_requires_real_admission_and_defensively_copies_evidence()
     [
         ("semantic_route_min_similarity", -0.01),
         ("semantic_route_min_similarity", 1.01),
+        ("semantic_route_direct_min_similarity", -0.01),
+        ("semantic_route_direct_min_similarity", 1.01),
+        ("semantic_route_min_margin", -0.01),
+        ("semantic_route_min_margin", 1.01),
+        ("semantic_route_anchor_rescue_min_similarity", -0.01),
+        ("semantic_route_anchor_rescue_min_similarity", 1.01),
         ("raw_route_min_coverage", -0.01),
         ("raw_route_min_coverage", 1.01),
     ],
@@ -184,6 +205,185 @@ def test_semantic_route_accepts_frozen_model_calibrated_similarity_floor() -> No
     )
 
     assert [decision.candidate.item.id for decision in result.included] == [value.id]
+
+
+def test_semantic_preselection_keeps_only_the_direct_rank_one_winner() -> None:
+    from agent_brain.memory.context.context_firewall import ContextFirewall
+
+    winner = _item("direct-rank-one", title="Relevant memory")
+    runner_up = _item("direct-rank-two", title="Related but weaker memory")
+    context = _context(
+        evidence_by_id={
+            winner.id: _evidence(
+                "semantic_raw",
+                similarity=0.72,
+                semantic_rank=1,
+            ),
+            runner_up.id: _evidence(
+                "semantic_raw",
+                similarity=0.61,
+                semantic_rank=2,
+            ),
+        },
+    )
+
+    result = ContextFirewall(now=NOW).filter(
+        [_candidate(winner), _candidate(runner_up)],
+        query_context=context,
+    )
+
+    assert [decision.candidate.item.id for decision in result.included] == [winner.id]
+    assert result.excluded[0].reasons == ("route_answerability_insufficient",)
+
+
+def test_semantic_gray_zone_requires_a_safe_rank_one_margin() -> None:
+    from agent_brain.memory.context.context_firewall import ContextFirewall
+
+    winner = _item("gray-rank-one", title="Relevant memory")
+    runner_up = _item("gray-rank-two", title="Related but weaker memory")
+    context = _context(
+        evidence_by_id={
+            winner.id: _evidence(
+                "semantic_raw",
+                similarity=0.45,
+                semantic_rank=1,
+            ),
+            runner_up.id: _evidence(
+                "semantic_raw",
+                similarity=0.30,
+                semantic_rank=2,
+            ),
+        },
+    )
+
+    result = ContextFirewall(now=NOW).filter(
+        [_candidate(winner), _candidate(runner_up)],
+        query_context=context,
+    )
+
+    assert [decision.candidate.item.id for decision in result.included] == [winner.id]
+
+
+def test_semantic_gray_zone_fails_closed_when_margin_is_ambiguous() -> None:
+    from agent_brain.memory.context.context_firewall import ContextFirewall
+
+    winner = _item("ambiguous-rank-one", title="Possible memory")
+    runner_up = _item("ambiguous-rank-two", title="Another possible memory")
+    context = _context(
+        evidence_by_id={
+            winner.id: _evidence(
+                "semantic_raw",
+                similarity=0.45,
+                semantic_rank=1,
+            ),
+            runner_up.id: _evidence(
+                "semantic_raw",
+                similarity=0.42,
+                semantic_rank=2,
+            ),
+        },
+    )
+
+    result = ContextFirewall(now=NOW).filter(
+        [_candidate(winner), _candidate(runner_up)],
+        query_context=context,
+    )
+
+    assert result.included == []
+    assert all(
+        decision.reasons == ("route_answerability_insufficient",)
+        for decision in result.excluded
+    )
+
+
+def test_unique_raw_anchor_can_rescue_semantic_rank_two() -> None:
+    from agent_brain.memory.context.context_firewall import ContextFirewall
+
+    semantic_only = _item(
+        "anchor-rank-one",
+        title="Shared brain introduction",
+        summary="General product introduction",
+    )
+    anchored = _item(
+        "anchor-rank-two",
+        title="Recall formula documentation",
+        summary="Algorithm explanation revision",
+    )
+    context = _context(
+        raw_query="深度叙事和算法解释二次打磨",
+        evidence_by_id={
+            semantic_only.id: _evidence(
+                "semantic_raw",
+                similarity=0.64,
+                semantic_rank=1,
+            ),
+            anchored.id: _evidence(
+                "semantic_raw",
+                similarity=0.51,
+                semantic_rank=2,
+            ),
+        },
+    )
+
+    result = ContextFirewall(now=NOW).filter(
+        [
+            _candidate(semantic_only, body="Product scope and collaboration model."),
+            _candidate(anchored, body="算法解释补充变量定义和使用边界。"),
+        ],
+        query_context=context,
+    )
+
+    assert [decision.candidate.item.id for decision in result.included] == [anchored.id]
+
+
+def test_multiple_fully_anchored_lexical_memories_are_not_collapsed_to_rank_one() -> None:
+    from agent_brain.memory.context.context_firewall import ContextFirewall
+
+    first = _item(
+        "multi-answer-first",
+        title="Atlas migration rollout decision",
+        summary="First independently useful migration record",
+    )
+    second = _item(
+        "multi-answer-second",
+        title="Atlas migration rollout verification",
+        summary="Second independently useful migration record",
+    )
+    signal = _signal(
+        terms=("atlas", "migration", "rollout"),
+        strong_terms=("atlas", "migration", "rollout"),
+        injectable=True,
+    )
+    context = _context(
+        raw_query="atlas migration rollout",
+        signal=signal,
+        evidence_by_id={
+            first.id: _evidence(
+                "lexical_terms",
+                "semantic_raw",
+                similarity=0.78,
+                semantic_rank=1,
+                lexical_terms_rank=1,
+            ),
+            second.id: _evidence(
+                "lexical_terms",
+                "semantic_raw",
+                similarity=0.73,
+                semantic_rank=2,
+                lexical_terms_rank=2,
+            ),
+        },
+    )
+
+    result = ContextFirewall(now=NOW).filter(
+        [_candidate(first), _candidate(second)],
+        query_context=context,
+    )
+
+    assert {decision.candidate.item.id for decision in result.included} == {
+        first.id,
+        second.id,
+    }
 
 
 def test_raw_lexical_fallback_uses_full_query_coverage() -> None:
