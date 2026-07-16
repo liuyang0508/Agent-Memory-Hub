@@ -57,6 +57,9 @@ def extract_case_texts(cases: Sequence[dict[str, Any]]) -> tuple[str, ...]:
             raw = case.get(field)
             if isinstance(raw, dict):
                 values.append(_searchable_item_text(raw))
+        for raw in case.get("brain_items", []):
+            if isinstance(raw, dict):
+                values.append(_searchable_item_text(raw))
         for raw in case.get("hard_negative_items", []):
             if isinstance(raw, dict):
                 values.append(_searchable_item_text(raw))

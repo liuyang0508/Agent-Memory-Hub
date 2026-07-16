@@ -52,6 +52,7 @@ ANSWERABILITY_AUDIT = {
     "semantic-zh-06": "item explains retrieval of accumulated experience",
     "semantic-zh-07": "item covers restoring knowledge from past sessions",
     "semantic-zh-08": "item covers returning historical knowledge to the answer",
+    "semantic-en-multi-09": "two items separately answer the requested Atlas rollout decision and verification result",
     "multi-zh-01": "item states the browser proxy thirty-second timeout",
     "multi-ru-02": "item states when the browser proxy request expires",
     "multi-ar-03": "item states the seven-day workspace file retention period",
@@ -129,7 +130,14 @@ def test_dual_route_fixture_schema_and_distribution() -> None:
     )
     assert known_gaps["multi-hi-08"]["upgrade_condition"]
     assert all(
-        set(case["expected_item_ids"]) == {case["brain_item"]["id"]}
+        set(case["expected_item_ids"])
+        == {
+            item["id"]
+            for item in case.get(
+                "brain_items",
+                [case["brain_item"]] if "brain_item" in case else [],
+            )
+        }
         for case in cases
         if case["expected_item_ids"]
     )
@@ -459,7 +467,11 @@ def _seed_fixture_brain(
     index = HubIndex(tmp_path / "fixture-index.db", embedding_dim=embedder.dim)
     items: dict[str, tuple[MemoryItem, str]] = {}
     for case in _cases():
-        raw_items = [case.get("brain_item"), *case.get("hard_negative_items", [])]
+        raw_items = [
+            case.get("brain_item"),
+            *case.get("brain_items", []),
+            *case.get("hard_negative_items", []),
+        ]
         for raw in raw_items:
             if raw is None:
                 continue
@@ -785,7 +797,10 @@ def test_dual_route_candidate_and_injection_governance_matrix(tmp_path: Path) ->
         for item_id, similarity in new.semantic_similarities
         if item_id in hard_negative_ids
     ]
-    assert len(positive_similarities) == len(positives)
+    assert len(positive_similarities) == sum(
+        len(case["expected_item_ids"])
+        for case, _old, _new in positives
+    )
     assert hard_negative_similarities
     threshold_only_positive_similarities = [
         similarity

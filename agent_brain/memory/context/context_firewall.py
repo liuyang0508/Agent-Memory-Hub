@@ -14,6 +14,7 @@ from agent_brain.memory.context.answerability import (
     AnswerabilityVerifier,
     answerability_verifier_from_env,
     preselect_routed_candidate_ids,
+    substantive_answerability_terms,
     verify_candidate_answerability,
     verify_routed_candidate_answerability,
 )
@@ -347,9 +348,10 @@ class ContextFirewall:
         if not included:
             return CohortGateResult(included=[], excluded=[], reasons=())
 
-        if signal.strong_terms:
-            covered = covered_strong_terms(included, signal.strong_terms)
-            coverage = len(covered) / len(signal.strong_terms)
+        strong_terms = substantive_answerability_terms(signal.strong_terms)
+        if strong_terms:
+            covered = covered_strong_terms(included, strong_terms)
+            coverage = len(covered) / len(strong_terms)
             if coverage < self.config.min_strong_term_coverage:
                 return reject_cohort(included, "cohort_strong_anchor_undercovered")
 

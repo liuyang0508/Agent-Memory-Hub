@@ -143,6 +143,8 @@ def test_query_context_requires_real_admission_and_defensively_copies_evidence()
         ("semantic_route_min_similarity", 1.01),
         ("semantic_route_direct_min_similarity", -0.01),
         ("semantic_route_direct_min_similarity", 1.01),
+        ("semantic_route_direct_max_items", 0),
+        ("semantic_route_direct_max_items", 11),
         ("semantic_route_min_margin", -0.01),
         ("semantic_route_min_margin", 1.01),
         ("semantic_route_anchor_rescue_min_similarity", -0.01),
@@ -207,7 +209,7 @@ def test_semantic_route_accepts_frozen_model_calibrated_similarity_floor() -> No
     assert [decision.candidate.item.id for decision in result.included] == [value.id]
 
 
-def test_semantic_preselection_keeps_only_the_direct_rank_one_winner() -> None:
+def test_semantic_preselection_rejects_redundant_direct_runner_up() -> None:
     from agent_brain.memory.context.context_firewall import ContextFirewall
 
     winner = _item("direct-rank-one", title="Relevant memory")
@@ -234,6 +236,111 @@ def test_semantic_preselection_keeps_only_the_direct_rank_one_winner() -> None:
 
     assert [decision.candidate.item.id for decision in result.included] == [winner.id]
     assert result.excluded[0].reasons == ("route_answerability_insufficient",)
+
+
+def test_direct_semantic_cohort_keeps_two_answerable_atlas_memories_only() -> None:
+    from agent_brain.memory.context.context_firewall import ContextFirewall
+    from agent_brain.memory.context.injection_query_context import InjectionQueryContext
+    from agent_brain.memory.recall.admission import build_recall_request
+
+    query = (
+        "What were the rollout decision and the verification result for Atlas migration?"
+    )
+    request = build_recall_request(query, adapter="codex")
+    decision = _item(
+        "atlas-rollout-decision",
+        title="Atlas migration rollout decision",
+        summary="The rollout decision was a staged migration.",
+        type_="decision",
+    )
+    verification = _item(
+        "atlas-verification-result",
+        title="Atlas migration verification result",
+        summary="The verification result passed all rollback checks.",
+    )
+    unrelated = _item(
+        "atlas-unrelated-high-score",
+        title="Atlas migration cafeteria menu",
+        summary="Lunch catering choices for the Atlas office.",
+    )
+    context = InjectionQueryContext(
+        raw_query=query,
+        admission=request.admission,
+        query_signal=request.query_signal,
+        evidence_by_id={
+            decision.id: _evidence(
+                "semantic_raw",
+                similarity=0.72,
+                semantic_rank=1,
+            ),
+            verification.id: _evidence(
+                "semantic_raw",
+                similarity=0.70,
+                semantic_rank=2,
+            ),
+            unrelated.id: _evidence(
+                "semantic_raw",
+                similarity=0.69,
+                semantic_rank=3,
+            ),
+        },
+    )
+
+    result = ContextFirewall(now=NOW).filter(
+        [
+            _candidate(decision, body="Decision evidence: staged rollout."),
+            _candidate(verification, body="Verification evidence: checks passed."),
+            _candidate(unrelated, body="Catering schedule only."),
+        ],
+        query_context=context,
+    )
+
+    assert [entry.candidate.item.id for entry in result.included] == [
+        decision.id,
+        verification.id,
+    ]
+    assert [entry.candidate.item.id for entry in result.excluded] == [unrelated.id]
+    assert result.excluded[0].reasons == ("route_answerability_insufficient",)
+
+
+def test_direct_semantic_cohort_respects_configured_bound() -> None:
+    from agent_brain.memory.context.context_firewall import ContextFirewall
+
+    values = [
+        _item(f"bounded-{index}", title=f"Atlas facet{index}")
+        for index in range(1, 6)
+    ]
+    context = _context(
+        raw_query="Atlas facet1 facet2 facet3 facet4 facet5",
+        evidence_by_id={
+            value.id: _evidence(
+                "semantic_raw",
+                similarity=0.80 - index / 100,
+                semantic_rank=index,
+            )
+            for index, value in enumerate(values, start=1)
+        },
+    )
+
+    result = ContextFirewall(
+        ContextFirewallConfig(
+            semantic_route_direct_max_items=2,
+            semantic_route_anchor_rescue_min_similarity=1.0,
+        ),
+        now=NOW,
+    ).filter(
+        [_candidate(value) for value in values],
+        query_context=context,
+    )
+
+    assert [entry.candidate.item.id for entry in result.included] == [
+        values[0].id,
+        values[1].id,
+    ]
+    assert all(
+        entry.reasons == ("route_answerability_insufficient",)
+        for entry in result.excluded
+    )
 
 
 def test_semantic_gray_zone_requires_a_safe_rank_one_margin() -> None:
@@ -805,7 +912,12 @@ def test_strong_terms_accept_each_recognized_route(route: str) -> None:
     value = _item(f"strong-valid-{route}")
     context = _context(
         signal=_signal(terms=("atlas",), strong_terms=("atlas",), injectable=False),
-        evidence_by_id={value.id: _evidence(route)},
+        evidence_by_id={
+            value.id: _evidence(
+                route,
+                similarity=0.82 if route == "semantic_raw" else None,
+            )
+        },
     )
 
     result = ContextFirewall(now=NOW).filter(

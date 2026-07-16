@@ -294,15 +294,8 @@ def verify_routed_candidate_answerability(
     if evidence is None or not _has_recognized_route_provenance(evidence.routes):
         return _route_answerability_failure(query_intent)
 
-    if signal.strong_terms:
-        return _verify_term_answerability(
-            candidate,
-            signal,
-            query=query,
-            verifier=verifier,
-        )
-
     routes = set(evidence.routes)
+    semantic_failure: CandidateAnswerability | None = None
     if "semantic_raw" in routes:
         similarity = evidence.semantic_similarity
         if (
@@ -313,22 +306,43 @@ def verify_routed_candidate_answerability(
             and -1.0 <= similarity <= 1.0
             and similarity >= config.semantic_route_min_similarity
         ):
-            deterministic = CandidateAnswerability(
-                True,
-                (),
-                (),
-                (),
-                query_intent,
-                "ok",
-            )
-            return _apply_semantic_verifier(
-                deterministic,
-                candidate=candidate,
-                signal=signal,
-                query=query,
-                verifier=verifier,
-                fail_closed_on_error=True,
-            )
+            semantic_answerable = True
+            covered: tuple[str, ...] = ()
+            if signal.strong_terms:
+                coverage, phrases = raw_query_candidate_coverage(query, candidate)
+                if not phrases or coverage < config.raw_route_min_coverage:
+                    term_answerability = _verify_term_answerability(
+                        candidate,
+                        signal,
+                        query=query,
+                        verifier=verifier,
+                    )
+                    if term_answerability.answerable:
+                        return term_answerability
+                    semantic_answerable = False
+                    semantic_failure = term_answerability
+                else:
+                    covered = phrases
+            if semantic_answerable:
+                deterministic = CandidateAnswerability(
+                    True,
+                    (),
+                    covered,
+                    (),
+                    query_intent,
+                    "ok",
+                )
+                verified = _apply_semantic_verifier(
+                    deterministic,
+                    candidate=candidate,
+                    signal=signal,
+                    query=query,
+                    verifier=verifier,
+                    fail_closed_on_error=True,
+                )
+                if verified.answerable:
+                    return verified
+                semantic_failure = verified
 
     if "lexical_raw_fallback" in routes:
         coverage, covered = raw_query_candidate_coverage(query, candidate)
@@ -358,7 +372,7 @@ def verify_routed_candidate_answerability(
             verifier=verifier,
         )
 
-    return _route_answerability_failure(query_intent)
+    return semantic_failure or _route_answerability_failure(query_intent)
 
 
 def preselect_routed_candidate_ids(
@@ -425,14 +439,40 @@ def preselect_routed_candidate_ids(
     if len(anchored) == 1:
         return frozenset({anchored[0][0].item.id})
 
+    direct = [
+        row
+        for row in semantic_candidates
+        if row[1] >= config.semantic_route_direct_min_similarity
+    ]
+    if direct:
+        selected = [direct[0]]
+        covered_units = set(
+            raw_query_candidate_covered_units(
+                query_context.raw_query,
+                direct[0][0],
+            )
+        )
+        for row in direct[1:]:
+            if len(selected) >= config.semantic_route_direct_max_items:
+                break
+            units = set(
+                raw_query_candidate_covered_units(
+                    query_context.raw_query,
+                    row[0],
+                )
+            )
+            if not units - covered_units:
+                continue
+            selected.append(row)
+            covered_units.update(units)
+        return frozenset(candidate.item.id for candidate, _similarity, _rank in selected)
+
     winner, winner_similarity, _rank = rank_one
     second_similarity = max(
         (similarity for _candidate, similarity, rank in semantic_candidates if rank > 1),
         default=-1.0,
     )
     margin = winner_similarity - second_similarity
-    if winner_similarity >= config.semantic_route_direct_min_similarity:
-        return frozenset({winner.item.id})
     if (
         winner_similarity >= config.semantic_route_min_similarity
         and margin >= config.semantic_route_min_margin
@@ -504,8 +544,10 @@ _RAW_QUERY_ASCII_NOISE = frozenset({
     "the",
     "to",
     "what",
+    "was",
     "when",
     "where",
+    "were",
     "which",
     "why",
     "with",
@@ -556,6 +598,31 @@ def raw_query_candidate_coverage(
         *covered_cjk,
     ]))
     return coverage, covered_phrases
+
+
+def raw_query_candidate_covered_units(
+    raw_query: str,
+    candidate: ContextCandidate,
+) -> tuple[str, ...]:
+    """Return substantive query units independently covered by one candidate."""
+    normalized = normalize_hook_prompt_for_recall(raw_query).casefold()
+    substantive_text = _RAW_QUERY_CJK_NOISE_PHRASE_RE.sub(" ", normalized)
+    mixed_tokens = _tokenize_mixed(substantive_text)
+    ascii_tokens = tuple(dict.fromkeys(
+        token.casefold()
+        for token in mixed_tokens
+        if token.isascii() and _is_substantive_raw_token(token)
+    ))
+    cjk_units = tuple(dict.fromkeys(
+        unit
+        for run in _substantive_cjk_runs(substantive_text)
+        for unit in _cjk_coverage_units(run)
+    ))
+    haystack = candidate_haystack(candidate)
+    return tuple([
+        *(token for token in ascii_tokens if _ascii_token_matches(token, haystack)),
+        *(unit for unit in cjk_units if unit in haystack),
+    ])
 
 
 def _substantive_cjk_runs(text: str) -> tuple[str, ...]:
@@ -613,10 +680,15 @@ def _is_substantive_raw_token(token: str) -> bool:
 
 def primary_answerability_terms(signal: QuerySignal) -> tuple[str, ...]:
     """Return the topic term a candidate must cover to be injected."""
-    terms = signal.strong_terms or signal.terms
+    terms = substantive_answerability_terms(signal.strong_terms or signal.terms)
     if not terms:
         return ()
     return (terms[0],)
+
+
+def substantive_answerability_terms(terms: tuple[str, ...]) -> tuple[str, ...]:
+    """Remove conversational noise before applying item/cohort anchor gates."""
+    return tuple(term for term in terms if _is_substantive_raw_token(term))
 
 
 _RESOLUTION_QUERY_RE = re.compile(
@@ -850,5 +922,7 @@ __all__ = [
     "answerability_intent",
     "answerability_verifier_from_env",
     "primary_answerability_terms",
+    "raw_query_candidate_covered_units",
+    "substantive_answerability_terms",
     "verify_candidate_answerability",
 ]

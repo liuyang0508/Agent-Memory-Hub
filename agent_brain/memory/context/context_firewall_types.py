@@ -80,11 +80,17 @@ class ContextFirewallConfig:
     query_term_coverage_bonus: float = 0.01
     semantic_route_min_similarity: float = 0.25
     semantic_route_direct_min_similarity: float = 0.56
+    semantic_route_direct_max_items: int = 4
     semantic_route_min_margin: float = 0.05
     semantic_route_anchor_rescue_min_similarity: float = 0.50
     raw_route_min_coverage: float = 0.45
 
     def __post_init__(self) -> None:
+        if (
+            type(self.semantic_route_direct_max_items) is not int
+            or not 1 <= self.semantic_route_direct_max_items <= 10
+        ):
+            raise ValueError("semantic_route_direct_max_items must be an integer in [1, 10]")
         for field in (
             "semantic_route_min_similarity",
             "semantic_route_direct_min_similarity",
