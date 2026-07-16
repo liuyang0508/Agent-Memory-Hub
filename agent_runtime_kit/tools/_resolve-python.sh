@@ -46,6 +46,96 @@ _candidate_exists() {
   esac
 }
 
+_candidate_path() {
+  local candidate="$1"
+  case "$candidate" in
+    */*) printf '%s\n' "$candidate" ;;
+    *) command -v "$candidate" 2>/dev/null ;;
+  esac
+}
+
+_canonical_candidate_path() {
+  local target
+  target="$(_candidate_path "$1")" || return 1
+  [ -n "$target" ] || return 1
+  while [ -L "$target" ]; do
+    local link directory
+    link="$(readlink "$target")" || return 1
+    directory="$(cd -P "$(dirname "$target")" && pwd)" || return 1
+    case "$link" in
+      /*) target="$link" ;;
+      *) target="$directory/$link" ;;
+    esac
+  done
+  local directory
+  directory="$(cd -P "$(dirname "$target")" && pwd)" || return 1
+  printf '%s/%s\n' "$directory" "$(basename "$target")"
+}
+
+_candidate_identity() {
+  local candidate identity
+  candidate="$(_candidate_path "$1")" || return 1
+  [ -n "$candidate" ] || return 1
+  # stat follows the executable symlink by default. Binding device, inode,
+  # mtime and size therefore detects both in-place replacement and retargeting
+  # without re-running the more expensive canonical-path walk in every child.
+  if identity="$(stat -c '%d:%i:%Y:%s' "$candidate" 2>/dev/null)"; then
+    printf '%s\n' "$identity"
+    return 0
+  fi
+  if identity="$(stat -f '%d:%i:%m:%z' "$candidate" 2>/dev/null)"; then
+    printf '%s\n' "$identity"
+    return 0
+  fi
+  return 1
+}
+
+_clear_resolved_python_marker() {
+  unset AGENT_MEMORY_HUB_PYTHON_RESOLVED
+  unset AGENT_MEMORY_HUB_PYTHON_RESOLVED_PATH
+  unset AGENT_MEMORY_HUB_PYTHON_RESOLVED_CANONICAL_PATH
+  unset AGENT_MEMORY_HUB_PYTHON_RESOLVED_PROJECT_ROOT
+  unset AGENT_MEMORY_HUB_PYTHON_RESOLVED_IMPORTS
+  unset AGENT_MEMORY_HUB_PYTHON_RESOLVED_IDENTITY
+  unset AGENT_MEMORY_HUB_PYTHON_RESOLVED_CREATOR_PID
+}
+
+_resolved_python_marker_is_valid() {
+  [ "${AGENT_MEMORY_HUB_PYTHON_RESOLVED:-}" = "1" ] || return 1
+  [ -n "${MEMORY_PYTHON:-}" ] || return 1
+  _candidate_exists "$MEMORY_PYTHON" || return 1
+  [ "${AGENT_MEMORY_HUB_PYTHON_RESOLVED_PATH:-}" = "$MEMORY_PYTHON" ] || return 1
+  [ "${AGENT_MEMORY_HUB_PYTHON_RESOLVED_PROJECT_ROOT:-}" = "$_PROJECT_ROOT" ] || return 1
+  [ "${AGENT_MEMORY_HUB_PYTHON_RESOLVED_IMPORTS:-}" = "$_REQUIRED_IMPORTS" ] || return 1
+  local identity creator_pid
+  identity="$(_candidate_identity "$MEMORY_PYTHON")" || return 1
+  [ -n "${AGENT_MEMORY_HUB_PYTHON_RESOLVED_CANONICAL_PATH:-}" ] || return 1
+  [ -e "$AGENT_MEMORY_HUB_PYTHON_RESOLVED_CANONICAL_PATH" ] || return 1
+  [ "${AGENT_MEMORY_HUB_PYTHON_RESOLVED_IDENTITY:-}" = "$identity" ] || return 1
+  creator_pid="${AGENT_MEMORY_HUB_PYTHON_RESOLVED_CREATOR_PID:-}"
+  case "$creator_pid" in
+    ''|*[!0-9]*) return 1 ;;
+  esac
+  kill -0 "$creator_pid" 2>/dev/null || return 1
+}
+
+_mark_python_resolved() {
+  AGENT_MEMORY_HUB_PYTHON_RESOLVED=1
+  AGENT_MEMORY_HUB_PYTHON_RESOLVED_PATH="$MEMORY_PYTHON"
+  AGENT_MEMORY_HUB_PYTHON_RESOLVED_CANONICAL_PATH="$(_canonical_candidate_path "$MEMORY_PYTHON")"
+  AGENT_MEMORY_HUB_PYTHON_RESOLVED_PROJECT_ROOT="$_PROJECT_ROOT"
+  AGENT_MEMORY_HUB_PYTHON_RESOLVED_IMPORTS="$_REQUIRED_IMPORTS"
+  AGENT_MEMORY_HUB_PYTHON_RESOLVED_IDENTITY="$(_candidate_identity "$MEMORY_PYTHON")"
+  AGENT_MEMORY_HUB_PYTHON_RESOLVED_CREATOR_PID="$$"
+  export MEMORY_PYTHON AGENT_MEMORY_HUB_PYTHON_RESOLVED
+  export AGENT_MEMORY_HUB_PYTHON_RESOLVED_PATH
+  export AGENT_MEMORY_HUB_PYTHON_RESOLVED_CANONICAL_PATH
+  export AGENT_MEMORY_HUB_PYTHON_RESOLVED_PROJECT_ROOT
+  export AGENT_MEMORY_HUB_PYTHON_RESOLVED_IMPORTS
+  export AGENT_MEMORY_HUB_PYTHON_RESOLVED_IDENTITY
+  export AGENT_MEMORY_HUB_PYTHON_RESOLVED_CREATOR_PID
+}
+
 _find_memory_python() {
   local candidates=(
     "${AGENT_MEMORY_HUB_PYTHON:-}"
@@ -84,20 +174,18 @@ _find_memory_python() {
   return 1
 }
 
-if [ "${AGENT_MEMORY_HUB_PYTHON_RESOLVED:-}" = "1" ] \
-  && _candidate_exists "${MEMORY_PYTHON:-}"; then
+if _resolved_python_marker_is_valid; then
   # A parent hook already paid the import probe and exported the exact
   # interpreter. Child runtime/search shims reuse that verdict instead of
   # importing the full CLI package again in every short-lived shell.
   _PYTHON_OK=0
 elif MEMORY_PYTHON="$(_find_memory_python)"; then
   _PYTHON_OK=0
-  AGENT_MEMORY_HUB_PYTHON_RESOLVED=1
+  _clear_resolved_python_marker
+  _mark_python_resolved
 else
   _PYTHON_OK=$?
-fi
-if [ "$_PYTHON_OK" -eq 0 ] && [ -n "${MEMORY_PYTHON:-}" ]; then
-  export MEMORY_PYTHON AGENT_MEMORY_HUB_PYTHON_RESOLVED
+  _clear_resolved_python_marker
 fi
 
 memory_cli() {

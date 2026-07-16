@@ -485,6 +485,28 @@ def test_dual_route_hook_benchmark_public_fixture_materializer_is_fail_closed(
     assert "PUBLIC DUAL ROUTE BENCHMARK SENTINEL" in payload["prompt"]
 
 
+@pytest.mark.parametrize("existing_kind", ["empty_dir", "file", "symlink", "dangling_symlink"])
+def test_dual_route_hook_materializer_rejects_every_existing_path(
+    tmp_path: Path,
+    existing_kind: str,
+) -> None:
+    materializer = _load_dual_route_hook_materializer()
+    brain_dir = tmp_path / "brain"
+    if existing_kind == "empty_dir":
+        brain_dir.mkdir()
+    elif existing_kind == "file":
+        brain_dir.write_text("occupied", encoding="utf-8")
+    elif existing_kind == "symlink":
+        target = tmp_path / "target"
+        target.mkdir()
+        brain_dir.symlink_to(target, target_is_directory=True)
+    else:
+        brain_dir.symlink_to(tmp_path / "missing", target_is_directory=True)
+
+    with pytest.raises(SystemExit, match="must not already exist"):
+        materializer.main(["--brain-dir", str(brain_dir)], stdout=io.StringIO())
+
+
 def test_dual_route_hook_benchmark_nonzero_process_is_an_error(tmp_path: Path) -> None:
     benchmark = _load_dual_route_hook_benchmark()
     payload = tmp_path / "payload.json"

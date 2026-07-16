@@ -83,6 +83,15 @@ HOOK_EVENT_NAME=$(echo "$INPUT" | python3 -c 'import json,sys; d=json.load(sys.s
 if [ -n "$PROMPT" ] && [ -f "$PYTHON_RESOLVER" ]; then
   # Resolve and verify once in the parent hook. Child runtime/search shims
   # inherit the exported verdict instead of repeatedly importing the full CLI.
+  # Never trust a verdict inherited from the user's outer environment: this
+  # process is the authority that creates the short-lived child credential.
+  unset AGENT_MEMORY_HUB_PYTHON_RESOLVED || true
+  unset AGENT_MEMORY_HUB_PYTHON_RESOLVED_PATH || true
+  unset AGENT_MEMORY_HUB_PYTHON_RESOLVED_CANONICAL_PATH || true
+  unset AGENT_MEMORY_HUB_PYTHON_RESOLVED_PROJECT_ROOT || true
+  unset AGENT_MEMORY_HUB_PYTHON_RESOLVED_IMPORTS || true
+  unset AGENT_MEMORY_HUB_PYTHON_RESOLVED_IDENTITY || true
+  unset AGENT_MEMORY_HUB_PYTHON_RESOLVED_CREATOR_PID || true
   # shellcheck source=/dev/null
   source "$PYTHON_RESOLVER"
   export MEMORY_PYTHON AGENT_MEMORY_HUB_PYTHON_RESOLVED

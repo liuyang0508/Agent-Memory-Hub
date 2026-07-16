@@ -81,14 +81,21 @@ def test_python_resolver_does_not_trip_errexit_when_python_is_incomplete(tmp_pat
     assert p.stdout.startswith("after:1:")
 
 
-def test_python_resolver_reuses_parent_verified_python_without_reimport(tmp_path):
-    invocation_log = tmp_path / "unexpected-import-probe"
-    fake_python = tmp_path / "verified-python"
-    fake_python.write_text(
-        f"#!/usr/bin/env bash\ntouch {invocation_log}\nexit 97\n",
+def _counting_python_wrapper(tmp_path: Path) -> tuple[Path, Path]:
+    invocation_log = tmp_path / "python-invocations"
+    wrapper = tmp_path / "verified-python"
+    wrapper.write_text(
+        "#!/usr/bin/env bash\n"
+        f"printf 'probe\\n' >> {invocation_log!s}\n"
+        f"exec {sys.executable} \"$@\"\n",
         encoding="utf-8",
     )
-    fake_python.chmod(0o755)
+    wrapper.chmod(0o755)
+    return wrapper, invocation_log
+
+
+def test_python_resolver_reuses_parent_verified_python_without_reimport(tmp_path):
+    verified_python, invocation_log = _counting_python_wrapper(tmp_path)
     script = tmp_path / "source-resolver.sh"
     script.write_text(
         "\n".join(
@@ -96,8 +103,9 @@ def test_python_resolver_reuses_parent_verified_python_without_reimport(tmp_path
                 "#!/usr/bin/env bash",
                 "set -euo pipefail",
                 f"source {PYTHON_RESOLVER}",
-                'printf "%s:%s:%s\\n" "$_PYTHON_OK" "$MEMORY_PYTHON" '
-                '"$AGENT_MEMORY_HUB_PYTHON_RESOLVED"',
+                f"/bin/bash -c 'set -euo pipefail; source {PYTHON_RESOLVER}; "
+                "printf \"%s:%s:%s\\\\n\" \"$_PYTHON_OK\" \"$MEMORY_PYTHON\" "
+                "\"$AGENT_MEMORY_HUB_PYTHON_RESOLVED\"'",
             ]
         ),
         encoding="utf-8",
@@ -108,16 +116,153 @@ def test_python_resolver_reuses_parent_verified_python_without_reimport(tmp_path
         ["/bin/bash", str(script)],
         env={
             **os.environ,
-            "MEMORY_PYTHON": str(fake_python),
-            "AGENT_MEMORY_HUB_PYTHON_RESOLVED": "1",
+            "AGENT_MEMORY_HUB_PYTHON": str(verified_python),
         },
         capture_output=True,
         text=True,
     )
 
     assert result.returncode == 0, result.stderr
-    assert result.stdout.strip() == f"0:{fake_python}:1"
-    assert not invocation_log.exists()
+    assert result.stdout.strip() == f"0:{verified_python}:1"
+    assert invocation_log.read_text(encoding="utf-8").splitlines() == ["probe"]
+
+
+def test_python_resolver_rejects_stale_unbound_marker_for_independent_shim(tmp_path):
+    invocation_log = tmp_path / "broken-python-invoked"
+    broken_python = tmp_path / "broken-python"
+    broken_python.write_text(
+        f"#!/usr/bin/env bash\ntouch {invocation_log}\nexit 97\n",
+        encoding="utf-8",
+    )
+    broken_python.chmod(0o755)
+
+    result = subprocess.run(
+        [str(SEARCH_SHIM), "--help"],
+        env={
+            **os.environ,
+            "MEMORY_PYTHON": str(broken_python),
+            "AGENT_MEMORY_HUB_PYTHON_RESOLVED": "1",
+            "PYTHONPATH": str(REPO_ROOT),
+        },
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "Usage" in result.stdout
+    assert invocation_log.exists(), "stale verdict must trigger a fresh import probe"
+
+
+def test_python_resolver_rejects_changed_interpreter_identity(tmp_path):
+    verified_python, invocation_log = _counting_python_wrapper(tmp_path)
+    script = tmp_path / "identity-change.sh"
+    script.write_text(
+        "\n".join(
+            [
+                "#!/usr/bin/env bash",
+                "set -euo pipefail",
+                f"source {PYTHON_RESOLVER}",
+                f"printf '#!/usr/bin/env bash\\nexit 97\\n' > {verified_python}",
+                f"chmod +x {verified_python}",
+                f"/bin/bash -c 'set -euo pipefail; source {PYTHON_RESOLVER}; "
+                "test \"$MEMORY_PYTHON\" != \"$AGENT_MEMORY_HUB_PYTHON\"'",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    script.chmod(0o755)
+
+    result = subprocess.run(
+        ["/bin/bash", str(script)],
+        env={
+            **os.environ,
+            "AGENT_MEMORY_HUB_PYTHON": str(verified_python),
+            "PYTHONPATH": str(REPO_ROOT),
+        },
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert invocation_log.read_text(encoding="utf-8").splitlines() == ["probe"]
+
+
+def test_python_resolver_rejects_path_mismatch_while_creator_is_alive(tmp_path):
+    verified_python, invocation_log = _counting_python_wrapper(tmp_path)
+    other_python = tmp_path / "other-python"
+    other_python.write_text("#!/usr/bin/env bash\nexit 97\n", encoding="utf-8")
+    other_python.chmod(0o755)
+    script = tmp_path / "path-mismatch.sh"
+    script.write_text(
+        "\n".join(
+            [
+                "#!/usr/bin/env bash",
+                "set -euo pipefail",
+                f"source {PYTHON_RESOLVER}",
+                f"MEMORY_PYTHON={other_python} /bin/bash -c 'set -euo pipefail; "
+                f"source {PYTHON_RESOLVER}; test \"$MEMORY_PYTHON\" = {verified_python}'",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    script.chmod(0o755)
+
+    result = subprocess.run(
+        ["/bin/bash", str(script)],
+        env={
+            **os.environ,
+            "AGENT_MEMORY_HUB_PYTHON": str(verified_python),
+            "PYTHONPATH": str(REPO_ROOT),
+        },
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert invocation_log.read_text(encoding="utf-8").splitlines() == ["probe", "probe"]
+
+
+def test_python_resolver_rejects_marker_after_creator_exits(tmp_path):
+    verified_python, invocation_log = _counting_python_wrapper(tmp_path)
+    parent = subprocess.run(
+        [
+            "/bin/bash",
+            "-c",
+            f"set -euo pipefail; source {PYTHON_RESOLVER}; env | "
+            "grep -E '^(MEMORY_PYTHON|AGENT_MEMORY_HUB_PYTHON_RESOLVED)'",
+        ],
+        env={
+            **os.environ,
+            "AGENT_MEMORY_HUB_PYTHON": str(verified_python),
+            "PYTHONPATH": str(REPO_ROOT),
+        },
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    inherited = {
+        line.split("=", 1)[0]: line.split("=", 1)[1]
+        for line in parent.stdout.splitlines()
+    }
+    result = subprocess.run(
+        [
+            "/bin/bash",
+            "-c",
+            f"set -euo pipefail; source {PYTHON_RESOLVER}; "
+            f"test \"$MEMORY_PYTHON\" = {verified_python}",
+        ],
+        env={
+            **os.environ,
+            **inherited,
+            "AGENT_MEMORY_HUB_PYTHON": str(verified_python),
+            "PYTHONPATH": str(REPO_ROOT),
+        },
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert invocation_log.read_text(encoding="utf-8").splitlines() == ["probe", "probe"]
 
 
 def test_shim_pending_record_includes_validity_scope(tmp_path):
@@ -297,3 +442,4 @@ def test_prompt_injection_hook_exports_one_verified_python_before_child_tools():
     runtime_event_at = content.index('[ -x "$RECORD_TOOL" ]')
     assert source_at < runtime_event_at
     assert "export MEMORY_PYTHON AGENT_MEMORY_HUB_PYTHON_RESOLVED" in content
+    assert "unset AGENT_MEMORY_HUB_PYTHON_RESOLVED" in content

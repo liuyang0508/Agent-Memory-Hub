@@ -35,7 +35,7 @@ def main(
 ) -> int:
     args = _parser().parse_args(argv)
     brain_dir = args.brain_dir.expanduser()
-    if brain_dir.exists():
+    if brain_dir.exists() or brain_dir.is_symlink():
         raise SystemExit("brain dir must not already exist")
     brain_dir.mkdir(parents=True, mode=0o700)
 
