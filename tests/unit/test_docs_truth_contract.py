@@ -1,11 +1,47 @@
 from pathlib import Path
 
+from agent_brain.agent_integrations.awareness import render_awareness_block
+from agent_brain.interfaces.mcp.onboarding import BEFORE_ANSWERING, USAGE_GUIDE
+from agent_brain.interfaces.mcp.tools.search_tools import search_memory
+
 
 ROOT = Path(__file__).resolve().parents[2]
 
 
 def _read(path: str) -> str:
     return (ROOT / path).read_text(encoding="utf-8")
+
+
+def _agent_facing_recall_guidance() -> dict[str, str]:
+    return {
+        "runtime discipline": _read("agent_runtime_kit/AGENT_MEMORY_DISCIPLINE.md"),
+        "MCP usage guide": USAGE_GUIDE,
+        "MCP before-answering prompt": BEFORE_ANSWERING,
+        "MCP search tool": search_memory.__doc__ or "",
+        "adapter awareness": render_awareness_block(
+            agent_name="Test Agent",
+            brain_dir=Path("/tmp/test-brain"),
+            tool_channel="AMH MCP",
+        ),
+    }
+
+
+def test_agent_docs_govern_brief_search_and_project_scope():
+    surfaces = _agent_facing_recall_guidance()
+    forbidden = (
+        "brief ||",
+        "3-5 keywords",
+        "3–5 keywords",
+        "提取 3-5 个关键词",
+        "提取 3–5 个关键词",
+    )
+
+    for surface, text in surfaces.items():
+        assert not any(term in text for term in forbidden), surface
+        assert "完整任务描述" in text or "full task description" in text, surface
+        assert "brief" in text and "search" in text, surface
+        assert "cwd" in text, surface
+        assert "hard filter" in text, surface
 
 
 def test_architecture_exposes_the_single_prompt_injection_authorization_chain():

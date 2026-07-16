@@ -122,6 +122,11 @@ def brief(
     project: str | None = typer.Option(None, "--project", help="Only this project's items"),
     budget_tokens: int = typer.Option(1500, "--budget-tokens", help="Approx token budget for the briefing"),
     query: str | None = typer.Option(None, "--query", help="Bias the briefing toward this task/topic"),
+    fail_empty: bool = typer.Option(
+        False,
+        "--fail-empty",
+        help="Exit with code 3 when the brief contains no active memory items.",
+    ),
 ) -> None:
     """Token-budgeted resume briefing (summaries only) — run this first when picking up work."""
     from agent_brain.memory.recall.brief import build_brief
@@ -130,6 +135,8 @@ def brief(
     b = build_brief(store, project=project, budget_tokens=budget_tokens, query=query)
     if b.total_shown == 0:
         typer.echo("no active context to resume")
+        if fail_empty:
+            raise typer.Exit(3)
         return
     _titles = {"open_signals": "Open signals (blockers)", "recent_handoffs": "Recent handoffs",
                "key_decisions": "Key decisions", "recent_episodes": "Recent episodes"}

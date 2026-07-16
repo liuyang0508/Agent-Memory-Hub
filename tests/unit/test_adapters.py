@@ -2439,7 +2439,8 @@ class TestQoderWorkAdapterRealInstall:
         assert "search_memory" in awareness
         assert "QoderWork awareness/main" in awareness
         assert "one-word or short project/name prompt" in awareness
-        assert "call `brief_memory` or `search_memory` before replying" in awareness
+        assert "use `brief_memory` to recover the overall project state" in awareness
+        assert "use `search_memory` with the full task description" in awareness
         mcp = json.loads(mcp_path.read_text())
         server = mcp["mcpServers"]["agent-memory-hub"]
         assert server["args"] == ["-m", "agent_brain.interfaces.mcp.server"]

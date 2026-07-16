@@ -50,13 +50,21 @@ Triggers to search:
 
 Typical flow:
 ```
-search_memory(query="...", top_k=5, verbosity="auto")
+search_memory(query="<full task description>", top_k=5, verbosity="auto")
   → inspect each hit["context_pack"] first
   → if context_pack.text is enough: answer from packed context
   → only when needed for evidence, code, logs, stack traces, or exact wording:
       read_memory(id, head=2000, view="detail")
   → cite the id and say when you performed a bounded detail read.
 ```
+
+Use `brief_memory` to recover the overall project state; use `search_memory`
+for relevance to the current concrete task. They are complementary, not
+fallbacks. Pass the full task description to search instead of first reducing
+it to model-chosen keywords. A `project` argument is a hard filter: provide it
+only when the user explicitly names the project or the cwd mapping is certain.
+Never infer a project from natural-language similarity and use that guess as a
+hard filter.
 
 When in doubt, search. A cheap search beats an expensive hallucination.
 
@@ -105,7 +113,8 @@ search. Linking turns the brain into a graph, which is what enables
 │   → spot 1-3 most relevant items → read_memory those ids            │
 ├─────────────────────────────────────────────────────────────────────┤
 │ EACH USER QUESTION                                                  │
-│   search_memory(query=..., verbosity="auto") → inspect context_pack │
+│   search_memory(query=<full task description>, verbosity="auto")   │
+│   → inspect context_pack                                             │
 │   → read_memory(id, head=2000, view="detail") only when needed      │
 │   → answer (with id)                                                │
 ├─────────────────────────────────────────────────────────────────────┤
@@ -168,7 +177,13 @@ You just received a user message. STOP. Before reasoning or generating:
    - A factual claim or recommendation you are about to make from your
      general knowledge (the brain may contradict it).
 
-2. Call: `search_memory(query="3-5 keywords", top_k=5, verbosity="auto")`
+2. Call `search_memory` with the full task description:
+   `search_memory(query="<full task description>", top_k=5, verbosity="auto")`
+   Use `brief_memory` for overall project recovery and `search_memory` for the
+   current concrete task; neither is a fallback for the other. The `project`
+   argument is a hard filter, so set it only when the user explicitly names
+   the project or the cwd mapping is certain. Never guess it from natural
+   language.
 
 3. Inspect `context_pack.text`, `context_pack.selected_view`, and
    `context_pack.retrieve_hint`. For any relevant hit, call

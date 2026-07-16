@@ -1,7 +1,9 @@
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from typer.testing import CliRunner
 
+from agent_brain.interfaces.cli import app
 from agent_brain.memory.store.items_store import ItemsStore, make_item_id
 from agent_brain.memory.recall.brief import build_brief, Brief
 from agent_brain.contracts.memory_item import MemoryItem, MemoryType, Sensitivity
@@ -135,3 +137,27 @@ def test_brief_empty_pool(tmp_path):
     brief = build_brief(store, budget_tokens=1500)
     assert all(not t.shown for t in brief.tiers)
     assert brief.total_shown == 0
+
+
+def test_brief_fail_empty_exits_three(tmp_brain):
+    result = CliRunner().invoke(app, ["brief", "--fail-empty"])
+
+    assert result.exit_code == 3
+    assert "no active context to resume" in result.output
+
+
+def test_brief_empty_keeps_legacy_zero_exit(tmp_brain):
+    result = CliRunner().invoke(app, ["brief"])
+
+    assert result.exit_code == 0
+    assert "no active context to resume" in result.output
+
+
+def test_brief_fail_empty_keeps_zero_for_nonempty_brief(tmp_brain):
+    store = ItemsStore(items_dir=tmp_brain / "items")
+    _seed(store, "signal", "active blocker", "waiting for review")
+
+    result = CliRunner().invoke(app, ["brief", "--fail-empty"])
+
+    assert result.exit_code == 0
+    assert "active blocker" in result.output

@@ -405,6 +405,7 @@ def test_large_fewshot_hook_matrix_blocks_injects_and_records_evidence(tmp_path:
         "hook-readme-deep-polish",
         MemoryType.artifact,
         "AMH README 深度叙事和算法解释二次打磨",
+        "关于多智能体共享第二单的深度叙事和算法解释二次打磨，都做了什么："
         "README.zh.md 调整阅读路线、运行时接入、维护链路、召回链路、Loop Engineering 和算法公式。",
         body="深度叙事 算法解释 二次打磨 problem fix evidence verification remaining boundary",
         tags=["agent-memory-hub", "readme"],
@@ -434,27 +435,24 @@ def test_large_fewshot_hook_matrix_blocks_injects_and_records_evidence(tmp_path:
         (
             "codex",
             "关于多智能体共享第二单的深度叙事和算法解释二次打磨，都做了什么",
-            "keywords: 深度叙事和算法解释二次打磨",
             "AMH README 深度叙事和算法解释二次打磨",
         ),
         (
             "claude_code",
             "ClaudeCode呢",
-            "keywords: claudecode",
             "ClaudeCode adapter runtime evidence",
         ),
         (
             "qoder_work",
             "请优先根据自动注入的 memory candidates 回答：ClaudeCode呢，不要调用工具。",
-            "keywords: claudecode",
             "ClaudeCode adapter runtime evidence",
         ),
     ]
-    for adapter, prompt, keyword_line, expected_title in inject_cases:
+    for adapter, prompt, expected_title in inject_cases:
         payload = _run_inject_context(tmp_path, prompt, adapter=adapter, session_id=f"{adapter}-inject")
         context = payload["hookSpecificOutput"]["additionalContext"]
-        assert keyword_line in context
         assert expected_title in context
+        assert "full-query routed recall" in context
         assert "memory candidates, not chat history" in context
         assert "answer from the injected pack first" in context
         assert "problem -> fix -> evidence/verification -> remaining boundary" in context
@@ -467,7 +465,10 @@ def test_large_fewshot_hook_matrix_blocks_injects_and_records_evidence(tmp_path:
     from agent_brain.memory.governance.recall_events import iter_gap_records
 
     gaps = list(iter_gap_records(gap_brain))
-    assert gaps == []
+    assert len(gaps) == 1
+    assert gaps[0].reason == "empty_recall"
+    assert gaps[0].query.startswith("sha256:")
+    assert "验证" not in repr(gaps[0])
 
 
 def _run_inject_context(brain_dir: Path, prompt: str, *, adapter: str, session_id: str) -> dict:

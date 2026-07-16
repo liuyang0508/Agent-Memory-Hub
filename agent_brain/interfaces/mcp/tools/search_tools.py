@@ -82,8 +82,12 @@ def search_memory(
 
     CHAIN
     -----
-    1. Start with a narrow query (3-5 keywords), `top_k=5`, and
-       `verbosity="auto"` for agent context.
+    1. Pass the full task description, `top_k=5`, and `verbosity="auto"`
+       for agent context. Use `brief_memory` to recover the overall project
+       state and this search tool for the current concrete task; neither is a
+       fallback for the other. `project` is a hard filter: set it only when the
+       user explicitly names the project or the cwd mapping is certain, never
+       from a natural-language guess.
     2. If recall is weak, broaden to synonyms or enable `graph_expand=True`.
     3. Inspect each hit["context_pack"] before deep reading. The pack includes
        selected_view, text, packed/full token estimates, and retrieve hints.

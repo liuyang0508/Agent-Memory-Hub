@@ -94,9 +94,15 @@ memory conversation rebalance
 也可以主动检索：
 
 ```bash
-<HUB>/tools/search-memory.sh "<query>" [--type T] [--project P] [--since DAYS]
-# query 多词空格自动按 OR 处理
+<HUB>/tools/search-memory.sh "<完整任务描述>" [--type T] [--project P] [--since DAYS]
 ```
+
+`brief` 用于恢复项目全貌，`search` 用于当前具体任务的相关性召回，二者不是失败降级关系。
+恢复工作时先用 `memory brief`；进入具体任务后，把用户的完整任务描述交给 `memory search`
+或 `search_memory`，不要先由模型主观切词再搜索。
+
+`--project` 是 hard filter：只在用户明确指定项目，或 cwd 到项目的映射可确定时传入。
+不得从自然语言里猜项目名并把猜测作为 hard filter；不确定时省略项目过滤，让召回层保留候选。
 
 ## 承接工作时的上下文预算（resume budget）
 
