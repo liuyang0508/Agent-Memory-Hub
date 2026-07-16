@@ -126,7 +126,7 @@ def execute_routed_query(
                 enabled=record_recall_gap,
                 brain_dir=brain_dir,
                 raw_query=raw_query,
-                reason="admission_rejected",
+                reason="query_not_injectable",
                 adapter=adapter,
                 session_id=session_id,
                 cwd=cwd,

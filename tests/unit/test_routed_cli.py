@@ -454,6 +454,39 @@ def test_hook_json_uses_positional_query_and_forces_safe_routed_path(
     assert "WRONG_ENV_QUERY" not in result.output
 
 
+def test_hook_json_component_initialization_failure_emits_only_stable_error_json(
+    tmp_brain,
+    monkeypatch,
+) -> None:
+    import sys
+
+    import agent_brain.interfaces.cli as cli
+    from agent_brain.interfaces.cli import app
+
+    def fail_initialization():
+        print("SECRET_COMPONENT_STDOUT_DETAIL")
+        print("SECRET_COMPONENT_STDERR_DETAIL", file=sys.stderr)
+        raise RuntimeError("SECRET_COMPONENT_INITIALIZATION_DETAIL")
+
+    monkeypatch.setattr(cli, "_open_hook_components", fail_initialization)
+    result = RUNNER.invoke(
+        app,
+        ["search", "valid hook query", "--format", "hook-json"],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.stdout) == {
+        "status": "error",
+        "reason": "internal_error",
+        "context": "",
+        "routes": [],
+    }
+    assert result.stdout.count("\n") == 1
+    assert "Traceback" not in result.stdout
+    assert "SECRET_COMPONENT" not in result.stdout
+    assert "SECRET_COMPONENT" not in result.stderr
+
+
 @pytest.mark.parametrize("output_format", ["text", "table"])
 def test_human_routed_formats_smoke_use_routed_orchestration(
     tmp_brain,
@@ -581,6 +614,35 @@ def test_hook_json_empty_gap_is_hash_and_aggregate_only(tmp_brain) -> None:
     assert gaps[0].injected_ids == ()
     assert gaps[0].rejected_ids == ()
     assert all(evidence.partition("=")[2].isdigit() for evidence in gaps[0].evidence)
+
+
+def test_hook_json_admission_rejection_maps_gap_to_query_not_injectable(
+    tmp_brain,
+) -> None:
+    from agent_brain.interfaces.cli import app
+    from agent_brain.memory.governance.recall_events import iter_gap_records
+
+    result = RUNNER.invoke(
+        app,
+        [
+            "search",
+            "ok",
+            "--format",
+            "hook-json",
+            "--record-recall-gap",
+            "--adapter",
+            "codex",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.stdout)
+    assert payload["status"] == "empty"
+    assert payload["reason"] == "admission_rejected"
+    assert payload["context"] == ""
+    gaps = list(iter_gap_records(tmp_brain))
+    assert len(gaps) == 1
+    assert gaps[0].reason == "query_not_injectable"
 
 
 def test_malformed_routed_result_returns_internal_error_without_details() -> None:

@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import os
+from contextlib import redirect_stderr, redirect_stdout
 
 from agent_brain.interfaces.cli._app import app
 from agent_brain.interfaces.cli._shared import *  # noqa: F401,F403
@@ -22,7 +24,7 @@ from agent_brain.memory.context.injection_gateway import (
     surface_injection_metrics,
 )
 from agent_brain.memory.context.query_signal import analyze_injection_query
-from agent_brain.interfaces.cli.routed_query import execute_routed_query
+from agent_brain.interfaces.cli.routed_query import HookSearchPayload, execute_routed_query
 import agent_brain.interfaces.cli as _cli  # noqa: E402  late binding for test-patched helpers
 
 _CONTEXT_VERBOSITIES = {"locator", "overview", "detail", "auto"}
@@ -151,11 +153,40 @@ def search(
         verbosity or ("auto" if effective_context_firewall else "locator"),
         "--verbosity",
     )
-    store, _, retriever = (
-        _cli._open_hook_components()
-        if hook_json
-        else _cli._open_components()
-    )
+    if hook_json:
+        try:
+            with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                store, _, retriever = _cli._open_hook_components()
+                sf = SearchFilter(
+                    type=type,
+                    project=project,
+                    tags=[t.strip() for t in tags.split(",") if t.strip()] if tags else [],
+                    exclude_tags=[t.strip() for t in exclude_tag.split(",") if t.strip()] if exclude_tag else [],
+                    since_days=since,
+                    include_stale_state=include_stale_state,
+                )
+                payload = execute_routed_query(
+                    raw_query=query,
+                    store=store,
+                    retriever=retriever,
+                    top_k=top_k,
+                    filters=sf,
+                    requested=verbosity,
+                    project=project,
+                    adapter=adapter,
+                    session_id=session,
+                    cwd=cwd,
+                    brain_dir=_brain_dir(),
+                    prefer_type=_parse_type_order(prefer_type),
+                    record_injection_cohort=record_injection_cohort,
+                    record_recall_gap=record_recall_gap,
+                )
+        except Exception:  # noqa: BLE001 - structured hook protocol fails closed
+            payload = HookSearchPayload("error", "internal_error", "", ())
+        typer.echo(json.dumps(payload.to_dict(), ensure_ascii=False))
+        return
+
+    store, _, retriever = _cli._open_components()
     sf = SearchFilter(
         type=type,
         project=project,
@@ -164,7 +195,7 @@ def search(
         since_days=since,
         include_stale_state=include_stale_state,
     )
-    if routed_recall or hook_json:
+    if routed_recall:
         payload = execute_routed_query(
             raw_query=query,
             store=store,
@@ -181,9 +212,7 @@ def search(
             record_injection_cohort=record_injection_cohort,
             record_recall_gap=record_recall_gap,
         )
-        if hook_json:
-            typer.echo(json.dumps(payload.to_dict(), ensure_ascii=False))
-        elif payload.context:
+        if payload.context:
             typer.echo(payload.context)
         else:
             typer.echo("no matches")
