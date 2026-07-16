@@ -4,6 +4,8 @@ import importlib.util
 import io
 import json
 import subprocess
+import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -267,6 +269,7 @@ def test_dual_route_hook_benchmark_warmup_and_output_are_privacy_bounded(
             "--repeats", "3",
             "--warmup", "1",
             "--min-samples", "1",
+            "--unit-test-mode",
         ],
         runner=fake_runner,
         clock=lambda: next(ticks),
@@ -274,7 +277,7 @@ def test_dual_route_hook_benchmark_warmup_and_output_are_privacy_bounded(
     )
 
     report = json.loads(output.getvalue())
-    assert status == 0
+    assert status == 1
     assert len(calls) == 8
     assert [call[0][0] for call in calls] == [
         "old-hook",
@@ -293,13 +296,18 @@ def test_dual_route_hook_benchmark_warmup_and_output_are_privacy_bounded(
         "p95_delta_ms",
         "limits",
         "sample_policy",
+        "publishable",
         "passed",
     }
     assert report["sample_policy"] == {
         "minimum": 1,
         "interleaved": True,
         "expected_result": "injected",
+        "expected_reason": "included",
+        "unit_test_mode": True,
     }
+    assert report["publishable"] is False
+    assert report["passed"] is False
     assert "PRIVATE BENCHMARK PROMPT" not in output.getvalue()
     assert "old-hook" not in output.getvalue()
     assert "new-hook" not in output.getvalue()
@@ -325,6 +333,7 @@ def test_dual_route_hook_benchmark_nonzero_process_is_an_error(tmp_path: Path) -
             "0",
             "--min-samples",
             "1",
+            "--unit-test-mode",
         ],
         stdout=output,
     )
@@ -365,6 +374,7 @@ def test_dual_route_hook_benchmark_does_not_hide_warmup_errors(tmp_path: Path) -
             "1",
             "--min-samples",
             "1",
+            "--unit-test-mode",
         ],
         runner=fake_runner,
         clock=lambda: next(ticks),
@@ -413,6 +423,7 @@ def test_dual_route_hook_benchmark_treats_invalid_or_wrong_results_as_functional
             "--repeats", "1",
             "--warmup", "0",
             "--min-samples", "1",
+            "--unit-test-mode",
         ],
         runner=fake_runner,
         clock=lambda: next(ticks),
@@ -445,6 +456,7 @@ def test_dual_route_hook_benchmark_can_require_a_valid_empty_result(tmp_path: Pa
             "--repeats", "1",
             "--warmup", "0",
             "--min-samples", "1",
+            "--unit-test-mode",
             "--expected-result", "empty",
             "--expected-reason", "no_candidates",
         ],
@@ -454,46 +466,53 @@ def test_dual_route_hook_benchmark_can_require_a_valid_empty_result(tmp_path: Pa
     )
 
     report = json.loads(output.getvalue())
-    assert status == 0
+    assert status == 1
     assert report["old"]["errors"] == 0
     assert report["new"]["errors"] == 0
     assert report["sample_policy"]["expected_result"] == "empty"
-    assert "no_candidates" not in output.getvalue()
+    assert report["sample_policy"]["expected_reason"] == "no_candidates"
 
 
 def test_dual_route_hook_benchmark_bounds_real_runner_stdout_before_reading(
     tmp_path: Path,
 ) -> None:
     benchmark = _load_dual_route_hook_benchmark()
-    payload = tmp_path / "payload.json"
-    payload.write_text("{}", encoding="utf-8")
-    ticks = iter(index * 0.010 for index in range(8))
-
-    def fake_runner(_command, *, input, stdout, stderr, timeout, check):
-        assert stdout is not subprocess.PIPE
-        stdout.write(b"PRIVATE_OVERSIZED_OUTPUT" * 4096)
-        return SimpleNamespace(returncode=0, stdout=None)
-
-    output = io.StringIO()
-    status = benchmark.main(
-        [
-            "--old-command", "old-hook",
-            "--new-command", "new-hook",
-            "--payload", str(payload),
-            "--repeats", "1",
-            "--warmup", "0",
-            "--min-samples", "1",
-        ],
-        runner=fake_runner,
-        clock=lambda: next(ticks),
-        stdout=output,
+    started_marker = tmp_path / "descendant-started.txt"
+    survived_marker = tmp_path / "descendant-survived.txt"
+    descendant_code = (
+        "import pathlib,time;"
+        f"pathlib.Path({str(started_marker)!r}).write_text('started');"
+        "time.sleep(1);"
+        f"pathlib.Path({str(survived_marker)!r}).write_text('survived')"
+    )
+    code = (
+        "import pathlib,subprocess,sys,time;"
+        "sys.stdin.buffer.read();"
+        f"subprocess.Popen([{sys.executable!r},'-c',{descendant_code!r}]);"
+        f"p=pathlib.Path({str(started_marker)!r});"
+        "deadline=time.monotonic()+1;"
+        "\nwhile not p.exists() and time.monotonic()<deadline: time.sleep(.01)\n"
+        "sys.stdout.buffer.write(b'X'*70000);sys.stdout.buffer.flush();"
+        "time.sleep(2)"
+    )
+    started = time.perf_counter()
+    elapsed, timed_out, functional_error = benchmark._run_once(
+        [sys.executable, "-c", code],
+        b"{}",
+        runner=None,
+        clock=time.perf_counter,
+        timeout_seconds=5.0,
+        expected_result="injected",
+        expected_reason="included",
     )
 
-    report = json.loads(output.getvalue())
-    assert status == 1
-    assert report["old"]["errors"] == 1
-    assert report["new"]["errors"] == 1
-    assert "PRIVATE_OVERSIZED_OUTPUT" not in output.getvalue()
+    assert time.perf_counter() - started < 1.0
+    assert elapsed < 1.0
+    assert timed_out is False
+    assert functional_error is True
+    assert started_marker.exists()
+    time.sleep(1.1)
+    assert not survived_marker.exists()
 
 
 def test_dual_route_hook_benchmark_requires_publishable_sample_floor(tmp_path: Path) -> None:
@@ -509,5 +528,66 @@ def test_dual_route_hook_benchmark_requires_publishable_sample_floor(tmp_path: P
                 "--payload", str(payload),
                 "--repeats", "29",
                 "--warmup", "0",
+            ]
+        )
+
+
+def test_dual_route_hook_benchmark_rejects_lowered_publishable_floor(tmp_path: Path) -> None:
+    benchmark = _load_dual_route_hook_benchmark()
+    payload = tmp_path / "payload.json"
+    payload.write_text("{}", encoding="utf-8")
+
+    with pytest.raises(SystemExit, match="publishable minimum"):
+        benchmark.main(
+            [
+                "--old-command", "old-hook",
+                "--new-command", "new-hook",
+                "--payload", str(payload),
+                "--repeats", "30",
+                "--min-samples", "1",
+                "--warmup", "0",
+            ]
+        )
+
+
+def test_dual_route_hook_benchmark_custom_runner_is_test_only(tmp_path: Path) -> None:
+    benchmark = _load_dual_route_hook_benchmark()
+    payload = tmp_path / "payload.json"
+    payload.write_text("{}", encoding="utf-8")
+
+    with pytest.raises(SystemExit, match="custom runner requires unit-test mode"):
+        benchmark.main(
+            [
+                "--old-command", "old-hook",
+                "--new-command", "new-hook",
+                "--payload", str(payload),
+                "--repeats", "30",
+                "--warmup", "0",
+            ],
+            runner=lambda *_args, **_kwargs: SimpleNamespace(
+                returncode=0,
+                stdout=b'{"status":"injected","reason":"included","context":"ok","routes":[]}',
+            ),
+        )
+
+
+def test_dual_route_hook_benchmark_empty_result_requires_closed_set_reason(
+    tmp_path: Path,
+) -> None:
+    benchmark = _load_dual_route_hook_benchmark()
+    payload = tmp_path / "payload.json"
+    payload.write_text("{}", encoding="utf-8")
+
+    with pytest.raises(SystemExit, match="expected reason is required"):
+        benchmark.main(
+            [
+                "--old-command", "old-hook",
+                "--new-command", "new-hook",
+                "--payload", str(payload),
+                "--repeats", "1",
+                "--min-samples", "1",
+                "--warmup", "0",
+                "--expected-result", "empty",
+                "--unit-test-mode",
             ]
         )
