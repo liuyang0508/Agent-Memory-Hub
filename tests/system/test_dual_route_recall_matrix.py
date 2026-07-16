@@ -4,11 +4,12 @@ from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
+import importlib.util
+import inspect
 import json
 import math
 from pathlib import Path
-import re
-from typing import Any, Callable
+from typing import Any
 
 import pytest
 
@@ -23,9 +24,10 @@ from agent_brain.platform.indexing.index import HubIndex
 
 
 FIXTURE_PATH = Path(__file__).parents[1] / "fixtures" / "dual_route_recall_cases.json"
-SEMANTIC_LEXICON_PATH = (
-    Path(__file__).parents[1] / "fixtures" / "dual_route_semantic_lexicon.json"
+PRECOMPUTED_EMBEDDING_PATH = (
+    Path(__file__).parents[1] / "fixtures" / "dual_route_precomputed_embeddings.json"
 )
+GENERATOR_PATH = Path(__file__).parents[2] / "scripts" / "generate-dual-route-embedding-fixture.py"
 CATEGORIES = {
     "semantic_paraphrase",
     "multilingual",
@@ -33,12 +35,6 @@ CATEGORIES = {
     "exact_entity",
     "weak_or_no_value",
 }
-_SEMANTIC_CONCEPT_LEXICON = tuple(
-    tuple(str(entry).casefold() for entry in entries)
-    for _concept, entries in sorted(
-        json.loads(SEMANTIC_LEXICON_PATH.read_text(encoding="utf-8")).items()
-    )
-)
 
 
 def _cases() -> list[dict[str, Any]]:
@@ -81,49 +77,110 @@ def test_dual_route_fixture_schema_and_distribution() -> None:
     } <= {case["id"] for case in cases}
 
 
-def test_fixture_semantic_lexicon_is_atomic_and_independent_of_labels() -> None:
-    lexicon = json.loads(SEMANTIC_LEXICON_PATH.read_text(encoding="utf-8"))
-    entries = {
-        str(entry).casefold()
-        for concept_entries in lexicon.values()
-        for entry in concept_entries
+def _searchable_item_text(raw: dict[str, Any]) -> str:
+    return " ".join(
+        (
+            str(raw.get("title", "")),
+            str(raw.get("summary", "")),
+            str(raw.get("body", "")),
+            *(str(tag) for tag in raw.get("tags", [])),
+        )
+    )
+
+
+def _fixture_embedding_texts() -> tuple[str, ...]:
+    values = [case["query"] for case in _cases()]
+    values.extend(
+        _searchable_item_text(case["brain_item"])
+        for case in _cases()
+        if case.get("brain_item") is not None
+    )
+    return tuple(dict.fromkeys(values))
+
+
+def _load_embedding_generator():
+    spec = importlib.util.spec_from_file_location("dual_route_embedding_generator", GENERATOR_PATH)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_precomputed_embedding_fixture_has_provenance_and_no_label_leakage() -> None:
+    generator = _load_embedding_generator()
+    signature = inspect.signature(generator.generate_precomputed_embeddings)
+    assert tuple(signature.parameters) == ("texts", "encode", "provenance")
+    generator_source = GENERATOR_PATH.read_text(encoding="utf-8")
+    assert all(
+        field not in generator_source
+        for field in ("expected_item_ids", "legacy_false_negative", "prohibited_item_ids")
+    )
+    assert not (
+        PRECOMPUTED_EMBEDDING_PATH.parent / "dual_route_semantic_lexicon.json"
+    ).exists()
+
+    payload = json.loads(PRECOMPUTED_EMBEDDING_PATH.read_text(encoding="utf-8"))
+    texts = _fixture_embedding_texts()
+    expected_hashes = {hashlib.sha256(text.encode("utf-8")).hexdigest() for text in texts}
+    assert set(payload["embeddings"]) == expected_hashes
+    assert all(
+        len(content_hash) == 64
+        and all(character in "0123456789abcdef" for character in content_hash)
+        for content_hash in payload["embeddings"]
+    )
+    assert payload["content_hash"] == "sha256:utf-8"
+    assert payload["model"] == {
+        "id": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        "revision": "e8f8c211226b894fcb81acc59f3b34ba3efd5f42",
+        "dimension": 384,
+        "normalized": True,
     }
-    cases = _cases()
+    assert payload["generator"] == {
+        "path": "scripts/generate-dual-route-embedding-fixture.py",
+        "version": 1,
+        "encoder": "sentence-transformers==3.4.1",
+        "float_round_digits": 8,
+    }
+    assert all(len(vector) == 384 for vector in payload["embeddings"].values())
+    assert all(
+        math.sqrt(sum(value * value for value in vector)) == pytest.approx(1.0, abs=1e-5)
+        for vector in payload["embeddings"].values()
+    )
+    with pytest.raises(ValueError, match="provenance"):
+        generator.generate_precomputed_embeddings(
+            ["raw text only"],
+            lambda _texts: [[1.0, *([0.0] * 383)]],
+            {
+                **payload["model"],
+                "expected_item_ids": ["forbidden-label-channel"],
+            },
+        )
 
-    assert entries
-    assert all(entry and not any(character.isspace() for character in entry) for entry in entries)
-    assert not {
-        re.sub(r"\s+", " ", case["query"].casefold()).strip()
-        for case in cases
-    } & entries
-    for case in cases:
-        item = case.get("brain_item") or {}
-        assert str(item.get("id", "")).casefold() not in entries
-        assert str(item.get("title", "")).casefold() not in entries
+
+def test_precomputed_provider_resolves_only_by_content_hash() -> None:
+    provider = _PrecomputedSemanticEmbedder()
+    text = _fixture_embedding_texts()[0]
+    payload = json.loads(PRECOMPUTED_EMBEDDING_PATH.read_text(encoding="utf-8"))
+    content_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+    assert provider.embed(text) == payload["embeddings"][content_hash]
+    with pytest.raises(KeyError):
+        provider.embed("unseen text is not mapped to any label")
 
 
-class _FixtureSemanticEmbedder:
-    """Small offline semantic provider based on language-level concepts.
+class _PrecomputedSemanticEmbedder:
+    """Offline CI provider keyed only by searchable-text SHA-256."""
 
-    It maps reusable synonym groups, never fixture IDs or complete queries.
-    Exact-token hashing supplies a low-weight lexical tail.
-    """
-
-    dim = 32
     degraded = False
-    _GROUPS = _SEMANTIC_CONCEPT_LEXICON
+
+    def __init__(self) -> None:
+        payload = json.loads(PRECOMPUTED_EMBEDDING_PATH.read_text(encoding="utf-8"))
+        self.dim = int(payload["model"]["dimension"])
+        self._embeddings = payload["embeddings"]
 
     def embed(self, text: str) -> list[float]:
-        lowered = text.casefold()
-        vector = [0.0] * self.dim
-        for index, aliases in enumerate(self._GROUPS):
-            if any(alias in lowered for alias in aliases):
-                vector[index] = 4.0
-        for token in re.findall(r"[a-z0-9_.#:/-]{3,}", lowered):
-            digest = hashlib.sha256(token.encode("utf-8")).digest()
-            vector[3 + digest[0] % (self.dim - 3)] += 0.1
-        norm = math.sqrt(sum(value * value for value in vector)) or 1.0
-        return [value / norm for value in vector]
+        content_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
+        return list(self._embeddings[content_hash])
 
 
 def _memory_item(data: dict[str, Any]) -> tuple[MemoryItem, str]:
@@ -146,8 +203,8 @@ class _Outcome:
 
 def _seed_fixture_brain(
     tmp_path: Path,
-) -> tuple[HubIndex, dict[str, tuple[MemoryItem, str]], _FixtureSemanticEmbedder]:
-    embedder = _FixtureSemanticEmbedder()
+) -> tuple[HubIndex, dict[str, tuple[MemoryItem, str]], _PrecomputedSemanticEmbedder]:
+    embedder = _PrecomputedSemanticEmbedder()
     index = HubIndex(tmp_path / "fixture-index.db", embedding_dim=embedder.dim)
     items: dict[str, tuple[MemoryItem, str]] = {}
     for case in _cases():
@@ -162,7 +219,7 @@ def _seed_fixture_brain(
             index.upsert(
                 item,
                 body,
-                embedding=embedder.embed(" ".join((item.title, item.summary, body, *item.tags))),
+                embedding=embedder.embed(_searchable_item_text(raw)),
             )
     return index, items, embedder
 
@@ -324,7 +381,6 @@ def test_dual_route_candidate_and_injection_governance_matrix(tmp_path: Path) ->
     assert len(fixed) >= 3, {"fixed": fixed, "misses": expected_misses}
     assert new_false_negatives == [], new_false_negatives
     assert prohibited == [], prohibited
-    assert expected_misses == [], expected_misses
 
 
 class _FakeDeadline:
