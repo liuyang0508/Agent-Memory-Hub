@@ -20,4 +20,11 @@ def is_cjk_search_char(ch: str) -> bool:
     )
 
 
-__all__ = ["is_cjk_search_char"]
+def is_unicode_search_char(ch: str) -> bool:
+    """Return True for Unicode letters, numbers, and combining marks."""
+    if not ch or ch.isascii():
+        return False
+    return unicodedata.category(ch).startswith(("L", "N", "M"))
+
+
+__all__ = ["is_cjk_search_char", "is_unicode_search_char"]

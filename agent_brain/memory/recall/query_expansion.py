@@ -4,7 +4,10 @@ import re
 
 from agent_brain.memory.recall.query_synonyms import _expand_with_synonyms, _extract_words
 from agent_brain.memory.recall.query_tokens import _tokenize_mixed
-from agent_brain.platform.indexing.text_scripts import is_cjk_search_char
+from agent_brain.platform.indexing.text_scripts import (
+    is_cjk_search_char,
+    is_unicode_search_char,
+)
 
 _ASCII_TERM_RE = re.compile(r"[a-zA-Z0-9_]+")
 
@@ -44,8 +47,10 @@ def _token_groups(query: str) -> list[list[str]]:
     for raw in _raw_terms(query):
         if raw.isascii():
             tokens = _tokenize_mixed(raw)
-        else:
+        elif all(is_cjk_search_char(character) for character in raw):
             tokens = list(raw)
+        else:
+            tokens = [raw]
         if tokens:
             groups.append(tokens)
     return groups
@@ -56,7 +61,15 @@ def _raw_terms(query: str) -> list[str]:
     current: list[str] = []
     current_kind: str | None = None
     for ch in query:
-        kind = "ascii" if _ASCII_TERM_RE.fullmatch(ch) else "cjk" if is_cjk_search_char(ch) else None
+        kind = (
+            "ascii"
+            if _ASCII_TERM_RE.fullmatch(ch)
+            else "cjk"
+            if is_cjk_search_char(ch)
+            else "unicode"
+            if is_unicode_search_char(ch)
+            else None
+        )
         if kind is None:
             if current:
                 terms.append("".join(current))

@@ -27025,6 +27025,7 @@
   "generator": {
     "encoder": "sentence-transformers==3.4.1",
     "float_round_digits": 8,
+    "lockfile": "scripts/dual-route-embedding-generator.lock.txt",
     "path": "scripts/generate-dual-route-embedding-fixture.py",
     "version": 1
   },
@@ -27032,7 +27033,9 @@
     "dimension": 384,
     "id": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
     "normalized": true,
-    "revision": "e8f8c211226b894fcb81acc59f3b34ba3efd5f42"
+    "revision": "e8f8c211226b894fcb81acc59f3b34ba3efd5f42",
+    "snapshot_digest": "sha256:d9ffa8b29d3b9b379a3168bce486cab75ac50f5f8f7f9ba6c17cf6e07a600792",
+    "snapshot_path_suffix": "snapshots/e8f8c211226b894fcb81acc59f3b34ba3efd5f42"
   },
   "schema_version": 1
 }

@@ -3,10 +3,12 @@ from __future__ import annotations
 import importlib.util
 import io
 import json
+import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 from typer.testing import CliRunner
 
 from agent_brain.contracts.memory_item import MemoryItem, MemoryType
@@ -240,10 +242,21 @@ def test_dual_route_hook_benchmark_warmup_and_output_are_privacy_bounded(
     payload.write_text('{"prompt":"PRIVATE BENCHMARK PROMPT"}', encoding="utf-8")
     calls: list[tuple[list[str], bytes, float]] = []
     ticks = iter(index * 0.010 for index in range(20))
+    valid_stdout = json.dumps({
+        "status": "injected",
+        "reason": "included",
+        "context": "bounded fixture context",
+        "routes": [{
+            "route": "semantic_raw",
+            "status": "ok",
+            "candidate_count": 1,
+            "reason": "route_completed",
+        }],
+    }).encode()
 
     def fake_runner(command, *, input, stdout, stderr, timeout, check):
         calls.append((command, input, timeout))
-        return SimpleNamespace(returncode=0)
+        return SimpleNamespace(returncode=0, stdout=valid_stdout)
 
     output = io.StringIO()
     status = benchmark.main(
@@ -253,6 +266,7 @@ def test_dual_route_hook_benchmark_warmup_and_output_are_privacy_bounded(
             "--payload", str(payload),
             "--repeats", "3",
             "--warmup", "1",
+            "--min-samples", "1",
         ],
         runner=fake_runner,
         clock=lambda: next(ticks),
@@ -262,8 +276,30 @@ def test_dual_route_hook_benchmark_warmup_and_output_are_privacy_bounded(
     report = json.loads(output.getvalue())
     assert status == 0
     assert len(calls) == 8
+    assert [call[0][0] for call in calls] == [
+        "old-hook",
+        "new-hook",
+        "new-hook",
+        "old-hook",
+        "old-hook",
+        "new-hook",
+        "new-hook",
+        "old-hook",
+    ]
     assert all(call[1] == payload.read_bytes() for call in calls)
-    assert report.keys() == {"old", "new", "p95_delta_ms", "limits", "passed"}
+    assert report.keys() == {
+        "old",
+        "new",
+        "p95_delta_ms",
+        "limits",
+        "sample_policy",
+        "passed",
+    }
+    assert report["sample_policy"] == {
+        "minimum": 1,
+        "interleaved": True,
+        "expected_result": "injected",
+    }
     assert "PRIVATE BENCHMARK PROMPT" not in output.getvalue()
     assert "old-hook" not in output.getvalue()
     assert "new-hook" not in output.getvalue()
@@ -287,6 +323,8 @@ def test_dual_route_hook_benchmark_nonzero_process_is_an_error(tmp_path: Path) -
             "1",
             "--warmup",
             "0",
+            "--min-samples",
+            "1",
         ],
         stdout=output,
     )
@@ -307,7 +345,10 @@ def test_dual_route_hook_benchmark_does_not_hide_warmup_errors(tmp_path: Path) -
     ticks = iter(index * 0.010 for index in range(8))
 
     def fake_runner(*_args, **_kwargs):
-        return SimpleNamespace(returncode=next(returncodes))
+        return SimpleNamespace(
+            returncode=next(returncodes),
+            stdout=b'{"status":"injected","reason":"included","context":"ok","routes":[]}',
+        )
 
     output = io.StringIO()
     status = benchmark.main(
@@ -322,6 +363,8 @@ def test_dual_route_hook_benchmark_does_not_hide_warmup_errors(tmp_path: Path) -
             "1",
             "--warmup",
             "1",
+            "--min-samples",
+            "1",
         ],
         runner=fake_runner,
         clock=lambda: next(ticks),
@@ -331,3 +374,140 @@ def test_dual_route_hook_benchmark_does_not_hide_warmup_errors(tmp_path: Path) -
     report = json.loads(output.getvalue())
     assert status == 1
     assert report["old"]["errors"] == 1
+
+
+@pytest.mark.parametrize(
+    "hook_stdout",
+    [
+        b"{}",
+        b"not-json",
+        b'{"status":"error","reason":"internal_error","context":"","routes":[]}',
+        b'{"status":"timeout","reason":"overall_timeout","context":"","routes":[]}',
+        b'{"status":"empty","reason":"no_candidates","context":"","routes":[]}',
+        b'{"status":"injected","reason":"included","context":"","routes":[]}',
+        b'{"status":"injected","reason":"wrong_reason","context":"ok","routes":[]}',
+        b'{"status":"injected","reason":"included","context":"ok","routes":[{}]}',
+        b'{"status":"injected","reason":"included","context":"ok","routes":[{"route":"semantic_raw","status":"ok","candidate_count":1,"reason":"route_error"}]}',
+        b'{"status":"injected","reason":"included","context":"ok","routes":[],"extra":1}',
+        b"x" * (64 * 1024 + 1),
+    ],
+)
+def test_dual_route_hook_benchmark_treats_invalid_or_wrong_results_as_functional_errors(
+    tmp_path: Path,
+    hook_stdout: bytes,
+) -> None:
+    benchmark = _load_dual_route_hook_benchmark()
+    payload = tmp_path / "payload.json"
+    payload.write_text("{}", encoding="utf-8")
+    ticks = iter(index * 0.010 for index in range(8))
+
+    def fake_runner(*_args, **_kwargs):
+        return SimpleNamespace(returncode=0, stdout=hook_stdout)
+
+    output = io.StringIO()
+    status = benchmark.main(
+        [
+            "--old-command", "old-hook",
+            "--new-command", "new-hook",
+            "--payload", str(payload),
+            "--repeats", "1",
+            "--warmup", "0",
+            "--min-samples", "1",
+        ],
+        runner=fake_runner,
+        clock=lambda: next(ticks),
+        stdout=output,
+    )
+
+    report = json.loads(output.getvalue())
+    assert status == 1
+    assert report["old"]["errors"] == 1
+    assert report["new"]["errors"] == 1
+    assert hook_stdout.decode("utf-8", errors="ignore") not in output.getvalue()
+
+
+def test_dual_route_hook_benchmark_can_require_a_valid_empty_result(tmp_path: Path) -> None:
+    benchmark = _load_dual_route_hook_benchmark()
+    payload = tmp_path / "payload.json"
+    payload.write_text("{}", encoding="utf-8")
+    ticks = iter(index * 0.010 for index in range(8))
+    valid_empty = b'{"status":"empty","reason":"no_candidates","context":"","routes":[]}'
+
+    def fake_runner(*_args, **_kwargs):
+        return SimpleNamespace(returncode=0, stdout=valid_empty)
+
+    output = io.StringIO()
+    status = benchmark.main(
+        [
+            "--old-command", "old-hook",
+            "--new-command", "new-hook",
+            "--payload", str(payload),
+            "--repeats", "1",
+            "--warmup", "0",
+            "--min-samples", "1",
+            "--expected-result", "empty",
+            "--expected-reason", "no_candidates",
+        ],
+        runner=fake_runner,
+        clock=lambda: next(ticks),
+        stdout=output,
+    )
+
+    report = json.loads(output.getvalue())
+    assert status == 0
+    assert report["old"]["errors"] == 0
+    assert report["new"]["errors"] == 0
+    assert report["sample_policy"]["expected_result"] == "empty"
+    assert "no_candidates" not in output.getvalue()
+
+
+def test_dual_route_hook_benchmark_bounds_real_runner_stdout_before_reading(
+    tmp_path: Path,
+) -> None:
+    benchmark = _load_dual_route_hook_benchmark()
+    payload = tmp_path / "payload.json"
+    payload.write_text("{}", encoding="utf-8")
+    ticks = iter(index * 0.010 for index in range(8))
+
+    def fake_runner(_command, *, input, stdout, stderr, timeout, check):
+        assert stdout is not subprocess.PIPE
+        stdout.write(b"PRIVATE_OVERSIZED_OUTPUT" * 4096)
+        return SimpleNamespace(returncode=0, stdout=None)
+
+    output = io.StringIO()
+    status = benchmark.main(
+        [
+            "--old-command", "old-hook",
+            "--new-command", "new-hook",
+            "--payload", str(payload),
+            "--repeats", "1",
+            "--warmup", "0",
+            "--min-samples", "1",
+        ],
+        runner=fake_runner,
+        clock=lambda: next(ticks),
+        stdout=output,
+    )
+
+    report = json.loads(output.getvalue())
+    assert status == 1
+    assert report["old"]["errors"] == 1
+    assert report["new"]["errors"] == 1
+    assert "PRIVATE_OVERSIZED_OUTPUT" not in output.getvalue()
+
+
+def test_dual_route_hook_benchmark_requires_publishable_sample_floor(tmp_path: Path) -> None:
+    benchmark = _load_dual_route_hook_benchmark()
+    payload = tmp_path / "payload.json"
+    payload.write_text("{}", encoding="utf-8")
+
+    with pytest.raises(SystemExit, match="minimum sample"):
+        benchmark.main(
+            [
+                "--old-command", "old-hook",
+                "--new-command", "new-hook",
+                "--payload", str(payload),
+                "--repeats", "29",
+                "--warmup", "0",
+            ]
+        )

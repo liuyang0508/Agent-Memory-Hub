@@ -9,8 +9,30 @@ from pathlib import Path
 import shlex
 import subprocess
 import sys
+import tempfile
 import time
 from typing import Callable, NamedTuple, Sequence, TextIO
+
+_MAX_STDOUT_BYTES = 64 * 1024
+_HOOK_STATUSES = frozenset({"injected", "empty", "timeout", "error"})
+_HOOK_REASONS = {
+    "injected": frozenset({"included"}),
+    "empty": frozenset({"admission_rejected", "no_candidates", "all_rejected"}),
+    "timeout": frozenset({"overall_timeout"}),
+    "error": frozenset({"internal_error"}),
+}
+_ROUTE_STATUSES = frozenset({"ok", "skipped", "timeout", "error"})
+_ROUTE_NAMES = frozenset({"lexical_terms", "semantic_raw", "lexical_raw_fallback"})
+_ROUTE_REASONS = {
+    "ok": frozenset({"route_completed"}),
+    "skipped": frozenset({
+        "admission_rejected",
+        "lexical_terms_empty",
+        "semantic_not_ready",
+    }),
+    "timeout": frozenset({"route_timeout"}),
+    "error": frozenset({"route_error"}),
+}
 
 
 class BenchmarkStats(NamedTuple):
@@ -68,8 +90,122 @@ def exit_code(
     )
 
 
-def _measure(
+def _valid_hook_result(
+    stdout: object,
+    *,
+    expected_result: str,
+    expected_reason: str | None,
+) -> bool:
+    if not isinstance(stdout, (bytes, bytearray)):
+        return False
+    raw = bytes(stdout)
+    if not raw or len(raw) > _MAX_STDOUT_BYTES:
+        return False
+    try:
+        payload = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return False
+    if not isinstance(payload, dict):
+        return False
+    if set(payload) != {"status", "reason", "context", "routes"}:
+        return False
+    status = payload.get("status")
+    reason = payload.get("reason")
+    context = payload.get("context")
+    routes = payload.get("routes")
+    if (
+        not isinstance(status, str)
+        or status not in _HOOK_STATUSES
+        or not isinstance(reason, str)
+        or not isinstance(context, str)
+        or not isinstance(routes, list)
+    ):
+        return False
+    if reason not in _HOOK_REASONS[status]:
+        return False
+    if expected_reason is not None and reason != expected_reason:
+        return False
+    if any(not _valid_route(route) for route in routes):
+        return False
+    if status in {"timeout", "error"}:
+        return False
+    if status == "injected" and not context.strip():
+        return False
+    if status != "injected" and context:
+        return False
+    if expected_result == "injected":
+        return status == "injected" and bool(context.strip())
+    if expected_result == "empty":
+        return status == "empty"
+    raise ValueError("unsupported expected result")
+
+
+def _valid_route(route: object) -> bool:
+    if not isinstance(route, dict):
+        return False
+    if set(route) != {"route", "status", "candidate_count", "reason"}:
+        return False
+    status = route.get("status")
+    reason = route.get("reason")
+    route_name = route.get("route")
+    return (
+        isinstance(route_name, str)
+        and route_name in _ROUTE_NAMES
+        and isinstance(status, str)
+        and status in _ROUTE_STATUSES
+        and type(route.get("candidate_count")) is int
+        and int(route["candidate_count"]) >= 0
+        and isinstance(reason, str)
+        and reason in _ROUTE_REASONS[status]
+    )
+
+
+def _run_once(
     command: list[str],
+    payload: bytes,
+    *,
+    runner: Callable[..., object],
+    clock: Callable[[], float],
+    timeout_seconds: float,
+    expected_result: str,
+    expected_reason: str | None,
+) -> tuple[float, bool, bool]:
+    started = clock()
+    timed_out = False
+    functional_error = False
+    try:
+        with tempfile.TemporaryFile() as captured_stdout:
+            completed = runner(
+                command,
+                input=payload,
+                stdout=captured_stdout,
+                stderr=subprocess.DEVNULL,
+                timeout=timeout_seconds,
+                check=False,
+            )
+            protocol_stdout = getattr(completed, "stdout", None)
+            if protocol_stdout is None:
+                size = captured_stdout.tell()
+                if size <= _MAX_STDOUT_BYTES:
+                    captured_stdout.seek(0)
+                    protocol_stdout = captured_stdout.read(_MAX_STDOUT_BYTES + 1)
+            returncode = int(getattr(completed, "returncode", 0))
+            functional_error = returncode != 0 or not _valid_hook_result(
+                protocol_stdout,
+                expected_result=expected_result,
+                expected_reason=expected_reason,
+            )
+    except subprocess.TimeoutExpired:
+        timed_out = True
+    elapsed = clock() - started
+    if timed_out:
+        elapsed = max(elapsed, timeout_seconds + 0.001)
+    return elapsed, timed_out, functional_error
+
+
+def _measure_pair(
+    old_command: list[str],
+    new_command: list[str],
     payload: bytes,
     *,
     repeats: int,
@@ -77,37 +213,35 @@ def _measure(
     runner: Callable[..., object],
     clock: Callable[[], float],
     timeout_seconds: float,
-) -> BenchmarkStats:
-    durations: list[float] = []
-    timeouts = 0
-    errors = 0
+    expected_result: str,
+    expected_reason: str | None,
+) -> tuple[BenchmarkStats, BenchmarkStats]:
+    durations = {"old": [], "new": []}
+    timeouts = {"old": 0, "new": 0}
+    errors = {"old": 0, "new": 0}
+    commands = {"old": old_command, "new": new_command}
     for iteration in range(warmup + repeats):
-        started = clock()
-        timed_out = False
-        returncode = 0
-        try:
-            completed = runner(
-                command,
-                input=payload,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                timeout=timeout_seconds,
-                check=False,
+        order = ("old", "new") if iteration % 2 == 0 else ("new", "old")
+        for name in order:
+            elapsed, timed_out, functional_error = _run_once(
+                commands[name],
+                payload,
+                runner=runner,
+                clock=clock,
+                timeout_seconds=timeout_seconds,
+                expected_result=expected_result,
+                expected_reason=expected_reason,
             )
-            returncode = int(getattr(completed, "returncode", 0))
-        except subprocess.TimeoutExpired:
-            timed_out = True
-        elapsed = clock() - started
-        if timed_out:
-            timeouts += 1
-        elif returncode != 0:
-            errors += 1
-        if iteration < warmup:
-            continue
-        if timed_out:
-            elapsed = max(elapsed, timeout_seconds + 0.001)
-        durations.append(elapsed)
-    return summarize(durations, timeouts=timeouts, errors=errors)
+            if timed_out:
+                timeouts[name] += 1
+            elif functional_error:
+                errors[name] += 1
+            if iteration >= warmup:
+                durations[name].append(elapsed)
+    return (
+        summarize(durations["old"], timeouts=timeouts["old"], errors=errors["old"]),
+        summarize(durations["new"], timeouts=timeouts["new"], errors=errors["new"]),
+    )
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -116,8 +250,15 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--new-command", required=True)
     parser.add_argument("--payload", type=Path, required=True)
     parser.add_argument("--repeats", type=int, default=30)
+    parser.add_argument("--min-samples", type=int, default=30)
     parser.add_argument("--warmup", type=int, default=3)
     parser.add_argument("--timeout-seconds", type=float, default=2.0)
+    parser.add_argument(
+        "--expected-result",
+        choices=("injected", "empty"),
+        default="injected",
+    )
+    parser.add_argument("--expected-reason")
     return parser
 
 
@@ -129,19 +270,26 @@ def main(
     stdout: TextIO = sys.stdout,
 ) -> int:
     args = _parser().parse_args(argv)
-    if args.repeats <= 0 or args.warmup < 0 or args.timeout_seconds <= 0:
+    if (
+        args.repeats <= 0
+        or args.min_samples <= 0
+        or args.warmup < 0
+        or args.timeout_seconds <= 0
+    ):
         raise SystemExit("repeats/timeout must be positive and warmup non-negative")
+    if args.repeats < args.min_samples:
+        raise SystemExit("repeats must meet the minimum sample count")
+    expected_reason = args.expected_reason
+    if expected_reason is None and args.expected_result == "injected":
+        expected_reason = "included"
+    if (
+        expected_reason is not None
+        and expected_reason not in _HOOK_REASONS[args.expected_result]
+    ):
+        raise SystemExit("expected reason is incompatible with expected result")
     payload = args.payload.read_bytes()
-    old = _measure(
+    old, new = _measure_pair(
         shlex.split(args.old_command),
-        payload,
-        repeats=args.repeats,
-        warmup=args.warmup,
-        runner=runner,
-        clock=clock,
-        timeout_seconds=args.timeout_seconds,
-    )
-    new = _measure(
         shlex.split(args.new_command),
         payload,
         repeats=args.repeats,
@@ -149,6 +297,8 @@ def main(
         runner=runner,
         clock=clock,
         timeout_seconds=args.timeout_seconds,
+        expected_result=args.expected_result,
+        expected_reason=expected_reason,
     )
     status = exit_code(old, new)
     report = {
@@ -156,6 +306,11 @@ def main(
         "new": new._asdict(),
         "p95_delta_ms": round(new.p95_ms - old.p95_ms, 3),
         "limits": {"max_new_ms": 2000.0, "max_p95_delta_ms": 150.0},
+        "sample_policy": {
+            "minimum": args.min_samples,
+            "interleaved": True,
+            "expected_result": args.expected_result,
+        },
         "passed": status == 0,
     }
     json.dump(report, stdout, sort_keys=True)

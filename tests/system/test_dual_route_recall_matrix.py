@@ -27,7 +27,9 @@ FIXTURE_PATH = Path(__file__).parents[1] / "fixtures" / "dual_route_recall_cases
 PRECOMPUTED_EMBEDDING_PATH = (
     Path(__file__).parents[1] / "fixtures" / "dual_route_precomputed_embeddings.json"
 )
+PRECOMPUTED_EMBEDDING_DIGEST_PATH = PRECOMPUTED_EMBEDDING_PATH.with_suffix(".sha256")
 GENERATOR_PATH = Path(__file__).parents[2] / "scripts" / "generate-dual-route-embedding-fixture.py"
+GENERATOR_LOCK_PATH = Path(__file__).parents[2] / "scripts" / "dual-route-embedding-generator.lock.txt"
 CATEGORIES = {
     "semantic_paraphrase",
     "multilingual",
@@ -133,16 +135,22 @@ def test_precomputed_embedding_fixture_has_provenance_and_no_label_leakage() -> 
         for content_hash in payload["embeddings"]
     )
     assert payload["content_hash"] == "sha256:utf-8"
-    assert payload["model"] == {
-        "id": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
-        "revision": "e8f8c211226b894fcb81acc59f3b34ba3efd5f42",
-        "dimension": 384,
-        "normalized": True,
-    }
+    assert payload["model"]["id"] == (
+        "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+    )
+    assert payload["model"]["revision"] == "e8f8c211226b894fcb81acc59f3b34ba3efd5f42"
+    assert payload["model"]["dimension"] == 384
+    assert payload["model"]["normalized"] is True
+    assert payload["model"]["snapshot_path_suffix"] == (
+        "snapshots/e8f8c211226b894fcb81acc59f3b34ba3efd5f42"
+    )
+    assert payload["model"]["snapshot_digest"].startswith("sha256:")
+    assert len(payload["model"]["snapshot_digest"]) == 71
     assert payload["generator"] == {
         "path": "scripts/generate-dual-route-embedding-fixture.py",
         "version": 1,
         "encoder": "sentence-transformers==3.4.1",
+        "lockfile": "scripts/dual-route-embedding-generator.lock.txt",
         "float_round_digits": 8,
     }
     assert all(len(vector) == 384 for vector in payload["embeddings"].values())
@@ -159,6 +167,51 @@ def test_precomputed_embedding_fixture_has_provenance_and_no_label_leakage() -> 
                 "expected_item_ids": ["forbidden-label-channel"],
             },
         )
+
+    altered_cases = json.loads(json.dumps(_cases()))
+    for case in altered_cases:
+        case["expected_item_ids"] = ["annotation-must-not-enter-extraction"]
+        case["legacy_false_negative"] = not case["legacy_false_negative"]
+        case["prohibited_item_ids"] = ["annotation-must-not-enter-extraction"]
+    assert generator.extract_case_texts(altered_cases) == generator.extract_case_texts(_cases())
+
+
+def test_embedding_fixture_digest_lock_and_snapshot_revision_are_bound(tmp_path: Path) -> None:
+    generator = _load_embedding_generator()
+    payload_bytes = PRECOMPUTED_EMBEDDING_PATH.read_bytes()
+    expected_digest = "sha256:" + hashlib.sha256(payload_bytes).hexdigest()
+
+    assert PRECOMPUTED_EMBEDDING_DIGEST_PATH.read_text(encoding="utf-8").strip() == (
+        expected_digest
+    )
+    lock_lines = {
+        line.strip()
+        for line in GENERATOR_LOCK_PATH.read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.startswith("#")
+    }
+    assert "sentence-transformers==3.4.1" in lock_lines
+    assert all("==" in line for line in lock_lines)
+
+    revision = "frozen-revision"
+    snapshot = tmp_path / "snapshots" / revision
+    snapshot.mkdir(parents=True)
+    (snapshot / "config.json").write_text('{"model":"fixture"}\n', encoding="utf-8")
+    first = generator.snapshot_content_digest(snapshot, revision)
+    assert first.startswith("sha256:")
+    (snapshot / "config.json").write_text('{"model":"tampered"}\n', encoding="utf-8")
+    assert generator.snapshot_content_digest(snapshot, revision) != first
+    with pytest.raises(ValueError, match="revision"):
+        generator.snapshot_content_digest(snapshot, "different-revision")
+
+
+def test_precomputed_provider_rejects_tampered_payload(tmp_path: Path) -> None:
+    fixture_copy = tmp_path / PRECOMPUTED_EMBEDDING_PATH.name
+    digest_copy = fixture_copy.with_suffix(".sha256")
+    fixture_copy.write_bytes(PRECOMPUTED_EMBEDDING_PATH.read_bytes() + b" ")
+    digest_copy.write_bytes(PRECOMPUTED_EMBEDDING_DIGEST_PATH.read_bytes())
+
+    with pytest.raises(ValueError, match="digest"):
+        _PrecomputedSemanticEmbedder(fixture_copy)
 
 
 def test_precomputed_provider_resolves_only_by_content_hash() -> None:
@@ -177,8 +230,14 @@ class _PrecomputedSemanticEmbedder:
 
     degraded = False
 
-    def __init__(self) -> None:
-        payload = json.loads(PRECOMPUTED_EMBEDDING_PATH.read_text(encoding="utf-8"))
+    def __init__(self, path: Path = PRECOMPUTED_EMBEDDING_PATH) -> None:
+        payload_bytes = path.read_bytes()
+        digest_path = path.with_suffix(".sha256")
+        expected_digest = digest_path.read_text(encoding="utf-8").strip()
+        actual_digest = "sha256:" + hashlib.sha256(payload_bytes).hexdigest()
+        if expected_digest != actual_digest:
+            raise ValueError("precomputed embedding payload digest mismatch")
+        payload = json.loads(payload_bytes)
         self.dim = int(payload["model"]["dimension"])
         self._embeddings = payload["embeddings"]
 
@@ -423,6 +482,7 @@ def test_dual_route_candidate_and_injection_governance_matrix(tmp_path: Path) ->
     )
     assert len(expected_targets) >= 11
     assert len(target_clusters) >= 11
+    assert sorted(target_clusters.values()) == [1] * 8 + [8, 8, 8]
 
     positive_similarities = [
         similarity
@@ -605,7 +665,13 @@ def test_deadline_expiry_after_render_has_zero_durable_side_effects(
 
     cohorts: list[dict[str, Any]] = []
     gaps: list[dict[str, Any]] = []
+    diagnostics: list[dict[str, Any]] = []
     monkeypatch.setattr(routed_query, "_render_included_context", render_then_expire)
+    monkeypatch.setattr(
+        routed_query,
+        "_record_injection_diagnostic",
+        lambda **kwargs: diagnostics.append(kwargs),
+    )
     monkeypatch.setattr(
         routed_query,
         "_maybe_record_cohort",
@@ -644,6 +710,7 @@ def test_deadline_expiry_after_render_has_zero_durable_side_effects(
     assert retriever.accesses == []
     assert cohorts == []
     assert gaps == []
+    assert diagnostics == []
 
 
 @pytest.mark.parametrize(

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import operator
 import re
 import time
@@ -9,6 +10,7 @@ from typing import TYPE_CHECKING, Callable, SupportsIndex, cast
 
 from agent_brain.platform.embedding import Embedder
 from agent_brain.platform.indexing.index_types import Hit
+from agent_brain.platform.indexing.text_scripts import is_unicode_search_char
 from agent_brain.memory.recall.query_expansion import (
     _expand_with_synonyms as _expand_with_synonyms,
     _extract_words as _extract_words,
@@ -52,7 +54,7 @@ from agent_brain.memory.recall.routed_types import (
 
 logger = logging.getLogger(__name__)
 _METADATA_TOKEN_RE = re.compile(r"[a-z0-9_]+|[\u4e00-\u9fff]", re.IGNORECASE)
-_RAW_FALLBACK_RUN_RE = re.compile(r"[A-Za-z0-9_+.-]+|[\u3400-\u9fff]+")
+_RAW_FALLBACK_ASCII_CHAR_RE = re.compile(r"[A-Za-z0-9_+.-]")
 _RAW_FALLBACK_FRAGMENT_LIMIT = 64
 
 _CandidateStage = Callable[[list[RetrievedItem]], list[RetrievedItem]]
@@ -540,6 +542,7 @@ class Retriever:
         lexical fallback without removing already-completed term hits.
         """
         route_clock = clock or time.perf_counter
+        _validate_deadline_inputs(route_clock, semantic_deadline)
         top_k = _normalize_routed_top_k(top_k)
         if top_k == 0:
             return RoutedSearchResult([], (), request.admission, {})
@@ -878,21 +881,81 @@ def _filter_route_hits(
 
 
 def _raw_fallback_bm25_query(query: str, *, use_or: bool) -> str:
-    """Build a bounded raw fallback query without treating long CJK as one phrase."""
-    fragments: list[str] = []
-    for run in _RAW_FALLBACK_RUN_RE.findall(query):
+    """Build a bounded Unicode-safe raw fallback query.
+
+    Fragmented non-ASCII runs deliberately force OR even when normal query
+    expansion is disabled: raw fallback is a recall-oriented degraded route.
+    """
+    full_runs: list[str] = []
+    fragment_candidates: list[str] = []
+    fragmented = False
+    for run in _raw_fallback_runs(query):
+        full_runs.append(run)
         if run.isascii() or len(run) <= 3:
-            fragments.append(run)
             continue
-        fragments.extend(run[index:index + 3] for index in range(len(run) - 2))
-    fragments = list(dict.fromkeys(fragments))
-    if len(fragments) > _RAW_FALLBACK_FRAGMENT_LIMIT:
-        last = len(fragments) - 1
-        fragments = [
-            fragments[round(index * last / (_RAW_FALLBACK_FRAGMENT_LIMIT - 1))]
-            for index in range(_RAW_FALLBACK_FRAGMENT_LIMIT)
-        ]
-    return expand_query("|".join(fragments), use_or=use_or)
+        fragmented = True
+        fragment_candidates.extend(
+            run[index:index + 3]
+            for index in range(len(run) - 2)
+        )
+    essential = list(dict.fromkeys(full_runs))
+    optional = [
+        fragment
+        for fragment in dict.fromkeys(fragment_candidates)
+        if fragment not in set(essential)
+    ]
+    if len(essential) >= _RAW_FALLBACK_FRAGMENT_LIMIT:
+        fragments = _sample_evenly(essential, _RAW_FALLBACK_FRAGMENT_LIMIT)
+    else:
+        remaining = _RAW_FALLBACK_FRAGMENT_LIMIT - len(essential)
+        fragments = [*essential, *_sample_evenly(optional, remaining)]
+    return expand_query(
+        "|".join(fragments),
+        use_or=use_or or fragmented,
+        synonyms=False,
+    )
+
+
+def _raw_fallback_runs(query: str) -> list[str]:
+    runs: list[str] = []
+    current: list[str] = []
+    current_kind: str | None = None
+    for character in query:
+        kind = (
+            "ascii"
+            if _RAW_FALLBACK_ASCII_CHAR_RE.fullmatch(character)
+            else "unicode"
+            if is_unicode_search_char(character)
+            else None
+        )
+        if kind is None:
+            if current:
+                runs.append("".join(current))
+                current = []
+                current_kind = None
+            continue
+        if current_kind is not None and kind != current_kind:
+            runs.append("".join(current))
+            current = []
+        current.append(character)
+        current_kind = kind
+    if current:
+        runs.append("".join(current))
+    return runs
+
+
+def _sample_evenly(values: list[str], limit: int) -> list[str]:
+    if limit <= 0 or not values:
+        return []
+    if len(values) <= limit:
+        return values
+    if limit == 1:
+        return [values[0]]
+    last = len(values) - 1
+    return [
+        values[index * last // (limit - 1)]
+        for index in range(limit)
+    ]
 
 
 def _completed_route_trace(
@@ -931,8 +994,32 @@ def _raise_if_deadline_expired(
     clock: Callable[[], float],
     deadline: float | None,
 ) -> None:
-    if deadline is not None and clock() >= deadline:
+    if deadline is None:
+        return
+    _require_finite_number(deadline, "semantic deadline")
+    current = clock()
+    _require_finite_number(current, "route clock")
+    if current >= deadline:
         raise TimeoutError("route deadline expired")
+
+
+def _validate_deadline_inputs(
+    clock: Callable[[], float],
+    deadline: float | None,
+) -> None:
+    if deadline is None:
+        return
+    _require_finite_number(deadline, "semantic deadline")
+    _require_finite_number(clock(), "route clock")
+
+
+def _require_finite_number(value: object, name: str) -> None:
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(value)
+    ):
+        raise ValueError(f"{name} must be a finite number")
 
 
 def _stage_effect(

@@ -257,6 +257,99 @@ def test_raw_fallback_uses_cjk_fragments_instead_of_one_long_phrase() -> None:
     assert '("深" "度" "叙") OR' in index.bm25_queries[0]
 
 
+@pytest.mark.parametrize(
+    "query",
+    [
+        "ブラウザ要求の履歴を確認する",
+        "브라우저요청기록을확인한다",
+        "𠀀𠀁𠀂𠀃𠀄𠀅𠀆",
+        "ذاكرةالمحادثةالسابقة",
+        "ประวัติการสนทนาก่อนหน้า",
+        "पिछलीबातचीतकीयाद",
+    ],
+)
+def test_raw_fallback_builds_nonempty_safe_query_for_unicode_letters(query: str) -> None:
+    from agent_brain.memory.recall.retrieval import _raw_fallback_bm25_query
+
+    result = _raw_fallback_bm25_query(query, use_or=False)
+
+    assert result != '""'
+    assert '"' in result
+
+
+def test_long_unicode_raw_fallback_is_bounded_deterministic_unique_and_or_safe() -> None:
+    from agent_brain.memory.recall.retrieval import _raw_fallback_bm25_query
+
+    query = "".join(chr(0x4E00 + index) for index in range(100))
+    first = _raw_fallback_bm25_query(query, use_or=False)
+    second = _raw_fallback_bm25_query(query, use_or=False)
+    groups = first.split(" OR ")
+
+    assert first == second
+    assert len(groups) == 64
+    assert len(set(groups)) == len(groups)
+
+
+def test_real_hub_index_raw_fallback_recalls_kana_hangul_and_ext_b_without_expansion(
+    tmp_path: Path,
+) -> None:
+    from agent_brain.contracts.memory_item import MemoryItem, MemoryType
+    from agent_brain.memory.recall.retrieval import _raw_fallback_bm25_query
+    from agent_brain.platform.indexing.index import HubIndex
+
+    index = HubIndex(tmp_path / "unicode-raw.db", embedding_dim=2)
+    rows = [
+        ("mem-20260715-130001-kana", "ブラウザ要求履歴確認"),
+        ("mem-20260715-130002-hangul", "브라우저요청기록확인"),
+        ("mem-20260715-130003-extb", "𠀀𠀁𠀂𠀃𠀄𠀅"),
+    ]
+    try:
+        for item_id, text in rows:
+            index.upsert(
+                MemoryItem(
+                    id=item_id,
+                    type=MemoryType.fact,
+                    created_at="2026-07-15T12:00:00+08:00",
+                    title=text,
+                    summary=text,
+                ),
+                text,
+                embedding=[1.0, 0.0],
+            )
+
+        for item_id, text in rows:
+            query = _raw_fallback_bm25_query(text, use_or=False)
+            assert " OR " in query
+            assert [hit.id for hit in index.bm25_search(query, top_k=10)] == [item_id]
+
+        hostile = _raw_fallback_bm25_query('ブラウザ OR title:"unterminated', use_or=False)
+        index.bm25_search(hostile, top_k=10)
+    finally:
+        index.close()
+
+
+@pytest.mark.parametrize(
+    ("clock_value", "semantic_deadline"),
+    [
+        (float("nan"), 1.0),
+        (float("inf"), 1.0),
+        (0.0, float("nan")),
+        (0.0, float("inf")),
+    ],
+)
+def test_routed_retrieval_rejects_non_finite_semantic_deadline_inputs(
+    clock_value: float,
+    semantic_deadline: float,
+) -> None:
+    with pytest.raises(ValueError, match="finite"):
+        _retriever(_Index(), _Embedder()).search_routed(
+            _request(),
+            top_k=10,
+            clock=lambda: clock_value,
+            semantic_deadline=semantic_deadline,
+        )
+
+
 def test_fuse_routes_breaks_equal_scores_by_item_id() -> None:
     from agent_brain.memory.recall.routed_fusion import fuse_routes
 

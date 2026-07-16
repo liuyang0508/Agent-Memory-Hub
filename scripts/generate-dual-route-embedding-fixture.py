@@ -8,9 +8,18 @@ import hashlib
 import json
 import math
 from pathlib import Path
+import sys
 from typing import Any, Callable, Sequence
 
-_MODEL_PROVENANCE_FIELDS = frozenset({"id", "revision", "dimension", "normalized"})
+_MODEL_PROVENANCE_FIELDS = frozenset({
+    "id",
+    "revision",
+    "dimension",
+    "normalized",
+    "snapshot_path_suffix",
+    "snapshot_digest",
+})
+_REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 def _searchable_item_text(raw: dict[str, Any]) -> str:
@@ -26,6 +35,9 @@ def _searchable_item_text(raw: dict[str, Any]) -> str:
 
 def extract_case_texts(cases: Sequence[dict[str, Any]]) -> tuple[str, ...]:
     """Derive only retrieval inputs from committed cases, ignoring annotations."""
+    repo_root = str(_REPO_ROOT)
+    if repo_root not in sys.path:
+        sys.path.insert(0, repo_root)
     from agent_brain.memory.recall.admission import build_recall_request
 
     values: list[str] = []
@@ -43,6 +55,29 @@ def extract_case_texts(cases: Sequence[dict[str, Any]]) -> tuple[str, ...]:
             if isinstance(raw, dict):
                 values.append(_searchable_item_text(raw))
     return tuple(dict.fromkeys(values))
+
+
+def snapshot_content_digest(model_path: Path, revision: str) -> str:
+    """Hash every named file in a pinned Hugging Face snapshot."""
+    if not revision or Path(revision).name != revision:
+        raise ValueError("revision must be one path segment")
+    if model_path.name != revision or model_path.parent.name != "snapshots":
+        raise ValueError("model path must end with snapshots/<revision>")
+    files = sorted(
+        (path for path in model_path.rglob("*") if path.is_file()),
+        key=lambda path: path.relative_to(model_path).as_posix(),
+    )
+    if not files:
+        raise ValueError("model snapshot must contain files")
+    digest = hashlib.sha256()
+    for path in files:
+        relative = path.relative_to(model_path).as_posix().encode("utf-8")
+        content = path.read_bytes()
+        digest.update(len(relative).to_bytes(8, "big"))
+        digest.update(relative)
+        digest.update(len(content).to_bytes(8, "big"))
+        digest.update(content)
+    return "sha256:" + digest.hexdigest()
 
 
 def generate_precomputed_embeddings(
@@ -83,6 +118,7 @@ def generate_precomputed_embeddings(
             "path": "scripts/generate-dual-route-embedding-fixture.py",
             "version": 1,
             "encoder": "sentence-transformers==3.4.1",
+            "lockfile": "scripts/dual-route-embedding-generator.lock.txt",
             "float_round_digits": 8,
         },
         "embeddings": dict(sorted(embeddings.items())),
@@ -118,6 +154,7 @@ def main() -> int:
         )
 
     dimension = int(model.get_sentence_embedding_dimension())
+    snapshot_digest = snapshot_content_digest(args.model_path, args.revision)
     payload = generate_precomputed_embeddings(
         texts,
         encode,
@@ -126,10 +163,16 @@ def main() -> int:
             "revision": args.revision,
             "dimension": dimension,
             "normalized": True,
+            "snapshot_path_suffix": f"snapshots/{args.revision}",
+            "snapshot_digest": snapshot_digest,
         },
     )
-    args.output.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+    payload_bytes = (
+        json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+    ).encode("utf-8")
+    args.output.write_bytes(payload_bytes)
+    args.output.with_suffix(".sha256").write_text(
+        "sha256:" + hashlib.sha256(payload_bytes).hexdigest() + "\n",
         encoding="utf-8",
     )
     return 0
