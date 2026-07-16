@@ -229,7 +229,6 @@ def execute_routed_query(
             session_id=session_id,
             cwd=cwd,
             raw_query=raw_query,
-            query_terms=list(request.lexical_terms),
             pack_metrics=metrics,
         )
         if record_recall_gap and (injection.excluded or hydrate_error_count):
@@ -376,7 +375,6 @@ def _maybe_record_cohort(
     session_id: str | None,
     cwd: str | None,
     raw_query: str,
-    query_terms: list[str],
     pack_metrics: dict[str, object],
 ) -> None:
     if not enabled or not item_ids or brain_dir is None:
@@ -390,7 +388,6 @@ def _maybe_record_cohort(
         session_id=session_id,
         cwd=cwd,
         query=raw_query,
-        query_terms=query_terms,
         pack_metrics=pack_metrics,
     )
 

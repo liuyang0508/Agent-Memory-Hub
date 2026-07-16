@@ -525,16 +525,21 @@ def test_real_hook_json_degraded_recall_goes_through_gateway_and_records_cohort(
     tmp_brain,
 ) -> None:
     from agent_brain.interfaces.cli import app
-    from agent_brain.memory.context.injection_cohorts import latest_injection_cohort
+    from agent_brain.memory.context.injection_cohorts import (
+        injection_cohorts_path,
+        latest_injection_cohort,
+    )
     from agent_brain.platform.embedding import HashingEmbedder
     from agent_brain.platform.indexing.index import HubIndex
     from agent_brain.memory.store.items_store import ItemsStore
 
+    secret_token = "QzSecretRoutedToken9X"
+    raw_query = f"Routed hook protocol verified implementation {secret_token}"
     value = _item(
         "real-hook",
-        title="Routed hook protocol verified implementation",
+        title=raw_query,
     )
-    body = "Routed hook protocol verified implementation with gateway context pack"
+    body = f"{raw_query} with gateway context pack"
     ItemsStore(tmp_brain / "items").write(value, body)
     embedder = HashingEmbedder()
     index = HubIndex(tmp_brain / "index.db", embedding_dim=embedder.dim)
@@ -545,7 +550,7 @@ def test_real_hook_json_degraded_recall_goes_through_gateway_and_records_cohort(
         app,
         [
             "search",
-            "Routed hook protocol verified implementation",
+            raw_query,
             "--format",
             "hook-json",
             "--top-k",
@@ -581,8 +586,14 @@ def test_real_hook_json_degraded_recall_goes_through_gateway_and_records_cohort(
     assert cohort is not None
     assert cohort.item_ids == (value.id,)
     assert cohort.query_sha256 is not None
+    assert cohort.query_terms == ()
     assert cohort.pack_metrics is not None
     assert value.id not in repr(cohort.pack_metrics)
+    runtime_record = injection_cohorts_path(tmp_brain).read_text(encoding="utf-8")
+    for rendered in (repr(cohort), runtime_record):
+        normalized = rendered.casefold()
+        assert raw_query.casefold() not in normalized
+        assert secret_token.casefold() not in normalized
 
 
 def test_hook_json_empty_gap_is_hash_and_aggregate_only(tmp_brain) -> None:
