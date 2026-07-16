@@ -30,6 +30,18 @@ PRECOMPUTED_EMBEDDING_PATH = (
     Path(__file__).parents[1] / "fixtures" / "dual_route_precomputed_embeddings.json"
 )
 PRECOMPUTED_EMBEDDING_DIGEST_PATH = PRECOMPUTED_EMBEDDING_PATH.with_suffix(".sha256")
+ANSWERABILITY_AUDIT_PATH = (
+    Path(__file__).parents[1] / "fixtures" / "dual_route_answerability_audit.json"
+)
+CALIBRATION_REPORT_PATH = (
+    Path(__file__).parents[2]
+    / "docs"
+    / "evaluation"
+    / "dual-route-calibration-report.json"
+)
+CALIBRATION_GATE_PATH = (
+    Path(__file__).parents[2] / "scripts" / "check-dual-route-calibration.py"
+)
 GENERATOR_PATH = Path(__file__).parents[2] / "scripts" / "generate-dual-route-embedding-fixture.py"
 GENERATOR_LOCK_PATH = Path(__file__).parents[2] / "scripts" / "dual-route-embedding-generator.lock.txt"
 CATEGORIES = {
@@ -190,6 +202,82 @@ def test_dual_route_fixture_schema_and_distribution() -> None:
     )
 
 
+def test_answerability_audit_binds_query_and_searchable_item_hashes() -> None:
+    audit = json.loads(ANSWERABILITY_AUDIT_PATH.read_text(encoding="utf-8"))
+
+    _validate_answerability_audit(_cases(), audit)
+
+
+def test_answerability_audit_rejects_searchable_content_mutation() -> None:
+    cases = json.loads(json.dumps(_cases()))
+    audit = json.loads(ANSWERABILITY_AUDIT_PATH.read_text(encoding="utf-8"))
+    target = next(case for case in cases if case["id"] == "semantic-zh-01")
+    target["brain_item"]["summary"] += " mutated"
+
+    with pytest.raises(ValueError, match="searchable content hash"):
+        _validate_answerability_audit(cases, audit)
+
+
+def test_calibration_report_separates_calibration_and_heldout_quality() -> None:
+    report = json.loads(CALIBRATION_REPORT_PATH.read_text(encoding="utf-8"))
+
+    assert report["splits"]["calibration"] == {
+        "case_count": 15,
+        "expected_item_count": 15,
+        "tp": 15,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+    }
+    assert report["splits"]["heldout"] == {
+        "case_count": 10,
+        "expected_item_count": 11,
+        "tp": 10,
+        "fp": 0,
+        "fn": 1,
+        "precision": 1.0,
+        "recall": pytest.approx(10 / 11),
+    }
+    assert report["model"]["revision"] == (
+        "e8f8c211226b894fcb81acc59f3b34ba3efd5f42"
+    )
+    assert report["calibration_passed"] is False
+    assert report["unresolved_gap_count"] == 1
+    assert report["gaps"][0]["id"] == "multi-hi-08"
+    assert report["gaps"][0]["embedding_evidence"]
+    assert report["gaps"][0]["verifier_evidence"]
+
+
+def test_calibration_report_matches_independent_split_run(tmp_path: Path) -> None:
+    committed = json.loads(CALIBRATION_REPORT_PATH.read_text(encoding="utf-8"))
+
+    assert _evaluate_calibration_report(tmp_path) == committed
+
+
+def test_calibration_release_gate_is_red_while_known_gap_is_open() -> None:
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(CALIBRATION_GATE_PATH),
+            "--report",
+            str(CALIBRATION_REPORT_PATH),
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+        text=True,
+    )
+
+    assert completed.returncode == 1, completed.stderr
+    assert json.loads(completed.stdout) == {
+        "calibration_passed": False,
+        "release_gate": "blocked",
+        "report_schema_version": 1,
+        "unresolved_gap_count": 1,
+    }
+
+
 def _searchable_item_text(raw: dict[str, Any]) -> str:
     return " ".join(
         (
@@ -199,6 +287,57 @@ def _searchable_item_text(raw: dict[str, Any]) -> str:
             *(str(tag) for tag in raw.get("tags", [])),
         )
     )
+
+
+def _sha256_text(value: str) -> str:
+    return "sha256:" + hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _expected_raw_items(case: dict[str, Any]) -> list[dict[str, Any]]:
+    if "brain_items" in case:
+        return list(case["brain_items"])
+    if "brain_item" in case:
+        return [case["brain_item"]]
+    return []
+
+
+def _validate_answerability_audit(
+    cases: list[dict[str, Any]],
+    audit: dict[str, Any],
+) -> None:
+    if audit.get("schema_version") != 1:
+        raise ValueError("answerability audit schema version mismatch")
+    if audit.get("algorithm") != "sha256:utf-8":
+        raise ValueError("answerability audit hash algorithm mismatch")
+
+    positive_cases = {
+        case["id"]: case for case in cases if case.get("expected_item_ids")
+    }
+    audit_cases = audit.get("cases")
+    if not isinstance(audit_cases, dict) or set(audit_cases) != set(positive_cases):
+        raise ValueError("answerability audit case set mismatch")
+
+    for case_id, case in positive_cases.items():
+        entry = audit_cases[case_id]
+        if set(entry) != {"note", "query_sha256", "item_searchable_sha256"}:
+            raise ValueError(f"answerability audit fields mismatch for {case_id}")
+        if entry["note"] != ANSWERABILITY_AUDIT[case_id]:
+            raise ValueError(f"answerability audit note mismatch for {case_id}")
+        if entry["query_sha256"] != _sha256_text(case["query"]):
+            raise ValueError(f"query hash mismatch for {case_id}")
+
+        expected_item_ids = set(case["expected_item_ids"])
+        raw_items = {
+            raw["id"]: raw
+            for raw in _expected_raw_items(case)
+            if raw["id"] in expected_item_ids
+        }
+        expected_hashes = {
+            item_id: _sha256_text(_searchable_item_text(raw_items[item_id]))
+            for item_id in sorted(expected_item_ids)
+        }
+        if entry["item_searchable_sha256"] != expected_hashes:
+            raise ValueError(f"searchable content hash mismatch for {case_id}")
 
 
 def _fixture_embedding_texts() -> tuple[str, ...]:
@@ -648,6 +787,85 @@ def _routed_outcome(
             for decision in gateway.excluded
         ),
     )
+
+
+def _split_quality(
+    rows: list[tuple[dict[str, Any], _Outcome]],
+    split: str,
+) -> dict[str, int | float]:
+    selected = [(case, outcome) for case, outcome in rows if case["calibration_split"] == split]
+    tp = 0
+    fp = 0
+    fn = 0
+    expected_item_count = 0
+    for case, outcome in selected:
+        expected = set(case["expected_item_ids"])
+        allowed = set(case.get("allowed_related_item_ids", []))
+        injected = set(outcome.injected)
+        expected_item_count += len(expected)
+        tp += len(expected & injected)
+        fp += len(injected - expected - allowed)
+        fn += len(expected - injected)
+    return {
+        "case_count": len(selected),
+        "expected_item_count": expected_item_count,
+        "tp": tp,
+        "fp": fp,
+        "fn": fn,
+        "precision": tp / (tp + fp) if tp + fp else 1.0,
+        "recall": tp / (tp + fn) if tp + fn else 1.0,
+    }
+
+
+def _evaluate_calibration_report(tmp_path: Path) -> dict[str, Any]:
+    cases = [case for case in _cases() if case.get("calibration_split")]
+    index, items, embedder = _seed_fixture_brain(tmp_path)
+    retriever = Retriever(
+        index,
+        embedder,
+        rerank=False,
+        apply_decay=False,
+        record_access=False,
+    )
+    try:
+        rows = [(case, _routed_outcome(retriever, case, items)) for case in cases]
+    finally:
+        index.close()
+
+    gaps = [
+        {
+            "id": case["id"],
+            "reason": gap["reason"],
+            "embedding_evidence": gap["embedding_evidence"],
+            "verifier_evidence": gap["verifier_evidence"],
+            "upgrade_condition": gap["upgrade_condition"],
+        }
+        for case in cases
+        if (gap := case.get("known_capability_gap"))
+    ]
+    embedding_payload = json.loads(
+        PRECOMPUTED_EMBEDDING_PATH.read_text(encoding="utf-8")
+    )
+    splits = {
+        split: _split_quality(rows, split)
+        for split in ("calibration", "heldout")
+    }
+    calibration_passed = not gaps and all(
+        metrics["fp"] == 0 and metrics["fn"] == 0
+        for metrics in splits.values()
+    )
+    return {
+        "schema_version": 1,
+        "cases_sha256": "sha256:" + hashlib.sha256(FIXTURE_PATH.read_bytes()).hexdigest(),
+        "model": {
+            key: embedding_payload["model"][key]
+            for key in ("id", "revision", "snapshot_digest")
+        },
+        "splits": splits,
+        "calibration_passed": calibration_passed,
+        "unresolved_gap_count": len(gaps),
+        "gaps": gaps,
+    }
 
 
 def test_dual_route_candidate_and_injection_governance_matrix(tmp_path: Path) -> None:
