@@ -13,6 +13,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 # Repo root anchored to this file so the shim path is independent of the cwd
 # pytest happens to run from.
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -177,6 +179,49 @@ def test_python_resolver_rejects_changed_interpreter_identity(tmp_path):
         env={
             **os.environ,
             "AGENT_MEMORY_HUB_PYTHON": str(verified_python),
+            "PYTHONPATH": str(REPO_ROOT),
+        },
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert invocation_log.read_text(encoding="utf-8").splitlines() == ["probe"]
+
+
+@pytest.mark.parametrize("change", ["replace_target", "retarget_symlink"])
+def test_python_resolver_rejects_changed_symlink_target(tmp_path, change):
+    target, invocation_log = _counting_python_wrapper(tmp_path)
+    symlink_python = tmp_path / "python-link"
+    symlink_python.symlink_to(target)
+    replacement = tmp_path / "replacement-python"
+    replacement.write_text("#!/usr/bin/env bash\nexit 97\n", encoding="utf-8")
+    replacement.chmod(0o755)
+    if change == "replace_target":
+        mutation = f"cp {replacement} {target}"
+    else:
+        mutation = f"rm {symlink_python}; ln -s {replacement} {symlink_python}"
+    script = tmp_path / f"symlink-{change}.sh"
+    script.write_text(
+        "\n".join(
+            [
+                "#!/usr/bin/env bash",
+                "set -euo pipefail",
+                f"source {PYTHON_RESOLVER}",
+                mutation,
+                f"/bin/bash -c 'set -euo pipefail; source {PYTHON_RESOLVER}; "
+                "test \"$MEMORY_PYTHON\" != \"$AGENT_MEMORY_HUB_PYTHON\"'",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    script.chmod(0o755)
+
+    result = subprocess.run(
+        ["/bin/bash", str(script)],
+        env={
+            **os.environ,
+            "AGENT_MEMORY_HUB_PYTHON": str(symlink_python),
             "PYTHONPATH": str(REPO_ROOT),
         },
         capture_output=True,

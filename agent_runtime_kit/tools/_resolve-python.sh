@@ -58,6 +58,10 @@ _canonical_candidate_path() {
   local target
   target="$(_candidate_path "$1")" || return 1
   [ -n "$target" ] || return 1
+  if command -v realpath >/dev/null 2>&1; then
+    realpath "$target" 2>/dev/null
+    return $?
+  fi
   while [ -L "$target" ]; do
     local link directory
     link="$(readlink "$target")" || return 1
@@ -79,11 +83,11 @@ _candidate_identity() {
   # stat follows the executable symlink by default. Binding device, inode,
   # mtime and size therefore detects both in-place replacement and retargeting
   # without re-running the more expensive canonical-path walk in every child.
-  if identity="$(stat -c '%d:%i:%Y:%s' "$candidate" 2>/dev/null)"; then
+  if identity="$(stat -Lc '%d:%i:%Y:%s' "$candidate" 2>/dev/null)"; then
     printf '%s\n' "$identity"
     return 0
   fi
-  if identity="$(stat -f '%d:%i:%m:%z' "$candidate" 2>/dev/null)"; then
+  if identity="$(stat -Lf '%d:%i:%m:%z' "$candidate" 2>/dev/null)"; then
     printf '%s\n' "$identity"
     return 0
   fi
@@ -107,10 +111,10 @@ _resolved_python_marker_is_valid() {
   [ "${AGENT_MEMORY_HUB_PYTHON_RESOLVED_PATH:-}" = "$MEMORY_PYTHON" ] || return 1
   [ "${AGENT_MEMORY_HUB_PYTHON_RESOLVED_PROJECT_ROOT:-}" = "$_PROJECT_ROOT" ] || return 1
   [ "${AGENT_MEMORY_HUB_PYTHON_RESOLVED_IMPORTS:-}" = "$_REQUIRED_IMPORTS" ] || return 1
-  local identity creator_pid
+  local canonical identity creator_pid
+  canonical="$(_canonical_candidate_path "$MEMORY_PYTHON")" || return 1
   identity="$(_candidate_identity "$MEMORY_PYTHON")" || return 1
-  [ -n "${AGENT_MEMORY_HUB_PYTHON_RESOLVED_CANONICAL_PATH:-}" ] || return 1
-  [ -e "$AGENT_MEMORY_HUB_PYTHON_RESOLVED_CANONICAL_PATH" ] || return 1
+  [ "${AGENT_MEMORY_HUB_PYTHON_RESOLVED_CANONICAL_PATH:-}" = "$canonical" ] || return 1
   [ "${AGENT_MEMORY_HUB_PYTHON_RESOLVED_IDENTITY:-}" = "$identity" ] || return 1
   creator_pid="${AGENT_MEMORY_HUB_PYTHON_RESOLVED_CREATOR_PID:-}"
   case "$creator_pid" in
