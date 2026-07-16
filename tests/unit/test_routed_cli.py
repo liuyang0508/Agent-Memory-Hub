@@ -722,3 +722,45 @@ def test_conflicting_routed_admission_is_malformed_and_fails_closed() -> None:
     assert payload.status == "error"
     assert payload.reason == "internal_error"
     assert payload.context == ""
+
+
+@pytest.mark.parametrize("semantic_deadline", [float("nan"), float("inf")])
+def test_feature_off_still_rejects_non_finite_semantic_deadline(
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_deadline: float,
+) -> None:
+    from agent_brain.interfaces.cli import routed_query
+
+    class Retriever:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def search(self, *_args, **_kwargs):
+            self.calls += 1
+            return []
+
+    retriever = Retriever()
+    monkeypatch.setenv("AGENT_MEMORY_HUB_ROUTED_RECALL", "0")
+
+    payload = routed_query.execute_routed_query(
+        raw_query="feature off deadline validation probe",
+        store=_Store([]),
+        retriever=retriever,
+        top_k=3,
+        filters=SearchFilter(),
+        requested="auto",
+        project=None,
+        adapter="codex",
+        session_id=None,
+        cwd=None,
+        clock=lambda: 0.0,
+        semantic_deadline=semantic_deadline,
+    )
+
+    assert payload.to_dict() == {
+        "status": "error",
+        "reason": "internal_error",
+        "context": "",
+        "routes": [],
+    }
+    assert retriever.calls == 0

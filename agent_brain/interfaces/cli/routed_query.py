@@ -110,7 +110,12 @@ def execute_routed_query(
 
     try:
         deadline_clock = clock or time.monotonic
-        _raise_if_deadline_expired(deadline_clock, overall_deadline)
+        _validate_entry_deadlines(
+            deadline_clock,
+            validate_clock=clock is not None,
+            overall_deadline=overall_deadline,
+            semantic_deadline=semantic_deadline,
+        )
         scope = ProjectScope(project, "explicit", hard_filter=True) if project is not None else None
         request = build_recall_request(
             raw_query,
@@ -339,17 +344,44 @@ def _raise_if_deadline_expired(
 ) -> None:
     if deadline is None:
         return
+    _validate_finite_deadline(deadline, name="deadline")
+    current = _finite_clock_value(clock)
+    if current >= deadline:
+        raise TimeoutError("overall recall deadline expired")
+
+
+def _validate_entry_deadlines(
+    clock: Callable[[], float],
+    *,
+    validate_clock: bool,
+    overall_deadline: float | None,
+    semantic_deadline: float | None,
+) -> None:
+    _validate_finite_deadline(overall_deadline, name="overall deadline")
+    _validate_finite_deadline(semantic_deadline, name="semantic deadline")
+    if not validate_clock and overall_deadline is None and semantic_deadline is None:
+        return
+    current = _finite_clock_value(clock)
+    if overall_deadline is not None and current >= overall_deadline:
+        raise TimeoutError("overall recall deadline expired")
+
+
+def _validate_finite_deadline(deadline: float | None, *, name: str) -> None:
+    if deadline is None:
+        return
     if isinstance(deadline, bool) or not isinstance(deadline, (int, float)):
-        raise ValueError("deadline must be a finite number")
+        raise ValueError(f"{name} must be a finite number")
     if not math.isfinite(deadline):
-        raise ValueError("deadline must be finite")
+        raise ValueError(f"{name} must be finite")
+
+
+def _finite_clock_value(clock: Callable[[], float]) -> float:
     current = clock()
     if isinstance(current, bool) or not isinstance(current, (int, float)):
         raise ValueError("clock must return a finite number")
     if not math.isfinite(current):
         raise ValueError("clock must return a finite number")
-    if current >= deadline:
-        raise TimeoutError("overall recall deadline expired")
+    return float(current)
 
 
 def _serialize_routes(
