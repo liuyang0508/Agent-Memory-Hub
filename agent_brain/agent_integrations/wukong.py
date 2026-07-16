@@ -392,6 +392,8 @@ class WukongAdapter(AdapterBase):
             extra_guidance=(
                 "Wukong may read workspace MEMORY.md/AGENTS.md before using MCP; these files are the static awareness fallback.",
                 "A one-word or short project/name prompt means first search AMH, not greet the user.",
+                "Use brief_memory for overall project recovery and search_memory with the full task description for a concrete task; they are complementary.",
+                "Project is a hard filter only when the user names it explicitly or the cwd mapping is certain, never from a natural-language guess.",
                 "Qoder native memory or Wukong local memory is not the AMH shared brain unless it points back to agent-memory-hub.",
             ),
         )
@@ -611,13 +613,16 @@ class WukongAdapter(AdapterBase):
                 "当用户只输入一个词、项目名、人名或短 prompt 时，不要直接问候；先查 Agent Memory Hub。",
                 "",
                 "优先通过 Wukong MCP runtime 调用 `agent-memory-hub`：",
-                "- `brief_memory`：先拿有界全貌。",
-                "- `search_memory`：按用户问题、项目名、历史上下文检索。",
+                "- `brief_memory`：用于恢复项目全貌。",
+                "- `search_memory`：把完整任务描述作为 query，用于当前具体任务。",
                 "- `read_memory`：只读取真正需要的 1-3 条详情。",
                 "- `write_memory`：遇到决策、事实、信号、产物、可复用经验时写入共享大脑。",
                 "",
+                "`brief_memory` 与 `search_memory` 互补，不是相互失败降级。",
+                "`project` 是 hard filter：只在用户明确指定，或 cwd 到项目的映射可确定时设置；不得根据自然语言猜项目。",
+                "",
                 "如果 MCP runtime 没暴露，则用 CLI 兜底：",
-                f"`PYTHONPATH={self.repo_dir} BRAIN_DIR={self.brain_dir} {amh_python_executable(self.repo_dir)} -m agent_brain.interfaces.cli search \"<用户问题>\" --top-k 5 --context-firewall --verbosity auto --explain`",
+                f"`PYTHONPATH={self.repo_dir} BRAIN_DIR={self.brain_dir} {amh_python_executable(self.repo_dir)} -m agent_brain.interfaces.cli search \"<完整任务描述>\" --top-k 5 --context-firewall --verbosity auto --explain`",
                 "",
                 "关键词：AMH agent-memory-hub Agent Memory Hub 共享记忆 共享大脑 历史上下文 跨智能体 项目记忆 短prompt brief_memory search_memory read_memory write_memory mcp_runtime。",
             ]
@@ -728,7 +733,8 @@ class WukongAdapter(AdapterBase):
         return (
             "Agent Memory Hub shared memory bootstrap: for short project/name prompts, "
             "resume, handoff, planning, debugging, or cross-agent context, first use "
-            "mcp_runtime to call agent-memory-hub brief_memory/search_memory/read_memory; "
+            "mcp_runtime to use brief_memory for overall project recovery, search_memory "
+            "with the full task description for a concrete task, and bounded read_memory; "
             "fallback to AMH CLI when MCP is hidden."
         )
 
@@ -758,12 +764,13 @@ class WukongAdapter(AdapterBase):
                 "",
                 "1. `list_servers`，找到 `agent-memory-hub` 或 `Agent Memory Hub`。",
                 "2. `list_tools`，确认 `brief_memory`、`search_memory`、`read_memory` 可用。",
-                "3. 对短 prompt 先调用 `brief_memory` 或 `search_memory`，再按需 `read_memory` 读取 1-3 条详情。",
+                "3. 恢复项目全貌时用 `brief_memory`；面向当前具体任务时，把完整任务描述交给 `search_memory`；再按需 `read_memory` 读取 1-3 条详情。",
+                "4. `brief_memory` 与 `search_memory` 互补，不是相互失败降级。`project` 是 hard filter，只在用户明确指定，或 cwd 映射可确定时设置；不得从自然语言猜测。",
                 "",
                 "如果当前界面没有暴露 MCP runtime，就用 CLI 兜底：",
                 "",
                 "```bash",
-                f"BRAIN_DIR={self.brain_dir} PYTHONPATH={self.repo_dir} {amh_python_executable(self.repo_dir)} -m agent_brain.interfaces.cli search \"<用户问题或项目名>\" --top-k 5 --format text --context-firewall --verbosity auto --explain",
+                f"BRAIN_DIR={self.brain_dir} PYTHONPATH={self.repo_dir} {amh_python_executable(self.repo_dir)} -m agent_brain.interfaces.cli search \"<完整任务描述>\" --top-k 5 --format text --context-firewall --verbosity auto --explain",
                 "```",
                 "",
                 "## 回答边界",

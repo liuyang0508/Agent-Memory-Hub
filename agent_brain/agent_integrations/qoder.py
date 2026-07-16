@@ -482,7 +482,7 @@ class QoderAdapter(AdapterBase):
             extra_guidance=(
                 "Qoder and QoderWork may share this workspace file; use whichever AMH MCP tools the current client exposes.",
                 "Treat one-word or short project/name prompts as context requests, not greetings.",
-                "If no <agent_brain> block appears, proactively call AMH MCP tools such as search_memory / brief_memory before non-trivial work.",
+                "If no <agent_brain> block appears, follow the brief_memory project-recovery and full-task search_memory guidance above before non-trivial work.",
             ),
         )
 

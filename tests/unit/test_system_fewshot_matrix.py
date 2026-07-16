@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import pytest
+
 from agent_brain.contracts.memory_item import MemoryItem, MemoryType
 from agent_brain.memory.context.context_firewall import ContextCandidate, ContextFirewall
 from agent_brain.memory.context.context_packing import pack_decisions
@@ -405,7 +407,6 @@ def test_large_fewshot_hook_matrix_blocks_injects_and_records_evidence(tmp_path:
         "hook-readme-deep-polish",
         MemoryType.artifact,
         "AMH README 深度叙事和算法解释二次打磨",
-        "关于多智能体共享第二单的深度叙事和算法解释二次打磨，都做了什么："
         "README.zh.md 调整阅读路线、运行时接入、维护链路、召回链路、Loop Engineering 和算法公式。",
         body="深度叙事 算法解释 二次打磨 problem fix evidence verification remaining boundary",
         tags=["agent-memory-hub", "readme"],
@@ -432,11 +433,6 @@ def test_large_fewshot_hook_matrix_blocks_injects_and_records_evidence(tmp_path:
         assert payload == {}, (adapter, prompt)
 
     inject_cases = [
-        (
-            "codex",
-            "关于多智能体共享第二单的深度叙事和算法解释二次打磨，都做了什么",
-            "AMH README 深度叙事和算法解释二次打磨",
-        ),
         (
             "claude_code",
             "ClaudeCode呢",
@@ -469,6 +465,36 @@ def test_large_fewshot_hook_matrix_blocks_injects_and_records_evidence(tmp_path:
     assert gaps[0].reason == "empty_recall"
     assert gaps[0].query.startswith("sha256:")
     assert "验证" not in repr(gaps[0])
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="Task 8 calibration: Chinese full-query lexical fallback false negative",
+)
+def test_task8_calibration_chinese_long_query_routes_without_fixture_query_stuffing(
+    tmp_path: Path,
+) -> None:
+    readme, readme_body = _item(
+        "hook-readme-deep-polish",
+        MemoryType.artifact,
+        "AMH README 深度叙事和算法解释二次打磨",
+        "README.zh.md 调整阅读路线、运行时接入、维护链路、召回链路、Loop Engineering 和算法公式。",
+        body="深度叙事 算法解释 二次打磨 problem fix evidence verification remaining boundary",
+        tags=["agent-memory-hub", "readme"],
+    )
+    _store, index, _embedder = _seed_index(tmp_path, [(readme, readme_body)])
+    index.close()
+
+    payload = _run_inject_context(
+        tmp_path,
+        "关于多智能体共享第二单的深度叙事和算法解释二次打磨，都做了什么",
+        adapter="codex",
+        session_id="task8-chinese-long-query",
+    )
+
+    context = payload["hookSpecificOutput"]["additionalContext"]
+    assert "AMH README 深度叙事和算法解释二次打磨" in context
+    assert "full-query routed recall" in context
 
 
 def _run_inject_context(brain_dir: Path, prompt: str, *, adapter: str, session_id: str) -> dict:

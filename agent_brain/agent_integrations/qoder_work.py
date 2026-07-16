@@ -402,7 +402,7 @@ class QoderWorkAdapter(AdapterBase):
             extra_guidance=(
                 "Qoder and QoderWork may share this workspace file; use whichever AMH MCP tools the current client exposes.",
                 "Treat one-word or short project/name prompts as context requests, not greetings.",
-                "If no <agent_brain> block appears, proactively call AMH MCP tools such as search_memory / brief_memory before non-trivial work.",
+                "If no <agent_brain> block appears, follow the brief_memory project-recovery and full-task search_memory guidance above before non-trivial work.",
             ),
         )
 
@@ -616,9 +616,12 @@ class QoderWorkAdapter(AdapterBase):
                 "## 必须先做",
                 "",
                 "优先通过 QoderWork MCP 工具读取 AMH 共享记忆：",
-                "- `mcp__agent-memory-hub__brief_memory`：先拿有界全貌；",
-                "- `mcp__agent-memory-hub__search_memory`：按用户原词和项目关键词检索；",
+                "- `mcp__agent-memory-hub__brief_memory`：用于恢复项目全貌；",
+                "- `mcp__agent-memory-hub__search_memory`：把完整任务描述作为 query，用于当前具体任务；",
                 "- `mcp__agent-memory-hub__read_memory`：只读取真正需要的 1-3 条详情。",
+                "",
+                "`brief_memory` 与 `search_memory` 互补，不是相互失败降级。",
+                "`project` 是 hard filter：只在用户明确指定，或 cwd 到项目的映射可确定时设置；不得根据自然语言猜项目。",
                 "",
                 "如果界面只暴露通用 MCP 调用，请按 QoderWork 提示使用 `qw_mcp_list`、`qw_mcp_get`、`qw_mcp_call` 调用上述工具。",
                 "",
@@ -634,7 +637,7 @@ class QoderWorkAdapter(AdapterBase):
                 "如果 MCP 工具不可用，使用 CLI：",
                 "",
                 "```bash",
-                f"BRAIN_DIR={self.brain_dir} PYTHONPATH={self.repo_dir} {amh_python_executable(self.repo_dir)} -m agent_brain.interfaces.cli search \"<用户问题或项目名>\" --top-k 5 --format text --context-firewall --verbosity auto --explain",
+                f"BRAIN_DIR={self.brain_dir} PYTHONPATH={self.repo_dir} {amh_python_executable(self.repo_dir)} -m agent_brain.interfaces.cli search \"<完整任务描述>\" --top-k 5 --format text --context-firewall --verbosity auto --explain",
                 "```",
                 "",
             ]
