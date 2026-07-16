@@ -526,6 +526,7 @@ def main(
         "sample_policy": {
             "minimum": args.min_samples,
             "interleaved": True,
+            "observation_timeout_seconds": args.timeout_seconds,
             "protocol": args.protocol,
             "expected_result": args.expected_result,
             "expected_reason": expected_reason,

@@ -279,6 +279,7 @@ def test_dual_route_hook_benchmark_warmup_and_output_are_privacy_bounded(
             "--repeats", "3",
             "--warmup", "1",
             "--min-samples", "1",
+            "--timeout-seconds", "5",
             "--unit-test-mode",
         ],
         runner=fake_runner,
@@ -312,6 +313,7 @@ def test_dual_route_hook_benchmark_warmup_and_output_are_privacy_bounded(
     assert report["sample_policy"] == {
         "minimum": 1,
         "interleaved": True,
+        "observation_timeout_seconds": 5.0,
         "protocol": "hook-json",
         "expected_result": "injected",
         "expected_reason": "included",
@@ -355,6 +357,7 @@ def test_dual_route_hook_benchmark_validates_real_adapter_envelope_without_leaki
             "--repeats", "1",
             "--warmup", "0",
             "--min-samples", "1",
+            "--timeout-seconds", "5",
             "--unit-test-mode",
         ],
         runner=fake_runner,
@@ -367,6 +370,7 @@ def test_dual_route_hook_benchmark_validates_real_adapter_envelope_without_leaki
     assert report["old"]["errors"] == 0
     assert report["new"]["errors"] == 0
     assert report["sample_policy"]["protocol"] == "adapter-envelope"
+    assert report["sample_policy"]["observation_timeout_seconds"] == 5.0
     assert report["sample_policy"]["context_sentinel_sha256"] == (
         "sha256:" + hashlib.sha256(sentinel.encode()).hexdigest()
     )
