@@ -1,0 +1,92 @@
+{
+  "schema_version": 1,
+  "measured_on": "2026-07-17",
+  "performance_gate": "PASS",
+  "overall_release_gate": "BLOCKED",
+  "blocking_calibration_case": "multi-hi-08",
+  "execution_policy": {
+    "warmups": 3,
+    "measured_pairs": 30,
+    "order": "interleaved old/new with alternating first command",
+    "brain": "same freshly materialized public fixture brain",
+    "payload": "same committed payload bytes",
+    "python": "same interpreter",
+    "environment": "same values except worktree PYTHONPATH and hook path"
+  },
+  "provenance": {
+    "old_commit": "bb9128a668fea98bf9063bfbedc85cc75dc8936c",
+    "candidate_commit": "e65c9e1087f21477821cfd9606cfa8ea2443b500",
+    "old_hook_sha256": "sha256:d3be4cc24a6dcd99f45856daaae78e5a7d93eb908254d2f90ed915195611c937",
+    "candidate_hook_sha256": "sha256:007d1f70c2b67f3e16aae93e94aa22f35629e286f8aeb2f2620aa4dc3a882315",
+    "benchmark_script_sha256": "sha256:fd51db3e08561cb40a88c7589e73e6c355d1d87fb4c8b91ce6f3b239484552ea",
+    "materializer_script_sha256": "sha256:7dd5fd2e5897cb28ce14efa1977b7d25e34092e9bca35083573cc47452305dd1",
+    "payload_sha256": "sha256:4e2b9bb5d5fd781702e0a33dd224f191c175b4435d4d63844949f23d5746b557",
+    "fixture_item_sha256": "sha256:6dd484e4f6cbd27a18aaf3b780ac64207b586550bb75b3999629e8924f75b658"
+  },
+  "fixture": {
+    "id": "dual-route-hook-public-v1",
+    "brain_policy": "fresh path required; materializer fails closed if it already exists",
+    "item_count": 1,
+    "item_path": "items/mem-20260717-000000-public-dual-route-hook-benchmark.md",
+    "payload_path": "tests/fixtures/dual_route_hook_benchmark_payload.json",
+    "embedder": "HashingEmbedder",
+    "embedding_mode": "offline test embedder",
+    "context_sentinel_sha256": "sha256:ea24fbc824f099c9276038517f5de853e48ff728ea10dd31a0989b97938f072e"
+  },
+  "protocol_contract": {
+    "protocol": "adapter-envelope",
+    "hook_event_name": "UserPromptSubmit",
+    "outer_keys": [
+      "hookSpecificOutput"
+    ],
+    "inner_keys": [
+      "hookEventName",
+      "additionalContext"
+    ],
+    "additional_context": "nonempty with exactly one complete agent_brain boundary containing the public sentinel",
+    "raw_hook_output_in_report": false,
+    "raw_prompt_in_report": false,
+    "context_in_report": false
+  },
+  "commands": {
+    "materialize_template": "PYTHONPATH=\"$CAND\" \"$PY\" \"$CAND/scripts/materialize-dual-route-hook-benchmark.py\" --brain-dir \"$BRAIN\"",
+    "old_command_template": "/usr/bin/env BRAIN_DIR=$BRAIN MEMORY_HUB_TEST_EMBEDDING=1 MEMORY_HUB_EMBEDDING_OFFLINE=1 AGENT_MEMORY_HUB_HOOK_OUTPUT_FORMAT=json AGENT_MEMORY_HUB_ADAPTER=codex AGENT_MEMORY_HUB_PYTHON=$PY PYTHONPATH=$BASE $BASE/agent_runtime_kit/hooks/inject-context.sh",
+    "candidate_command_template": "/usr/bin/env BRAIN_DIR=$BRAIN MEMORY_HUB_TEST_EMBEDDING=1 MEMORY_HUB_EMBEDDING_OFFLINE=1 AGENT_MEMORY_HUB_HOOK_OUTPUT_FORMAT=json AGENT_MEMORY_HUB_ADAPTER=codex AGENT_MEMORY_HUB_PYTHON=$PY PYTHONPATH=$CAND $CAND/agent_runtime_kit/hooks/inject-context.sh",
+    "benchmark_template": "PYTHONPATH=\"$CAND\" \"$PY\" \"$CAND/scripts/benchmark-dual-route-hook.py\" --old-command \"$OLD\" --new-command \"$NEW\" --payload \"$PAYLOAD\" --protocol adapter-envelope --context-sentinel \"$CONTEXT_SENTINEL\" --repeats 30 --warmup 3 --min-samples 30 --timeout-seconds 5"
+  },
+  "result": {
+    "limits": {
+      "max_new_ms": 2000.0,
+      "max_p95_delta_ms": 150.0
+    },
+    "new": {
+      "errors": 0,
+      "max_ms": 1746.549,
+      "p50_ms": 1615.757,
+      "p95_ms": 1736.283,
+      "samples": 30,
+      "timeouts": 0
+    },
+    "old": {
+      "errors": 0,
+      "max_ms": 3241.045,
+      "p50_ms": 3002.549,
+      "p95_ms": 3190.56,
+      "samples": 30,
+      "timeouts": 0
+    },
+    "p95_delta_ms": -1454.277,
+    "passed": true,
+    "publishable": true,
+    "sample_policy": {
+      "context_sentinel_sha256": "sha256:ea24fbc824f099c9276038517f5de853e48ff728ea10dd31a0989b97938f072e",
+      "expected_reason": "included",
+      "expected_result": "injected",
+      "interleaved": true,
+      "minimum": 30,
+      "observation_timeout_seconds": 5.0,
+      "protocol": "adapter-envelope",
+      "unit_test_mode": false
+    }
+  }
+}

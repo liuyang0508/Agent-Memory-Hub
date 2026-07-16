@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 from agent_brain.agent_integrations.qoder import QoderAdapter
@@ -126,6 +127,63 @@ def test_dual_route_release_docs_keep_rollout_and_blocker_boundaries_explicit():
     assert "reranker" in evidence
     assert "不得默认启用" in evidence
     assert "/tmp" not in evidence
+
+
+def test_dual_route_hook_benchmark_report_is_reproducible_and_privacy_bounded():
+    report = json.loads(
+        _read("docs/evaluation/dual-route-hook-benchmark-report.json")
+    )
+
+    assert report["schema_version"] == 1
+    assert report["performance_gate"] == "PASS"
+    assert report["overall_release_gate"] == "BLOCKED"
+    assert report["blocking_calibration_case"] == "multi-hi-08"
+    assert report["provenance"]["old_commit"] == (
+        "bb9128a668fea98bf9063bfbedc85cc75dc8936c"
+    )
+    assert report["provenance"]["candidate_commit"] == (
+        "e65c9e1087f21477821cfd9606cfa8ea2443b500"
+    )
+    assert report["execution_policy"] == {
+        "warmups": 3,
+        "measured_pairs": 30,
+        "order": "interleaved old/new with alternating first command",
+        "brain": "same freshly materialized public fixture brain",
+        "payload": "same committed payload bytes",
+        "python": "same interpreter",
+        "environment": "same values except worktree PYTHONPATH and hook path",
+    }
+    for name in (
+        "old_hook_sha256",
+        "candidate_hook_sha256",
+        "benchmark_script_sha256",
+        "materializer_script_sha256",
+        "payload_sha256",
+        "fixture_item_sha256",
+    ):
+        assert report["provenance"][name].startswith("sha256:")
+        assert len(report["provenance"][name]) == 71
+
+    result = report["result"]
+    assert result["passed"] is True
+    assert result["publishable"] is True
+    assert result["old"]["samples"] == 30
+    assert result["new"]["samples"] == 30
+    assert result["old"]["errors"] == result["new"]["errors"] == 0
+    assert result["old"]["timeouts"] == result["new"]["timeouts"] == 0
+    assert result["limits"] == {
+        "max_new_ms": 2000.0,
+        "max_p95_delta_ms": 150.0,
+    }
+    assert result["sample_policy"]["protocol"] == "adapter-envelope"
+    assert result["sample_policy"]["observation_timeout_seconds"] == 5.0
+    assert result["sample_policy"]["interleaved"] is True
+    assert result["sample_policy"]["unit_test_mode"] is False
+
+    serialized = json.dumps(report, ensure_ascii=False)
+    assert '"prompt"' not in serialized
+    assert '"context"' not in serialized
+    assert "PUBLIC DUAL ROUTE BENCHMARK SENTINEL" not in serialized
 
 
 def test_architecture_exact_retrieval_order_and_brief_branch_do_not_conflate_paths():
