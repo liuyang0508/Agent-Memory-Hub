@@ -343,7 +343,12 @@ def _write_fake_routed_hook_runtime(
         encoding="utf-8",
     )
     (tools_dir / "search-memory.sh").write_text(
-        "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$FAKE_SEARCH_ARGS\"\n"
+        "#!/bin/sh\npython3 - \"$FAKE_SEARCH_ARGS\" \"$@\" <<'PY'\n"
+        "import json\n"
+        "import sys\n"
+        "with open(sys.argv[1], 'w', encoding='utf-8') as fh:\n"
+        "    json.dump(sys.argv[2:], fh, ensure_ascii=False)\n"
+        "PY\n"
         + "printf '%s' "
         + repr(search_stdout)
         + "\n",
@@ -354,8 +359,16 @@ def _write_fake_routed_hook_runtime(
     return hooks_dir / "inject-context.sh", tmp_path / "search-args.txt"
 
 
-def test_user_prompt_hook_delegates_complete_prompt_to_routed_cli(tmp_path):
-    prompt = "为什么之前那个方案没有生效"
+@pytest.mark.parametrize(
+    "prompt",
+    (
+        "为什么之前那个方案没有生效",
+        "--help",
+        "-n something",
+        "第一行  保留空格\n第二行\t保留制表符",
+    ),
+)
+def test_user_prompt_hook_delegates_complete_prompt_to_routed_cli(tmp_path, prompt):
     hook, args_path = _write_fake_routed_hook_runtime(
         tmp_path,
         search_stdout=json.dumps(
@@ -402,8 +415,8 @@ def test_user_prompt_hook_delegates_complete_prompt_to_routed_cli(tmp_path):
     assert result.returncode == 0, result.stderr
     context = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
     assert "[fact] routed raw recall" in context
-    args = args_path.read_text(encoding="utf-8").splitlines()
-    assert args[0] == prompt
+    args = json.loads(args_path.read_text(encoding="utf-8"))
+    assert args[-2:] == ["--", prompt]
     for flag in (
         "--routed-recall",
         "--context-firewall",
@@ -449,6 +462,55 @@ def test_user_prompt_hook_fails_closed_on_malformed_hook_json(tmp_path):
 
     assert result.returncode == 0, result.stderr
     assert json.loads(result.stdout) == {}
+
+
+@pytest.mark.parametrize(
+    ("prompt", "slug"),
+    [("--help", "dash-help"), ("-n something", "dash-n-something")],
+)
+def test_user_prompt_hook_real_cli_injects_option_like_prompt(tmp_path, prompt, slug):
+    script = Path(__file__).resolve().parents[2] / "agent_runtime_kit" / "hooks" / "inject-context.sh"
+    store = ItemsStore(tmp_path / "items")
+    embedder = HashingEmbedder()
+    idx = HubIndex(tmp_path / "index.db", embedding_dim=embedder.dim)
+    item = MemoryItem(
+        id=f"mem-20260716-190000-{slug}",
+        type=MemoryType.artifact,
+        created_at=datetime.now(timezone.utc),
+        title=f"Option-like prompt {prompt}",
+        summary=f"Routed hook must recall the literal prompt {prompt}",
+    )
+    body = f"Option-like prompt boundary for {prompt}"
+    store.write(item, body)
+    idx.upsert(item, body, embedding=embedder.embed(body))
+    idx.close()
+    env = {
+        **os.environ,
+        "BRAIN_DIR": str(tmp_path),
+        "AGENT_MEMORY_HUB_ADAPTER": "codex",
+        "AGENT_MEMORY_HUB_HOOK_OUTPUT_FORMAT": "json",
+        "MEMORY_HUB_TEST_EMBEDDING": "1",
+        "MEMORY_HUB_EMBEDDING_OFFLINE": "1",
+    }
+
+    result = subprocess.run(
+        ["/bin/bash", str(script)],
+        input=json.dumps(
+            {
+                "prompt": prompt,
+                "session_id": f"option-like-{slug}",
+                "cwd": "/repo/current",
+                "hook_event_name": "UserPromptSubmit",
+            }
+        ),
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    context = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
+    assert item.title in context
 
 
 @pytest.mark.parametrize(

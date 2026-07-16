@@ -153,7 +153,6 @@ done
 
 SEARCH_ARGS=(
   "$SEARCH_TOOL"
-  "$RECALL_PROMPT"
   "--top-k" "$TOP_K"
   "--prefer-type" "$PREFER_TYPES"
   "--routed-recall"
@@ -164,6 +163,8 @@ SEARCH_ARGS=(
   "--adapter" "${AGENT_MEMORY_HUB_ADAPTER:-unknown}"
   "--session" "$SESSION_ID"
   "--cwd" "$CWD"
+  "--"
+  "$RECALL_PROMPT"
 )
 
 SEARCH_STATUS=0
