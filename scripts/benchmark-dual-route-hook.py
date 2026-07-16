@@ -183,6 +183,7 @@ def _run_once(
                 payload,
                 timeout_seconds=timeout_seconds,
                 clock=clock,
+                deadline=started + timeout_seconds,
             )
             functional_error = overflowed or returncode != 0
             if not timed_out and not functional_error:
@@ -242,8 +243,10 @@ def _run_streaming(
     *,
     timeout_seconds: float,
     clock: Callable[[], float],
+    deadline: float | None = None,
 ) -> tuple[bytes, int, bool, bool]:
-    """Run a hook while enforcing the stdout cap before the child can finish."""
+    """Run a hook with one deadline for spawn, stdin delivery, and stdout."""
+    deadline_at = deadline if deadline is not None else clock() + timeout_seconds
     process = subprocess.Popen(
         command,
         stdin=subprocess.PIPE,
@@ -253,50 +256,82 @@ def _run_streaming(
     )
     assert process.stdin is not None
     assert process.stdout is not None
-    try:
-        process.stdin.write(payload)
-        process.stdin.close()
-    except BrokenPipeError:
-        pass
-
-    deadline = clock() + timeout_seconds
+    os.set_blocking(process.stdin.fileno(), False)
+    os.set_blocking(process.stdout.fileno(), False)
     captured = bytearray()
     selector = selectors.DefaultSelector()
     selector.register(process.stdout, selectors.EVENT_READ)
+    payload_view = memoryview(payload)
+    payload_offset = 0
+    stdin_open = True
+    stdout_open = True
+    if payload:
+        selector.register(process.stdin, selectors.EVENT_WRITE)
+    else:
+        process.stdin.close()
+        stdin_open = False
     timed_out = False
     overflowed = False
     try:
         while True:
-            remaining = deadline - clock()
+            remaining = deadline_at - clock()
             if remaining <= 0:
                 timed_out = True
                 _kill_process_group(process)
                 break
             events = selector.select(min(remaining, 0.05))
             if not events:
-                if process.poll() is not None:
-                    chunk = os.read(process.stdout.fileno(), 8192)
-                    if chunk:
-                        captured.extend(chunk)
-                        if len(captured) > _MAX_STDOUT_BYTES:
-                            overflowed = True
+                if process.poll() is not None and not stdout_open:
                     break
                 continue
-            chunk = os.read(process.stdout.fileno(), 8192)
-            if not chunk:
+            for key, _mask in events:
+                if key.fileobj is process.stdin:
+                    try:
+                        written = os.write(
+                            process.stdin.fileno(),
+                            payload_view[payload_offset : payload_offset + 64 * 1024],
+                        )
+                    except BlockingIOError:
+                        continue
+                    except BrokenPipeError:
+                        written = 0
+                        payload_offset = len(payload_view)
+                    else:
+                        payload_offset += written
+                    if payload_offset >= len(payload_view) or written == 0:
+                        selector.unregister(process.stdin)
+                        process.stdin.close()
+                        stdin_open = False
+                    continue
+
+                try:
+                    chunk = os.read(process.stdout.fileno(), 8192)
+                except BlockingIOError:
+                    continue
+                if not chunk:
+                    selector.unregister(process.stdout)
+                    stdout_open = False
+                    if process.poll() is not None:
+                        break
+                    continue
+                captured.extend(chunk)
+                if len(captured) > _MAX_STDOUT_BYTES:
+                    overflowed = True
+                    _kill_process_group(process)
+                    break
+            if overflowed:
                 break
-            captured.extend(chunk)
-            if len(captured) > _MAX_STDOUT_BYTES:
-                overflowed = True
-                _kill_process_group(process)
+            if process.poll() is not None and not stdout_open:
                 break
     finally:
         selector.close()
+        if stdin_open:
+            process.stdin.close()
         process.stdout.close()
 
     if process.poll() is None:
         try:
-            process.wait(timeout=max(0.0, deadline - clock()))
+            process.wait(timeout=max(0.0, deadline_at - clock()))
         except subprocess.TimeoutExpired:
             timed_out = True
             _kill_process_group(process)

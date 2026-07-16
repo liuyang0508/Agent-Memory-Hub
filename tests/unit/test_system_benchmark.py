@@ -515,6 +515,42 @@ def test_dual_route_hook_benchmark_bounds_real_runner_stdout_before_reading(
     assert not survived_marker.exists()
 
 
+def test_dual_route_hook_benchmark_deadline_includes_large_stdin_delivery(
+    tmp_path: Path,
+) -> None:
+    benchmark = _load_dual_route_hook_benchmark()
+    survived_marker = tmp_path / "large-stdin-descendant-survived.txt"
+    descendant_code = (
+        "import pathlib,time;"
+        "time.sleep(.8);"
+        f"pathlib.Path({str(survived_marker)!r}).write_text('survived')"
+    )
+    code = (
+        "import subprocess,time;"
+        f"subprocess.Popen([{sys.executable!r},'-c',{descendant_code!r}]);"
+        "time.sleep(2)"
+    )
+    private_marker = b"PRIVATE-LARGE-STDIN-MARKER"
+    payload = private_marker + b"X" * (10 * 1024 * 1024)
+
+    started = time.perf_counter()
+    captured, _returncode, timed_out, overflowed = benchmark._run_streaming(
+        [sys.executable, "-c", code],
+        payload,
+        timeout_seconds=0.2,
+        clock=time.perf_counter,
+    )
+    wall_elapsed = time.perf_counter() - started
+
+    assert wall_elapsed < 0.8
+    assert timed_out is True
+    assert overflowed is False
+    assert captured == b""
+    assert private_marker not in captured
+    time.sleep(0.9)
+    assert not survived_marker.exists()
+
+
 def test_dual_route_hook_benchmark_requires_publishable_sample_floor(tmp_path: Path) -> None:
     benchmark = _load_dual_route_hook_benchmark()
     payload = tmp_path / "payload.json"
