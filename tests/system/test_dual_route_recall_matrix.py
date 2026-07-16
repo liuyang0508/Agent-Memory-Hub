@@ -517,6 +517,36 @@ def _gateway_ids(result: InjectionResult) -> frozenset[str]:
     return frozenset(entry.decision.candidate.item.id for entry in result.included)
 
 
+def _is_legacy_false_negative(case: dict[str, Any], old: _Outcome) -> bool:
+    expected = frozenset(case.get("expected_item_ids", ()))
+    return bool(
+        case.get("expect_injection")
+        and expected
+        and expected - old.injected
+    )
+
+
+def _is_fixed_by_routed_recall(
+    case: dict[str, Any],
+    old: _Outcome,
+    new: _Outcome,
+) -> bool:
+    expected = frozenset(case.get("expected_item_ids", ()))
+    return _is_legacy_false_negative(case, old) and expected <= new.injected
+
+
+def test_legacy_false_negative_is_only_an_old_outcome_label() -> None:
+    case = {
+        "expected_item_ids": ["decision", "verification"],
+        "expect_injection": True,
+    }
+    old = _Outcome(frozenset(), frozenset({"decision"}), ())
+    new = _Outcome(frozenset(), frozenset(), ())
+
+    assert _is_legacy_false_negative(case, old) is True
+    assert _is_fixed_by_routed_recall(case, old, new) is False
+
+
 def _legacy_outcome(
     retriever: Retriever,
     case: dict[str, Any],
@@ -631,15 +661,12 @@ def test_dual_route_candidate_and_injection_governance_matrix(tmp_path: Path) ->
         (
             case["id"],
             case["legacy_false_negative"],
-            not bool(set(case["expected_item_ids"]) & old.injected)
-            and bool(set(case["expected_item_ids"]) & new.injected),
+            _is_legacy_false_negative(case, old),
         )
-        for case, old, new in positives
+        for case, old, _new in rows
+        if case["expected_item_ids"]
         if case["legacy_false_negative"]
-        != (
-            not bool(set(case["expected_item_ids"]) & old.injected)
-            and bool(set(case["expected_item_ids"]) & new.injected)
-        )
+        != _is_legacy_false_negative(case, old)
     ]
     legacy_hits = sum(
         bool(set(case["expected_item_ids"]) & old.candidates) for case, old, _new in positives
@@ -650,17 +677,14 @@ def test_dual_route_candidate_and_injection_governance_matrix(tmp_path: Path) ->
     fixed = [
         case["id"]
         for case, old, new in rows
-        if case["legacy_false_negative"]
-        and not (set(case["expected_item_ids"]) & old.injected)
-        and bool(set(case["expected_item_ids"]) & new.injected)
+        if _is_fixed_by_routed_recall(case, old, new)
     ]
     new_false_negatives = [
         case["id"]
-        for case, old, new in rows
-        if not case["legacy_false_negative"]
-        and case["expect_injection"]
-        and bool(set(case["expected_item_ids"]) & old.injected)
-        and not bool(set(case["expected_item_ids"]) & new.injected)
+        for case, _old, new in rows
+        if case["expect_injection"]
+        and not case.get("known_capability_gap")
+        and not set(case["expected_item_ids"]) <= new.injected
     ]
     hard_negative_ids = {
         item["id"]
@@ -684,7 +708,7 @@ def test_dual_route_candidate_and_injection_governance_matrix(tmp_path: Path) ->
         for case, _old, new in rows
         if case["expect_injection"]
         and not case.get("known_capability_gap")
-        and not (set(case["expected_item_ids"]) & new.injected)
+        and not set(case["expected_item_ids"]) <= new.injected
     ]
 
     assert [case["id"] for case, _old, _new in known_gap_rows] == ["multi-hi-08"]
