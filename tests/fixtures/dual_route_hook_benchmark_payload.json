@@ -1,0 +1,6 @@
+{
+  "prompt": "Please recall the PUBLIC DUAL ROUTE BENCHMARK SENTINEL and explain its public hook latency purpose.",
+  "session_id": "public-dual-route-hook-benchmark",
+  "cwd": "/public-fixture/agent-memory-hub",
+  "hook_event_name": "UserPromptSubmit"
+}

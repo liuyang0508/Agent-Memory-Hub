@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -17,6 +18,7 @@ from typing import Callable, NamedTuple, Sequence, TextIO
 
 _MAX_STDOUT_BYTES = 64 * 1024
 _PUBLISHABLE_MIN_SAMPLES = 30
+_PUBLIC_CONTEXT_SENTINEL = "PUBLIC DUAL ROUTE BENCHMARK SENTINEL"
 _HOOK_STATUSES = frozenset({"injected", "empty", "timeout", "error"})
 _HOOK_REASONS = {
     "injected": frozenset({"included"}),
@@ -98,6 +100,8 @@ def _valid_hook_result(
     *,
     expected_result: str,
     expected_reason: str | None,
+    protocol: str = "hook-json",
+    context_sentinel: str | None = None,
 ) -> bool:
     if not isinstance(stdout, (bytes, bytearray)):
         return False
@@ -110,6 +114,10 @@ def _valid_hook_result(
         return False
     if not isinstance(payload, dict):
         return False
+    if protocol == "adapter-envelope":
+        return _valid_adapter_envelope(payload, context_sentinel=context_sentinel)
+    if protocol != "hook-json":
+        raise ValueError("unsupported hook protocol")
     if set(payload) != {"status", "reason", "context", "routes"}:
         return False
     status = payload.get("status")
@@ -143,6 +151,37 @@ def _valid_hook_result(
     raise ValueError("unsupported expected result")
 
 
+def _valid_adapter_envelope(
+    payload: dict[str, object],
+    *,
+    context_sentinel: str | None,
+) -> bool:
+    if context_sentinel != _PUBLIC_CONTEXT_SENTINEL:
+        return False
+    if set(payload) != {"hookSpecificOutput"}:
+        return False
+    envelope = payload.get("hookSpecificOutput")
+    if not isinstance(envelope, dict) or set(envelope) != {
+        "hookEventName",
+        "additionalContext",
+    }:
+        return False
+    context = envelope.get("additionalContext")
+    if (
+        envelope.get("hookEventName") != "UserPromptSubmit"
+        or not isinstance(context, str)
+        or not context.strip()
+        or context.count("<agent_brain>") != 1
+        or context.count("</agent_brain>") != 1
+    ):
+        return False
+    opened = context.index("<agent_brain>")
+    closed = context.index("</agent_brain>")
+    if opened >= closed:
+        return False
+    return context_sentinel in context[opened:closed]
+
+
 def _valid_route(route: object) -> bool:
     if not isinstance(route, dict):
         return False
@@ -172,6 +211,8 @@ def _run_once(
     timeout_seconds: float,
     expected_result: str,
     expected_reason: str | None,
+    protocol: str = "hook-json",
+    context_sentinel: str | None = None,
 ) -> tuple[float, bool, bool]:
     started = clock()
     timed_out = False
@@ -191,6 +232,8 @@ def _run_once(
                     protocol_stdout,
                     expected_result=expected_result,
                     expected_reason=expected_reason,
+                    protocol=protocol,
+                    context_sentinel=context_sentinel,
                 )
         else:
             completed = runner(
@@ -207,6 +250,8 @@ def _run_once(
                 protocol_stdout,
                 expected_result=expected_result,
                 expected_reason=expected_reason,
+                protocol=protocol,
+                context_sentinel=context_sentinel,
             )
     except subprocess.TimeoutExpired:
         timed_out = True
@@ -351,6 +396,8 @@ def _measure_pair(
     timeout_seconds: float,
     expected_result: str,
     expected_reason: str | None,
+    protocol: str,
+    context_sentinel: str | None,
 ) -> tuple[BenchmarkStats, BenchmarkStats]:
     durations = {"old": [], "new": []}
     timeouts = {"old": 0, "new": 0}
@@ -367,6 +414,8 @@ def _measure_pair(
                 timeout_seconds=timeout_seconds,
                 expected_result=expected_result,
                 expected_reason=expected_reason,
+                protocol=protocol,
+                context_sentinel=context_sentinel,
             )
             if timed_out:
                 timeouts[name] += 1
@@ -385,6 +434,12 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--old-command", required=True)
     parser.add_argument("--new-command", required=True)
     parser.add_argument("--payload", type=Path, required=True)
+    parser.add_argument(
+        "--protocol",
+        choices=("hook-json", "adapter-envelope"),
+        default="hook-json",
+    )
+    parser.add_argument("--context-sentinel")
     parser.add_argument("--repeats", type=int, default=30)
     parser.add_argument("--min-samples", type=int, default=30)
     parser.add_argument("--warmup", type=int, default=3)
@@ -424,6 +479,15 @@ def main(
         )
     if runner is not None and not args.unit_test_mode:
         raise SystemExit("custom runner requires unit-test mode")
+    if args.protocol == "adapter-envelope":
+        if args.context_sentinel is None:
+            raise SystemExit("context sentinel is required for adapter-envelope")
+        if args.context_sentinel != _PUBLIC_CONTEXT_SENTINEL:
+            raise SystemExit("adapter-envelope requires the public fixture sentinel")
+        if args.expected_result != "injected":
+            raise SystemExit("adapter-envelope only supports injected results")
+    elif args.context_sentinel is not None:
+        raise SystemExit("context sentinel requires adapter-envelope protocol")
     if args.repeats < args.min_samples:
         raise SystemExit("repeats must meet the minimum sample count")
     expected_reason = args.expected_reason
@@ -448,6 +512,8 @@ def main(
         timeout_seconds=args.timeout_seconds,
         expected_result=args.expected_result,
         expected_reason=expected_reason,
+        protocol=args.protocol,
+        context_sentinel=args.context_sentinel,
     )
     measured_status = exit_code(old, new)
     publishable = not args.unit_test_mode
@@ -460,8 +526,14 @@ def main(
         "sample_policy": {
             "minimum": args.min_samples,
             "interleaved": True,
+            "protocol": args.protocol,
             "expected_result": args.expected_result,
             "expected_reason": expected_reason,
+            "context_sentinel_sha256": (
+                "sha256:" + hashlib.sha256(args.context_sentinel.encode()).hexdigest()
+                if args.context_sentinel is not None
+                else None
+            ),
             "unit_test_mode": args.unit_test_mode,
         },
         "publishable": publishable,

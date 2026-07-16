@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import io
+import hashlib
 import json
 import subprocess
 import sys
@@ -221,6 +222,15 @@ def _load_dual_route_hook_benchmark():
     return module
 
 
+def _load_dual_route_hook_materializer():
+    path = Path(__file__).parents[2] / "scripts" / "materialize-dual-route-hook-benchmark.py"
+    spec = importlib.util.spec_from_file_location("materialize_dual_route_hook_benchmark", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def test_dual_route_hook_benchmark_statistics_and_exit_policy() -> None:
     benchmark = _load_dual_route_hook_benchmark()
     old = benchmark.summarize([0.100, 0.110, 0.120, 0.130], timeouts=0)
@@ -302,8 +312,10 @@ def test_dual_route_hook_benchmark_warmup_and_output_are_privacy_bounded(
     assert report["sample_policy"] == {
         "minimum": 1,
         "interleaved": True,
+        "protocol": "hook-json",
         "expected_result": "injected",
         "expected_reason": "included",
+        "context_sentinel_sha256": None,
         "unit_test_mode": True,
     }
     assert report["publishable"] is False
@@ -311,6 +323,162 @@ def test_dual_route_hook_benchmark_warmup_and_output_are_privacy_bounded(
     assert "PRIVATE BENCHMARK PROMPT" not in output.getvalue()
     assert "old-hook" not in output.getvalue()
     assert "new-hook" not in output.getvalue()
+
+
+def test_dual_route_hook_benchmark_validates_real_adapter_envelope_without_leaking_context(
+    tmp_path: Path,
+) -> None:
+    benchmark = _load_dual_route_hook_benchmark()
+    payload = tmp_path / "payload.json"
+    payload.write_text('{"prompt":"PUBLIC SYNTHETIC QUERY"}', encoding="utf-8")
+    sentinel = "PUBLIC DUAL ROUTE BENCHMARK SENTINEL"
+    context = f"<agent_brain>\n{sentinel}\n</agent_brain>"
+    valid_stdout = json.dumps({
+        "hookSpecificOutput": {
+            "hookEventName": "UserPromptSubmit",
+            "additionalContext": context,
+        }
+    }).encode()
+    ticks = iter(index * 0.010 for index in range(8))
+
+    def fake_runner(*_args, **_kwargs):
+        return SimpleNamespace(returncode=0, stdout=valid_stdout)
+
+    output = io.StringIO()
+    status = benchmark.main(
+        [
+            "--old-command", "old-hook",
+            "--new-command", "new-hook",
+            "--payload", str(payload),
+            "--protocol", "adapter-envelope",
+            "--context-sentinel", sentinel,
+            "--repeats", "1",
+            "--warmup", "0",
+            "--min-samples", "1",
+            "--unit-test-mode",
+        ],
+        runner=fake_runner,
+        clock=lambda: next(ticks),
+        stdout=output,
+    )
+
+    report = json.loads(output.getvalue())
+    assert status == 1
+    assert report["old"]["errors"] == 0
+    assert report["new"]["errors"] == 0
+    assert report["sample_policy"]["protocol"] == "adapter-envelope"
+    assert report["sample_policy"]["context_sentinel_sha256"] == (
+        "sha256:" + hashlib.sha256(sentinel.encode()).hexdigest()
+    )
+    assert sentinel not in output.getvalue()
+    assert context not in output.getvalue()
+    assert "PUBLIC SYNTHETIC QUERY" not in output.getvalue()
+
+
+@pytest.mark.parametrize(
+    "hook_stdout",
+    [
+        b"{}",
+        b'{"hookSpecificOutput":{}}',
+        b'{"hookSpecificOutput":{"hookEventName":"Wrong","additionalContext":"<agent_brain> PUBLIC DUAL ROUTE BENCHMARK SENTINEL </agent_brain>"}}',
+        b'{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":""}}',
+        b'{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"PUBLIC DUAL ROUTE BENCHMARK SENTINEL"}}',
+        b'{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"<agent_brain> PUBLIC DUAL ROUTE BENCHMARK SENTINEL"}}',
+        b'{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"<agent_brain> PUBLIC DUAL ROUTE BENCHMARK SENTINEL </agent_brain> trailing </agent_brain>"}}',
+        b'{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"<agent_brain> wrong sentinel </agent_brain>"}}',
+        b'{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"<agent_brain> PUBLIC DUAL ROUTE BENCHMARK SENTINEL </agent_brain>","extra":1}}',
+        b'{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"<agent_brain> PUBLIC DUAL ROUTE BENCHMARK SENTINEL </agent_brain>"},"extra":1}',
+    ],
+)
+def test_dual_route_hook_benchmark_rejects_malformed_adapter_envelopes(
+    tmp_path: Path,
+    hook_stdout: bytes,
+) -> None:
+    benchmark = _load_dual_route_hook_benchmark()
+    payload = tmp_path / "payload.json"
+    payload.write_text("{}", encoding="utf-8")
+    ticks = iter(index * 0.010 for index in range(8))
+
+    def fake_runner(*_args, **_kwargs):
+        return SimpleNamespace(returncode=0, stdout=hook_stdout)
+
+    output = io.StringIO()
+    benchmark.main(
+        [
+            "--old-command", "old-hook",
+            "--new-command", "new-hook",
+            "--payload", str(payload),
+            "--protocol", "adapter-envelope",
+            "--context-sentinel", "PUBLIC DUAL ROUTE BENCHMARK SENTINEL",
+            "--repeats", "1",
+            "--warmup", "0",
+            "--min-samples", "1",
+            "--unit-test-mode",
+        ],
+        runner=fake_runner,
+        clock=lambda: next(ticks),
+        stdout=output,
+    )
+
+    report = json.loads(output.getvalue())
+    assert report["old"]["errors"] == 1
+    assert report["new"]["errors"] == 1
+    assert hook_stdout.decode(errors="ignore") not in output.getvalue()
+
+
+def test_dual_route_hook_benchmark_adapter_envelope_requires_public_sentinel(
+    tmp_path: Path,
+) -> None:
+    benchmark = _load_dual_route_hook_benchmark()
+    payload = tmp_path / "payload.json"
+    payload.write_text("{}", encoding="utf-8")
+
+    with pytest.raises(SystemExit, match="context sentinel is required"):
+        benchmark.main(
+            [
+                "--old-command", "old-hook",
+                "--new-command", "new-hook",
+                "--payload", str(payload),
+                "--protocol", "adapter-envelope",
+                "--repeats", "1",
+                "--warmup", "0",
+                "--min-samples", "1",
+                "--unit-test-mode",
+            ]
+        )
+
+
+def test_dual_route_hook_benchmark_public_fixture_materializer_is_fail_closed(
+    tmp_path: Path,
+) -> None:
+    materializer = _load_dual_route_hook_materializer()
+    brain_dir = tmp_path / "brain"
+    output = io.StringIO()
+
+    status = materializer.main(["--brain-dir", str(brain_dir)], stdout=output)
+
+    assert status == 0
+    summary = json.loads(output.getvalue())
+    assert summary == {
+        "item_count": 1,
+        "fixture_id": "dual-route-hook-public-v1",
+        "payload": "tests/fixtures/dual_route_hook_benchmark_payload.json",
+    }
+    rows = list(ItemsStore(brain_dir / "items").iter_all())
+    assert len(rows) == 1
+    item, body = rows[0]
+    assert item.sensitivity == "public"
+    assert item.refs.urls == ["https://example.test/dual-route-hook-benchmark"]
+    assert "PUBLIC DUAL ROUTE BENCHMARK SENTINEL" in body
+    assert (brain_dir / "index.db").is_file()
+    with pytest.raises(SystemExit, match="must not already exist"):
+        materializer.main(["--brain-dir", str(brain_dir)], stdout=io.StringIO())
+
+    payload_path = Path(__file__).parents[2] / summary["payload"]
+    payload = json.loads(payload_path.read_text(encoding="utf-8"))
+    assert set(payload) == {"prompt", "session_id", "cwd", "hook_event_name"}
+    assert payload["hook_event_name"] == "UserPromptSubmit"
+    assert "PUBLIC DUAL ROUTE BENCHMARK SENTINEL" in payload["prompt"]
 
 
 def test_dual_route_hook_benchmark_nonzero_process_is_an_error(tmp_path: Path) -> None:
