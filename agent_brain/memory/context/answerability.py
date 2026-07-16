@@ -293,6 +293,8 @@ def verify_routed_candidate_answerability(
     evidence = query_context.evidence_by_id.get(candidate.item.id)
     if evidence is None or not _has_recognized_route_provenance(evidence.routes):
         return _route_answerability_failure(query_intent)
+    if query_intent == "resolution" and not _has_resolution_evidence(candidate):
+        return _route_answerability_failure(query_intent)
 
     routes = set(evidence.routes)
     semantic_failure: CandidateAnswerability | None = None

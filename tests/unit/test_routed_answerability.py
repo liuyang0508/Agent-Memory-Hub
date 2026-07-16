@@ -303,6 +303,57 @@ def test_direct_semantic_cohort_keeps_two_answerable_atlas_memories_only() -> No
     assert result.excluded[0].reasons == ("route_answerability_insufficient",)
 
 
+def test_direct_semantic_cohort_preserves_resolution_intent_per_candidate() -> None:
+    from agent_brain.memory.context.context_firewall import ContextFirewall
+    from agent_brain.memory.context.injection_query_context import InjectionQueryContext
+    from agent_brain.memory.recall.admission import build_recall_request
+
+    query = "多Agent共享第二大脑 召回错乱怎么处理"
+    request = build_recall_request(query, adapter="codex")
+    topic_only = _item(
+        "topic-only",
+        title="多Agent共享第二大脑架构概览",
+        summary="多Agent共享第二大脑模块边界和信息架构说明。",
+        type_="artifact",
+        tags=["多agent共享第二大脑"],
+    )
+    resolution = _item(
+        "resolution",
+        title="多Agent共享第二大脑召回错乱修复",
+        summary="修复 scope-only 召回污染并验证回归通过。",
+        tags=["多agent共享第二大脑", "recall"],
+    )
+    context = InjectionQueryContext(
+        raw_query=query,
+        admission=request.admission,
+        query_signal=request.query_signal,
+        evidence_by_id={
+            topic_only.id: _evidence(
+                "semantic_raw",
+                similarity=0.72,
+                semantic_rank=1,
+            ),
+            resolution.id: _evidence(
+                "semantic_raw",
+                similarity=0.70,
+                semantic_rank=2,
+            ),
+        },
+    )
+
+    result = ContextFirewall(now=NOW).filter(
+        [
+            _candidate(topic_only, body="多Agent共享第二大脑 架构 概览 模块 信息"),
+            _candidate(resolution, body="召回错乱 修复 验证 passed"),
+        ],
+        query_context=context,
+    )
+
+    assert [entry.candidate.item.id for entry in result.included] == [resolution.id]
+    assert [entry.candidate.item.id for entry in result.excluded] == [topic_only.id]
+    assert result.excluded[0].reasons == ("route_answerability_insufficient",)
+
+
 def test_direct_semantic_cohort_respects_configured_bound() -> None:
     from agent_brain.memory.context.context_firewall import ContextFirewall
 
