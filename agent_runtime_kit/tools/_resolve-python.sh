@@ -80,9 +80,9 @@ _candidate_identity() {
   local candidate identity
   candidate="$(_candidate_path "$1")" || return 1
   [ -n "$candidate" ] || return 1
-  # stat follows the executable symlink by default. Binding device, inode,
-  # mtime and size therefore detects both in-place replacement and retargeting
-  # without re-running the more expensive canonical-path walk in every child.
+  # Explicit -L binds device, inode, mtime and size to the resolved executable
+  # target. The caller separately recomputes and compares the canonical path,
+  # so both in-place target replacement and symlink retargeting fail closed.
   if identity="$(stat -Lc '%d:%i:%Y:%s' "$candidate" 2>/dev/null)"; then
     printf '%s\n' "$identity"
     return 0
