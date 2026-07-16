@@ -16,6 +16,9 @@ What it does:
     brain cannot accept writes and the report is ``BROKEN``. Everything below the
     md line (index, embedder, Gateway API) is best-effort/derived, so its absence or
     degradation only downgrades the report to ``DEGRADED`` — never ``BROKEN``.
+    Semantic-provider fast readiness is reported but does not grade ``overall``:
+    short-lived hooks intentionally use the lexical fallback today. The existing
+    core embedder tier remains a separately graded compatibility signal.
 
 How to use it::
 
@@ -37,47 +40,16 @@ on a cold/offline machine.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-import inspect
 import os
 from pathlib import Path
 import shlex
 import sqlite3
 
+from agent_brain.memory.context.injection_contract import (
+    INJECTION_EXCLUSION_REASONS as CANONICAL_INJECTION_EXCLUSION_REASONS,
+)
 from agent_brain.memory.store.items_store import ItemsStore
 from agent_brain.memory.store.pending import PendingQueue, brain_dir
-
-
-_EXPECTED_GATEWAY_EXCLUSION_REASONS = frozenset({
-    "answerability_mismatch",
-    "cohort_strong_anchor_undercovered",
-    "contested",
-    "duplicate_cluster",
-    "hydrate_error",
-    "invalid_candidate_score",
-    "l0_evidence_only",
-    "low_confidence",
-    "max_items_exceeded",
-    "missing_source",
-    "negative_feedback",
-    "pack_error",
-    "pack_budget_exceeded",
-    "query_mismatch",
-    "query_not_injectable",
-    "route_answerability_insufficient",
-    "requires_review",
-    "scope_mismatch",
-    "semantic_answerability_mismatch",
-    "sensitivity_not_allowed",
-    "stale_current_state",
-    "stale_handoff",
-    "stale_negative_state",
-    "stale_positive_state",
-    "stale_signal",
-    "superseded",
-    "temporal_state_conflict_newer",
-    "topic_recency_newer",
-    "very_low_confidence",
-})
 
 
 @dataclass
@@ -148,7 +120,7 @@ def _probe_injection_gateway_available() -> bool:
         and callable(injection_exclusion_reason_counts)
         and isinstance(INJECTION_EXCLUSION_REASONS, frozenset)
         and INJECTION_EXCLUSION_REASONS
-        == _EXPECTED_GATEWAY_EXCLUSION_REASONS
+        == CANONICAL_INJECTION_EXCLUSION_REASONS
     )
 
 
@@ -172,25 +144,27 @@ def _probe_semantic_provider_status() -> str:
 def _probe_routed_cli_installed() -> bool:
     """Check that the installed search command exposes the hook protocol."""
     try:
-        from agent_brain.interfaces.cli.commands.query import search
-        from agent_brain.interfaces.cli.routed_query import execute_routed_query
-
-        parameters = inspect.signature(search).parameters
+        from agent_brain.memory.recall.routed_protocol import (
+            ROUTED_HOOK_PROTOCOL_AVAILABLE,
+        )
     except Exception:
         return False
-    return (
-        callable(execute_routed_query)
-        and "routed_recall" in parameters
-        and "output_format" in parameters
-    )
+    return ROUTED_HOOK_PROTOCOL_AVAILABLE is True
 
 
 def _probe_bm25_index_ready(db_path: Path) -> bool:
     """Verify the current derived index can execute local FTS5/BM25."""
     if not db_path.exists():
         return False
+    database_uri = db_path.resolve().as_uri()
     try:
-        with sqlite3.connect(str(db_path)) as connection:
+        with sqlite3.connect(
+            f"{database_uri}?mode=ro",
+            uri=True,
+            timeout=0.1,
+        ) as connection:
+            connection.execute("PRAGMA busy_timeout=100")
+            connection.execute("PRAGMA query_only=ON")
             row = connection.execute(
                 "SELECT 1 FROM sqlite_master WHERE name = 'items_fts'"
             ).fetchone()
@@ -339,7 +313,9 @@ def run_doctor(offline: bool = True) -> DoctorReport:
         or rep.checks["core.embedder.tier"] != "semantic"
         or rep.checks["recall.routed.status"] != "enabled"
         or not rep.checks["security.injection_gateway.available"]
-        or rep.checks["recall.semantic_provider.status"] != "fast_ready"
+        # Semantic provider readiness is informational for the current
+        # intentionally model-free hook surface. Required lexical fallback and
+        # legacy embedder health are graded independently above/below.
         or rep.checks["recall.lexical_raw_fallback.status"] != "ready"
         or (rep.checks["cli.shim.present"] and not rep.checks["cli.shim.target_exists"])
     ):

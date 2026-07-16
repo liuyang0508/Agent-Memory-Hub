@@ -1,10 +1,14 @@
 import builtins
 import json
 import os
+import sqlite3
 import subprocess
 import sys
 import textwrap
+import time
 from pathlib import Path
+
+import pytest
 
 from agent_brain.platform.doctor import run_doctor
 
@@ -14,6 +18,17 @@ def _create_ready_index(brain: Path) -> None:
 
     index = HubIndex(db_path=brain / "index.db")
     index.close()
+
+
+def _create_fts_index(path: Path) -> None:
+    with sqlite3.connect(str(path)) as connection:
+        connection.execute(
+            "CREATE VIRTUAL TABLE items_fts USING fts5(id UNINDEXED, body)"
+        )
+        connection.execute(
+            "INSERT INTO items_fts(id, body) VALUES (?, ?)",
+            ("mem-doctor", "doctor bounded bm25 probe"),
+        )
 
 
 def test_doctor_offline_reports_writable_and_overall_ok(tmp_brain):
@@ -162,6 +177,37 @@ def test_doctor_semantic_provider_reports_missing_dependency_unavailable(
     assert rep.checks["recall.semantic_provider.status"] == "unavailable"
 
 
+@pytest.mark.parametrize("semantic_status", ["not_fast_ready", "unavailable"])
+def test_doctor_optional_semantic_status_does_not_make_required_health_unreachable(
+    tmp_brain,
+    monkeypatch,
+    semantic_status,
+):
+    import agent_brain.platform.doctor as doctor
+
+    _create_ready_index(tmp_brain)
+    monkeypatch.setattr(doctor, "_probe_embedder_tier", lambda _offline: "semantic")
+    monkeypatch.setattr(doctor, "_probe_injection_gateway_available", lambda: True)
+    monkeypatch.setattr(
+        doctor,
+        "_probe_semantic_provider_status",
+        lambda: semantic_status,
+    )
+    monkeypatch.setattr(doctor, "_probe_bm25_index_ready", lambda _path: True)
+    monkeypatch.setattr(doctor, "_probe_routed_cli_installed", lambda: True)
+    monkeypatch.setattr(
+        doctor,
+        "probe_memory_cli_shim",
+        lambda: {"path": "", "present": False, "target": "", "target_exists": False},
+    )
+
+    rep = doctor.run_doctor(offline=True)
+
+    assert rep.checks["recall.semantic_provider.status"] == semantic_status
+    assert rep.overall == "OK"
+    assert rep.exit_code == 0
+
+
 def test_doctor_lexical_fallback_reports_missing_index_not_ready(tmp_brain):
     rep = run_doctor(offline=True)
 
@@ -178,6 +224,91 @@ def test_doctor_lexical_fallback_requires_routed_cli(tmp_brain, monkeypatch):
     rep = doctor.run_doctor(offline=True)
 
     assert rep.checks["recall.lexical_raw_fallback.status"] == "not_ready"
+
+
+def test_doctor_routed_cli_probe_does_not_import_heavy_command_surface(
+    tmp_brain,
+    monkeypatch,
+):
+    import agent_brain.platform.doctor as doctor
+
+    real_import = builtins.__import__
+
+    def reject_query_command_import(name, *args, **kwargs):
+        if name == "agent_brain.interfaces.cli.commands.query":
+            raise AssertionError("doctor imported the full CLI command surface")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", reject_query_command_import)
+
+    assert doctor._probe_routed_cli_installed() is True
+
+
+def test_bm25_probe_accepts_valid_fts_index(tmp_path):
+    from agent_brain.platform.doctor import _probe_bm25_index_ready
+
+    index_path = tmp_path / "valid-index.db"
+    _create_fts_index(index_path)
+
+    assert _probe_bm25_index_ready(index_path) is True
+
+
+def test_bm25_probe_rejects_fake_fts_schema(tmp_path):
+    from agent_brain.platform.doctor import _probe_bm25_index_ready
+
+    index_path = tmp_path / "fake-index.db"
+    with sqlite3.connect(str(index_path)) as connection:
+        connection.execute("CREATE TABLE items_fts(id TEXT, body TEXT)")
+
+    assert _probe_bm25_index_ready(index_path) is False
+
+
+def test_bm25_probe_rejects_corrupt_index(tmp_path):
+    from agent_brain.platform.doctor import _probe_bm25_index_ready
+
+    index_path = tmp_path / "corrupt-index.db"
+    index_path.write_bytes(b"not a sqlite database")
+
+    assert _probe_bm25_index_ready(index_path) is False
+
+
+def test_bm25_probe_is_readonly_without_sidecars(tmp_path):
+    from agent_brain.platform.doctor import _probe_bm25_index_ready
+
+    readonly_dir = tmp_path / "readonly"
+    readonly_dir.mkdir()
+    index_path = readonly_dir / "index ?#% spaced.db"
+    _create_fts_index(index_path)
+    before = index_path.read_bytes()
+    readonly_dir.chmod(0o555)
+    try:
+        assert _probe_bm25_index_ready(index_path) is True
+        assert index_path.read_bytes() == before
+        assert not Path(f"{index_path}-wal").exists()
+        assert not Path(f"{index_path}-shm").exists()
+        assert not Path(f"{index_path}-journal").exists()
+    finally:
+        readonly_dir.chmod(0o755)
+
+
+def test_bm25_probe_fails_fast_under_exclusive_delete_journal_lock(tmp_path):
+    from agent_brain.platform.doctor import _probe_bm25_index_ready
+
+    index_path = tmp_path / "locked-index.db"
+    _create_fts_index(index_path)
+    locker = sqlite3.connect(str(index_path))
+    try:
+        locker.execute("PRAGMA journal_mode=DELETE")
+        locker.execute("BEGIN EXCLUSIVE")
+        started = time.monotonic()
+
+        assert _probe_bm25_index_ready(index_path) is False
+
+        elapsed = time.monotonic() - started
+        assert elapsed < 0.75
+    finally:
+        locker.rollback()
+        locker.close()
 
 
 def test_doctor_offline_renders_four_routed_recall_status_rows(

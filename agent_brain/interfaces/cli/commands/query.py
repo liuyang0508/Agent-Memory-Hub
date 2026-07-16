@@ -25,6 +25,10 @@ from agent_brain.memory.context.injection_gateway import (
 )
 from agent_brain.memory.context.query_signal import analyze_injection_query
 from agent_brain.interfaces.cli.routed_query import HookSearchPayload, execute_routed_query
+from agent_brain.memory.recall.routed_protocol import (
+    ROUTED_HOOK_OUTPUT_FORMAT,
+    ROUTED_HOOK_PROTOCOL_AVAILABLE,
+)
 import agent_brain.interfaces.cli as _cli  # noqa: E402  late binding for test-patched helpers
 
 _CONTEXT_VERBOSITIES = {"locator", "overview", "detail", "auto"}
@@ -141,7 +145,10 @@ def search(
     cwd: str | None = typer.Option(None, "--cwd", help="Working directory for injection cohort records"),
 ) -> None:
     """Search memory items by query (BM25 + vector RRF)."""
-    hook_json = output_format == "hook-json"
+    hook_json = (
+        ROUTED_HOOK_PROTOCOL_AVAILABLE
+        and output_format == ROUTED_HOOK_OUTPUT_FORMAT
+    )
     effective_context_firewall = context_firewall or hook_json
     if record_injection_cohort and not effective_context_firewall:
         typer.echo(

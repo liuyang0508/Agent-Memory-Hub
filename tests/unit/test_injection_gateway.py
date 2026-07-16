@@ -122,6 +122,17 @@ def test_route_answerability_reason_is_in_gateway_closed_contract():
     assert "route_answerability_insufficient" in INJECTION_EXCLUSION_REASONS
 
 
+def test_gateway_reexports_single_shared_exclusion_reason_contract():
+    from agent_brain.memory.context.injection_contract import (
+        INJECTION_EXCLUSION_REASONS as CANONICAL_EXCLUSION_REASONS,
+    )
+    from agent_brain.memory.context.injection_gateway import (
+        INJECTION_EXCLUSION_REASONS,
+    )
+
+    assert INJECTION_EXCLUSION_REASONS is CANONICAL_EXCLUSION_REASONS
+
+
 @pytest.mark.parametrize(
     ("value", "reason"),
     [
