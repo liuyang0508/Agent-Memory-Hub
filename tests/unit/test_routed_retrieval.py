@@ -238,6 +238,25 @@ def test_fuse_routes_accumulates_shared_hits_and_preserves_stable_evidence() -> 
     assert by_id["shared"].score != evidence["shared"].semantic_similarity
 
 
+def test_raw_fallback_uses_cjk_fragments_instead_of_one_long_phrase() -> None:
+    from agent_brain.platform.indexing.index_types import Hit
+
+    index = _Index()
+    embedder = _Embedder()
+    embedder.degraded = True
+    index.bm25_hits['("深" "度" "叙") OR'] = [Hit("readme-hit", 1.0)]
+    request = _request(
+        normalized_query="关于多智能体共享第二单的深度叙事和算法解释二次打磨，都做了什么",
+        lexical_terms=(),
+    )
+
+    result = _retriever(index, embedder).search_routed(request, top_k=10)
+
+    assert [hit.id for hit in result.hits] == ["readme-hit"]
+    assert " OR " in index.bm25_queries[0]
+    assert '("深" "度" "叙") OR' in index.bm25_queries[0]
+
+
 def test_fuse_routes_breaks_equal_scores_by_item_id() -> None:
     from agent_brain.memory.recall.routed_fusion import fuse_routes
 

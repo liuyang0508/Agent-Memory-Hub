@@ -79,7 +79,7 @@ class ContextFirewallConfig:
     topic_recency_min_shared_terms: int = 3
     query_term_coverage_bonus: float = 0.01
     semantic_route_min_similarity: float = 0.60
-    raw_route_min_coverage: float = 0.50
+    raw_route_min_coverage: float = 0.45
 
     def __post_init__(self) -> None:
         for field in (

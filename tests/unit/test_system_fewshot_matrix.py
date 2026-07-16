@@ -7,8 +7,6 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-import pytest
-
 from agent_brain.contracts.memory_item import MemoryItem, MemoryType
 from agent_brain.memory.context.context_firewall import ContextCandidate, ContextFirewall
 from agent_brain.memory.context.context_packing import pack_decisions
@@ -467,10 +465,6 @@ def test_large_fewshot_hook_matrix_blocks_injects_and_records_evidence(tmp_path:
     assert "验证" not in repr(gaps[0])
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Task 8 calibration: Chinese full-query lexical fallback false negative",
-)
 def test_task8_calibration_chinese_long_query_routes_without_fixture_query_stuffing(
     tmp_path: Path,
 ) -> None:

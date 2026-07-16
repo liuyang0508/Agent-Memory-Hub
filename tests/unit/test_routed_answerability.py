@@ -212,6 +212,54 @@ def test_raw_lexical_fallback_ignores_conversational_query_noise() -> None:
     assert [decision.candidate.item.id for decision in result.included] == [value.id]
 
 
+def test_routed_answerability_ignores_cjk_completion_question_noise_term() -> None:
+    from agent_brain.memory.context.context_firewall import ContextFirewall
+    from agent_brain.memory.recall.admission import build_recall_request
+
+    value = _item(
+        "routed-cjk-completion-noise",
+        title="AMH README 深度叙事和算法解释二次打磨",
+        summary="多智能体共享第二大脑文档改造",
+    )
+    request = build_recall_request(
+        "关于多智能体共享第二单的深度叙事和算法解释二次打磨，都做了什么",
+        adapter="codex",
+    )
+    context = _context(
+        raw_query=request.raw_query,
+        signal=request.query_signal,
+        evidence_by_id={value.id: _evidence("semantic_raw", similarity=0.91)},
+    )
+
+    result = ContextFirewall(now=NOW).filter(
+        [_candidate(value, body="深度叙事 算法解释 二次打磨")],
+        query_context=context,
+    )
+
+    assert [decision.candidate.item.id for decision in result.included] == [value.id]
+
+
+def test_raw_route_threshold_accepts_labeled_long_cjk_paraphrase_coverage() -> None:
+    from agent_brain.memory.context.context_firewall import ContextFirewall
+
+    value = _item(
+        "raw-long-cjk-calibration",
+        title="AMH README 深度叙事和算法解释二次打磨",
+        summary="README 中文版维护链路和召回链路",
+    )
+    context = _context(
+        raw_query="关于多智能体共享第二单的深度叙事和算法解释二次打磨，都做了什么",
+        evidence_by_id={value.id: _evidence("lexical_raw_fallback")},
+    )
+
+    result = ContextFirewall(now=NOW).filter(
+        [_candidate(value, body="深度叙事 算法解释 二次打磨")],
+        query_context=context,
+    )
+
+    assert [decision.candidate.item.id for decision in result.included] == [value.id]
+
+
 @pytest.mark.parametrize(
     ("raw_query", "body"),
     [

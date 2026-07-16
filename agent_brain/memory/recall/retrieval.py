@@ -52,6 +52,8 @@ from agent_brain.memory.recall.routed_types import (
 
 logger = logging.getLogger(__name__)
 _METADATA_TOKEN_RE = re.compile(r"[a-z0-9_]+|[\u4e00-\u9fff]", re.IGNORECASE)
+_RAW_FALLBACK_RUN_RE = re.compile(r"[A-Za-z0-9_+.-]+|[\u3400-\u9fff]+")
+_RAW_FALLBACK_FRAGMENT_LIMIT = 64
 
 _CandidateStage = Callable[[list[RetrievedItem]], list[RetrievedItem]]
 
@@ -692,7 +694,7 @@ class Retriever:
         if semantic_unavailable:
             started = time.perf_counter()
             try:
-                raw_query = expand_query(
+                raw_query = _raw_fallback_bm25_query(
                     request.normalized_query,
                     use_or=self.query_expansion,
                 )
@@ -852,6 +854,24 @@ def _filter_route_hits(
         if (allowed_ids is None or str(getattr(hit, "id")) in allowed_ids)
         and str(getattr(hit, "id")) not in excluded_ids
     ]
+
+
+def _raw_fallback_bm25_query(query: str, *, use_or: bool) -> str:
+    """Build a bounded raw fallback query without treating long CJK as one phrase."""
+    fragments: list[str] = []
+    for run in _RAW_FALLBACK_RUN_RE.findall(query):
+        if run.isascii() or len(run) <= 3:
+            fragments.append(run)
+            continue
+        fragments.extend(run[index:index + 3] for index in range(len(run) - 2))
+    fragments = list(dict.fromkeys(fragments))
+    if len(fragments) > _RAW_FALLBACK_FRAGMENT_LIMIT:
+        last = len(fragments) - 1
+        fragments = [
+            fragments[round(index * last / (_RAW_FALLBACK_FRAGMENT_LIMIT - 1))]
+            for index in range(_RAW_FALLBACK_FRAGMENT_LIMIT)
+        ]
+    return expand_query("|".join(fragments), use_or=use_or)
 
 
 def _completed_route_trace(

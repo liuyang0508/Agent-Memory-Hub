@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import importlib.util
+import io
 import json
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 
 from typer.testing import CliRunner
 
@@ -203,3 +206,62 @@ def test_system_benchmark_cli_outputs_large_fewshot_report(tmp_brain: Path) -> N
     assert payload["metrics"]["query_gate"]["weak_block_cases"] >= 6
     assert payload["metrics"]["retrieval"]["retrieval_cases"] > 0
     assert payload["metrics"]["context"]["packed_cases"] > 0
+
+
+def _load_dual_route_hook_benchmark():
+    path = Path(__file__).parents[2] / "scripts" / "benchmark-dual-route-hook.py"
+    spec = importlib.util.spec_from_file_location("benchmark_dual_route_hook", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_dual_route_hook_benchmark_statistics_and_exit_policy() -> None:
+    benchmark = _load_dual_route_hook_benchmark()
+    old = benchmark.summarize([0.100, 0.110, 0.120, 0.130], timeouts=0)
+    new = benchmark.summarize([0.200, 0.210, 0.220, 0.230], timeouts=0)
+    too_slow = benchmark.summarize([0.100, 2.001], timeouts=1)
+
+    assert old.p50_ms == 115.0
+    assert old.p95_ms == 128.5
+    assert benchmark.exit_code(old, new) == 0
+    assert benchmark.exit_code(old, too_slow) == 1
+    assert benchmark.exit_code(old, benchmark.summarize([0.300] * 4, timeouts=0)) == 1
+
+
+def test_dual_route_hook_benchmark_warmup_and_output_are_privacy_bounded(
+    tmp_path: Path,
+) -> None:
+    benchmark = _load_dual_route_hook_benchmark()
+    payload = tmp_path / "payload.json"
+    payload.write_text('{"prompt":"PRIVATE BENCHMARK PROMPT"}', encoding="utf-8")
+    calls: list[tuple[list[str], bytes, float]] = []
+    ticks = iter(index * 0.010 for index in range(20))
+
+    def fake_runner(command, *, input, stdout, stderr, timeout, check):
+        calls.append((command, input, timeout))
+        return SimpleNamespace(returncode=0)
+
+    output = io.StringIO()
+    status = benchmark.main(
+        [
+            "--old-command", "old-hook --mode legacy",
+            "--new-command", "new-hook --mode routed",
+            "--payload", str(payload),
+            "--repeats", "3",
+            "--warmup", "1",
+        ],
+        runner=fake_runner,
+        clock=lambda: next(ticks),
+        stdout=output,
+    )
+
+    report = json.loads(output.getvalue())
+    assert status == 0
+    assert len(calls) == 8
+    assert all(call[1] == payload.read_bytes() for call in calls)
+    assert report.keys() == {"old", "new", "p95_delta_ms", "limits", "passed"}
+    assert "PRIVATE BENCHMARK PROMPT" not in output.getvalue()
+    assert "old-hook" not in output.getvalue()
+    assert "new-hook" not in output.getvalue()

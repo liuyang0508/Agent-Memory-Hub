@@ -226,6 +226,7 @@ _CJK_NON_SUBSTANTIVE_WEAK_TERMS = {
     "那个",
     "这些",
     "那些",
+    "都做了什么",
 }
 
 _METADATA_CACHE_VERSION = 4
@@ -1522,6 +1523,8 @@ def _is_cjk_recall_phrase(term: str) -> bool:
     if not term:
         return False
     if len(term) < 4 or len(term) > 12:
+        return False
+    if term in _CJK_NON_SUBSTANTIVE_WEAK_TERMS:
         return False
     if _is_low_information_cjk_shape(term):
         return False
