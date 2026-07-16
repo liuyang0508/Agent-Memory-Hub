@@ -47,13 +47,36 @@ from agent_brain.memory.store.items_store import ItemsStore
 from agent_brain.memory.store.pending import PendingQueue, brain_dir
 
 
-_REQUIRED_GATEWAY_EXCLUSION_REASONS = frozenset({
+_EXPECTED_GATEWAY_EXCLUSION_REASONS = frozenset({
+    "answerability_mismatch",
+    "cohort_strong_anchor_undercovered",
+    "contested",
+    "duplicate_cluster",
     "hydrate_error",
+    "invalid_candidate_score",
+    "l0_evidence_only",
+    "low_confidence",
+    "max_items_exceeded",
+    "missing_source",
+    "negative_feedback",
     "pack_error",
+    "pack_budget_exceeded",
+    "query_mismatch",
     "query_not_injectable",
     "route_answerability_insufficient",
+    "requires_review",
     "scope_mismatch",
+    "semantic_answerability_mismatch",
     "sensitivity_not_allowed",
+    "stale_current_state",
+    "stale_handoff",
+    "stale_negative_state",
+    "stale_positive_state",
+    "stale_signal",
+    "superseded",
+    "temporal_state_conflict_newer",
+    "topic_recency_newer",
+    "very_low_confidence",
 })
 
 
@@ -124,8 +147,8 @@ def _probe_injection_gateway_available() -> bool:
         and callable(evaluate_injection_candidates)
         and callable(injection_exclusion_reason_counts)
         and isinstance(INJECTION_EXCLUSION_REASONS, frozenset)
-        and _REQUIRED_GATEWAY_EXCLUSION_REASONS
-        <= INJECTION_EXCLUSION_REASONS
+        and INJECTION_EXCLUSION_REASONS
+        == _EXPECTED_GATEWAY_EXCLUSION_REASONS
     )
 
 

@@ -74,6 +74,66 @@ def test_doctor_gateway_probe_requires_closed_exclusion_reason_contract(
     assert doctor._probe_injection_gateway_available() is False
 
 
+def test_doctor_gateway_probe_rejects_missing_canonical_exclusion_reason(
+    tmp_brain,
+    monkeypatch,
+):
+    import agent_brain.memory.context.injection_gateway as gateway
+    import agent_brain.platform.doctor as doctor
+
+    monkeypatch.setattr(
+        gateway,
+        "INJECTION_EXCLUSION_REASONS",
+        gateway.INJECTION_EXCLUSION_REASONS - {"negative_feedback"},
+    )
+
+    assert doctor._probe_injection_gateway_available() is False
+
+
+def test_doctor_gateway_probe_rejects_unknown_exclusion_reason(
+    tmp_brain,
+    monkeypatch,
+):
+    import agent_brain.memory.context.injection_gateway as gateway
+    import agent_brain.platform.doctor as doctor
+
+    monkeypatch.setattr(
+        gateway,
+        "INJECTION_EXCLUSION_REASONS",
+        gateway.INJECTION_EXCLUSION_REASONS | {"unknown_reason"},
+    )
+
+    assert doctor._probe_injection_gateway_available() is False
+
+
+def test_doctor_gateway_probe_rejects_mutable_exclusion_reason_contract(
+    tmp_brain,
+    monkeypatch,
+):
+    import agent_brain.memory.context.injection_gateway as gateway
+    import agent_brain.platform.doctor as doctor
+
+    monkeypatch.setattr(
+        gateway,
+        "INJECTION_EXCLUSION_REASONS",
+        set(gateway.INJECTION_EXCLUSION_REASONS),
+    )
+
+    assert doctor._probe_injection_gateway_available() is False
+
+
+def test_doctor_gateway_probe_requires_exclusion_counter_callable(
+    tmp_brain,
+    monkeypatch,
+):
+    import agent_brain.memory.context.injection_gateway as gateway
+    import agent_brain.platform.doctor as doctor
+
+    monkeypatch.setattr(gateway, "injection_exclusion_reason_counts", None)
+
+    assert doctor._probe_injection_gateway_available() is False
+
+
 def test_doctor_semantic_provider_does_not_cold_load_model(tmp_brain, monkeypatch):
     from agent_brain.platform import embedding
 
