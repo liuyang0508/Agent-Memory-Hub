@@ -240,7 +240,12 @@ def test_prompt_injection_hook_uses_context_firewall():
     assert "--context-firewall" in content
 
 
-def test_prompt_injection_hook_uses_query_signal_gate():
-    """Weak prompts such as '就像' should be rejected before search runs."""
+def test_prompt_injection_hook_delegates_full_prompt_to_routed_gateway():
+    """The shell adapter must not reproduce admission or parse human CLI text."""
     content = INJECT_HOOK.read_text(encoding="utf-8")
-    assert "agent_brain.memory.context.query_signal" in content
+    assert '"$RECALL_PROMPT"' in content
+    assert '"--routed-recall"' in content
+    assert '"--format" "hook-json"' in content
+    assert "AGENT_MEMORY_HUB_RAW_QUERY" not in content
+    assert 'if [ -z "$KEYWORDS" ]' not in content
+    assert "no matches" not in content.lower()

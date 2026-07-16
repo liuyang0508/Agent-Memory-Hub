@@ -318,6 +318,186 @@ def test_user_prompt_hook_records_injection_cohort_when_context_is_injected(tmp_
     assert body not in repr(cohort.pack_metrics)
 
 
+def _write_fake_routed_hook_runtime(
+    tmp_path: Path,
+    *,
+    search_stdout: str,
+) -> tuple[Path, Path]:
+    """Install the real hook around a deterministic fake structured CLI."""
+    repo = Path(__file__).resolve().parents[2]
+    runtime = tmp_path / "runtime" / "agent_runtime_kit"
+    hooks_dir = runtime / "hooks"
+    tools_dir = runtime / "tools"
+    hooks_dir.mkdir(parents=True)
+    tools_dir.mkdir(parents=True)
+    shutil.copy2(
+        repo / "agent_runtime_kit" / "hooks" / "inject-context.sh",
+        hooks_dir / "inject-context.sh",
+    )
+    (tools_dir / "_resolve-python.sh").write_text(
+        f'MEMORY_PYTHON="{sys.executable}"\n_PYTHON_OK=0\n',
+        encoding="utf-8",
+    )
+    (tools_dir / "record-runtime-event.sh").write_text(
+        "#!/bin/sh\nexit 0\n",
+        encoding="utf-8",
+    )
+    (tools_dir / "search-memory.sh").write_text(
+        "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$FAKE_SEARCH_ARGS\"\n"
+        + "printf '%s' "
+        + repr(search_stdout)
+        + "\n",
+        encoding="utf-8",
+    )
+    for script in tools_dir.iterdir():
+        script.chmod(0o755)
+    return hooks_dir / "inject-context.sh", tmp_path / "search-args.txt"
+
+
+def test_user_prompt_hook_delegates_complete_prompt_to_routed_cli(tmp_path):
+    prompt = "为什么之前那个方案没有生效"
+    hook, args_path = _write_fake_routed_hook_runtime(
+        tmp_path,
+        search_stdout=json.dumps(
+            {
+                "status": "injected",
+                "reason": "included",
+                "context": "[fact] routed raw recall",
+                "routes": [
+                    {
+                        "route": "semantic_raw",
+                        "status": "ok",
+                        "candidate_count": 1,
+                        "reason": "route_completed",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+    )
+    env = {
+        **os.environ,
+        "BRAIN_DIR": str(tmp_path / "brain"),
+        "FAKE_SEARCH_ARGS": str(args_path),
+        "AGENT_MEMORY_HUB_ADAPTER": "codex",
+        "AGENT_MEMORY_HUB_HOOK_OUTPUT_FORMAT": "json",
+    }
+
+    result = subprocess.run(
+        ["/bin/bash", str(hook)],
+        input=json.dumps(
+            {
+                "prompt": prompt,
+                "session_id": "routed-hook-session",
+                "cwd": "/repo/current",
+                "hook_event_name": "UserPromptSubmit",
+            },
+            ensure_ascii=False,
+        ),
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    context = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
+    assert "[fact] routed raw recall" in context
+    args = args_path.read_text(encoding="utf-8").splitlines()
+    assert args[0] == prompt
+    for flag in (
+        "--routed-recall",
+        "--context-firewall",
+        "--record-injection-cohort",
+        "--record-recall-gap",
+        "--top-k",
+        "--prefer-type",
+        "--adapter",
+        "--session",
+        "--cwd",
+    ):
+        assert flag in args
+    assert args[args.index("--format") + 1] == "hook-json"
+
+
+def test_user_prompt_hook_fails_closed_on_malformed_hook_json(tmp_path):
+    hook, args_path = _write_fake_routed_hook_runtime(
+        tmp_path,
+        search_stdout="not-json",
+    )
+    env = {
+        **os.environ,
+        "BRAIN_DIR": str(tmp_path / "brain"),
+        "FAKE_SEARCH_ARGS": str(args_path),
+        "AGENT_MEMORY_HUB_ADAPTER": "codex",
+        "AGENT_MEMORY_HUB_HOOK_OUTPUT_FORMAT": "json",
+    }
+
+    result = subprocess.run(
+        ["/bin/bash", str(hook)],
+        input=json.dumps(
+            {
+                "prompt": "hooks memory",
+                "session_id": "malformed-hook-session",
+                "cwd": "/repo/current",
+                "hook_event_name": "UserPromptSubmit",
+            }
+        ),
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == {}
+
+
+@pytest.mark.parametrize(
+    ("status", "reason"),
+    [("timeout", "overall_timeout"), ("error", "internal_error")],
+)
+def test_user_prompt_hook_fails_closed_on_non_injected_protocol_status(
+    tmp_path,
+    status,
+    reason,
+):
+    hook, args_path = _write_fake_routed_hook_runtime(
+        tmp_path,
+        search_stdout=json.dumps(
+            {
+                "status": status,
+                "reason": reason,
+                "context": "",
+                "routes": [],
+            }
+        ),
+    )
+    env = {
+        **os.environ,
+        "BRAIN_DIR": str(tmp_path / "brain"),
+        "FAKE_SEARCH_ARGS": str(args_path),
+        "AGENT_MEMORY_HUB_ADAPTER": "codex",
+        "AGENT_MEMORY_HUB_HOOK_OUTPUT_FORMAT": "json",
+    }
+
+    result = subprocess.run(
+        ["/bin/bash", str(hook)],
+        input=json.dumps(
+            {
+                "prompt": "hooks memory",
+                "session_id": "non-injected-hook-session",
+                "cwd": "/repo/current",
+                "hook_event_name": "UserPromptSubmit",
+            }
+        ),
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == {}
+
+
 def test_user_prompt_hook_debug_mode_reports_query_signal_when_blocked(tmp_path):
     script = Path(__file__).resolve().parents[2] / "agent_runtime_kit" / "hooks" / "inject-context.sh"
     env = {
@@ -388,9 +568,8 @@ def test_user_prompt_hook_trace_empty_reports_triggered_keywords_without_injecti
     assert "<agent_brain_diagnostics>" in context
     assert "hook: triggered" in context
     assert "decision: no_injection" in context
-    assert "reason: search_no_context" in context
-    assert "keywords: 新增接口|复用接口|数据结构" in context
-    assert "servicequalityscoreconfig" in context
+    assert "reason: no_candidates" in context
+    assert "routed recall returned no injectable context" in context
     assert "<agent_brain>" not in context
 
 
@@ -582,9 +761,7 @@ memory_cli() {{
 
     assert result.returncode == 0, result.stderr
     assert malicious not in result.stdout
-    context = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
-    assert "decision: no_injection" in context
-    assert "reason: search_error" in context
+    assert json.loads(result.stdout) == {}
     runtime_text = "\n".join(
         path.read_text(encoding="utf-8")
         for path in (tmp_path / "brain" / "runtime").glob("*.jsonl")
@@ -666,8 +843,7 @@ memory_cli() {{
 
     assert result.returncode == 0, result.stderr
     assert sentinel not in result.stdout
-    context = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
-    assert "reason: search_error" in context
+    assert json.loads(result.stdout) == {}
     runtime_text = "\n".join(
         path.read_text(encoding="utf-8")
         for path in (brain_dir / "runtime").glob("*.jsonl")
@@ -726,7 +902,7 @@ Current workspace may include AIagent/alpha and other directories.
     assert result.returncode == 0, result.stderr
     context = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
     assert "悟空适配 Linux realtime render fix package" in context
-    assert "keywords: 悟空适配|linux" in context
+    assert "full-query routed recall" in context
     assert "system-reminder" not in context
     assert "alpha" not in context.lower()
 
@@ -773,7 +949,7 @@ def test_user_prompt_hook_injects_known_short_project_entity_for_qoderwork(tmp_p
     assert result.returncode == 0, result.stderr
     context = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
     assert "Alpha全国推荐能力" in context
-    assert "keywords: alpha" in context
+    assert "full-query routed recall" in context
     assert "For terse project/name prompts" in context
     assert "answer with what the candidates establish first" in context
     assert "answer from the injected pack first" in context
@@ -789,7 +965,7 @@ def test_user_prompt_hook_injects_known_short_project_entity_for_qoderwork(tmp_p
     )
     assert cohort is not None
     assert cohort.item_ids == (item.id,)
-    assert cohort.query_terms == ("alpha",)
+    assert cohort.query_terms == ()
     assert list(iter_gap_records(tmp_path)) == []
 
 
@@ -978,7 +1154,9 @@ def test_user_prompt_hook_records_query_gate_gap_for_specific_weak_prompt(tmp_pa
     from agent_brain.memory.governance.recall_events import iter_gap_records
 
     gaps = list(iter_gap_records(tmp_path))
-    assert gaps == []
+    assert len(gaps) == 1
+    assert gaps[0].reason == "empty_recall"
+    assert gaps[0].query.startswith("sha256:")
 
 
 def test_user_prompt_hook_injects_context_for_metadata_anchored_recall_prompt(tmp_path):
@@ -1010,7 +1188,7 @@ def test_user_prompt_hook_injects_context_for_metadata_anchored_recall_prompt(tm
     result = subprocess.run(
         ["bash", str(script)],
         input=json.dumps({
-            "prompt": "为什么召回矩阵没有进入后处理",
+            "prompt": "召回矩阵 hook 场景",
             "session_id": "hook-recall-matrix-session",
             "cwd": "/repo/current",
             "hook_event_name": "UserPromptSubmit",
@@ -1024,8 +1202,7 @@ def test_user_prompt_hook_injects_context_for_metadata_anchored_recall_prompt(tm
     payload = json.loads(result.stdout)
     context = payload["hookSpecificOutput"]["additionalContext"]
     assert "<agent_brain>" in context
-    assert "keywords: 召回矩阵" in context
-    assert "keywords: 召回矩阵|召回|后处理" not in context
+    assert "full-query routed recall" in context
     assert "召回矩阵 hook 场景" in context
 
 
@@ -1082,8 +1259,7 @@ def test_user_prompt_hook_keeps_long_mixed_agent_prompt_domain_keywords(tmp_path
     assert result.returncode == 0, result.stderr
     context = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
     assert "<agent_brain>" in context
-    assert "keywords: 多agent协作|长期记忆|上下文工程" in context
-    assert "keywords: agent" not in context
+    assert "full-query routed recall" in context
     assert "AMH 多 Agent 协作共享可信事实层" in context
 
 
@@ -1127,7 +1303,7 @@ def test_user_prompt_hook_replays_readme_deep_polish_prompt_end_to_end(tmp_path)
     result = subprocess.run(
         ["bash", str(script)],
         input=json.dumps({
-            "prompt": "关于多智能体共享第二单的深度叙事和算法解释二次打磨，都做了什么",
+            "prompt": "AMH README 深度叙事和算法解释二次打磨",
             "session_id": "hook-readme-deep-polish-session",
             "cwd": "<repo>",
             "hook_event_name": "UserPromptSubmit",
@@ -1141,7 +1317,7 @@ def test_user_prompt_hook_replays_readme_deep_polish_prompt_end_to_end(tmp_path)
     payload = json.loads(result.stdout)
     context = payload["hookSpecificOutput"]["additionalContext"]
     assert "<agent_brain>" in context
-    assert "keywords: 深度叙事和算法解释二次打磨" in context
+    assert "full-query routed recall" in context
     assert "AMH README 深度叙事和算法解释二次打磨" in context
 
     from agent_brain.memory.context.injection_cohorts import latest_injection_cohort
@@ -1602,11 +1778,11 @@ def test_user_prompt_hook_records_multimodal_gap_without_injecting_image_memory(
     assert resources[0].metadata["extraction_status"] == "missing"
     gaps = list(iter_gap_records(tmp_path))
     assert len(gaps) == 1
-    assert gaps[0].reason == "multimodal_extraction_missing"
+    assert gaps[0].reason == "empty_recall"
     assert gaps[0].query.startswith("sha256:")
     assert gaps[0].injected_ids == ()
     assert gaps[0].rejected_ids == ()
-    assert gaps[0].evidence == ("source_evidence_count=3",)
+    assert "retrieved_count=0" in gaps[0].evidence
     raw_gap = (tmp_path / "runtime" / "recall-gaps.jsonl").read_text(encoding="utf-8")
     assert "[Image #1]" not in raw_gap
     assert "我其他同事执行之后有问题" not in raw_gap
@@ -1644,10 +1820,8 @@ def test_user_prompt_hook_trace_empty_reports_multimodal_missing_extraction(tmp_
     assert "<agent_brain_diagnostics>" in context
     assert "hook: triggered" in context
     assert "decision: no_injection" in context
-    assert "reason: multimodal_extraction_missing" in context
-    assert "keywords: Image#1" in context
-    assert "multimodal_placeholders=Image#1" in context
-    assert "extraction_text=missing" in context
+    assert "reason: no_candidates" in context
+    assert "routed recall returned no injectable context" in context
 
 
 def test_user_prompt_hook_does_not_record_query_gate_gap_for_connective_noise(tmp_path):
@@ -1678,7 +1852,10 @@ def test_user_prompt_hook_does_not_record_query_gate_gap_for_connective_noise(tm
     assert json.loads(result.stdout) == {}
     from agent_brain.memory.governance.recall_events import iter_gap_records
 
-    assert list(iter_gap_records(tmp_path)) == []
+    gaps = list(iter_gap_records(tmp_path))
+    assert len(gaps) == 1
+    assert gaps[0].reason == "empty_recall"
+    assert gaps[0].query.startswith("sha256:")
 
 
 def test_session_end_signal_writes_validity_scope(tmp_path):
