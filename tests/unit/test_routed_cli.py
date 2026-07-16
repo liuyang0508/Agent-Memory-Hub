@@ -533,8 +533,8 @@ def test_real_hook_json_degraded_recall_goes_through_gateway_and_records_cohort(
     from agent_brain.platform.indexing.index import HubIndex
     from agent_brain.memory.store.items_store import ItemsStore
 
-    secret_token = "QzSecretRoutedToken9X"
-    raw_query = f"Routed hook protocol verified implementation {secret_token}"
+    private_marker = "private-cohort-marker"
+    raw_query = f"Routed hook protocol verified implementation {private_marker}"
     value = _item(
         "real-hook",
         title=raw_query,
@@ -593,7 +593,7 @@ def test_real_hook_json_degraded_recall_goes_through_gateway_and_records_cohort(
     for rendered in (repr(cohort), runtime_record):
         normalized = rendered.casefold()
         assert raw_query.casefold() not in normalized
-        assert secret_token.casefold() not in normalized
+        assert private_marker.casefold() not in normalized
 
 
 def test_hook_json_empty_gap_is_hash_and_aggregate_only(tmp_brain) -> None:

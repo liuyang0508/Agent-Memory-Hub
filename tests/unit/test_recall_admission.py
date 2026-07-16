@@ -89,7 +89,7 @@ def test_admission_rejects_only_fixed_non_meaningful_classes(
 @pytest.mark.parametrize(
     "query",
     (
-        "/Users/liuyang/project/README.md",
+        "/opt/agent-memory-hub/project/README.md",
         "/tmp/agent-memory-hub",
     ),
 )
