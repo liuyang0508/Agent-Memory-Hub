@@ -20,7 +20,7 @@
   },
   "provenance": {
     "old_commit": "bb9128a668fea98bf9063bfbedc85cc75dc8936c",
-    "candidate_commit": "9df44cffbff67b7446667fa0715b14433a2ebb77",
+    "candidate_commit": "5ba8ab19b4fa4cf0616a69e5a33146cd048640ad",
     "old_hook_sha256": "sha256:d3be4cc24a6dcd99f45856daaae78e5a7d93eb908254d2f90ed915195611c937",
     "candidate_hook_sha256": "sha256:5ab7cc94f2d514af0ec744064c652efd507a0d4e0d0ac533e591b0b8f33936f5",
     "benchmark_script_sha256": "sha256:fd51db3e08561cb40a88c7589e73e6c355d1d87fb4c8b91ce6f3b239484552ea",
@@ -66,21 +66,21 @@
     },
     "new": {
       "errors": 0,
-      "max_ms": 1810.193,
-      "p50_ms": 1711.744,
-      "p95_ms": 1767.039,
+      "max_ms": 1862.811,
+      "p50_ms": 1700.536,
+      "p95_ms": 1801.364,
       "samples": 30,
       "timeouts": 0
     },
     "old": {
       "errors": 0,
-      "max_ms": 3111.099,
-      "p50_ms": 3011.582,
-      "p95_ms": 3069.691,
+      "max_ms": 3255.564,
+      "p50_ms": 2972.512,
+      "p95_ms": 3159.247,
       "samples": 30,
       "timeouts": 0
     },
-    "p95_delta_ms": -1302.652,
+    "p95_delta_ms": -1357.883,
     "passed": true,
     "publishable": true,
     "sample_policy": {

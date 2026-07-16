@@ -148,7 +148,7 @@ def test_dual_route_hook_benchmark_report_is_reproducible_and_privacy_bounded(
         "bb9128a668fea98bf9063bfbedc85cc75dc8936c"
     )
     assert report["provenance"]["candidate_commit"] == (
-        "9df44cffbff67b7446667fa0715b14433a2ebb77"
+        "5ba8ab19b4fa4cf0616a69e5a33146cd048640ad"
     )
     assert report["execution_policy"] == {
         "warmups": 3,
