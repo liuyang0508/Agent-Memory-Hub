@@ -19,6 +19,7 @@ SEARCH_TOOL="$HUB_CODE_DIR/tools/search-memory.sh"
 RECORD_TOOL="$HUB_CODE_DIR/tools/record-runtime-event.sh"
 PYTHON_RESOLVER="$HUB_CODE_DIR/tools/_resolve-python.sh"
 SEARCH_TIMEOUT_SECONDS="${AGENT_MEMORY_HUB_SEARCH_TIMEOUT_SECONDS:-2}"
+SEARCH_OUTPUT_MAX_BYTES=1048576
 if [ "${MEMORY_HUB_TEST_EMBEDDING:-}" = "1" ] && [ -z "${AGENT_MEMORY_HUB_SEARCH_TIMEOUT_SECONDS:-}" ]; then
   # CI runners can spend more than 2s on a cold Python CLI startup; keep the
   # production hook budget unchanged while making injection assertions stable.
@@ -85,12 +86,14 @@ if [ -n "$PROMPT" ] && [ -f "$PYTHON_RESOLVER" ]; then
     >/dev/null 2>&1 || true
 fi
 RECALL_PROMPT="$PROMPT"
+MULTIMODAL_GAP_JSON=""
 if [ -n "$PROMPT" ] && [ -n "${MEMORY_PYTHON:-}" ]; then
   NORMALIZED_PROMPT=$(printf '%s' "$PROMPT" | "$MEMORY_PYTHON" -m agent_brain.memory.context.prompt_normalization 2>/dev/null || true)
   if [ -n "$NORMALIZED_PROMPT" ]; then
     RECALL_PROMPT="$NORMALIZED_PROMPT"
   fi
   MULTIMODAL_RECALL_TEXT=$(printf '%s' "$INPUT" | "$MEMORY_PYTHON" -m agent_brain.memory.evidence.multimodal_capture recall-text 2>/dev/null || true)
+  MULTIMODAL_GAP_JSON=$(printf '%s' "$INPUT" | "$MEMORY_PYTHON" -m agent_brain.memory.evidence.multimodal_capture gap-json 2>/dev/null || true)
   if [ -n "$MULTIMODAL_RECALL_TEXT" ]; then
     if [ -n "$RECALL_PROMPT" ]; then
       RECALL_PROMPT="${RECALL_PROMPT}"$'\n'"${MULTIMODAL_RECALL_TEXT}"
@@ -159,7 +162,11 @@ SEARCH_ARGS=(
   "--context-firewall"
   "--format" "hook-json"
   "--record-injection-cohort"
-  "--record-recall-gap"
+)
+if [ -z "$MULTIMODAL_GAP_JSON" ]; then
+  SEARCH_ARGS+=("--record-recall-gap")
+fi
+SEARCH_ARGS+=(
   "--adapter" "${AGENT_MEMORY_HUB_ADAPTER:-unknown}"
   "--session" "$SESSION_ID"
   "--cwd" "$CWD"
@@ -167,32 +174,76 @@ SEARCH_ARGS=(
   "$RECALL_PROMPT"
 )
 
+bounded_search_stdout() {
+  "${MEMORY_PYTHON:-python3}" -c '
+import sys
+
+limit = int(sys.argv[1])
+data = sys.stdin.buffer.read(limit + 1)
+if len(data) > limit:
+    raise SystemExit(125)
+sys.stdout.buffer.write(data)
+' "$SEARCH_OUTPUT_MAX_BYTES"
+}
+
 SEARCH_STATUS=0
 RESULTS=""
 set +e
 if [ -n "$TIMEOUT_BIN" ]; then
-  RESULTS=$("$TIMEOUT_BIN" "$SEARCH_TIMEOUT_SECONDS" "${SEARCH_ARGS[@]}" 2>/dev/null)
+  RESULTS=$("$TIMEOUT_BIN" "$SEARCH_TIMEOUT_SECONDS" "${SEARCH_ARGS[@]}" 2>/dev/null | bounded_search_stdout)
   SEARCH_STATUS=$?
 elif [ -n "${MEMORY_PYTHON:-}" ]; then
-  RESULTS=$(AGENT_MEMORY_HUB_SEARCH_TIMEOUT_SECONDS="$SEARCH_TIMEOUT_SECONDS" "$MEMORY_PYTHON" - "${SEARCH_ARGS[@]}" <<'PY' 2>/dev/null
+  RESULTS=$(AGENT_MEMORY_HUB_SEARCH_TIMEOUT_SECONDS="$SEARCH_TIMEOUT_SECONDS" "$MEMORY_PYTHON" - "$SEARCH_OUTPUT_MAX_BYTES" "${SEARCH_ARGS[@]}" <<'PY' 2>/dev/null
 import os
+import selectors
 import subprocess
 import sys
+import time
 
 timeout = float(os.environ.get("AGENT_MEMORY_HUB_SEARCH_TIMEOUT_SECONDS", "2"))
-try:
-    proc = subprocess.run(
-        sys.argv[1:],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.DEVNULL,
-        text=True,
-        timeout=timeout,
-    )
-except subprocess.TimeoutExpired:
-    raise SystemExit(124)
+limit = int(sys.argv[1])
+proc = subprocess.Popen(
+    sys.argv[2:],
+    stdout=subprocess.PIPE,
+    stderr=subprocess.DEVNULL,
+)
+assert proc.stdout is not None
+deadline = time.monotonic() + timeout
+buffer = bytearray()
+selector = selectors.DefaultSelector()
+selector.register(proc.stdout, selectors.EVENT_READ)
 
-sys.stdout.write(proc.stdout)
-raise SystemExit(proc.returncode)
+
+def stop(code: int) -> None:
+    if proc.poll() is None:
+        proc.kill()
+    proc.wait()
+    raise SystemExit(code)
+
+
+while True:
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        stop(124)
+    if not selector.select(remaining):
+        stop(124)
+    chunk = os.read(proc.stdout.fileno(), min(65536, limit + 1 - len(buffer)))
+    if not chunk:
+        break
+    buffer.extend(chunk)
+    if len(buffer) > limit:
+        stop(125)
+
+remaining = deadline - time.monotonic()
+if remaining <= 0:
+    stop(124)
+try:
+    returncode = proc.wait(timeout=remaining)
+except subprocess.TimeoutExpired:
+    stop(124)
+if returncode != 0:
+    raise SystemExit(returncode)
+sys.stdout.buffer.write(buffer)
 PY
 )
   SEARCH_STATUS=$?
@@ -226,10 +277,17 @@ AGENT_MEMORY_HUB_DIAGNOSTICS_CONTEXT="$DIAGNOSTICS_CONTEXT" \
   "${MEMORY_PYTHON:-python3}" - \
     "${AGENT_MEMORY_HUB_HOOK_OUTPUT_FORMAT:-json}" \
     "${AGENT_MEMORY_HUB_HOOK_TRACE_EMPTY:-0}" \
-    3<<<"$RESULTS" <<'PY' 2>/dev/null || echo '{}'
+    "$BRAIN_DIR" \
+    "${AGENT_MEMORY_HUB_ADAPTER:-unknown}" \
+    "$SESSION_ID" \
+    "$CWD" \
+    "$PROMPT" \
+    3<<<"$RESULTS" 4<<<"$MULTIMODAL_GAP_JSON" <<'PY' 2>/dev/null || echo '{}'
+import hashlib
 import json
 import sys
 from os import environ
+from pathlib import Path
 
 
 def emit(context: str, output_format: str) -> None:
@@ -277,22 +335,61 @@ if (
 ):
     sys.stdout.write("{}\n")
     raise SystemExit(0)
+route_reasons = {
+    "ok": {"route_completed"},
+    "skipped": {
+        "admission_rejected",
+        "lexical_terms_empty",
+        "semantic_not_ready",
+    },
+    "timeout": {"route_timeout"},
+    "error": {"route_error"},
+}
 for route in routes:
+    route_status = route.get("status") if isinstance(route, dict) else None
+    route_reason = route.get("reason") if isinstance(route, dict) else None
     if (
         not isinstance(route, dict)
         or set(route) != {"route", "status", "candidate_count", "reason"}
         or route.get("route")
         not in {"lexical_terms", "semantic_raw", "lexical_raw_fallback"}
-        or route.get("status") not in {"ok", "skipped", "timeout", "error"}
+        or route_status not in route_reasons
         or type(route.get("candidate_count")) is not int
         or route["candidate_count"] < 0
-        or not (route.get("reason") is None or isinstance(route.get("reason"), str))
+        or not isinstance(route_reason, str)
+        or route_reason not in route_reasons[route_status]
     ):
         sys.stdout.write("{}\n")
         raise SystemExit(0)
 
 output_format = sys.argv[1]
 diagnostics = environ.get("AGENT_MEMORY_HUB_DIAGNOSTICS_CONTEXT", "")
+multimodal_gap = None
+if status == "empty":
+    try:
+        with open(4, encoding="utf-8") as gap_stream:
+            candidate_gap = json.load(gap_stream)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        candidate_gap = None
+    if (
+        isinstance(candidate_gap, dict)
+        and candidate_gap.get("reason") == "multimodal_extraction_missing"
+        and isinstance(candidate_gap.get("evidence"), list)
+        and all(isinstance(value, str) for value in candidate_gap["evidence"])
+    ):
+        multimodal_gap = candidate_gap
+        from agent_brain.memory.governance.recall_events import record_gap
+
+        prompt = sys.argv[7]
+        record_gap(
+            Path(sys.argv[3]),
+            query="sha256:" + hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
+            reason="multimodal_extraction_missing",
+            evidence=[f"source_evidence_count={len(candidate_gap['evidence'])}"],
+            adapter=sys.argv[4],
+            session_id=sys.argv[5] or None,
+            cwd=sys.argv[6] or None,
+        )
 if status == "injected" and context:
     parts = []
     if diagnostics:
@@ -317,6 +414,37 @@ if status == "injected" and context:
     )
     wrapped = "\n".join(parts)
     emit(wrapped, output_format)
+elif status == "empty" and multimodal_gap is not None and sys.argv[2] == "1":
+    evidence = multimodal_gap["evidence"]
+    placeholder = next(
+        (
+            value.removeprefix("multimodal_placeholders=")
+            for value in evidence
+            if value.startswith("multimodal_placeholders=")
+        ),
+        "-",
+    )
+    safe_detail = "; ".join(
+        value
+        for value in evidence
+        if value.startswith(("multimodal_placeholders=", "extraction_text="))
+    )
+    emit(
+        "\n".join(
+            (
+                "<agent_brain_diagnostics>",
+                "**AMH hook trace**",
+                "hook: triggered",
+                "decision: no_injection",
+                "reason: multimodal_extraction_missing",
+                f"keywords: {placeholder}",
+                f"detail: {safe_detail}",
+                "next: memory hook recent --limit 5",
+                "</agent_brain_diagnostics>",
+            )
+        ),
+        output_format,
+    )
 elif status == "empty" and diagnostics:
     emit(diagnostics, output_format)
 elif status == "empty" and sys.argv[2] == "1":

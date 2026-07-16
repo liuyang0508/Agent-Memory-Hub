@@ -359,6 +359,118 @@ def _write_fake_routed_hook_runtime(
     return hooks_dir / "inject-context.sh", tmp_path / "search-args.txt"
 
 
+def _write_oversize_hook_runtime(
+    tmp_path: Path,
+    *,
+    external_timeout: bool,
+    valid_json: bool,
+) -> tuple[Path, Path]:
+    repo = Path(__file__).resolve().parents[2]
+    runtime = tmp_path / "runtime" / "agent_runtime_kit"
+    hooks_dir = runtime / "hooks"
+    tools_dir = runtime / "tools"
+    bin_dir = tmp_path / "bin"
+    hooks_dir.mkdir(parents=True)
+    tools_dir.mkdir(parents=True)
+    bin_dir.mkdir()
+    shutil.copy2(
+        repo / "agent_runtime_kit" / "hooks" / "inject-context.sh",
+        hooks_dir / "inject-context.sh",
+    )
+    (bin_dir / "python3").symlink_to(Path(sys.executable))
+    for command in ("dirname", "cat"):
+        command_path = shutil.which(command)
+        assert command_path is not None
+        (bin_dir / command).symlink_to(Path(command_path))
+    if external_timeout:
+        (bin_dir / "timeout").write_text(
+            "#!/bin/sh\nshift\nexec \"$@\"\n",
+            encoding="utf-8",
+        )
+        (bin_dir / "timeout").chmod(0o755)
+    (tools_dir / "_resolve-python.sh").write_text(
+        f'MEMORY_PYTHON="{sys.executable}"\n_PYTHON_OK=0\n',
+        encoding="utf-8",
+    )
+    (tools_dir / "record-runtime-event.sh").write_text(
+        "#!/bin/sh\nexit 0\n",
+        encoding="utf-8",
+    )
+    producer = (
+        "payload = {\n"
+        "    'status': 'injected',\n"
+        "    'reason': 'included',\n"
+        "    'context': 'OVERSIZE_PRIVATE_CONTEXT_' + 'X' * 1048576,\n"
+        "    'routes': [{'route': 'semantic_raw', 'status': 'ok', "
+        "'candidate_count': 1, 'reason': 'route_completed'}],\n"
+        "}\n"
+        "sys.stdout.write(json.dumps(payload))\n"
+        if valid_json
+        else "sys.stdout.write('OVERSIZE_GARBAGE_' + 'X' * 1048576)\n"
+    )
+    (tools_dir / "search-memory.sh").write_text(
+        "#!/bin/sh\npython3 - <<'PY'\nimport json\nimport sys\n"
+        + producer
+        + "PY\n",
+        encoding="utf-8",
+    )
+    for script in tools_dir.iterdir():
+        script.chmod(0o755)
+    return hooks_dir / "inject-context.sh", bin_dir
+
+
+@pytest.mark.parametrize("external_timeout", (False, True))
+@pytest.mark.parametrize("valid_json", (False, True))
+def test_user_prompt_hook_bounds_search_stdout_before_shell_capture(
+    tmp_path,
+    external_timeout,
+    valid_json,
+):
+    hook, bin_dir = _write_oversize_hook_runtime(
+        tmp_path,
+        external_timeout=external_timeout,
+        valid_json=valid_json,
+    )
+    brain_dir = tmp_path / "brain"
+    env = {
+        **os.environ,
+        "PATH": str(bin_dir),
+        "PYTHONPATH": f"{Path(__file__).resolve().parents[2]}{os.pathsep}{os.environ.get('PYTHONPATH', '')}",
+        "BRAIN_DIR": str(brain_dir),
+        "AGENT_MEMORY_HUB_ADAPTER": "codex",
+        "AGENT_MEMORY_HUB_HOOK_OUTPUT_FORMAT": "json",
+        "AGENT_MEMORY_HUB_SEARCH_TIMEOUT_SECONDS": "2",
+    }
+
+    result = subprocess.run(
+        ["/bin/bash", str(hook)],
+        input=json.dumps(
+            {
+                "prompt": "bounded hook output",
+                "session_id": "bounded-output-session",
+                "cwd": "/repo/current",
+                "hook_event_name": "UserPromptSubmit",
+            }
+        ),
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=5,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "OVERSIZE_" not in result.stdout
+    assert json.loads(result.stdout) == {}
+    rows = [
+        json.loads(line)
+        for line in (brain_dir / "runtime" / "hook-latency.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+    ]
+    assert rows[-1]["stage"] == "search_memory"
+    assert rows[-1]["status"] == "error"
+
+
 @pytest.mark.parametrize(
     "prompt",
     (
@@ -462,6 +574,132 @@ def test_user_prompt_hook_fails_closed_on_malformed_hook_json(tmp_path):
 
     assert result.returncode == 0, result.stderr
     assert json.loads(result.stdout) == {}
+
+
+@pytest.mark.parametrize(
+    ("route_name", "route_status", "route_reason"),
+    (
+        ("semantic_raw", "ok", None),
+        ("semantic_raw", "ok", "route_error"),
+        ("semantic_raw", "skipped", "route_completed"),
+        ("semantic_raw", "skipped", "unknown_skip"),
+        ("semantic_raw", "timeout", "route_completed"),
+        ("semantic_raw", "error", "route_timeout"),
+        ("unknown_route", "ok", "route_completed"),
+    ),
+)
+def test_user_prompt_hook_rejects_invalid_route_status_reason_matrix(
+    tmp_path,
+    route_name,
+    route_status,
+    route_reason,
+):
+    hook, args_path = _write_fake_routed_hook_runtime(
+        tmp_path,
+        search_stdout=json.dumps(
+            {
+                "status": "injected",
+                "reason": "included",
+                "context": "PRIVATE_CONTEXT_MUST_FAIL_CLOSED",
+                "routes": [
+                    {
+                        "route": route_name,
+                        "status": route_status,
+                        "candidate_count": 1,
+                        "reason": route_reason,
+                    }
+                ],
+            }
+        ),
+    )
+    env = {
+        **os.environ,
+        "BRAIN_DIR": str(tmp_path / "brain"),
+        "FAKE_SEARCH_ARGS": str(args_path),
+        "AGENT_MEMORY_HUB_ADAPTER": "codex",
+        "AGENT_MEMORY_HUB_HOOK_OUTPUT_FORMAT": "json",
+    }
+
+    result = subprocess.run(
+        ["/bin/bash", str(hook)],
+        input=json.dumps(
+            {
+                "prompt": "hooks memory",
+                "session_id": "invalid-route-matrix",
+                "cwd": "/repo/current",
+                "hook_event_name": "UserPromptSubmit",
+            }
+        ),
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "PRIVATE_CONTEXT_MUST_FAIL_CLOSED" not in result.stdout
+    assert json.loads(result.stdout) == {}
+
+
+@pytest.mark.parametrize(
+    ("route_status", "route_reason"),
+    (
+        ("ok", "route_completed"),
+        ("skipped", "admission_rejected"),
+        ("skipped", "lexical_terms_empty"),
+        ("skipped", "semantic_not_ready"),
+        ("timeout", "route_timeout"),
+        ("error", "route_error"),
+    ),
+)
+def test_user_prompt_hook_accepts_closed_route_status_reason_matrix(
+    tmp_path,
+    route_status,
+    route_reason,
+):
+    hook, args_path = _write_fake_routed_hook_runtime(
+        tmp_path,
+        search_stdout=json.dumps(
+            {
+                "status": "injected",
+                "reason": "included",
+                "context": "[fact] matrix-approved context",
+                "routes": [
+                    {
+                        "route": "semantic_raw",
+                        "status": route_status,
+                        "candidate_count": 0,
+                        "reason": route_reason,
+                    }
+                ],
+            }
+        ),
+    )
+    env = {
+        **os.environ,
+        "BRAIN_DIR": str(tmp_path / "brain"),
+        "FAKE_SEARCH_ARGS": str(args_path),
+        "AGENT_MEMORY_HUB_ADAPTER": "codex",
+        "AGENT_MEMORY_HUB_HOOK_OUTPUT_FORMAT": "json",
+    }
+
+    result = subprocess.run(
+        ["/bin/bash", str(hook)],
+        input=json.dumps(
+            {
+                "prompt": "hooks memory",
+                "session_id": "valid-route-matrix",
+                "cwd": "/repo/current",
+                "hook_event_name": "UserPromptSubmit",
+            }
+        ),
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    context = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
+    assert "matrix-approved context" in context
 
 
 @pytest.mark.parametrize(
@@ -1840,11 +2078,11 @@ def test_user_prompt_hook_records_multimodal_gap_without_injecting_image_memory(
     assert resources[0].metadata["extraction_status"] == "missing"
     gaps = list(iter_gap_records(tmp_path))
     assert len(gaps) == 1
-    assert gaps[0].reason == "empty_recall"
+    assert gaps[0].reason == "multimodal_extraction_missing"
     assert gaps[0].query.startswith("sha256:")
     assert gaps[0].injected_ids == ()
     assert gaps[0].rejected_ids == ()
-    assert "retrieved_count=0" in gaps[0].evidence
+    assert gaps[0].evidence == ("source_evidence_count=3",)
     raw_gap = (tmp_path / "runtime" / "recall-gaps.jsonl").read_text(encoding="utf-8")
     assert "[Image #1]" not in raw_gap
     assert "我其他同事执行之后有问题" not in raw_gap
@@ -1882,8 +2120,58 @@ def test_user_prompt_hook_trace_empty_reports_multimodal_missing_extraction(tmp_
     assert "<agent_brain_diagnostics>" in context
     assert "hook: triggered" in context
     assert "decision: no_injection" in context
-    assert "reason: no_candidates" in context
-    assert "routed recall returned no injectable context" in context
+    assert "reason: multimodal_extraction_missing" in context
+    assert "keywords: Image#1" in context
+    assert "multimodal_placeholders=Image#1" in context
+    assert "extraction_text=missing" in context
+
+
+def test_user_prompt_hook_missing_multimodal_extraction_does_not_record_gap_when_injected(tmp_path):
+    script = Path(__file__).resolve().parents[2] / "agent_runtime_kit" / "hooks" / "inject-context.sh"
+    store = ItemsStore(tmp_path / "items")
+    embedder = HashingEmbedder()
+    idx = HubIndex(tmp_path / "index.db", embedding_dim=embedder.dim)
+    item = MemoryItem(
+        id="mem-20260716-200000-multimodal-text-recall",
+        type=MemoryType.artifact,
+        created_at=datetime.now(timezone.utc),
+        title="同事执行之后有问题",
+        summary="即使图片提取缺失，文本问题仍能召回这个安全条目。",
+    )
+    body = "同事执行之后有问题"
+    store.write(item, body)
+    idx.upsert(item, body, embedding=embedder.embed(body))
+    idx.close()
+    env = {
+        **os.environ,
+        "BRAIN_DIR": str(tmp_path),
+        "AGENT_MEMORY_HUB_ADAPTER": "codex",
+        "MEMORY_HUB_TEST_EMBEDDING": "1",
+        "MEMORY_HUB_EMBEDDING_OFFLINE": "1",
+    }
+
+    result = subprocess.run(
+        ["/bin/bash", str(script)],
+        input=json.dumps(
+            {
+                "prompt": "[Image #1]\n同事执行之后有问题",
+                "session_id": "hook-mm-missing-but-injected",
+                "cwd": "/repo/current",
+                "hook_event_name": "UserPromptSubmit",
+            }
+        ),
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    context = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
+    assert item.title in context
+
+    from agent_brain.memory.governance.recall_events import iter_gap_records
+
+    assert list(iter_gap_records(tmp_path)) == []
 
 
 def test_user_prompt_hook_does_not_record_query_gate_gap_for_connective_noise(tmp_path):
