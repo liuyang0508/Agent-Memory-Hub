@@ -55,7 +55,10 @@ from agent_brain.memory.recall.routed_types import (
 logger = logging.getLogger(__name__)
 _METADATA_TOKEN_RE = re.compile(r"[a-z0-9_]+|[\u4e00-\u9fff]", re.IGNORECASE)
 _RAW_FALLBACK_ASCII_CHAR_RE = re.compile(r"[A-Za-z0-9_+.-]")
-_RAW_FALLBACK_FRAGMENT_LIMIT = 64
+_RAW_FALLBACK_CLAUSE_LIMIT = 64
+_RAW_FALLBACK_TOKEN_MAX_CHARS = 64
+_RAW_FALLBACK_TOKEN_MAX_BYTES = 256
+_RAW_FALLBACK_QUERY_MAX_BYTES = 8192
 
 _CandidateStage = Callable[[list[RetrievedItem]], list[RetrievedItem]]
 
@@ -886,34 +889,66 @@ def _raw_fallback_bm25_query(query: str, *, use_or: bool) -> str:
     Fragmented non-ASCII runs deliberately force OR even when normal query
     expansion is disabled: raw fallback is a recall-oriented degraded route.
     """
-    full_runs: list[str] = []
+    essential: list[str] = []
     fragment_candidates: list[str] = []
     fragmented = False
     for run in _raw_fallback_runs(query):
-        full_runs.append(run)
         if run.isascii() or len(run) <= 3:
+            bounded = _bounded_raw_fallback_token(run)
+            if bounded:
+                essential.append(bounded)
             continue
         fragmented = True
         fragment_candidates.extend(
-            run[index:index + 3]
-            for index in range(len(run) - 2)
+            _sample_run_trigrams(run, _RAW_FALLBACK_CLAUSE_LIMIT)
         )
-    essential = list(dict.fromkeys(full_runs))
+    essential = list(dict.fromkeys(essential))
     optional = [
         fragment
         for fragment in dict.fromkeys(fragment_candidates)
         if fragment not in set(essential)
     ]
-    if len(essential) >= _RAW_FALLBACK_FRAGMENT_LIMIT:
-        fragments = _sample_evenly(essential, _RAW_FALLBACK_FRAGMENT_LIMIT)
+    if len(essential) >= _RAW_FALLBACK_CLAUSE_LIMIT:
+        fragments = _sample_evenly(essential, _RAW_FALLBACK_CLAUSE_LIMIT)
     else:
-        remaining = _RAW_FALLBACK_FRAGMENT_LIMIT - len(essential)
+        remaining = _RAW_FALLBACK_CLAUSE_LIMIT - len(essential)
         fragments = [*essential, *_sample_evenly(optional, remaining)]
-    return expand_query(
-        "|".join(fragments),
-        use_or=use_or or fragmented,
-        synonyms=False,
-    )
+    while fragments:
+        expression = expand_query(
+            "|".join(fragments),
+            use_or=use_or or fragmented,
+            synonyms=False,
+        )
+        if len(expression.encode("utf-8")) <= _RAW_FALLBACK_QUERY_MAX_BYTES:
+            return expression
+        fragments.pop()
+    return '""'
+
+
+def _bounded_raw_fallback_token(value: str) -> str:
+    chars: list[str] = []
+    byte_count = 0
+    for character in value[:_RAW_FALLBACK_TOKEN_MAX_CHARS]:
+        encoded = character.encode("utf-8")
+        if byte_count + len(encoded) > _RAW_FALLBACK_TOKEN_MAX_BYTES:
+            break
+        chars.append(character)
+        byte_count += len(encoded)
+    return "".join(chars)
+
+
+def _sample_run_trigrams(run: str, limit: int) -> list[str]:
+    count = len(run) - 2
+    if count <= 0 or limit <= 0:
+        return []
+    if count <= limit:
+        positions = range(count)
+    elif limit == 1:
+        positions = (0,)
+    else:
+        last = count - 1
+        positions = (index * last // (limit - 1) for index in range(limit))
+    return [run[position:position + 3] for position in positions]
 
 
 def _raw_fallback_runs(query: str) -> list[str]:

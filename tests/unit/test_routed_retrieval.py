@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+import re
 from pathlib import Path
 from types import MethodType, SimpleNamespace
 from typing import Any
@@ -278,7 +279,13 @@ def test_raw_fallback_builds_nonempty_safe_query_for_unicode_letters(query: str)
 
 
 def test_long_unicode_raw_fallback_is_bounded_deterministic_unique_and_or_safe() -> None:
-    from agent_brain.memory.recall.retrieval import _raw_fallback_bm25_query
+    from agent_brain.memory.recall.retrieval import (
+        _RAW_FALLBACK_CLAUSE_LIMIT,
+        _RAW_FALLBACK_QUERY_MAX_BYTES,
+        _RAW_FALLBACK_TOKEN_MAX_BYTES,
+        _RAW_FALLBACK_TOKEN_MAX_CHARS,
+        _raw_fallback_bm25_query,
+    )
 
     query = "".join(chr(0x4E00 + index) for index in range(100))
     first = _raw_fallback_bm25_query(query, use_or=False)
@@ -286,8 +293,75 @@ def test_long_unicode_raw_fallback_is_bounded_deterministic_unique_and_or_safe()
     groups = first.split(" OR ")
 
     assert first == second
-    assert len(groups) == 64
+    assert len(groups) == _RAW_FALLBACK_CLAUSE_LIMIT
     assert len(set(groups)) == len(groups)
+    quoted_tokens = re.findall(r'"([^"]*)"', first)
+    assert all(len(token) <= _RAW_FALLBACK_TOKEN_MAX_CHARS for token in quoted_tokens)
+    assert all(
+        len(token.encode("utf-8")) <= _RAW_FALLBACK_TOKEN_MAX_BYTES
+        for token in quoted_tokens
+    )
+    assert len(first.encode("utf-8")) <= _RAW_FALLBACK_QUERY_MAX_BYTES
+
+
+def test_raw_fallback_bounds_final_expression_for_many_long_ascii_tokens() -> None:
+    from agent_brain.memory.recall.retrieval import (
+        _RAW_FALLBACK_CLAUSE_LIMIT,
+        _RAW_FALLBACK_QUERY_MAX_BYTES,
+        _RAW_FALLBACK_TOKEN_MAX_BYTES,
+        _RAW_FALLBACK_TOKEN_MAX_CHARS,
+        _raw_fallback_bm25_query,
+    )
+
+    query = " ".join(
+        f"token{index:02d}" + ("x" * 93)
+        for index in range(_RAW_FALLBACK_CLAUSE_LIMIT)
+    )
+    result = _raw_fallback_bm25_query(query, use_or=True)
+    clauses = result.split(" OR ")
+    quoted_tokens = re.findall(r'"([^"]*)"', result)
+
+    assert len(clauses) <= _RAW_FALLBACK_CLAUSE_LIMIT
+    assert len(quoted_tokens) <= _RAW_FALLBACK_CLAUSE_LIMIT
+    assert all(len(token) <= _RAW_FALLBACK_TOKEN_MAX_CHARS for token in quoted_tokens)
+    assert all(
+        len(token.encode("utf-8")) <= _RAW_FALLBACK_TOKEN_MAX_BYTES
+        for token in quoted_tokens
+    )
+    assert len(result.encode("utf-8")) <= _RAW_FALLBACK_QUERY_MAX_BYTES
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "a" * 100_000,
+        "記" * 100_000,
+        "𠀀" * 100_000,
+    ],
+)
+def test_raw_fallback_bounds_hundred_thousand_character_runs(query: str) -> None:
+    from agent_brain.memory.recall.retrieval import (
+        _RAW_FALLBACK_CLAUSE_LIMIT,
+        _RAW_FALLBACK_QUERY_MAX_BYTES,
+        _RAW_FALLBACK_TOKEN_MAX_BYTES,
+        _RAW_FALLBACK_TOKEN_MAX_CHARS,
+        _raw_fallback_bm25_query,
+    )
+
+    result = _raw_fallback_bm25_query(query, use_or=False)
+    clauses = result.split(" OR ")
+    quoted_tokens = re.findall(r'"([^"]*)"', result)
+
+    assert result != '""'
+    assert len(clauses) <= _RAW_FALLBACK_CLAUSE_LIMIT
+    assert len(quoted_tokens) <= _RAW_FALLBACK_CLAUSE_LIMIT * 3
+    assert all(len(token) <= _RAW_FALLBACK_TOKEN_MAX_CHARS for token in quoted_tokens)
+    assert all(
+        len(token.encode("utf-8")) <= _RAW_FALLBACK_TOKEN_MAX_BYTES
+        for token in quoted_tokens
+    )
+    assert len(result.encode("utf-8")) <= _RAW_FALLBACK_QUERY_MAX_BYTES
+    assert query not in result
 
 
 def test_real_hub_index_raw_fallback_recalls_kana_hangul_and_ext_b_without_expansion(
