@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
+import signal
 import shutil
 import subprocess
 import sys
@@ -419,6 +421,133 @@ def _write_oversize_hook_runtime(
     return hooks_dir / "inject-context.sh", bin_dir
 
 
+def _write_descendant_hook_runtime(tmp_path: Path, *, mode: str) -> tuple[Path, Path, Path]:
+    repo = Path(__file__).resolve().parents[2]
+    runtime = tmp_path / "runtime" / "agent_runtime_kit"
+    hooks_dir = runtime / "hooks"
+    tools_dir = runtime / "tools"
+    bin_dir = tmp_path / "bin"
+    hooks_dir.mkdir(parents=True)
+    tools_dir.mkdir(parents=True)
+    bin_dir.mkdir()
+    shutil.copy2(
+        repo / "agent_runtime_kit" / "hooks" / "inject-context.sh",
+        hooks_dir / "inject-context.sh",
+    )
+    (bin_dir / "python3").symlink_to(Path(sys.executable))
+    for command in ("dirname", "cat"):
+        command_path = shutil.which(command)
+        assert command_path is not None
+        (bin_dir / command).symlink_to(Path(command_path))
+    (tools_dir / "_resolve-python.sh").write_text(
+        f'MEMORY_PYTHON="{sys.executable}"\n_PYTHON_OK=0\n',
+        encoding="utf-8",
+    )
+    (tools_dir / "record-runtime-event.sh").write_text(
+        "#!/bin/sh\nexit 0\n",
+        encoding="utf-8",
+    )
+    child_pid_path = tmp_path / "descendant.pid"
+    if mode == "timeout":
+        search_body = (
+            "/bin/sleep 30 &\n"
+            "child=$!\n"
+            "printf '%s\\n' \"$child\" > \"$CHILD_PID_FILE\"\n"
+            "wait\n"
+        )
+    elif mode == "nonzero":
+        search_body = (
+            "/bin/sleep 30 >/dev/null 2>&1 &\n"
+            "child=$!\n"
+            "printf '%s\\n' \"$child\" > \"$CHILD_PID_FILE\"\n"
+            "exit 9\n"
+        )
+    else:
+        search_body = (
+            "/bin/sleep 30 &\n"
+            "child=$!\n"
+            "printf '%s\\n' \"$child\" > \"$CHILD_PID_FILE\"\n"
+            "python3 - <<'PY'\n"
+            "import sys\n"
+            "sys.stdout.write('X' * 1048577)\n"
+            "PY\n"
+            "wait\n"
+        )
+    (tools_dir / "search-memory.sh").write_text(
+        "#!/bin/sh\n"
+        + search_body,
+        encoding="utf-8",
+    )
+    for script in tools_dir.iterdir():
+        script.chmod(0o755)
+    return hooks_dir / "inject-context.sh", bin_dir, child_pid_path
+
+
+def _pid_exists(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    return True
+
+
+@pytest.mark.parametrize(
+    ("mode", "expected_latency_status"),
+    [("timeout", "timeout"), ("overflow", "error"), ("nonzero", "error")],
+)
+def test_user_prompt_hook_python_fallback_reaps_search_descendants(
+    tmp_path,
+    mode,
+    expected_latency_status,
+):
+    hook, bin_dir, child_pid_path = _write_descendant_hook_runtime(tmp_path, mode=mode)
+    brain_dir = tmp_path / "brain"
+    env = {
+        **os.environ,
+        "PATH": str(bin_dir),
+        "PYTHONPATH": f"{Path(__file__).resolve().parents[2]}{os.pathsep}{os.environ.get('PYTHONPATH', '')}",
+        "BRAIN_DIR": str(brain_dir),
+        "CHILD_PID_FILE": str(child_pid_path),
+        "AGENT_MEMORY_HUB_ADAPTER": "codex",
+        "AGENT_MEMORY_HUB_SEARCH_TIMEOUT_SECONDS": "0.5",
+    }
+
+    result = subprocess.run(
+        ["/bin/bash", str(hook)],
+        input=json.dumps(
+            {
+                "prompt": "process group cleanup",
+                "session_id": f"cleanup-{mode}",
+                "cwd": "/repo/current",
+                "hook_event_name": "UserPromptSubmit",
+            }
+        ),
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=5,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == {}
+    pid = int(child_pid_path.read_text(encoding="utf-8").strip())
+    try:
+        deadline = time.monotonic() + 2
+        while _pid_exists(pid) and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert not _pid_exists(pid), "search descendant survived fallback cleanup"
+    finally:
+        if _pid_exists(pid):
+            os.kill(pid, signal.SIGKILL)
+    rows = [
+        json.loads(line)
+        for line in (brain_dir / "runtime" / "hook-latency.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+    ]
+    assert rows[-1]["status"] == expected_latency_status
+
+
 @pytest.mark.parametrize("external_timeout", (False, True))
 @pytest.mark.parametrize("valid_json", (False, True))
 def test_user_prompt_hook_bounds_search_stdout_before_shell_capture(
@@ -542,6 +671,63 @@ def test_user_prompt_hook_delegates_complete_prompt_to_routed_cli(tmp_path, prom
     ):
         assert flag in args
     assert args[args.index("--format") + 1] == "hook-json"
+
+
+def test_user_prompt_hook_does_not_put_large_raw_prompt_in_parser_argv(tmp_path):
+    sentinel = "RAW_ARGV_SENTINEL_"
+    prompt = (
+        "hooks memory\n\n<system-reminder>\n"
+        + sentinel
+        + ("X" * (2 * 1024 * 1024))
+        + "\n</system-reminder>"
+    )
+    hook, args_path = _write_fake_routed_hook_runtime(
+        tmp_path,
+        search_stdout=json.dumps(
+            {
+                "status": "injected",
+                "reason": "included",
+                "context": "[fact] large raw prompt stayed off argv",
+                "routes": [
+                    {
+                        "route": "lexical_terms",
+                        "status": "ok",
+                        "candidate_count": 1,
+                        "reason": "route_completed",
+                    }
+                ],
+            }
+        ),
+    )
+    env = {
+        **os.environ,
+        "BRAIN_DIR": str(tmp_path / "brain"),
+        "FAKE_SEARCH_ARGS": str(args_path),
+        "AGENT_MEMORY_HUB_ADAPTER": "codex",
+        "AGENT_MEMORY_HUB_HOOK_OUTPUT_FORMAT": "json",
+    }
+
+    result = subprocess.run(
+        ["/bin/bash", str(hook)],
+        input=json.dumps(
+            {
+                "prompt": prompt,
+                "session_id": "large-raw-prompt",
+                "cwd": "/repo/current",
+                "hook_event_name": "UserPromptSubmit",
+            }
+        ),
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+
+    assert result.returncode == 0, result.stderr
+    context = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
+    assert "large raw prompt stayed off argv" in context
+    search_args = args_path.read_text(encoding="utf-8")
+    assert sentinel not in search_args
 
 
 def test_user_prompt_hook_fails_closed_on_malformed_hook_json(tmp_path):
@@ -2054,10 +2240,11 @@ def test_user_prompt_hook_records_multimodal_gap_without_injecting_image_memory(
         "MEMORY_HUB_EMBEDDING_OFFLINE": "1",
     }
 
+    raw_prompt = "[Image #1]\n我其他同事执行之后有问题\n\n"
     result = subprocess.run(
         ["bash", str(script)],
         input=json.dumps({
-            "prompt": "[Image #1]\n我其他同事执行之后有问题",
+            "prompt": raw_prompt,
             "session_id": "hook-mm-missing-session",
             "cwd": "/repo/current",
             "hook_event_name": "UserPromptSubmit",
@@ -2079,7 +2266,7 @@ def test_user_prompt_hook_records_multimodal_gap_without_injecting_image_memory(
     gaps = list(iter_gap_records(tmp_path))
     assert len(gaps) == 1
     assert gaps[0].reason == "multimodal_extraction_missing"
-    assert gaps[0].query.startswith("sha256:")
+    assert gaps[0].query == "sha256:" + hashlib.sha256(raw_prompt.encode("utf-8")).hexdigest()
     assert gaps[0].injected_ids == ()
     assert gaps[0].rejected_ids == ()
     assert gaps[0].evidence == ("source_evidence_count=3",)

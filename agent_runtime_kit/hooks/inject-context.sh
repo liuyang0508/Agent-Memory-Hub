@@ -66,7 +66,17 @@ PY
 }
 
 INPUT=$(cat)
-PROMPT=$(echo "$INPUT" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("prompt",""))' 2>/dev/null || true)
+PROMPT_SENTINEL=$'\036'
+PROMPT_WITH_SENTINEL=$(printf '%s' "$INPUT" | python3 -c '
+import json
+import sys
+
+payload = json.load(sys.stdin)
+prompt = payload.get("prompt", "")
+sys.stdout.write(prompt if isinstance(prompt, str) else "")
+sys.stdout.write("\x1e")
+' 2>/dev/null || printf '%s' "$PROMPT_SENTINEL")
+PROMPT=${PROMPT_WITH_SENTINEL%"$PROMPT_SENTINEL"}
 SESSION_ID=$(echo "$INPUT" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("session_id",""))' 2>/dev/null || true)
 CWD=$(echo "$INPUT" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("cwd",""))' 2>/dev/null || true)
 HOOK_EVENT_NAME=$(echo "$INPUT" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("hook_event_name","UserPromptSubmit"))' 2>/dev/null || echo "UserPromptSubmit")
@@ -87,6 +97,7 @@ if [ -n "$PROMPT" ] && [ -f "$PYTHON_RESOLVER" ]; then
 fi
 RECALL_PROMPT="$PROMPT"
 MULTIMODAL_GAP_JSON=""
+MULTIMODAL_QUERY_HASH=""
 if [ -n "$PROMPT" ] && [ -n "${MEMORY_PYTHON:-}" ]; then
   NORMALIZED_PROMPT=$(printf '%s' "$PROMPT" | "$MEMORY_PYTHON" -m agent_brain.memory.context.prompt_normalization 2>/dev/null || true)
   if [ -n "$NORMALIZED_PROMPT" ]; then
@@ -100,6 +111,21 @@ if [ -n "$PROMPT" ] && [ -n "${MEMORY_PYTHON:-}" ]; then
     else
       RECALL_PROMPT="$MULTIMODAL_RECALL_TEXT"
     fi
+  fi
+fi
+if [ -n "$MULTIMODAL_GAP_JSON" ] && [ -n "${MEMORY_PYTHON:-}" ]; then
+  MULTIMODAL_QUERY_HASH=$(printf '%s' "$PROMPT" | "$MEMORY_PYTHON" -c '
+import hashlib
+import sys
+
+digest = hashlib.sha256()
+while chunk := sys.stdin.buffer.read(65536):
+    digest.update(chunk)
+sys.stdout.write("sha256:" + digest.hexdigest())
+' 2>/dev/null || true)
+  if [[ ! "$MULTIMODAL_QUERY_HASH" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+    MULTIMODAL_GAP_JSON=""
+    MULTIMODAL_QUERY_HASH=""
   fi
 fi
 [ -z "$RECALL_PROMPT" ] && { echo '{}'; exit 0; }
@@ -196,6 +222,7 @@ elif [ -n "${MEMORY_PYTHON:-}" ]; then
   RESULTS=$(AGENT_MEMORY_HUB_SEARCH_TIMEOUT_SECONDS="$SEARCH_TIMEOUT_SECONDS" "$MEMORY_PYTHON" - "$SEARCH_OUTPUT_MAX_BYTES" "${SEARCH_ARGS[@]}" <<'PY' 2>/dev/null
 import os
 import selectors
+import signal
 import subprocess
 import sys
 import time
@@ -206,6 +233,7 @@ proc = subprocess.Popen(
     sys.argv[2:],
     stdout=subprocess.PIPE,
     stderr=subprocess.DEVNULL,
+    start_new_session=True,
 )
 assert proc.stdout is not None
 deadline = time.monotonic() + timeout
@@ -214,25 +242,35 @@ selector = selectors.DefaultSelector()
 selector.register(proc.stdout, selectors.EVENT_READ)
 
 
-def stop(code: int) -> None:
-    if proc.poll() is None:
-        proc.kill()
+def kill_group() -> None:
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
     proc.wait()
+
+
+def stop(code: int) -> None:
+    kill_group()
     raise SystemExit(code)
 
 
-while True:
-    remaining = deadline - time.monotonic()
-    if remaining <= 0:
-        stop(124)
-    if not selector.select(remaining):
-        stop(124)
-    chunk = os.read(proc.stdout.fileno(), min(65536, limit + 1 - len(buffer)))
-    if not chunk:
-        break
-    buffer.extend(chunk)
-    if len(buffer) > limit:
-        stop(125)
+try:
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            stop(124)
+        if not selector.select(remaining):
+            stop(124)
+        chunk = os.read(proc.stdout.fileno(), min(65536, limit + 1 - len(buffer)))
+        if not chunk:
+            break
+        buffer.extend(chunk)
+        if len(buffer) > limit:
+            stop(125)
+except (OSError, ValueError):
+    kill_group()
+    raise
 
 remaining = deadline - time.monotonic()
 if remaining <= 0:
@@ -242,6 +280,7 @@ try:
 except subprocess.TimeoutExpired:
     stop(124)
 if returncode != 0:
+    kill_group()
     raise SystemExit(returncode)
 sys.stdout.buffer.write(buffer)
 PY
@@ -281,10 +320,10 @@ AGENT_MEMORY_HUB_DIAGNOSTICS_CONTEXT="$DIAGNOSTICS_CONTEXT" \
     "${AGENT_MEMORY_HUB_ADAPTER:-unknown}" \
     "$SESSION_ID" \
     "$CWD" \
-    "$PROMPT" \
+    "$MULTIMODAL_QUERY_HASH" \
     3<<<"$RESULTS" 4<<<"$MULTIMODAL_GAP_JSON" <<'PY' 2>/dev/null || echo '{}'
-import hashlib
 import json
+import re
 import sys
 from os import environ
 from pathlib import Path
@@ -380,10 +419,13 @@ if status == "empty":
         multimodal_gap = candidate_gap
         from agent_brain.memory.governance.recall_events import record_gap
 
-        prompt = sys.argv[7]
+        query_hash = sys.argv[7]
+        if re.fullmatch(r"sha256:[0-9a-f]{64}", query_hash) is None:
+            sys.stdout.write("{}\n")
+            raise SystemExit(0)
         record_gap(
             Path(sys.argv[3]),
-            query="sha256:" + hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
+            query=query_hash,
             reason="multimodal_extraction_missing",
             evidence=[f"source_evidence_count={len(candidate_gap['evidence'])}"],
             adapter=sys.argv[4],
