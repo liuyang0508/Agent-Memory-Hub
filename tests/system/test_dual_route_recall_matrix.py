@@ -535,6 +535,17 @@ def _is_fixed_by_routed_recall(
     return _is_legacy_false_negative(case, old) and expected <= new.injected
 
 
+def _unexpected_negative_injections(
+    case: dict[str, Any],
+    outcome: _Outcome,
+    *,
+    corpus_ids: frozenset[str],
+) -> frozenset[str]:
+    if case.get("expect_injection"):
+        return frozenset()
+    return outcome.injected & corpus_ids
+
+
 def test_legacy_false_negative_is_only_an_old_outcome_label() -> None:
     case = {
         "expected_item_ids": ["decision", "verification"],
@@ -545,6 +556,21 @@ def test_legacy_false_negative_is_only_an_old_outcome_label() -> None:
 
     assert _is_legacy_false_negative(case, old) is True
     assert _is_fixed_by_routed_recall(case, old, new) is False
+
+
+def test_negative_row_counts_any_safe_corpus_injection_as_false_positive() -> None:
+    case = {"expect_injection": False}
+    outcome = _Outcome(
+        frozenset({"safe-corpus-item"}),
+        frozenset({"safe-corpus-item"}),
+        (),
+    )
+
+    assert _unexpected_negative_injections(
+        case,
+        outcome,
+        corpus_ids=frozenset({"safe-corpus-item", "another-safe-item"}),
+    ) == frozenset({"safe-corpus-item"})
 
 
 def _legacy_outcome(
@@ -686,6 +712,25 @@ def test_dual_route_candidate_and_injection_governance_matrix(tmp_path: Path) ->
         and not case.get("known_capability_gap")
         and not set(case["expected_item_ids"]) <= new.injected
     ]
+    corpus_ids = frozenset(items)
+    negative_false_positives = [
+        (
+            case["id"],
+            sorted(
+                _unexpected_negative_injections(
+                    case,
+                    new,
+                    corpus_ids=corpus_ids,
+                )
+            ),
+        )
+        for case, _old, new in rows
+        if _unexpected_negative_injections(
+            case,
+            new,
+            corpus_ids=corpus_ids,
+        )
+    ]
     hard_negative_ids = {
         item["id"]
         for case in cases
@@ -725,6 +770,7 @@ def test_dual_route_candidate_and_injection_governance_matrix(tmp_path: Path) ->
     assert routed_hits / len(positives) >= legacy_hits / len(positives), expected_misses
     assert len(fixed) >= 3, {"fixed": fixed, "misses": expected_misses}
     assert new_false_negatives == [], new_false_negatives
+    assert negative_false_positives == [], negative_false_positives
     assert prohibited == [], prohibited
     assert expected_misses == [], expected_misses
     assert label_mismatches == [], label_mismatches
