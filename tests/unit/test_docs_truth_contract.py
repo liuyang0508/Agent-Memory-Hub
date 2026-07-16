@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from agent_brain.agent_integrations.qoder import QoderAdapter
 from agent_brain.agent_integrations.qoder_work import QoderWorkAdapter
 from agent_brain.agent_integrations.wukong import WukongAdapter
 from agent_brain.agent_integrations.awareness import render_awareness_block
@@ -17,6 +18,7 @@ def _read(path: str) -> str:
 def _agent_facing_recall_guidance() -> dict[str, str]:
     brain_dir = Path("/tmp/test-brain")
     repo_dir = Path("/tmp/agent-memory-hub")
+    qoder = QoderAdapter(brain_dir=brain_dir, repo_dir=repo_dir)
     qoder_work = QoderWorkAdapter(brain_dir=brain_dir, repo_dir=repo_dir)
     wukong = WukongAdapter(brain_dir=brain_dir, repo_dir=repo_dir)
     return {
@@ -29,6 +31,11 @@ def _agent_facing_recall_guidance() -> dict[str, str]:
             brain_dir=brain_dir,
             tool_channel="AMH MCP",
         ),
+        "Qoder main awareness": qoder._awareness_block(),
+        "Qoder workspace awareness": qoder._workspace_awareness_block(),
+        "Qoder native bridge": qoder._native_memory_bridge_content(),
+        "Qoder native redirect": qoder._native_priority_redirect_block(),
+        "QoderWork main awareness": qoder_work._awareness_block(),
         "QoderWork bootstrap": qoder_work._bootstrap_skill_content(),
         "QoderWork awareness": qoder_work._workspace_awareness_block(),
         "Wukong bootstrap": wukong._bootstrap_skill_content(),
@@ -47,6 +54,7 @@ def test_agent_docs_govern_brief_search_and_project_scope():
         "提取 3–5 个关键词",
         "`brief_memory` 或 `search_memory`",
         "brief_memory/search_memory",
+        "search_memory / brief_memory",
         "用户问题或项目名",
         "用户原词和项目关键词",
         "按用户问题、项目名、历史上下文检索",
