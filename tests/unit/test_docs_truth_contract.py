@@ -1,5 +1,9 @@
+import hashlib
 import json
+import os
 from pathlib import Path
+import subprocess
+import sys
 
 from agent_brain.agent_integrations.qoder import QoderAdapter
 from agent_brain.agent_integrations.qoder_work import QoderWorkAdapter
@@ -129,7 +133,9 @@ def test_dual_route_release_docs_keep_rollout_and_blocker_boundaries_explicit():
     assert "/tmp" not in evidence
 
 
-def test_dual_route_hook_benchmark_report_is_reproducible_and_privacy_bounded():
+def test_dual_route_hook_benchmark_report_is_reproducible_and_privacy_bounded(
+    tmp_path,
+):
     report = json.loads(
         _read("docs/evaluation/dual-route-hook-benchmark-report.json")
     )
@@ -142,7 +148,7 @@ def test_dual_route_hook_benchmark_report_is_reproducible_and_privacy_bounded():
         "bb9128a668fea98bf9063bfbedc85cc75dc8936c"
     )
     assert report["provenance"]["candidate_commit"] == (
-        "e65c9e1087f21477821cfd9606cfa8ea2443b500"
+        "9df44cffbff67b7446667fa0715b14433a2ebb77"
     )
     assert report["execution_policy"] == {
         "warmups": 3,
@@ -163,6 +169,49 @@ def test_dual_route_hook_benchmark_report_is_reproducible_and_privacy_bounded():
     ):
         assert report["provenance"][name].startswith("sha256:")
         assert len(report["provenance"][name]) == 71
+
+    root = Path(__file__).resolve().parents[2]
+
+    def digest(data: bytes) -> str:
+        return "sha256:" + hashlib.sha256(data).hexdigest()
+
+    old_commit = report["provenance"]["old_commit"]
+    candidate_commit = report["provenance"]["candidate_commit"]
+    hook_path = "agent_runtime_kit/hooks/inject-context.sh"
+    old_hook = subprocess.check_output(
+        ["git", "show", f"{old_commit}:{hook_path}"], cwd=root
+    )
+    candidate_hook = subprocess.check_output(
+        ["git", "show", f"{candidate_commit}:{hook_path}"], cwd=root
+    )
+    assert report["provenance"]["old_hook_sha256"] == digest(old_hook)
+    assert report["provenance"]["candidate_hook_sha256"] == digest(candidate_hook)
+    for key, relative in (
+        ("benchmark_script_sha256", "scripts/benchmark-dual-route-hook.py"),
+        ("materializer_script_sha256", "scripts/materialize-dual-route-hook-benchmark.py"),
+        ("payload_sha256", "tests/fixtures/dual_route_hook_benchmark_payload.json"),
+    ):
+        assert report["provenance"][key] == digest((root / relative).read_bytes())
+
+    brain = tmp_path / "public-brain"
+    subprocess.run(
+        [
+            sys.executable,
+            str(root / "scripts/materialize-dual-route-hook-benchmark.py"),
+            "--brain-dir",
+            str(brain),
+        ],
+        cwd=root,
+        env={**os.environ, "PYTHONPATH": str(root)},
+        check=True,
+        capture_output=True,
+    )
+    item_path = brain / report["fixture"]["item_path"]
+    assert report["provenance"]["fixture_item_sha256"] == digest(item_path.read_bytes())
+
+    environment = report["environment"]
+    assert set(environment) == {"os", "architecture", "python_version"}
+    assert all(isinstance(value, str) and value for value in environment.values())
 
     result = report["result"]
     assert result["passed"] is True

@@ -4,6 +4,11 @@
   "performance_gate": "PASS",
   "overall_release_gate": "BLOCKED",
   "blocking_calibration_case": "multi-hi-08",
+  "environment": {
+    "os": "macOS-15.5-arm64-arm-64bit",
+    "architecture": "arm64",
+    "python_version": "3.12.4"
+  },
   "execution_policy": {
     "warmups": 3,
     "measured_pairs": 30,
@@ -15,11 +20,11 @@
   },
   "provenance": {
     "old_commit": "bb9128a668fea98bf9063bfbedc85cc75dc8936c",
-    "candidate_commit": "e65c9e1087f21477821cfd9606cfa8ea2443b500",
+    "candidate_commit": "9df44cffbff67b7446667fa0715b14433a2ebb77",
     "old_hook_sha256": "sha256:d3be4cc24a6dcd99f45856daaae78e5a7d93eb908254d2f90ed915195611c937",
-    "candidate_hook_sha256": "sha256:007d1f70c2b67f3e16aae93e94aa22f35629e286f8aeb2f2620aa4dc3a882315",
+    "candidate_hook_sha256": "sha256:5ab7cc94f2d514af0ec744064c652efd507a0d4e0d0ac533e591b0b8f33936f5",
     "benchmark_script_sha256": "sha256:fd51db3e08561cb40a88c7589e73e6c355d1d87fb4c8b91ce6f3b239484552ea",
-    "materializer_script_sha256": "sha256:7dd5fd2e5897cb28ce14efa1977b7d25e34092e9bca35083573cc47452305dd1",
+    "materializer_script_sha256": "sha256:9c2f3e856c1808526b4e3f984b67c5ab6d1cc39dcdb17e57df9810f642c3ddcb",
     "payload_sha256": "sha256:4e2b9bb5d5fd781702e0a33dd224f191c175b4435d4d63844949f23d5746b557",
     "fixture_item_sha256": "sha256:6dd484e4f6cbd27a18aaf3b780ac64207b586550bb75b3999629e8924f75b658"
   },
@@ -61,21 +66,21 @@
     },
     "new": {
       "errors": 0,
-      "max_ms": 1746.549,
-      "p50_ms": 1615.757,
-      "p95_ms": 1736.283,
+      "max_ms": 1810.193,
+      "p50_ms": 1711.744,
+      "p95_ms": 1767.039,
       "samples": 30,
       "timeouts": 0
     },
     "old": {
       "errors": 0,
-      "max_ms": 3241.045,
-      "p50_ms": 3002.549,
-      "p95_ms": 3190.56,
+      "max_ms": 3111.099,
+      "p50_ms": 3011.582,
+      "p95_ms": 3069.691,
       "samples": 30,
       "timeouts": 0
     },
-    "p95_delta_ms": -1454.277,
+    "p95_delta_ms": -1302.652,
     "passed": true,
     "publishable": true,
     "sample_policy": {
