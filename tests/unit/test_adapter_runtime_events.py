@@ -447,26 +447,38 @@ def _write_descendant_hook_runtime(tmp_path: Path, *, mode: str) -> tuple[Path, 
         "#!/bin/sh\nexit 0\n",
         encoding="utf-8",
     )
-    child_pid_path = tmp_path / "descendant.pid"
+    child_ready_path = tmp_path / "descendant.ready"
+    publish_ready = (
+        "publish_ready() {\n"
+        "  child=$1\n"
+        "  kill -0 \"$child\" || exit 91\n"
+        "  ready_tmp=\"${CHILD_PID_FILE}.tmp.$$\"\n"
+        "  printf 'ready:%s\\n' \"$child\" > \"$ready_tmp\"\n"
+        "  /bin/mv \"$ready_tmp\" \"$CHILD_PID_FILE\"\n"
+        "  published=$(cat \"$CHILD_PID_FILE\")\n"
+        "  [ \"$published\" = \"ready:$child\" ] || exit 92\n"
+        "  kill -0 \"$child\" || exit 93\n"
+        "}\n"
+    )
     if mode == "timeout":
         search_body = (
             "/bin/sleep 30 &\n"
             "child=$!\n"
-            "printf '%s\\n' \"$child\" > \"$CHILD_PID_FILE\"\n"
+            "publish_ready \"$child\"\n"
             "wait\n"
         )
     elif mode == "nonzero":
         search_body = (
             "/bin/sleep 30 >/dev/null 2>&1 &\n"
             "child=$!\n"
-            "printf '%s\\n' \"$child\" > \"$CHILD_PID_FILE\"\n"
+            "publish_ready \"$child\"\n"
             "exit 9\n"
         )
     else:
         search_body = (
             "/bin/sleep 30 &\n"
             "child=$!\n"
-            "printf '%s\\n' \"$child\" > \"$CHILD_PID_FILE\"\n"
+            "publish_ready \"$child\"\n"
             "python3 - <<'PY'\n"
             "import sys\n"
             "sys.stdout.write('X' * 1048577)\n"
@@ -475,12 +487,13 @@ def _write_descendant_hook_runtime(tmp_path: Path, *, mode: str) -> tuple[Path, 
         )
     (tools_dir / "search-memory.sh").write_text(
         "#!/bin/sh\n"
+        + publish_ready
         + search_body,
         encoding="utf-8",
     )
     for script in tools_dir.iterdir():
         script.chmod(0o755)
-    return hooks_dir / "inject-context.sh", bin_dir, child_pid_path
+    return hooks_dir / "inject-context.sh", bin_dir, child_ready_path
 
 
 def _pid_exists(pid: int) -> bool:
@@ -500,18 +513,19 @@ def test_user_prompt_hook_python_fallback_reaps_search_descendants(
     mode,
     expected_latency_status,
 ):
-    hook, bin_dir, child_pid_path = _write_descendant_hook_runtime(tmp_path, mode=mode)
+    hook, bin_dir, child_ready_path = _write_descendant_hook_runtime(tmp_path, mode=mode)
     brain_dir = tmp_path / "brain"
     env = {
         **os.environ,
         "PATH": str(bin_dir),
         "PYTHONPATH": f"{Path(__file__).resolve().parents[2]}{os.pathsep}{os.environ.get('PYTHONPATH', '')}",
         "BRAIN_DIR": str(brain_dir),
-        "CHILD_PID_FILE": str(child_pid_path),
+        "CHILD_PID_FILE": str(child_ready_path),
         "AGENT_MEMORY_HUB_ADAPTER": "codex",
-        "AGENT_MEMORY_HUB_SEARCH_TIMEOUT_SECONDS": "0.5",
+        "AGENT_MEMORY_HUB_SEARCH_TIMEOUT_SECONDS": "2.0",
     }
 
+    started = time.monotonic()
     result = subprocess.run(
         ["/bin/bash", str(hook)],
         input=json.dumps(
@@ -525,12 +539,20 @@ def test_user_prompt_hook_python_fallback_reaps_search_descendants(
         env=env,
         capture_output=True,
         text=True,
-        timeout=5,
+        timeout=7,
     )
+    elapsed = time.monotonic() - started
 
     assert result.returncode == 0, result.stderr
     assert json.loads(result.stdout) == {}
-    pid = int(child_pid_path.read_text(encoding="utf-8").strip())
+    if mode == "timeout":
+        assert 1.5 <= elapsed < 5.0, elapsed
+    else:
+        assert elapsed < 5.0, elapsed
+    assert child_ready_path.exists(), "search helper never published its ready sentinel"
+    ready = child_ready_path.read_text(encoding="utf-8").strip()
+    assert ready.startswith("ready:"), ready
+    pid = int(ready.removeprefix("ready:"))
     try:
         deadline = time.monotonic() + 2
         while _pid_exists(pid) and time.monotonic() < deadline:
@@ -1145,7 +1167,7 @@ memory_cli() {{
         "AGENT_MEMORY_HUB_ADAPTER": "codex",
         "MEMORY_HUB_TEST_EMBEDDING": "1",
         "MEMORY_HUB_EMBEDDING_OFFLINE": "1",
-        "AGENT_MEMORY_HUB_SEARCH_TIMEOUT_SECONDS": "1",
+        "AGENT_MEMORY_HUB_SEARCH_TIMEOUT_SECONDS": "0.5",
     }
 
     started = time.monotonic()
@@ -1166,7 +1188,7 @@ memory_cli() {{
 
     assert result.returncode == 0, result.stderr
     assert json.loads(result.stdout) == {}
-    assert elapsed < 6, (
+    assert 0.4 <= elapsed < 4.5, (
         "hook should fail open before the 15s search command completes; "
         f"elapsed={elapsed:.2f}s"
     )
