@@ -724,10 +724,13 @@ def test_conflicting_routed_admission_is_malformed_and_fails_closed() -> None:
     assert payload.context == ""
 
 
-@pytest.mark.parametrize("semantic_deadline", [float("nan"), float("inf")])
+@pytest.mark.parametrize(
+    "semantic_deadline",
+    [float("nan"), float("inf"), True, "not-a-deadline"],
+)
 def test_feature_off_still_rejects_non_finite_semantic_deadline(
     monkeypatch: pytest.MonkeyPatch,
-    semantic_deadline: float,
+    semantic_deadline: object,
 ) -> None:
     from agent_brain.interfaces.cli import routed_query
 
@@ -754,7 +757,7 @@ def test_feature_off_still_rejects_non_finite_semantic_deadline(
         session_id=None,
         cwd=None,
         clock=lambda: 0.0,
-        semantic_deadline=semantic_deadline,
+        semantic_deadline=semantic_deadline,  # type: ignore[arg-type]
     )
 
     assert payload.to_dict() == {
@@ -763,4 +766,41 @@ def test_feature_off_still_rejects_non_finite_semantic_deadline(
         "context": "",
         "routes": [],
     }
+    assert retriever.calls == 0
+
+
+@pytest.mark.parametrize("clock_value", [float("nan"), float("inf"), True, "now"])
+def test_feature_off_still_rejects_non_finite_explicit_clock(
+    monkeypatch: pytest.MonkeyPatch,
+    clock_value: object,
+) -> None:
+    from agent_brain.interfaces.cli import routed_query
+
+    class Retriever:
+        calls = 0
+
+        def search(self, *_args, **_kwargs):
+            self.calls += 1
+            return []
+
+    retriever = Retriever()
+    monkeypatch.setenv("AGENT_MEMORY_HUB_ROUTED_RECALL", "0")
+    payload = routed_query.execute_routed_query(
+        raw_query="feature off explicit clock validation probe",
+        store=_Store([]),
+        retriever=retriever,
+        top_k=3,
+        filters=SearchFilter(),
+        requested="auto",
+        project=None,
+        adapter="codex",
+        session_id=None,
+        cwd=None,
+        clock=lambda: clock_value,  # type: ignore[return-value]
+        semantic_deadline=1.0,
+    )
+
+    assert payload.status == "error"
+    assert payload.reason == "internal_error"
+    assert payload.context == ""
     assert retriever.calls == 0
