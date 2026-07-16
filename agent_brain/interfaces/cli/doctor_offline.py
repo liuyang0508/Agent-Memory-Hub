@@ -30,15 +30,29 @@ def doctor_offline(
         "local md + sqlite FTS, no model",
         "available" if rep.checks["core.md_store.writable"] else "BROKEN (md not writable)",
     ))
-    if rep.checks["core.embedder.tier"] == "semantic":
-        rows.append(("vector / semantic search", "model loads on first use; BM25 fallback if it can't", "available"))
-    else:
-        rows.append(("vector / semantic search", "embedder degraded to hashing", "degraded -> BM25-only"))
+    routed_status = rep.checks["recall.routed.status"]
+    rows.append((
+        "routed recall",
+        "AGENT_MEMORY_HUB_ROUTED_RECALL=0 rolls back candidate generation only",
+        routed_status,
+    ))
     gateway_available = rep.checks["security.injection_gateway.available"]
     rows.append((
         "prompt injection gateway",
-        "Gateway API import/callable probe; mandatory enforcement is verified separately",
+        "Gateway API import/callable probe + closed exclusion reasons",
         "available" if gateway_available else "degraded -> gateway unavailable",
+    ))
+    semantic_status = rep.checks["recall.semantic_provider.status"]
+    semantic_basis = (
+        "already warm; no hook cold load"
+        if semantic_status == "fast_ready"
+        else "dependency install alone does not make hooks fast-ready"
+    )
+    rows.append(("semantic provider", semantic_basis, semantic_status))
+    rows.append((
+        "lexical raw fallback",
+        "current index FTS5/BM25 + routed CLI protocol",
+        rep.checks["recall.lexical_raw_fallback.status"],
     ))
     rows.append(("govern / audit / anti-drift", "offline by construction", "available"))
     rows.append(("git snapshots (history)", "local git", "available" if _sh.which("git") else "unavailable (git not found)"))
@@ -69,7 +83,19 @@ def doctor_offline(
     table.add_column("Basis")
     table.add_column("Status")
     for name, basis, status in rows:
-        style = "green" if status == "available" else ("yellow" if ("degraded" in status or "opt-in" in status) else "red")
+        style = (
+            "green"
+            if status in {"available", "enabled", "fast_ready", "ready"}
+            else (
+                "yellow"
+                if (
+                    "degraded" in status
+                    or "opt-in" in status
+                    or status in {"rollback", "not_fast_ready"}
+                )
+                else "red"
+            )
+        )
         table.add_row(name, basis, f"[{style}]{status}[/{style}]")
     console.print("[bold]Agent Memory Hub - offline self-check[/bold]\n")
     console.print(table)
@@ -140,7 +166,7 @@ def doctor_offline(
             )
     console.print(f"\n[bold]overall: {rep.overall}[/bold]")
     console.print(
-        "[dim]Core read/write stays offline; semantic recall and prompt-injection API availability degrade independently.[/dim]"
+        "[dim]Core read/write stays offline; routed generation, semantic readiness, lexical fallback, and Gateway health degrade independently.[/dim]"
     )
 
 

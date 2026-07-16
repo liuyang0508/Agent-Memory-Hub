@@ -8,6 +8,7 @@ release asset, or hook path drifts: diagnosis stays read-only by default, while
 from __future__ import annotations
 
 from pathlib import Path
+import json
 
 from typer.testing import CliRunner
 
@@ -124,3 +125,49 @@ def test_doctor_fix_repairs_broken_cli_shim_and_core_hooks(tmp_path, monkeypatch
     assert "memory CLI shim" in result.output
     assert "codex adapter" in result.output
     assert "claude_code adapter" in result.output
+
+
+def test_repair_replaces_old_keyword_gate_hook_with_routed_hook(tmp_path, monkeypatch):
+    from agent_brain.agent_integrations import codex as cx_mod
+    from agent_brain.platform.install_repair import repair_adapters
+
+    old_repo = tmp_path / "old-agent-memory-hub"
+    old_hook = old_repo / "agent_runtime_kit" / "hooks" / "inject-context.sh"
+    old_hook.parent.mkdir(parents=True)
+    old_hook.write_text(
+        "#!/usr/bin/env bash\n"
+        "KEYWORDS=legacy\n"
+        "export AGENT_MEMORY_HUB_RAW_QUERY=legacy\n",
+        encoding="utf-8",
+    )
+
+    hooks_json = tmp_path / ".codex" / "hooks.json"
+    hooks_json.parent.mkdir(parents=True)
+    hooks_json.write_text(
+        json.dumps({
+            "hooks": {
+                "UserPromptSubmit": [{
+                    "hooks": [{
+                        "type": "command",
+                        "command": f"AGENT_MEMORY_HUB_ADAPTER=codex {old_hook}",
+                    }],
+                }],
+            },
+        }),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(cx_mod, "AGENTS_MD", tmp_path / ".codex" / "AGENTS.md")
+    monkeypatch.setattr(cx_mod, "CODEX_HOOKS_JSON", hooks_json)
+    monkeypatch.setattr(cx_mod, "CODEX_CONFIG_TOML", tmp_path / ".codex" / "config.toml")
+
+    actions = repair_adapters(tmp_path / "brain", adapters=("codex",))
+
+    assert actions[0].status == "fixed"
+    installed = json.loads(hooks_json.read_text(encoding="utf-8"))
+    command = installed["hooks"]["UserPromptSubmit"][0]["hooks"][0]["command"]
+    installed_hook = Path(command.split()[-1])
+    content = installed_hook.read_text(encoding="utf-8")
+    assert "--routed-recall" in content
+    assert "AGENT_MEMORY_HUB_RAW_QUERY" not in content
+    assert "KEYWORDS=" not in content
+    assert str(old_hook) not in command

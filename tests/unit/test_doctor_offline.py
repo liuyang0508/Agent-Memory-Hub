@@ -9,6 +9,13 @@ from pathlib import Path
 from agent_brain.platform.doctor import run_doctor
 
 
+def _create_ready_index(brain: Path) -> None:
+    from agent_brain.platform.indexing.index import HubIndex
+
+    index = HubIndex(db_path=brain / "index.db")
+    index.close()
+
+
 def test_doctor_offline_reports_writable_and_overall_ok(tmp_brain):
     rep = run_doctor(offline=True)
     assert rep.checks["core.md_store.writable"] is True
@@ -20,6 +27,118 @@ def test_doctor_reports_injection_gateway_available(tmp_brain):
     rep = run_doctor(offline=True)
 
     assert rep.checks["security.injection_gateway.available"] is True
+
+
+def test_doctor_reports_routed_recall_gateway_and_offline_fallback(tmp_brain):
+    _create_ready_index(tmp_brain)
+
+    rep = run_doctor(offline=True)
+
+    assert rep.checks["recall.routed.status"] == "enabled"
+    assert rep.checks["security.injection_gateway.available"] is True
+    assert rep.checks["recall.semantic_provider.status"] in {
+        "fast_ready",
+        "not_fast_ready",
+        "unavailable",
+    }
+    assert rep.checks["recall.lexical_raw_fallback.status"] == "ready"
+
+
+def test_doctor_reports_routed_recall_rollback_without_disabling_gateway(
+    tmp_brain,
+    monkeypatch,
+):
+    _create_ready_index(tmp_brain)
+    monkeypatch.setenv("AGENT_MEMORY_HUB_ROUTED_RECALL", "0")
+
+    rep = run_doctor(offline=True)
+
+    assert rep.checks["recall.routed.status"] == "rollback"
+    assert rep.checks["security.injection_gateway.available"] is True
+    assert rep.overall == "DEGRADED"
+
+
+def test_doctor_gateway_probe_requires_closed_exclusion_reason_contract(
+    tmp_brain,
+    monkeypatch,
+):
+    import agent_brain.memory.context.injection_gateway as gateway
+    import agent_brain.platform.doctor as doctor
+
+    monkeypatch.setattr(
+        gateway,
+        "INJECTION_EXCLUSION_REASONS",
+        frozenset({"query_not_injectable"}),
+    )
+
+    assert doctor._probe_injection_gateway_available() is False
+
+
+def test_doctor_semantic_provider_does_not_cold_load_model(tmp_brain, monkeypatch):
+    from agent_brain.platform import embedding
+
+    monkeypatch.setattr(embedding, "probe_semantic_available", lambda: True)
+    monkeypatch.setattr(
+        embedding,
+        "get_default_embedder",
+        lambda: (_ for _ in ()).throw(AssertionError("doctor cold-loaded model")),
+    )
+
+    rep = run_doctor(offline=True)
+
+    assert rep.checks["recall.semantic_provider.status"] == "not_fast_ready"
+
+
+def test_doctor_semantic_provider_reports_missing_dependency_unavailable(
+    tmp_brain,
+    monkeypatch,
+):
+    from agent_brain.platform import embedding
+
+    monkeypatch.setattr(embedding, "probe_semantic_available", lambda: False)
+
+    rep = run_doctor(offline=True)
+
+    assert rep.checks["recall.semantic_provider.status"] == "unavailable"
+
+
+def test_doctor_lexical_fallback_reports_missing_index_not_ready(tmp_brain):
+    rep = run_doctor(offline=True)
+
+    assert rep.checks["core.index.present"] is False
+    assert rep.checks["recall.lexical_raw_fallback.status"] == "not_ready"
+
+
+def test_doctor_lexical_fallback_requires_routed_cli(tmp_brain, monkeypatch):
+    import agent_brain.platform.doctor as doctor
+
+    _create_ready_index(tmp_brain)
+    monkeypatch.setattr(doctor, "_probe_routed_cli_installed", lambda: False)
+
+    rep = doctor.run_doctor(offline=True)
+
+    assert rep.checks["recall.lexical_raw_fallback.status"] == "not_ready"
+
+
+def test_doctor_offline_renders_four_routed_recall_status_rows(
+    tmp_brain,
+    monkeypatch,
+):
+    from typer.testing import CliRunner
+
+    from agent_brain.interfaces.cli import app
+
+    _create_ready_index(tmp_brain)
+    monkeypatch.setenv("COLUMNS", "220")
+
+    result = CliRunner().invoke(app, ["doctor", "--offline"])
+
+    assert result.exit_code == 0, result.output
+    output = " ".join(result.stdout.lower().split())
+    assert "routed recall" in output
+    assert "prompt injection gateway" in output
+    assert "semantic provider" in output
+    assert "lexical raw fallback" in output
 
 
 def test_doctor_gateway_probe_fails_closed_on_real_import_exception(

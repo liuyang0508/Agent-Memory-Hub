@@ -69,6 +69,21 @@ REAL_ADAPTERS = [
 WIP_ADAPTERS = [a for a in ALL_ADAPTERS if a not in REAL_ADAPTERS]
 
 
+def test_runtime_prompt_hook_uses_structured_routed_protocol():
+    hook = (
+        Path(__file__).resolve().parents[2]
+        / "agent_runtime_kit"
+        / "hooks"
+        / "inject-context.sh"
+    ).read_text(encoding="utf-8")
+
+    assert "--routed-recall" in hook
+    assert "--format" in hook
+    assert "hook-json" in hook
+    assert "AGENT_MEMORY_HUB_RAW_QUERY" not in hook
+    assert "KEYWORDS=" not in hook
+
+
 def test_managed_adapter_runtime_text_contains_no_personal_examples(tmp_path):
     from agent_brain.agent_integrations import qoder as qoder_mod
     from agent_brain.agent_integrations import qoder_work as qw_mod

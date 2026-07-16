@@ -37,12 +37,24 @@ on a cold/offline machine.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import inspect
 import os
 from pathlib import Path
 import shlex
+import sqlite3
 
 from agent_brain.memory.store.items_store import ItemsStore
 from agent_brain.memory.store.pending import PendingQueue, brain_dir
+
+
+_REQUIRED_GATEWAY_EXCLUSION_REASONS = frozenset({
+    "hydrate_error",
+    "pack_error",
+    "query_not_injectable",
+    "route_answerability_insufficient",
+    "scope_mismatch",
+    "sensitivity_not_allowed",
+})
 
 
 @dataclass
@@ -92,19 +104,83 @@ def _probe_embedder_tier(offline: bool) -> str:
 
 
 def _probe_injection_gateway_available() -> bool:
-    """Check that the prompt-injection Gateway APIs can be imported.
+    """Check the Gateway API and its closed exclusion-reason contract.
 
-    This is deliberately an import/callable probe only. It does not execute
-    retrieval, policy evaluation, packing, or any network-capable path.
+    This deliberately does not execute retrieval, policy evaluation, packing,
+    or any network-capable path. Importability alone is insufficient: the
+    routed surface also depends on stable closed-set exclusion accounting.
     """
     try:
         from agent_brain.memory.context.injection_gateway import (
+            INJECTION_EXCLUSION_REASONS,
             build_injection_context,
             evaluate_injection_candidates,
+            injection_exclusion_reason_counts,
         )
     except Exception:
         return False
-    return callable(build_injection_context) and callable(evaluate_injection_candidates)
+    return (
+        callable(build_injection_context)
+        and callable(evaluate_injection_candidates)
+        and callable(injection_exclusion_reason_counts)
+        and isinstance(INJECTION_EXCLUSION_REASONS, frozenset)
+        and _REQUIRED_GATEWAY_EXCLUSION_REASONS
+        <= INJECTION_EXCLUSION_REASONS
+    )
+
+
+def _probe_semantic_provider_status() -> str:
+    """Report hook-safe semantic readiness without loading a model.
+
+    Having ``sentence-transformers`` installed means a model *could* be cold
+    loaded; it does not make the short-lived hook surface fast-ready. The
+    current hook path is intentionally model-free, so ``fast_ready`` remains a
+    reserved future state for an explicit already-warm provider contract.
+    """
+    try:
+        from agent_brain.platform.embedding import probe_semantic_available
+
+        dependency_available = bool(probe_semantic_available())
+    except Exception:
+        return "unavailable"
+    return "not_fast_ready" if dependency_available else "unavailable"
+
+
+def _probe_routed_cli_installed() -> bool:
+    """Check that the installed search command exposes the hook protocol."""
+    try:
+        from agent_brain.interfaces.cli.commands.query import search
+        from agent_brain.interfaces.cli.routed_query import execute_routed_query
+
+        parameters = inspect.signature(search).parameters
+    except Exception:
+        return False
+    return (
+        callable(execute_routed_query)
+        and "routed_recall" in parameters
+        and "output_format" in parameters
+    )
+
+
+def _probe_bm25_index_ready(db_path: Path) -> bool:
+    """Verify the current derived index can execute local FTS5/BM25."""
+    if not db_path.exists():
+        return False
+    try:
+        with sqlite3.connect(str(db_path)) as connection:
+            row = connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE name = 'items_fts'"
+            ).fetchone()
+            if row is None:
+                return False
+            connection.execute(
+                "SELECT id, bm25(items_fts) FROM items_fts "
+                "WHERE items_fts MATCH ? LIMIT 1",
+                ("amhdoctorunlikelytoken",),
+            ).fetchall()
+    except (OSError, sqlite3.Error):
+        return False
+    return True
 
 
 def _memory_cli_shim_path() -> Path:
@@ -188,9 +264,34 @@ def run_doctor(offline: bool = True) -> DoctorReport:
     # embedder tier — network-free in offline mode.
     rep.checks["core.embedder.tier"] = _probe_embedder_tier(offline)
 
-    # Security boundary availability — import/callable only, never retrieval.
+    # Routed candidate generation can be rolled back independently, but the
+    # Gateway remains mandatory in both modes.
+    rep.checks["recall.routed.status"] = (
+        "rollback"
+        if os.environ.get("AGENT_MEMORY_HUB_ROUTED_RECALL") == "0"
+        else "enabled"
+    )
+
+    # Security boundary availability — API + closed contract, never retrieval.
     rep.checks["security.injection_gateway.available"] = (
         _probe_injection_gateway_available()
+    )
+
+    # Dependency installation is not the same as a warm hook-safe provider.
+    semantic_status = _probe_semantic_provider_status()
+    rep.checks["recall.semantic_provider.status"] = semantic_status
+    rep.checks["recall.semantic_provider.dependency_installed"] = (
+        semantic_status != "unavailable"
+    )
+
+    # The deterministic raw fallback requires both a usable current index and
+    # the structured routed CLI protocol.
+    bm25_ready = _probe_bm25_index_ready(bd / "index.db")
+    routed_cli_installed = _probe_routed_cli_installed()
+    rep.checks["recall.lexical_raw_fallback.fts_bm25_ready"] = bm25_ready
+    rep.checks["recall.lexical_raw_fallback.cli_installed"] = routed_cli_installed
+    rep.checks["recall.lexical_raw_fallback.status"] = (
+        "ready" if bm25_ready and routed_cli_installed else "not_ready"
     )
 
     # pending queue: buffered writes awaiting replay + poison records parked dead.
@@ -213,7 +314,10 @@ def run_doctor(offline: bool = True) -> DoctorReport:
         or rep.checks["pending.dead"]
         or rep.checks["core.items.skipped"]
         or rep.checks["core.embedder.tier"] != "semantic"
+        or rep.checks["recall.routed.status"] != "enabled"
         or not rep.checks["security.injection_gateway.available"]
+        or rep.checks["recall.semantic_provider.status"] != "fast_ready"
+        or rep.checks["recall.lexical_raw_fallback.status"] != "ready"
         or (rep.checks["cli.shim.present"] and not rep.checks["cli.shim.target_exists"])
     ):
         rep.overall, rep.exit_code = "DEGRADED", 1
