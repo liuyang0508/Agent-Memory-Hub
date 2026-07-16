@@ -30887,7 +30887,42 @@
     "float_round_digits": 8,
     "lockfile": "scripts/dual-route-embedding-generator.lock.txt",
     "path": "scripts/generate-dual-route-embedding-fixture.py",
-    "version": 1
+    "regeneration": {
+      "argv": [
+        "python",
+        "scripts/generate-dual-route-embedding-fixture.py",
+        "--cases",
+        "tests/fixtures/dual_route_recall_cases.json",
+        "--output",
+        "tests/fixtures/dual_route_precomputed_embeddings.json",
+        "--model-path",
+        "~/.cache/huggingface/hub/models--sentence-transformers--paraphrase-multilingual-MiniLM-L12-v2/snapshots/e8f8c211226b894fcb81acc59f3b34ba3efd5f42",
+        "--model-id",
+        "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        "--revision",
+        "e8f8c211226b894fcb81acc59f3b34ba3efd5f42"
+      ],
+      "working_directory": "repository-root"
+    },
+    "runtime": {
+      "platform_machine": "arm64",
+      "platform_system": "Darwin",
+      "python_implementation": "CPython",
+      "python_version": "3.12.4"
+    },
+    "verification": {
+      "argv": [
+        "python",
+        "scripts/generate-dual-route-embedding-fixture.py",
+        "--cases",
+        "tests/fixtures/dual_route_recall_cases.json",
+        "--output",
+        "tests/fixtures/dual_route_precomputed_embeddings.json",
+        "--verify-existing"
+      ],
+      "working_directory": "repository-root"
+    },
+    "version": 2
   },
   "model": {
     "dimension": 384,

@@ -9,6 +9,8 @@ import inspect
 import json
 import math
 from pathlib import Path
+import subprocess
+import sys
 from typing import Any
 
 import pytest
@@ -243,12 +245,51 @@ def test_precomputed_embedding_fixture_has_provenance_and_no_label_leakage() -> 
     )
     assert payload["model"]["snapshot_digest"].startswith("sha256:")
     assert len(payload["model"]["snapshot_digest"]) == 71
-    assert payload["generator"] == {
+    generator_metadata = payload["generator"]
+    assert {
+        key: generator_metadata[key]
+        for key in ("path", "version", "encoder", "lockfile", "float_round_digits")
+    } == {
         "path": "scripts/generate-dual-route-embedding-fixture.py",
-        "version": 1,
+        "version": 2,
         "encoder": "sentence-transformers==3.4.1",
         "lockfile": "scripts/dual-route-embedding-generator.lock.txt",
         "float_round_digits": 8,
+    }
+    assert generator_metadata["runtime"] == {
+        "python_implementation": "CPython",
+        "python_version": "3.12.4",
+        "platform_system": "Darwin",
+        "platform_machine": "arm64",
+    }
+    assert generator_metadata["regeneration"] == {
+        "working_directory": "repository-root",
+        "argv": [
+            "python",
+            "scripts/generate-dual-route-embedding-fixture.py",
+            "--cases",
+            "tests/fixtures/dual_route_recall_cases.json",
+            "--output",
+            "tests/fixtures/dual_route_precomputed_embeddings.json",
+            "--model-path",
+            "~/.cache/huggingface/hub/models--sentence-transformers--paraphrase-multilingual-MiniLM-L12-v2/snapshots/e8f8c211226b894fcb81acc59f3b34ba3efd5f42",
+            "--model-id",
+            "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+            "--revision",
+            "e8f8c211226b894fcb81acc59f3b34ba3efd5f42",
+        ],
+    }
+    assert generator_metadata["verification"] == {
+        "working_directory": "repository-root",
+        "argv": [
+            "python",
+            "scripts/generate-dual-route-embedding-fixture.py",
+            "--cases",
+            "tests/fixtures/dual_route_recall_cases.json",
+            "--output",
+            "tests/fixtures/dual_route_precomputed_embeddings.json",
+            "--verify-existing",
+        ],
     }
     assert all(len(vector) == 384 for vector in payload["embeddings"].values())
     assert all(
@@ -301,6 +342,52 @@ def test_embedding_fixture_digest_lock_and_snapshot_revision_are_bound(tmp_path:
     assert generator.snapshot_content_digest(snapshot, revision) != first
     with pytest.raises(ValueError, match="revision"):
         generator.snapshot_content_digest(snapshot, "different-revision")
+
+
+def test_embedding_fixture_has_read_only_offline_verification_entry() -> None:
+    fixture_before = PRECOMPUTED_EMBEDDING_PATH.read_bytes()
+    digest_before = PRECOMPUTED_EMBEDDING_DIGEST_PATH.read_bytes()
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(GENERATOR_PATH),
+            "--cases",
+            str(FIXTURE_PATH),
+            "--output",
+            str(PRECOMPUTED_EMBEDDING_PATH),
+            "--verify-existing",
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+        text=True,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert json.loads(completed.stdout) == {
+        "digest": PRECOMPUTED_EMBEDDING_DIGEST_PATH.read_text(
+            encoding="utf-8"
+        ).strip(),
+        "embedding_count": len(_fixture_embedding_texts()),
+        "model_revision": "e8f8c211226b894fcb81acc59f3b34ba3efd5f42",
+        "snapshot_verified": False,
+        "verified": True,
+    }
+    assert PRECOMPUTED_EMBEDDING_PATH.read_bytes() == fixture_before
+    assert PRECOMPUTED_EMBEDDING_DIGEST_PATH.read_bytes() == digest_before
+
+
+def test_embedding_fixture_offline_verification_rejects_tampering(tmp_path: Path) -> None:
+    generator = _load_embedding_generator()
+    fixture_copy = tmp_path / PRECOMPUTED_EMBEDDING_PATH.name
+    fixture_copy.write_bytes(PRECOMPUTED_EMBEDDING_PATH.read_bytes() + b" ")
+    fixture_copy.with_suffix(".sha256").write_bytes(
+        PRECOMPUTED_EMBEDDING_DIGEST_PATH.read_bytes()
+    )
+
+    with pytest.raises(ValueError, match="digest"):
+        generator.verify_existing_fixture(FIXTURE_PATH, fixture_copy)
 
 
 def test_precomputed_provider_rejects_tampered_payload(tmp_path: Path) -> None:
