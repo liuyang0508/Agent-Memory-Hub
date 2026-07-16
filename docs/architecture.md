@@ -172,6 +172,42 @@ Prompt-facing recall-gap records persist only a query fingerprint and aggregate 
 The lower-level explicit record_gap API may still store rejected_ids and diagnostic evidence for deliberate diagnostic callers.
 DataFlow and memory-lineage outputs apply a closed aggregate allowlist to recall-gap evidence, so historical free-text evidence is not re-exposed.
 
+### Dual-route hook recall and rollout boundary
+
+`InjectionGateway` is the logical security boundary for prompt authorization; it
+is not a resident semantic service and does not make model availability a hook
+precondition. The `UserPromptSubmit` hook forwards the complete normalized task
+description through one bounded routed CLI request and one orchestrated pipeline;
+small shell protocol/evidence helpers may still use separate Python processes.
+Candidate generation can combine
+term BM25 with the complete-question semantic route. If the semantic provider is
+not already ready, the hook does **not cold-load or download a model**; retrieval
+continues with term BM25 plus the Unicode-aware raw BM25 fallback. Every path,
+including degraded and feature-flagged paths, still passes through Gateway and
+ContextFirewall before building ContextPack.
+
+`AGENT_MEMORY_HUB_ROUTED_RECALL=0` is an emergency compatibility switch that
+**only rolls back candidate generation** to the legacy search behavior. It never
+disables Gateway, never authorizes raw hits, and never changes the access-recording
+boundary.
+
+`memory brief` and `memory search` serve different jobs. `brief` is a bounded
+project-resume overview (and `--fail-empty` lets automation distinguish an empty
+brief); `search` recalls evidence for a concrete task and should receive the full
+task description. They are not fallback aliases, and agents should not invent a
+manual keyword gate before search.
+
+This rollout does not implement **Session continuation**. Bare turns such as
+“继续”, “确认”, “是”, or “1” remain non-injectable until a later design provides a
+trusted session pointer and previous-task state. A short prompt with concrete
+topic or entity anchors is evaluated normally.
+
+The calibration release gate is currently **BLOCKED** by held-out case
+`multi-hi-08`. The committed report and machine-readable gate are
+`docs/evaluation/dual-route-calibration-report.json` and
+`scripts/check-dual-route-calibration.py`; passing the test suite does not override
+that release decision.
+
 ### Budgeted brief authorization boundary
 
 `ItemsStore candidates -> InjectionGateway eligibility -> ContextFirewall -> tier/brief budget -> brief response`

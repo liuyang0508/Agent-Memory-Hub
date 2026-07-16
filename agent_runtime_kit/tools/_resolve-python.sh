@@ -84,10 +84,20 @@ _find_memory_python() {
   return 1
 }
 
-if MEMORY_PYTHON="$(_find_memory_python)"; then
+if [ "${AGENT_MEMORY_HUB_PYTHON_RESOLVED:-}" = "1" ] \
+  && _candidate_exists "${MEMORY_PYTHON:-}"; then
+  # A parent hook already paid the import probe and exported the exact
+  # interpreter. Child runtime/search shims reuse that verdict instead of
+  # importing the full CLI package again in every short-lived shell.
   _PYTHON_OK=0
+elif MEMORY_PYTHON="$(_find_memory_python)"; then
+  _PYTHON_OK=0
+  AGENT_MEMORY_HUB_PYTHON_RESOLVED=1
 else
   _PYTHON_OK=$?
+fi
+if [ "$_PYTHON_OK" -eq 0 ] && [ -n "${MEMORY_PYTHON:-}" ]; then
+  export MEMORY_PYTHON AGENT_MEMORY_HUB_PYTHON_RESOLVED
 fi
 
 memory_cli() {

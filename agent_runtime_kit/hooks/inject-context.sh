@@ -80,6 +80,13 @@ PROMPT=${PROMPT_WITH_SENTINEL%"$PROMPT_SENTINEL"}
 SESSION_ID=$(echo "$INPUT" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("session_id",""))' 2>/dev/null || true)
 CWD=$(echo "$INPUT" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("cwd",""))' 2>/dev/null || true)
 HOOK_EVENT_NAME=$(echo "$INPUT" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("hook_event_name","UserPromptSubmit"))' 2>/dev/null || echo "UserPromptSubmit")
+if [ -n "$PROMPT" ] && [ -f "$PYTHON_RESOLVER" ]; then
+  # Resolve and verify once in the parent hook. Child runtime/search shims
+  # inherit the exported verdict instead of repeatedly importing the full CLI.
+  # shellcheck source=/dev/null
+  source "$PYTHON_RESOLVER"
+  export MEMORY_PYTHON AGENT_MEMORY_HUB_PYTHON_RESOLVED
+fi
 if [ -x "$RECORD_TOOL" ]; then
   "$RECORD_TOOL" \
     --adapter "${AGENT_MEMORY_HUB_ADAPTER:-unknown}" \
@@ -89,9 +96,7 @@ if [ -x "$RECORD_TOOL" ]; then
     >/dev/null 2>&1 || true
 fi
 
-if [ -n "$PROMPT" ] && [ -f "$PYTHON_RESOLVER" ]; then
-  # shellcheck source=/dev/null
-  source "$PYTHON_RESOLVER"
+if [ -n "$PROMPT" ] && [ -n "${MEMORY_PYTHON:-}" ]; then
   printf '%s' "$INPUT" | "$MEMORY_PYTHON" -m agent_brain.memory.evidence.hook_capture prompt \
     >/dev/null 2>&1 || true
 fi

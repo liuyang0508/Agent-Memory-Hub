@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Unified Injection Gateway** — MCP, SDK, CLI/hooks, brief, and Web prompt
   surfaces now use one fail-closed policy and bounded ContextPack contract.
+- **Dual-route recall candidate pipeline** — routed hook recall combines term
+  BM25 with complete-question semantic retrieval and a Unicode-aware raw BM25
+  fallback while retaining one Gateway authorization boundary.
 
 ### Changed
 
@@ -18,6 +21,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `context_firewall=True` by default. Callers that explicitly need raw retrieval
   diagnostics must pass `context_firewall=False`; raw mode returns no ContextPack,
   firewall decision, or resource sidecar content.
+- Hook cold paths do not load or download semantic models. Users upgrading from
+  an older package must refresh/repair installed adapters to receive the routed
+  hook; `AGENT_MEMORY_HUB_ROUTED_RECALL=0` only rolls back candidate generation.
+
+### Release status
+
+- **BLOCKED:** dual-route recall is not release-ready while held-out calibration
+  case `multi-hi-08` remains unresolved. The committed calibration report records
+  held-out recall 10/11 (0.9091); exploratory E5 and reranker bakeoffs are not
+  enabled by default because they either regress existing cases or lack an
+  independent, reproducible safety/calibration gate.
 
 ### Security
 

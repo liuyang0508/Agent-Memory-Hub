@@ -104,6 +104,30 @@ def test_architecture_exposes_the_single_prompt_injection_authorization_chain():
     assert "  -> access recording\n  -> ContextFirewall" not in architecture
 
 
+def test_dual_route_release_docs_keep_rollout_and_blocker_boundaries_explicit():
+    architecture = _read("docs/architecture.md")
+    changelog = _read("CHANGELOG.md")
+    evidence = _read("docs/evaluation/dual-route-release-readiness.zh.md")
+
+    for text in (architecture, changelog, evidence):
+        assert "multi-hi-08" in text
+        assert "BLOCKED" in text
+
+    assert "logical security boundary" in architecture
+    assert "does **not cold-load or download a model**" in architecture
+    assert "AGENT_MEMORY_HUB_ROUTED_RECALL=0" in architecture
+    assert "only rolls back candidate generation" in architecture
+    assert "memory brief" in architecture and "memory search" in architecture
+    assert "Session continuation" in architecture
+
+    assert "升级包" in evidence
+    assert "refresh/repair" in evidence
+    assert "E5" in evidence
+    assert "reranker" in evidence
+    assert "不得默认启用" in evidence
+    assert "/tmp" not in evidence
+
+
 def test_architecture_exact_retrieval_order_and_brief_branch_do_not_conflate_paths():
     architecture = _read("docs/architecture.md")
     heading = "## Exact retrieval order — `agent_brain/memory/recall/retrieval.py`"
