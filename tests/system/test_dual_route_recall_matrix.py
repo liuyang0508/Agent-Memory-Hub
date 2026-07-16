@@ -117,9 +117,15 @@ def test_dual_route_fixture_schema_and_distribution() -> None:
         for case in cases
         if "known_capability_gap" in case
     }
-    assert known_gaps == {
-        "multi-hi-08": "cross_language_without_shared_anchor",
-    }
+    assert set(known_gaps) == {"multi-hi-08"}
+    assert known_gaps["multi-hi-08"]["reason"] == (
+        "cross_language_without_shared_anchor"
+    )
+    assert known_gaps["multi-hi-08"]["embedding_evidence"]["target_rank"] == 2
+    assert known_gaps["multi-hi-08"]["verifier_evidence"]["result"] == (
+        "target_not_in_top_10"
+    )
+    assert known_gaps["multi-hi-08"]["upgrade_condition"]
     assert all(
         set(case["expected_item_ids"]) == {case["brain_item"]["id"]}
         for case in cases
@@ -209,6 +215,7 @@ def test_precomputed_embedding_fixture_has_provenance_and_no_label_leakage() -> 
             "legacy_false_negative",
             "prohibited_item_ids",
             "calibration_split",
+            "known_capability_gap",
         )
     )
     assert not (
@@ -264,6 +271,7 @@ def test_precomputed_embedding_fixture_has_provenance_and_no_label_leakage() -> 
         case["legacy_false_negative"] = not case["legacy_false_negative"]
         case["prohibited_item_ids"] = ["annotation-must-not-enter-extraction"]
         case["calibration_split"] = "annotation-must-not-enter-extraction"
+        case["known_capability_gap"] = "annotation-must-not-enter-extraction"
     assert generator.extract_case_texts(altered_cases) == generator.extract_case_texts(_cases())
 
 
@@ -510,7 +518,16 @@ def test_dual_route_candidate_and_injection_governance_matrix(tmp_path: Path) ->
     finally:
         index.close()
 
-    positives = [(case, old, new) for case, old, new in rows if case["expected_item_ids"]]
+    known_gap_rows = [
+        (case, old, new)
+        for case, old, new in rows
+        if case.get("known_capability_gap")
+    ]
+    positives = [
+        (case, old, new)
+        for case, old, new in rows
+        if case["expected_item_ids"] and not case.get("known_capability_gap")
+    ]
     label_mismatches = [
         (
             case["id"],
@@ -566,8 +583,21 @@ def test_dual_route_candidate_and_injection_governance_matrix(tmp_path: Path) ->
             "candidate_ids": sorted(new.candidates),
         }
         for case, _old, new in rows
-        if case["expect_injection"] and not (set(case["expected_item_ids"]) & new.injected)
+        if case["expect_injection"]
+        and not case.get("known_capability_gap")
+        and not (set(case["expected_item_ids"]) & new.injected)
     ]
+
+    assert [case["id"] for case, _old, _new in known_gap_rows] == ["multi-hi-08"]
+    assert all(new.injected == frozenset() for _case, _old, new in known_gap_rows)
+    calibration_summary = {
+        "calibration_passed": not known_gap_rows,
+        "unresolved_gaps": len(known_gap_rows),
+    }
+    assert calibration_summary == {
+        "calibration_passed": False,
+        "unresolved_gaps": 1,
+    }
 
     assert routed_hits / len(positives) >= legacy_hits / len(positives), expected_misses
     assert len(fixed) >= 3, {"fixed": fixed, "misses": expected_misses}
@@ -658,7 +688,7 @@ def test_dual_route_candidate_and_injection_governance_matrix(tmp_path: Path) ->
 
     positive_similarities = [
         similarity
-        for case, _old, new in rows
+        for case, _old, new in positives
         for item_id, similarity in new.semantic_similarities
         if item_id in set(case["expected_item_ids"])
     ]
@@ -672,7 +702,7 @@ def test_dual_route_candidate_and_injection_governance_matrix(tmp_path: Path) ->
     assert hard_negative_similarities
     threshold_only_positive_similarities = [
         similarity
-        for case, _old, new in rows
+        for case, _old, new in positives
         if not build_recall_request(case["query"], adapter="codex").query_signal.injectable
         for item_id, similarity in new.semantic_similarities
         if item_id in set(case["expected_item_ids"])
@@ -704,10 +734,11 @@ def test_dual_route_candidate_and_injection_governance_matrix(tmp_path: Path) ->
                 (case["id"], item_id, similarity, reasons_by_id.get(item_id, ()))
             )
             assert signal.injectable, overlapping_negatives
-            assert {
-                "query_mismatch",
-                "answerability_mismatch",
-            } <= set(reasons_by_id.get(item_id, ())), overlapping_negatives
+            reasons = set(reasons_by_id.get(item_id, ()))
+            assert (
+                "route_answerability_insufficient" in reasons
+                or {"query_mismatch", "answerability_mismatch"} <= reasons
+            ), overlapping_negatives
     assert overlapping_negatives, distribution
 
 
