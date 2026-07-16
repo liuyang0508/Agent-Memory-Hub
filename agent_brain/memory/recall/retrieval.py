@@ -530,8 +530,16 @@ class Retriever:
         filters: SearchFilter | None = None,
         explain: bool = False,
         record_access: bool | None = None,
+        clock: Callable[[], float] | None = None,
+        semantic_deadline: float | None = None,
     ) -> RoutedSearchResult:
-        """Generate and fuse independent lexical and semantic recall routes."""
+        """Generate and fuse independent lexical and semantic recall routes.
+
+        ``semantic_deadline`` is absolute in the supplied ``clock`` domain.
+        Expired semantic work is discarded before fusion and enables the raw
+        lexical fallback without removing already-completed term hits.
+        """
+        route_clock = clock or time.perf_counter
         top_k = _normalize_routed_top_k(top_k)
         if top_k == 0:
             return RoutedSearchResult([], (), request.admission, {})
@@ -561,7 +569,7 @@ class Retriever:
         semantic_similarities: dict[str, float] = {}
 
         if request.lexical_terms:
-            started = time.perf_counter()
+            started = route_clock()
             try:
                 terms_query = expand_query(
                     " ".join(request.lexical_terms),
@@ -585,6 +593,7 @@ class Retriever:
                         "lexical_terms",
                         started,
                         len(lexical_terms_hits),
+                        clock=route_clock,
                     )
                 )
             except TimeoutError:
@@ -594,6 +603,7 @@ class Retriever:
                         "lexical_terms",
                         started,
                         timeout=True,
+                        clock=route_clock,
                     )
                 )
             except Exception:
@@ -603,6 +613,7 @@ class Retriever:
                         "lexical_terms",
                         started,
                         timeout=False,
+                        clock=route_clock,
                     )
                 )
         else:
@@ -634,9 +645,11 @@ class Retriever:
                 )
             )
         else:
-            started = time.perf_counter()
+            started = route_clock()
             try:
+                _raise_if_deadline_expired(route_clock, semantic_deadline)
                 query_embedding = self.embedder.embed(request.normalized_query)
+                _raise_if_deadline_expired(route_clock, semantic_deadline)
                 semantic_hits = list(
                     self.index.vector_search(
                         query_embedding,
@@ -645,6 +658,7 @@ class Retriever:
                         excluded_ids=excluded_ids or None,
                     )
                 )
+                _raise_if_deadline_expired(route_clock, semantic_deadline)
                 semantic_hits = _filter_route_hits(
                     semantic_hits,
                     allowed_ids,
@@ -653,6 +667,7 @@ class Retriever:
                 result_embeddings = self.index.get_embeddings(
                     [str(hit.id) for hit in semantic_hits]
                 )
+                _raise_if_deadline_expired(route_clock, semantic_deadline)
                 semantic_hits = [
                     hit for hit in semantic_hits if str(hit.id) in result_embeddings
                 ]
@@ -666,6 +681,7 @@ class Retriever:
                         "semantic_raw",
                         started,
                         len(semantic_hits),
+                        clock=route_clock,
                     )
                 )
             except TimeoutError:
@@ -677,6 +693,7 @@ class Retriever:
                         "semantic_raw",
                         started,
                         timeout=True,
+                        clock=route_clock,
                     )
                 )
             except Exception:
@@ -688,11 +705,12 @@ class Retriever:
                         "semantic_raw",
                         started,
                         timeout=False,
+                        clock=route_clock,
                     )
                 )
 
         if semantic_unavailable:
-            started = time.perf_counter()
+            started = route_clock()
             try:
                 raw_query = _raw_fallback_bm25_query(
                     request.normalized_query,
@@ -716,6 +734,7 @@ class Retriever:
                         "lexical_raw_fallback",
                         started,
                         len(lexical_raw_hits),
+                        clock=route_clock,
                     )
                 )
             except TimeoutError:
@@ -725,6 +744,7 @@ class Retriever:
                         "lexical_raw_fallback",
                         started,
                         timeout=True,
+                        clock=route_clock,
                     )
                 )
             except Exception:
@@ -734,6 +754,7 @@ class Retriever:
                         "lexical_raw_fallback",
                         started,
                         timeout=False,
+                        clock=route_clock,
                     )
                 )
 
@@ -878,11 +899,13 @@ def _completed_route_trace(
     route: str,
     started: float,
     candidate_count: int,
+    *,
+    clock: Callable[[], float] = time.perf_counter,
 ) -> RouteTrace:
     return RouteTrace(
         route,
         "ok",
-        (time.perf_counter() - started) * 1000,
+        (clock() - started) * 1000,
         candidate_count,
         "route_completed",
     )
@@ -893,14 +916,23 @@ def _failed_route_trace(
     started: float,
     *,
     timeout: bool,
+    clock: Callable[[], float] = time.perf_counter,
 ) -> RouteTrace:
     return RouteTrace(
         route,
         "timeout" if timeout else "error",
-        (time.perf_counter() - started) * 1000,
+        (clock() - started) * 1000,
         0,
         "route_timeout" if timeout else "route_error",
     )
+
+
+def _raise_if_deadline_expired(
+    clock: Callable[[], float],
+    deadline: float | None,
+) -> None:
+    if deadline is not None and clock() >= deadline:
+        raise TimeoutError("route deadline expired")
 
 
 def _stage_effect(

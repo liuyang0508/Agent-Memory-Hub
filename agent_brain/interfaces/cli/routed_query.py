@@ -6,10 +6,11 @@ import hashlib
 import logging
 import math
 import os
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any, Literal, Mapping, cast
+from typing import Any, Callable, Literal, Mapping, cast
 
 from agent_brain.memory.context.context_firewall_types import ContextCandidate
 from agent_brain.memory.context.context_loading import ContextVerbosity
@@ -95,14 +96,21 @@ def execute_routed_query(
     prefer_type: list[str] | None = None,
     record_injection_cohort: bool = False,
     record_recall_gap: bool = False,
+    clock: Callable[[], float] | None = None,
+    overall_deadline: float | None = None,
+    semantic_deadline: float | None = None,
 ) -> HookSearchPayload:
     """Retrieve, govern, pack, account, and render one routed CLI query.
 
     Every candidate generator, including the rollback generator, converges on
-    the same Gateway. Exceptions fail closed and never expose raw hits.
+    the same Gateway. Exceptions fail closed and never expose raw hits. Optional
+    deadlines are absolute in the supplied ``clock`` domain; the outer shell
+    timeout remains the default process-level enforcement.
     """
 
     try:
+        deadline_clock = clock or time.monotonic
+        _raise_if_deadline_expired(deadline_clock, overall_deadline)
         scope = ProjectScope(project, "explicit", hard_filter=True) if project is not None else None
         request = build_recall_request(
             raw_query,
@@ -117,7 +125,10 @@ def execute_routed_query(
             top_k=injection_retrieval_top_k(top_k),
             filters=filters,
             use_routed=os.environ.get("AGENT_MEMORY_HUB_ROUTED_RECALL") != "0",
+            clock=deadline_clock if clock is not None or semantic_deadline is not None else None,
+            semantic_deadline=semantic_deadline,
         )
+        _raise_if_deadline_expired(deadline_clock, overall_deadline)
         if routed.admission != request.admission:
             raise ValueError("conflicting routed admission")
         routes = _serialize_routes(routed.routes)
@@ -151,6 +162,7 @@ def execute_routed_query(
             return HookSearchPayload("empty", "no_candidates", "", routes)
 
         items_by_id = {item.id: (item, body) for item, body in store.iter_all()}
+        _raise_if_deadline_expired(deadline_clock, overall_deadline)
         hydrate_error_count = sum(1 for hit in routed.hits if hit.id not in items_by_id)
         _record_injection_diagnostic(
             surface="cli-routed-search",
@@ -190,6 +202,7 @@ def execute_routed_query(
             max_items=top_k,
             current_scope=current_scope or None,
         )
+        _raise_if_deadline_expired(deadline_clock, overall_deadline)
         hit_by_id = {hit.id: hit for hit in routed.hits}
         included_hits = [
             hit_by_id[entry.decision.candidate.item.id]
@@ -247,6 +260,7 @@ def execute_routed_query(
         context = _render_included_context(injection)
         if not context:
             raise RuntimeError("empty packed context")
+        _raise_if_deadline_expired(deadline_clock, overall_deadline)
         return HookSearchPayload("injected", "included", context, routes)
     except TimeoutError:
         logger.warning("routed CLI query timed out")
@@ -263,15 +277,21 @@ def _generate_candidates(
     top_k: int,
     filters: SearchFilter,
     use_routed: bool,
+    clock: Callable[[], float] | None = None,
+    semantic_deadline: float | None = None,
 ) -> RoutedSearchResult:
     if use_routed:
-        return retriever.search_routed(
-            request,
-            top_k=top_k,
-            filters=filters,
-            explain=False,
-            record_access=False,
-        )
+        kwargs: dict[str, object] = {
+            "top_k": top_k,
+            "filters": filters,
+            "explain": False,
+            "record_access": False,
+        }
+        if clock is not None:
+            kwargs["clock"] = clock
+        if semantic_deadline is not None:
+            kwargs["semantic_deadline"] = semantic_deadline
+        return retriever.search_routed(request, **kwargs)
 
     effective_query = request.raw_query
     route_name = "lexical_raw_fallback"
@@ -303,6 +323,14 @@ def _generate_candidates(
         "route_completed",
     )
     return RoutedSearchResult(hits, (trace,), request.admission, evidence)
+
+
+def _raise_if_deadline_expired(
+    clock: Callable[[], float],
+    deadline: float | None,
+) -> None:
+    if deadline is not None and clock() >= deadline:
+        raise TimeoutError("overall recall deadline expired")
 
 
 def _serialize_routes(

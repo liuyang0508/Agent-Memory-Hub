@@ -23,6 +23,9 @@ from agent_brain.platform.indexing.index import HubIndex
 
 
 FIXTURE_PATH = Path(__file__).parents[1] / "fixtures" / "dual_route_recall_cases.json"
+SEMANTIC_LEXICON_PATH = (
+    Path(__file__).parents[1] / "fixtures" / "dual_route_semantic_lexicon.json"
+)
 CATEGORIES = {
     "semantic_paraphrase",
     "multilingual",
@@ -30,6 +33,12 @@ CATEGORIES = {
     "exact_entity",
     "weak_or_no_value",
 }
+_SEMANTIC_CONCEPT_LEXICON = tuple(
+    tuple(str(entry).casefold() for entry in entries)
+    for _concept, entries in sorted(
+        json.loads(SEMANTIC_LEXICON_PATH.read_text(encoding="utf-8")).items()
+    )
+)
 
 
 def _cases() -> list[dict[str, Any]]:
@@ -72,6 +81,27 @@ def test_dual_route_fixture_schema_and_distribution() -> None:
     } <= {case["id"] for case in cases}
 
 
+def test_fixture_semantic_lexicon_is_atomic_and_independent_of_labels() -> None:
+    lexicon = json.loads(SEMANTIC_LEXICON_PATH.read_text(encoding="utf-8"))
+    entries = {
+        str(entry).casefold()
+        for concept_entries in lexicon.values()
+        for entry in concept_entries
+    }
+    cases = _cases()
+
+    assert entries
+    assert all(entry and not any(character.isspace() for character in entry) for entry in entries)
+    assert not {
+        re.sub(r"\s+", " ", case["query"].casefold()).strip()
+        for case in cases
+    } & entries
+    for case in cases:
+        item = case.get("brain_item") or {}
+        assert str(item.get("id", "")).casefold() not in entries
+        assert str(item.get("title", "")).casefold() not in entries
+
+
 class _FixtureSemanticEmbedder:
     """Small offline semantic provider based on language-level concepts.
 
@@ -81,72 +111,7 @@ class _FixtureSemanticEmbedder:
 
     dim = 32
     degraded = False
-    _GROUPS = (
-        (
-            "memory recall",
-            "stored context",
-            "prior knowledge",
-            "earlier decisions",
-            "past knowledge",
-            "earlier session",
-            "saved last time",
-            "saved context",
-            "以前的知识",
-            "早先保存",
-            "过去会话",
-            "沉淀的经验",
-            "先前的结论",
-            "历史会话知识",
-            "重新想起",
-            "找回来",
-            "自动出现在回答前",
-            "先前确定的技术路线",
-        ),
-        (
-            "browser proxy",
-            "browser bridge",
-            "request deadline",
-            "request timeout",
-            "浏览器代理",
-            "三十秒后中断",
-            "navegador",
-            "proxy du navigateur",
-            "ブラウザ",
-            "プロキシ",
-            "타임",
-            "브라우저",
-            "browser proxy anfrage",
-            "прокси браузера",
-            "وكيل المتصفح",
-            "พร็อกซีเบราว์เซอร์",
-            "ब्राउज़र प्रॉक्सी",
-        ),
-        (
-            "readme",
-            "documentation",
-            "文档",
-            "阅读路线",
-            "算法公式",
-            "深度叙事",
-            "算法解释",
-            "二次打磨",
-            "运行时接入",
-            "维护链路",
-            "召回链路",
-            "shared brain",
-            "共享大脑",
-            "共享记忆层",
-            "loop engineering",
-            "长文",
-            "阅读顺序",
-            "维护和召回",
-            "公式解释",
-            "共享脑",
-            "润色",
-            "中文说明",
-            "叙事顺序",
-        ),
-    )
+    _GROUPS = _SEMANTIC_CONCEPT_LEXICON
 
     def embed(self, text: str) -> list[float]:
         lowered = text.casefold()
@@ -363,31 +328,41 @@ def test_dual_route_candidate_and_injection_governance_matrix(tmp_path: Path) ->
 
 
 class _FakeDeadline:
-    def __init__(self, ticks: list[float]) -> None:
-        self._ticks = iter(ticks)
+    def __init__(self, current: float = 0.0) -> None:
+        self.current = current
 
     def now(self) -> float:
-        return next(self._ticks)
+        return self.current
+
+    def advance(self, seconds: float) -> None:
+        self.current += seconds
 
     def expired(self, deadline: float) -> bool:
         return self.now() >= deadline
 
 
 def test_fake_deadline_semantic_timeout_preserves_completed_lexical_route(
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from tests.unit.test_routed_retrieval import _Embedder, _Index, _request, _retriever
     from agent_brain.platform.indexing.index_types import Hit
-    import agent_brain.memory.recall.retrieval as retrieval_module
 
-    clock = _FakeDeadline([1.0, 1.01, 1.02, 1.03, 1.04, 1.05])
-    monkeypatch.setattr(retrieval_module.time, "perf_counter", clock.now)
+    clock = _FakeDeadline()
+
+    class AdvancingEmbedder(_Embedder):
+        def embed(self, query: str) -> list[float]:
+            clock.advance(1.1)
+            return super().embed(query)
+
     index = _Index()
     index.bm25_hits["rule_term"] = [Hit("term-hit", 2.0)]
     index.bm25_hits["raw"] = [Hit("raw-hit", 1.0)]
-    index.vector_error = TimeoutError("fake semantic deadline")
 
-    result = _retriever(index, _Embedder()).search_routed(_request(), top_k=10)
+    result = _retriever(index, AdvancingEmbedder()).search_routed(
+        _request(),
+        top_k=10,
+        clock=clock.now,
+        semantic_deadline=1.0,
+    )
 
     assert {hit.id for hit in result.hits} == {"term-hit", "raw-hit"}
     traces = {trace.route: trace for trace in result.routes}
@@ -398,19 +373,24 @@ def test_fake_deadline_semantic_timeout_preserves_completed_lexical_route(
 
 def test_fake_overall_deadline_fails_closed_without_wall_clock() -> None:
     from agent_brain.interfaces.cli.routed_query import execute_routed_query
+    from tests.unit.test_routed_retrieval import _Embedder, _Index, _retriever
 
-    deadline = _FakeDeadline([2.0])
+    clock = _FakeDeadline()
+    index = _Index()
+    original_bm25 = index.bm25_search
 
-    class TimedOutRetriever:
-        def search_routed(self, *_args: Any, **_kwargs: Any) -> Any:
-            if deadline.expired(1.5):
-                raise TimeoutError("fake overall deadline")
-            raise AssertionError("deadline must be expired")
+    def advancing_bm25(*args: Any, **kwargs: Any) -> list[Any]:
+        clock.advance(1.1)
+        return original_bm25(*args, **kwargs)
+
+    index.bm25_search = advancing_bm25  # type: ignore[method-assign]
+    embedder = _Embedder()
+    embedder.degraded = True
 
     payload = execute_routed_query(
         raw_query="meaningful overall deadline probe",
         store=object(),
-        retriever=TimedOutRetriever(),
+        retriever=_retriever(index, embedder),
         top_k=10,
         filters=SearchFilter(),
         requested="auto",
@@ -418,6 +398,8 @@ def test_fake_overall_deadline_fails_closed_without_wall_clock() -> None:
         adapter="codex",
         session_id="deadline",
         cwd="/repo/current",
+        clock=clock.now,
+        overall_deadline=1.0,
     )
 
     assert payload.to_dict() == {

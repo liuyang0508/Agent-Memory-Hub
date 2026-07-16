@@ -222,11 +222,13 @@ def test_dual_route_hook_benchmark_statistics_and_exit_policy() -> None:
     old = benchmark.summarize([0.100, 0.110, 0.120, 0.130], timeouts=0)
     new = benchmark.summarize([0.200, 0.210, 0.220, 0.230], timeouts=0)
     too_slow = benchmark.summarize([0.100, 2.001], timeouts=1)
+    errored = benchmark.summarize([0.100], timeouts=0, errors=1)
 
     assert old.p50_ms == 115.0
     assert old.p95_ms == 128.5
     assert benchmark.exit_code(old, new) == 0
     assert benchmark.exit_code(old, too_slow) == 1
+    assert benchmark.exit_code(old, errored) == 1
     assert benchmark.exit_code(old, benchmark.summarize([0.300] * 4, timeouts=0)) == 1
 
 
@@ -265,3 +267,67 @@ def test_dual_route_hook_benchmark_warmup_and_output_are_privacy_bounded(
     assert "PRIVATE BENCHMARK PROMPT" not in output.getvalue()
     assert "old-hook" not in output.getvalue()
     assert "new-hook" not in output.getvalue()
+
+
+def test_dual_route_hook_benchmark_nonzero_process_is_an_error(tmp_path: Path) -> None:
+    benchmark = _load_dual_route_hook_benchmark()
+    payload = tmp_path / "payload.json"
+    payload.write_text("{}", encoding="utf-8")
+    output = io.StringIO()
+
+    status = benchmark.main(
+        [
+            "--old-command",
+            "/usr/bin/false",
+            "--new-command",
+            "/usr/bin/false",
+            "--payload",
+            str(payload),
+            "--repeats",
+            "1",
+            "--warmup",
+            "0",
+        ],
+        stdout=output,
+    )
+
+    report = json.loads(output.getvalue())
+    assert status == 1
+    assert report["old"]["errors"] == 1
+    assert report["new"]["errors"] == 1
+    assert report["old"]["timeouts"] == 0
+    assert report["new"]["timeouts"] == 0
+
+
+def test_dual_route_hook_benchmark_does_not_hide_warmup_errors(tmp_path: Path) -> None:
+    benchmark = _load_dual_route_hook_benchmark()
+    payload = tmp_path / "payload.json"
+    payload.write_text("{}", encoding="utf-8")
+    returncodes = iter((1, 0, 0, 0))
+    ticks = iter(index * 0.010 for index in range(8))
+
+    def fake_runner(*_args, **_kwargs):
+        return SimpleNamespace(returncode=next(returncodes))
+
+    output = io.StringIO()
+    status = benchmark.main(
+        [
+            "--old-command",
+            "old-hook",
+            "--new-command",
+            "new-hook",
+            "--payload",
+            str(payload),
+            "--repeats",
+            "1",
+            "--warmup",
+            "1",
+        ],
+        runner=fake_runner,
+        clock=lambda: next(ticks),
+        stdout=output,
+    )
+
+    report = json.loads(output.getvalue())
+    assert status == 1
+    assert report["old"]["errors"] == 1

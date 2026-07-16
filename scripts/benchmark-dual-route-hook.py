@@ -18,6 +18,7 @@ class BenchmarkStats(NamedTuple):
     p95_ms: float
     max_ms: float
     timeouts: int
+    errors: int
     samples: int
 
 
@@ -32,13 +33,19 @@ def _percentile(values: Sequence[float], quantile: float) -> float:
     return ordered[lower] + (ordered[upper] - ordered[lower]) * fraction
 
 
-def summarize(durations: Sequence[float], *, timeouts: int) -> BenchmarkStats:
+def summarize(
+    durations: Sequence[float],
+    *,
+    timeouts: int,
+    errors: int = 0,
+) -> BenchmarkStats:
     milliseconds = [duration * 1000.0 for duration in durations]
     return BenchmarkStats(
         p50_ms=round(_percentile(milliseconds, 0.50), 3),
         p95_ms=round(_percentile(milliseconds, 0.95), 3),
         max_ms=round(max(milliseconds, default=0.0), 3),
         timeouts=timeouts,
+        errors=errors,
         samples=len(milliseconds),
     )
 
@@ -51,7 +58,14 @@ def exit_code(
     max_p95_delta_ms: float = 150.0,
 ) -> int:
     delta = new.p95_ms - old.p95_ms
-    return int(new.timeouts > 0 or new.max_ms > max_new_ms or delta > max_p95_delta_ms)
+    return int(
+        old.timeouts > 0
+        or new.timeouts > 0
+        or old.errors > 0
+        or new.errors > 0
+        or new.max_ms > max_new_ms
+        or delta > max_p95_delta_ms
+    )
 
 
 def _measure(
@@ -66,11 +80,13 @@ def _measure(
 ) -> BenchmarkStats:
     durations: list[float] = []
     timeouts = 0
+    errors = 0
     for iteration in range(warmup + repeats):
         started = clock()
         timed_out = False
+        returncode = 0
         try:
-            runner(
+            completed = runner(
                 command,
                 input=payload,
                 stdout=subprocess.DEVNULL,
@@ -78,16 +94,20 @@ def _measure(
                 timeout=timeout_seconds,
                 check=False,
             )
+            returncode = int(getattr(completed, "returncode", 0))
         except subprocess.TimeoutExpired:
             timed_out = True
         elapsed = clock() - started
+        if timed_out:
+            timeouts += 1
+        elif returncode != 0:
+            errors += 1
         if iteration < warmup:
             continue
         if timed_out:
-            timeouts += 1
             elapsed = max(elapsed, timeout_seconds + 0.001)
         durations.append(elapsed)
-    return summarize(durations, timeouts=timeouts)
+    return summarize(durations, timeouts=timeouts, errors=errors)
 
 
 def _parser() -> argparse.ArgumentParser:
