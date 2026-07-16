@@ -150,7 +150,7 @@ def test_semantic_route_allows_admitted_candidate_despite_empty_blocked_signal()
     assert result.cohort_reasons == ()
 
 
-@pytest.mark.parametrize("similarity", [None, 0.55, 1.01])
+@pytest.mark.parametrize("similarity", [None, 0.249, 1.01])
 def test_semantic_route_requires_real_similarity_not_fused_candidate_score(
     similarity: float | None,
 ) -> None:
@@ -170,12 +170,12 @@ def test_semantic_route_requires_real_similarity_not_fused_candidate_score(
     assert result.excluded[0].reasons == ("route_answerability_insufficient",)
 
 
-def test_semantic_route_accepts_frozen_model_labeled_similarity_floor() -> None:
+def test_semantic_route_accepts_frozen_model_calibrated_similarity_floor() -> None:
     from agent_brain.memory.context.context_firewall import ContextFirewall
 
     value = _item("semantic-frozen-model-floor")
     context = _context(
-        evidence_by_id={value.id: _evidence("semantic_raw", similarity=0.56)},
+        evidence_by_id={value.id: _evidence("semantic_raw", similarity=0.25)},
     )
 
     result = ContextFirewall(now=NOW).filter(

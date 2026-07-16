@@ -133,6 +133,7 @@ def execute_routed_query(
             raise ValueError("conflicting routed admission")
         routes = _serialize_routes(routed.routes)
         if not request.admission.allowed:
+            _raise_if_deadline_expired(deadline_clock, overall_deadline)
             _maybe_record_gap(
                 enabled=record_recall_gap,
                 brain_dir=brain_dir,
@@ -147,6 +148,7 @@ def execute_routed_query(
             )
             return HookSearchPayload("empty", "admission_rejected", "", routes)
         if not routed.hits:
+            _raise_if_deadline_expired(deadline_clock, overall_deadline)
             _maybe_record_gap(
                 enabled=record_recall_gap,
                 brain_dir=brain_dir,
@@ -164,11 +166,6 @@ def execute_routed_query(
         items_by_id = {item.id: (item, body) for item, body in store.iter_all()}
         _raise_if_deadline_expired(deadline_clock, overall_deadline)
         hydrate_error_count = sum(1 for hit in routed.hits if hit.id not in items_by_id)
-        _record_injection_diagnostic(
-            surface="cli-routed-search",
-            reason=HYDRATE_ERROR_REASON,
-            count=hydrate_error_count,
-        )
         type_order = prefer_type or []
         candidates = [
             ContextCandidate(
@@ -209,9 +206,14 @@ def execute_routed_query(
             for entry in injection.included
             if entry.decision.candidate.item.id in hit_by_id
         ]
-        retriever.record_accesses(included_hits)
 
         if not injection.included:
+            _raise_if_deadline_expired(deadline_clock, overall_deadline)
+            _record_injection_diagnostic(
+                surface="cli-routed-search",
+                reason=HYDRATE_ERROR_REASON,
+                count=hydrate_error_count,
+            )
             _maybe_record_gap(
                 enabled=record_recall_gap,
                 brain_dir=brain_dir,
@@ -234,6 +236,16 @@ def execute_routed_query(
                 hydrate_error_count=hydrate_error_count,
             ),
         )
+        context = _render_included_context(injection)
+        if not context:
+            raise RuntimeError("empty packed context")
+        _raise_if_deadline_expired(deadline_clock, overall_deadline)
+        _record_injection_diagnostic(
+            surface="cli-routed-search",
+            reason=HYDRATE_ERROR_REASON,
+            count=hydrate_error_count,
+        )
+        retriever.record_accesses(included_hits)
         _maybe_record_cohort(
             enabled=record_injection_cohort,
             brain_dir=brain_dir,
@@ -257,10 +269,6 @@ def execute_routed_query(
                 injection=injection,
                 hydrate_error_count=hydrate_error_count,
             )
-        context = _render_included_context(injection)
-        if not context:
-            raise RuntimeError("empty packed context")
-        _raise_if_deadline_expired(deadline_clock, overall_deadline)
         return HookSearchPayload("injected", "included", context, routes)
     except TimeoutError:
         logger.warning("routed CLI query timed out")
@@ -329,7 +337,18 @@ def _raise_if_deadline_expired(
     clock: Callable[[], float],
     deadline: float | None,
 ) -> None:
-    if deadline is not None and clock() >= deadline:
+    if deadline is None:
+        return
+    if isinstance(deadline, bool) or not isinstance(deadline, (int, float)):
+        raise ValueError("deadline must be a finite number")
+    if not math.isfinite(deadline):
+        raise ValueError("deadline must be finite")
+    current = clock()
+    if isinstance(current, bool) or not isinstance(current, (int, float)):
+        raise ValueError("clock must return a finite number")
+    if not math.isfinite(current):
+        raise ValueError("clock must return a finite number")
+    if current >= deadline:
         raise TimeoutError("overall recall deadline expired")
 
 

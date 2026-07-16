@@ -13,6 +13,38 @@ from typing import Any, Callable, Sequence
 _MODEL_PROVENANCE_FIELDS = frozenset({"id", "revision", "dimension", "normalized"})
 
 
+def _searchable_item_text(raw: dict[str, Any]) -> str:
+    return " ".join(
+        (
+            str(raw.get("title", "")),
+            str(raw.get("summary", "")),
+            str(raw.get("body", "")),
+            *(str(tag) for tag in raw.get("tags", [])),
+        )
+    )
+
+
+def extract_case_texts(cases: Sequence[dict[str, Any]]) -> tuple[str, ...]:
+    """Derive only retrieval inputs from committed cases, ignoring annotations."""
+    from agent_brain.memory.recall.admission import build_recall_request
+
+    values: list[str] = []
+    for case in cases:
+        query = str(case["query"])
+        values.append(query)
+        request = build_recall_request(query, adapter="fixture-generator")
+        if request.query_signal.injectable and request.lexical_terms:
+            values.append("|".join(request.lexical_terms))
+        for field in ("brain_item",):
+            raw = case.get(field)
+            if isinstance(raw, dict):
+                values.append(_searchable_item_text(raw))
+        for raw in case.get("hard_negative_items", []):
+            if isinstance(raw, dict):
+                values.append(_searchable_item_text(raw))
+    return tuple(dict.fromkeys(values))
+
+
 def generate_precomputed_embeddings(
     texts: Sequence[str],
     encode: Callable[[list[str]], Any],
@@ -59,7 +91,7 @@ def generate_precomputed_embeddings(
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--texts", type=Path, required=True)
+    parser.add_argument("--cases", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--model-path", type=Path, required=True)
     parser.add_argument("--model-id", required=True)
@@ -71,9 +103,10 @@ def main() -> int:
     args = _parser().parse_args()
     from sentence_transformers import SentenceTransformer
 
-    texts = json.loads(args.texts.read_text(encoding="utf-8"))
-    if not isinstance(texts, list) or not all(isinstance(text, str) for text in texts):
-        raise ValueError("texts fixture must be a JSON string list")
+    cases = json.loads(args.cases.read_text(encoding="utf-8"))
+    if not isinstance(cases, list) or not all(isinstance(case, dict) for case in cases):
+        raise ValueError("cases fixture must be a JSON object list")
+    texts = extract_case_texts(cases)
     model = SentenceTransformer(str(args.model_path), local_files_only=True)
 
     def encode(values: list[str]):

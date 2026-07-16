@@ -78,7 +78,7 @@ class ContextFirewallConfig:
     min_strong_term_coverage: float = 1.0
     topic_recency_min_shared_terms: int = 3
     query_term_coverage_bonus: float = 0.01
-    semantic_route_min_similarity: float = 0.56
+    semantic_route_min_similarity: float = 0.25
     raw_route_min_coverage: float = 0.45
 
     def __post_init__(self) -> None:

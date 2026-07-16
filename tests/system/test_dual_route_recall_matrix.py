@@ -15,7 +15,7 @@ import pytest
 
 from agent_brain.contracts.memory_item import MemoryItem
 from agent_brain.memory.context.context_firewall_types import ContextCandidate
-from agent_brain.memory.context.injection_gateway import build_injection_context
+from agent_brain.memory.context.injection_gateway import InjectionResult, build_injection_context
 from agent_brain.memory.context.injection_query_context import InjectionQueryContext
 from agent_brain.memory.recall.admission import build_recall_request
 from agent_brain.memory.recall.retrieval import Retriever, SearchFilter
@@ -75,6 +75,16 @@ def test_dual_route_fixture_schema_and_distribution() -> None:
         "safety-scope",
         "safety-gateway-error",
     } <= {case["id"] for case in cases}
+    hard_negative_ids = {
+        item["id"]
+        for case in cases
+        for item in case.get("hard_negative_items", [])
+    }
+    assert len(hard_negative_ids) >= 3
+    gateway_case = next(case for case in cases if case["id"] == "safety-gateway-error")
+    assert gateway_case["gateway_exception_test"] == (
+        "test_gateway_exception_never_exposes_raw_candidate"
+    )
 
 
 def _searchable_item_text(raw: dict[str, Any]) -> str:
@@ -89,13 +99,7 @@ def _searchable_item_text(raw: dict[str, Any]) -> str:
 
 
 def _fixture_embedding_texts() -> tuple[str, ...]:
-    values = [case["query"] for case in _cases()]
-    values.extend(
-        _searchable_item_text(case["brain_item"])
-        for case in _cases()
-        if case.get("brain_item") is not None
-    )
-    return tuple(dict.fromkeys(values))
+    return _load_embedding_generator().extract_case_texts(_cases())
 
 
 def _load_embedding_generator():
@@ -199,6 +203,8 @@ class _Outcome:
     candidates: frozenset[str]
     injected: frozenset[str]
     routes: tuple[str, ...]
+    semantic_similarities: tuple[tuple[str, float], ...] = ()
+    exclusion_reasons: tuple[tuple[str, tuple[str, ...]], ...] = ()
 
 
 def _seed_fixture_brain(
@@ -208,35 +214,36 @@ def _seed_fixture_brain(
     index = HubIndex(tmp_path / "fixture-index.db", embedding_dim=embedder.dim)
     items: dict[str, tuple[MemoryItem, str]] = {}
     for case in _cases():
-        raw = case.get("brain_item")
-        if raw is None:
-            continue
-        item, body = _memory_item(raw)
-        previous = items.get(item.id)
-        assert previous is None or previous == (item, body), item.id
-        if previous is None:
-            items[item.id] = (item, body)
-            index.upsert(
-                item,
-                body,
-                embedding=embedder.embed(_searchable_item_text(raw)),
-            )
+        raw_items = [case.get("brain_item"), *case.get("hard_negative_items", [])]
+        for raw in raw_items:
+            if raw is None:
+                continue
+            item, body = _memory_item(raw)
+            previous = items.get(item.id)
+            assert previous is None or previous == (item, body), item.id
+            if previous is None:
+                items[item.id] = (item, body)
+                index.upsert(
+                    item,
+                    body,
+                    embedding=embedder.embed(_searchable_item_text(raw)),
+                )
     return index, items, embedder
 
 
-def _gateway_ids(
+def _gateway_result(
     hits: list[Any],
     *,
     items: dict[str, tuple[MemoryItem, str]],
     request: Any,
     evidence: dict[str, RouteEvidence],
-) -> frozenset[str]:
+) -> InjectionResult:
     candidates = [
         ContextCandidate(items[hit.id][0], body=items[hit.id][1], score=hit.score)
         for hit in hits
         if hit.id in items
     ]
-    result = build_injection_context(
+    return build_injection_context(
         candidates,
         query_context=InjectionQueryContext(
             raw_query=request.raw_query,
@@ -247,6 +254,9 @@ def _gateway_ids(
         current_scope={"cwd": "/repo/current", "adapter": "codex"},
         max_items=10,
     )
+
+
+def _gateway_ids(result: InjectionResult) -> frozenset[str]:
     return frozenset(entry.decision.candidate.item.id for entry in result.included)
 
 
@@ -255,23 +265,38 @@ def _legacy_outcome(
     case: dict[str, Any],
     items: dict[str, tuple[MemoryItem, str]],
 ) -> _Outcome:
+    from agent_brain.interfaces.cli.routed_query import _generate_candidates
+
     request = build_recall_request(case["query"], adapter="codex", cwd="/repo/current")
-    if not request.query_signal.injectable or not request.lexical_terms:
-        return _Outcome(frozenset(), frozenset(), ())
-    hits = retriever.search(
-        "|".join(request.lexical_terms),
+    result = _generate_candidates(
+        request=request,
+        retriever=retriever,
         top_k=10,
         filters=SearchFilter(),
-        record_access=False,
+        use_routed=False,
     )
-    evidence = {
-        hit.id: RouteEvidence(("lexical_terms",), None, None, rank, None)
-        for rank, hit in enumerate(hits, start=1)
-    }
+    gateway = _gateway_result(
+        result.hits,
+        items=items,
+        request=request,
+        evidence=dict(result.evidence_by_id),
+    )
     return _Outcome(
-        frozenset(hit.id for hit in hits),
-        _gateway_ids(hits, items=items, request=request, evidence=evidence),
-        ("lexical_terms:ok",),
+        frozenset(hit.id for hit in result.hits),
+        _gateway_ids(gateway),
+        tuple(
+            f"{trace.route}:{trace.status}:{trace.reason}:{trace.candidate_count}"
+            for trace in result.routes
+        ),
+        tuple(
+            (item_id, evidence.semantic_similarity)
+            for item_id, evidence in result.evidence_by_id.items()
+            if evidence.semantic_similarity is not None
+        ),
+        tuple(
+            (decision.candidate.item.id, decision.reasons)
+            for decision in gateway.excluded
+        ),
     )
 
 
@@ -287,26 +312,27 @@ def _routed_outcome(
         filters=SearchFilter(),
         record_access=False,
     )
-    if case.get("simulate_gateway_exception"):
-        return _Outcome(
-            frozenset(hit.id for hit in result.hits),
-            frozenset(),
-            tuple(
-                f"{trace.route}:{trace.status}:{trace.reason}:{trace.candidate_count}"
-                for trace in result.routes
-            ),
-        )
+    gateway = _gateway_result(
+        result.hits,
+        items=items,
+        request=request,
+        evidence=dict(result.evidence_by_id),
+    )
     return _Outcome(
         frozenset(hit.id for hit in result.hits),
-        _gateway_ids(
-            result.hits,
-            items=items,
-            request=request,
-            evidence=dict(result.evidence_by_id),
-        ),
+        _gateway_ids(gateway),
         tuple(
             f"{trace.route}:{trace.status}:{trace.reason}:{trace.candidate_count}"
             for trace in result.routes
+        ),
+        tuple(
+            (item_id, evidence.semantic_similarity)
+            for item_id, evidence in result.evidence_by_id.items()
+            if evidence.semantic_similarity is not None
+        ),
+        tuple(
+            (decision.candidate.item.id, decision.reasons)
+            for decision in gateway.excluded
         ),
     )
 
@@ -314,14 +340,6 @@ def _routed_outcome(
 def test_dual_route_candidate_and_injection_governance_matrix(tmp_path: Path) -> None:
     cases = _cases()
     index, items, embedder = _seed_fixture_brain(tmp_path)
-    legacy = Retriever(
-        index,
-        embedder,
-        vector_weight=0.0,
-        rerank=False,
-        apply_decay=False,
-        record_access=False,
-    )
     routed = Retriever(
         index,
         embedder,
@@ -332,10 +350,12 @@ def test_dual_route_candidate_and_injection_governance_matrix(tmp_path: Path) ->
     rows: list[tuple[dict[str, Any], _Outcome, _Outcome]] = []
     try:
         for case in cases:
+            if case.get("gateway_exception_test"):
+                continue
             request = build_recall_request(case["query"], adapter="codex")
             assert request.admission.allowed is case["expect_admission"], case["id"]
             rows.append(
-                (case, _legacy_outcome(legacy, case, items), _routed_outcome(routed, case, items))
+                (case, _legacy_outcome(routed, case, items), _routed_outcome(routed, case, items))
             )
     finally:
         index.close()
@@ -362,10 +382,18 @@ def test_dual_route_candidate_and_injection_governance_matrix(tmp_path: Path) ->
         and bool(set(case["expected_item_ids"]) & old.injected)
         and not bool(set(case["expected_item_ids"]) & new.injected)
     ]
+    hard_negative_ids = {
+        item["id"]
+        for case in cases
+        for item in case.get("hard_negative_items", [])
+    }
     prohibited = [
-        (case["id"], sorted(set(case["prohibited_item_ids"]) & new.injected))
+        (
+            case["id"],
+            sorted((set(case["prohibited_item_ids"]) | hard_negative_ids) & new.injected),
+        )
         for case, _old, new in rows
-        if set(case["prohibited_item_ids"]) & new.injected
+        if (set(case["prohibited_item_ids"]) | hard_negative_ids) & new.injected
     ]
     expected_misses = [
         {
@@ -381,6 +409,74 @@ def test_dual_route_candidate_and_injection_governance_matrix(tmp_path: Path) ->
     assert len(fixed) >= 3, {"fixed": fixed, "misses": expected_misses}
     assert new_false_negatives == [], new_false_negatives
     assert prohibited == [], prohibited
+    assert expected_misses == [], expected_misses
+
+    expected_targets = {
+        item_id
+        for case in cases
+        for item_id in case["expected_item_ids"]
+    }
+    target_clusters = Counter(
+        tuple(case["expected_item_ids"])
+        for case in cases
+        if case["expected_item_ids"]
+    )
+    assert len(expected_targets) >= 11
+    assert len(target_clusters) >= 11
+
+    positive_similarities = [
+        similarity
+        for case, _old, new in rows
+        for item_id, similarity in new.semantic_similarities
+        if item_id in set(case["expected_item_ids"])
+    ]
+    hard_negative_similarities = [
+        similarity
+        for _case, _old, new in rows
+        for item_id, similarity in new.semantic_similarities
+        if item_id in hard_negative_ids
+    ]
+    assert len(positive_similarities) == len(positives)
+    assert hard_negative_similarities
+    threshold_only_positive_similarities = [
+        similarity
+        for case, _old, new in rows
+        if not build_recall_request(case["query"], adapter="codex").query_signal.injectable
+        for item_id, similarity in new.semantic_similarities
+        if item_id in set(case["expected_item_ids"])
+    ]
+    threshold_only_hard_negative_similarities = [
+        similarity
+        for case, _old, new in rows
+        if not build_recall_request(case["query"], adapter="codex").query_signal.injectable
+        for item_id, similarity in new.semantic_similarities
+        if item_id in hard_negative_ids
+    ]
+    distribution = {
+        "positive_min": min(positive_similarities),
+        "positive_max": max(positive_similarities),
+        "hard_negative_min": min(hard_negative_similarities),
+        "hard_negative_max": max(hard_negative_similarities),
+    }
+    assert min(threshold_only_positive_similarities) >= 0.25, distribution
+    assert max(threshold_only_hard_negative_similarities) < 0.25, distribution
+
+    overlapping_negatives = []
+    for case, _old, new in rows:
+        signal = build_recall_request(case["query"], adapter="codex").query_signal
+        reasons_by_id = dict(new.exclusion_reasons)
+        for item_id, similarity in new.semantic_similarities:
+            if item_id not in hard_negative_ids or similarity < 0.25:
+                continue
+            overlapping_negatives.append(
+                (case["id"], item_id, similarity, reasons_by_id.get(item_id, ()))
+            )
+            assert signal.injectable, overlapping_negatives
+            assert {
+                "query_mismatch",
+                "answerability_mismatch",
+            } <= set(reasons_by_id.get(item_id, ())), overlapping_negatives
+    assert overlapping_negatives, distribution
 
 
 class _FakeDeadline:
@@ -466,6 +562,128 @@ def test_fake_overall_deadline_fails_closed_without_wall_clock() -> None:
     }
 
 
+def test_deadline_expiry_after_render_has_zero_durable_side_effects(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from agent_brain.interfaces.cli import routed_query
+    from agent_brain.memory.recall.retrieval_types import RetrievedItem
+    from agent_brain.memory.recall.routed_types import RoutedSearchResult, RouteTrace
+
+    clock = _FakeDeadline()
+    item, body = _memory_item(
+        next(case["brain_item"] for case in _cases() if case["id"] == "entity-01")
+    )
+
+    class Store:
+        def iter_all(self):
+            return iter([(item, body)])
+
+    class RetrieverStub:
+        def __init__(self) -> None:
+            self.accesses: list[str] = []
+
+        def search_routed(self, request: Any, **_kwargs: Any) -> Any:
+            hit = RetrievedItem(item.id, 1.0, bm25_rank=1, vector_rank=None)
+            return RoutedSearchResult(
+                [hit],
+                (RouteTrace("lexical_terms", "ok", 0.0, 1, "route_completed"),),
+                request.admission,
+                {item.id: RouteEvidence(("lexical_terms",), None, None, 1, None)},
+            )
+
+        def record_accesses(self, hits: list[Any]) -> None:
+            self.accesses.extend(hit.id for hit in hits)
+
+    retriever = RetrieverStub()
+    original_render = routed_query._render_included_context
+
+    def render_then_expire(injection: Any) -> str:
+        rendered = original_render(injection)
+        clock.advance(1.1)
+        return rendered
+
+    cohorts: list[dict[str, Any]] = []
+    gaps: list[dict[str, Any]] = []
+    monkeypatch.setattr(routed_query, "_render_included_context", render_then_expire)
+    monkeypatch.setattr(
+        routed_query,
+        "_maybe_record_cohort",
+        lambda **kwargs: cohorts.append(kwargs),
+    )
+    monkeypatch.setattr(
+        routed_query,
+        "_maybe_record_gap",
+        lambda **kwargs: gaps.append(kwargs),
+    )
+
+    payload = routed_query.execute_routed_query(
+        raw_query="E0583",
+        store=Store(),
+        retriever=retriever,
+        top_k=10,
+        filters=SearchFilter(),
+        requested="auto",
+        project=None,
+        adapter="codex",
+        session_id="deadline-after-render",
+        cwd="/repo/current",
+        brain_dir=tmp_path,
+        record_injection_cohort=True,
+        record_recall_gap=True,
+        clock=clock.now,
+        overall_deadline=1.0,
+    )
+
+    assert payload.to_dict() == {
+        "status": "timeout",
+        "reason": "overall_timeout",
+        "context": "",
+        "routes": [],
+    }
+    assert retriever.accesses == []
+    assert cohorts == []
+    assert gaps == []
+
+
+@pytest.mark.parametrize(
+    ("clock_value", "deadline"),
+    [
+        (float("nan"), 1.0),
+        (float("inf"), 1.0),
+        (0.0, float("nan")),
+        (0.0, float("inf")),
+    ],
+)
+def test_non_finite_deadline_inputs_fail_closed(
+    clock_value: float,
+    deadline: float,
+) -> None:
+    from agent_brain.interfaces.cli.routed_query import execute_routed_query
+
+    payload = execute_routed_query(
+        raw_query="deadline validation probe",
+        store=object(),
+        retriever=object(),
+        top_k=10,
+        filters=SearchFilter(),
+        requested="auto",
+        project=None,
+        adapter="codex",
+        session_id="deadline-validation",
+        cwd="/repo/current",
+        clock=lambda: clock_value,
+        overall_deadline=deadline,
+    )
+
+    assert payload.to_dict() == {
+        "status": "error",
+        "reason": "internal_error",
+        "context": "",
+        "routes": [],
+    }
+
+
 def test_gateway_exception_never_exposes_raw_candidate(monkeypatch: pytest.MonkeyPatch) -> None:
     from agent_brain.interfaces.cli import routed_query
     from agent_brain.memory.recall.retrieval_types import RetrievedItem
@@ -481,7 +699,7 @@ def test_gateway_exception_never_exposes_raw_candidate(monkeypatch: pytest.Monke
 
     class RetrieverStub:
         def search_routed(self, request: Any, **_kwargs: Any) -> Any:
-            hit = RetrievedItem(item.id, 1.0, bm25_rank=1)
+            hit = RetrievedItem(item.id, 1.0, bm25_rank=1, vector_rank=None)
             return RoutedSearchResult(
                 [hit],
                 (RouteTrace("lexical_terms", "ok", 0.0, 1, "route_completed"),),
