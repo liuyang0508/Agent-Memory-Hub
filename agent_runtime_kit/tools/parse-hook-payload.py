@@ -18,9 +18,8 @@ def _fail(message: str) -> int:
 
 def _metadata_string(payload: dict[str, Any], key: str, default: str = "") -> str:
     value = payload.get(key, default)
-    if value is None:
-        return ""
-    return value if isinstance(value, str) else str(value)
+    rendered = value if isinstance(value, str) else str(value)
+    return rendered.rstrip("\n")
 
 
 def main() -> int:

@@ -15,6 +15,7 @@ SCRIPT = (
     / "tools"
     / "parse-hook-payload.py"
 )
+MISSING = object()
 
 
 def _run(raw_payload: bytes) -> subprocess.CompletedProcess[bytes]:
@@ -92,18 +93,87 @@ def test_parser_applies_existing_defaults_to_missing_fields():
     ]
 
 
-def test_parser_treats_null_optional_strings_as_empty():
-    result = _run_payload(
-        {
-            "prompt": None,
-            "session_id": None,
-            "cwd": None,
-            "hook_event_name": None,
-        }
-    )
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        pytest.param(MISSING, "", id="missing"),
+        pytest.param(None, "", id="null"),
+        pytest.param(True, "", id="bool"),
+        pytest.param(["value"], "", id="list"),
+        pytest.param({"key": 1}, "", id="dict"),
+        pytest.param(7, "", id="number"),
+    ],
+)
+def test_parser_preserves_legacy_prompt_type_semantics(value: object, expected: str):
+    payload = {} if value is MISSING else {"prompt": value}
+
+    result = _run_payload(payload)
 
     assert result.returncode == 0
-    assert _fields(result.stdout) == ["amh-hook-payload-v1", "", "", "", ""]
+    assert _fields(result.stdout)[1] == expected
+
+
+@pytest.mark.parametrize("field_index,field", [(2, "session_id"), (3, "cwd")])
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        pytest.param(MISSING, "", id="missing"),
+        pytest.param(None, "None", id="null"),
+        pytest.param(True, "True", id="bool"),
+        pytest.param(["value"], "['value']", id="list"),
+        pytest.param({"key": 1}, "{'key': 1}", id="dict"),
+        pytest.param(7, "7", id="number"),
+    ],
+)
+def test_parser_preserves_legacy_session_and_cwd_type_semantics(
+    field_index: int,
+    field: str,
+    value: object,
+    expected: str,
+):
+    payload = {} if value is MISSING else {field: value}
+
+    result = _run_payload(payload)
+
+    assert result.returncode == 0
+    assert _fields(result.stdout)[field_index] == expected
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        pytest.param(MISSING, "UserPromptSubmit", id="missing"),
+        pytest.param(None, "None", id="null"),
+        pytest.param(True, "True", id="bool"),
+        pytest.param(["value"], "['value']", id="list"),
+        pytest.param({"key": 1}, "{'key': 1}", id="dict"),
+        pytest.param(7, "7", id="number"),
+    ],
+)
+def test_parser_preserves_legacy_event_type_semantics(value: object, expected: str):
+    payload = {} if value is MISSING else {"hook_event_name": value}
+
+    result = _run_payload(payload)
+
+    assert result.returncode == 0
+    assert _fields(result.stdout)[4] == expected
+
+
+@pytest.mark.parametrize("field_index,field", [(2, "session_id"), (3, "cwd"), (4, "hook_event_name")])
+def test_parser_strips_all_trailing_newlines_from_metadata(field_index: int, field: str):
+    result = _run_payload({field: "value\n\n"})
+
+    assert result.returncode == 0
+    assert _fields(result.stdout)[field_index] == "value"
+
+
+def test_parser_preserves_trailing_newlines_in_prompt():
+    prompt = "line one\nline two\n\n"
+
+    result = _run_payload({"prompt": prompt})
+
+    assert result.returncode == 0
+    assert _fields(result.stdout)[1] == prompt
 
 
 def test_parser_preserves_current_compound_type_compatibility_boundary():
