@@ -41,7 +41,6 @@ def run_hook_preflight(
 
     prompt_value = payload.get("prompt", "")
     prompt = prompt_value if isinstance(prompt_value, str) else ""
-    normalized_prompt = normalize_hook_prompt_for_recall(prompt)
     event_name = _text(payload.get("hook_event_name")) or "UserPromptSubmit"
     session_id = _text(payload.get("session_id"))
     cwd = _text(payload.get("cwd"))
@@ -74,6 +73,12 @@ def run_hook_preflight(
             capture_multimodal_prompt_resources(capture_payload, root_dir=brain_dir)
         except Exception:
             pass
+
+    normalized_prompt = prompt
+    try:
+        normalized_prompt = normalize_hook_prompt_for_recall(prompt)
+    except Exception:
+        pass
 
     multimodal_recall_text = ""
     try:

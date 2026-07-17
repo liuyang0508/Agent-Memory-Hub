@@ -166,6 +166,82 @@ def test_runtime_event_failure_does_not_block_live_prompt_or_normalization(
     assert message.content_text == "保留正文<agent_brain>旧候选</agent_brain>"
 
 
+def test_normalization_failure_falls_back_after_evidence_and_keeps_enrichments_running(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    from agent_brain.agent_integrations.runtime_events import iter_runtime_events
+    from agent_brain.memory.evidence.conversation_store import ConversationStore
+
+    preflight = _module()
+    steps: list[str] = []
+    actual_record = preflight.record_runtime_event
+    actual_capture = preflight.capture_prompt_payload
+
+    def record_event(*args, **kwargs):
+        steps.append("runtime")
+        return actual_record(*args, **kwargs)
+
+    def capture_prompt(*args, **kwargs):
+        steps.append("capture")
+        return actual_capture(*args, **kwargs)
+
+    def fail_normalization(prompt):
+        steps.append("normalize")
+        raise OSError("normalizer unavailable")
+
+    def recall_text(*args, **kwargs):
+        steps.append("recall")
+        return "attachment context"
+
+    def gap_payload(*args, **kwargs):
+        steps.append("gap")
+        return None
+
+    monkeypatch.setattr(preflight, "record_runtime_event", record_event)
+    monkeypatch.setattr(preflight, "capture_prompt_payload", capture_prompt)
+    monkeypatch.setattr(preflight, "normalize_hook_prompt_for_recall", fail_normalization)
+    monkeypatch.setattr(preflight, "recall_text_for_payload", recall_text)
+    monkeypatch.setattr(preflight, "multimodal_gap_payload_for_payload", gap_payload)
+    prompt = "原始 prompt <system-reminder>仍需回退原文</system-reminder>"
+
+    result = preflight.run_hook_preflight(
+        {"prompt": prompt, "session_id": "sess-normalize-fail"},
+        brain_dir=tmp_path,
+        adapter="codex",
+    )
+
+    assert steps == ["runtime", "capture", "normalize", "recall", "gap"]
+    assert result.normalized_prompt == prompt
+    assert result.multimodal_recall_text == "attachment context"
+    assert list(iter_runtime_events(tmp_path))[0].session_id == "sess-normalize-fail"
+    assert list(ConversationStore(tmp_path).iter_messages())[0].content_text == prompt
+
+
+def test_false_live_prompt_capture_triggers_multimodal_resource_capture(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    preflight = _module()
+    resource_calls: list[dict[str, object]] = []
+    monkeypatch.setattr(preflight, "capture_prompt_payload", lambda *args, **kwargs: False)
+    monkeypatch.setattr(
+        preflight,
+        "capture_multimodal_prompt_resources",
+        lambda payload, **kwargs: resource_calls.append(payload) or [],
+    )
+
+    result = preflight.run_hook_preflight(
+        {"prompt": "ordinary prompt"},
+        brain_dir=tmp_path,
+        adapter="codex",
+    )
+
+    assert result.normalized_prompt == "ordinary prompt"
+    assert len(resource_calls) == 1
+    assert resource_calls[0]["prompt"] == "ordinary prompt"
+
+
 def test_live_prompt_failure_still_attempts_multimodal_resource_capture(
     tmp_path,
     monkeypatch,
