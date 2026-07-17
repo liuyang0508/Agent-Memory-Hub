@@ -185,12 +185,16 @@ continues with term BM25 plus the Unicode-aware raw BM25 fallback. Every path,
 including degraded and feature-flagged paths, still passes through Gateway and
 ContextFirewall before building ContextPack.
 
-The hook cold path uses two fixed, NUL-delimited protocols before recall. A
-dependency-free **payload parser** runs once under system Python and returns the
-prompt, session, cwd, and event fields. After `_resolve-python.sh` verifies the
-AMH interpreter identity, one **verified preflight** process records the runtime
-event, captures the live prompt, normalizes recall text, loads bounded multimodal
-text, and emits multimodal gap JSON. Individual evidence writes remain fail-open.
+The hook cold path first streams its original stdin into a mode-0600 private file;
+the byte stream never enters a shell variable. The dependency-free **payload parser**
+runs once under system Python, reads that file, and returns prompt,
+session, cwd, and event fields through a fixed NUL-delimited protocol. After
+`_resolve-python.sh` verifies the AMH interpreter identity, one **verified preflight**
+process records the runtime event, captures the live prompt,
+normalizes recall text, loads bounded multimodal text, and emits multimodal gap
+JSON. The parser, preflight, and legacy fallback replay the same bytes from the
+private file. HUP/INT/TERM/EXIT traps remove the file. Individual evidence writes
+remain fail-open.
 If and only if the whole preflight process fails or its protocol is invalid, the
 hook uses the existing multi-process **legacy fallback**, which preserves the same
 runtime event, live prompt, and multimodal evidence responsibilities.
@@ -217,11 +221,13 @@ trusted session pointer and previous-task state. A short prompt with concrete
 topic or entity anchors is evaluated normally.
 
 The committed calibration report now records calibration 15/15 and heldout 11/11
-with 0 FP / 0 FN across the 41-case public safety fixture. The fixed preflight
-candidate also passed 连续两轮 independent 30-run hook confirmations: candidate
-p50/p95/max were 1281.076/1346.079/1367.384ms and
-1275.982/1357.832/1461.996ms, with no errors or timeouts. The machine-readable
-facts remain `docs/evaluation/dual-route-calibration-report.json`,
+with 0 FP / 0 FN across the 41-case public safety fixture. The final raw-NUL-safe
+preflight candidate also passed 连续两轮 independent 30-run hook confirmations:
+candidate p50/p95/max were 1267.026/1318.511/1339.789ms and
+1274.442/1308.130/1309.306ms, with no errors or timeouts. An earlier optimized
+candidate also passed its performance checks, but final input-integrity review
+required the private-file fix and a new candidate with fresh confirmations. The
+machine-readable facts remain `docs/evaluation/dual-route-calibration-report.json`,
 `docs/evaluation/dual-route-hook-benchmark-report.json`, and
 `scripts/check-dual-route-calibration.py`.
 

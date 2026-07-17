@@ -153,6 +153,11 @@ def test_dual_route_release_docs_keep_rollout_and_blocker_boundaries_explicit():
     assert "stdout cap" in architecture
     assert "descendant cleanup" in architecture
     assert "feature-off" in architecture
+    assert "0600" in architecture
+    assert "private file" in architecture
+    assert "never enters a shell variable" in architecture
+    assert "same bytes" in architecture
+    assert "HUP/INT/TERM/EXIT" in architecture
 
     assert "memory self-update --repair-hooks" in changelog
     assert "memory doctor --fix" in changelog
@@ -175,7 +180,10 @@ def test_dual_route_hook_benchmark_report_is_reproducible_and_privacy_bounded(
         "bb9128a668fea98bf9063bfbedc85cc75dc8936c"
     )
     assert report["provenance"]["candidate_commit"] == (
-        "98eef3fb45abb2d5a9d198529445103ceb9d43be"
+        "17696138262b8c807852be5baf3c9cb9eccf7c49"
+    )
+    assert report["provenance"]["candidate_hook_sha256"] == (
+        "sha256:2a637058d3216ca5584795b000cef8df7910526a4478a46695b9baf9cab07db3"
     )
     assert len(report["provenance"]["candidate_commit"]) == 40
     subprocess.run(
@@ -291,10 +299,29 @@ def test_dual_route_hook_benchmark_report_is_reproducible_and_privacy_bounded(
         )
         for run in confirmations
     ] == [
-        (1281.076, 1346.079, 1367.384, 2843.794, 2982.526, 3410.441, -1636.447),
-        (1275.982, 1357.832, 1461.996, 2861.569, 2941.064, 2971.851, -1583.232),
+        (1267.026, 1318.511, 1339.789, 2885.859, 3023.973, 3058.796, -1705.462),
+        (1274.442, 1308.13, 1309.306, 2900.373, 3038.427, 3140.447, -1730.297),
     ]
     assert result == confirmations[1]["result"]
+
+    superseded = [
+        run
+        for run in report["run_history"]
+        if run["phase"] == "superseded_candidate_confirmation"
+    ]
+    assert len(superseded) == 2
+    for run in superseded:
+        assert run["candidate_commit"] == (
+            "98eef3fb45abb2d5a9d198529445103ceb9d43be"
+        )
+        assert run["result"]["passed"] is True
+        assert run["result"]["publishable"] is True
+        assert run["superseded_reason"] == (
+            "raw_nul_input_integrity_fix_required_new_candidate"
+        )
+        assert run["superseded_by"] == (
+            "17696138262b8c807852be5baf3c9cb9eccf7c49"
+        )
 
     blockers = [
         run
