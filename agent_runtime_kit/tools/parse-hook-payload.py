@@ -25,7 +25,7 @@ def _metadata_string(payload: dict[str, Any], key: str, default: str = "") -> st
 def main() -> int:
     try:
         payload = json.load(sys.stdin)
-    except (json.JSONDecodeError, UnicodeDecodeError):
+    except (json.JSONDecodeError, UnicodeDecodeError, ValueError, RecursionError, OSError):
         return _fail("invalid JSON")
 
     if not isinstance(payload, dict):

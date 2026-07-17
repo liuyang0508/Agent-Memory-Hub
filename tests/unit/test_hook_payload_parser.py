@@ -205,6 +205,26 @@ def test_parser_rejects_invalid_json_without_stdout(raw_payload: bytes):
     assert result.stderr == b"parse-hook-payload: invalid JSON\n"
 
 
+@pytest.mark.parametrize(
+    "raw_payload",
+    [
+        pytest.param(b'{"session_id":' + (b"9" * 5000) + b"}", id="oversized-integer"),
+        pytest.param(
+            b'{"prompt":' + (b"[" * 10_000) + b"0" + (b"]" * 10_000) + b"}",
+            id="deep-json",
+        ),
+    ],
+)
+def test_parser_stabilizes_json_resource_failures(raw_payload: bytes):
+    result = _run(raw_payload)
+
+    assert result.returncode != 0
+    assert result.stdout == b""
+    assert result.stderr == b"parse-hook-payload: invalid JSON\n"
+    assert b"Traceback" not in result.stderr
+    assert str(SCRIPT).encode() not in result.stderr
+
+
 @pytest.mark.parametrize("payload", [[], "prompt", 42, True, None])
 def test_parser_rejects_non_object_json_without_stdout(payload: object):
     result = _run_payload(payload)
