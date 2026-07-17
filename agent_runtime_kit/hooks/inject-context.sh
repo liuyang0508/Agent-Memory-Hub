@@ -96,7 +96,17 @@ create_protocol_file() {
   return 1
 }
 
+handle_hook_signal() {
+  local signal_number="$1"
+  trap - HUP INT TERM
+  remove_protocol_file
+  exit $((128 + signal_number))
+}
+
 trap remove_protocol_file EXIT
+trap 'handle_hook_signal 1' HUP
+trap 'handle_hook_signal 2' INT
+trap 'handle_hook_signal 15' TERM
 
 INPUT=$(cat)
 PAYLOAD_FIELDS=()

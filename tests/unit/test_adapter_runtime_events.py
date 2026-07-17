@@ -664,6 +664,99 @@ def test_user_prompt_hook_rejects_invalid_payload_parser_protocol(
     assert list(protocol_tmp.iterdir()) == []
 
 
+@pytest.mark.parametrize(
+    "hook_signal",
+    (signal.SIGHUP, signal.SIGINT, signal.SIGTERM),
+    ids=("hup", "int", "term"),
+)
+def test_user_prompt_hook_signal_cleans_blocked_payload_protocol_file(
+    tmp_path,
+    hook_signal,
+):
+    script = (
+        Path(__file__).resolve().parents[2]
+        / "agent_runtime_kit"
+        / "hooks"
+        / "inject-context.sh"
+    )
+    bin_dir = tmp_path / "bin"
+    protocol_tmp = tmp_path / "protocol-tmp"
+    bin_dir.mkdir()
+    protocol_tmp.mkdir()
+    parser_ready = tmp_path / "parser-ready"
+    wrapper = bin_dir / "python3"
+    wrapper.write_text(
+        "#!/bin/sh\n"
+        "case \"${1:-}\" in\n"
+        "  */parse-hook-payload.py)\n"
+        "    \"$REAL_PYTHON\" \"$@\" || exit $?\n"
+        "    printf 'ready\\n' > \"$PARSER_READY\"\n"
+        "    /bin/sleep 30\n"
+        "    exit $?\n"
+        "    ;;\n"
+        "esac\n"
+        "exec \"$REAL_PYTHON\" \"$@\"\n",
+        encoding="utf-8",
+    )
+    wrapper.chmod(0o755)
+    raw_prompt = f"{hook_signal.name} must erase this raw prompt"
+    env = {
+        **os.environ,
+        "PATH": f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}",
+        "REAL_PYTHON": sys.executable,
+        "PARSER_READY": str(parser_ready),
+        "TMPDIR": str(protocol_tmp),
+        "BRAIN_DIR": str(tmp_path / "brain"),
+    }
+    proc = subprocess.Popen(
+        ["/bin/bash", str(script)],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        env=env,
+        start_new_session=True,
+    )
+    try:
+        assert proc.stdin is not None
+        proc.stdin.write(
+            json.dumps(
+                {
+                    "prompt": raw_prompt,
+                    "session_id": f"{hook_signal.name.lower()}-cleanup-session",
+                    "cwd": "/repo",
+                    "hook_event_name": "UserPromptSubmit",
+                }
+            )
+        )
+        proc.stdin.close()
+        deadline = time.monotonic() + 5
+        while not parser_ready.exists() and time.monotonic() < deadline:
+            if proc.poll() is not None:
+                break
+            time.sleep(0.02)
+        assert parser_ready.exists(), "payload parser never reached the blocked stage"
+        protocol_files = list(protocol_tmp.glob("amh-hook-payload.*"))
+        assert len(protocol_files) == 1
+        assert raw_prompt.encode("utf-8") in protocol_files[0].read_bytes()
+
+        os.killpg(proc.pid, hook_signal)
+        returncode = proc.wait(timeout=5)
+    finally:
+        if proc.poll() is None:
+            os.killpg(proc.pid, signal.SIGKILL)
+            proc.wait(timeout=5)
+        if proc.stdin is not None and not proc.stdin.closed:
+            proc.stdin.close()
+        if proc.stdout is not None:
+            proc.stdout.close()
+        if proc.stderr is not None:
+            proc.stderr.close()
+
+    assert returncode == 128 + hook_signal
+    assert list(protocol_tmp.iterdir()) == []
+
+
 def test_user_prompt_hook_does_not_execute_shell_syntax_from_prompt(tmp_path):
     hook, preflight_calls, legacy_record_calls = _write_preflight_probe_runtime(tmp_path)
     env = _preflight_probe_env(

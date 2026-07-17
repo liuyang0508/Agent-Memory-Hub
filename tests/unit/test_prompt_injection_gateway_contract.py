@@ -118,6 +118,9 @@ def test_hook_uses_versioned_payload_parser_and_consolidated_preflight():
     assert "umask 077" in source
     assert "set -o noclobber" in source
     assert "trap remove_protocol_file EXIT" in source
+    assert "trap 'handle_hook_signal 1' HUP" in source
+    assert "trap 'handle_hook_signal 2' INT" in source
+    assert "trap 'handle_hook_signal 15' TERM" in source
     assert "eval " not in source
     assert "payload = json.load(sys.stdin)" not in source
     assert "d=json.load(sys.stdin)" not in source
