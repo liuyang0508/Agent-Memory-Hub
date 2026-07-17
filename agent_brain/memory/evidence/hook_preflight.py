@@ -63,12 +63,13 @@ def run_hook_preflight(
     except Exception:
         pass
 
-    prompt_captured = False
+    prompt_capture_returned = False
     try:
-        prompt_captured = bool(capture_prompt_payload(capture_payload, root_dir=brain_dir))
+        capture_prompt_payload(capture_payload, root_dir=brain_dir)
+        prompt_capture_returned = True
     except Exception:
         pass
-    if not prompt_captured:
+    if not prompt_capture_returned or not prompt.strip():
         try:
             capture_multimodal_prompt_resources(capture_payload, root_dir=brain_dir)
         except Exception:
@@ -89,17 +90,18 @@ def run_hook_preflight(
         pass
 
     multimodal_gap_json = ""
-    try:
-        gap_payload = multimodal_gap_payload_for_payload(capture_payload, root_dir=brain_dir)
-        if gap_payload is not None:
-            multimodal_gap_json = json.dumps(
-                gap_payload,
-                ensure_ascii=False,
-                sort_keys=True,
-                separators=(",", ":"),
-            )
-    except Exception:
-        pass
+    if not multimodal_recall_text:
+        try:
+            gap_payload = multimodal_gap_payload_for_payload(capture_payload, root_dir=brain_dir)
+            if gap_payload is not None:
+                multimodal_gap_json = json.dumps(
+                    gap_payload,
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                )
+        except Exception:
+            pass
 
     return HookPreflightResult(
         normalized_prompt=normalized_prompt,

@@ -192,7 +192,7 @@ def test_normalization_failure_falls_back_after_evidence_and_keeps_enrichments_r
 
     def recall_text(*args, **kwargs):
         steps.append("recall")
-        return "attachment context"
+        return ""
 
     def gap_payload(*args, **kwargs):
         steps.append("gap")
@@ -213,33 +213,63 @@ def test_normalization_failure_falls_back_after_evidence_and_keeps_enrichments_r
 
     assert steps == ["runtime", "capture", "normalize", "recall", "gap"]
     assert result.normalized_prompt == prompt
-    assert result.multimodal_recall_text == "attachment context"
+    assert result.multimodal_recall_text == ""
     assert list(iter_runtime_events(tmp_path))[0].session_id == "sess-normalize-fail"
     assert list(ConversationStore(tmp_path).iter_messages())[0].content_text == prompt
 
 
-def test_false_live_prompt_capture_triggers_multimodal_resource_capture(
-    tmp_path,
-    monkeypatch,
-) -> None:
+def test_empty_prompt_with_attachment_still_captures_multimodal_resource(tmp_path) -> None:
+    from agent_brain.memory.evidence.resource_store import ResourceStore
+
     preflight = _module()
-    resource_calls: list[dict[str, object]] = []
-    monkeypatch.setattr(preflight, "capture_prompt_payload", lambda *args, **kwargs: False)
-    monkeypatch.setattr(
-        preflight,
-        "capture_multimodal_prompt_resources",
-        lambda payload, **kwargs: resource_calls.append(payload) or [],
-    )
 
     result = preflight.run_hook_preflight(
-        {"prompt": "ordinary prompt"},
+        {
+            "prompt": "",
+            "session_id": "sess-empty-prompt",
+            "images": [{"name": "screenshot", "caption": "gateway timeout"}],
+        },
         brain_dir=tmp_path,
         adapter="codex",
     )
 
-    assert result.normalized_prompt == "ordinary prompt"
-    assert len(resource_calls) == 1
-    assert resource_calls[0]["prompt"] == "ordinary prompt"
+    assert result.normalized_prompt == ""
+    assert result.multimodal_recall_text == "gateway timeout"
+    assert len(list(ResourceStore(tmp_path).iter_resources())) == 1
+    assert len(list(ResourceStore(tmp_path).iter_extractions())) == 1
+
+
+def test_duplicate_live_prompt_captures_attachment_resources_once_per_round(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    from agent_brain.memory.evidence import hook_capture
+    from agent_brain.memory.evidence.resource_store import ResourceStore
+
+    preflight = _module()
+    capture_calls: list[str] = []
+    actual_capture = hook_capture.capture_multimodal_prompt_resources
+
+    def counted_capture(payload, **kwargs):
+        capture_calls.append(payload["session_id"])
+        return actual_capture(payload, **kwargs)
+
+    monkeypatch.setattr(hook_capture, "capture_multimodal_prompt_resources", counted_capture)
+    monkeypatch.setattr(preflight, "capture_multimodal_prompt_resources", counted_capture)
+    payload = {
+        "prompt": "[Image #1]",
+        "session_id": "sess-duplicate",
+        "images": [{"name": "[Image #1]", "caption": "gateway timeout"}],
+    }
+
+    first = preflight.run_hook_preflight(payload, brain_dir=tmp_path, adapter="codex")
+    second = preflight.run_hook_preflight(payload, brain_dir=tmp_path, adapter="codex")
+
+    assert first.multimodal_recall_text == "gateway timeout"
+    assert capture_calls == ["sess-duplicate", "sess-duplicate"]
+    assert second.multimodal_recall_text.splitlines() == ["gateway timeout", "gateway timeout"]
+    assert len(list(ResourceStore(tmp_path).iter_resources())) == 2
+    assert len(list(ResourceStore(tmp_path).iter_extractions())) == 2
 
 
 def test_live_prompt_failure_still_attempts_multimodal_resource_capture(
@@ -296,13 +326,14 @@ def test_recall_failure_does_not_block_independent_gap_generation(tmp_path, monk
     assert result.multimodal_gap_json == '{"evidence":["资源不存在"],"reason":"missing"}'
 
 
-def test_gap_failure_does_not_discard_recall_text(tmp_path, monkeypatch) -> None:
+def test_nonempty_recall_skips_gap_scan(tmp_path, monkeypatch) -> None:
     preflight = _module()
+    gap_calls: list[str] = []
     monkeypatch.setattr(preflight, "recall_text_for_payload", lambda *args, **kwargs: "caption")
     monkeypatch.setattr(
         preflight,
         "multimodal_gap_payload_for_payload",
-        lambda *args, **kwargs: (_ for _ in ()).throw(OSError("gap unavailable")),
+        lambda *args, **kwargs: gap_calls.append("gap") or None,
     )
 
     result = preflight.run_hook_preflight(
@@ -313,6 +344,28 @@ def test_gap_failure_does_not_discard_recall_text(tmp_path, monkeypatch) -> None
 
     assert result.multimodal_recall_text == "caption"
     assert result.multimodal_gap_json == ""
+    assert gap_calls == []
+
+
+def test_empty_recall_calls_gap_and_serializes_result(tmp_path, monkeypatch) -> None:
+    preflight = _module()
+    gap_calls: list[str] = []
+    monkeypatch.setattr(preflight, "recall_text_for_payload", lambda *args, **kwargs: "")
+
+    def gap_payload(*args, **kwargs):
+        gap_calls.append("gap")
+        return {"reason": "missing", "evidence": ["no text"]}
+
+    monkeypatch.setattr(preflight, "multimodal_gap_payload_for_payload", gap_payload)
+
+    result = preflight.run_hook_preflight(
+        {"prompt": "[Image #1]"},
+        brain_dir=tmp_path,
+        adapter="codex",
+    )
+
+    assert gap_calls == ["gap"]
+    assert result.multimodal_gap_json == '{"evidence":["no text"],"reason":"missing"}'
 
 
 @pytest.mark.parametrize(
