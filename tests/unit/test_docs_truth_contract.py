@@ -21,8 +21,8 @@ def _read(path: str) -> str:
 
 
 def _agent_facing_recall_guidance() -> dict[str, str]:
-    brain_dir = Path("/tmp/test-brain")
-    repo_dir = Path("/tmp/agent-memory-hub")
+    brain_dir = Path("test-brain")
+    repo_dir = Path("agent-memory-hub")
     qoder = QoderAdapter(brain_dir=brain_dir, repo_dir=repo_dir)
     qoder_work = QoderWorkAdapter(brain_dir=brain_dir, repo_dir=repo_dir)
     wukong = WukongAdapter(brain_dir=brain_dir, repo_dir=repo_dir)
@@ -115,8 +115,12 @@ def test_dual_route_release_docs_keep_rollout_and_blocker_boundaries_explicit():
     evidence = _read("docs/evaluation/dual-route-release-readiness.zh.md")
 
     for text in (architecture, changelog, evidence):
-        assert "multi-hi-08" in text
-        assert "BLOCKED" in text
+        assert "preflight" in text.lower()
+        assert "连续两轮" in text
+        assert ("/" + "tmp/") not in text
+        assert "raw prompt" not in text.lower()
+        assert "raw context" not in text.lower()
+        assert "hook stdout" not in text.lower()
 
     assert "logical security boundary" in architecture
     assert "does **not cold-load or download a model**" in architecture
@@ -127,10 +131,32 @@ def test_dual_route_release_docs_keep_rollout_and_blocker_boundaries_explicit():
 
     assert "升级包" in evidence
     assert "refresh/repair" in evidence
+    assert "memory self-update --repair-hooks" in evidence
+    assert "memory doctor --fix" in evidence
+    assert "install-verify" in evidence
     assert "E5" in evidence
     assert "reranker" in evidence
     assert "不得默认启用" in evidence
-    assert "/tmp" not in evidence
+    assert "heldout 11/11" in evidence
+    assert "41-case" in evidence
+    assert "0 FP / 0 FN" in evidence
+    assert "multi-hi-08" not in evidence
+    assert "BLOCKED" not in evidence
+
+    assert "payload parser" in architecture
+    assert "verified preflight" in architecture
+    assert "legacy fallback" in architecture
+    assert "runtime event" in architecture
+    assert "live prompt" in architecture
+    assert "multimodal" in architecture
+    assert "2 秒" in architecture
+    assert "stdout cap" in architecture
+    assert "descendant cleanup" in architecture
+    assert "feature-off" in architecture
+
+    assert "memory self-update --repair-hooks" in changelog
+    assert "memory doctor --fix" in changelog
+    assert "install-verify" in changelog
 
 
 def test_dual_route_hook_benchmark_report_is_reproducible_and_privacy_bounded(
@@ -142,13 +168,21 @@ def test_dual_route_hook_benchmark_report_is_reproducible_and_privacy_bounded(
 
     assert report["schema_version"] == 1
     assert report["performance_gate"] == "PASS"
-    assert report["overall_release_gate"] == "BLOCKED"
-    assert report["blocking_calibration_case"] == "multi-hi-08"
+    assert report["overall_release_gate"] == "PASS"
+    assert report["blocking_calibration_case"] is None
+    assert report["measured_on"] == "2026-07-18"
     assert report["provenance"]["old_commit"] == (
         "bb9128a668fea98bf9063bfbedc85cc75dc8936c"
     )
     assert report["provenance"]["candidate_commit"] == (
-        "5ba8ab19b4fa4cf0616a69e5a33146cd048640ad"
+        "98eef3fb45abb2d5a9d198529445103ceb9d43be"
+    )
+    assert len(report["provenance"]["candidate_commit"]) == 40
+    subprocess.run(
+        ["git", "cat-file", "-e", f"{report['provenance']['candidate_commit']}^{{commit}}"],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
     )
     assert report["execution_policy"] == {
         "warmups": 3,
@@ -229,9 +263,61 @@ def test_dual_route_hook_benchmark_report_is_reproducible_and_privacy_bounded(
     assert result["sample_policy"]["interleaved"] is True
     assert result["sample_policy"]["unit_test_mode"] is False
 
+    confirmations = [
+        run
+        for run in report["run_history"]
+        if run["phase"] == "post_optimization_confirmation"
+    ]
+    assert len(confirmations) == 2
+    for run in confirmations:
+        run_result = run["result"]
+        assert run["candidate_commit"] == report["provenance"]["candidate_commit"]
+        assert run_result["passed"] is True
+        assert run_result["publishable"] is True
+        assert run_result["new"]["samples"] == 30
+        assert run_result["new"]["errors"] == 0
+        assert run_result["new"]["timeouts"] == 0
+        assert run_result["new"]["max_ms"] < 2000.0
+        assert run_result["p95_delta_ms"] <= 150.0
+    assert [
+        (
+            run["result"]["new"]["p50_ms"],
+            run["result"]["new"]["p95_ms"],
+            run["result"]["new"]["max_ms"],
+            run["result"]["old"]["p50_ms"],
+            run["result"]["old"]["p95_ms"],
+            run["result"]["old"]["max_ms"],
+            run["result"]["p95_delta_ms"],
+        )
+        for run in confirmations
+    ] == [
+        (1281.076, 1346.079, 1367.384, 2843.794, 2982.526, 3410.441, -1636.447),
+        (1275.982, 1357.832, 1461.996, 2861.569, 2941.064, 2971.851, -1583.232),
+    ]
+    assert result == confirmations[1]["result"]
+
+    blockers = [
+        run
+        for run in report["run_history"]
+        if run["phase"] == "pre_optimization_blocker"
+    ]
+    assert len(blockers) == 2
+    assert all(run["result"]["passed"] is False for run in blockers)
+    assert {
+        run["candidate_commit"] for run in blockers
+    } == {"895e47231c68177524997c6a7a6362a47e74f0e6"}
+    assert [run["result"]["new"]["max_ms"] for run in blockers] == [
+        2400.187,
+        2081.018,
+    ]
+
     serialized = json.dumps(report, ensure_ascii=False)
     assert '"prompt"' not in serialized
     assert '"context"' not in serialized
+    assert '"raw_prompt"' not in serialized
+    assert '"raw_context"' not in serialized
+    assert '"hook_stdout"' not in serialized
+    assert ("/" + "tmp/") not in serialized
     assert "PUBLIC DUAL ROUTE BENCHMARK SENTINEL" not in serialized
 
 

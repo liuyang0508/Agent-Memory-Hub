@@ -14,6 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Dual-route recall candidate pipeline** — routed hook recall combines term
   BM25 with complete-question semantic retrieval and a Unicode-aware raw BM25
   fallback while retaining one Gateway authorization boundary.
+- **Consolidated hook preflight** — a dependency-free payload parser and one
+  verified preflight process now handle runtime event, live prompt, normalization,
+  and multimodal evidence before routed recall; whole-process or protocol failure
+  retains the evidence-preserving legacy fallback.
 
 ### Changed
 
@@ -24,14 +28,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Hook cold paths do not load or download semantic models. Users upgrading from
   an older package must refresh/repair installed adapters to receive the routed
   hook; `AGENT_MEMORY_HUB_ROUTED_RECALL=0` only rolls back candidate generation.
+- Existing users must upgrade the package and then run
+  `memory self-update --repair-hooks` plus `memory doctor --fix`, or rerun the
+  idempotent adapter install followed by
+  `memory adapter install-verify <adapter> --format json`.
 
 ### Release status
 
-- **BLOCKED:** dual-route recall is not release-ready while held-out calibration
-  case `multi-hi-08` remains unresolved. The committed calibration report records
-  held-out recall 10/11 (0.9091); exploratory E5 and reranker bakeoffs are not
-  enabled by default because they either regress existing cases or lack an
-  independent, reproducible safety/calibration gate.
+- **PASS:** committed calibration is calibration 15/15 and heldout 11/11 with
+  0 FP / 0 FN across the 41-case public safety fixture. The frozen consolidated
+  preflight candidate passed 连续两轮 independent 30-run hook gates: candidate
+  p50/p95/max were 1281.076/1346.079/1367.384ms and
+  1275.982/1357.832/1461.996ms, with 0 errors and 0 timeouts in both rounds.
+- The performance report retains the two pre-optimization tail-latency failures;
+  the current PASS is based only on the fixed commit's two consecutive confirmations.
 
 ### Security
 

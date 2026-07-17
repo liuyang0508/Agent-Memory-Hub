@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "measured_on": "2026-07-17",
+  "measured_on": "2026-07-18",
   "performance_gate": "PASS",
-  "overall_release_gate": "BLOCKED",
-  "blocking_calibration_case": "multi-hi-08",
+  "overall_release_gate": "PASS",
+  "blocking_calibration_case": null,
   "environment": {
     "os": "macOS-15.5-arm64-arm-64bit",
     "architecture": "arm64",
@@ -20,9 +20,9 @@
   },
   "provenance": {
     "old_commit": "bb9128a668fea98bf9063bfbedc85cc75dc8936c",
-    "candidate_commit": "5ba8ab19b4fa4cf0616a69e5a33146cd048640ad",
+    "candidate_commit": "98eef3fb45abb2d5a9d198529445103ceb9d43be",
     "old_hook_sha256": "sha256:d3be4cc24a6dcd99f45856daaae78e5a7d93eb908254d2f90ed915195611c937",
-    "candidate_hook_sha256": "sha256:5ab7cc94f2d514af0ec744064c652efd507a0d4e0d0ac533e591b0b8f33936f5",
+    "candidate_hook_sha256": "sha256:b8a741f1bb9f9d89040919463dbb09ea4dc6853558b1df1c47061283cc1ef613",
     "benchmark_script_sha256": "sha256:fd51db3e08561cb40a88c7589e73e6c355d1d87fb4c8b91ce6f3b239484552ea",
     "materializer_script_sha256": "sha256:9c2f3e856c1808526b4e3f984b67c5ab6d1cc39dcdb17e57df9810f642c3ddcb",
     "payload_sha256": "sha256:4e2b9bb5d5fd781702e0a33dd224f191c175b4435d4d63844949f23d5746b557",
@@ -66,21 +66,21 @@
     },
     "new": {
       "errors": 0,
-      "max_ms": 1862.811,
-      "p50_ms": 1700.536,
-      "p95_ms": 1801.364,
+      "max_ms": 1461.996,
+      "p50_ms": 1275.982,
+      "p95_ms": 1357.832,
       "samples": 30,
       "timeouts": 0
     },
     "old": {
       "errors": 0,
-      "max_ms": 3255.564,
-      "p50_ms": 2972.512,
-      "p95_ms": 3159.247,
+      "max_ms": 2971.851,
+      "p50_ms": 2861.569,
+      "p95_ms": 2941.064,
       "samples": 30,
       "timeouts": 0
     },
-    "p95_delta_ms": -1357.883,
+    "p95_delta_ms": -1583.232,
     "passed": true,
     "publishable": true,
     "sample_policy": {
@@ -93,5 +93,126 @@
       "protocol": "adapter-envelope",
       "unit_test_mode": false
     }
-  }
+  },
+  "run_history": [
+    {
+      "round_id": "preflight-tail-blocker-a",
+      "observed_on": "2026-07-17",
+      "candidate_commit": "895e47231c68177524997c6a7a6362a47e74f0e6",
+      "phase": "pre_optimization_blocker",
+      "result": {
+        "new": {
+          "errors": 0,
+          "max_ms": 2400.187,
+          "p95_ms": 2144.243,
+          "samples": 30,
+          "timeouts": 0
+        },
+        "passed": false
+      }
+    },
+    {
+      "round_id": "preflight-tail-blocker-b",
+      "observed_on": "2026-07-17",
+      "candidate_commit": "895e47231c68177524997c6a7a6362a47e74f0e6",
+      "phase": "pre_optimization_blocker",
+      "result": {
+        "new": {
+          "errors": 0,
+          "max_ms": 2081.018,
+          "p50_ms": 1767.472,
+          "p95_ms": 1994.71,
+          "samples": 30,
+          "timeouts": 0
+        },
+        "old": {
+          "p95_ms": 3476.751
+        },
+        "p95_delta_ms": -1482.041,
+        "passed": false
+      }
+    },
+    {
+      "round_id": "post-preflight-confirmation-1",
+      "observed_on": "2026-07-18",
+      "candidate_commit": "98eef3fb45abb2d5a9d198529445103ceb9d43be",
+      "phase": "post_optimization_confirmation",
+      "result": {
+        "limits": {
+          "max_new_ms": 2000.0,
+          "max_p95_delta_ms": 150.0
+        },
+        "new": {
+          "errors": 0,
+          "max_ms": 1367.384,
+          "p50_ms": 1281.076,
+          "p95_ms": 1346.079,
+          "samples": 30,
+          "timeouts": 0
+        },
+        "old": {
+          "errors": 0,
+          "max_ms": 3410.441,
+          "p50_ms": 2843.794,
+          "p95_ms": 2982.526,
+          "samples": 30,
+          "timeouts": 0
+        },
+        "p95_delta_ms": -1636.447,
+        "passed": true,
+        "publishable": true,
+        "sample_policy": {
+          "context_sentinel_sha256": "sha256:ea24fbc824f099c9276038517f5de853e48ff728ea10dd31a0989b97938f072e",
+          "expected_reason": "included",
+          "expected_result": "injected",
+          "interleaved": true,
+          "minimum": 30,
+          "observation_timeout_seconds": 5.0,
+          "protocol": "adapter-envelope",
+          "unit_test_mode": false
+        }
+      }
+    },
+    {
+      "round_id": "post-preflight-confirmation-2",
+      "observed_on": "2026-07-18",
+      "candidate_commit": "98eef3fb45abb2d5a9d198529445103ceb9d43be",
+      "phase": "post_optimization_confirmation",
+      "result": {
+        "limits": {
+          "max_new_ms": 2000.0,
+          "max_p95_delta_ms": 150.0
+        },
+        "new": {
+          "errors": 0,
+          "max_ms": 1461.996,
+          "p50_ms": 1275.982,
+          "p95_ms": 1357.832,
+          "samples": 30,
+          "timeouts": 0
+        },
+        "old": {
+          "errors": 0,
+          "max_ms": 2971.851,
+          "p50_ms": 2861.569,
+          "p95_ms": 2941.064,
+          "samples": 30,
+          "timeouts": 0
+        },
+        "p95_delta_ms": -1583.232,
+        "passed": true,
+        "publishable": true,
+        "sample_policy": {
+          "context_sentinel_sha256": "sha256:ea24fbc824f099c9276038517f5de853e48ff728ea10dd31a0989b97938f072e",
+          "expected_reason": "included",
+          "expected_result": "injected",
+          "interleaved": true,
+          "minimum": 30,
+          "observation_timeout_seconds": 5.0,
+          "protocol": "adapter-envelope",
+          "unit_test_mode": false
+        }
+      }
+    }
+  ]
 }

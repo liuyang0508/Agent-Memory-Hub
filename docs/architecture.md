@@ -177,14 +177,28 @@ DataFlow and memory-lineage outputs apply a closed aggregate allowlist to recall
 `InjectionGateway` is the logical security boundary for prompt authorization; it
 is not a resident semantic service and does not make model availability a hook
 precondition. The `UserPromptSubmit` hook forwards the complete normalized task
-description through one bounded routed CLI request and one orchestrated pipeline;
-small shell protocol/evidence helpers may still use separate Python processes.
+description through one bounded routed CLI request and one orchestrated pipeline.
 Candidate generation can combine
 term BM25 with the complete-question semantic route. If the semantic provider is
 not already ready, the hook does **not cold-load or download a model**; retrieval
 continues with term BM25 plus the Unicode-aware raw BM25 fallback. Every path,
 including degraded and feature-flagged paths, still passes through Gateway and
 ContextFirewall before building ContextPack.
+
+The hook cold path uses two fixed, NUL-delimited protocols before recall. A
+dependency-free **payload parser** runs once under system Python and returns the
+prompt, session, cwd, and event fields. After `_resolve-python.sh` verifies the
+AMH interpreter identity, one **verified preflight** process records the runtime
+event, captures the live prompt, normalizes recall text, loads bounded multimodal
+text, and emits multimodal gap JSON. Individual evidence writes remain fail-open.
+If and only if the whole preflight process fails or its protocol is invalid, the
+hook uses the existing multi-process **legacy fallback**, which preserves the same
+runtime event, live prompt, and multimodal evidence responsibilities.
+
+This consolidation changes process topology, not authority or budgets.
+InjectionGateway, ContextFirewall, the 2 秒 search budget, stdout cap,
+descendant cleanup, adapter output envelope, and feature-off behavior remain unchanged. The
+preflight never authorizes candidates, and its fallback never bypasses Gateway.
 
 `AGENT_MEMORY_HUB_ROUTED_RECALL=0` is an emergency compatibility switch that
 **only rolls back candidate generation** to the legacy search behavior. It never
@@ -202,11 +216,14 @@ This rollout does not implement **Session continuation**. Bare turns such as
 trusted session pointer and previous-task state. A short prompt with concrete
 topic or entity anchors is evaluated normally.
 
-The calibration release gate is currently **BLOCKED** by held-out case
-`multi-hi-08`. The committed report and machine-readable gate are
-`docs/evaluation/dual-route-calibration-report.json` and
-`scripts/check-dual-route-calibration.py`; passing the test suite does not override
-that release decision.
+The committed calibration report now records calibration 15/15 and heldout 11/11
+with 0 FP / 0 FN across the 41-case public safety fixture. The fixed preflight
+candidate also passed 连续两轮 independent 30-run hook confirmations: candidate
+p50/p95/max were 1281.076/1346.079/1367.384ms and
+1275.982/1357.832/1461.996ms, with no errors or timeouts. The machine-readable
+facts remain `docs/evaluation/dual-route-calibration-report.json`,
+`docs/evaluation/dual-route-hook-benchmark-report.json`, and
+`scripts/check-dual-route-calibration.py`.
 
 ### Budgeted brief authorization boundary
 

@@ -1,169 +1,132 @@
-# Dual-route recall 发布准备证据（2026-07-17）
+# Dual-route recall 发布准备证据（2026-07-18）
 
 ## 结论
 
-当前状态是 **BLOCKED**，不得标记为 release-ready，也不得据此推送或发布。
-阻塞项是 held-out 用例 `multi-hi-08`：Hindi 问题要召回 cache TTL 条目，但当前冻结的
-multilingual MiniLM 证据把无关条目排在目标之前。机器可读事实源是
-`dual-route-calibration-report.json`，门禁命令是：
+当前冻结代码候选 `98eef3fb45abb2d5a9d198529445103ceb9d43be` 的校准门禁与
+hook 性能门禁均为 **PASS**，整体 release gate 为 **PASS**。机器事实源分别是：
+
+- `dual-route-calibration-report.json`：calibration 15/15、heldout 11/11，
+  41-case 公共安全夹具保持 0 FP / 0 FN，未解决 gap 为 0；
+- `dual-route-hook-benchmark-report.json`：同一冻结候选完成连续两轮独立正式
+  30-run，均无错误、无超时、每个 candidate 样本小于 2 秒，且 p95 增量不超过
+  150ms。
+
+校准门禁可复核为：
 
 ```bash
 PYTHONPATH=. python scripts/check-dual-route-calibration.py
 ```
 
-当前命令返回退出码 1，并报告 `release_gate=blocked`、`unresolved_gap_count=1`。
-测试通过只证明实现没有已知代码回归，不会把校准门禁自动改成通过。
+## Consolidated preflight 的能力与边界
 
-## 已完成的上线边界
+本轮性能修复只合并 hook 的进程，不删除证据，也不放宽授权：
 
-- Gateway 是逻辑安全边界，不是常驻 semantic service。候选必须先通过
-  InjectionGateway 与 ContextFirewall，才可进入 ContextPack。
-- hook 只使用已经 ready 的 semantic provider；不会在冷路径加载或下载模型。
-  semantic 不 ready 时保留 term BM25，并用完整问题走 Unicode-aware raw BM25 fallback。
-- `AGENT_MEMORY_HUB_ROUTED_RECALL=0` 只回滚候选生成，不能关闭 Gateway，也不能把
-  raw hit 直接注入 Prompt。
-- `memory brief` 用于项目恢复摘要；`memory search` 用于具体任务相关性召回，输入应是
-  完整任务描述。两者不是 `brief || search` 关系。
-- “继续 / 确认 / 是 / 1”这类无主题锚点的 Session continuation 不在本阶段范围内。
+- payload parser 用一个 system Python 进程解析输入，并通过固定 NUL 协议交给 shell；
+- `_resolve-python.sh` 仍负责 canonical path、symlink、import、identity 与 PID 验证；
+- verified preflight 用一个已验证的 AMH Python 进程依次写 runtime event、保存 live prompt、
+  归一化问题、提取 multimodal recall 文本并产生 multimodal gap JSON；单项证据写入失败
+  仍 fail-open；
+- 整个 preflight 进程失败或协议不合法时，才进入原有 multi-process legacy fallback；
+  fallback 继续保存 runtime event、live prompt 和 multimodal 证据；
+- InjectionGateway、ContextFirewall、2 秒搜索预算、stdout cap、descendant cleanup、
+  adapter envelope 与 feature-off 边界均未改变；
+- `AGENT_MEMORY_HUB_ROUTED_RECALL=0` 只回滚候选生成，不能关闭 Gateway，也不能让
+  未授权命中进入 ContextPack。
+
+因此，性能改善来自减少重复解释器启动与重复 import，不来自删减 evidence、降低阈值或
+绕过安全链路。
 
 ## 旧用户升级与 adapter 刷新
 
-旧 hook 不会自行变成 routed hook。用户需要先升级包，再执行 adapter refresh/repair：
+旧 hook 不会自行获得 consolidated preflight。旧用户必须先升级包，再完成 adapter
+refresh/repair。已有安装可按真实 CLI 合同执行：
 
 ```bash
-memory self-update --dry-run
 memory self-update --repair-hooks
 memory doctor --fix
+```
+
+也可以对单个 adapter 运行幂等安装并验收：
+
+```bash
 memory adapter install <adapter> --format json
 memory adapter install-verify <adapter> --format json
 ```
 
-`self-update --repair-hooks` 适合发布包升级后的全局 hook 修复；`memory doctor --fix`
-用于 doctor 发现的 core adapter/path 漂移；单个 adapter 可重新运行幂等的 install，随后
-用 install-verify 和真实 runtime evidence 验收。升级包但不 refresh/repair 已安装 hook，
-不能据此声称已获得新召回链路。
+`memory self-update --repair-hooks` 用于升级包后的全局 hook 修复，`memory doctor --fix`
+用于修复 doctor 识别出的 core adapter/path 漂移；单 adapter 重装后必须通过
+install-verify 和真实 runtime evidence。仅升级包、未 refresh/repair 已安装 hook，不能
+声称已经获得新链路。
 
 ## 冻结校准证据
 
 | split | expected items | TP | FP | FN | precision | recall |
 |---|---:|---:|---:|---:|---:|---:|
 | calibration | 15 | 15 | 0 | 0 | 1.0000 | 1.0000 |
-| heldout | 11 | 10 | 0 | 1 | 1.0000 | 0.9091 |
+| heldout | 11 | 11 | 0 | 0 | 1.0000 | 1.0000 |
 
-冻结 embedder 为
+冻结 embedder 仍为
 `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`，revision
 `e8f8c211226b894fcb81acc59f3b34ba3efd5f42`，snapshot digest
 `sha256:d9ffa8b29d3b9b379a3168bce486cab75ac50f5f8f7f9ba6c17cf6e07a600792`。
-`multi-hi-08` 的目标 cosine 为 0.326786（rank 2），竞争项为 0.343218（rank 1）；
-在不放宽安全阈值的前提下，当前证据不足以放行目标。
+修复采用共享 lexical technical-anchor alias，不替换模型、不降低 Gateway 阈值，也不要求
+已有 memory item 重建索引。机器报告的 `unresolved_gap_count` 为 0，门禁命令返回 0。
 
 ## 探索性模型 bakeoff（不得默认启用）
 
-下表是同一 41-case / 33-item 公共安全夹具上的聚合探索结果。它用于解释为什么没有把
-临时模型试验直接并入产品；不是 committed release gate，也不替代冻结校准报告。
+历史 E5 与 reranker 试验只用于排除高风险替代路线，并未进入默认产品路径：
 
-| 方案 | 结果摘要 | 性能摘要 | 默认启用判定 |
-|---|---|---|---|
-| E5：`intfloat/multilingual-e5-small@614241f...` | 修复 `multi-hi-08`，但 non-gap positives 出现 1 FN、3 injection FP；全 positives injection 为 TP 33 / FP 3 / FN 1 | 进程内加载约 0.414s；warm query encode p95 约 13.76ms；warm routed search p95 约 16.27ms | **不得默认启用**：存在既有用例回归，替换 embedder 还要求明确的模型分发、冷启动和重建索引策略 |
-| `cross-encoder/mmarco-mMiniLMv2-L12-H384-v1@1427fd...` 安全策略（logit ≥ 0、margin ≥ 1） | 41 cases 中只触发 2 cases；安全策略未修复 `multi-hi-08`，保持 TP 33 / FP 0 / FN 1 | 进程内加载约 0.436s；warm bounded batch p95 约 23.36ms | **不得默认启用**：没有修复门禁，且 hook 冷路径不能加载第二模型 |
-| 同一 reranker 的宽松探索策略（logit ≥ -2.5、margin ≥ 0.5） | 在当前夹具上修复 gap 且负例 0 injection FP | warm bounded batch p95 约 22.23ms | **不得默认启用**：阈值由单一 gap 驱动，缺少独立 held-out 校准、持久化可复现 runner 与跨平台冷启动证据 |
+- E5 虽能覆盖目标语言现象，但曾在现有公共夹具上引入 injection FP 与既有正例 FN；
+- reranker 的保守阈值没有解决问题，宽松阈值则缺少独立 held-out 校准与跨平台冷启动证据；
+- hook 冷路径不得默认启用第二模型，也不得下载模型。
 
-这里没有把探索脚本或临时模型缓存当作长期证据。若后续继续评估，必须把 runner、模型
-revision/digest、夹具提取规则、阈值选择和 held-out 结果一并提交，并重新通过隐私、性能与
-安全门禁。
+当前 PASS 由 committed technical-anchor 规则、冻结 calibration report 和正式 hook
+基准共同支持，不借用这些探索结果。
 
-## 静态旁路审计
-
-旧字符串扫描命中已按执行边界分类：
-
-- routed `inject-context.sh` 不含关键词为空提前退出、`no matches` 文本解析或
-  `AGENT_MEMORY_HUB_RAW_QUERY` 旁路；
-- `AGENT_MEMORY_HUB_RAW_QUERY` 仍只存在于明确的 legacy/raw CLI 兼容路径及其迁移测试；
-- `no matches` 的其他命中属于人类 CLI 空结果、wiki 输出，或 SessionStart discipline 的
-  recent-signal 检查，不是 UserPromptSubmit routed recall 协议；
-- docs truth tests 中出现的旧短语是负向断言，用来防止 Agent-facing 指导回归。
-
-因此本轮不删除合法 legacy 合同，也没有把静态字符串命中误判成可执行旁路。
-
-## 30-run hook 性能证据
-
-机器可读事实源是 `dual-route-hook-benchmark-report.json`。最终独立运行直接调用真实 base
-worktree hook 与 candidate hook；benchmark runner 自身严格校验 adapter
-`hookSpecificOutput` envelope，不再依赖仓库外 normalizer。校验项包括：唯一外层键、唯一
-内层键、`UserPromptSubmit` event、非空 `additionalContext`、完整且唯一的
-`<agent_brain>` 边界，以及边界内公开 sentinel。
+## 连续两轮正式 hook 性能证据
 
 base 固定为 `bb9128a668fea98bf9063bfbedc85cc75dc8936c`，candidate 固定为
-`5ba8ab19b4fa4cf0616a69e5a33146cd048640ad`。两边使用同一个全新公开合成 brain、同一个
-committed payload、同一个 Python、同一个离线 HashingEmbedder 和同一组 adapter 环境变量；
-只有 worktree 的 `PYTHONPATH` 与真实 hook 路径不同。runner 参数固定为 30 measured
-samples、3 warmups、交错 old/new、期望 `injected`。5 秒只是每次子进程的观测窗口；性能
-放行仍使用 candidate 单次 2000ms 和 p95 增量 150ms 两项硬门槛。报告只保存聚合统计和
-哈希，不包含 hook context、原始 hook stdout 或 payload 中的 prompt。
+`98eef3fb45abb2d5a9d198529445103ceb9d43be`。两边使用同一个全新公开合成 brain、
+同一个 committed payload、同一个 Python、同一个离线 HashingEmbedder 和同一组 adapter
+环境变量；只有 worktree 的 `PYTHONPATH` 与真实 hook 路径不同。每轮固定 30 个 measured
+samples、3 个 warmups、交错 old/new，runner 校验完整 adapter envelope 与公开 sentinel。
 
-| command | samples | p50 | p95 | max | errors | timeouts |
-|---|---:|---:|---:|---:|---:|---:|
-| base hook | 30 | 2972.512ms | 3159.247ms | 3255.564ms | 0 | 0 |
-| candidate hook | 30 | 1700.536ms | 1801.364ms | 1862.811ms | 0 | 0 |
+| round | command | samples | p50 | p95 | max | errors | timeouts |
+|---|---|---:|---:|---:|---:|---:|---:|
+| 1 | base hook | 30 | 2843.794ms | 2982.526ms | 3410.441ms | 0 | 0 |
+| 1 | candidate hook | 30 | 1281.076ms | 1346.079ms | 1367.384ms | 0 | 0 |
+| 2 | base hook | 30 | 2861.569ms | 2941.064ms | 2971.851ms | 0 | 0 |
+| 2 | candidate hook | 30 | 1275.982ms | 1357.832ms | 1461.996ms | 0 | 0 |
 
-candidate p95 相对 base 为 -1357.883ms，benchmark exit code 为 0，性能子门禁 PASS。
-这不改变整体 **BLOCKED**：`multi-hi-08` 校准门禁仍未通过。
+第一轮 p95 delta 为 -1636.447ms，第二轮为 -1583.232ms。两轮 `passed=true`、
+`publishable=true`；没有用第三轮覆盖失败结果。
 
-### 可复现命令
+机器报告的 `run_history` 同时保留优化前的两个真实尾延迟失败：一个 candidate
+max 2400.187ms、p95 2144.243ms，另一个 max 2081.018ms、p95 1994.710ms；两次均为
+0 error / 0 timeout。这些历史证据解释了为什么引入 consolidated preflight，并不代表
+冻结候选的当前状态。
 
-先把 `BASE` 和 `CAND` 分别指向上述精确 commit 的独立 worktree；`BRAIN` 必须是尚不存在
-的路径，materializer 遇到已存在路径会 fail closed。下面的 `OLD` 与 `NEW` 除 worktree
-路径外使用完全相同的公开 fixture、payload、Python 和环境变量：
+报告只保存聚合统计、固定 commit 与可重建哈希，不保存请求正文、注入结果正文或子进程
+原始输出。`result` 保持既有消费者合同，原样使用第二轮聚合；两轮完整聚合保存在
+`run_history`。
 
-```bash
-BASE=/path/to/base-worktree
-CAND=/path/to/candidate-worktree
-PY="$BASE/.venv/bin/python"
-RUN_ROOT="$(mktemp -d)"
-BRAIN="$RUN_ROOT/brain"
-PAYLOAD="$CAND/tests/fixtures/dual_route_hook_benchmark_payload.json"
-CONTEXT_SENTINEL='PUBLIC DUAL ROUTE BENCHMARK SENTINEL'
+## 可复现方法
 
-test "$(git -C "$BASE" rev-parse HEAD)" = bb9128a668fea98bf9063bfbedc85cc75dc8936c
-test "$(git -C "$CAND" rev-parse HEAD)" = 5ba8ab19b4fa4cf0616a69e5a33146cd048640ad
+将 `BASE` 与 `CAND` 分别指向上述精确 commit 的独立 worktree，并为每轮选择一个尚不
+存在的 `BRAIN` 路径。materializer 遇到已有路径会 fail closed。随后按机器报告中的
+`commands` 模板 materialize fixture 并运行 benchmark；不得改变 payload、Python、环境变量、
+warmup、样本数、协议或门槛。
 
-PYTHONPATH="$CAND" "$PY" \
-  "$CAND/scripts/materialize-dual-route-hook-benchmark.py" \
-  --brain-dir "$BRAIN"
-
-OLD="/usr/bin/env BRAIN_DIR=$BRAIN MEMORY_HUB_TEST_EMBEDDING=1 MEMORY_HUB_EMBEDDING_OFFLINE=1 AGENT_MEMORY_HUB_HOOK_OUTPUT_FORMAT=json AGENT_MEMORY_HUB_ADAPTER=codex AGENT_MEMORY_HUB_PYTHON=$PY PYTHONPATH=$BASE $BASE/agent_runtime_kit/hooks/inject-context.sh"
-NEW="/usr/bin/env BRAIN_DIR=$BRAIN MEMORY_HUB_TEST_EMBEDDING=1 MEMORY_HUB_EMBEDDING_OFFLINE=1 AGENT_MEMORY_HUB_HOOK_OUTPUT_FORMAT=json AGENT_MEMORY_HUB_ADAPTER=codex AGENT_MEMORY_HUB_PYTHON=$PY PYTHONPATH=$CAND $CAND/agent_runtime_kit/hooks/inject-context.sh"
-
-PYTHONPATH="$CAND" "$PY" "$CAND/scripts/benchmark-dual-route-hook.py" \
-  --old-command "$OLD" \
-  --new-command "$NEW" \
-  --payload "$PAYLOAD" \
-  --protocol adapter-envelope \
-  --context-sentinel "$CONTEXT_SENTINEL" \
-  --repeats 30 \
-  --warmup 3 \
-  --min-samples 30 \
-  --timeout-seconds 5 > "$RUN_ROOT/aggregate.json"
-```
-
-本次 provenance 哈希全部记录在机器报告中，包括 old/candidate hook、runner、materializer、
-payload 与确定性 fixture item。索引数据库不是哈希事实源；它由 materializer 使用上述
+机器报告记录并由 contract test 重算 old/candidate hook、runner、materializer、payload 与
+确定性 fixture item 的 SHA-256。索引数据库不是哈希事实源；它由 materializer 使用
 committed item 和 HashingEmbedder 重新生成。
 
-优化前的第一轮独立 30-run 为 candidate p95 2727.697ms、max 2823.634ms，真实失败。
-分段 profile 显示 routed CLI p50 约 431ms，而 `execute_routed_query`、HubIndex open、
-`search_routed` 和 Gateway 在合成单条 brain 上分别约 9ms、3ms、3ms、4ms；主要成本是
-hook、runtime-event shim 与 search shim 重复探测解释器时完整导入 CLI（单次 p50 约
-459ms）。修复只复用父 hook 已验证并导出的 `MEMORY_PYTHON` verdict；独立调用仍执行
-完整探测。修复后 5 次 warm candidate 均为 1.67–1.69s，随后才执行上面的最终 30-run。
+## 发布验收条件
 
-## 发布解除条件
+本次 PASS 建立在以下条件同时成立：
 
-只有同时满足以下条件，才能把 BLOCKED 改成 PASS：
-
-1. `multi-hi-08` 在独立 held-out 证据中命中目标，且禁止注入与 near-topic hard negatives
-   仍保持 100% 拦截；
-2. 更新 committed calibration report 后，`check-dual-route-calibration.py` 返回 0；
-3. 30-run base/candidate hook 基准满足 candidate 单次小于 2s，p95 增量不超过 150ms，
-   且两边使用同一隔离 brain、同一 payload 和可比协议；
-4. targeted、全仓测试、Ruff、静态旁路扫描和 `git diff --check` 全部通过。
+1. 校准报告为 calibration 15/15、heldout 11/11、0 FP / 0 FN，且门禁退出码为 0；
+2. 固定代码候选的连续两轮正式 30-run 均满足单次小于 2 秒、p95 增量不超过 150ms、
+   0 error、0 timeout；
+3. targeted、全仓测试、Ruff、shell 语法、隐私合同与 `git diff --check` 均通过；
+4. 发布物中保留升级包后的 refresh/repair 指引，不能把代码仓 PASS 误解为旧安装已自动刷新。
