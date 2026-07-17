@@ -398,6 +398,11 @@ def _write_preflight_probe_runtime(
         "    exit91) exit 91 ;;\n"
         "    wrong-version) "
         "printf 'wrong-version\\000normalized\\000\\000\\000'; exit 0 ;;\n"
+        "    junk-after-success)\n"
+        "      \"$REAL_PYTHON\" \"$@\" || exit $?\n"
+        "      printf 'trailing-junk'\n"
+        "      exit 0\n"
+        "      ;;\n"
         "  esac\n"
         "fi\n"
         "exec \"$REAL_PYTHON\" \"$@\"\n",
@@ -437,7 +442,13 @@ def _write_preflight_probe_runtime(
             "routes": [],
         }
     (tools_dir / "search-memory.sh").write_text(
-        "#!/bin/sh\nprintf '%s\\n' " + repr(json.dumps(search_payload)) + "\n",
+        "#!/bin/sh\n"
+        "last=''\n"
+        "for value in \"$@\"; do last=$value; done\n"
+        "printf '%s' \"$last\" > \"$SEARCH_QUERY\"\n"
+        "printf '%s\\n' "
+        + repr(json.dumps(search_payload))
+        + "\n",
         encoding="utf-8",
     )
     for script in tools_dir.iterdir():
@@ -468,6 +479,7 @@ def _preflight_probe_env(
         "PREFLIGHT_CALLS": str(preflight_calls),
         "LEGACY_RECORD_CALLS": str(legacy_record_calls),
         "PREFLIGHT_MODE": preflight_mode,
+        "SEARCH_QUERY": str(tmp_path / "search-query.txt"),
         "TMPDIR": str(protocol_tmp),
     }
 
@@ -516,7 +528,7 @@ def test_user_prompt_hook_runs_consolidated_preflight_once_without_legacy_writes
     assert list((tmp_path / "protocol-tmp").iterdir()) == []
 
 
-@pytest.mark.parametrize("preflight_mode", ("exit91", "wrong-version"))
+@pytest.mark.parametrize("preflight_mode", ("exit91",))
 def test_user_prompt_hook_falls_back_when_consolidated_preflight_is_invalid(
     tmp_path,
     preflight_mode,
@@ -564,6 +576,63 @@ def test_user_prompt_hook_falls_back_when_consolidated_preflight_is_invalid(
     resources = list(ResourceStore(tmp_path / "brain").iter_resources())
     assert len(resources) == 1
     assert resources[0].metadata["extraction_status"] == "missing"
+    assert list((tmp_path / "protocol-tmp").iterdir()) == []
+
+
+def test_user_prompt_hook_invalid_success_protocol_reuses_preflight_evidence(
+    tmp_path,
+):
+    from agent_brain.agent_integrations.runtime_events import iter_runtime_events
+    from agent_brain.memory.evidence.conversation_store import ConversationStore
+    from agent_brain.memory.evidence.resource_store import ResourceStore
+
+    hook, preflight_calls, legacy_record_calls = _write_preflight_probe_runtime(
+        tmp_path,
+        preflight_mode="junk-after-success",
+        search_status="injected",
+    )
+    env = _preflight_probe_env(
+        tmp_path,
+        preflight_calls,
+        legacy_record_calls,
+        preflight_mode="junk-after-success",
+    )
+    payload = {
+        "prompt": "inspect attached failure",
+        "session_id": "preflight-junk-after-success",
+        "cwd": "/repo/current",
+        "hook_event_name": "UserPromptSubmit",
+        "images": [
+            {
+                "name": "failure.png",
+                "uri": "memory://failure.png",
+                "caption": "gateway timeout caption",
+            }
+        ],
+    }
+
+    result = subprocess.run(
+        ["/bin/bash", str(hook)],
+        input=json.dumps(payload),
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    context = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
+    assert "consolidated preflight context" in context
+    assert preflight_calls.read_text(encoding="utf-8").splitlines() == ["called"]
+    assert not legacy_record_calls.exists()
+    assert len(list(iter_runtime_events(tmp_path / "brain"))) == 1
+    messages = list(ConversationStore(tmp_path / "brain").iter_messages())
+    assert len(messages) == 1
+    assert messages[0].content_text == payload["prompt"]
+    resource_store = ResourceStore(tmp_path / "brain")
+    assert len(list(resource_store.iter_resources())) == 1
+    assert len(list(resource_store.iter_extractions())) == 1
+    search_query = (tmp_path / "search-query.txt").read_text(encoding="utf-8")
+    assert search_query == "inspect attached failure\ngateway timeout caption"
     assert list((tmp_path / "protocol-tmp").iterdir()) == []
 
 
@@ -795,6 +864,50 @@ def test_user_prompt_hook_rejects_raw_nul_without_side_effects(
     assert list(protocol_tmp.iterdir()) == []
 
 
+def test_user_prompt_hook_rejects_decoded_nested_nul_before_preflight(tmp_path):
+    hook, markers, protocol_tmp = _write_raw_payload_probe_runtime(tmp_path)
+    brain_dir = tmp_path / "brain"
+    raw_payload = (
+        b'{"prompt":"inspect image","session_id":"nested-nul","cwd":"/repo",'
+        b'"hook_event_name":"UserPromptSubmit","images":[{"name":"shot.png",'
+        b'"caption":"before\\u0000after"}]}'
+    )
+    env = {
+        **os.environ,
+        "PATH": f"{tmp_path / 'bin'}{os.pathsep}{os.environ.get('PATH', '')}",
+        "PYTHONPATH": (
+            f"{Path(__file__).resolve().parents[2]}{os.pathsep}"
+            f"{os.environ.get('PYTHONPATH', '')}"
+        ),
+        "REAL_PYTHON": sys.executable,
+        "PARSER_CALLS": str(markers["parser"]),
+        "PREFLIGHT_CALLS": str(markers["preflight"]),
+        "LEGACY_RECORD_CALLS": str(markers["legacy-record"]),
+        "SEARCH_CALLS": str(markers["search"]),
+        "TMPDIR": str(protocol_tmp),
+        "BRAIN_DIR": str(brain_dir),
+        "AGENT_MEMORY_HUB_ADAPTER": "codex",
+    }
+
+    result = subprocess.run(
+        ["/bin/bash", str(hook)],
+        input=raw_payload,
+        env=env,
+        capture_output=True,
+        timeout=5,
+    )
+
+    assert result.returncode == 0
+    assert result.stdout == b"{}\n"
+    assert result.stderr == b""
+    assert markers["parser"].read_text(encoding="utf-8").splitlines() == ["called"]
+    assert not markers["preflight"].exists()
+    assert not markers["legacy-record"].exists()
+    assert not markers["search"].exists()
+    assert not brain_dir.exists()
+    assert list(protocol_tmp.iterdir()) == []
+
+
 @pytest.mark.parametrize(
     "hook_signal",
     (signal.SIGHUP, signal.SIGINT, signal.SIGTERM),
@@ -815,18 +928,26 @@ def test_user_prompt_hook_signal_cleans_blocked_payload_protocol_file(
     bin_dir.mkdir()
     protocol_tmp.mkdir()
     parser_ready = tmp_path / "parser-ready"
+    child_pid_path = tmp_path / "parser-child-pid"
+    delayed_marker = tmp_path / "parser-delayed"
     wrapper = bin_dir / "python3"
     wrapper.write_text(
-        "#!/bin/sh\n"
-        "case \"${1:-}\" in\n"
-        "  */parse-hook-payload.py)\n"
-        "    \"$REAL_PYTHON\" \"$@\" || exit $?\n"
-        "    printf 'ready\\n' > \"$PARSER_READY\"\n"
-        "    /bin/sleep 30\n"
-        "    exit $?\n"
-        "    ;;\n"
-        "esac\n"
-        "exec \"$REAL_PYTHON\" \"$@\"\n",
+        f"#!{sys.executable}\n"
+        "import os\n"
+        "import subprocess\n"
+        "import sys\n"
+        "import time\n"
+        "real = os.environ['REAL_PYTHON']\n"
+        "if len(sys.argv) > 1 and sys.argv[1].endswith('/parse-hook-payload.py'):\n"
+        "    status = subprocess.call([real, *sys.argv[1:]])\n"
+        "    if status != 0:\n"
+        "        raise SystemExit(status)\n"
+        "    open(os.environ['PARSER_CHILD_PID'], 'w').write(str(os.getpid()))\n"
+        "    open(os.environ['PARSER_READY'], 'w').write('ready\\n')\n"
+        "    time.sleep(30)\n"
+        "    open(os.environ['PARSER_DELAYED'], 'w').write('survived\\n')\n"
+        "    raise SystemExit(0)\n"
+        "os.execv(real, [real, *sys.argv[1:]])\n",
         encoding="utf-8",
     )
     wrapper.chmod(0o755)
@@ -836,6 +957,8 @@ def test_user_prompt_hook_signal_cleans_blocked_payload_protocol_file(
         "PATH": f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}",
         "REAL_PYTHON": sys.executable,
         "PARSER_READY": str(parser_ready),
+        "PARSER_CHILD_PID": str(child_pid_path),
+        "PARSER_DELAYED": str(delayed_marker),
         "TMPDIR": str(protocol_tmp),
         "BRAIN_DIR": str(tmp_path / "brain"),
     }
@@ -846,8 +969,8 @@ def test_user_prompt_hook_signal_cleans_blocked_payload_protocol_file(
         stderr=subprocess.PIPE,
         text=True,
         env=env,
-        start_new_session=True,
     )
+    child_pid = None
     try:
         assert proc.stdin is not None
         proc.stdin.write(
@@ -874,13 +997,18 @@ def test_user_prompt_hook_signal_cleans_blocked_payload_protocol_file(
         assert raw_files[0].stat().st_mode & 0o777 == 0o600
         assert raw_prompt.encode("utf-8") in raw_files[0].read_bytes()
         assert raw_prompt.encode("utf-8") in protocol_files[0].read_bytes()
+        child_pid = int(child_pid_path.read_text(encoding="utf-8"))
 
-        os.killpg(proc.pid, hook_signal)
+        started = time.monotonic()
+        os.kill(proc.pid, hook_signal)
         returncode = proc.wait(timeout=5)
+        elapsed = time.monotonic() - started
     finally:
         if proc.poll() is None:
-            os.killpg(proc.pid, signal.SIGKILL)
+            os.kill(proc.pid, signal.SIGKILL)
             proc.wait(timeout=5)
+        if child_pid is not None and _pid_exists(child_pid):
+            os.kill(child_pid, signal.SIGKILL)
         if proc.stdin is not None and not proc.stdin.closed:
             proc.stdin.close()
         if proc.stdout is not None:
@@ -889,7 +1017,107 @@ def test_user_prompt_hook_signal_cleans_blocked_payload_protocol_file(
             proc.stderr.close()
 
     assert returncode == 128 + hook_signal
+    assert elapsed < 1.0
+    assert child_pid is not None
+    assert not _pid_exists(child_pid)
+    time.sleep(0.2)
+    assert not delayed_marker.exists()
     assert list(protocol_tmp.iterdir()) == []
+
+
+def test_user_prompt_hook_parent_term_stops_blocked_preflight_child(tmp_path):
+    hook, preflight_calls, legacy_record_calls = _write_preflight_probe_runtime(tmp_path)
+    preflight_ready = tmp_path / "preflight-ready"
+    child_pid_path = tmp_path / "preflight-child-pid"
+    delayed_marker = tmp_path / "preflight-delayed"
+    memory_wrapper = tmp_path / "memory-python"
+    memory_wrapper.write_text(
+        f"#!{sys.executable}\n"
+        "import os\n"
+        "import sys\n"
+        "import time\n"
+        "real = os.environ['REAL_PYTHON']\n"
+        "if len(sys.argv) > 2 and sys.argv[1:3] == "
+        "['-m', 'agent_brain.memory.evidence.hook_preflight']:\n"
+        "    open(os.environ['PREFLIGHT_CHILD_PID'], 'w').write(str(os.getpid()))\n"
+        "    open(os.environ['PREFLIGHT_READY'], 'w').write('ready\\n')\n"
+        "    time.sleep(30)\n"
+        "    open(os.environ['PREFLIGHT_DELAYED'], 'w').write('survived\\n')\n"
+        "    raise SystemExit(0)\n"
+        "os.execv(real, [real, *sys.argv[1:]])\n",
+        encoding="utf-8",
+    )
+    memory_wrapper.chmod(0o755)
+    env = _preflight_probe_env(
+        tmp_path,
+        preflight_calls,
+        legacy_record_calls,
+        preflight_mode="pass",
+    )
+    env.update(
+        {
+            "PREFLIGHT_READY": str(preflight_ready),
+            "PREFLIGHT_CHILD_PID": str(child_pid_path),
+            "PREFLIGHT_DELAYED": str(delayed_marker),
+        }
+    )
+    proc = subprocess.Popen(
+        ["/bin/bash", str(hook)],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        env=env,
+    )
+    child_pid = None
+    try:
+        assert proc.stdin is not None
+        proc.stdin.write(
+            json.dumps(
+                {
+                    "prompt": "block consolidated preflight",
+                    "session_id": "parent-term-preflight",
+                    "cwd": "/repo",
+                    "hook_event_name": "UserPromptSubmit",
+                }
+            )
+        )
+        proc.stdin.close()
+        deadline = time.monotonic() + 5
+        while not preflight_ready.exists() and time.monotonic() < deadline:
+            if proc.poll() is not None:
+                break
+            time.sleep(0.02)
+        assert preflight_ready.exists(), "preflight never reached the blocked stage"
+        child_pid = int(child_pid_path.read_text(encoding="utf-8"))
+        protocol_tmp = tmp_path / "protocol-tmp"
+        assert len(list(protocol_tmp.glob("amh-hook-raw.*"))) == 1
+        assert len(list(protocol_tmp.glob("amh-hook-preflight.*"))) == 1
+
+        started = time.monotonic()
+        os.kill(proc.pid, signal.SIGTERM)
+        returncode = proc.wait(timeout=5)
+        elapsed = time.monotonic() - started
+    finally:
+        if proc.poll() is None:
+            os.kill(proc.pid, signal.SIGKILL)
+            proc.wait(timeout=5)
+        if child_pid is not None and _pid_exists(child_pid):
+            os.kill(child_pid, signal.SIGKILL)
+        if proc.stdin is not None and not proc.stdin.closed:
+            proc.stdin.close()
+        if proc.stdout is not None:
+            proc.stdout.close()
+        if proc.stderr is not None:
+            proc.stderr.close()
+
+    assert returncode == 128 + signal.SIGTERM
+    assert elapsed < 1.0
+    assert child_pid is not None
+    assert not _pid_exists(child_pid)
+    time.sleep(0.2)
+    assert not delayed_marker.exists()
+    assert list((tmp_path / "protocol-tmp").iterdir()) == []
 
 
 def test_user_prompt_hook_does_not_execute_shell_syntax_from_prompt(tmp_path):
@@ -2540,6 +2768,187 @@ def test_user_prompt_hook_uses_multimodal_caption_for_recall(tmp_path):
     from agent_brain.memory.evidence.resource_store import ResourceStore
 
     assert len(list(ResourceStore(tmp_path).iter_extractions())) == 1
+
+
+def test_user_prompt_hook_empty_prompt_uses_caption_for_recall(tmp_path):
+    from agent_brain.memory.evidence.resource_store import ResourceStore
+
+    script = Path(__file__).resolve().parents[2] / "agent_runtime_kit" / "hooks" / "inject-context.sh"
+    store = ItemsStore(tmp_path / "items")
+    embedder = HashingEmbedder()
+    idx = HubIndex(tmp_path / "index.db", embedding_dim=embedder.dim)
+    item = MemoryItem(
+        id="mem-20260718-010000-empty-prompt-gateway-timeout",
+        type=MemoryType.episode,
+        created_at=datetime.now(timezone.utc),
+        title="gateway timeout caption target",
+        summary="gateway timeout caption target",
+    )
+    body = "gateway timeout caption target"
+    store.write(item, body)
+    idx.upsert(item, body, embedding=embedder.embed(body))
+    idx.close()
+    env = {
+        **os.environ,
+        "BRAIN_DIR": str(tmp_path),
+        "AGENT_MEMORY_HUB_ADAPTER": "codex",
+        "MEMORY_HUB_TEST_EMBEDDING": "1",
+        "MEMORY_HUB_EMBEDDING_OFFLINE": "1",
+    }
+
+    result = subprocess.run(
+        ["/bin/bash", str(script)],
+        input=json.dumps(
+            {
+                "prompt": "",
+                "session_id": "empty-prompt-caption",
+                "cwd": "/repo/current",
+                "hook_event_name": "UserPromptSubmit",
+                "images": [
+                    {
+                        "name": "gateway.png",
+                        "uri": "memory://gateway.png",
+                        "caption": "gateway timeout caption target",
+                    }
+                ],
+            }
+        ),
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    context = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
+    assert item.title in context
+    resources = ResourceStore(tmp_path)
+    assert len(list(resources.iter_resources())) == 1
+    assert len(list(resources.iter_extractions())) == 1
+
+
+def test_user_prompt_hook_empty_prompt_records_missing_multimodal_gap(tmp_path):
+    from agent_brain.memory.evidence.resource_store import ResourceStore
+    from agent_brain.memory.governance.recall_events import iter_gap_records
+
+    script = Path(__file__).resolve().parents[2] / "agent_runtime_kit" / "hooks" / "inject-context.sh"
+    (tmp_path / "items").mkdir()
+    env = {
+        **os.environ,
+        "BRAIN_DIR": str(tmp_path),
+        "AGENT_MEMORY_HUB_ADAPTER": "codex",
+        "MEMORY_HUB_TEST_EMBEDDING": "1",
+        "MEMORY_HUB_EMBEDDING_OFFLINE": "1",
+    }
+
+    result = subprocess.run(
+        ["/bin/bash", str(script)],
+        input=json.dumps(
+            {
+                "prompt": "",
+                "session_id": "empty-prompt-gap",
+                "cwd": "/repo/current",
+                "hook_event_name": "UserPromptSubmit",
+                "images": [{"name": "[Image #1]", "uri": "memory://missing.png"}],
+            }
+        ),
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == {}
+    resources = ResourceStore(tmp_path)
+    [resource] = list(resources.iter_resources())
+    assert resource.metadata["extraction_status"] == "missing"
+    gaps = list(iter_gap_records(tmp_path))
+    assert len(gaps) == 1
+    assert gaps[0].reason == "multimodal_extraction_missing"
+
+
+def test_user_prompt_hook_empty_prompt_preflight_failure_uses_legacy_multimodal(
+    tmp_path,
+):
+    from agent_brain.agent_integrations.runtime_events import iter_runtime_events
+    from agent_brain.memory.evidence.resource_store import ResourceStore
+
+    hook, preflight_calls, legacy_record_calls = _write_preflight_probe_runtime(
+        tmp_path,
+        preflight_mode="exit91",
+        search_status="injected",
+    )
+    env = _preflight_probe_env(
+        tmp_path,
+        preflight_calls,
+        legacy_record_calls,
+        preflight_mode="exit91",
+    )
+    result = subprocess.run(
+        ["/bin/bash", str(hook)],
+        input=json.dumps(
+            {
+                "prompt": "",
+                "session_id": "empty-prompt-fallback",
+                "cwd": "/repo/current",
+                "hook_event_name": "UserPromptSubmit",
+                "images": [
+                    {
+                        "name": "gateway.png",
+                        "uri": "memory://gateway.png",
+                        "caption": "gateway timeout fallback caption",
+                    }
+                ],
+            }
+        ),
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "consolidated preflight context" in result.stdout
+    assert preflight_calls.read_text(encoding="utf-8").splitlines() == ["called"]
+    assert legacy_record_calls.read_text(encoding="utf-8").splitlines() == ["called"]
+    assert len(list(iter_runtime_events(tmp_path / "brain"))) == 1
+    resources = ResourceStore(tmp_path / "brain")
+    assert len(list(resources.iter_resources())) == 1
+    assert len(list(resources.iter_extractions())) == 1
+    assert (tmp_path / "search-query.txt").read_text(encoding="utf-8") == (
+        "gateway timeout fallback caption"
+    )
+
+
+def test_user_prompt_hook_empty_prompt_without_attachment_does_not_search(tmp_path):
+    from agent_brain.agent_integrations.runtime_events import iter_runtime_events
+
+    hook, preflight_calls, legacy_record_calls = _write_preflight_probe_runtime(tmp_path)
+    env = _preflight_probe_env(
+        tmp_path,
+        preflight_calls,
+        legacy_record_calls,
+        preflight_mode="pass",
+    )
+    result = subprocess.run(
+        ["/bin/bash", str(hook)],
+        input=json.dumps(
+            {
+                "prompt": "",
+                "session_id": "empty-prompt-no-attachment",
+                "cwd": "/repo/current",
+                "hook_event_name": "UserPromptSubmit",
+            }
+        ),
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == {}
+    assert preflight_calls.read_text(encoding="utf-8").splitlines() == ["called"]
+    assert not legacy_record_calls.exists()
+    assert len(list(iter_runtime_events(tmp_path / "brain"))) == 1
+    assert not (tmp_path / "search-query.txt").exists()
 
 
 def test_user_prompt_hook_uses_image_path_ocr_for_recall(tmp_path):

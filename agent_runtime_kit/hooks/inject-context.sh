@@ -70,6 +70,8 @@ PY
 PROTOCOL_FILE=""
 RAW_PAYLOAD_FILE=""
 RAW_PAYLOAD_FD_OPEN=0
+RAW_INPUT_FD_OPEN=0
+ACTIVE_CHILD_PID=""
 
 remove_private_file() {
   local target="$1"
@@ -92,6 +94,10 @@ remove_protocol_file() {
 }
 
 remove_raw_payload_file() {
+  if [ "$RAW_INPUT_FD_OPEN" -eq 1 ]; then
+    exec 6<&- || true
+    RAW_INPUT_FD_OPEN=0
+  fi
   if [ "$RAW_PAYLOAD_FD_OPEN" -eq 1 ]; then
     exec 7>&- || true
     RAW_PAYLOAD_FD_OPEN=0
@@ -109,6 +115,34 @@ cleanup_hook_files() {
   remove_protocol_file || cleanup_status=1
   remove_raw_payload_file || cleanup_status=1
   return "$cleanup_status"
+}
+
+terminate_active_child() {
+  local child_pid="${ACTIVE_CHILD_PID:-}"
+  ACTIVE_CHILD_PID=""
+  [ -n "$child_pid" ] || return 0
+  kill -TERM "$child_pid" 2>/dev/null || true
+  kill -KILL "$child_pid" 2>/dev/null || true
+  wait "$child_pid" 2>/dev/null || true
+}
+
+wait_for_active_child() {
+  local child_pid="${ACTIVE_CHILD_PID:-}"
+  local child_status
+  [ -n "$child_pid" ] || return 125
+  set +e
+  wait "$child_pid"
+  child_status=$?
+  set -e
+  if [ "${ACTIVE_CHILD_PID:-}" = "$child_pid" ]; then
+    ACTIVE_CHILD_PID=""
+  fi
+  return "$child_status"
+}
+
+cleanup_hook_state() {
+  terminate_active_child
+  cleanup_hook_files
 }
 
 create_protocol_file() {
@@ -159,11 +193,11 @@ create_raw_payload_file() {
 handle_hook_signal() {
   local signal_number="$1"
   trap - HUP INT TERM
-  cleanup_hook_files || true
+  cleanup_hook_state || true
   exit $((128 + signal_number))
 }
 
-trap 'cleanup_hook_files || true' EXIT
+trap 'cleanup_hook_state || true' EXIT
 trap 'handle_hook_signal 1' HUP
 trap 'handle_hook_signal 2' INT
 trap 'handle_hook_signal 15' TERM
@@ -172,10 +206,16 @@ if ! create_raw_payload_file; then
   echo '{}'
   exit 0
 fi
-if ! cat >&7; then
+exec 6<&0
+RAW_INPUT_FD_OPEN=1
+cat <&6 >&7 &
+ACTIVE_CHILD_PID=$!
+if ! wait_for_active_child; then
   echo '{}'
   exit 0
 fi
+exec 6<&-
+RAW_INPUT_FD_OPEN=0
 exec 7>&-
 RAW_PAYLOAD_FD_OPEN=0
 PAYLOAD_FIELDS=()
@@ -184,7 +224,9 @@ if ! create_protocol_file "amh-hook-payload"; then
   echo '{}'
   exit 0
 fi
-if ! python3 "$PAYLOAD_PARSER" <"$RAW_PAYLOAD_FILE" >"$PROTOCOL_FILE" 2>/dev/null; then
+python3 "$PAYLOAD_PARSER" <"$RAW_PAYLOAD_FILE" >"$PROTOCOL_FILE" 2>/dev/null &
+ACTIVE_CHILD_PID=$!
+if ! wait_for_active_child; then
   echo '{}'
   exit 0
 fi
@@ -202,7 +244,7 @@ CWD="${PAYLOAD_FIELDS[3]}"
 HOOK_EVENT_NAME="${PAYLOAD_FIELDS[4]}"
 
 RESOLVER_READY=0
-if [ -n "$PROMPT" ] && [ -f "$PYTHON_RESOLVER" ]; then
+if [ -f "$PYTHON_RESOLVER" ]; then
   # Resolve and verify once in the parent hook. Child runtime/search shims
   # inherit the exported verdict instead of repeatedly importing the full CLI.
   # Never trust a verdict inherited from the user's outer environment: this
@@ -226,10 +268,11 @@ MULTIMODAL_GAP_JSON=""
 MULTIMODAL_QUERY_HASH=""
 
 run_legacy_preflight() {
-  local normalized_prompt=""
-  local multimodal_recall_text=""
-  RECALL_PROMPT="$PROMPT"
-  MULTIMODAL_GAP_JSON=""
+  run_legacy_evidence
+  run_legacy_derivation
+}
+
+run_legacy_evidence() {
   if [ -x "$RECORD_TOOL" ]; then
     "$RECORD_TOOL" \
       --adapter "${AGENT_MEMORY_HUB_ADAPTER:-unknown}" \
@@ -238,12 +281,28 @@ run_legacy_preflight() {
       --cwd "$CWD" \
       >/dev/null 2>&1 || true
   fi
-  if [ -n "$PROMPT" ] && [ -n "${MEMORY_PYTHON:-}" ]; then
-    "$MEMORY_PYTHON" -m agent_brain.memory.evidence.hook_capture prompt <"$RAW_PAYLOAD_FILE" \
-      >/dev/null 2>&1 || true
-    normalized_prompt=$(printf '%s' "$PROMPT" | "$MEMORY_PYTHON" -m agent_brain.memory.context.prompt_normalization 2>/dev/null || true)
-    if [ -n "$normalized_prompt" ]; then
-      RECALL_PROMPT="$normalized_prompt"
+  if [ -n "${MEMORY_PYTHON:-}" ]; then
+    if [ -n "$PROMPT" ]; then
+      "$MEMORY_PYTHON" -m agent_brain.memory.evidence.hook_capture prompt <"$RAW_PAYLOAD_FILE" \
+        >/dev/null 2>&1 || true
+    else
+      "$MEMORY_PYTHON" -m agent_brain.memory.evidence.multimodal_capture capture <"$RAW_PAYLOAD_FILE" \
+        >/dev/null 2>&1 || true
+    fi
+  fi
+}
+
+run_legacy_derivation() {
+  local normalized_prompt=""
+  local multimodal_recall_text=""
+  RECALL_PROMPT="$PROMPT"
+  MULTIMODAL_GAP_JSON=""
+  if [ -n "${MEMORY_PYTHON:-}" ]; then
+    if [ -n "$PROMPT" ]; then
+      normalized_prompt=$(printf '%s' "$PROMPT" | "$MEMORY_PYTHON" -m agent_brain.memory.context.prompt_normalization 2>/dev/null || true)
+      if [ -n "$normalized_prompt" ]; then
+        RECALL_PROMPT="$normalized_prompt"
+      fi
     fi
     multimodal_recall_text=$("$MEMORY_PYTHON" -m agent_brain.memory.evidence.multimodal_capture recall-text <"$RAW_PAYLOAD_FILE" 2>/dev/null || true)
     MULTIMODAL_GAP_JSON=$("$MEMORY_PYTHON" -m agent_brain.memory.evidence.multimodal_capture gap-json <"$RAW_PAYLOAD_FILE" 2>/dev/null || true)
@@ -261,10 +320,12 @@ run_consolidated_preflight() {
   local preflight_fields=()
   local protocol_field
   create_protocol_file "amh-hook-preflight" || return 1
-  if ! "$MEMORY_PYTHON" -m agent_brain.memory.evidence.hook_preflight \
+  "$MEMORY_PYTHON" -m agent_brain.memory.evidence.hook_preflight \
     --brain-dir "$BRAIN_DIR" \
     --adapter "${AGENT_MEMORY_HUB_ADAPTER:-unknown}" \
-    <"$RAW_PAYLOAD_FILE" >"$PROTOCOL_FILE" 2>/dev/null; then
+    <"$RAW_PAYLOAD_FILE" >"$PROTOCOL_FILE" 2>/dev/null &
+  ACTIVE_CHILD_PID=$!
+  if ! wait_for_active_child; then
     remove_protocol_file
     return 1
   fi
@@ -273,7 +334,7 @@ run_consolidated_preflight() {
   done <"$PROTOCOL_FILE"
   remove_protocol_file
   if [ -n "$protocol_field" ] || [ "${#preflight_fields[@]}" -ne 4 ] || [ "${preflight_fields[0]}" != "amh-hook-preflight-v1" ]; then
-    return 1
+    return 2
   fi
   RECALL_PROMPT="$PROMPT"
   if [ -n "${preflight_fields[1]}" ]; then
@@ -291,7 +352,16 @@ run_consolidated_preflight() {
 }
 
 if [ "$RESOLVER_READY" -eq 1 ]; then
-  run_consolidated_preflight || run_legacy_preflight
+  if run_consolidated_preflight; then
+    :
+  else
+    PREFLIGHT_STATUS=$?
+    if [ "$PREFLIGHT_STATUS" -eq 1 ]; then
+      run_legacy_preflight
+    else
+      run_legacy_derivation
+    fi
+  fi
 else
   run_legacy_preflight
 fi
@@ -315,7 +385,10 @@ sys.stdout.write("sha256:" + digest.hexdigest())
     MULTIMODAL_QUERY_HASH=""
   fi
 fi
-[ -z "$RECALL_PROMPT" ] && { echo '{}'; exit 0; }
+if [ -z "$RECALL_PROMPT" ] && [ -z "$MULTIMODAL_GAP_JSON" ]; then
+  echo '{}'
+  exit 0
+fi
 
 # 动态 K — 根据 prompt 长度调整注入条数（短 prompt 不需要太多上下文）
 PROMPT_LEN=${#RECALL_PROMPT}

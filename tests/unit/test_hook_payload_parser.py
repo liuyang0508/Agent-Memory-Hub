@@ -249,9 +249,28 @@ def test_parser_rejects_nul_in_protocol_strings(field: str):
 
     result = _run_payload(payload)
 
-    assert result.returncode != 0
+    assert result.returncode == 2
     assert result.stdout == b""
-    assert result.stderr == f"parse-hook-payload: NUL byte in field: {field}\n".encode()
+    assert result.stderr == b"parse-hook-payload: decoded NUL in JSON string\n"
+
+
+@pytest.mark.parametrize(
+    "payload",
+    (
+        {"images": [{"caption": "before\0after"}]},
+        {"images": [{"name": "before\0after"}]},
+        {"images": [{"path": "before\0after"}]},
+        {"images": [{"metadata": {"nested": ["before\0after"]}}]},
+        {"images": [{"metadata": {"before\0after": "value"}}]},
+    ),
+    ids=("caption", "name", "path", "nested-value", "nested-key"),
+)
+def test_parser_rejects_decoded_nul_anywhere_in_payload(payload: object):
+    result = _run_payload(payload)
+
+    assert result.returncode == 2
+    assert result.stdout == b""
+    assert result.stderr == b"parse-hook-payload: decoded NUL in JSON string\n"
 
 
 def test_parser_is_executable_and_does_not_import_agent_brain():

@@ -117,13 +117,15 @@ def test_hook_uses_versioned_payload_parser_and_consolidated_preflight():
     assert "run_legacy_preflight()" in source
     assert "umask 077" in source
     assert "set -o noclobber" in source
-    assert "trap 'cleanup_hook_files || true' EXIT" in source
+    assert "trap 'cleanup_hook_state || true' EXIT" in source
     assert "trap 'handle_hook_signal 1' HUP" in source
     assert "trap 'handle_hook_signal 2' INT" in source
     assert "trap 'handle_hook_signal 15' TERM" in source
     assert "INPUT=$(cat)" not in source
     assert "RAW_PAYLOAD_FILE" in source
     assert source.count('<"$RAW_PAYLOAD_FILE"') >= 5
+    assert "ACTIVE_CHILD_PID" in source
+    assert "wait_for_active_child" in source
     assert "eval " not in source
     assert "payload = json.load(sys.stdin)" not in source
     assert "d=json.load(sys.stdin)" not in source
