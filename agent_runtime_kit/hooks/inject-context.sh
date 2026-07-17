@@ -68,17 +68,47 @@ PY
 }
 
 PROTOCOL_FILE=""
+RAW_PAYLOAD_FILE=""
+RAW_PAYLOAD_FD_OPEN=0
+
+remove_private_file() {
+  local target="$1"
+  if [ -x /bin/rm ]; then
+    /bin/rm -f "$target"
+  elif [ -x /usr/bin/rm ]; then
+    /usr/bin/rm -f "$target"
+  else
+    rm -f "$target"
+  fi
+}
 
 remove_protocol_file() {
   [ -n "${PROTOCOL_FILE:-}" ] || return 0
-  if [ -x /bin/rm ]; then
-    /bin/rm -f "$PROTOCOL_FILE"
-  elif [ -x /usr/bin/rm ]; then
-    /usr/bin/rm -f "$PROTOCOL_FILE"
-  else
-    rm -f "$PROTOCOL_FILE"
+  if remove_private_file "$PROTOCOL_FILE"; then
+    PROTOCOL_FILE=""
+    return 0
   fi
-  PROTOCOL_FILE=""
+  return 1
+}
+
+remove_raw_payload_file() {
+  if [ "$RAW_PAYLOAD_FD_OPEN" -eq 1 ]; then
+    exec 7>&- || true
+    RAW_PAYLOAD_FD_OPEN=0
+  fi
+  [ -n "${RAW_PAYLOAD_FILE:-}" ] || return 0
+  if remove_private_file "$RAW_PAYLOAD_FILE"; then
+    RAW_PAYLOAD_FILE=""
+    return 0
+  fi
+  return 1
+}
+
+cleanup_hook_files() {
+  local cleanup_status=0
+  remove_protocol_file || cleanup_status=1
+  remove_raw_payload_file || cleanup_status=1
+  return "$cleanup_status"
 }
 
 create_protocol_file() {
@@ -96,26 +126,65 @@ create_protocol_file() {
   return 1
 }
 
+create_raw_payload_file() {
+  local attempts=0
+  local candidate
+  local original_umask
+  local noclobber_was_set=0
+  local created=0
+  original_umask=$(umask)
+  case "$-" in
+    *C*) noclobber_was_set=1 ;;
+  esac
+  umask 077
+  set -C
+  while [ "$attempts" -lt 20 ]; do
+    candidate="${TMPDIR:-/tmp}/amh-hook-raw.$$.$RANDOM.$RANDOM"
+    RAW_PAYLOAD_FILE="$candidate"
+    if { exec 7>"$candidate"; } 2>/dev/null; then
+      RAW_PAYLOAD_FD_OPEN=1
+      created=1
+      break
+    fi
+    RAW_PAYLOAD_FILE=""
+    attempts=$((attempts + 1))
+  done
+  if [ "$noclobber_was_set" -eq 0 ]; then
+    set +C
+  fi
+  umask "$original_umask"
+  [ "$created" -eq 1 ]
+}
+
 handle_hook_signal() {
   local signal_number="$1"
   trap - HUP INT TERM
-  remove_protocol_file
+  cleanup_hook_files || true
   exit $((128 + signal_number))
 }
 
-trap remove_protocol_file EXIT
+trap 'cleanup_hook_files || true' EXIT
 trap 'handle_hook_signal 1' HUP
 trap 'handle_hook_signal 2' INT
 trap 'handle_hook_signal 15' TERM
 
-INPUT=$(cat)
+if ! create_raw_payload_file; then
+  echo '{}'
+  exit 0
+fi
+if ! cat >&7; then
+  echo '{}'
+  exit 0
+fi
+exec 7>&-
+RAW_PAYLOAD_FD_OPEN=0
 PAYLOAD_FIELDS=()
 PROTOCOL_FIELD=""
 if ! create_protocol_file "amh-hook-payload"; then
   echo '{}'
   exit 0
 fi
-if ! printf '%s' "$INPUT" | python3 "$PAYLOAD_PARSER" >"$PROTOCOL_FILE" 2>/dev/null; then
+if ! python3 "$PAYLOAD_PARSER" <"$RAW_PAYLOAD_FILE" >"$PROTOCOL_FILE" 2>/dev/null; then
   echo '{}'
   exit 0
 fi
@@ -170,14 +239,14 @@ run_legacy_preflight() {
       >/dev/null 2>&1 || true
   fi
   if [ -n "$PROMPT" ] && [ -n "${MEMORY_PYTHON:-}" ]; then
-    printf '%s' "$INPUT" | "$MEMORY_PYTHON" -m agent_brain.memory.evidence.hook_capture prompt \
+    "$MEMORY_PYTHON" -m agent_brain.memory.evidence.hook_capture prompt <"$RAW_PAYLOAD_FILE" \
       >/dev/null 2>&1 || true
     normalized_prompt=$(printf '%s' "$PROMPT" | "$MEMORY_PYTHON" -m agent_brain.memory.context.prompt_normalization 2>/dev/null || true)
     if [ -n "$normalized_prompt" ]; then
       RECALL_PROMPT="$normalized_prompt"
     fi
-    multimodal_recall_text=$(printf '%s' "$INPUT" | "$MEMORY_PYTHON" -m agent_brain.memory.evidence.multimodal_capture recall-text 2>/dev/null || true)
-    MULTIMODAL_GAP_JSON=$(printf '%s' "$INPUT" | "$MEMORY_PYTHON" -m agent_brain.memory.evidence.multimodal_capture gap-json 2>/dev/null || true)
+    multimodal_recall_text=$("$MEMORY_PYTHON" -m agent_brain.memory.evidence.multimodal_capture recall-text <"$RAW_PAYLOAD_FILE" 2>/dev/null || true)
+    MULTIMODAL_GAP_JSON=$("$MEMORY_PYTHON" -m agent_brain.memory.evidence.multimodal_capture gap-json <"$RAW_PAYLOAD_FILE" 2>/dev/null || true)
     if [ -n "$multimodal_recall_text" ]; then
       if [ -n "$RECALL_PROMPT" ]; then
         RECALL_PROMPT="${RECALL_PROMPT}"$'\n'"${multimodal_recall_text}"
@@ -192,10 +261,10 @@ run_consolidated_preflight() {
   local preflight_fields=()
   local protocol_field
   create_protocol_file "amh-hook-preflight" || return 1
-  if ! printf '%s' "$INPUT" | "$MEMORY_PYTHON" -m agent_brain.memory.evidence.hook_preflight \
+  if ! "$MEMORY_PYTHON" -m agent_brain.memory.evidence.hook_preflight \
     --brain-dir "$BRAIN_DIR" \
     --adapter "${AGENT_MEMORY_HUB_ADAPTER:-unknown}" \
-    >"$PROTOCOL_FILE" 2>/dev/null; then
+    <"$RAW_PAYLOAD_FILE" >"$PROTOCOL_FILE" 2>/dev/null; then
     remove_protocol_file
     return 1
   fi
@@ -225,6 +294,10 @@ if [ "$RESOLVER_READY" -eq 1 ]; then
   run_consolidated_preflight || run_legacy_preflight
 else
   run_legacy_preflight
+fi
+if ! remove_raw_payload_file; then
+  echo '{}'
+  exit 0
 fi
 
 if [ -n "$MULTIMODAL_GAP_JSON" ] && [ -n "${MEMORY_PYTHON:-}" ]; then

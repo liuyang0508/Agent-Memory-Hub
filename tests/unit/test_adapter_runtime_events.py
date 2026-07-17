@@ -664,6 +664,137 @@ def test_user_prompt_hook_rejects_invalid_payload_parser_protocol(
     assert list(protocol_tmp.iterdir()) == []
 
 
+def _write_raw_payload_probe_runtime(
+    tmp_path: Path,
+) -> tuple[Path, dict[str, Path], Path]:
+    repo = Path(__file__).resolve().parents[2]
+    runtime = tmp_path / "runtime" / "agent_runtime_kit"
+    hooks_dir = runtime / "hooks"
+    tools_dir = runtime / "tools"
+    bin_dir = tmp_path / "bin"
+    hooks_dir.mkdir(parents=True)
+    tools_dir.mkdir(parents=True)
+    bin_dir.mkdir()
+    _copy_user_prompt_hook_runtime(repo, hooks_dir, tools_dir)
+    markers = {
+        name: tmp_path / f"{name}-calls.txt"
+        for name in ("parser", "preflight", "legacy-record", "search")
+    }
+    parser_wrapper = bin_dir / "python3"
+    parser_wrapper.write_text(
+        "#!/bin/sh\n"
+        "case \"${1:-}\" in\n"
+        "  */parse-hook-payload.py) printf 'called\\n' >> \"$PARSER_CALLS\" ;;\n"
+        "esac\n"
+        "exec \"$REAL_PYTHON\" \"$@\"\n",
+        encoding="utf-8",
+    )
+    parser_wrapper.chmod(0o755)
+    memory_wrapper = tmp_path / "memory-python"
+    memory_wrapper.write_text(
+        "#!/bin/sh\n"
+        "if [ \"${1:-}\" = '-m' ] && "
+        "[ \"${2:-}\" = 'agent_brain.memory.evidence.hook_preflight' ]; then\n"
+        "  printf 'called\\n' >> \"$PREFLIGHT_CALLS\"\n"
+        "fi\n"
+        "exec \"$REAL_PYTHON\" \"$@\"\n",
+        encoding="utf-8",
+    )
+    memory_wrapper.chmod(0o755)
+    (tools_dir / "_resolve-python.sh").write_text(
+        f'MEMORY_PYTHON="{memory_wrapper}"\n_PYTHON_OK=0\n',
+        encoding="utf-8",
+    )
+    (tools_dir / "record-runtime-event.sh").write_text(
+        "#!/bin/sh\n"
+        "printf 'called\\n' >> \"$LEGACY_RECORD_CALLS\"\n"
+        "exec \"$REAL_PYTHON\" -m agent_brain.agent_integrations.runtime_events "
+        "record --brain-dir \"$BRAIN_DIR\" \"$@\"\n",
+        encoding="utf-8",
+    )
+    (tools_dir / "search-memory.sh").write_text(
+        "#!/bin/sh\n"
+        "printf 'called\\n' >> \"$SEARCH_CALLS\"\n"
+        "printf '%s\\n' "
+        "'{\"status\":\"empty\",\"reason\":\"no_candidates\","
+        "\"context\":\"\",\"routes\":[]}'\n",
+        encoding="utf-8",
+    )
+    for script in tools_dir.iterdir():
+        script.chmod(0o755)
+    protocol_tmp = tmp_path / "protocol-tmp"
+    protocol_tmp.mkdir()
+    return hooks_dir / "inject-context.sh", markers, protocol_tmp
+
+
+@pytest.mark.parametrize(
+    ("field", "raw_payload"),
+    (
+        (
+            "prompt",
+            b'{"prompt":"before\0after","session_id":"nul-prompt","cwd":"/repo",'
+            b'"hook_event_name":"UserPromptSubmit"}',
+        ),
+        (
+            "session_id",
+            b'{"prompt":"","session_id":"abc\0def","cwd":"/repo",'
+            b'"hook_event_name":"UserPromptSubmit"}',
+        ),
+        (
+            "cwd",
+            b'{"prompt":"","session_id":"nul-cwd","cwd":"/repo\0/other",'
+            b'"hook_event_name":"UserPromptSubmit"}',
+        ),
+        (
+            "hook_event_name",
+            b'{"prompt":"","session_id":"nul-event","cwd":"/repo",'
+            b'"hook_event_name":"User\0PromptSubmit"}',
+        ),
+    ),
+)
+def test_user_prompt_hook_rejects_raw_nul_without_side_effects(
+    tmp_path,
+    field,
+    raw_payload,
+):
+    hook, markers, protocol_tmp = _write_raw_payload_probe_runtime(tmp_path)
+    brain_dir = tmp_path / "brain"
+    env = {
+        **os.environ,
+        "PATH": f"{tmp_path / 'bin'}{os.pathsep}{os.environ.get('PATH', '')}",
+        "PYTHONPATH": (
+            f"{Path(__file__).resolve().parents[2]}{os.pathsep}"
+            f"{os.environ.get('PYTHONPATH', '')}"
+        ),
+        "REAL_PYTHON": sys.executable,
+        "PARSER_CALLS": str(markers["parser"]),
+        "PREFLIGHT_CALLS": str(markers["preflight"]),
+        "LEGACY_RECORD_CALLS": str(markers["legacy-record"]),
+        "SEARCH_CALLS": str(markers["search"]),
+        "TMPDIR": str(protocol_tmp),
+        "BRAIN_DIR": str(brain_dir),
+        "AGENT_MEMORY_HUB_ADAPTER": "codex",
+    }
+
+    result = subprocess.run(
+        ["/bin/bash", str(hook)],
+        input=raw_payload,
+        env=env,
+        capture_output=True,
+        timeout=5,
+    )
+
+    assert result.returncode == 0, (field, result.stderr)
+    assert result.stdout == b"{}\n"
+    assert result.stderr == b""
+    assert markers["parser"].read_text(encoding="utf-8").splitlines() == ["called"]
+    assert not markers["preflight"].exists()
+    assert not markers["legacy-record"].exists()
+    assert not markers["search"].exists()
+    assert not brain_dir.exists()
+    assert list(protocol_tmp.iterdir()) == []
+
+
 @pytest.mark.parametrize(
     "hook_signal",
     (signal.SIGHUP, signal.SIGINT, signal.SIGTERM),
@@ -736,8 +867,12 @@ def test_user_prompt_hook_signal_cleans_blocked_payload_protocol_file(
                 break
             time.sleep(0.02)
         assert parser_ready.exists(), "payload parser never reached the blocked stage"
+        raw_files = list(protocol_tmp.glob("amh-hook-raw.*"))
         protocol_files = list(protocol_tmp.glob("amh-hook-payload.*"))
+        assert len(raw_files) == 1
         assert len(protocol_files) == 1
+        assert raw_files[0].stat().st_mode & 0o777 == 0o600
+        assert raw_prompt.encode("utf-8") in raw_files[0].read_bytes()
         assert raw_prompt.encode("utf-8") in protocol_files[0].read_bytes()
 
         os.killpg(proc.pid, hook_signal)
