@@ -99,3 +99,25 @@ def test_hook_selects_the_gateway_backed_cli_mode():
     match = re.search(r"SEARCH_ARGS=\((.*?)\n\)", source, flags=re.DOTALL)
     assert match is not None
     assert re.search(r'^[ \t]*"--context-firewall"[ \t]*$', match.group(1), re.MULTILINE)
+
+
+def test_hook_uses_versioned_payload_parser_and_consolidated_preflight():
+    source = (ROOT / "agent_runtime_kit/hooks/inject-context.sh").read_text(
+        encoding="utf-8",
+    )
+
+    assert 'PAYLOAD_PARSER="$HUB_CODE_DIR/tools/parse-hook-payload.py"' in source
+    assert "amh-hook-payload-v1" in source
+    assert "amh-hook-preflight-v1" in source
+    assert "agent_brain.memory.evidence.hook_preflight" in source
+    assert re.search(
+        r'"\$MEMORY_PYTHON"\s+-m\s+agent_brain\.memory\.evidence\.hook_preflight',
+        source,
+    )
+    assert "run_legacy_preflight()" in source
+    assert "umask 077" in source
+    assert "set -o noclobber" in source
+    assert "trap remove_protocol_file EXIT" in source
+    assert "eval " not in source
+    assert "payload = json.load(sys.stdin)" not in source
+    assert "d=json.load(sys.stdin)" not in source

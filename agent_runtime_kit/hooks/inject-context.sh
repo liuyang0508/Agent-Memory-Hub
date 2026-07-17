@@ -18,6 +18,7 @@ BRAIN_DIR="${BRAIN_DIR:-$HOME/.agent-memory-hub}"
 SEARCH_TOOL="$HUB_CODE_DIR/tools/search-memory.sh"
 RECORD_TOOL="$HUB_CODE_DIR/tools/record-runtime-event.sh"
 PYTHON_RESOLVER="$HUB_CODE_DIR/tools/_resolve-python.sh"
+PAYLOAD_PARSER="$HUB_CODE_DIR/tools/parse-hook-payload.py"
 SEARCH_TIMEOUT_SECONDS="${AGENT_MEMORY_HUB_SEARCH_TIMEOUT_SECONDS:-2}"
 SEARCH_OUTPUT_MAX_BYTES=1048576
 if [ "${MEMORY_HUB_TEST_EMBEDDING:-}" = "1" ] && [ -z "${AGENT_MEMORY_HUB_SEARCH_TIMEOUT_SECONDS:-}" ]; then
@@ -31,6 +32,7 @@ fi
 PREFER_TYPES="decision,signal,fact,episode,handoff,artifact"
 
 [ -x "$SEARCH_TOOL" ] || { echo '{}'; exit 0; }
+[ -f "$PAYLOAD_PARSER" ] || { echo '{}'; exit 0; }
 
 record_hook_latency() {
   local stage="$1"
@@ -65,21 +67,62 @@ with (runtime_dir / "hook-latency.jsonl").open("a", encoding="utf-8") as fh:
 PY
 }
 
-INPUT=$(cat)
-PROMPT_SENTINEL=$'\036'
-PROMPT_WITH_SENTINEL=$(printf '%s' "$INPUT" | python3 -c '
-import json
-import sys
+PROTOCOL_FILE=""
 
-payload = json.load(sys.stdin)
-prompt = payload.get("prompt", "")
-sys.stdout.write(prompt if isinstance(prompt, str) else "")
-sys.stdout.write("\x1e")
-' 2>/dev/null || printf '%s' "$PROMPT_SENTINEL")
-PROMPT=${PROMPT_WITH_SENTINEL%"$PROMPT_SENTINEL"}
-SESSION_ID=$(echo "$INPUT" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("session_id",""))' 2>/dev/null || true)
-CWD=$(echo "$INPUT" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("cwd",""))' 2>/dev/null || true)
-HOOK_EVENT_NAME=$(echo "$INPUT" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("hook_event_name","UserPromptSubmit"))' 2>/dev/null || echo "UserPromptSubmit")
+remove_protocol_file() {
+  [ -n "${PROTOCOL_FILE:-}" ] || return 0
+  if [ -x /bin/rm ]; then
+    /bin/rm -f "$PROTOCOL_FILE"
+  elif [ -x /usr/bin/rm ]; then
+    /usr/bin/rm -f "$PROTOCOL_FILE"
+  else
+    rm -f "$PROTOCOL_FILE"
+  fi
+  PROTOCOL_FILE=""
+}
+
+create_protocol_file() {
+  local prefix="$1"
+  local attempts=0
+  local candidate
+  while [ "$attempts" -lt 20 ]; do
+    candidate="${TMPDIR:-/tmp}/${prefix}.$$.$RANDOM.$RANDOM"
+    if (umask 077; set -o noclobber; : > "$candidate") 2>/dev/null; then
+      PROTOCOL_FILE="$candidate"
+      return 0
+    fi
+    attempts=$((attempts + 1))
+  done
+  return 1
+}
+
+trap remove_protocol_file EXIT
+
+INPUT=$(cat)
+PAYLOAD_FIELDS=()
+PROTOCOL_FIELD=""
+if ! create_protocol_file "amh-hook-payload"; then
+  echo '{}'
+  exit 0
+fi
+if ! printf '%s' "$INPUT" | python3 "$PAYLOAD_PARSER" >"$PROTOCOL_FILE" 2>/dev/null; then
+  echo '{}'
+  exit 0
+fi
+while IFS= read -r -d '' PROTOCOL_FIELD; do
+  PAYLOAD_FIELDS[${#PAYLOAD_FIELDS[@]}]="$PROTOCOL_FIELD"
+done <"$PROTOCOL_FILE"
+remove_protocol_file
+if [ -n "$PROTOCOL_FIELD" ] || [ "${#PAYLOAD_FIELDS[@]}" -ne 5 ] || [ "${PAYLOAD_FIELDS[0]}" != "amh-hook-payload-v1" ]; then
+  echo '{}'
+  exit 0
+fi
+PROMPT="${PAYLOAD_FIELDS[1]}"
+SESSION_ID="${PAYLOAD_FIELDS[2]}"
+CWD="${PAYLOAD_FIELDS[3]}"
+HOOK_EVENT_NAME="${PAYLOAD_FIELDS[4]}"
+
+RESOLVER_READY=0
 if [ -n "$PROMPT" ] && [ -f "$PYTHON_RESOLVER" ]; then
   # Resolve and verify once in the parent hook. Child runtime/search shims
   # inherit the exported verdict instead of repeatedly importing the full CLI.
@@ -95,38 +138,85 @@ if [ -n "$PROMPT" ] && [ -f "$PYTHON_RESOLVER" ]; then
   # shellcheck source=/dev/null
   source "$PYTHON_RESOLVER"
   export MEMORY_PYTHON AGENT_MEMORY_HUB_PYTHON_RESOLVED
-fi
-if [ -x "$RECORD_TOOL" ]; then
-  "$RECORD_TOOL" \
-    --adapter "${AGENT_MEMORY_HUB_ADAPTER:-unknown}" \
-    --event "$HOOK_EVENT_NAME" \
-    --session "$SESSION_ID" \
-    --cwd "$CWD" \
-    >/dev/null 2>&1 || true
-fi
-
-if [ -n "$PROMPT" ] && [ -n "${MEMORY_PYTHON:-}" ]; then
-  printf '%s' "$INPUT" | "$MEMORY_PYTHON" -m agent_brain.memory.evidence.hook_capture prompt \
-    >/dev/null 2>&1 || true
+  if [ "${_PYTHON_OK:-1}" -eq 0 ] && [ -n "${MEMORY_PYTHON:-}" ]; then
+    RESOLVER_READY=1
+  fi
 fi
 RECALL_PROMPT="$PROMPT"
 MULTIMODAL_GAP_JSON=""
 MULTIMODAL_QUERY_HASH=""
-if [ -n "$PROMPT" ] && [ -n "${MEMORY_PYTHON:-}" ]; then
-  NORMALIZED_PROMPT=$(printf '%s' "$PROMPT" | "$MEMORY_PYTHON" -m agent_brain.memory.context.prompt_normalization 2>/dev/null || true)
-  if [ -n "$NORMALIZED_PROMPT" ]; then
-    RECALL_PROMPT="$NORMALIZED_PROMPT"
+
+run_legacy_preflight() {
+  local normalized_prompt=""
+  local multimodal_recall_text=""
+  RECALL_PROMPT="$PROMPT"
+  MULTIMODAL_GAP_JSON=""
+  if [ -x "$RECORD_TOOL" ]; then
+    "$RECORD_TOOL" \
+      --adapter "${AGENT_MEMORY_HUB_ADAPTER:-unknown}" \
+      --event "$HOOK_EVENT_NAME" \
+      --session "$SESSION_ID" \
+      --cwd "$CWD" \
+      >/dev/null 2>&1 || true
   fi
-  MULTIMODAL_RECALL_TEXT=$(printf '%s' "$INPUT" | "$MEMORY_PYTHON" -m agent_brain.memory.evidence.multimodal_capture recall-text 2>/dev/null || true)
-  MULTIMODAL_GAP_JSON=$(printf '%s' "$INPUT" | "$MEMORY_PYTHON" -m agent_brain.memory.evidence.multimodal_capture gap-json 2>/dev/null || true)
-  if [ -n "$MULTIMODAL_RECALL_TEXT" ]; then
-    if [ -n "$RECALL_PROMPT" ]; then
-      RECALL_PROMPT="${RECALL_PROMPT}"$'\n'"${MULTIMODAL_RECALL_TEXT}"
-    else
-      RECALL_PROMPT="$MULTIMODAL_RECALL_TEXT"
+  if [ -n "$PROMPT" ] && [ -n "${MEMORY_PYTHON:-}" ]; then
+    printf '%s' "$INPUT" | "$MEMORY_PYTHON" -m agent_brain.memory.evidence.hook_capture prompt \
+      >/dev/null 2>&1 || true
+    normalized_prompt=$(printf '%s' "$PROMPT" | "$MEMORY_PYTHON" -m agent_brain.memory.context.prompt_normalization 2>/dev/null || true)
+    if [ -n "$normalized_prompt" ]; then
+      RECALL_PROMPT="$normalized_prompt"
+    fi
+    multimodal_recall_text=$(printf '%s' "$INPUT" | "$MEMORY_PYTHON" -m agent_brain.memory.evidence.multimodal_capture recall-text 2>/dev/null || true)
+    MULTIMODAL_GAP_JSON=$(printf '%s' "$INPUT" | "$MEMORY_PYTHON" -m agent_brain.memory.evidence.multimodal_capture gap-json 2>/dev/null || true)
+    if [ -n "$multimodal_recall_text" ]; then
+      if [ -n "$RECALL_PROMPT" ]; then
+        RECALL_PROMPT="${RECALL_PROMPT}"$'\n'"${multimodal_recall_text}"
+      else
+        RECALL_PROMPT="$multimodal_recall_text"
+      fi
     fi
   fi
+}
+
+run_consolidated_preflight() {
+  local preflight_fields=()
+  local protocol_field
+  create_protocol_file "amh-hook-preflight" || return 1
+  if ! printf '%s' "$INPUT" | "$MEMORY_PYTHON" -m agent_brain.memory.evidence.hook_preflight \
+    --brain-dir "$BRAIN_DIR" \
+    --adapter "${AGENT_MEMORY_HUB_ADAPTER:-unknown}" \
+    >"$PROTOCOL_FILE" 2>/dev/null; then
+    remove_protocol_file
+    return 1
+  fi
+  while IFS= read -r -d '' protocol_field; do
+    preflight_fields[${#preflight_fields[@]}]="$protocol_field"
+  done <"$PROTOCOL_FILE"
+  remove_protocol_file
+  if [ -n "$protocol_field" ] || [ "${#preflight_fields[@]}" -ne 4 ] || [ "${preflight_fields[0]}" != "amh-hook-preflight-v1" ]; then
+    return 1
+  fi
+  RECALL_PROMPT="$PROMPT"
+  if [ -n "${preflight_fields[1]}" ]; then
+    RECALL_PROMPT="${preflight_fields[1]}"
+  fi
+  if [ -n "${preflight_fields[2]}" ]; then
+    if [ -n "$RECALL_PROMPT" ]; then
+      RECALL_PROMPT="${RECALL_PROMPT}"$'\n'"${preflight_fields[2]}"
+    else
+      RECALL_PROMPT="${preflight_fields[2]}"
+    fi
+  fi
+  MULTIMODAL_GAP_JSON="${preflight_fields[3]}"
+  return 0
+}
+
+if [ "$RESOLVER_READY" -eq 1 ]; then
+  run_consolidated_preflight || run_legacy_preflight
+else
+  run_legacy_preflight
 fi
+
 if [ -n "$MULTIMODAL_GAP_JSON" ] && [ -n "${MEMORY_PYTHON:-}" ]; then
   MULTIMODAL_QUERY_HASH=$(printf '%s' "$PROMPT" | "$MEMORY_PYTHON" -c '
 import hashlib

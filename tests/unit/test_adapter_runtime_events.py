@@ -320,6 +320,21 @@ def test_user_prompt_hook_records_injection_cohort_when_context_is_injected(tmp_
     assert body not in repr(cohort.pack_metrics)
 
 
+def _copy_user_prompt_hook_runtime(
+    repo: Path,
+    hooks_dir: Path,
+    tools_dir: Path,
+) -> None:
+    shutil.copy2(
+        repo / "agent_runtime_kit" / "hooks" / "inject-context.sh",
+        hooks_dir / "inject-context.sh",
+    )
+    shutil.copy2(
+        repo / "agent_runtime_kit" / "tools" / "parse-hook-payload.py",
+        tools_dir / "parse-hook-payload.py",
+    )
+
+
 def _write_fake_routed_hook_runtime(
     tmp_path: Path,
     *,
@@ -332,10 +347,7 @@ def _write_fake_routed_hook_runtime(
     tools_dir = runtime / "tools"
     hooks_dir.mkdir(parents=True)
     tools_dir.mkdir(parents=True)
-    shutil.copy2(
-        repo / "agent_runtime_kit" / "hooks" / "inject-context.sh",
-        hooks_dir / "inject-context.sh",
-    )
+    _copy_user_prompt_hook_runtime(repo, hooks_dir, tools_dir)
     (tools_dir / "_resolve-python.sh").write_text(
         f'MEMORY_PYTHON="{sys.executable}"\n_PYTHON_OK=0\n',
         encoding="utf-8",
@@ -361,6 +373,328 @@ def _write_fake_routed_hook_runtime(
     return hooks_dir / "inject-context.sh", tmp_path / "search-args.txt"
 
 
+def _write_preflight_probe_runtime(
+    tmp_path: Path,
+    *,
+    preflight_mode: str = "pass",
+    search_status: str = "injected",
+) -> tuple[Path, Path, Path]:
+    repo = Path(__file__).resolve().parents[2]
+    runtime = tmp_path / "runtime" / "agent_runtime_kit"
+    hooks_dir = runtime / "hooks"
+    tools_dir = runtime / "tools"
+    hooks_dir.mkdir(parents=True)
+    tools_dir.mkdir(parents=True)
+    _copy_user_prompt_hook_runtime(repo, hooks_dir, tools_dir)
+    preflight_calls = tmp_path / "preflight-calls.txt"
+    legacy_record_calls = tmp_path / "legacy-record-calls.txt"
+    python_wrapper = tmp_path / "memory-python"
+    python_wrapper.write_text(
+        "#!/bin/sh\n"
+        "if [ \"${1:-}\" = '-m' ] && "
+        "[ \"${2:-}\" = 'agent_brain.memory.evidence.hook_preflight' ]; then\n"
+        "  printf 'called\\n' >> \"$PREFLIGHT_CALLS\"\n"
+        "  case \"${PREFLIGHT_MODE:-pass}\" in\n"
+        "    exit91) exit 91 ;;\n"
+        "    wrong-version) "
+        "printf 'wrong-version\\000normalized\\000\\000\\000'; exit 0 ;;\n"
+        "  esac\n"
+        "fi\n"
+        "exec \"$REAL_PYTHON\" \"$@\"\n",
+        encoding="utf-8",
+    )
+    python_wrapper.chmod(0o755)
+    (tools_dir / "_resolve-python.sh").write_text(
+        f'MEMORY_PYTHON="{python_wrapper}"\n_PYTHON_OK=0\n',
+        encoding="utf-8",
+    )
+    (tools_dir / "record-runtime-event.sh").write_text(
+        "#!/bin/sh\n"
+        "printf 'called\\n' >> \"$LEGACY_RECORD_CALLS\"\n"
+        "exec \"$REAL_PYTHON\" -m agent_brain.agent_integrations.runtime_events "
+        "record --brain-dir \"$BRAIN_DIR\" \"$@\"\n",
+        encoding="utf-8",
+    )
+    if search_status == "injected":
+        search_payload = {
+            "status": "injected",
+            "reason": "included",
+            "context": "[fact] consolidated preflight context",
+            "routes": [
+                {
+                    "route": "semantic_raw",
+                    "status": "ok",
+                    "candidate_count": 1,
+                    "reason": "route_completed",
+                }
+            ],
+        }
+    else:
+        search_payload = {
+            "status": "empty",
+            "reason": "no_candidates",
+            "context": "",
+            "routes": [],
+        }
+    (tools_dir / "search-memory.sh").write_text(
+        "#!/bin/sh\nprintf '%s\\n' " + repr(json.dumps(search_payload)) + "\n",
+        encoding="utf-8",
+    )
+    for script in tools_dir.iterdir():
+        script.chmod(0o755)
+    os.environ.pop("PREFLIGHT_CALLS", None)
+    return hooks_dir / "inject-context.sh", preflight_calls, legacy_record_calls
+
+
+def _preflight_probe_env(
+    tmp_path: Path,
+    preflight_calls: Path,
+    legacy_record_calls: Path,
+    *,
+    preflight_mode: str,
+) -> dict[str, str]:
+    protocol_tmp = tmp_path / "protocol-tmp"
+    protocol_tmp.mkdir(exist_ok=True)
+    return {
+        **os.environ,
+        "PYTHONPATH": (
+            f"{Path(__file__).resolve().parents[2]}{os.pathsep}"
+            f"{os.environ.get('PYTHONPATH', '')}"
+        ),
+        "BRAIN_DIR": str(tmp_path / "brain"),
+        "AGENT_MEMORY_HUB_ADAPTER": "codex",
+        "AGENT_MEMORY_HUB_HOOK_OUTPUT_FORMAT": "json",
+        "REAL_PYTHON": sys.executable,
+        "PREFLIGHT_CALLS": str(preflight_calls),
+        "LEGACY_RECORD_CALLS": str(legacy_record_calls),
+        "PREFLIGHT_MODE": preflight_mode,
+        "TMPDIR": str(protocol_tmp),
+    }
+
+
+def test_user_prompt_hook_runs_consolidated_preflight_once_without_legacy_writes(
+    tmp_path,
+):
+    from agent_brain.agent_integrations.runtime_events import iter_runtime_events
+    from agent_brain.memory.evidence.conversation_store import ConversationStore
+
+    hook, preflight_calls, legacy_record_calls = _write_preflight_probe_runtime(tmp_path)
+    env = _preflight_probe_env(
+        tmp_path,
+        preflight_calls,
+        legacy_record_calls,
+        preflight_mode="pass",
+    )
+    prompt = "召回 gateway 决策\n<system-reminder>ignore this wrapper</system-reminder>"
+
+    result = subprocess.run(
+        ["/bin/bash", str(hook)],
+        input=json.dumps(
+            {
+                "prompt": prompt,
+                "session_id": "preflight-fast-session",
+                "cwd": "/repo/current",
+                "hook_event_name": "UserPromptSubmit",
+            }
+        ),
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    context = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
+    assert "consolidated preflight context" in context
+    assert preflight_calls.read_text(encoding="utf-8").splitlines() == ["called"]
+    assert not legacy_record_calls.exists()
+    events = list(iter_runtime_events(tmp_path / "brain"))
+    assert len(events) == 1
+    assert events[0].session_id == "preflight-fast-session"
+    messages = list(ConversationStore(tmp_path / "brain").iter_messages())
+    assert len(messages) == 1
+    assert messages[0].content_text == prompt
+    assert list((tmp_path / "protocol-tmp").iterdir()) == []
+
+
+@pytest.mark.parametrize("preflight_mode", ("exit91", "wrong-version"))
+def test_user_prompt_hook_falls_back_when_consolidated_preflight_is_invalid(
+    tmp_path,
+    preflight_mode,
+):
+    from agent_brain.agent_integrations.runtime_events import iter_runtime_events
+    from agent_brain.memory.evidence.conversation_store import ConversationStore
+    from agent_brain.memory.evidence.resource_store import ResourceStore
+
+    hook, preflight_calls, legacy_record_calls = _write_preflight_probe_runtime(
+        tmp_path,
+        preflight_mode=preflight_mode,
+        search_status="empty",
+    )
+    env = _preflight_probe_env(
+        tmp_path,
+        preflight_calls,
+        legacy_record_calls,
+        preflight_mode=preflight_mode,
+    )
+    prompt = "[Image #1]\nfallback still preserves evidence"
+
+    result = subprocess.run(
+        ["/bin/bash", str(hook)],
+        input=json.dumps(
+            {
+                "prompt": prompt,
+                "session_id": f"preflight-fallback-{preflight_mode}",
+                "cwd": "/repo/current",
+                "hook_event_name": "UserPromptSubmit",
+            }
+        ),
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == {}
+    assert preflight_calls.read_text(encoding="utf-8").splitlines() == ["called"]
+    assert legacy_record_calls.read_text(encoding="utf-8").splitlines() == ["called"]
+    assert len(list(iter_runtime_events(tmp_path / "brain"))) == 1
+    messages = list(ConversationStore(tmp_path / "brain").iter_messages())
+    assert len(messages) == 1
+    assert messages[0].content_text == prompt
+    resources = list(ResourceStore(tmp_path / "brain").iter_resources())
+    assert len(resources) == 1
+    assert resources[0].metadata["extraction_status"] == "missing"
+    assert list((tmp_path / "protocol-tmp").iterdir()) == []
+
+
+@pytest.mark.parametrize("raw_payload", ("{", "[]"))
+def test_user_prompt_hook_invalid_payload_fails_open_without_side_effects(
+    tmp_path,
+    raw_payload,
+):
+    script = (
+        Path(__file__).resolve().parents[2]
+        / "agent_runtime_kit"
+        / "hooks"
+        / "inject-context.sh"
+    )
+    brain_dir = tmp_path / "brain"
+
+    result = subprocess.run(
+        ["/bin/bash", str(script)],
+        input=raw_payload,
+        env={**os.environ, "BRAIN_DIR": str(brain_dir)},
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == {}
+    assert not brain_dir.exists()
+
+
+@pytest.mark.parametrize(
+    "parser_mode",
+    ("truncated", "wrong-version", "extra-field", "trailing-junk"),
+)
+def test_user_prompt_hook_rejects_invalid_payload_parser_protocol(
+    tmp_path,
+    parser_mode,
+):
+    script = (
+        Path(__file__).resolve().parents[2]
+        / "agent_runtime_kit"
+        / "hooks"
+        / "inject-context.sh"
+    )
+    bin_dir = tmp_path / "bin"
+    protocol_tmp = tmp_path / "protocol-tmp"
+    bin_dir.mkdir()
+    protocol_tmp.mkdir()
+    parser_calls = tmp_path / "parser-calls.txt"
+    wrapper = bin_dir / "python3"
+    wrapper.write_text(
+        "#!/bin/sh\n"
+        "case \"${1:-}\" in\n"
+        "  */parse-hook-payload.py)\n"
+        "    printf 'called\\n' >> \"$PARSER_CALLS\"\n"
+        "    case \"$PARSER_MODE\" in\n"
+        "      truncated) printf 'amh-hook-payload-v1\\000prompt\\000session\\000/repo\\000' ;;\n"
+        "      wrong-version) printf 'wrong-version\\000prompt\\000session\\000/repo\\000UserPromptSubmit\\000' ;;\n"
+        "      extra-field) printf 'amh-hook-payload-v1\\000prompt\\000session\\000/repo\\000UserPromptSubmit\\000extra\\000' ;;\n"
+        "      trailing-junk) printf 'amh-hook-payload-v1\\000prompt\\000session\\000/repo\\000UserPromptSubmit\\000junk' ;;\n"
+        "    esac\n"
+        "    exit 0\n"
+        "    ;;\n"
+        "esac\n"
+        "exec \"$REAL_PYTHON\" \"$@\"\n",
+        encoding="utf-8",
+    )
+    wrapper.chmod(0o755)
+    brain_dir = tmp_path / "brain"
+    env = {
+        **os.environ,
+        "PATH": f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}",
+        "REAL_PYTHON": sys.executable,
+        "PARSER_CALLS": str(parser_calls),
+        "PARSER_MODE": parser_mode,
+        "TMPDIR": str(protocol_tmp),
+        "BRAIN_DIR": str(brain_dir),
+    }
+
+    result = subprocess.run(
+        ["/bin/bash", str(script)],
+        input=json.dumps(
+            {
+                "prompt": "must not reach preflight",
+                "session_id": "invalid-parser-protocol",
+                "cwd": "/repo",
+                "hook_event_name": "UserPromptSubmit",
+            }
+        ),
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == {}
+    assert parser_calls.read_text(encoding="utf-8").splitlines() == ["called"]
+    assert not brain_dir.exists()
+    assert list(protocol_tmp.iterdir()) == []
+
+
+def test_user_prompt_hook_does_not_execute_shell_syntax_from_prompt(tmp_path):
+    hook, preflight_calls, legacy_record_calls = _write_preflight_probe_runtime(tmp_path)
+    env = _preflight_probe_env(
+        tmp_path,
+        preflight_calls,
+        legacy_record_calls,
+        preflight_mode="pass",
+    )
+    executed = tmp_path / "prompt-was-executed"
+    prompt = f"remember gateway $(touch {executed}) `touch {executed}`; touch {executed}"
+
+    result = subprocess.run(
+        ["/bin/bash", str(hook)],
+        input=json.dumps(
+            {
+                "prompt": prompt,
+                "session_id": "untrusted-prompt-session",
+                "cwd": "/repo/current",
+                "hook_event_name": "UserPromptSubmit",
+            }
+        ),
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "consolidated preflight context" in result.stdout
+    assert not executed.exists()
+
+
 def _write_oversize_hook_runtime(
     tmp_path: Path,
     *,
@@ -375,10 +709,7 @@ def _write_oversize_hook_runtime(
     hooks_dir.mkdir(parents=True)
     tools_dir.mkdir(parents=True)
     bin_dir.mkdir()
-    shutil.copy2(
-        repo / "agent_runtime_kit" / "hooks" / "inject-context.sh",
-        hooks_dir / "inject-context.sh",
-    )
+    _copy_user_prompt_hook_runtime(repo, hooks_dir, tools_dir)
     (bin_dir / "python3").symlink_to(Path(sys.executable))
     for command in ("dirname", "cat"):
         command_path = shutil.which(command)
@@ -430,10 +761,7 @@ def _write_descendant_hook_runtime(tmp_path: Path, *, mode: str) -> tuple[Path, 
     hooks_dir.mkdir(parents=True)
     tools_dir.mkdir(parents=True)
     bin_dir.mkdir()
-    shutil.copy2(
-        repo / "agent_runtime_kit" / "hooks" / "inject-context.sh",
-        hooks_dir / "inject-context.sh",
-    )
+    _copy_user_prompt_hook_runtime(repo, hooks_dir, tools_dir)
     (bin_dir / "python3").symlink_to(Path(sys.executable))
     for command in ("dirname", "cat"):
         command_path = shutil.which(command)
@@ -1134,7 +1462,7 @@ def test_user_prompt_hook_fails_open_when_search_times_out_without_external_time
     hooks_dir.mkdir(parents=True)
     tools_dir.mkdir(parents=True)
     bin_dir.mkdir()
-    shutil.copy2(repo / "agent_runtime_kit" / "hooks" / "inject-context.sh", hooks_dir / "inject-context.sh")
+    _copy_user_prompt_hook_runtime(repo, hooks_dir, tools_dir)
     (bin_dir / "python3").symlink_to(Path(sys.executable))
     for command in ("dirname", "cat"):
         command_path = shutil.which(command)
@@ -1211,10 +1539,7 @@ def test_user_prompt_hook_never_injects_partial_stdout_from_failed_search(tmp_pa
     hooks_dir.mkdir(parents=True)
     tools_dir.mkdir(parents=True)
     bin_dir.mkdir()
-    shutil.copy2(
-        repo / "agent_runtime_kit" / "hooks" / "inject-context.sh",
-        hooks_dir / "inject-context.sh",
-    )
+    _copy_user_prompt_hook_runtime(repo, hooks_dir, tools_dir)
     (bin_dir / "python3").symlink_to(Path(sys.executable))
     for command in ("dirname", "cat", "head", "grep"):
         command_path = shutil.which(command)
@@ -1288,10 +1613,7 @@ def test_user_prompt_hook_external_timeout_wrapper_drops_failed_search_stdout(
     hooks_dir.mkdir(parents=True)
     tools_dir.mkdir(parents=True)
     bin_dir.mkdir()
-    shutil.copy2(
-        repo / "agent_runtime_kit" / "hooks" / "inject-context.sh",
-        hooks_dir / "inject-context.sh",
-    )
+    _copy_user_prompt_hook_runtime(repo, hooks_dir, tools_dir)
     (bin_dir / "python3").symlink_to(Path(sys.executable))
     for command in ("dirname", "cat", "head", "grep"):
         command_path = shutil.which(command)
