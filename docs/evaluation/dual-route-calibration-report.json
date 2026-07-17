@@ -1,24 +1,7 @@
 {
-  "calibration_passed": false,
-  "cases_sha256": "sha256:a136477cf1b33e5c5d0bc9753896fa6d346d31f27949d12ea775fc9e9d5b9e8d",
-  "gaps": [
-    {
-      "embedding_evidence": {
-        "competing_rank": 1,
-        "competing_similarity": 0.343218,
-        "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2@e8f8c211226b894fcb81acc59f3b34ba3efd5f42",
-        "target_rank": 2,
-        "target_similarity": 0.326786
-      },
-      "id": "multi-hi-08",
-      "reason": "cross_language_without_shared_anchor",
-      "upgrade_condition": "a frozen multilingual verifier or shared technical anchor must separate the target without admitting the competing item",
-      "verifier_evidence": {
-        "model": "cross-encoder/ms-marco-MiniLM-L-6-v2@c5ee24cb16019beea0893ab7796b1df96625c6b8",
-        "result": "target_not_in_top_10"
-      }
-    }
-  ],
+  "calibration_passed": true,
+  "cases_sha256": "sha256:0b9ae97f5e80030653494d6e1c6ed3a6dd5bb461b82b23a32c853421ddcfd422",
+  "gaps": [],
   "model": {
     "id": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
     "revision": "e8f8c211226b894fcb81acc59f3b34ba3efd5f42",
@@ -38,12 +21,12 @@
     "heldout": {
       "case_count": 10,
       "expected_item_count": 11,
-      "fn": 1,
+      "fn": 0,
       "fp": 0,
       "precision": 1.0,
-      "recall": 0.9090909090909091,
-      "tp": 10
+      "recall": 1.0,
+      "tp": 11
     }
   },
-  "unresolved_gap_count": 1
+  "unresolved_gap_count": 0
 }

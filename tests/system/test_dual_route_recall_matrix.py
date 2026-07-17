@@ -132,15 +132,7 @@ def test_dual_route_fixture_schema_and_distribution() -> None:
         for case in cases
         if "known_capability_gap" in case
     }
-    assert set(known_gaps) == {"multi-hi-08"}
-    assert known_gaps["multi-hi-08"]["reason"] == (
-        "cross_language_without_shared_anchor"
-    )
-    assert known_gaps["multi-hi-08"]["embedding_evidence"]["target_rank"] == 2
-    assert known_gaps["multi-hi-08"]["verifier_evidence"]["result"] == (
-        "target_not_in_top_10"
-    )
-    assert known_gaps["multi-hi-08"]["upgrade_condition"]
+    assert known_gaps == {}
     assert all(
         set(case["expected_item_ids"])
         == {
@@ -233,20 +225,18 @@ def test_calibration_report_separates_calibration_and_heldout_quality() -> None:
     assert report["splits"]["heldout"] == {
         "case_count": 10,
         "expected_item_count": 11,
-        "tp": 10,
+        "tp": 11,
         "fp": 0,
-        "fn": 1,
+        "fn": 0,
         "precision": 1.0,
-        "recall": pytest.approx(10 / 11),
+        "recall": 1.0,
     }
     assert report["model"]["revision"] == (
         "e8f8c211226b894fcb81acc59f3b34ba3efd5f42"
     )
-    assert report["calibration_passed"] is False
-    assert report["unresolved_gap_count"] == 1
-    assert report["gaps"][0]["id"] == "multi-hi-08"
-    assert report["gaps"][0]["embedding_evidence"]
-    assert report["gaps"][0]["verifier_evidence"]
+    assert report["calibration_passed"] is True
+    assert report["unresolved_gap_count"] == 0
+    assert report["gaps"] == []
 
 
 def test_calibration_report_matches_independent_split_run(tmp_path: Path) -> None:
@@ -255,7 +245,7 @@ def test_calibration_report_matches_independent_split_run(tmp_path: Path) -> Non
     assert _evaluate_calibration_report(tmp_path) == committed
 
 
-def test_calibration_release_gate_is_red_while_known_gap_is_open() -> None:
+def test_calibration_release_gate_passes_after_known_gap_is_closed() -> None:
     completed = subprocess.run(
         [
             sys.executable,
@@ -269,12 +259,12 @@ def test_calibration_release_gate_is_red_while_known_gap_is_open() -> None:
         text=True,
     )
 
-    assert completed.returncode == 1, completed.stderr
+    assert completed.returncode == 0, completed.stderr
     assert json.loads(completed.stdout) == {
-        "calibration_passed": False,
-        "release_gate": "blocked",
+        "calibration_passed": True,
+        "release_gate": "passed",
         "report_schema_version": 1,
-        "unresolved_gap_count": 1,
+        "unresolved_gap_count": 0,
     }
 
 
@@ -719,7 +709,12 @@ def _legacy_outcome(
 ) -> _Outcome:
     from agent_brain.interfaces.cli.routed_query import _generate_candidates
 
-    request = build_recall_request(case["query"], adapter="codex", cwd="/repo/current")
+    request = build_recall_request(
+        case["query"],
+        adapter="codex",
+        cwd="/repo/current",
+        enable_technical_anchors=False,
+    )
     result = _generate_candidates(
         request=request,
         retriever=retriever,
@@ -974,15 +969,14 @@ def test_dual_route_candidate_and_injection_governance_matrix(tmp_path: Path) ->
         and not set(case["expected_item_ids"]) <= new.injected
     ]
 
-    assert [case["id"] for case, _old, _new in known_gap_rows] == ["multi-hi-08"]
-    assert all(new.injected == frozenset() for _case, _old, new in known_gap_rows)
+    assert known_gap_rows == []
     calibration_summary = {
         "calibration_passed": not known_gap_rows,
         "unresolved_gaps": len(known_gap_rows),
     }
     assert calibration_summary == {
-        "calibration_passed": False,
-        "unresolved_gaps": 1,
+        "calibration_passed": True,
+        "unresolved_gaps": 0,
     }
 
     assert routed_hits / len(positives) >= legacy_hits / len(positives), expected_misses

@@ -544,6 +544,42 @@ def test_multiple_fully_anchored_lexical_memories_are_not_collapsed_to_rank_one(
     }
 
 
+def test_technical_alias_route_fails_closed_when_multiple_items_cover_all_anchors() -> None:
+    from agent_brain.memory.context.context_firewall import ContextFirewall
+    from agent_brain.memory.recall.admission import build_recall_request
+
+    first = _item(
+        "recall-cache-ttl",
+        title="Recall cache TTL",
+        summary="Recall cache entries expire after ten minutes",
+    )
+    second = _item(
+        "dns-cache-ttl",
+        title="DNS cache TTL",
+        summary="DNS cache entries expire after sixty seconds",
+    )
+    request = build_recall_request("कैश का टीटीएल कितना है", adapter="codex")
+    context = _context(
+        raw_query=request.raw_query,
+        signal=request.query_signal,
+        evidence_by_id={
+            first.id: _evidence("lexical_terms", lexical_terms_rank=1),
+            second.id: _evidence("lexical_terms", lexical_terms_rank=2),
+        },
+    )
+
+    result = ContextFirewall(now=NOW).filter(
+        [_candidate(first), _candidate(second)],
+        query_context=context,
+    )
+
+    assert result.included == []
+    assert all(
+        decision.reasons == ("route_answerability_insufficient",)
+        for decision in result.excluded
+    )
+
+
 def test_raw_lexical_fallback_uses_full_query_coverage() -> None:
     from agent_brain.memory.context.context_firewall import ContextFirewall
 

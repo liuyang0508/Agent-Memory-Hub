@@ -418,6 +418,13 @@ def preselect_routed_candidate_ids(
         ):
             semantic_candidates.append((candidate, float(similarity), rank))
 
+    if (
+        fully_anchored_lexical
+        and "technical_alias" in query_context.query_signal.anchors
+    ):
+        if len(fully_anchored_lexical) != 1:
+            return frozenset()
+        return frozenset({fully_anchored_lexical[0].item.id})
     if not semantic_candidates:
         return None
     if fully_anchored_lexical:

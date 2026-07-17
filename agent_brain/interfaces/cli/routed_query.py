@@ -117,9 +117,11 @@ def execute_routed_query(
             semantic_deadline=semantic_deadline,
         )
         scope = ProjectScope(project, "explicit", hard_filter=True) if project is not None else None
+        use_routed = os.environ.get("AGENT_MEMORY_HUB_ROUTED_RECALL") != "0"
         request = build_recall_request(
             raw_query,
             adapter=adapter,
+            enable_technical_anchors=use_routed,
             project_scope=scope,
             cwd=cwd,
             session_id=session_id,
@@ -129,7 +131,7 @@ def execute_routed_query(
             retriever=retriever,
             top_k=injection_retrieval_top_k(top_k),
             filters=filters,
-            use_routed=os.environ.get("AGENT_MEMORY_HUB_ROUTED_RECALL") != "0",
+            use_routed=use_routed,
             clock=deadline_clock if clock is not None or semantic_deadline is not None else None,
             semantic_deadline=semantic_deadline,
         )

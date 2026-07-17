@@ -596,6 +596,50 @@ def test_real_hook_json_degraded_recall_goes_through_gateway_and_records_cohort(
         assert private_marker.casefold() not in normalized
 
 
+def test_real_hook_json_degraded_recall_uses_devanagari_technical_aliases(
+    tmp_brain,
+) -> None:
+    from agent_brain.interfaces.cli import app
+    from agent_brain.platform.embedding import HashingEmbedder
+    from agent_brain.platform.indexing.index import HubIndex
+    from agent_brain.memory.store.items_store import ItemsStore
+
+    query = "कैश का टीटीएल कितना है"
+    value = _item("hindi-cache-ttl", title="Recall cache TTL")
+    body = "Recall cache entries expire after ten minutes."
+    ItemsStore(tmp_brain / "items").write(value, body)
+    embedder = HashingEmbedder()
+    index = HubIndex(tmp_brain / "index.db", embedding_dim=embedder.dim)
+    index.upsert(value, body, embedding=embedder.embed(body))
+    index.close()
+
+    result = RUNNER.invoke(
+        app,
+        [
+            "search",
+            query,
+            "--format",
+            "hook-json",
+            "--top-k",
+            "1",
+            "--adapter",
+            "codex",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    decoded = json.loads(result.output)
+    assert decoded["status"] == "injected"
+    assert decoded["reason"] == "included"
+    assert value.title in decoded["context"]
+    assert any(
+        route["route"] == "semantic_raw"
+        and route["status"] == "skipped"
+        and route["reason"] == "semantic_not_ready"
+        for route in decoded["routes"]
+    )
+
+
 def test_hook_json_empty_gap_is_hash_and_aggregate_only(tmp_brain) -> None:
     from agent_brain.interfaces.cli import app
     from agent_brain.memory.governance.recall_events import iter_gap_records

@@ -7,7 +7,8 @@ from pathlib import Path
 from typing import Literal
 
 from agent_brain.memory.context.prompt_normalization import normalize_hook_prompt_for_recall
-from agent_brain.memory.context.query_signal import QuerySignal, analyze_injection_query
+from agent_brain.memory.context.query_signal import QuerySignal
+from agent_brain.memory.recall.admission import build_routed_query_signal
 
 
 IntentKind = Literal[
@@ -66,11 +67,16 @@ def analyze_prompt_frame(
     prompt: str,
     *,
     brain_dir: Path | str | None = None,
+    enable_technical_anchors: bool = True,
 ) -> PromptFrame:
     """Classify a prompt for pre-injection recall admission."""
     normalized = normalize_hook_prompt_for_recall(prompt)
     brain_path = Path(brain_dir) if brain_dir is not None else None
-    signal = analyze_injection_query(normalized, brain_dir=brain_path)
+    signal = build_routed_query_signal(
+        normalized,
+        enable_technical_anchors=enable_technical_anchors,
+        brain_dir=brain_path,
+    )
     risk_flags = _risk_flags(signal)
     retrieval_mode: RetrievalMode = "candidate_search" if signal.injectable else "block"
     injection_policy: InjectionPolicy = (

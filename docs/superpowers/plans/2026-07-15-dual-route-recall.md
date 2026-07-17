@@ -1181,6 +1181,56 @@ git commit -m "test: calibrate dual-route recall governance"
 
 仅在阈值实际变化时加入 `context_firewall_types.py`。
 
+### Task 8b: 关闭 `multi-hi-08` 的共享技术锚点缺口（新增范围）
+
+Task 8 的阈值校准无法安全解决该 held-out 缺口：目标语义 rank 2，而无关 commit 为
+rank 1，降低阈值只会先放行错误候选。夹具给出的升级条件允许“冻结的 multilingual
+verifier 或 shared technical anchor”；模型 bakeoff 已证明前者不满足默认上线边界，因此
+本任务作为独立实现范围，不冒充 Task 8 Step 4 的阈值调整。
+
+**Files:**
+- Create: `agent_brain/memory/recall/technical_anchors.py`
+- Create: `tests/unit/test_technical_anchors.py`
+- Modify: `agent_brain/memory/recall/admission.py`
+- Modify: `agent_brain/memory/context/answerability.py`
+- Modify: `agent_brain/memory/context/prompt_frame.py`
+- Modify: `agent_brain/interfaces/cli/routed_query.py`
+- Modify: `tests/unit/test_routed_answerability.py`
+- Modify: `tests/unit/test_routed_cli.py`
+- Modify: `tests/fixtures/dual_route_recall_cases.json`
+- Modify: `tests/system/test_dual_route_recall_matrix.py`
+
+- [x] **Step 1: 冻结根因与禁止方案**
+
+确认 Devanagari 查询没有 lexical terms，语义目标 rank 2，margin 小于门禁；禁止降低
+semantic threshold、查询字符串特判、item ID 特判和 hook 冷加载第二模型。
+
+- [x] **Step 2: 先写技术别名 RED tests**
+
+覆盖 Devanagari 拼写的 Latin acronym、精确技术借词、普通词/单字母/超长/混合边界负例、
+别名版本与 fixture label backchannel 审计。
+
+- [x] **Step 3: 实现冻结且有界的技术锚点**
+
+只接受完整隔离的 Devanagari run；精确借词或完整可解码的 2–8 字母名称才生成 Latin
+anchor。别名集合标识为 `devanagari-exact-v1`，不做 fuzzy transliteration。
+
+- [x] **Step 4: 保持 rollback baseline 不变并统一诊断**
+
+技术锚点只在 routed recall 开启时进入 `RecallRequest`；
+`AGENT_MEMORY_HUB_ROUTED_RECALL=0` 保留旧 QuerySignal/legacy false-negative 基线。
+PromptFrame 与 routed request 使用同一 query-signal builder，避免诊断显示 block、执行却 search。
+
+- [x] **Step 5: 对多候选完整覆盖 fail closed**
+
+技术别名命中多个完全覆盖候选时不注入任一条；标准 lexical multi-memory 规则保持原样。
+加入 Recall cache TTL / DNS cache TTL 碰撞负例。
+
+- [x] **Step 6: 验证 degraded hook 与 41-case matrix**
+
+真实 `hook-json` + degraded HashingEmbedder 必须通过 lexical route 注入目标；完整矩阵必须
+保持 0 FP/0 FN，校准报告和 release gate 更新为通过。
+
 ### Task 9: 全面回归、静态旁路审计与发布记录
 
 **Files:**
