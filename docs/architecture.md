@@ -194,10 +194,18 @@ process records the runtime event, captures the live prompt,
 normalizes recall text, loads bounded multimodal text, and emits multimodal gap
 JSON. The parser, preflight, and legacy fallback replay the same bytes from the
 private file. HUP/INT/TERM/EXIT traps remove the file. Individual evidence writes
-remain fail-open.
-If and only if the whole preflight process fails or its protocol is invalid, the
-hook uses the existing multi-process **legacy fallback**, which preserves the same
-runtime event, live prompt, and multimodal evidence responsibilities.
+remain fail-open. The parser recursively rejects nested decoded NUL in every JSON
+string key and value before any evidence or recall work. The parser and preflight
+each run as a managed child, so a signal delivered only to the parent can still
+kill, reap, and clean up the active child and both private files.
+
+Fallback scope depends on whether evidence may already exist. A preflight that
+exits 0 but emits a polluted or invalid protocol uses **derivation-only fallback**;
+runtime and multimodal evidence are not written twice. A nonzero preflight exit
+uses the existing **full fallback**, which preserves the runtime event, live prompt,
+and multimodal evidence responsibilities. An empty prompt with an attachment still
+enters verified preflight; without a verified AMH interpreter, legacy multimodal
+capture and derivation preserve the attachment path.
 
 This consolidation changes process topology, not authority or budgets.
 InjectionGateway, ContextFirewall, the 2 秒 search budget, stdout cap,
@@ -221,13 +229,14 @@ trusted session pointer and previous-task state. A short prompt with concrete
 topic or entity anchors is evaluated normally.
 
 The committed calibration report now records calibration 15/15 and heldout 11/11
-with 0 FP / 0 FN across the 41-case public safety fixture. The final raw-NUL-safe
-preflight candidate also passed 连续两轮 independent 30-run hook confirmations:
-candidate p50/p95/max were 1267.026/1318.511/1339.789ms and
-1274.442/1308.130/1309.306ms, with no errors or timeouts. An earlier optimized
-candidate also passed its performance checks, but final input-integrity review
-required the private-file fix and a new candidate with fresh confirmations. The
-machine-readable facts remain `docs/evaluation/dual-route-calibration-report.json`,
+with 0 FP / 0 FN across the 41-case public safety fixture. The final hardened
+candidate `8d3929d1589be304703a26ec4955f896c308c2ca` passed 连续两轮 independent
+30-run hook confirmations: candidate p50/p95/max were
+1264.821/1320.596/1334.546ms and 1289.906/1317.649/1327.535ms, with no errors or
+timeouts. Earlier optimized candidates also passed their recorded performance
+checks, but final edge-case review required a new candidate and fresh
+confirmations. The machine-readable facts remain
+`docs/evaluation/dual-route-calibration-report.json`,
 `docs/evaluation/dual-route-hook-benchmark-report.json`, and
 `scripts/check-dual-route-calibration.py`.
 

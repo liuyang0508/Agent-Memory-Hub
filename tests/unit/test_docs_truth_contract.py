@@ -158,6 +158,12 @@ def test_dual_route_release_docs_keep_rollout_and_blocker_boundaries_explicit():
     assert "never enters a shell variable" in architecture
     assert "same bytes" in architecture
     assert "HUP/INT/TERM/EXIT" in architecture
+    assert "recursively rejects nested decoded NUL" in architecture
+    assert "derivation-only fallback" in architecture
+    assert "nonzero" in architecture and "full fallback" in architecture
+    assert "managed child" in architecture
+    assert "kill, reap, and clean up" in architecture
+    assert "empty prompt" in architecture and "attachment" in architecture
 
     assert "memory self-update --repair-hooks" in changelog
     assert "memory doctor --fix" in changelog
@@ -180,10 +186,16 @@ def test_dual_route_hook_benchmark_report_is_reproducible_and_privacy_bounded(
         "bb9128a668fea98bf9063bfbedc85cc75dc8936c"
     )
     assert report["provenance"]["candidate_commit"] == (
-        "17696138262b8c807852be5baf3c9cb9eccf7c49"
+        "8d3929d1589be304703a26ec4955f896c308c2ca"
     )
     assert report["provenance"]["candidate_hook_sha256"] == (
-        "sha256:2a637058d3216ca5584795b000cef8df7910526a4478a46695b9baf9cab07db3"
+        "sha256:592848ffd59d55cb54d8c49558c08ac804835bdce6425d7984608abf28beaa31"
+    )
+    assert report["provenance"]["payload_parser_sha256"] == (
+        "sha256:8a27cab6c8da05ee29c75c2ec5651e969536a374f62798ca568d7f82508bd02e"
+    )
+    assert report["provenance"]["preflight_module_sha256"] == (
+        "sha256:a1072be7176e216f8c34cc57cb0e9e560ef5bd93eba147a6651add96547ae6aa"
     )
     assert len(report["provenance"]["candidate_commit"]) == 40
     subprocess.run(
@@ -208,6 +220,8 @@ def test_dual_route_hook_benchmark_report_is_reproducible_and_privacy_bounded(
         "materializer_script_sha256",
         "payload_sha256",
         "fixture_item_sha256",
+        "payload_parser_sha256",
+        "preflight_module_sha256",
     ):
         assert report["provenance"][name].startswith("sha256:")
         assert len(report["provenance"][name]) == 71
@@ -232,6 +246,11 @@ def test_dual_route_hook_benchmark_report_is_reproducible_and_privacy_bounded(
         ("benchmark_script_sha256", "scripts/benchmark-dual-route-hook.py"),
         ("materializer_script_sha256", "scripts/materialize-dual-route-hook-benchmark.py"),
         ("payload_sha256", "tests/fixtures/dual_route_hook_benchmark_payload.json"),
+        ("payload_parser_sha256", "agent_runtime_kit/tools/parse-hook-payload.py"),
+        (
+            "preflight_module_sha256",
+            "agent_brain/memory/evidence/hook_preflight.py",
+        ),
     ):
         assert report["provenance"][key] == digest((root / relative).read_bytes())
 
@@ -299,8 +318,8 @@ def test_dual_route_hook_benchmark_report_is_reproducible_and_privacy_bounded(
         )
         for run in confirmations
     ] == [
-        (1267.026, 1318.511, 1339.789, 2885.859, 3023.973, 3058.796, -1705.462),
-        (1274.442, 1308.13, 1309.306, 2900.373, 3038.427, 3140.447, -1730.297),
+        (1264.821, 1320.596, 1334.546, 2879.942, 3046.24, 3063.865, -1725.644),
+        (1289.906, 1317.649, 1327.535, 2903.986, 3055.255, 3173.345, -1737.606),
     ]
     assert result == confirmations[1]["result"]
 
@@ -309,8 +328,21 @@ def test_dual_route_hook_benchmark_report_is_reproducible_and_privacy_bounded(
         for run in report["run_history"]
         if run["phase"] == "superseded_candidate_confirmation"
     ]
-    assert len(superseded) == 2
-    for run in superseded:
+    assert len(superseded) == 4
+    earlier_optimized = [
+        run
+        for run in superseded
+        if run["candidate_commit"]
+        == "98eef3fb45abb2d5a9d198529445103ceb9d43be"
+    ]
+    raw_nul_safe = [
+        run
+        for run in superseded
+        if run["candidate_commit"]
+        == "17696138262b8c807852be5baf3c9cb9eccf7c49"
+    ]
+    assert len(earlier_optimized) == len(raw_nul_safe) == 2
+    for run in earlier_optimized:
         assert run["candidate_commit"] == (
             "98eef3fb45abb2d5a9d198529445103ceb9d43be"
         )
@@ -321,6 +353,15 @@ def test_dual_route_hook_benchmark_report_is_reproducible_and_privacy_bounded(
         )
         assert run["superseded_by"] == (
             "17696138262b8c807852be5baf3c9cb9eccf7c49"
+        )
+    for run in raw_nul_safe:
+        assert run["result"]["passed"] is True
+        assert run["result"]["publishable"] is True
+        assert run["superseded_reason"] == (
+            "edge_case_hardening_required_new_candidate"
+        )
+        assert run["superseded_by"] == (
+            "8d3929d1589be304703a26ec4955f896c308c2ca"
         )
 
     blockers = [
@@ -337,6 +378,7 @@ def test_dual_route_hook_benchmark_report_is_reproducible_and_privacy_bounded(
         2400.187,
         2081.018,
     ]
+    assert len(report["run_history"]) == 8
 
     serialized = json.dumps(report, ensure_ascii=False)
     assert '"prompt"' not in serialized

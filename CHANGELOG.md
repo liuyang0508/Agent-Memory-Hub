@@ -21,6 +21,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Raw-NUL input integrity** — the hook now stores original stdin in a private
   mode-0600 file, replays the same bytes to parser/preflight/fallback, and removes
   it on HUP/INT/TERM/EXIT; payload bytes no longer pass through a shell variable.
+  Parsing rejects decoded NUL recursively, parser/preflight are managed children,
+  protocol pollution uses derivation-only fallback, and a nonzero preflight uses
+  full fallback. Empty-prompt attachments retain multimodal evidence and recall.
 
 ### Changed
 
@@ -39,14 +42,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Release status
 
 - **PASS:** committed calibration is calibration 15/15 and heldout 11/11 with
-  0 FP / 0 FN across the 41-case public safety fixture. The frozen consolidated
-  preflight candidate passed 连续两轮 independent 30-run hook gates: candidate
-  p50/p95/max were 1267.026/1318.511/1339.789ms and
-  1274.442/1308.130/1309.306ms, with 0 errors and 0 timeouts in both rounds.
+  0 FP / 0 FN across the 41-case public safety fixture. Final candidate
+  `8d3929d1589be304703a26ec4955f896c308c2ca` passed 连续两轮 independent
+  30-run hook gates: candidate p50/p95/max were 1264.821/1320.596/1334.546ms
+  and 1289.906/1317.649/1327.535ms, with 0 errors and 0 timeouts in both rounds.
 - The performance report retains the two pre-optimization tail-latency failures;
-  it also preserves the earlier optimized candidate's two successful rounds as
-  superseded, not failed. Final PASS uses only the raw-NUL-safe candidate's two
-  consecutive confirmations after input-integrity review.
+  it also preserves both earlier optimized candidates' successful rounds as
+  superseded, not failed. Final PASS uses only the hardened candidate's two
+  consecutive confirmations after edge-case review.
 
 ### Security
 

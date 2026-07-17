@@ -20,9 +20,11 @@
   },
   "provenance": {
     "old_commit": "bb9128a668fea98bf9063bfbedc85cc75dc8936c",
-    "candidate_commit": "17696138262b8c807852be5baf3c9cb9eccf7c49",
+    "candidate_commit": "8d3929d1589be304703a26ec4955f896c308c2ca",
     "old_hook_sha256": "sha256:d3be4cc24a6dcd99f45856daaae78e5a7d93eb908254d2f90ed915195611c937",
-    "candidate_hook_sha256": "sha256:2a637058d3216ca5584795b000cef8df7910526a4478a46695b9baf9cab07db3",
+    "candidate_hook_sha256": "sha256:592848ffd59d55cb54d8c49558c08ac804835bdce6425d7984608abf28beaa31",
+    "payload_parser_sha256": "sha256:8a27cab6c8da05ee29c75c2ec5651e969536a374f62798ca568d7f82508bd02e",
+    "preflight_module_sha256": "sha256:a1072be7176e216f8c34cc57cb0e9e560ef5bd93eba147a6651add96547ae6aa",
     "benchmark_script_sha256": "sha256:fd51db3e08561cb40a88c7589e73e6c355d1d87fb4c8b91ce6f3b239484552ea",
     "materializer_script_sha256": "sha256:9c2f3e856c1808526b4e3f984b67c5ab6d1cc39dcdb17e57df9810f642c3ddcb",
     "payload_sha256": "sha256:4e2b9bb5d5fd781702e0a33dd224f191c175b4435d4d63844949f23d5746b557",
@@ -66,21 +68,21 @@
     },
     "new": {
       "errors": 0,
-      "max_ms": 1309.306,
-      "p50_ms": 1274.442,
-      "p95_ms": 1308.13,
+      "max_ms": 1327.535,
+      "p50_ms": 1289.906,
+      "p95_ms": 1317.649,
       "samples": 30,
       "timeouts": 0
     },
     "old": {
       "errors": 0,
-      "max_ms": 3140.447,
-      "p50_ms": 2900.373,
-      "p95_ms": 3038.427,
+      "max_ms": 3173.345,
+      "p50_ms": 2903.986,
+      "p95_ms": 3055.255,
       "samples": 30,
       "timeouts": 0
     },
-    "p95_delta_ms": -1730.297,
+    "p95_delta_ms": -1737.606,
     "passed": true,
     "publishable": true,
     "sample_policy": {
@@ -222,7 +224,9 @@
       "round_id": "post-raw-nul-integrity-confirmation-1",
       "observed_on": "2026-07-18",
       "candidate_commit": "17696138262b8c807852be5baf3c9cb9eccf7c49",
-      "phase": "post_optimization_confirmation",
+      "phase": "superseded_candidate_confirmation",
+      "superseded_reason": "edge_case_hardening_required_new_candidate",
+      "superseded_by": "8d3929d1589be304703a26ec4955f896c308c2ca",
       "result": {
         "limits": {
           "max_new_ms": 2000.0,
@@ -263,7 +267,9 @@
       "round_id": "post-raw-nul-integrity-confirmation-2",
       "observed_on": "2026-07-18",
       "candidate_commit": "17696138262b8c807852be5baf3c9cb9eccf7c49",
-      "phase": "post_optimization_confirmation",
+      "phase": "superseded_candidate_confirmation",
+      "superseded_reason": "edge_case_hardening_required_new_candidate",
+      "superseded_by": "8d3929d1589be304703a26ec4955f896c308c2ca",
       "result": {
         "limits": {
           "max_new_ms": 2000.0,
@@ -286,6 +292,88 @@
           "timeouts": 0
         },
         "p95_delta_ms": -1730.297,
+        "passed": true,
+        "publishable": true,
+        "sample_policy": {
+          "context_sentinel_sha256": "sha256:ea24fbc824f099c9276038517f5de853e48ff728ea10dd31a0989b97938f072e",
+          "expected_reason": "included",
+          "expected_result": "injected",
+          "interleaved": true,
+          "minimum": 30,
+          "observation_timeout_seconds": 5.0,
+          "protocol": "adapter-envelope",
+          "unit_test_mode": false
+        }
+      }
+    },
+    {
+      "round_id": "post-edge-hardening-confirmation-1",
+      "observed_on": "2026-07-18",
+      "candidate_commit": "8d3929d1589be304703a26ec4955f896c308c2ca",
+      "phase": "post_optimization_confirmation",
+      "result": {
+        "limits": {
+          "max_new_ms": 2000.0,
+          "max_p95_delta_ms": 150.0
+        },
+        "new": {
+          "errors": 0,
+          "max_ms": 1334.546,
+          "p50_ms": 1264.821,
+          "p95_ms": 1320.596,
+          "samples": 30,
+          "timeouts": 0
+        },
+        "old": {
+          "errors": 0,
+          "max_ms": 3063.865,
+          "p50_ms": 2879.942,
+          "p95_ms": 3046.24,
+          "samples": 30,
+          "timeouts": 0
+        },
+        "p95_delta_ms": -1725.644,
+        "passed": true,
+        "publishable": true,
+        "sample_policy": {
+          "context_sentinel_sha256": "sha256:ea24fbc824f099c9276038517f5de853e48ff728ea10dd31a0989b97938f072e",
+          "expected_reason": "included",
+          "expected_result": "injected",
+          "interleaved": true,
+          "minimum": 30,
+          "observation_timeout_seconds": 5.0,
+          "protocol": "adapter-envelope",
+          "unit_test_mode": false
+        }
+      }
+    },
+    {
+      "round_id": "post-edge-hardening-confirmation-2",
+      "observed_on": "2026-07-18",
+      "candidate_commit": "8d3929d1589be304703a26ec4955f896c308c2ca",
+      "phase": "post_optimization_confirmation",
+      "result": {
+        "limits": {
+          "max_new_ms": 2000.0,
+          "max_p95_delta_ms": 150.0
+        },
+        "new": {
+          "errors": 0,
+          "max_ms": 1327.535,
+          "p50_ms": 1289.906,
+          "p95_ms": 1317.649,
+          "samples": 30,
+          "timeouts": 0
+        },
+        "old": {
+          "errors": 0,
+          "max_ms": 3173.345,
+          "p50_ms": 2903.986,
+          "p95_ms": 3055.255,
+          "samples": 30,
+          "timeouts": 0
+        },
+        "p95_delta_ms": -1737.606,
         "passed": true,
         "publishable": true,
         "sample_policy": {
