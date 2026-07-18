@@ -20,7 +20,26 @@ def test_governance_workflow_has_stable_required_job_names() -> None:
         "security",
         "benchmark-integrity",
         "docker-smoke",
+        "recall-quality",
     }
+
+
+def test_recall_quality_job_is_fail_closed_and_replays_fresh_evidence() -> None:
+    workflow_text = Path(".github/workflows/governance-gates.yml").read_text(
+        encoding="utf-8"
+    )
+    workflow = yaml.safe_load(workflow_text)
+    job = workflow["jobs"]["recall-quality"]
+    commands = "\n".join(
+        str(step.get("run", "")) for step in job["steps"] if isinstance(step, dict)
+    )
+
+    assert "continue-on-error" not in job
+    assert "tests/unit/test_recall_quality_corpus.py" in commands
+    assert "tests/system/test_recall_quality_replay.py" in commands
+    assert "tests/system/test_dual_route_recall_matrix.py" in commands
+    assert "./scripts/check-recall-quality.py" in commands
+    assert "--write" not in commands
 
 
 def test_distribution_workflows_explain_missing_secrets_without_becoming_core_gates() -> None:

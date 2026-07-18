@@ -27,6 +27,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Parsing rejects decoded NUL recursively, parser/preflight are managed children,
   protocol pollution uses derivation-only fallback, and a nonzero preflight uses
   full fallback. Empty-prompt attachments retain multimodal evidence and recall.
+- **Six-layer recall quality gate** — the stable `recall-quality` CI job reruns
+  the versioned calibration, heldout, sanitized production replay, and 41-case
+  safety contracts, then rejects stale committed retrieval, admission,
+  answerability, temporal, abstention, or Gateway injection evidence.
 
 ### Changed
 

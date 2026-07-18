@@ -57,3 +57,26 @@ jobs:
         run: python -m pytest tests/conformance/test_docker_contract.py -q
       - name: Build and exercise the default container
         run: ./scripts/docker-smoke.sh
+
+  recall-quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install test runtime
+        run: pip install -e ".[dev]"
+      - name: Replay recall corpus and safety contracts
+        env:
+          MEMORY_HUB_TEST_EMBEDDING: "1"
+        run: >-
+          python -m pytest
+          tests/unit/test_recall_quality_corpus.py
+          tests/system/test_recall_quality_replay.py
+          tests/system/test_dual_route_recall_matrix.py
+          -q
+      - name: Verify committed six-layer recall report
+        env:
+          MEMORY_HUB_TEST_EMBEDDING: "1"
+        run: ./scripts/check-recall-quality.py
