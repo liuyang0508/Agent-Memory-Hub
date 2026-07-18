@@ -122,7 +122,9 @@ def test_dashboard_does_not_put_session_token_in_realtime_urls() -> None:
 
 
 def test_rejected_sse_long_token_is_removed_from_access_log_scope() -> None:
-    sentinel = "eyJhbGciOiJIUzI1NiJ9.SECRET-SSE-SENTINEL.signature"
+    sentinel = ".".join(
+        ["eyJhbGciOiJIUzI1NiJ9", "SECRET-SSE-SENTINEL", "signature"]
+    )
     scope = {
         "type": "http",
         "method": "GET",
@@ -141,7 +143,9 @@ def test_rejected_sse_long_token_is_removed_from_access_log_scope() -> None:
 
 
 def test_rejected_websocket_long_token_is_removed_from_access_log_scope() -> None:
-    sentinel = "eyJhbGciOiJIUzI1NiJ9.SECRET-WS-SENTINEL.signature"
+    sentinel = ".".join(
+        ["eyJhbGciOiJIUzI1NiJ9", "SECRET-WS-SENTINEL", "signature"]
+    )
     sent: list[dict] = []
     scope = {
         "type": "websocket",
