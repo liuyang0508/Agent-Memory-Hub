@@ -474,6 +474,7 @@ def _preflight_probe_env(
         "BRAIN_DIR": str(tmp_path / "brain"),
         "AGENT_MEMORY_HUB_ADAPTER": "codex",
         "AGENT_MEMORY_HUB_HOOK_OUTPUT_FORMAT": "json",
+        "AGENT_MEMORY_HUB_BENCHMARK_TRACE_PREFLIGHT": "1",
         "REAL_PYTHON": sys.executable,
         "PREFLIGHT_CALLS": str(preflight_calls),
         "LEGACY_RECORD_CALLS": str(legacy_record_calls),
@@ -481,6 +482,11 @@ def _preflight_probe_env(
         "SEARCH_QUERY": str(tmp_path / "search-query.txt"),
         "TMPDIR": str(protocol_tmp),
     }
+
+
+def _preflight_trace(tmp_path: Path) -> list[dict[str, str]]:
+    path = tmp_path / "brain/runtime/hook-benchmark-preflight.jsonl"
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
 
 
 def test_user_prompt_hook_runs_consolidated_preflight_once_without_legacy_writes(
@@ -524,6 +530,7 @@ def test_user_prompt_hook_runs_consolidated_preflight_once_without_legacy_writes
     messages = list(ConversationStore(tmp_path / "brain").iter_messages())
     assert len(messages) == 1
     assert messages[0].content_text == prompt
+    assert _preflight_trace(tmp_path) == [{"path": "consolidated"}]
     assert list((tmp_path / "protocol-tmp").iterdir()) == []
 
 
@@ -575,6 +582,7 @@ def test_user_prompt_hook_falls_back_when_consolidated_preflight_is_invalid(
     resources = list(ResourceStore(tmp_path / "brain").iter_resources())
     assert len(resources) == 1
     assert resources[0].metadata["extraction_status"] == "missing"
+    assert _preflight_trace(tmp_path) == [{"path": "full_legacy_fallback"}]
     assert list((tmp_path / "protocol-tmp").iterdir()) == []
 
 
@@ -632,6 +640,7 @@ def test_user_prompt_hook_invalid_success_protocol_reuses_preflight_evidence(
     assert len(list(resource_store.iter_extractions())) == 1
     search_query = (tmp_path / "search-query.txt").read_text(encoding="utf-8")
     assert search_query == "inspect attached failure\ngateway timeout caption"
+    assert _preflight_trace(tmp_path) == [{"path": "derivation_only_fallback"}]
     assert list((tmp_path / "protocol-tmp").iterdir()) == []
 
 

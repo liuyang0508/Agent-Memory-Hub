@@ -67,6 +67,21 @@ with (runtime_dir / "hook-latency.jsonl").open("a", encoding="utf-8") as fh:
 PY
 }
 
+record_benchmark_preflight_path() {
+  local path="$1"
+  [ "${AGENT_MEMORY_HUB_BENCHMARK_TRACE_PREFLIGHT:-0}" = "1" ] || return 0
+  case "$path" in
+    consolidated|full_legacy_fallback|derivation_only_fallback|legacy_no_resolver) ;;
+    *) return 0 ;;
+  esac
+  (
+    umask 077
+    mkdir -p "$BRAIN_DIR/runtime"
+    printf '{"path":"%s"}\n' "$path" \
+      >>"$BRAIN_DIR/runtime/hook-benchmark-preflight.jsonl"
+  ) 2>/dev/null || true
+}
+
 PROTOCOL_FILE=""
 RAW_PAYLOAD_FILE=""
 RAW_PAYLOAD_FD_OPEN=0
@@ -351,20 +366,24 @@ run_consolidated_preflight() {
   return 0
 }
 
+PREFLIGHT_PATH="legacy_no_resolver"
 if [ "$RESOLVER_READY" -eq 1 ]; then
   if run_consolidated_preflight; then
-    :
+    PREFLIGHT_PATH="consolidated"
   else
     PREFLIGHT_STATUS=$?
     if [ "$PREFLIGHT_STATUS" -eq 1 ]; then
+      PREFLIGHT_PATH="full_legacy_fallback"
       run_legacy_preflight
     else
+      PREFLIGHT_PATH="derivation_only_fallback"
       run_legacy_derivation
     fi
   fi
 else
   run_legacy_preflight
 fi
+record_benchmark_preflight_path "$PREFLIGHT_PATH"
 if ! remove_raw_payload_file; then
   echo '{}'
   exit 0
