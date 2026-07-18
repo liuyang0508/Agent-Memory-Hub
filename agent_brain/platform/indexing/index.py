@@ -27,6 +27,7 @@ class HubIndex:
         self.db_path = db_path
         self.embedding_dim = embedding_dim
         self.connection = self._connect()
+        self._closed = False
         self.uses_sqlite_vec = self._load_sqlite_vec()
         existing_vector_schema = self._vector_table_schema()
         if existing_vector_schema and "using vec0" not in existing_vector_schema.lower():
@@ -91,6 +92,7 @@ class HubIndex:
             except FileNotFoundError:
                 pass
         self.connection = self._connect()
+        self._closed = False
 
     def _init_schema(self) -> None:
         init_index_schema(
@@ -350,8 +352,17 @@ class HubIndex:
         """
         return self.metadata.all_ids()
 
+    def __enter__(self) -> "HubIndex":
+        return self
+
+    def __exit__(self, exc_type: object, exc: object, traceback: object) -> None:
+        self.close()
+
     def close(self) -> None:
+        if self._closed:
+            return
         self.connection.close()
+        self._closed = True
 
 
 def _sqlite_variable_limit(connection: sqlite3.Connection) -> int:

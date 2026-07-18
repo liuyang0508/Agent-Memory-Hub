@@ -4,6 +4,8 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
+from fastapi.testclient import TestClient
+
 
 def test_state_store_cache_eviction_closes_old_connection(tmp_path: Path, monkeypatch):
     import web.state_store as st
@@ -50,6 +52,30 @@ def test_component_cache_eviction_and_clear_close_old_indexes(tmp_path: Path, mo
             latest_index.connection.execute("SELECT 1")
     finally:
         base._components_cache.clear()
+
+
+def test_app_lifespan_closes_component_cache_on_shutdown(tmp_path: Path, monkeypatch):
+    import web._base as base
+    import web.state_store as state_store
+    from web.app import app
+
+    brain = tmp_path / "brain"
+    (brain / "items").mkdir(parents=True)
+    monkeypatch.setenv("BRAIN_DIR", str(brain))
+    base._components_cache.clear()
+    state_store._state_cache.clear()
+
+    with TestClient(app) as client:
+        assert client.get("/api/health").status_code == 200
+        index = base._components()[1]
+        state = base._state_store()
+
+    assert len(base._components_cache) == 0
+    assert len(state_store._state_cache) == 0
+    with pytest_raises_closed_sqlite():
+        index.connection.execute("SELECT 1")
+    with pytest_raises_closed_sqlite():
+        state.connection.execute("SELECT 1")
 
 
 class pytest_raises_closed_sqlite:

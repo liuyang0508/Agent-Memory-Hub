@@ -59,7 +59,6 @@ def import_items(
     import json
     import sys
 
-    store, idx, _ = _cli._open_components()
     embedder = _cli.get_default_embedder()
 
     if input_file == "-":
@@ -77,7 +76,14 @@ def import_items(
         # the whole import before any valid record is written.
         records = [line for line in raw.strip().splitlines() if line.strip()]
 
-    result = import_records(records, store=store, index=idx, embedder=embedder, overwrite=overwrite)
+    with _cli._managed_components() as (store, idx, _):
+        result = import_records(
+            records,
+            store=store,
+            index=idx,
+            embedder=embedder,
+            overwrite=overwrite,
+        )
     for error in result.errors:
         typer.echo(f"  error: {error}", err=True)
 

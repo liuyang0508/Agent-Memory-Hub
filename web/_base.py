@@ -18,7 +18,7 @@ from typing import Any
 from fastapi import FastAPI, HTTPException
 from agent_brain.memory.store.write_service import WriteService
 from web.auth import CurrentUser
-from web.state_store import WebStateStore, get_state_store
+from web.state_store import WebStateStore, close_state_store_cache, get_state_store
 from web.live_events import (
     _event_visible_to,
     _sse_subscribers,
@@ -40,7 +40,12 @@ async def _lifespan(application: FastAPI):
         _components()
     except Exception:
         pass
-    yield
+    try:
+        yield
+    finally:
+        with _components_cache_lock:
+            _components_cache.clear()
+        close_state_store_cache()
 _STATIC_DIR = Path(__file__).parent / "static"
 _TEMPLATES_DIR = Path(__file__).parent / "templates"
 def _audit(user: str, action: str, detail: str = ""):

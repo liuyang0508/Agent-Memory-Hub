@@ -15,9 +15,9 @@ def link(
     label: str = typer.Option("related", "--label"),
 ) -> None:
     """Create a knowledge-graph link between two memory items."""
-    store, idx, _ = _cli._open_components()
-    idx.add_ref(source, target, label)
-    store.link_mem(source, target)
+    with _cli._managed_components() as (store, idx, _):
+        idx.add_ref(source, target, label)
+        store.link_mem(source, target)
     typer.echo(f"linked: {source} --[{label}]--> {target}")
 
 
@@ -27,9 +27,9 @@ def unlink(
     target: str = typer.Argument(..., help="Target item ID"),
 ) -> None:
     """Remove a knowledge-graph link between two memory items."""
-    store, idx, _ = _cli._open_components()
-    idx.remove_ref(source, target)
-    store.unlink_mem(source, target)
+    with _cli._managed_components() as (store, idx, _):
+        idx.remove_ref(source, target)
+        store.unlink_mem(source, target)
     typer.echo(f"unlinked: {source} --> {target}")
 
 

@@ -72,7 +72,7 @@ def recall_drift_apply_outcomes(
     """Apply explicit task outcome adopted/rejected ids to memory feedback."""
     from agent_brain.memory.governance.outcome_feedback import apply_task_outcome_feedback_batch
 
-    store, index, _retriever = _cli._open_components()
+    store, index, _retriever = _cli._command_components()
     report = apply_task_outcome_feedback_batch(
         _brain_dir(),
         items_store=store,

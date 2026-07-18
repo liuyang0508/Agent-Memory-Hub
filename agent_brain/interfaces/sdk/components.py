@@ -62,5 +62,12 @@ class ClientComponents:
             )
         return self._feedback
 
+    def close(self) -> None:
+        if self._index is not None:
+            self._index.close()
+        self._feedback = None
+        self._retriever = None
+        self._index = None
+
 
 __all__ = ["ClientComponents"]

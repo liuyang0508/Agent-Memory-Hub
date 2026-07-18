@@ -81,11 +81,13 @@ class WriteService:
         index=None,
         embedder=None,
         brain_dir: Path | None = None,
+        owns_index: bool = False,
     ) -> None:
         self._store = store
         self._index = index
         self._embedder = embedder
         self._brain_dir = brain_dir
+        self._owns_index = owns_index
 
     @classmethod
     def for_brain(cls, brain_dir: Path | None = None) -> "WriteService":
@@ -110,7 +112,27 @@ class WriteService:
             # Degraded: the write still works; the index is repaired later.
             index = None
             embedder = None
-        return cls(store, index, embedder, brain_dir=brain)
+        return cls(
+            store,
+            index,
+            embedder,
+            brain_dir=brain,
+            owns_index=index is not None,
+        )
+
+    def __enter__(self) -> "WriteService":
+        return self
+
+    def __exit__(self, exc_type: object, exc: object, traceback: object) -> None:
+        self.close()
+
+    def close(self) -> None:
+        if not self._owns_index:
+            return
+        index = self._index
+        if index is not None and not callable(index):
+            index.close()
+        self._owns_index = False
 
     def write(
         self,

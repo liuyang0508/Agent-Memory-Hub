@@ -29,9 +29,9 @@ def reindex(
     ),
 ) -> None:
     """Rebuild the SQLite index from items dir (md is source of truth)."""
-    store, idx, _ = _cli._open_components()
-    embedder = _cli.get_default_embedder()
-    result = reindex_store(store, idx, embedder, prune=prune)
+    with _cli._managed_components() as (store, idx, _):
+        embedder = _cli.get_default_embedder()
+        result = reindex_store(store, idx, embedder, prune=prune)
     if prune:
         typer.echo(f"reindexed {result.indexed} items, pruned {result.pruned}")
     else:
@@ -47,23 +47,23 @@ def verify(
     ),
 ) -> None:
     """Diff md (source of truth) against the sqlite index and report drift."""
-    store, idx, _ = _cli._open_components()
-    drift = inspect_index_drift(store, idx)
-    typer.echo(f"md items: {len(drift.md_ids)}")
-    typer.echo(f"index items: {len(drift.index_ids)}")
-    typer.echo(f"missing from index: {len(drift.missing_in_index)}")
-    typer.echo(f"orphan index rows: {len(drift.orphan_in_index)}")
-    if not repair:
-        if drift.missing_in_index or drift.orphan_in_index:
-            for mid in sorted(drift.missing_in_index):
-                typer.echo(f"  missing: {mid}")
-            for oid in sorted(drift.orphan_in_index):
-                typer.echo(f"  orphan: {oid}")
-            raise typer.Exit(1)
-        typer.echo("index in sync")
-        return
-    embedder = _cli.get_default_embedder()
-    result = repair_index_drift(store, idx, embedder, drift)
+    with _cli._managed_components() as (store, idx, _):
+        drift = inspect_index_drift(store, idx)
+        typer.echo(f"md items: {len(drift.md_ids)}")
+        typer.echo(f"index items: {len(drift.index_ids)}")
+        typer.echo(f"missing from index: {len(drift.missing_in_index)}")
+        typer.echo(f"orphan index rows: {len(drift.orphan_in_index)}")
+        if not repair:
+            if drift.missing_in_index or drift.orphan_in_index:
+                for mid in sorted(drift.missing_in_index):
+                    typer.echo(f"  missing: {mid}")
+                for oid in sorted(drift.orphan_in_index):
+                    typer.echo(f"  orphan: {oid}")
+                raise typer.Exit(1)
+            typer.echo("index in sync")
+            return
+        embedder = _cli.get_default_embedder()
+        result = repair_index_drift(store, idx, embedder, drift)
     typer.echo(f"repaired {result.indexed} items, pruned {result.pruned} orphans")
 
 

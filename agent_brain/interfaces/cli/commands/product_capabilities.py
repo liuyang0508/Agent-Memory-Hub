@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 
 from agent_brain.interfaces.cli._app import benchmark_app, headroom_app, profile_app, govern_app
-from agent_brain.interfaces.cli._shared import _brain_dir, _open_components, typer
+from agent_brain.interfaces.cli._shared import _brain_dir, _command_components, typer
 
 
 @profile_app.command(name="export")
@@ -68,7 +68,7 @@ def benchmark_retrieval(
     from agent_brain.evaluation.retrieval_gate import evaluate_rankings, load_cases, write_report
 
     loaded_cases = load_cases(cases)
-    _store, _idx, retriever = _open_components()
+    _store, _idx, retriever = _command_components()
 
     def search(query: str, depth: int) -> list[str]:
         return [hit.id for hit in retriever.search(query, top_k=depth)]

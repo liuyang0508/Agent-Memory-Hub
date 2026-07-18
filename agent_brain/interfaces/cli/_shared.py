@@ -5,6 +5,9 @@
 """
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
+import click
 import os
 import sys
 import uuid
@@ -89,6 +92,31 @@ def _open_hook_components() -> tuple[ItemsStore, HubIndex, Retriever]:
     return store, idx, Retriever(index=idx, embedder=embedder)
 
 
+@contextmanager
+def _managed_components(
+    *,
+    hook: bool = False,
+) -> Iterator[tuple[ItemsStore, HubIndex, Retriever]]:
+    components = _cli._open_hook_components() if hook else _cli._open_components()
+    try:
+        yield components
+    finally:
+        close = getattr(components[1], "close", None)
+        if callable(close):
+            close()
+
+
+def _command_components(
+    *,
+    hook: bool = False,
+) -> tuple[ItemsStore, HubIndex, Retriever]:
+    """Keep CLI components alive until Click tears down the current command."""
+    context = click.get_current_context(silent=True)
+    if context is None:
+        raise RuntimeError("CLI components require an active Click command context")
+    return context.with_resource(_managed_components(hook=hook))
+
+
 def _parse_enum(enum_cls, value: str, flag: str):
     """Validate a CLI enum option, exiting cleanly with a usage message instead
     of dumping a raw ValueError traceback when the user passes e.g. --type bogus.
@@ -124,4 +152,4 @@ def _evict_from_index(item_id: str) -> None:
 
 CURRENT_SCHEMA_VERSION = _SCHEMA_COMPAT_VERSION
 
-__all__ = ['_brain_dir', '_store_only', '_resolve_id', '_open_components', '_open_hook_components', '_parse_enum', '_evict_from_index', '_doctor_offline', 'console', 'CURRENT_SCHEMA_VERSION', '_SCHEMA_COMPAT_VERSION', 'os', 'sys', 'uuid', 'datetime', 'timedelta', 'timezone', 'Path', 'typer', 'Console', 'Table', '__version__', 'list_outbound_events', 'load_merged_rules', 'load_builtin_rules', 'load_rules_from_file', 'SkillScanner', 'get_default_embedder', 'HashingEmbedder', 'HubIndex', 'ItemsStore', 'make_item_id', 'Retriever', 'SearchFilter', 'EvolveEngine', 'EvolveReport', 'BrainStats', 'HealthScore', 'collect_stats', 'MemoryItem', 'MemoryType', 'Sensitivity']
+__all__ = ['_brain_dir', '_store_only', '_resolve_id', '_open_components', '_open_hook_components', '_managed_components', '_command_components', '_parse_enum', '_evict_from_index', '_doctor_offline', 'console', 'CURRENT_SCHEMA_VERSION', '_SCHEMA_COMPAT_VERSION', 'os', 'sys', 'uuid', 'datetime', 'timedelta', 'timezone', 'Path', 'typer', 'Console', 'Table', '__version__', 'list_outbound_events', 'load_merged_rules', 'load_builtin_rules', 'load_rules_from_file', 'SkillScanner', 'get_default_embedder', 'HashingEmbedder', 'HubIndex', 'ItemsStore', 'make_item_id', 'Retriever', 'SearchFilter', 'EvolveEngine', 'EvolveReport', 'BrainStats', 'HealthScore', 'collect_stats', 'MemoryItem', 'MemoryType', 'Sensitivity']

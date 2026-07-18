@@ -163,7 +163,7 @@ def search(
     if hook_json:
         try:
             with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
-                store, _, retriever = _cli._open_hook_components()
+                store, _, retriever = _cli._command_components(hook=True)
                 sf = SearchFilter(
                     type=type,
                     project=project,
@@ -193,7 +193,7 @@ def search(
         typer.echo(json.dumps(payload.to_dict(), ensure_ascii=False))
         return
 
-    store, _, retriever = _cli._open_components()
+    store, _, retriever = _cli._command_components()
     sf = SearchFilter(
         type=type,
         project=project,
@@ -691,7 +691,7 @@ def tag_suggest(
     max_tags: int = typer.Option(5, "--max"),
 ) -> None:
     """Suggest tags based on similar existing items."""
-    _, idx, _ = _cli._open_components()
+    _, idx, _ = _cli._command_components()
     embedder = _cli.get_default_embedder()
     from agent_brain.memory.recall.retrieval import suggest_tags as _suggest_tags
     suggestions = _suggest_tags(idx, embedder, text, max_tags=max_tags)

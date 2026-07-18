@@ -140,41 +140,41 @@ def update(
     project: str | None = typer.Option(None, "--project"),
 ) -> None:
     """Update fields of an existing memory item (supports ID prefix matching)."""
-    store, idx, _ = _cli._open_components()
-    item_id = _resolve_id(store, item_id)
-    current_tags: list[str] | None = None
-    if add_tags:
-        for item, _ in store.iter_all():
-            if item.id == item_id:
-                current_tags = item.tags
+    with _cli._managed_components() as (store, idx, _):
+        item_id = _resolve_id(store, item_id)
+        current_tags: list[str] | None = None
+        if add_tags:
+            for item, _ in store.iter_all():
+                if item.id == item_id:
+                    current_tags = item.tags
+                    break
+        updates = build_cli_update_fields(
+            title=title,
+            summary=summary,
+            add_tags=add_tags,
+            current_tags=current_tags,
+            confidence=confidence,
+            project=project,
+        )
+        if not updates:
+            typer.echo("no fields to update", err=True)
+            raise typer.Exit(1)
+        try:
+            updated = store.update_frontmatter(item_id, **updates)
+        except FileNotFoundError:
+            typer.echo(f"item not found: {item_id}", err=True)
+            raise typer.Exit(1)
+        embedder = _cli.get_default_embedder()
+        item_body = ""
+        for it, body in store.iter_all():
+            if it.id == item_id:
+                item_body = body
                 break
-    updates = build_cli_update_fields(
-        title=title,
-        summary=summary,
-        add_tags=add_tags,
-        current_tags=current_tags,
-        confidence=confidence,
-        project=project,
-    )
-    if not updates:
-        typer.echo("no fields to update", err=True)
-        raise typer.Exit(1)
-    try:
-        updated = store.update_frontmatter(item_id, **updates)
-    except FileNotFoundError:
-        typer.echo(f"item not found: {item_id}", err=True)
-        raise typer.Exit(1)
-    embedder = _cli.get_default_embedder()
-    item_body = ""
-    for it, body in store.iter_all():
-        if it.id == item_id:
-            item_body = body
-            break
-    idx.upsert(
-        updated,
-        item_body,
-        embedding=embedder.embed(embedding_text_for_item(updated)),
-    )
+        idx.upsert(
+            updated,
+            item_body,
+            embedding=embedder.embed(embedding_text_for_item(updated)),
+        )
     typer.echo(f"updated: {item_id} ({', '.join(updates.keys())})")
 
 
@@ -233,7 +233,6 @@ def injection_feedback(
     Adopted items are reinforced; rejected items are penalized; injected but
     unmentioned items are left unchanged.
     """
-    store, idx, _ = _cli._open_components()
     from agent_brain.memory.context.injection_feedback import InjectionFeedback
 
     injected_ids = _split_ids(injected)
@@ -250,15 +249,16 @@ def injection_feedback(
         typer.echo("missing injected cohort: pass --injected or --latest", err=True)
         raise typer.Exit(2)
 
-    try:
-        report = InjectionFeedback(items_store=store, index=idx).apply(
-            injected_ids=injected_ids,
-            adopted_ids=_split_ids(adopted),
-            rejected_ids=_split_ids(rejected),
-        )
-    except ValueError as exc:
-        typer.echo(str(exc), err=True)
-        raise typer.Exit(2)
+    with _cli._managed_components() as (store, idx, _):
+        try:
+            report = InjectionFeedback(items_store=store, index=idx).apply(
+                injected_ids=injected_ids,
+                adopted_ids=_split_ids(adopted),
+                rejected_ids=_split_ids(rejected),
+            )
+        except ValueError as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(2)
     _record_injection_feedback_outcome(report, cohort=cohort, adapter=adapter, session=session)
     _record_only_rejected_gap_if_needed(report, cohort=cohort, adapter=adapter, session=session)
     typer.echo(

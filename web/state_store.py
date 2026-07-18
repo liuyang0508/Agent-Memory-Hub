@@ -185,6 +185,11 @@ _state_cache: _StateStoreCache = _StateStoreCache()
 _state_cache_lock = threading.Lock()
 
 
+def close_state_store_cache() -> None:
+    with _state_cache_lock:
+        _state_cache.clear()
+
+
 def get_state_store(brain_dir: Path) -> WebStateStore:
     """Return a WebStateStore for ``brain_dir``, cached per brain dir."""
     key = str(brain_dir)

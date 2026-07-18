@@ -8,25 +8,25 @@ All operations are local-first (direct filesystem + sqlite), zero network calls.
 Example:
     from agent_brain.interfaces.sdk import MemoryClient
 
-    client = MemoryClient(brain_dir="~/.agent-memory-hub")
-    client.write(
-        type="decision",
-        title="Chose SSE over WebSocket",
-        summary="SSE is simpler for our uni-directional push case",
-        body="**决策** SSE\\n**理由** uni-directional\\n**改回去的代价** low",
-        tags=["api", "sse"],
-        project="my-project",
-    )
+    with MemoryClient(brain_dir="~/.agent-memory-hub") as client:
+        client.write(
+            type="decision",
+            title="Chose SSE over WebSocket",
+            summary="SSE is simpler for our uni-directional push case",
+            body="**决策** SSE\\n**理由** uni-directional\\n**改回去的代价** low",
+            tags=["api", "sse"],
+            project="my-project",
+        )
 
-    results = client.search("real-time push", top_k=5)
-    for r in results:
-        print(f"{r.title} (score={r.score:.3f})")
+        results = client.search("real-time push", top_k=5)
+        for result in results:
+            print(f"{result.title} (score={result.score:.3f})")
 
-    client.reaffirm(results[0].id)
-    client.reject(results[1].id)
+        client.reaffirm(results[0].id)
+        client.reject(results[1].id)
 
-    stats = client.stats()
-    print(f"Brain health: {stats['health_grade']}")
+        stats = client.stats()
+        print(f"Brain health: {stats['health_grade']}")
 """
 from __future__ import annotations
 
@@ -83,6 +83,16 @@ class MemoryClient:
     @property
     def brain_dir(self) -> Path:
         return self._brain_dir
+
+    def close(self) -> None:
+        """Release cached local index resources owned by this client."""
+        self._components.close()
+
+    def __enter__(self) -> "MemoryClient":
+        return self
+
+    def __exit__(self, exc_type: object, exc: object, traceback: object) -> None:
+        self.close()
 
     def write(
         self,

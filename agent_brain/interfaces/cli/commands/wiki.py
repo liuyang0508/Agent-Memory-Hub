@@ -12,7 +12,7 @@ import typer
 from agent_brain.contracts.memory_item import MemoryItem
 from agent_brain.contracts.memory_enums import memory_enum_value
 from agent_brain.interfaces.cli._app import wiki_app
-from agent_brain.interfaces.cli._shared import _open_components, _store_only, SearchFilter
+from agent_brain.interfaces.cli._shared import _managed_components, _store_only, SearchFilter
 
 ItemBody = tuple[MemoryItem, str]
 
@@ -143,11 +143,18 @@ def search_wiki_query_hits(
 ) -> list[WikiQueryHit]:
     """Search memory for a wiki query, falling back to local Markdown scanning."""
     store = _store_only()
-    retriever = None
+    retrieval_hits = []
     try:
-        store, _index, retriever = _open_components()
+        with _managed_components() as (managed_store, _index, retriever):
+            store = managed_store
+            filters = SearchFilter(type=memory_type, project=project)
+            retrieval_hits = retriever.search(
+                query,
+                top_k=top_k,
+                filters=None if filters.is_empty else filters,
+            )
     except Exception:
-        retriever = None
+        retrieval_hits = []
 
     items_by_id = {
         item.id: (item, body)
@@ -156,20 +163,10 @@ def search_wiki_query_hits(
     }
 
     results: list[WikiQueryHit] = []
-    if retriever is not None:
-        try:
-            filters = SearchFilter(type=memory_type, project=project)
-            hits = retriever.search(
-                query,
-                top_k=top_k,
-                filters=None if filters.is_empty else filters,
-            )
-            for hit in hits:
-                if hit.id in items_by_id:
-                    item, body = items_by_id[hit.id]
-                    results.append(WikiQueryHit(item=item, body=body, score=hit.score))
-        except Exception:
-            results = []
+    for hit in retrieval_hits:
+        if hit.id in items_by_id:
+            item, body = items_by_id[hit.id]
+            results.append(WikiQueryHit(item=item, body=body, score=hit.score))
 
     if results:
         return results[:top_k]
