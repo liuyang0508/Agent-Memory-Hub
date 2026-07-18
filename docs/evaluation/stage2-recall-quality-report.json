@@ -1,0 +1,3218 @@
+{
+  "breakdowns": {
+    "adapter": {
+      "codex": {
+        "abstention": {
+          "case_count": 37,
+          "fn": 0,
+          "fp": 0,
+          "precision": 1.0,
+          "recall": 1.0,
+          "tp": 6
+        },
+        "admission": {
+          "case_count": 37,
+          "fn": 0,
+          "fp": 0,
+          "reason_counts": {
+            "adapter_control_command": 1,
+            "meaningful_query": 35,
+            "weak_confirmation": 1
+          },
+          "tp": 35
+        },
+        "answerability": {
+          "actual_counts": {
+            "insufficient": 4,
+            "not_applicable": 2,
+            "supported": 31
+          },
+          "case_count": 37,
+          "expected_counts": {
+            "insufficient": 4,
+            "not_applicable": 2,
+            "supported": 31
+          },
+          "mismatch_count": 0
+        },
+        "injection": {
+          "case_count": 37,
+          "excluded_reason_counts": {
+            "requires_review": 1,
+            "route_answerability_insufficient": 219,
+            "sensitivity_not_allowed": 5
+          },
+          "fn": 0,
+          "fp": 0,
+          "included_count": 34,
+          "prohibited_injection_count": 0,
+          "project_mismatch_count": 0,
+          "tp": 34,
+          "used_tokens": 336
+        },
+        "retrieval": {
+          "case_count": 37,
+          "false_negative_item_count": 0,
+          "mrr": 0.9838709677419355,
+          "positive_case_count": 31,
+          "prohibited_candidate_count": 0,
+          "recall_at_1": 0.967741935483871,
+          "recall_at_10": 1.0,
+          "recall_at_5": 1.0
+        },
+        "temporal": {
+          "actual_counts": {
+            "not_applicable": 29,
+            "stable": 7,
+            "stale": 1
+          },
+          "case_count": 37,
+          "expected_counts": {
+            "not_applicable": 29,
+            "stable": 7,
+            "stale": 1
+          },
+          "mismatch_count": 0
+        }
+      }
+    },
+    "category": {
+      "abstention": {
+        "abstention": {
+          "case_count": 2,
+          "fn": 0,
+          "fp": 0,
+          "precision": 1.0,
+          "recall": 1.0,
+          "tp": 2
+        },
+        "admission": {
+          "case_count": 2,
+          "fn": 0,
+          "fp": 0,
+          "reason_counts": {
+            "meaningful_query": 2
+          },
+          "tp": 2
+        },
+        "answerability": {
+          "actual_counts": {
+            "insufficient": 2
+          },
+          "case_count": 2,
+          "expected_counts": {
+            "insufficient": 2
+          },
+          "mismatch_count": 0
+        },
+        "injection": {
+          "case_count": 2,
+          "excluded_reason_counts": {},
+          "fn": 0,
+          "fp": 0,
+          "included_count": 0,
+          "prohibited_injection_count": 0,
+          "project_mismatch_count": 0,
+          "tp": 0,
+          "used_tokens": 0
+        },
+        "retrieval": {
+          "case_count": 2,
+          "false_negative_item_count": 0,
+          "mrr": 1.0,
+          "positive_case_count": 0,
+          "prohibited_candidate_count": 0,
+          "recall_at_1": 1.0,
+          "recall_at_10": 1.0,
+          "recall_at_5": 1.0
+        },
+        "temporal": {
+          "actual_counts": {
+            "not_applicable": 2
+          },
+          "case_count": 2,
+          "expected_counts": {
+            "not_applicable": 2
+          },
+          "mismatch_count": 0
+        }
+      },
+      "hook_recall": {
+        "abstention": {
+          "case_count": 1,
+          "fn": 0,
+          "fp": 0,
+          "precision": 1.0,
+          "recall": 1.0,
+          "tp": 0
+        },
+        "admission": {
+          "case_count": 1,
+          "fn": 0,
+          "fp": 0,
+          "reason_counts": {
+            "meaningful_query": 1
+          },
+          "tp": 1
+        },
+        "answerability": {
+          "actual_counts": {
+            "supported": 1
+          },
+          "case_count": 1,
+          "expected_counts": {
+            "supported": 1
+          },
+          "mismatch_count": 0
+        },
+        "injection": {
+          "case_count": 1,
+          "excluded_reason_counts": {},
+          "fn": 0,
+          "fp": 0,
+          "included_count": 2,
+          "prohibited_injection_count": 0,
+          "project_mismatch_count": 0,
+          "tp": 2,
+          "used_tokens": 30
+        },
+        "retrieval": {
+          "case_count": 1,
+          "false_negative_item_count": 0,
+          "mrr": 1.0,
+          "positive_case_count": 1,
+          "prohibited_candidate_count": 0,
+          "recall_at_1": 1.0,
+          "recall_at_10": 1.0,
+          "recall_at_5": 1.0
+        },
+        "temporal": {
+          "actual_counts": {
+            "stable": 1
+          },
+          "case_count": 1,
+          "expected_counts": {
+            "stable": 1
+          },
+          "mismatch_count": 0
+        }
+      },
+      "keyword_extraction_error": {
+        "abstention": {
+          "case_count": 9,
+          "fn": 0,
+          "fp": 0,
+          "precision": 1.0,
+          "recall": 1.0,
+          "tp": 0
+        },
+        "admission": {
+          "case_count": 9,
+          "fn": 0,
+          "fp": 0,
+          "reason_counts": {
+            "meaningful_query": 9
+          },
+          "tp": 9
+        },
+        "answerability": {
+          "actual_counts": {
+            "supported": 9
+          },
+          "case_count": 9,
+          "expected_counts": {
+            "supported": 9
+          },
+          "mismatch_count": 0
+        },
+        "injection": {
+          "case_count": 9,
+          "excluded_reason_counts": {
+            "route_answerability_insufficient": 72
+          },
+          "fn": 0,
+          "fp": 0,
+          "included_count": 9,
+          "prohibited_injection_count": 0,
+          "project_mismatch_count": 0,
+          "tp": 9,
+          "used_tokens": 63
+        },
+        "retrieval": {
+          "case_count": 9,
+          "false_negative_item_count": 0,
+          "mrr": 0.9444444444444444,
+          "positive_case_count": 9,
+          "prohibited_candidate_count": 0,
+          "recall_at_1": 0.8888888888888888,
+          "recall_at_10": 1.0,
+          "recall_at_5": 1.0
+        },
+        "temporal": {
+          "actual_counts": {
+            "not_applicable": 8,
+            "stable": 1
+          },
+          "case_count": 9,
+          "expected_counts": {
+            "not_applicable": 8,
+            "stable": 1
+          },
+          "mismatch_count": 0
+        }
+      },
+      "log_trace": {
+        "abstention": {
+          "case_count": 1,
+          "fn": 0,
+          "fp": 0,
+          "precision": 1.0,
+          "recall": 1.0,
+          "tp": 0
+        },
+        "admission": {
+          "case_count": 1,
+          "fn": 0,
+          "fp": 0,
+          "reason_counts": {
+            "meaningful_query": 1
+          },
+          "tp": 1
+        },
+        "answerability": {
+          "actual_counts": {
+            "supported": 1
+          },
+          "case_count": 1,
+          "expected_counts": {
+            "supported": 1
+          },
+          "mismatch_count": 0
+        },
+        "injection": {
+          "case_count": 1,
+          "excluded_reason_counts": {},
+          "fn": 0,
+          "fp": 0,
+          "included_count": 1,
+          "prohibited_injection_count": 0,
+          "project_mismatch_count": 0,
+          "tp": 1,
+          "used_tokens": 23
+        },
+        "retrieval": {
+          "case_count": 1,
+          "false_negative_item_count": 0,
+          "mrr": 1.0,
+          "positive_case_count": 1,
+          "prohibited_candidate_count": 0,
+          "recall_at_1": 1.0,
+          "recall_at_10": 1.0,
+          "recall_at_5": 1.0
+        },
+        "temporal": {
+          "actual_counts": {
+            "stable": 1
+          },
+          "case_count": 1,
+          "expected_counts": {
+            "stable": 1
+          },
+          "mismatch_count": 0
+        }
+      },
+      "multilingual": {
+        "abstention": {
+          "case_count": 9,
+          "fn": 0,
+          "fp": 0,
+          "precision": 1.0,
+          "recall": 1.0,
+          "tp": 0
+        },
+        "admission": {
+          "case_count": 9,
+          "fn": 0,
+          "fp": 0,
+          "reason_counts": {
+            "meaningful_query": 9
+          },
+          "tp": 9
+        },
+        "answerability": {
+          "actual_counts": {
+            "supported": 9
+          },
+          "case_count": 9,
+          "expected_counts": {
+            "supported": 9
+          },
+          "mismatch_count": 0
+        },
+        "injection": {
+          "case_count": 9,
+          "excluded_reason_counts": {
+            "route_answerability_insufficient": 67,
+            "sensitivity_not_allowed": 5
+          },
+          "fn": 0,
+          "fp": 0,
+          "included_count": 9,
+          "prohibited_injection_count": 0,
+          "project_mismatch_count": 0,
+          "tp": 9,
+          "used_tokens": 122
+        },
+        "retrieval": {
+          "case_count": 9,
+          "false_negative_item_count": 0,
+          "mrr": 1.0,
+          "positive_case_count": 9,
+          "prohibited_candidate_count": 0,
+          "recall_at_1": 1.0,
+          "recall_at_10": 1.0,
+          "recall_at_5": 1.0
+        },
+        "temporal": {
+          "actual_counts": {
+            "not_applicable": 8,
+            "stable": 1
+          },
+          "case_count": 9,
+          "expected_counts": {
+            "not_applicable": 8,
+            "stable": 1
+          },
+          "mismatch_count": 0
+        }
+      },
+      "multimodal": {
+        "abstention": {
+          "case_count": 1,
+          "fn": 0,
+          "fp": 0,
+          "precision": 1.0,
+          "recall": 1.0,
+          "tp": 0
+        },
+        "admission": {
+          "case_count": 1,
+          "fn": 0,
+          "fp": 0,
+          "reason_counts": {
+            "meaningful_query": 1
+          },
+          "tp": 1
+        },
+        "answerability": {
+          "actual_counts": {
+            "supported": 1
+          },
+          "case_count": 1,
+          "expected_counts": {
+            "supported": 1
+          },
+          "mismatch_count": 0
+        },
+        "injection": {
+          "case_count": 1,
+          "excluded_reason_counts": {},
+          "fn": 0,
+          "fp": 0,
+          "included_count": 2,
+          "prohibited_injection_count": 0,
+          "project_mismatch_count": 0,
+          "tp": 2,
+          "used_tokens": 30
+        },
+        "retrieval": {
+          "case_count": 1,
+          "false_negative_item_count": 0,
+          "mrr": 1.0,
+          "positive_case_count": 1,
+          "prohibited_candidate_count": 0,
+          "recall_at_1": 1.0,
+          "recall_at_10": 1.0,
+          "recall_at_5": 1.0
+        },
+        "temporal": {
+          "actual_counts": {
+            "stable": 1
+          },
+          "case_count": 1,
+          "expected_counts": {
+            "stable": 1
+          },
+          "mismatch_count": 0
+        }
+      },
+      "project_mismatch": {
+        "abstention": {
+          "case_count": 1,
+          "fn": 0,
+          "fp": 0,
+          "precision": 1.0,
+          "recall": 1.0,
+          "tp": 1
+        },
+        "admission": {
+          "case_count": 1,
+          "fn": 0,
+          "fp": 0,
+          "reason_counts": {
+            "meaningful_query": 1
+          },
+          "tp": 1
+        },
+        "answerability": {
+          "actual_counts": {
+            "insufficient": 1
+          },
+          "case_count": 1,
+          "expected_counts": {
+            "insufficient": 1
+          },
+          "mismatch_count": 0
+        },
+        "injection": {
+          "case_count": 1,
+          "excluded_reason_counts": {},
+          "fn": 0,
+          "fp": 0,
+          "included_count": 0,
+          "prohibited_injection_count": 0,
+          "project_mismatch_count": 0,
+          "tp": 0,
+          "used_tokens": 0
+        },
+        "retrieval": {
+          "case_count": 1,
+          "false_negative_item_count": 0,
+          "mrr": 1.0,
+          "positive_case_count": 0,
+          "prohibited_candidate_count": 0,
+          "recall_at_1": 1.0,
+          "recall_at_10": 1.0,
+          "recall_at_5": 1.0
+        },
+        "temporal": {
+          "actual_counts": {
+            "stable": 1
+          },
+          "case_count": 1,
+          "expected_counts": {
+            "stable": 1
+          },
+          "mismatch_count": 0
+        }
+      },
+      "semantic_paraphrase": {
+        "abstention": {
+          "case_count": 9,
+          "fn": 0,
+          "fp": 0,
+          "precision": 1.0,
+          "recall": 1.0,
+          "tp": 0
+        },
+        "admission": {
+          "case_count": 9,
+          "fn": 0,
+          "fp": 0,
+          "reason_counts": {
+            "meaningful_query": 9
+          },
+          "tp": 9
+        },
+        "answerability": {
+          "actual_counts": {
+            "supported": 9
+          },
+          "case_count": 9,
+          "expected_counts": {
+            "supported": 9
+          },
+          "mismatch_count": 0
+        },
+        "injection": {
+          "case_count": 9,
+          "excluded_reason_counts": {
+            "requires_review": 1,
+            "route_answerability_insufficient": 79
+          },
+          "fn": 0,
+          "fp": 0,
+          "included_count": 10,
+          "prohibited_injection_count": 0,
+          "project_mismatch_count": 0,
+          "tp": 10,
+          "used_tokens": 64
+        },
+        "retrieval": {
+          "case_count": 9,
+          "false_negative_item_count": 0,
+          "mrr": 1.0,
+          "positive_case_count": 9,
+          "prohibited_candidate_count": 0,
+          "recall_at_1": 1.0,
+          "recall_at_10": 1.0,
+          "recall_at_5": 1.0
+        },
+        "temporal": {
+          "actual_counts": {
+            "not_applicable": 9
+          },
+          "case_count": 9,
+          "expected_counts": {
+            "not_applicable": 9
+          },
+          "mismatch_count": 0
+        }
+      },
+      "temporal": {
+        "abstention": {
+          "case_count": 2,
+          "fn": 0,
+          "fp": 0,
+          "precision": 1.0,
+          "recall": 1.0,
+          "tp": 1
+        },
+        "admission": {
+          "case_count": 2,
+          "fn": 0,
+          "fp": 0,
+          "reason_counts": {
+            "meaningful_query": 2
+          },
+          "tp": 2
+        },
+        "answerability": {
+          "actual_counts": {
+            "insufficient": 1,
+            "supported": 1
+          },
+          "case_count": 2,
+          "expected_counts": {
+            "insufficient": 1,
+            "supported": 1
+          },
+          "mismatch_count": 0
+        },
+        "injection": {
+          "case_count": 2,
+          "excluded_reason_counts": {
+            "route_answerability_insufficient": 1
+          },
+          "fn": 0,
+          "fp": 0,
+          "included_count": 1,
+          "prohibited_injection_count": 0,
+          "project_mismatch_count": 0,
+          "tp": 1,
+          "used_tokens": 4
+        },
+        "retrieval": {
+          "case_count": 2,
+          "false_negative_item_count": 0,
+          "mrr": 1.0,
+          "positive_case_count": 1,
+          "prohibited_candidate_count": 0,
+          "recall_at_1": 1.0,
+          "recall_at_10": 1.0,
+          "recall_at_5": 1.0
+        },
+        "temporal": {
+          "actual_counts": {
+            "stable": 1,
+            "stale": 1
+          },
+          "case_count": 2,
+          "expected_counts": {
+            "stable": 1,
+            "stale": 1
+          },
+          "mismatch_count": 0
+        }
+      },
+      "weak_followup": {
+        "abstention": {
+          "case_count": 2,
+          "fn": 0,
+          "fp": 0,
+          "precision": 1.0,
+          "recall": 1.0,
+          "tp": 2
+        },
+        "admission": {
+          "case_count": 2,
+          "fn": 0,
+          "fp": 0,
+          "reason_counts": {
+            "adapter_control_command": 1,
+            "weak_confirmation": 1
+          },
+          "tp": 0
+        },
+        "answerability": {
+          "actual_counts": {
+            "not_applicable": 2
+          },
+          "case_count": 2,
+          "expected_counts": {
+            "not_applicable": 2
+          },
+          "mismatch_count": 0
+        },
+        "injection": {
+          "case_count": 2,
+          "excluded_reason_counts": {},
+          "fn": 0,
+          "fp": 0,
+          "included_count": 0,
+          "prohibited_injection_count": 0,
+          "project_mismatch_count": 0,
+          "tp": 0,
+          "used_tokens": 0
+        },
+        "retrieval": {
+          "case_count": 2,
+          "false_negative_item_count": 0,
+          "mrr": 1.0,
+          "positive_case_count": 0,
+          "prohibited_candidate_count": 0,
+          "recall_at_1": 1.0,
+          "recall_at_10": 1.0,
+          "recall_at_5": 1.0
+        },
+        "temporal": {
+          "actual_counts": {
+            "not_applicable": 2
+          },
+          "case_count": 2,
+          "expected_counts": {
+            "not_applicable": 2
+          },
+          "mismatch_count": 0
+        }
+      }
+    },
+    "language": {
+      "en": {
+        "abstention": {
+          "case_count": 4,
+          "fn": 0,
+          "fp": 0,
+          "precision": 1.0,
+          "recall": 1.0,
+          "tp": 2
+        },
+        "admission": {
+          "case_count": 4,
+          "fn": 0,
+          "fp": 0,
+          "reason_counts": {
+            "adapter_control_command": 1,
+            "meaningful_query": 3
+          },
+          "tp": 3
+        },
+        "answerability": {
+          "actual_counts": {
+            "insufficient": 1,
+            "not_applicable": 1,
+            "supported": 2
+          },
+          "case_count": 4,
+          "expected_counts": {
+            "insufficient": 1,
+            "not_applicable": 1,
+            "supported": 2
+          },
+          "mismatch_count": 0
+        },
+        "injection": {
+          "case_count": 4,
+          "excluded_reason_counts": {
+            "requires_review": 1,
+            "route_answerability_insufficient": 7
+          },
+          "fn": 0,
+          "fp": 0,
+          "included_count": 3,
+          "prohibited_injection_count": 0,
+          "project_mismatch_count": 0,
+          "tp": 3,
+          "used_tokens": 55
+        },
+        "retrieval": {
+          "case_count": 4,
+          "false_negative_item_count": 0,
+          "mrr": 1.0,
+          "positive_case_count": 2,
+          "prohibited_candidate_count": 0,
+          "recall_at_1": 1.0,
+          "recall_at_10": 1.0,
+          "recall_at_5": 1.0
+        },
+        "temporal": {
+          "actual_counts": {
+            "not_applicable": 2,
+            "stable": 2
+          },
+          "case_count": 4,
+          "expected_counts": {
+            "not_applicable": 2,
+            "stable": 2
+          },
+          "mismatch_count": 0
+        }
+      },
+      "mixed": {
+        "abstention": {
+          "case_count": 2,
+          "fn": 0,
+          "fp": 0,
+          "precision": 1.0,
+          "recall": 1.0,
+          "tp": 0
+        },
+        "admission": {
+          "case_count": 2,
+          "fn": 0,
+          "fp": 0,
+          "reason_counts": {
+            "meaningful_query": 2
+          },
+          "tp": 2
+        },
+        "answerability": {
+          "actual_counts": {
+            "supported": 2
+          },
+          "case_count": 2,
+          "expected_counts": {
+            "supported": 2
+          },
+          "mismatch_count": 0
+        },
+        "injection": {
+          "case_count": 2,
+          "excluded_reason_counts": {
+            "route_answerability_insufficient": 17,
+            "sensitivity_not_allowed": 1
+          },
+          "fn": 0,
+          "fp": 0,
+          "included_count": 2,
+          "prohibited_injection_count": 0,
+          "project_mismatch_count": 0,
+          "tp": 2,
+          "used_tokens": 28
+        },
+        "retrieval": {
+          "case_count": 2,
+          "false_negative_item_count": 0,
+          "mrr": 1.0,
+          "positive_case_count": 2,
+          "prohibited_candidate_count": 0,
+          "recall_at_1": 1.0,
+          "recall_at_10": 1.0,
+          "recall_at_5": 1.0
+        },
+        "temporal": {
+          "actual_counts": {
+            "not_applicable": 2
+          },
+          "case_count": 2,
+          "expected_counts": {
+            "not_applicable": 2
+          },
+          "mismatch_count": 0
+        }
+      },
+      "other": {
+        "abstention": {
+          "case_count": 6,
+          "fn": 0,
+          "fp": 0,
+          "precision": 1.0,
+          "recall": 1.0,
+          "tp": 0
+        },
+        "admission": {
+          "case_count": 6,
+          "fn": 0,
+          "fp": 0,
+          "reason_counts": {
+            "meaningful_query": 6
+          },
+          "tp": 6
+        },
+        "answerability": {
+          "actual_counts": {
+            "supported": 6
+          },
+          "case_count": 6,
+          "expected_counts": {
+            "supported": 6
+          },
+          "mismatch_count": 0
+        },
+        "injection": {
+          "case_count": 6,
+          "excluded_reason_counts": {
+            "route_answerability_insufficient": 50,
+            "sensitivity_not_allowed": 4
+          },
+          "fn": 0,
+          "fp": 0,
+          "included_count": 6,
+          "prohibited_injection_count": 0,
+          "project_mismatch_count": 0,
+          "tp": 6,
+          "used_tokens": 83
+        },
+        "retrieval": {
+          "case_count": 6,
+          "false_negative_item_count": 0,
+          "mrr": 1.0,
+          "positive_case_count": 6,
+          "prohibited_candidate_count": 0,
+          "recall_at_1": 1.0,
+          "recall_at_10": 1.0,
+          "recall_at_5": 1.0
+        },
+        "temporal": {
+          "actual_counts": {
+            "not_applicable": 6
+          },
+          "case_count": 6,
+          "expected_counts": {
+            "not_applicable": 6
+          },
+          "mismatch_count": 0
+        }
+      },
+      "zh": {
+        "abstention": {
+          "case_count": 24,
+          "fn": 0,
+          "fp": 0,
+          "precision": 1.0,
+          "recall": 1.0,
+          "tp": 4
+        },
+        "admission": {
+          "case_count": 24,
+          "fn": 0,
+          "fp": 0,
+          "reason_counts": {
+            "meaningful_query": 23,
+            "weak_confirmation": 1
+          },
+          "tp": 23
+        },
+        "answerability": {
+          "actual_counts": {
+            "insufficient": 3,
+            "not_applicable": 1,
+            "supported": 20
+          },
+          "case_count": 24,
+          "expected_counts": {
+            "insufficient": 3,
+            "not_applicable": 1,
+            "supported": 20
+          },
+          "mismatch_count": 0
+        },
+        "injection": {
+          "case_count": 24,
+          "excluded_reason_counts": {
+            "route_answerability_insufficient": 145
+          },
+          "fn": 0,
+          "fp": 0,
+          "included_count": 22,
+          "prohibited_injection_count": 0,
+          "project_mismatch_count": 0,
+          "tp": 22,
+          "used_tokens": 160
+        },
+        "retrieval": {
+          "case_count": 24,
+          "false_negative_item_count": 0,
+          "mrr": 0.975,
+          "positive_case_count": 20,
+          "prohibited_candidate_count": 0,
+          "recall_at_1": 0.95,
+          "recall_at_10": 1.0,
+          "recall_at_5": 1.0
+        },
+        "temporal": {
+          "actual_counts": {
+            "not_applicable": 19,
+            "stable": 4,
+            "stale": 1
+          },
+          "case_count": 24,
+          "expected_counts": {
+            "not_applicable": 19,
+            "stable": 4,
+            "stale": 1
+          },
+          "mismatch_count": 0
+        }
+      },
+      "zh-en": {
+        "abstention": {
+          "case_count": 1,
+          "fn": 0,
+          "fp": 0,
+          "precision": 1.0,
+          "recall": 1.0,
+          "tp": 0
+        },
+        "admission": {
+          "case_count": 1,
+          "fn": 0,
+          "fp": 0,
+          "reason_counts": {
+            "meaningful_query": 1
+          },
+          "tp": 1
+        },
+        "answerability": {
+          "actual_counts": {
+            "supported": 1
+          },
+          "case_count": 1,
+          "expected_counts": {
+            "supported": 1
+          },
+          "mismatch_count": 0
+        },
+        "injection": {
+          "case_count": 1,
+          "excluded_reason_counts": {},
+          "fn": 0,
+          "fp": 0,
+          "included_count": 1,
+          "prohibited_injection_count": 0,
+          "project_mismatch_count": 0,
+          "tp": 1,
+          "used_tokens": 10
+        },
+        "retrieval": {
+          "case_count": 1,
+          "false_negative_item_count": 0,
+          "mrr": 1.0,
+          "positive_case_count": 1,
+          "prohibited_candidate_count": 0,
+          "recall_at_1": 1.0,
+          "recall_at_10": 1.0,
+          "recall_at_5": 1.0
+        },
+        "temporal": {
+          "actual_counts": {
+            "stable": 1
+          },
+          "case_count": 1,
+          "expected_counts": {
+            "stable": 1
+          },
+          "mismatch_count": 0
+        }
+      }
+    },
+    "project_scope": {
+      "agent-memory-hub": {
+        "abstention": {
+          "case_count": 2,
+          "fn": 0,
+          "fp": 0,
+          "precision": 1.0,
+          "recall": 1.0,
+          "tp": 0
+        },
+        "admission": {
+          "case_count": 2,
+          "fn": 0,
+          "fp": 0,
+          "reason_counts": {
+            "meaningful_query": 2
+          },
+          "tp": 2
+        },
+        "answerability": {
+          "actual_counts": {
+            "supported": 2
+          },
+          "case_count": 2,
+          "expected_counts": {
+            "supported": 2
+          },
+          "mismatch_count": 0
+        },
+        "injection": {
+          "case_count": 2,
+          "excluded_reason_counts": {},
+          "fn": 0,
+          "fp": 0,
+          "included_count": 3,
+          "prohibited_injection_count": 0,
+          "project_mismatch_count": 0,
+          "tp": 3,
+          "used_tokens": 53
+        },
+        "retrieval": {
+          "case_count": 2,
+          "false_negative_item_count": 0,
+          "mrr": 1.0,
+          "positive_case_count": 2,
+          "prohibited_candidate_count": 0,
+          "recall_at_1": 1.0,
+          "recall_at_10": 1.0,
+          "recall_at_5": 1.0
+        },
+        "temporal": {
+          "actual_counts": {
+            "stable": 2
+          },
+          "case_count": 2,
+          "expected_counts": {
+            "stable": 2
+          },
+          "mismatch_count": 0
+        }
+      },
+      "global": {
+        "abstention": {
+          "case_count": 33,
+          "fn": 0,
+          "fp": 0,
+          "precision": 1.0,
+          "recall": 1.0,
+          "tp": 5
+        },
+        "admission": {
+          "case_count": 33,
+          "fn": 0,
+          "fp": 0,
+          "reason_counts": {
+            "adapter_control_command": 1,
+            "meaningful_query": 31,
+            "weak_confirmation": 1
+          },
+          "tp": 31
+        },
+        "answerability": {
+          "actual_counts": {
+            "insufficient": 3,
+            "not_applicable": 2,
+            "supported": 28
+          },
+          "case_count": 33,
+          "expected_counts": {
+            "insufficient": 3,
+            "not_applicable": 2,
+            "supported": 28
+          },
+          "mismatch_count": 0
+        },
+        "injection": {
+          "case_count": 33,
+          "excluded_reason_counts": {
+            "requires_review": 1,
+            "route_answerability_insufficient": 219,
+            "sensitivity_not_allowed": 5
+          },
+          "fn": 0,
+          "fp": 0,
+          "included_count": 30,
+          "prohibited_injection_count": 0,
+          "project_mismatch_count": 0,
+          "tp": 30,
+          "used_tokens": 273
+        },
+        "retrieval": {
+          "case_count": 33,
+          "false_negative_item_count": 0,
+          "mrr": 0.9821428571428571,
+          "positive_case_count": 28,
+          "prohibited_candidate_count": 0,
+          "recall_at_1": 0.9642857142857143,
+          "recall_at_10": 1.0,
+          "recall_at_5": 1.0
+        },
+        "temporal": {
+          "actual_counts": {
+            "not_applicable": 29,
+            "stable": 3,
+            "stale": 1
+          },
+          "case_count": 33,
+          "expected_counts": {
+            "not_applicable": 29,
+            "stable": 3,
+            "stale": 1
+          },
+          "mismatch_count": 0
+        }
+      },
+      "project-alpha": {
+        "abstention": {
+          "case_count": 1,
+          "fn": 0,
+          "fp": 0,
+          "precision": 1.0,
+          "recall": 1.0,
+          "tp": 1
+        },
+        "admission": {
+          "case_count": 1,
+          "fn": 0,
+          "fp": 0,
+          "reason_counts": {
+            "meaningful_query": 1
+          },
+          "tp": 1
+        },
+        "answerability": {
+          "actual_counts": {
+            "insufficient": 1
+          },
+          "case_count": 1,
+          "expected_counts": {
+            "insufficient": 1
+          },
+          "mismatch_count": 0
+        },
+        "injection": {
+          "case_count": 1,
+          "excluded_reason_counts": {},
+          "fn": 0,
+          "fp": 0,
+          "included_count": 0,
+          "prohibited_injection_count": 0,
+          "project_mismatch_count": 0,
+          "tp": 0,
+          "used_tokens": 0
+        },
+        "retrieval": {
+          "case_count": 1,
+          "false_negative_item_count": 0,
+          "mrr": 1.0,
+          "positive_case_count": 0,
+          "prohibited_candidate_count": 0,
+          "recall_at_1": 1.0,
+          "recall_at_10": 1.0,
+          "recall_at_5": 1.0
+        },
+        "temporal": {
+          "actual_counts": {
+            "stable": 1
+          },
+          "case_count": 1,
+          "expected_counts": {
+            "stable": 1
+          },
+          "mismatch_count": 0
+        }
+      },
+      "smart-badge": {
+        "abstention": {
+          "case_count": 1,
+          "fn": 0,
+          "fp": 0,
+          "precision": 1.0,
+          "recall": 1.0,
+          "tp": 0
+        },
+        "admission": {
+          "case_count": 1,
+          "fn": 0,
+          "fp": 0,
+          "reason_counts": {
+            "meaningful_query": 1
+          },
+          "tp": 1
+        },
+        "answerability": {
+          "actual_counts": {
+            "supported": 1
+          },
+          "case_count": 1,
+          "expected_counts": {
+            "supported": 1
+          },
+          "mismatch_count": 0
+        },
+        "injection": {
+          "case_count": 1,
+          "excluded_reason_counts": {},
+          "fn": 0,
+          "fp": 0,
+          "included_count": 1,
+          "prohibited_injection_count": 0,
+          "project_mismatch_count": 0,
+          "tp": 1,
+          "used_tokens": 10
+        },
+        "retrieval": {
+          "case_count": 1,
+          "false_negative_item_count": 0,
+          "mrr": 1.0,
+          "positive_case_count": 1,
+          "prohibited_candidate_count": 0,
+          "recall_at_1": 1.0,
+          "recall_at_10": 1.0,
+          "recall_at_5": 1.0
+        },
+        "temporal": {
+          "actual_counts": {
+            "stable": 1
+          },
+          "case_count": 1,
+          "expected_counts": {
+            "stable": 1
+          },
+          "mismatch_count": 0
+        }
+      }
+    },
+    "split": {
+      "calibration": {
+        "abstention": {
+          "case_count": 15,
+          "fn": 0,
+          "fp": 0,
+          "precision": 1.0,
+          "recall": 1.0,
+          "tp": 0
+        },
+        "admission": {
+          "case_count": 15,
+          "fn": 0,
+          "fp": 0,
+          "reason_counts": {
+            "meaningful_query": 15
+          },
+          "tp": 15
+        },
+        "answerability": {
+          "actual_counts": {
+            "supported": 15
+          },
+          "case_count": 15,
+          "expected_counts": {
+            "supported": 15
+          },
+          "mismatch_count": 0
+        },
+        "injection": {
+          "case_count": 15,
+          "excluded_reason_counts": {
+            "route_answerability_insufficient": 133,
+            "sensitivity_not_allowed": 2
+          },
+          "fn": 0,
+          "fp": 0,
+          "included_count": 15,
+          "prohibited_injection_count": 0,
+          "project_mismatch_count": 0,
+          "tp": 15,
+          "used_tokens": 103
+        },
+        "retrieval": {
+          "case_count": 15,
+          "false_negative_item_count": 0,
+          "mrr": 0.9666666666666667,
+          "positive_case_count": 15,
+          "prohibited_candidate_count": 0,
+          "recall_at_1": 0.9333333333333333,
+          "recall_at_10": 1.0,
+          "recall_at_5": 1.0
+        },
+        "temporal": {
+          "actual_counts": {
+            "not_applicable": 15
+          },
+          "case_count": 15,
+          "expected_counts": {
+            "not_applicable": 15
+          },
+          "mismatch_count": 0
+        }
+      },
+      "heldout": {
+        "abstention": {
+          "case_count": 10,
+          "fn": 0,
+          "fp": 0,
+          "precision": 1.0,
+          "recall": 1.0,
+          "tp": 0
+        },
+        "admission": {
+          "case_count": 10,
+          "fn": 0,
+          "fp": 0,
+          "reason_counts": {
+            "meaningful_query": 10
+          },
+          "tp": 10
+        },
+        "answerability": {
+          "actual_counts": {
+            "supported": 10
+          },
+          "case_count": 10,
+          "expected_counts": {
+            "supported": 10
+          },
+          "mismatch_count": 0
+        },
+        "injection": {
+          "case_count": 10,
+          "excluded_reason_counts": {
+            "requires_review": 1,
+            "route_answerability_insufficient": 85,
+            "sensitivity_not_allowed": 3
+          },
+          "fn": 0,
+          "fp": 0,
+          "included_count": 11,
+          "prohibited_injection_count": 0,
+          "project_mismatch_count": 0,
+          "tp": 11,
+          "used_tokens": 125
+        },
+        "retrieval": {
+          "case_count": 10,
+          "false_negative_item_count": 0,
+          "mrr": 1.0,
+          "positive_case_count": 10,
+          "prohibited_candidate_count": 0,
+          "recall_at_1": 1.0,
+          "recall_at_10": 1.0,
+          "recall_at_5": 1.0
+        },
+        "temporal": {
+          "actual_counts": {
+            "not_applicable": 10
+          },
+          "case_count": 10,
+          "expected_counts": {
+            "not_applicable": 10
+          },
+          "mismatch_count": 0
+        }
+      },
+      "production_replay": {
+        "abstention": {
+          "case_count": 12,
+          "fn": 0,
+          "fp": 0,
+          "precision": 1.0,
+          "recall": 1.0,
+          "tp": 6
+        },
+        "admission": {
+          "case_count": 12,
+          "fn": 0,
+          "fp": 0,
+          "reason_counts": {
+            "adapter_control_command": 1,
+            "meaningful_query": 10,
+            "weak_confirmation": 1
+          },
+          "tp": 10
+        },
+        "answerability": {
+          "actual_counts": {
+            "insufficient": 4,
+            "not_applicable": 2,
+            "supported": 6
+          },
+          "case_count": 12,
+          "expected_counts": {
+            "insufficient": 4,
+            "not_applicable": 2,
+            "supported": 6
+          },
+          "mismatch_count": 0
+        },
+        "injection": {
+          "case_count": 12,
+          "excluded_reason_counts": {
+            "route_answerability_insufficient": 1
+          },
+          "fn": 0,
+          "fp": 0,
+          "included_count": 8,
+          "prohibited_injection_count": 0,
+          "project_mismatch_count": 0,
+          "tp": 8,
+          "used_tokens": 108
+        },
+        "retrieval": {
+          "case_count": 12,
+          "false_negative_item_count": 0,
+          "mrr": 1.0,
+          "positive_case_count": 6,
+          "prohibited_candidate_count": 0,
+          "recall_at_1": 1.0,
+          "recall_at_10": 1.0,
+          "recall_at_5": 1.0
+        },
+        "temporal": {
+          "actual_counts": {
+            "not_applicable": 4,
+            "stable": 7,
+            "stale": 1
+          },
+          "case_count": 12,
+          "expected_counts": {
+            "not_applicable": 4,
+            "stable": 7,
+            "stale": 1
+          },
+          "mismatch_count": 0
+        }
+      }
+    }
+  },
+  "case_count": 37,
+  "cases": [
+    {
+      "actual_abstention": false,
+      "actual_answerability": "supported",
+      "actual_temporal": "not_applicable",
+      "adapter": "codex",
+      "admission_allowed": true,
+      "admission_reason": "meaningful_query",
+      "allowed_item_ids": [],
+      "candidate_ids": [
+        "mem-20260715-120001-semantic-history",
+        "mem-20260715-120021-semantic-experience",
+        "mem-20260715-120011-semantic-decisions",
+        "mem-20260715-120033-recall-formula-doc",
+        "mem-20260715-120013-readme-narrative",
+        "mem-20260715-120106-entity-feature-flag",
+        "mem-20260715-120032-cache-ttl",
+        "mem-20260717-120001-atlas-rollout-decision",
+        "mem-20260715-120063-readme-reading-order",
+        "mem-20260715-120053-readme-combined-polish"
+      ],
+      "case_id": "legacy:semantic-zh-01",
+      "category": "semantic_paraphrase",
+      "excluded_reasons": [
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient"
+      ],
+      "expected_abstention": false,
+      "expected_admission": true,
+      "expected_answerability": "supported",
+      "expected_injection": true,
+      "expected_item_ids": [
+        "mem-20260715-120001-semantic-history"
+      ],
+      "expected_temporal": "not_applicable",
+      "injected_ids": [
+        "mem-20260715-120001-semantic-history"
+      ],
+      "language": "zh",
+      "prohibited_item_ids": [],
+      "project_mismatch_count": 0,
+      "project_scope": "global",
+      "split": "calibration",
+      "used_tokens": 4
+    },
+    {
+      "actual_abstention": false,
+      "actual_answerability": "supported",
+      "actual_temporal": "not_applicable",
+      "adapter": "codex",
+      "admission_allowed": true,
+      "admission_reason": "meaningful_query",
+      "allowed_item_ids": [],
+      "candidate_ids": [
+        "mem-20260715-120011-semantic-decisions",
+        "mem-20260715-120021-semantic-experience",
+        "mem-20260715-120001-semantic-history",
+        "mem-20260715-120043-shared-brain-intro",
+        "mem-20260717-120001-atlas-rollout-decision",
+        "mem-20260715-120033-recall-formula-doc",
+        "mem-20260715-120103-entity-pr42",
+        "mem-20260715-120063-readme-reading-order",
+        "mem-20260715-120013-readme-narrative",
+        "mem-20260715-120032-cache-ttl"
+      ],
+      "case_id": "legacy:semantic-zh-02",
+      "category": "semantic_paraphrase",
+      "excluded_reasons": [
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient"
+      ],
+      "expected_abstention": false,
+      "expected_admission": true,
+      "expected_answerability": "supported",
+      "expected_injection": true,
+      "expected_item_ids": [
+        "mem-20260715-120011-semantic-decisions"
+      ],
+      "expected_temporal": "not_applicable",
+      "injected_ids": [
+        "mem-20260715-120011-semantic-decisions"
+      ],
+      "language": "zh",
+      "prohibited_item_ids": [],
+      "project_mismatch_count": 0,
+      "project_scope": "global",
+      "split": "calibration",
+      "used_tokens": 4
+    },
+    {
+      "actual_abstention": false,
+      "actual_answerability": "supported",
+      "actual_temporal": "not_applicable",
+      "adapter": "codex",
+      "admission_allowed": true,
+      "admission_reason": "meaningful_query",
+      "allowed_item_ids": [],
+      "candidate_ids": [
+        "mem-20260715-120001-semantic-history",
+        "mem-20260715-120021-semantic-experience",
+        "mem-20260715-120011-semantic-decisions",
+        "mem-20260715-120032-cache-ttl",
+        "mem-20260715-120012-artifact-retention",
+        "mem-20260717-120001-atlas-rollout-decision",
+        "mem-20260715-120013-readme-narrative",
+        "mem-20260715-120303-negative-music-session",
+        "mem-20260715-120053-readme-combined-polish",
+        "mem-20260715-120043-shared-brain-intro"
+      ],
+      "case_id": "legacy:semantic-zh-03",
+      "category": "semantic_paraphrase",
+      "excluded_reasons": [
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient"
+      ],
+      "expected_abstention": false,
+      "expected_admission": true,
+      "expected_answerability": "supported",
+      "expected_injection": true,
+      "expected_item_ids": [
+        "mem-20260715-120001-semantic-history"
+      ],
+      "expected_temporal": "not_applicable",
+      "injected_ids": [
+        "mem-20260715-120001-semantic-history"
+      ],
+      "language": "zh",
+      "prohibited_item_ids": [],
+      "project_mismatch_count": 0,
+      "project_scope": "global",
+      "split": "calibration",
+      "used_tokens": 4
+    },
+    {
+      "actual_abstention": false,
+      "actual_answerability": "supported",
+      "actual_temporal": "not_applicable",
+      "adapter": "codex",
+      "admission_allowed": true,
+      "admission_reason": "meaningful_query",
+      "allowed_item_ids": [],
+      "candidate_ids": [
+        "mem-20260715-120011-semantic-decisions",
+        "mem-20260715-120001-semantic-history",
+        "mem-20260715-120023-runtime-maintenance-doc",
+        "mem-20260715-120012-artifact-retention",
+        "mem-20260715-120021-semantic-experience",
+        "mem-20260715-120102-entity-cve",
+        "mem-20260717-120001-atlas-rollout-decision",
+        "mem-20260715-120104-entity-install-script",
+        "mem-20260715-120207-gateway",
+        "mem-20260715-120103-entity-pr42"
+      ],
+      "case_id": "legacy:semantic-zh-04",
+      "category": "semantic_paraphrase",
+      "excluded_reasons": [
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient"
+      ],
+      "expected_abstention": false,
+      "expected_admission": true,
+      "expected_answerability": "supported",
+      "expected_injection": true,
+      "expected_item_ids": [
+        "mem-20260715-120011-semantic-decisions"
+      ],
+      "expected_temporal": "not_applicable",
+      "injected_ids": [
+        "mem-20260715-120011-semantic-decisions"
+      ],
+      "language": "zh",
+      "prohibited_item_ids": [],
+      "project_mismatch_count": 0,
+      "project_scope": "global",
+      "split": "calibration",
+      "used_tokens": 4
+    },
+    {
+      "actual_abstention": false,
+      "actual_answerability": "supported",
+      "actual_temporal": "not_applicable",
+      "adapter": "codex",
+      "admission_allowed": true,
+      "admission_reason": "meaningful_query",
+      "allowed_item_ids": [],
+      "candidate_ids": [
+        "mem-20260715-120021-semantic-experience",
+        "mem-20260715-120001-semantic-history",
+        "mem-20260715-120011-semantic-decisions",
+        "mem-20260715-120043-shared-brain-intro",
+        "mem-20260715-120013-readme-narrative",
+        "mem-20260715-120063-readme-reading-order",
+        "mem-20260715-120033-recall-formula-doc",
+        "mem-20260715-120023-runtime-maintenance-doc",
+        "mem-20260715-120032-cache-ttl",
+        "mem-20260715-120053-readme-combined-polish"
+      ],
+      "case_id": "legacy:semantic-zh-05",
+      "category": "semantic_paraphrase",
+      "excluded_reasons": [
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient"
+      ],
+      "expected_abstention": false,
+      "expected_admission": true,
+      "expected_answerability": "supported",
+      "expected_injection": true,
+      "expected_item_ids": [
+        "mem-20260715-120021-semantic-experience"
+      ],
+      "expected_temporal": "not_applicable",
+      "injected_ids": [
+        "mem-20260715-120021-semantic-experience"
+      ],
+      "language": "zh",
+      "prohibited_item_ids": [],
+      "project_mismatch_count": 0,
+      "project_scope": "global",
+      "split": "heldout",
+      "used_tokens": 4
+    },
+    {
+      "actual_abstention": false,
+      "actual_answerability": "supported",
+      "actual_temporal": "not_applicable",
+      "adapter": "codex",
+      "admission_allowed": true,
+      "admission_reason": "meaningful_query",
+      "allowed_item_ids": [],
+      "candidate_ids": [
+        "mem-20260715-120021-semantic-experience",
+        "mem-20260715-120001-semantic-history",
+        "mem-20260715-120011-semantic-decisions",
+        "mem-20260715-120043-shared-brain-intro",
+        "mem-20260715-120103-entity-pr42",
+        "mem-20260715-120012-artifact-retention",
+        "mem-20260717-120001-atlas-rollout-decision",
+        "mem-20260715-120013-readme-narrative",
+        "mem-20260717-120002-atlas-verification-result",
+        "mem-20260715-120032-cache-ttl"
+      ],
+      "case_id": "legacy:semantic-zh-06",
+      "category": "semantic_paraphrase",
+      "excluded_reasons": [
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient"
+      ],
+      "expected_abstention": false,
+      "expected_admission": true,
+      "expected_answerability": "supported",
+      "expected_injection": true,
+      "expected_item_ids": [
+        "mem-20260715-120021-semantic-experience"
+      ],
+      "expected_temporal": "not_applicable",
+      "injected_ids": [
+        "mem-20260715-120021-semantic-experience"
+      ],
+      "language": "zh",
+      "prohibited_item_ids": [],
+      "project_mismatch_count": 0,
+      "project_scope": "global",
+      "split": "heldout",
+      "used_tokens": 4
+    },
+    {
+      "actual_abstention": false,
+      "actual_answerability": "supported",
+      "actual_temporal": "not_applicable",
+      "adapter": "codex",
+      "admission_allowed": true,
+      "admission_reason": "meaningful_query",
+      "allowed_item_ids": [],
+      "candidate_ids": [
+        "mem-20260715-120001-semantic-history",
+        "mem-20260715-120011-semantic-decisions",
+        "mem-20260715-120021-semantic-experience",
+        "mem-20260715-120043-shared-brain-intro",
+        "mem-20260715-120013-readme-narrative",
+        "mem-20260717-120001-atlas-rollout-decision",
+        "mem-20260715-120103-entity-pr42",
+        "mem-20260715-120053-readme-combined-polish",
+        "mem-20260717-120002-atlas-verification-result",
+        "mem-20260715-120023-runtime-maintenance-doc"
+      ],
+      "case_id": "legacy:semantic-zh-07",
+      "category": "semantic_paraphrase",
+      "excluded_reasons": [
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient"
+      ],
+      "expected_abstention": false,
+      "expected_admission": true,
+      "expected_answerability": "supported",
+      "expected_injection": true,
+      "expected_item_ids": [
+        "mem-20260715-120001-semantic-history"
+      ],
+      "expected_temporal": "not_applicable",
+      "injected_ids": [
+        "mem-20260715-120001-semantic-history"
+      ],
+      "language": "zh",
+      "prohibited_item_ids": [],
+      "project_mismatch_count": 0,
+      "project_scope": "global",
+      "split": "calibration",
+      "used_tokens": 4
+    },
+    {
+      "actual_abstention": false,
+      "actual_answerability": "supported",
+      "actual_temporal": "not_applicable",
+      "adapter": "codex",
+      "admission_allowed": true,
+      "admission_reason": "meaningful_query",
+      "allowed_item_ids": [],
+      "candidate_ids": [
+        "mem-20260715-120001-semantic-history",
+        "mem-20260715-120011-semantic-decisions",
+        "mem-20260715-120021-semantic-experience",
+        "mem-20260715-120032-cache-ttl",
+        "mem-20260715-120013-readme-narrative",
+        "mem-20260715-120053-readme-combined-polish",
+        "mem-20260715-120012-artifact-retention",
+        "mem-20260717-120001-atlas-rollout-decision",
+        "mem-20260715-120063-readme-reading-order",
+        "mem-20260715-120103-entity-pr42"
+      ],
+      "case_id": "legacy:semantic-zh-08",
+      "category": "semantic_paraphrase",
+      "excluded_reasons": [
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient"
+      ],
+      "expected_abstention": false,
+      "expected_admission": true,
+      "expected_answerability": "supported",
+      "expected_injection": true,
+      "expected_item_ids": [
+        "mem-20260715-120001-semantic-history"
+      ],
+      "expected_temporal": "not_applicable",
+      "injected_ids": [
+        "mem-20260715-120001-semantic-history"
+      ],
+      "language": "zh",
+      "prohibited_item_ids": [],
+      "project_mismatch_count": 0,
+      "project_scope": "global",
+      "split": "calibration",
+      "used_tokens": 4
+    },
+    {
+      "actual_abstention": false,
+      "actual_answerability": "supported",
+      "actual_temporal": "not_applicable",
+      "adapter": "codex",
+      "admission_allowed": true,
+      "admission_reason": "meaningful_query",
+      "allowed_item_ids": [],
+      "candidate_ids": [
+        "mem-20260717-120001-atlas-rollout-decision",
+        "mem-20260717-120002-atlas-verification-result",
+        "mem-20260717-120003-atlas-cafeteria",
+        "mem-20260715-120053-readme-combined-polish",
+        "mem-20260715-120108-entity-commit",
+        "mem-20260715-120002-browser-proxy-timeout",
+        "mem-20260715-120104-entity-install-script",
+        "mem-20260715-120302-negative-document-branding",
+        "mem-20260715-120022-installer-location",
+        "mem-20260715-120203-review"
+      ],
+      "case_id": "legacy:semantic-en-multi-09",
+      "category": "semantic_paraphrase",
+      "excluded_reasons": [
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "requires_review"
+      ],
+      "expected_abstention": false,
+      "expected_admission": true,
+      "expected_answerability": "supported",
+      "expected_injection": true,
+      "expected_item_ids": [
+        "mem-20260717-120001-atlas-rollout-decision",
+        "mem-20260717-120002-atlas-verification-result"
+      ],
+      "expected_temporal": "not_applicable",
+      "injected_ids": [
+        "mem-20260717-120002-atlas-verification-result",
+        "mem-20260717-120001-atlas-rollout-decision"
+      ],
+      "language": "en",
+      "prohibited_item_ids": [],
+      "project_mismatch_count": 0,
+      "project_scope": "global",
+      "split": "heldout",
+      "used_tokens": 32
+    },
+    {
+      "actual_abstention": false,
+      "actual_answerability": "supported",
+      "actual_temporal": "not_applicable",
+      "adapter": "codex",
+      "admission_allowed": true,
+      "admission_reason": "meaningful_query",
+      "allowed_item_ids": [],
+      "candidate_ids": [
+        "mem-20260715-120002-browser-proxy-timeout",
+        "mem-20260715-120032-cache-ttl",
+        "mem-20260715-120012-artifact-retention",
+        "mem-20260715-120023-runtime-maintenance-doc",
+        "mem-20260715-120011-semantic-decisions",
+        "mem-20260715-120001-semantic-history",
+        "mem-20260715-120103-entity-pr42",
+        "mem-20260715-120107-entity-ip",
+        "mem-20260715-120021-semantic-experience",
+        "mem-20260715-120102-entity-cve"
+      ],
+      "case_id": "legacy:multi-zh-01",
+      "category": "multilingual",
+      "excluded_reasons": [
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient"
+      ],
+      "expected_abstention": false,
+      "expected_admission": true,
+      "expected_answerability": "supported",
+      "expected_injection": true,
+      "expected_item_ids": [
+        "mem-20260715-120002-browser-proxy-timeout"
+      ],
+      "expected_temporal": "not_applicable",
+      "injected_ids": [
+        "mem-20260715-120002-browser-proxy-timeout"
+      ],
+      "language": "zh",
+      "prohibited_item_ids": [],
+      "project_mismatch_count": 0,
+      "project_scope": "global",
+      "split": "calibration",
+      "used_tokens": 16
+    },
+    {
+      "actual_abstention": false,
+      "actual_answerability": "supported",
+      "actual_temporal": "not_applicable",
+      "adapter": "codex",
+      "admission_allowed": true,
+      "admission_reason": "meaningful_query",
+      "allowed_item_ids": [],
+      "candidate_ids": [
+        "mem-20260715-120002-browser-proxy-timeout",
+        "mem-20260715-120032-cache-ttl",
+        "mem-20260715-120103-entity-pr42",
+        "mem-20260715-120207-gateway",
+        "mem-20260715-120102-entity-cve",
+        "mem-20260715-120023-runtime-maintenance-doc",
+        "mem-20260715-120012-artifact-retention",
+        "mem-20260715-120106-entity-feature-flag",
+        "mem-20260715-120107-entity-ip",
+        "mem-20260715-120011-semantic-decisions"
+      ],
+      "case_id": "legacy:multi-ru-02",
+      "category": "multilingual",
+      "excluded_reasons": [
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient"
+      ],
+      "expected_abstention": false,
+      "expected_admission": true,
+      "expected_answerability": "supported",
+      "expected_injection": true,
+      "expected_item_ids": [
+        "mem-20260715-120002-browser-proxy-timeout"
+      ],
+      "expected_temporal": "not_applicable",
+      "injected_ids": [
+        "mem-20260715-120002-browser-proxy-timeout"
+      ],
+      "language": "other",
+      "prohibited_item_ids": [],
+      "project_mismatch_count": 0,
+      "project_scope": "global",
+      "split": "calibration",
+      "used_tokens": 16
+    },
+    {
+      "actual_abstention": false,
+      "actual_answerability": "supported",
+      "actual_temporal": "not_applicable",
+      "adapter": "codex",
+      "admission_allowed": true,
+      "admission_reason": "meaningful_query",
+      "allowed_item_ids": [],
+      "candidate_ids": [
+        "mem-20260715-120012-artifact-retention",
+        "mem-20260715-120023-runtime-maintenance-doc",
+        "mem-20260715-120032-cache-ttl",
+        "mem-20260715-120011-semantic-decisions",
+        "mem-20260715-120021-semantic-experience",
+        "mem-20260715-120002-browser-proxy-timeout",
+        "mem-20260715-120206-scope",
+        "mem-20260715-120202-secret",
+        "mem-20260715-120043-shared-brain-intro",
+        "mem-20260715-120104-entity-install-script"
+      ],
+      "case_id": "legacy:multi-ar-03",
+      "category": "multilingual",
+      "excluded_reasons": [
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "sensitivity_not_allowed",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient"
+      ],
+      "expected_abstention": false,
+      "expected_admission": true,
+      "expected_answerability": "supported",
+      "expected_injection": true,
+      "expected_item_ids": [
+        "mem-20260715-120012-artifact-retention"
+      ],
+      "expected_temporal": "not_applicable",
+      "injected_ids": [
+        "mem-20260715-120012-artifact-retention"
+      ],
+      "language": "other",
+      "prohibited_item_ids": [],
+      "project_mismatch_count": 0,
+      "project_scope": "global",
+      "split": "calibration",
+      "used_tokens": 11
+    },
+    {
+      "actual_abstention": false,
+      "actual_answerability": "supported",
+      "actual_temporal": "not_applicable",
+      "adapter": "codex",
+      "admission_allowed": true,
+      "admission_reason": "meaningful_query",
+      "allowed_item_ids": [],
+      "candidate_ids": [
+        "mem-20260715-120012-artifact-retention",
+        "mem-20260715-120032-cache-ttl",
+        "mem-20260715-120023-runtime-maintenance-doc",
+        "mem-20260715-120011-semantic-decisions",
+        "mem-20260715-120002-browser-proxy-timeout",
+        "mem-20260715-120013-readme-narrative",
+        "mem-20260715-120063-readme-reading-order",
+        "mem-20260715-120103-entity-pr42",
+        "mem-20260715-120201-private",
+        "mem-20260715-120303-negative-music-session"
+      ],
+      "case_id": "legacy:multi-th-04",
+      "category": "multilingual",
+      "excluded_reasons": [
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "sensitivity_not_allowed",
+        "route_answerability_insufficient"
+      ],
+      "expected_abstention": false,
+      "expected_admission": true,
+      "expected_answerability": "supported",
+      "expected_injection": true,
+      "expected_item_ids": [
+        "mem-20260715-120012-artifact-retention"
+      ],
+      "expected_temporal": "not_applicable",
+      "injected_ids": [
+        "mem-20260715-120012-artifact-retention"
+      ],
+      "language": "other",
+      "prohibited_item_ids": [],
+      "project_mismatch_count": 0,
+      "project_scope": "global",
+      "split": "calibration",
+      "used_tokens": 11
+    },
+    {
+      "actual_abstention": false,
+      "actual_answerability": "supported",
+      "actual_temporal": "not_applicable",
+      "adapter": "codex",
+      "admission_allowed": true,
+      "admission_reason": "meaningful_query",
+      "allowed_item_ids": [],
+      "candidate_ids": [
+        "mem-20260715-120022-installer-location",
+        "mem-20260715-120104-entity-install-script",
+        "mem-20260715-120101-entity-e0583",
+        "mem-20260715-120023-runtime-maintenance-doc",
+        "mem-20260715-120102-entity-cve",
+        "mem-20260715-120206-scope",
+        "mem-20260715-120011-semantic-decisions",
+        "mem-20260715-120303-negative-music-session",
+        "mem-20260715-120301-negative-cookbook-layout",
+        "mem-20260715-120202-secret"
+      ],
+      "case_id": "legacy:multi-ja-05",
+      "category": "multilingual",
+      "excluded_reasons": [
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "sensitivity_not_allowed"
+      ],
+      "expected_abstention": false,
+      "expected_admission": true,
+      "expected_answerability": "supported",
+      "expected_injection": true,
+      "expected_item_ids": [
+        "mem-20260715-120022-installer-location"
+      ],
+      "expected_temporal": "not_applicable",
+      "injected_ids": [
+        "mem-20260715-120022-installer-location"
+      ],
+      "language": "other",
+      "prohibited_item_ids": [],
+      "project_mismatch_count": 0,
+      "project_scope": "global",
+      "split": "heldout",
+      "used_tokens": 16
+    },
+    {
+      "actual_abstention": false,
+      "actual_answerability": "supported",
+      "actual_temporal": "not_applicable",
+      "adapter": "codex",
+      "admission_allowed": true,
+      "admission_reason": "meaningful_query",
+      "allowed_item_ids": [],
+      "candidate_ids": [
+        "mem-20260715-120022-installer-location",
+        "mem-20260715-120104-entity-install-script",
+        "mem-20260715-120101-entity-e0583",
+        "mem-20260715-120206-scope",
+        "mem-20260715-120102-entity-cve",
+        "mem-20260715-120023-runtime-maintenance-doc",
+        "mem-20260715-120011-semantic-decisions",
+        "mem-20260715-120043-shared-brain-intro",
+        "mem-20260715-120303-negative-music-session",
+        "mem-20260715-120063-readme-reading-order"
+      ],
+      "case_id": "legacy:multi-ko-06",
+      "category": "multilingual",
+      "excluded_reasons": [
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient"
+      ],
+      "expected_abstention": false,
+      "expected_admission": true,
+      "expected_answerability": "supported",
+      "expected_injection": true,
+      "expected_item_ids": [
+        "mem-20260715-120022-installer-location"
+      ],
+      "expected_temporal": "not_applicable",
+      "injected_ids": [
+        "mem-20260715-120022-installer-location"
+      ],
+      "language": "other",
+      "prohibited_item_ids": [],
+      "project_mismatch_count": 0,
+      "project_scope": "global",
+      "split": "heldout",
+      "used_tokens": 16
+    },
+    {
+      "actual_abstention": false,
+      "actual_answerability": "supported",
+      "actual_temporal": "not_applicable",
+      "adapter": "codex",
+      "admission_allowed": true,
+      "admission_reason": "meaningful_query",
+      "allowed_item_ids": [],
+      "candidate_ids": [
+        "mem-20260715-120032-cache-ttl",
+        "mem-20260715-120011-semantic-decisions",
+        "mem-20260715-120002-browser-proxy-timeout",
+        "mem-20260715-120023-runtime-maintenance-doc",
+        "mem-20260715-120103-entity-pr42",
+        "mem-20260715-120303-negative-music-session",
+        "mem-20260715-120202-secret",
+        "mem-20260715-120012-artifact-retention",
+        "mem-20260715-120107-entity-ip",
+        "mem-20260715-120102-entity-cve"
+      ],
+      "case_id": "legacy:multi-mix-07",
+      "category": "multilingual",
+      "excluded_reasons": [
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "sensitivity_not_allowed",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient"
+      ],
+      "expected_abstention": false,
+      "expected_admission": true,
+      "expected_answerability": "supported",
+      "expected_injection": true,
+      "expected_item_ids": [
+        "mem-20260715-120032-cache-ttl"
+      ],
+      "expected_temporal": "not_applicable",
+      "injected_ids": [
+        "mem-20260715-120032-cache-ttl"
+      ],
+      "language": "mixed",
+      "prohibited_item_ids": [],
+      "project_mismatch_count": 0,
+      "project_scope": "global",
+      "split": "heldout",
+      "used_tokens": 13
+    },
+    {
+      "actual_abstention": false,
+      "actual_answerability": "supported",
+      "actual_temporal": "not_applicable",
+      "adapter": "codex",
+      "admission_allowed": true,
+      "admission_reason": "meaningful_query",
+      "allowed_item_ids": [],
+      "candidate_ids": [
+        "mem-20260715-120032-cache-ttl",
+        "mem-20260715-120011-semantic-decisions",
+        "mem-20260715-120108-entity-commit",
+        "mem-20260715-120107-entity-ip",
+        "mem-20260715-120102-entity-cve",
+        "mem-20260715-120202-secret",
+        "mem-20260715-120002-browser-proxy-timeout",
+        "mem-20260715-120103-entity-pr42",
+        "mem-20260715-120023-runtime-maintenance-doc",
+        "mem-20260715-120207-gateway"
+      ],
+      "case_id": "legacy:multi-hi-08",
+      "category": "multilingual",
+      "excluded_reasons": [
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "sensitivity_not_allowed",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient"
+      ],
+      "expected_abstention": false,
+      "expected_admission": true,
+      "expected_answerability": "supported",
+      "expected_injection": true,
+      "expected_item_ids": [
+        "mem-20260715-120032-cache-ttl"
+      ],
+      "expected_temporal": "not_applicable",
+      "injected_ids": [
+        "mem-20260715-120032-cache-ttl"
+      ],
+      "language": "other",
+      "prohibited_item_ids": [],
+      "project_mismatch_count": 0,
+      "project_scope": "global",
+      "split": "heldout",
+      "used_tokens": 13
+    },
+    {
+      "actual_abstention": false,
+      "actual_answerability": "supported",
+      "actual_temporal": "not_applicable",
+      "adapter": "codex",
+      "admission_allowed": true,
+      "admission_reason": "meaningful_query",
+      "allowed_item_ids": [],
+      "candidate_ids": [
+        "mem-20260715-120043-shared-brain-intro",
+        "mem-20260715-120013-readme-narrative",
+        "mem-20260715-120021-semantic-experience",
+        "mem-20260715-120033-recall-formula-doc",
+        "mem-20260715-120001-semantic-history",
+        "mem-20260715-120011-semantic-decisions",
+        "mem-20260715-120063-readme-reading-order",
+        "mem-20260715-120053-readme-combined-polish",
+        "mem-20260715-120023-runtime-maintenance-doc",
+        "mem-20260715-120104-entity-install-script"
+      ],
+      "case_id": "legacy:keyword-zh-01",
+      "category": "keyword_extraction_error",
+      "excluded_reasons": [
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient"
+      ],
+      "expected_abstention": false,
+      "expected_admission": true,
+      "expected_answerability": "supported",
+      "expected_injection": true,
+      "expected_item_ids": [
+        "mem-20260715-120013-readme-narrative"
+      ],
+      "expected_temporal": "not_applicable",
+      "injected_ids": [
+        "mem-20260715-120013-readme-narrative"
+      ],
+      "language": "zh",
+      "prohibited_item_ids": [],
+      "project_mismatch_count": 0,
+      "project_scope": "global",
+      "split": "calibration",
+      "used_tokens": 6
+    },
+    {
+      "actual_abstention": false,
+      "actual_answerability": "supported",
+      "actual_temporal": "not_applicable",
+      "adapter": "codex",
+      "admission_allowed": true,
+      "admission_reason": "meaningful_query",
+      "allowed_item_ids": [],
+      "candidate_ids": [
+        "mem-20260715-120013-readme-narrative",
+        "mem-20260715-120063-readme-reading-order",
+        "mem-20260715-120001-semantic-history",
+        "mem-20260715-120011-semantic-decisions",
+        "mem-20260715-120053-readme-combined-polish",
+        "mem-20260715-120033-recall-formula-doc",
+        "mem-20260715-120105-entity-memory-uri",
+        "mem-20260715-120021-semantic-experience",
+        "mem-20260715-120043-shared-brain-intro",
+        "mem-20260715-120023-runtime-maintenance-doc"
+      ],
+      "case_id": "legacy:keyword-zh-02",
+      "category": "keyword_extraction_error",
+      "excluded_reasons": [
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient"
+      ],
+      "expected_abstention": false,
+      "expected_admission": true,
+      "expected_answerability": "supported",
+      "expected_injection": true,
+      "expected_item_ids": [
+        "mem-20260715-120013-readme-narrative"
+      ],
+      "expected_temporal": "not_applicable",
+      "injected_ids": [
+        "mem-20260715-120013-readme-narrative"
+      ],
+      "language": "zh",
+      "prohibited_item_ids": [],
+      "project_mismatch_count": 0,
+      "project_scope": "global",
+      "split": "calibration",
+      "used_tokens": 6
+    },
+    {
+      "actual_abstention": false,
+      "actual_answerability": "supported",
+      "actual_temporal": "not_applicable",
+      "adapter": "codex",
+      "admission_allowed": true,
+      "admission_reason": "meaningful_query",
+      "allowed_item_ids": [],
+      "candidate_ids": [
+        "mem-20260715-120023-runtime-maintenance-doc",
+        "mem-20260715-120011-semantic-decisions",
+        "mem-20260715-120012-artifact-retention",
+        "mem-20260715-120021-semantic-experience",
+        "mem-20260715-120032-cache-ttl",
+        "mem-20260715-120001-semantic-history",
+        "mem-20260715-120013-readme-narrative",
+        "mem-20260715-120063-readme-reading-order",
+        "mem-20260715-120103-entity-pr42",
+        "mem-20260715-120043-shared-brain-intro"
+      ],
+      "case_id": "legacy:keyword-zh-03",
+      "category": "keyword_extraction_error",
+      "excluded_reasons": [
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient"
+      ],
+      "expected_abstention": false,
+      "expected_admission": true,
+      "expected_answerability": "supported",
+      "expected_injection": true,
+      "expected_item_ids": [
+        "mem-20260715-120023-runtime-maintenance-doc"
+      ],
+      "expected_temporal": "not_applicable",
+      "injected_ids": [
+        "mem-20260715-120023-runtime-maintenance-doc"
+      ],
+      "language": "zh",
+      "prohibited_item_ids": [],
+      "project_mismatch_count": 0,
+      "project_scope": "global",
+      "split": "calibration",
+      "used_tokens": 4
+    },
+    {
+      "actual_abstention": false,
+      "actual_answerability": "supported",
+      "actual_temporal": "not_applicable",
+      "adapter": "codex",
+      "admission_allowed": true,
+      "admission_reason": "meaningful_query",
+      "allowed_item_ids": [],
+      "candidate_ids": [
+        "mem-20260715-120023-runtime-maintenance-doc",
+        "mem-20260715-120011-semantic-decisions",
+        "mem-20260715-120021-semantic-experience",
+        "mem-20260715-120001-semantic-history",
+        "mem-20260715-120043-shared-brain-intro",
+        "mem-20260715-120063-readme-reading-order",
+        "mem-20260715-120033-recall-formula-doc",
+        "mem-20260715-120102-entity-cve",
+        "mem-20260715-120103-entity-pr42",
+        "mem-20260715-120013-readme-narrative"
+      ],
+      "case_id": "legacy:keyword-zh-04",
+      "category": "keyword_extraction_error",
+      "excluded_reasons": [
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient"
+      ],
+      "expected_abstention": false,
+      "expected_admission": true,
+      "expected_answerability": "supported",
+      "expected_injection": true,
+      "expected_item_ids": [
+        "mem-20260715-120023-runtime-maintenance-doc"
+      ],
+      "expected_temporal": "not_applicable",
+      "injected_ids": [
+        "mem-20260715-120023-runtime-maintenance-doc"
+      ],
+      "language": "zh",
+      "prohibited_item_ids": [],
+      "project_mismatch_count": 0,
+      "project_scope": "global",
+      "split": "calibration",
+      "used_tokens": 4
+    },
+    {
+      "actual_abstention": false,
+      "actual_answerability": "supported",
+      "actual_temporal": "not_applicable",
+      "adapter": "codex",
+      "admission_allowed": true,
+      "admission_reason": "meaningful_query",
+      "allowed_item_ids": [],
+      "candidate_ids": [
+        "mem-20260715-120033-recall-formula-doc",
+        "mem-20260715-120011-semantic-decisions",
+        "mem-20260715-120053-readme-combined-polish",
+        "mem-20260715-120001-semantic-history",
+        "mem-20260715-120021-semantic-experience",
+        "mem-20260715-120023-runtime-maintenance-doc",
+        "mem-20260715-120013-readme-narrative",
+        "mem-20260715-120102-entity-cve",
+        "mem-20260715-120063-readme-reading-order",
+        "mem-20260717-120002-atlas-verification-result"
+      ],
+      "case_id": "legacy:keyword-zh-05",
+      "category": "keyword_extraction_error",
+      "excluded_reasons": [
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient"
+      ],
+      "expected_abstention": false,
+      "expected_admission": true,
+      "expected_answerability": "supported",
+      "expected_injection": true,
+      "expected_item_ids": [
+        "mem-20260715-120033-recall-formula-doc"
+      ],
+      "expected_temporal": "not_applicable",
+      "injected_ids": [
+        "mem-20260715-120033-recall-formula-doc"
+      ],
+      "language": "zh",
+      "prohibited_item_ids": [],
+      "project_mismatch_count": 0,
+      "project_scope": "global",
+      "split": "calibration",
+      "used_tokens": 5
+    },
+    {
+      "actual_abstention": false,
+      "actual_answerability": "supported",
+      "actual_temporal": "not_applicable",
+      "adapter": "codex",
+      "admission_allowed": true,
+      "admission_reason": "meaningful_query",
+      "allowed_item_ids": [],
+      "candidate_ids": [
+        "mem-20260715-120043-shared-brain-intro",
+        "mem-20260715-120013-readme-narrative",
+        "mem-20260715-120001-semantic-history",
+        "mem-20260715-120011-semantic-decisions",
+        "mem-20260715-120021-semantic-experience",
+        "mem-20260715-120063-readme-reading-order",
+        "mem-20260715-120033-recall-formula-doc",
+        "mem-20260715-120301-negative-cookbook-layout",
+        "mem-20260715-120053-readme-combined-polish",
+        "mem-20260715-120106-entity-feature-flag"
+      ],
+      "case_id": "legacy:keyword-zh-06",
+      "category": "keyword_extraction_error",
+      "excluded_reasons": [
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient"
+      ],
+      "expected_abstention": false,
+      "expected_admission": true,
+      "expected_answerability": "supported",
+      "expected_injection": true,
+      "expected_item_ids": [
+        "mem-20260715-120043-shared-brain-intro"
+      ],
+      "expected_temporal": "not_applicable",
+      "injected_ids": [
+        "mem-20260715-120043-shared-brain-intro"
+      ],
+      "language": "zh",
+      "prohibited_item_ids": [],
+      "project_mismatch_count": 0,
+      "project_scope": "global",
+      "split": "heldout",
+      "used_tokens": 5
+    },
+    {
+      "actual_abstention": false,
+      "actual_answerability": "supported",
+      "actual_temporal": "not_applicable",
+      "adapter": "codex",
+      "admission_allowed": true,
+      "admission_reason": "meaningful_query",
+      "allowed_item_ids": [],
+      "candidate_ids": [
+        "mem-20260715-120063-readme-reading-order",
+        "mem-20260715-120013-readme-narrative",
+        "mem-20260715-120001-semantic-history",
+        "mem-20260715-120011-semantic-decisions",
+        "mem-20260715-120053-readme-combined-polish",
+        "mem-20260715-120021-semantic-experience",
+        "mem-20260715-120043-shared-brain-intro",
+        "mem-20260715-120033-recall-formula-doc",
+        "mem-20260715-120105-entity-memory-uri",
+        "mem-20260715-120023-runtime-maintenance-doc"
+      ],
+      "case_id": "legacy:keyword-zh-07",
+      "category": "keyword_extraction_error",
+      "excluded_reasons": [
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient"
+      ],
+      "expected_abstention": false,
+      "expected_admission": true,
+      "expected_answerability": "supported",
+      "expected_injection": true,
+      "expected_item_ids": [
+        "mem-20260715-120063-readme-reading-order"
+      ],
+      "expected_temporal": "not_applicable",
+      "injected_ids": [
+        "mem-20260715-120063-readme-reading-order"
+      ],
+      "language": "zh",
+      "prohibited_item_ids": [],
+      "project_mismatch_count": 0,
+      "project_scope": "global",
+      "split": "heldout",
+      "used_tokens": 7
+    },
+    {
+      "actual_abstention": false,
+      "actual_answerability": "supported",
+      "actual_temporal": "not_applicable",
+      "adapter": "codex",
+      "admission_allowed": true,
+      "admission_reason": "meaningful_query",
+      "allowed_item_ids": [],
+      "candidate_ids": [
+        "mem-20260715-120053-readme-combined-polish",
+        "mem-20260715-120013-readme-narrative",
+        "mem-20260715-120063-readme-reading-order",
+        "mem-20260715-120033-recall-formula-doc",
+        "mem-20260715-120301-negative-cookbook-layout",
+        "mem-20260715-120001-semantic-history",
+        "mem-20260715-120043-shared-brain-intro",
+        "mem-20260715-120011-semantic-decisions",
+        "mem-20260715-120023-runtime-maintenance-doc",
+        "mem-20260717-120001-atlas-rollout-decision"
+      ],
+      "case_id": "legacy:keyword-mix-08",
+      "category": "keyword_extraction_error",
+      "excluded_reasons": [
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient",
+        "route_answerability_insufficient"
+      ],
+      "expected_abstention": false,
+      "expected_admission": true,
+      "expected_answerability": "supported",
+      "expected_injection": true,
+      "expected_item_ids": [
+        "mem-20260715-120053-readme-combined-polish"
+      ],
+      "expected_temporal": "not_applicable",
+      "injected_ids": [
+        "mem-20260715-120053-readme-combined-polish"
+      ],
+      "language": "mixed",
+      "prohibited_item_ids": [],
+      "project_mismatch_count": 0,
+      "project_scope": "global",
+      "split": "heldout",
+      "used_tokens": 15
+    },
+    {
+      "actual_abstention": false,
+      "actual_answerability": "supported",
+      "actual_temporal": "stable",
+      "adapter": "codex",
+      "admission_allowed": true,
+      "admission_reason": "meaningful_query",
+      "allowed_item_ids": [],
+      "candidate_ids": [
+        "mem-20260719-010001-keyword-governance"
+      ],
+      "case_id": "production:prod-keyword-governance-zh",
+      "category": "keyword_extraction_error",
+      "excluded_reasons": [],
+      "expected_abstention": false,
+      "expected_admission": true,
+      "expected_answerability": "supported",
+      "expected_injection": true,
+      "expected_item_ids": [
+        "mem-20260719-010001-keyword-governance"
+      ],
+      "expected_temporal": "stable",
+      "injected_ids": [
+        "mem-20260719-010001-keyword-governance"
+      ],
+      "language": "zh",
+      "prohibited_item_ids": [],
+      "project_mismatch_count": 0,
+      "project_scope": "global",
+      "split": "production_replay",
+      "used_tokens": 11
+    },
+    {
+      "actual_abstention": false,
+      "actual_answerability": "supported",
+      "actual_temporal": "stable",
+      "adapter": "codex",
+      "admission_allowed": true,
+      "admission_reason": "meaningful_query",
+      "allowed_item_ids": [],
+      "candidate_ids": [
+        "mem-20260719-010002-hooks-recall",
+        "mem-20260719-010011-multimodal-hook"
+      ],
+      "case_id": "production:prod-hooks-recall-zh",
+      "category": "hook_recall",
+      "excluded_reasons": [],
+      "expected_abstention": false,
+      "expected_admission": true,
+      "expected_answerability": "supported",
+      "expected_injection": true,
+      "expected_item_ids": [
+        "mem-20260719-010002-hooks-recall",
+        "mem-20260719-010011-multimodal-hook"
+      ],
+      "expected_temporal": "stable",
+      "injected_ids": [
+        "mem-20260719-010002-hooks-recall",
+        "mem-20260719-010011-multimodal-hook"
+      ],
+      "language": "zh",
+      "prohibited_item_ids": [],
+      "project_mismatch_count": 0,
+      "project_scope": "global",
+      "split": "production_replay",
+      "used_tokens": 30
+    },
+    {
+      "actual_abstention": true,
+      "actual_answerability": "not_applicable",
+      "actual_temporal": "not_applicable",
+      "adapter": "codex",
+      "admission_allowed": false,
+      "admission_reason": "weak_confirmation",
+      "allowed_item_ids": [],
+      "candidate_ids": [],
+      "case_id": "production:prod-weak-continue",
+      "category": "weak_followup",
+      "excluded_reasons": [],
+      "expected_abstention": true,
+      "expected_admission": false,
+      "expected_answerability": "not_applicable",
+      "expected_injection": false,
+      "expected_item_ids": [],
+      "expected_temporal": "not_applicable",
+      "injected_ids": [],
+      "language": "zh",
+      "prohibited_item_ids": [],
+      "project_mismatch_count": 0,
+      "project_scope": "global",
+      "split": "production_replay",
+      "used_tokens": 0
+    },
+    {
+      "actual_abstention": true,
+      "actual_answerability": "not_applicable",
+      "actual_temporal": "not_applicable",
+      "adapter": "codex",
+      "admission_allowed": false,
+      "admission_reason": "adapter_control_command",
+      "allowed_item_ids": [],
+      "candidate_ids": [],
+      "case_id": "production:prod-control-remember",
+      "category": "weak_followup",
+      "excluded_reasons": [],
+      "expected_abstention": true,
+      "expected_admission": false,
+      "expected_answerability": "not_applicable",
+      "expected_injection": false,
+      "expected_item_ids": [],
+      "expected_temporal": "not_applicable",
+      "injected_ids": [],
+      "language": "en",
+      "prohibited_item_ids": [],
+      "project_mismatch_count": 0,
+      "project_scope": "global",
+      "split": "production_replay",
+      "used_tokens": 0
+    },
+    {
+      "actual_abstention": false,
+      "actual_answerability": "supported",
+      "actual_temporal": "stable",
+      "adapter": "codex",
+      "admission_allowed": true,
+      "admission_reason": "meaningful_query",
+      "allowed_item_ids": [],
+      "candidate_ids": [
+        "mem-20260719-010005-realtime-log"
+      ],
+      "case_id": "production:prod-log-failure",
+      "category": "log_trace",
+      "excluded_reasons": [],
+      "expected_abstention": false,
+      "expected_admission": true,
+      "expected_answerability": "supported",
+      "expected_injection": true,
+      "expected_item_ids": [
+        "mem-20260719-010005-realtime-log"
+      ],
+      "expected_temporal": "stable",
+      "injected_ids": [
+        "mem-20260719-010005-realtime-log"
+      ],
+      "language": "en",
+      "prohibited_item_ids": [],
+      "project_mismatch_count": 0,
+      "project_scope": "agent-memory-hub",
+      "split": "production_replay",
+      "used_tokens": 23
+    },
+    {
+      "actual_abstention": false,
+      "actual_answerability": "supported",
+      "actual_temporal": "stable",
+      "adapter": "codex",
+      "admission_allowed": true,
+      "admission_reason": "meaningful_query",
+      "allowed_item_ids": [],
+      "candidate_ids": [
+        "mem-20260719-010006-smart-badge"
+      ],
+      "case_id": "production:prod-smart-badge-mix",
+      "category": "multilingual",
+      "excluded_reasons": [],
+      "expected_abstention": false,
+      "expected_admission": true,
+      "expected_answerability": "supported",
+      "expected_injection": true,
+      "expected_item_ids": [
+        "mem-20260719-010006-smart-badge"
+      ],
+      "expected_temporal": "stable",
+      "injected_ids": [
+        "mem-20260719-010006-smart-badge"
+      ],
+      "language": "zh-en",
+      "prohibited_item_ids": [],
+      "project_mismatch_count": 0,
+      "project_scope": "smart-badge",
+      "split": "production_replay",
+      "used_tokens": 10
+    },
+    {
+      "actual_abstention": true,
+      "actual_answerability": "insufficient",
+      "actual_temporal": "not_applicable",
+      "adapter": "codex",
+      "admission_allowed": true,
+      "admission_reason": "meaningful_query",
+      "allowed_item_ids": [],
+      "candidate_ids": [],
+      "case_id": "production:prod-insufficient-unknown",
+      "category": "abstention",
+      "excluded_reasons": [],
+      "expected_abstention": true,
+      "expected_admission": true,
+      "expected_answerability": "insufficient",
+      "expected_injection": false,
+      "expected_item_ids": [],
+      "expected_temporal": "not_applicable",
+      "injected_ids": [],
+      "language": "zh",
+      "prohibited_item_ids": [],
+      "project_mismatch_count": 0,
+      "project_scope": "global",
+      "split": "production_replay",
+      "used_tokens": 0
+    },
+    {
+      "actual_abstention": true,
+      "actual_answerability": "insufficient",
+      "actual_temporal": "stable",
+      "adapter": "codex",
+      "admission_allowed": true,
+      "admission_reason": "meaningful_query",
+      "allowed_item_ids": [],
+      "candidate_ids": [],
+      "case_id": "production:prod-project-mismatch",
+      "category": "project_mismatch",
+      "excluded_reasons": [],
+      "expected_abstention": true,
+      "expected_admission": true,
+      "expected_answerability": "insufficient",
+      "expected_injection": false,
+      "expected_item_ids": [],
+      "expected_temporal": "stable",
+      "injected_ids": [],
+      "language": "en",
+      "prohibited_item_ids": [
+        "mem-20260719-010008-atlas-beta"
+      ],
+      "project_mismatch_count": 0,
+      "project_scope": "project-alpha",
+      "split": "production_replay",
+      "used_tokens": 0
+    },
+    {
+      "actual_abstention": true,
+      "actual_answerability": "insufficient",
+      "actual_temporal": "stale",
+      "adapter": "codex",
+      "admission_allowed": true,
+      "admission_reason": "meaningful_query",
+      "allowed_item_ids": [],
+      "candidate_ids": [
+        "mem-20260101-010010-browser-timeout"
+      ],
+      "case_id": "production:prod-temporal-stale",
+      "category": "temporal",
+      "excluded_reasons": [
+        "route_answerability_insufficient"
+      ],
+      "expected_abstention": true,
+      "expected_admission": true,
+      "expected_answerability": "insufficient",
+      "expected_injection": false,
+      "expected_item_ids": [],
+      "expected_temporal": "stale",
+      "injected_ids": [],
+      "language": "zh",
+      "prohibited_item_ids": [
+        "mem-20260101-010009-stale-browser"
+      ],
+      "project_mismatch_count": 0,
+      "project_scope": "global",
+      "split": "production_replay",
+      "used_tokens": 0
+    },
+    {
+      "actual_abstention": false,
+      "actual_answerability": "supported",
+      "actual_temporal": "stable",
+      "adapter": "codex",
+      "admission_allowed": true,
+      "admission_reason": "meaningful_query",
+      "allowed_item_ids": [],
+      "candidate_ids": [
+        "mem-20260101-010010-browser-timeout"
+      ],
+      "case_id": "production:prod-stable-browser-timeout",
+      "category": "temporal",
+      "excluded_reasons": [],
+      "expected_abstention": false,
+      "expected_admission": true,
+      "expected_answerability": "supported",
+      "expected_injection": true,
+      "expected_item_ids": [
+        "mem-20260101-010010-browser-timeout"
+      ],
+      "expected_temporal": "stable",
+      "injected_ids": [
+        "mem-20260101-010010-browser-timeout"
+      ],
+      "language": "zh",
+      "prohibited_item_ids": [],
+      "project_mismatch_count": 0,
+      "project_scope": "global",
+      "split": "production_replay",
+      "used_tokens": 4
+    },
+    {
+      "actual_abstention": false,
+      "actual_answerability": "supported",
+      "actual_temporal": "stable",
+      "adapter": "codex",
+      "admission_allowed": true,
+      "admission_reason": "meaningful_query",
+      "allowed_item_ids": [],
+      "candidate_ids": [
+        "mem-20260719-010011-multimodal-hook",
+        "mem-20260719-010002-hooks-recall"
+      ],
+      "case_id": "production:prod-multimodal-hook",
+      "category": "multimodal",
+      "excluded_reasons": [],
+      "expected_abstention": false,
+      "expected_admission": true,
+      "expected_answerability": "supported",
+      "expected_injection": true,
+      "expected_item_ids": [
+        "mem-20260719-010011-multimodal-hook",
+        "mem-20260719-010002-hooks-recall"
+      ],
+      "expected_temporal": "stable",
+      "injected_ids": [
+        "mem-20260719-010011-multimodal-hook",
+        "mem-20260719-010002-hooks-recall"
+      ],
+      "language": "zh",
+      "prohibited_item_ids": [],
+      "project_mismatch_count": 0,
+      "project_scope": "agent-memory-hub",
+      "split": "production_replay",
+      "used_tokens": 30
+    },
+    {
+      "actual_abstention": true,
+      "actual_answerability": "insufficient",
+      "actual_temporal": "not_applicable",
+      "adapter": "codex",
+      "admission_allowed": true,
+      "admission_reason": "meaningful_query",
+      "allowed_item_ids": [],
+      "candidate_ids": [],
+      "case_id": "production:prod-no-memory-weather",
+      "category": "abstention",
+      "excluded_reasons": [],
+      "expected_abstention": true,
+      "expected_admission": true,
+      "expected_answerability": "insufficient",
+      "expected_injection": false,
+      "expected_item_ids": [],
+      "expected_temporal": "not_applicable",
+      "injected_ids": [],
+      "language": "zh",
+      "prohibited_item_ids": [],
+      "project_mismatch_count": 0,
+      "project_scope": "global",
+      "split": "production_replay",
+      "used_tokens": 0
+    }
+  ],
+  "corpus_sha256": {
+    "calibration_heldout": "sha256:0b9ae97f5e80030653494d6e1c6ed3a6dd5bb461b82b23a32c853421ddcfd422",
+    "production_replay": "sha256:37fad3f69019865044cda5c8371abd127fe282ea4bef4a184676e3a74575b65c"
+  },
+  "evaluation_now": "2026-07-19T02:00:00+00:00",
+  "failed_gates": [],
+  "implementation_sha256": "sha256:099f2b60979c6639c208c57a95a8b2eebc0361aaaf52e6425fd90d24c8e0fe40",
+  "layers": {
+    "abstention": {
+      "case_count": 37,
+      "fn": 0,
+      "fp": 0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "tp": 6
+    },
+    "admission": {
+      "case_count": 37,
+      "fn": 0,
+      "fp": 0,
+      "reason_counts": {
+        "adapter_control_command": 1,
+        "meaningful_query": 35,
+        "weak_confirmation": 1
+      },
+      "tp": 35
+    },
+    "answerability": {
+      "actual_counts": {
+        "insufficient": 4,
+        "not_applicable": 2,
+        "supported": 31
+      },
+      "case_count": 37,
+      "expected_counts": {
+        "insufficient": 4,
+        "not_applicable": 2,
+        "supported": 31
+      },
+      "mismatch_count": 0
+    },
+    "injection": {
+      "case_count": 37,
+      "excluded_reason_counts": {
+        "requires_review": 1,
+        "route_answerability_insufficient": 219,
+        "sensitivity_not_allowed": 5
+      },
+      "fn": 0,
+      "fp": 0,
+      "included_count": 34,
+      "prohibited_injection_count": 0,
+      "project_mismatch_count": 0,
+      "tp": 34,
+      "used_tokens": 336
+    },
+    "retrieval": {
+      "case_count": 37,
+      "false_negative_item_count": 0,
+      "mrr": 0.9838709677419355,
+      "positive_case_count": 31,
+      "prohibited_candidate_count": 0,
+      "recall_at_1": 0.967741935483871,
+      "recall_at_10": 1.0,
+      "recall_at_5": 1.0
+    },
+    "temporal": {
+      "actual_counts": {
+        "not_applicable": 29,
+        "stable": 7,
+        "stale": 1
+      },
+      "case_count": 37,
+      "expected_counts": {
+        "not_applicable": 29,
+        "stable": 7,
+        "stale": 1
+      },
+      "mismatch_count": 0
+    }
+  },
+  "safety_fixture": {
+    "case_count": 41,
+    "failed_case_ids": [],
+    "false_negative_count": 0,
+    "false_positive_count": 0,
+    "prohibited_injection_count": 0
+  },
+  "schema_version": 1,
+  "status": "pass"
+}
