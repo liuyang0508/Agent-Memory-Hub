@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "measured_on": "2026-07-18",
+  "measured_on": "2026-07-19",
   "performance_gate": "PASS",
   "overall_release_gate": "PASS",
   "blocking_calibration_case": null,
@@ -16,13 +16,13 @@
     "brain": "same freshly materialized public fixture brain",
     "payload": "same committed payload bytes",
     "python": "same interpreter",
-    "environment": "same values except worktree PYTHONPATH and hook path"
+    "environment": "same values except worktree PYTHONPATH, hook path, and candidate-only benchmark trace flag"
   },
   "provenance": {
     "old_commit": "bb9128a668fea98bf9063bfbedc85cc75dc8936c",
-    "candidate_commit": "8d3929d1589be304703a26ec4955f896c308c2ca",
+    "candidate_commit": "b706ae0d915a3975919055367aa9d27a72baeda4",
     "old_hook_sha256": "sha256:d3be4cc24a6dcd99f45856daaae78e5a7d93eb908254d2f90ed915195611c937",
-    "candidate_hook_sha256": "sha256:592848ffd59d55cb54d8c49558c08ac804835bdce6425d7984608abf28beaa31",
+    "candidate_hook_sha256": "sha256:5ae6cc31cdc5cee2b52c9a87789fd4008a0092671d94caf438e428fdcd64d440",
     "payload_parser_sha256": "sha256:8a27cab6c8da05ee29c75c2ec5651e969536a374f62798ca568d7f82508bd02e",
     "preflight_module_sha256": "sha256:a1072be7176e216f8c34cc57cb0e9e560ef5bd93eba147a6651add96547ae6aa",
     "benchmark_script_sha256": "sha256:fd51db3e08561cb40a88c7589e73e6c355d1d87fb4c8b91ce6f3b239484552ea",
@@ -58,7 +58,7 @@
   "commands": {
     "materialize_template": "PYTHONPATH=\"$CAND\" \"$PY\" \"$CAND/scripts/materialize-dual-route-hook-benchmark.py\" --brain-dir \"$BRAIN\"",
     "old_command_template": "/usr/bin/env BRAIN_DIR=$BRAIN MEMORY_HUB_TEST_EMBEDDING=1 MEMORY_HUB_EMBEDDING_OFFLINE=1 AGENT_MEMORY_HUB_HOOK_OUTPUT_FORMAT=json AGENT_MEMORY_HUB_ADAPTER=codex AGENT_MEMORY_HUB_PYTHON=$PY PYTHONPATH=$BASE $BASE/agent_runtime_kit/hooks/inject-context.sh",
-    "candidate_command_template": "/usr/bin/env BRAIN_DIR=$BRAIN MEMORY_HUB_TEST_EMBEDDING=1 MEMORY_HUB_EMBEDDING_OFFLINE=1 AGENT_MEMORY_HUB_HOOK_OUTPUT_FORMAT=json AGENT_MEMORY_HUB_ADAPTER=codex AGENT_MEMORY_HUB_PYTHON=$PY PYTHONPATH=$CAND $CAND/agent_runtime_kit/hooks/inject-context.sh",
+    "candidate_command_template": "/usr/bin/env BRAIN_DIR=$BRAIN MEMORY_HUB_TEST_EMBEDDING=1 MEMORY_HUB_EMBEDDING_OFFLINE=1 AGENT_MEMORY_HUB_HOOK_OUTPUT_FORMAT=json AGENT_MEMORY_HUB_ADAPTER=codex AGENT_MEMORY_HUB_BENCHMARK_TRACE_PREFLIGHT=1 AGENT_MEMORY_HUB_PYTHON=$PY PYTHONPATH=$CAND $CAND/agent_runtime_kit/hooks/inject-context.sh",
     "benchmark_template": "PYTHONPATH=\"$CAND\" \"$PY\" \"$CAND/scripts/benchmark-dual-route-hook.py\" --old-command \"$OLD\" --new-command \"$NEW\" --payload \"$PAYLOAD\" --protocol adapter-envelope --context-sentinel \"$CONTEXT_SENTINEL\" --repeats 30 --warmup 3 --min-samples 30 --timeout-seconds 5"
   },
   "result": {
@@ -68,21 +68,21 @@
     },
     "new": {
       "errors": 0,
-      "max_ms": 1327.535,
-      "p50_ms": 1289.906,
-      "p95_ms": 1317.649,
+      "max_ms": 1403.443,
+      "p50_ms": 1310.445,
+      "p95_ms": 1382.689,
       "samples": 30,
       "timeouts": 0
     },
     "old": {
       "errors": 0,
-      "max_ms": 3173.345,
-      "p50_ms": 2903.986,
-      "p95_ms": 3055.255,
+      "max_ms": 3046.517,
+      "p50_ms": 2942.294,
+      "p95_ms": 3045.496,
       "samples": 30,
       "timeouts": 0
     },
-    "p95_delta_ms": -1737.606,
+    "p95_delta_ms": -1662.807,
     "passed": true,
     "publishable": true,
     "sample_policy": {
@@ -310,7 +310,9 @@
       "round_id": "post-edge-hardening-confirmation-1",
       "observed_on": "2026-07-18",
       "candidate_commit": "8d3929d1589be304703a26ec4955f896c308c2ca",
-      "phase": "post_optimization_confirmation",
+      "phase": "superseded_candidate_confirmation",
+      "superseded_reason": "fallback_observability_required_new_candidate",
+      "superseded_by": "b706ae0d915a3975919055367aa9d27a72baeda4",
       "result": {
         "limits": {
           "max_new_ms": 2000.0,
@@ -351,7 +353,9 @@
       "round_id": "post-edge-hardening-confirmation-2",
       "observed_on": "2026-07-18",
       "candidate_commit": "8d3929d1589be304703a26ec4955f896c308c2ca",
-      "phase": "post_optimization_confirmation",
+      "phase": "superseded_candidate_confirmation",
+      "superseded_reason": "fallback_observability_required_new_candidate",
+      "superseded_by": "b706ae0d915a3975919055367aa9d27a72baeda4",
       "result": {
         "limits": {
           "max_new_ms": 2000.0,
@@ -374,6 +378,128 @@
           "timeouts": 0
         },
         "p95_delta_ms": -1737.606,
+        "passed": true,
+        "publishable": true,
+        "sample_policy": {
+          "context_sentinel_sha256": "sha256:ea24fbc824f099c9276038517f5de853e48ff728ea10dd31a0989b97938f072e",
+          "expected_reason": "included",
+          "expected_result": "injected",
+          "interleaved": true,
+          "minimum": 30,
+          "observation_timeout_seconds": 5.0,
+          "protocol": "adapter-envelope",
+          "unit_test_mode": false
+        }
+      }
+    },
+    {
+      "round_id": "stage2-recall-quality-confirmation-1",
+      "observed_on": "2026-07-19",
+      "candidate_commit": "b706ae0d915a3975919055367aa9d27a72baeda4",
+      "phase": "post_optimization_confirmation",
+      "brain_provenance": {
+        "fixture_id": "dual-route-hook-public-v1",
+        "fresh_path_required": true,
+        "path_digest": "sha256:b42ef9f84849a5c0b08fa939d2c7e3ec293bb50400154a80908617dab56e44e6",
+        "fixture_item_sha256": "sha256:6dd484e4f6cbd27a18aaf3b780ac64207b586550bb75b3999629e8924f75b658",
+        "runtime_event_count": 66,
+        "injection_cohort_count": 66
+      },
+      "preflight_trace": {
+        "enabled": true,
+        "file_mode": "0600",
+        "sample_count": 33,
+        "counts": {
+          "consolidated": 33,
+          "full_legacy_fallback": 0,
+          "derivation_only_fallback": 0,
+          "legacy_no_resolver": 0
+        }
+      },
+      "protocol_pollution_count": 0,
+      "result": {
+        "limits": {
+          "max_new_ms": 2000.0,
+          "max_p95_delta_ms": 150.0
+        },
+        "new": {
+          "errors": 0,
+          "max_ms": 1402.393,
+          "p50_ms": 1316.281,
+          "p95_ms": 1390.675,
+          "samples": 30,
+          "timeouts": 0
+        },
+        "old": {
+          "errors": 0,
+          "max_ms": 3094.01,
+          "p50_ms": 2943.584,
+          "p95_ms": 3047.925,
+          "samples": 30,
+          "timeouts": 0
+        },
+        "p95_delta_ms": -1657.25,
+        "passed": true,
+        "publishable": true,
+        "sample_policy": {
+          "context_sentinel_sha256": "sha256:ea24fbc824f099c9276038517f5de853e48ff728ea10dd31a0989b97938f072e",
+          "expected_reason": "included",
+          "expected_result": "injected",
+          "interleaved": true,
+          "minimum": 30,
+          "observation_timeout_seconds": 5.0,
+          "protocol": "adapter-envelope",
+          "unit_test_mode": false
+        }
+      }
+    },
+    {
+      "round_id": "stage2-recall-quality-confirmation-2",
+      "observed_on": "2026-07-19",
+      "candidate_commit": "b706ae0d915a3975919055367aa9d27a72baeda4",
+      "phase": "post_optimization_confirmation",
+      "brain_provenance": {
+        "fixture_id": "dual-route-hook-public-v1",
+        "fresh_path_required": true,
+        "path_digest": "sha256:1e0152b1b24bd8bee3fb1f39740a48b38d6bb32c26b1ef307cb755867760aba6",
+        "fixture_item_sha256": "sha256:6dd484e4f6cbd27a18aaf3b780ac64207b586550bb75b3999629e8924f75b658",
+        "runtime_event_count": 66,
+        "injection_cohort_count": 66
+      },
+      "preflight_trace": {
+        "enabled": true,
+        "file_mode": "0600",
+        "sample_count": 33,
+        "counts": {
+          "consolidated": 33,
+          "full_legacy_fallback": 0,
+          "derivation_only_fallback": 0,
+          "legacy_no_resolver": 0
+        }
+      },
+      "protocol_pollution_count": 0,
+      "result": {
+        "limits": {
+          "max_new_ms": 2000.0,
+          "max_p95_delta_ms": 150.0
+        },
+        "new": {
+          "errors": 0,
+          "max_ms": 1403.443,
+          "p50_ms": 1310.445,
+          "p95_ms": 1382.689,
+          "samples": 30,
+          "timeouts": 0
+        },
+        "old": {
+          "errors": 0,
+          "max_ms": 3046.517,
+          "p50_ms": 2942.294,
+          "p95_ms": 3045.496,
+          "samples": 30,
+          "timeouts": 0
+        },
+        "p95_delta_ms": -1662.807,
         "passed": true,
         "publishable": true,
         "sample_policy": {

@@ -228,17 +228,19 @@ This rollout does not implement **Session continuation**. Bare turns such as
 trusted session pointer and previous-task state. A short prompt with concrete
 topic or entity anchors is evaluated normally.
 
-The committed calibration report now records calibration 15/15 and heldout 11/11
-with 0 FP / 0 FN across the 41-case public safety fixture. The final hardened
-candidate `8d3929d1589be304703a26ec4955f896c308c2ca` passed 连续两轮 independent
-30-run hook confirmations: candidate p50/p95/max were
-1264.821/1320.596/1334.546ms and 1289.906/1317.649/1327.535ms, with no errors or
-timeouts. Earlier optimized candidates also passed their recorded performance
-checks, but final edge-case review required a new candidate and fresh
-confirmations. The machine-readable facts remain
-`docs/evaluation/dual-route-calibration-report.json`,
+The stage-two report now records calibration 15/15, heldout 10/10, and sanitized
+production replay 12/12, with 0 FP / 0 FN across the 41-case public safety
+fixture. The final hardened candidate
+`b706ae0d915a3975919055367aa9d27a72baeda4` passed 连续两轮 independent 30-run
+hook confirmations: candidate p50/p95/max were
+1316.281/1390.675/1402.393ms and 1310.445/1382.689/1403.443ms, with no errors,
+timeouts, protocol pollution, or fallback. Candidate-only benchmark tracing is
+opt-in, mode 0600, and stores only a closed preflight-path enum; it never stores
+prompt, session, cwd, or hook output. Earlier optimized candidates remain in
+history as successful but superseded evidence. The machine-readable facts are
+`docs/evaluation/stage2-recall-quality-report.json`,
 `docs/evaluation/dual-route-hook-benchmark-report.json`, and
-`scripts/check-dual-route-calibration.py`.
+`scripts/check-recall-quality.py`.
 
 ### Budgeted brief authorization boundary
 

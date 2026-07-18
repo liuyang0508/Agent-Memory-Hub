@@ -137,9 +137,11 @@ def test_dual_route_release_docs_keep_rollout_and_blocker_boundaries_explicit():
     assert "E5" in evidence
     assert "reranker" in evidence
     assert "不得默认启用" in evidence
-    assert "heldout 11/11" in evidence
+    assert "heldout 10/10" in evidence
+    assert "production replay 12/12" in evidence
     assert "41-case" in evidence
     assert "0 FP / 0 FN" in evidence
+    assert "fallback 0" in evidence
     assert "multi-hi-08" not in evidence
     assert "BLOCKED" not in evidence
 
@@ -181,15 +183,15 @@ def test_dual_route_hook_benchmark_report_is_reproducible_and_privacy_bounded(
     assert report["performance_gate"] == "PASS"
     assert report["overall_release_gate"] == "PASS"
     assert report["blocking_calibration_case"] is None
-    assert report["measured_on"] == "2026-07-18"
+    assert report["measured_on"] == "2026-07-19"
     assert report["provenance"]["old_commit"] == (
         "bb9128a668fea98bf9063bfbedc85cc75dc8936c"
     )
     assert report["provenance"]["candidate_commit"] == (
-        "8d3929d1589be304703a26ec4955f896c308c2ca"
+        "b706ae0d915a3975919055367aa9d27a72baeda4"
     )
     assert report["provenance"]["candidate_hook_sha256"] == (
-        "sha256:592848ffd59d55cb54d8c49558c08ac804835bdce6425d7984608abf28beaa31"
+        "sha256:5ae6cc31cdc5cee2b52c9a87789fd4008a0092671d94caf438e428fdcd64d440"
     )
     assert report["provenance"]["payload_parser_sha256"] == (
         "sha256:8a27cab6c8da05ee29c75c2ec5651e969536a374f62798ca568d7f82508bd02e"
@@ -211,7 +213,10 @@ def test_dual_route_hook_benchmark_report_is_reproducible_and_privacy_bounded(
         "brain": "same freshly materialized public fixture brain",
         "payload": "same committed payload bytes",
         "python": "same interpreter",
-        "environment": "same values except worktree PYTHONPATH and hook path",
+        "environment": (
+            "same values except worktree PYTHONPATH, hook path, and "
+            "candidate-only benchmark trace flag"
+        ),
     }
     for name in (
         "old_hook_sha256",
@@ -306,6 +311,22 @@ def test_dual_route_hook_benchmark_report_is_reproducible_and_privacy_bounded(
         assert run_result["new"]["timeouts"] == 0
         assert run_result["new"]["max_ms"] < 2000.0
         assert run_result["p95_delta_ms"] <= 150.0
+        assert run["protocol_pollution_count"] == 0
+        assert run["brain_provenance"]["fresh_path_required"] is True
+        assert run["brain_provenance"]["path_digest"].startswith("sha256:")
+        assert run["brain_provenance"]["runtime_event_count"] == 66
+        assert run["brain_provenance"]["injection_cohort_count"] == 66
+        assert run["preflight_trace"] == {
+            "enabled": True,
+            "file_mode": "0600",
+            "sample_count": 33,
+            "counts": {
+                "consolidated": 33,
+                "full_legacy_fallback": 0,
+                "derivation_only_fallback": 0,
+                "legacy_no_resolver": 0,
+            },
+        }
     assert [
         (
             run["result"]["new"]["p50_ms"],
@@ -318,8 +339,8 @@ def test_dual_route_hook_benchmark_report_is_reproducible_and_privacy_bounded(
         )
         for run in confirmations
     ] == [
-        (1264.821, 1320.596, 1334.546, 2879.942, 3046.24, 3063.865, -1725.644),
-        (1289.906, 1317.649, 1327.535, 2903.986, 3055.255, 3173.345, -1737.606),
+        (1316.281, 1390.675, 1402.393, 2943.584, 3047.925, 3094.01, -1657.25),
+        (1310.445, 1382.689, 1403.443, 2942.294, 3045.496, 3046.517, -1662.807),
     ]
     assert result == confirmations[1]["result"]
 
@@ -328,7 +349,7 @@ def test_dual_route_hook_benchmark_report_is_reproducible_and_privacy_bounded(
         for run in report["run_history"]
         if run["phase"] == "superseded_candidate_confirmation"
     ]
-    assert len(superseded) == 4
+    assert len(superseded) == 6
     earlier_optimized = [
         run
         for run in superseded
@@ -341,7 +362,13 @@ def test_dual_route_hook_benchmark_report_is_reproducible_and_privacy_bounded(
         if run["candidate_commit"]
         == "17696138262b8c807852be5baf3c9cb9eccf7c49"
     ]
-    assert len(earlier_optimized) == len(raw_nul_safe) == 2
+    edge_hardened = [
+        run
+        for run in superseded
+        if run["candidate_commit"]
+        == "8d3929d1589be304703a26ec4955f896c308c2ca"
+    ]
+    assert len(earlier_optimized) == len(raw_nul_safe) == len(edge_hardened) == 2
     for run in earlier_optimized:
         assert run["candidate_commit"] == (
             "98eef3fb45abb2d5a9d198529445103ceb9d43be"
@@ -363,6 +390,15 @@ def test_dual_route_hook_benchmark_report_is_reproducible_and_privacy_bounded(
         assert run["superseded_by"] == (
             "8d3929d1589be304703a26ec4955f896c308c2ca"
         )
+    for run in edge_hardened:
+        assert run["result"]["passed"] is True
+        assert run["result"]["publishable"] is True
+        assert run["superseded_reason"] == (
+            "fallback_observability_required_new_candidate"
+        )
+        assert run["superseded_by"] == (
+            "b706ae0d915a3975919055367aa9d27a72baeda4"
+        )
 
     blockers = [
         run
@@ -378,7 +414,7 @@ def test_dual_route_hook_benchmark_report_is_reproducible_and_privacy_bounded(
         2400.187,
         2081.018,
     ]
-    assert len(report["run_history"]) == 8
+    assert len(report["run_history"]) == 10
 
     serialized = json.dumps(report, ensure_ascii=False)
     assert '"prompt"' not in serialized

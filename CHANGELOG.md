@@ -55,15 +55,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Release status
 
-- **PASS:** committed calibration is calibration 15/15 and heldout 11/11 with
-  0 FP / 0 FN across the 41-case public safety fixture. Final candidate
-  `8d3929d1589be304703a26ec4955f896c308c2ca` passed 连续两轮 independent
-  30-run hook gates: candidate p50/p95/max were 1264.821/1320.596/1334.546ms
-  and 1289.906/1317.649/1327.535ms, with 0 errors and 0 timeouts in both rounds.
+- **PASS:** committed stage-two quality is calibration 15/15, heldout 10/10,
+  sanitized production replay 12/12, and 0 FP / 0 FN across the 41-case public
+  safety fixture. Final candidate `b706ae0d915a3975919055367aa9d27a72baeda4`
+  passed 连续两轮 independent 30-run hook gates: candidate p50/p95/max were
+  1316.281/1390.675/1402.393ms and 1310.445/1382.689/1403.443ms, with 0 errors,
+  0 timeouts, 0 protocol pollution, and 0 fallback in both rounds.
 - The performance report retains the two pre-optimization tail-latency failures;
-  it also preserves both earlier optimized candidates' successful rounds as
-  superseded, not failed. Final PASS uses only the hardened candidate's two
-  consecutive confirmations after edge-case review.
+  it also preserves all earlier optimized candidates' successful rounds as
+  superseded, not failed. Final PASS uses only the observable candidate's two
+  consecutive confirmations after fallback-trace review.
 
 ### Security
 
