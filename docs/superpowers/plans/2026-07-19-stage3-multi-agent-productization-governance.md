@@ -518,11 +518,13 @@ git commit -m "docs: publish multi-agent productization evidence"
 git push origin codex/dual-route-recall
 ```
 
-- [ ] **Step 6: 等待远端 required checks 并复核保护规则**
+- [x] **Step 6: 等待远端 required checks 并复核保护规则**
 
 Run: `gh pr checks 4 --watch && gh api repos/liuyang0508/Agent-Memory-Hub/branches/main/protection/required_status_checks`
 
 Expected: unit (3.11)、unit (3.12)、hook-tests、security、benchmark-integrity、docker-smoke、recall-quality、adapter-governance 全绿且 strict=true。
+
+Evidence: `governance-gates` run `29662546400`、`python-tests` run `29662546401`、`hook-tests` run `29662546394`；branch protection 回读为 strict=true 且包含上述 8 个 required contexts。
 
 ---
 
