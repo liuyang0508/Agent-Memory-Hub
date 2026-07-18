@@ -151,7 +151,7 @@ def recall_drift_replay_cohort(
         help="Output format: table or json",
     ),
 ) -> None:
-    """Export deduped recall gap prompts for regression replay."""
+    """Export deduped, privacy-safe recall gap diagnostics for replay triage."""
     from agent_brain.memory.governance.recall_gap_clustering import build_gap_replay_cohort
 
     cohort = build_gap_replay_cohort(
@@ -169,7 +169,7 @@ def recall_drift_replay_cohort(
     table.add_column("reason", no_wrap=True)
     table.add_column("owner", no_wrap=True)
     table.add_column("risk", no_wrap=True)
-    table.add_column("query", overflow="fold")
+    table.add_column("query digest", overflow="fold")
     for case in cohort.cases:
         table.add_row(
             case.gap_id,

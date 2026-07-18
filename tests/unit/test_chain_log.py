@@ -11,6 +11,7 @@ import pytest
 from agent_brain.contracts.memory_item import MemoryItem, MemoryType, Refs
 from agent_brain.memory.store.items_store import ItemsStore
 from agent_brain.memory.store.write_service import WriteService
+from agent_brain.platform.telemetry_safety import telemetry_digest
 
 
 def _item(item_id: str = "mem-20260706-010203-chain-demo") -> MemoryItem:
@@ -140,7 +141,7 @@ def test_chain_log_groups_hook_injection_and_gap_by_session(tmp_path: Path) -> N
     assert report["summary"]["total_chains"] == 1
     chain = report["chains"][0]
     assert chain["adapter"] == "codex"
-    assert chain["session_id"] == "sess-chain"
+    assert chain["session_id"] == telemetry_digest("sess-chain")
     assert chain["final_outcome"] == "partial"
     assert chain["injected_count"] == 1
     assert chain["rejected_count"] == 1
@@ -260,10 +261,14 @@ def test_chain_log_binds_ordered_traces_before_filtering_all_raw_identity_source
 
     report = build_chain_log_report(tmp_path, hours=72, limit=20).to_dict()
     injection_summary = next(
-        row for row in report["chains"] if row["session_id"] == "sess-chain-identity"
+        row
+        for row in report["chains"]
+        if row["session_id"] == telemetry_digest("sess-chain-identity")
     )
     outcome_summary = next(
-        row for row in report["chains"] if row["session_id"] == "sess-outcome-identity"
+        row
+        for row in report["chains"]
+        if row["session_id"] == telemetry_digest("sess-outcome-identity")
     )
     detail = build_chain_log_detail(tmp_path, injection_summary["chain_id"]).to_dict()
     outcome_detail = build_chain_log_detail(tmp_path, outcome_summary["chain_id"]).to_dict()
@@ -348,7 +353,10 @@ def test_chain_log_keeps_user_prompt_requests_from_same_session_as_separate_chai
 
     assert report["summary"]["total_chains"] == 2
     assert len({chain["chain_id"] for chain in report["chains"]}) == 2
-    assert all(chain["session_id"] == "sess-chain" for chain in report["chains"])
+    assert all(
+        chain["session_id"] == telemetry_digest("sess-chain")
+        for chain in report["chains"]
+    )
 
 
 def test_chain_log_excludes_future_dated_rows_from_72h_report(tmp_path: Path) -> None:
@@ -380,7 +388,7 @@ def test_chain_log_excludes_future_dated_rows_from_72h_report(tmp_path: Path) ->
 
     assert report["summary"]["total_chains"] == 1
     chain = report["chains"][0]
-    assert chain["session_id"] == "sess-chain"
+    assert chain["session_id"] == telemetry_digest("sess-chain")
     assert chain["final_outcome"] == "injected"
 
 
@@ -1460,7 +1468,7 @@ def test_chain_log_filters_by_adapter_status_and_session(tmp_path: Path) -> None
     assert [chain["adapter"] for chain in codex["chains"]] == ["codex"]
 
     blocked = build_chain_log_report(tmp_path, hours=72, status="blocked").to_dict()
-    assert blocked["chains"][0]["session_id"] == "sess-blocked"
+    assert blocked["chains"][0]["session_id"] == telemetry_digest("sess-blocked")
 
     injected = build_chain_log_report(tmp_path, hours=72, session_id="sess-injected").to_dict()
     assert injected["chains"][0]["final_outcome"] == "injected"

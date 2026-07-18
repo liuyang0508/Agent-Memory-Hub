@@ -79,9 +79,15 @@ def test_observability_surfaces_exclude_private_and_secret_items_from_legacy_coh
     data_flow = [event.to_dict() for event in DataFlowLedger(tmp_path).list_events()]
     lineage = build_memory_lineage_report(tmp_path, hours=72).to_dict()
     chain_report = build_chain_log_report(tmp_path, hours=72).to_dict()
+    from agent_brain.platform.telemetry_safety import telemetry_digest
+
     chain = build_chain_log_detail(
         tmp_path,
-        next(row["chain_id"] for row in chain_report["chains"] if row["session_id"] == "sess-sensitive-legacy"),
+        next(
+            row["chain_id"]
+            for row in chain_report["chains"]
+            if row["session_id"] == telemetry_digest("sess-sensitive-legacy")
+        ),
     ).to_dict()
     serialized = json.dumps(
         {"data_flow": data_flow, "lineage": lineage, "chain": chain},

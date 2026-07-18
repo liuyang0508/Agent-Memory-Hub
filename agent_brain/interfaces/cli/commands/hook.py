@@ -82,8 +82,11 @@ def _recent_hook_rows(
     for gap in iter_gap_records(brain):
         if adapter and gap.adapter != adapter:
             continue
-        if session and gap.session_id != session:
-            continue
+        if session:
+            from agent_brain.platform.telemetry_safety import telemetry_digest
+
+            if gap.session_id != telemetry_digest(session):
+                continue
         detail_parts = [gap.normalized_query]
         if gap.rejected_ids:
             detail_parts.append("rejected=" + ",".join(gap.rejected_ids[:3]))

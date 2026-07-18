@@ -2,7 +2,6 @@
 # ruff: noqa: F405
 from __future__ import annotations
 
-import hashlib
 import io
 import json
 import os
@@ -429,7 +428,6 @@ def _record_search_gap(
     from agent_brain.memory.governance.recall_events import record_gap
 
     if privacy_safe:
-        query = "sha256:" + hashlib.sha256(query.encode("utf-8")).hexdigest()
         injected_ids = []
         rejected_ids = []
         evidence = [

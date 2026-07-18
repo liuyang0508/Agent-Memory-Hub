@@ -6,6 +6,7 @@ import hashlib
 import json
 import re
 from datetime import datetime, timezone
+from collections.abc import Collection
 from typing import Any
 
 
@@ -16,6 +17,18 @@ _OBSERVATION_ID_PATTERNS = {
     for prefix in ("gap", "out")
 }
 _OPAQUE_TASK_ID_PATTERN = re.compile(r"^task-observed-[0-9a-f]{16}$")
+_SAFE_GAP_EVIDENCE_LABEL_RE = re.compile(
+    r"^(?:query_signal|route|reason|decision):[a-z0-9_.-]{1,64}$",
+    re.IGNORECASE,
+)
+_SAFE_GAP_AGGREGATE_RE = re.compile(
+    r"^(?:retrieved_count|included_count|hydrate_error_count|excluded_count|"
+    r"source_evidence_count)=\d{1,9}$",
+    re.IGNORECASE,
+)
+_SAFE_GAP_DIGEST_RE = re.compile(
+    r"^(?:evidence_digest|terms_digest|query_terms_digest)=sha256:[0-9a-f]{64}$"
+)
 
 
 def parse_utc_timestamp(value: object) -> datetime | None:
@@ -63,6 +76,49 @@ def sanitize_cwd(value: object) -> str | None:
     return sanitize_optional_text(value, max_length=4096, surrogate_prefix="cwd")
 
 
+def telemetry_digest(value: object, *, prefix: str = "sha256") -> str:
+    """Return a stable one-way telemetry identifier without exposing input text."""
+
+    return f"{prefix}:{hashlib.sha256(_stable_serialization(value)).hexdigest()}"
+
+
+def sanitize_gap_evidence(
+    value: object,
+    *,
+    allowed_exclusion_reasons: Collection[str] = (),
+) -> str:
+    """Keep only closed, aggregate gap evidence; digest everything else."""
+
+    if isinstance(value, str):
+        normalized = value.strip()
+        if _SAFE_GAP_EVIDENCE_LABEL_RE.fullmatch(normalized):
+            return normalized.lower()
+        if _SAFE_GAP_AGGREGATE_RE.fullmatch(normalized):
+            return normalized.lower()
+        if _SAFE_GAP_DIGEST_RE.fullmatch(normalized):
+            return normalized.lower()
+        key, separator, raw_value = normalized.partition("=")
+        exclusion_prefix = "excluded_reason."
+        if (
+            separator
+            and raw_value.isdigit()
+            and key.startswith(exclusion_prefix)
+            and key.removeprefix(exclusion_prefix) in allowed_exclusion_reasons
+        ):
+            return normalized.lower()
+        if separator and key in {"terms", "query_terms"}:
+            return f"{key}_digest={telemetry_digest(raw_value)}"
+        if separator and key == "specificity":
+            try:
+                score = float(raw_value)
+            except ValueError:
+                pass
+            else:
+                bucket = "low" if score < 1 else "medium" if score < 3 else "high"
+                return f"specificity_bucket={bucket}"
+    return "evidence_digest=" + telemetry_digest(value)
+
+
 def sanitize_optional_text(
     value: object,
     *,
@@ -79,6 +135,10 @@ def sanitize_optional_text(
 
 
 def _stable_digest(value: Any) -> str:
+    return hashlib.sha256(_stable_serialization(value)).hexdigest()[:16]
+
+
+def _stable_serialization(value: Any) -> bytes:
     try:
         serialized = json.dumps(
             value,
@@ -88,14 +148,16 @@ def _stable_digest(value: Any) -> str:
         )
     except (TypeError, ValueError, OverflowError, RecursionError):
         serialized = f"<{type(value).__module__}.{type(value).__qualname__}>"
-    return hashlib.sha256(serialized.encode("utf-8", errors="replace")).hexdigest()[:16]
+    return serialized.encode("utf-8", errors="replace")
 
 
 __all__ = [
     "parse_utc_timestamp",
     "sanitize_cwd",
+    "sanitize_gap_evidence",
     "sanitize_observation_id",
     "sanitize_optional_text",
     "sanitize_session_id",
     "sanitize_task_id",
+    "telemetry_digest",
 ]

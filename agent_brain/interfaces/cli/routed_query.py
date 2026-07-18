@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import logging
 import math
 import os
@@ -505,7 +504,7 @@ def _maybe_record_gap(
     evidence.extend(f"excluded_reason.{key}={count}" for key, count in reason_counts.items())
     record_gap(
         brain_dir,
-        query="sha256:" + hashlib.sha256(raw_query.encode("utf-8")).hexdigest(),
+        query=raw_query,
         reason=reason,
         injected_ids=[],
         rejected_ids=[],

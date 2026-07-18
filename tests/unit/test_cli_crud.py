@@ -273,9 +273,9 @@ class TestInjectionFeedbackCLI:
         assert gaps[0].reason == "only_rejected"
         assert gaps[0].rejected_ids == tuple(ids)
         assert gaps[0].adapter == "codex"
-        assert gaps[0].session_id == "sess-all-wrong"
-        assert gaps[0].cwd == "/repo"
-        assert any(cohort.cohort_id in evidence for evidence in gaps[0].evidence)
+        assert gaps[0].session_id.startswith("sha256:")
+        assert gaps[0].cwd.startswith("sha256:")
+        assert any(evidence.startswith("evidence_digest=sha256:") for evidence in gaps[0].evidence)
 
     def test_injection_feedback_records_task_outcome_for_recall_drift(self, tmp_brain_dir, monkeypatch):
         from agent_brain.memory.context.injection_cohorts import record_injection_cohort
@@ -620,9 +620,11 @@ class TestRecallDriftCLI:
 
         assert result.exit_code == 0, result.output
         data = json.loads(result.output)
+        assert "验证" not in result.output
         assert data["matched_gap_count"] == 1
         assert data["deduped_query_count"] == 1
-        assert data["cases"][0]["query"] == "验证"
+        assert data["cases"][0]["query_digest"].startswith("sha256:")
+        assert "query" not in data["cases"][0]
         assert data["cases"][0]["expected_root_cause"] == "query_gate_underqualified"
 
 

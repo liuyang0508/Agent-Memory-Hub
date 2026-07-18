@@ -36,7 +36,7 @@ class GapCluster:
     size: int
     labels: tuple[str, ...]
     gap_ids: tuple[str, ...]
-    sample_queries: tuple[str, ...]
+    sample_query_digests: tuple[str, ...]
     reason_counts: dict[str, int]
     profile: GapClusterProfile
 
@@ -44,7 +44,7 @@ class GapCluster:
         data = asdict(self)
         data["labels"] = list(self.labels)
         data["gap_ids"] = list(self.gap_ids)
-        data["sample_queries"] = list(self.sample_queries)
+        data["sample_query_digests"] = list(self.sample_query_digests)
         data["profile"] = self.profile.to_dict()
         return data
 
@@ -67,16 +67,32 @@ class GapClusterReport:
 class GapReplayCase:
     gap_id: str
     cluster_id: str
-    query: str
-    normalized_query: str
+    query_digest: str
+    query_shape: str
     reason: str
     evidence: tuple[str, ...]
     adapter: str
-    session_id: str | None
-    cwd: str | None
+    session_digest: str | None
+    scope_digest: str | None
     expected_root_cause: str
     expected_owner: str
     expected_risk: str
+
+    @property
+    def query(self) -> str:
+        return self.query_digest
+
+    @property
+    def normalized_query(self) -> str:
+        return self.query_shape
+
+    @property
+    def session_id(self) -> str | None:
+        return self.session_digest
+
+    @property
+    def cwd(self) -> str | None:
+        return self.scope_digest
 
     def to_dict(self) -> dict[str, object]:
         data = asdict(self)
@@ -128,6 +144,7 @@ _RULE_LABELS: dict[str, tuple[str, ...]] = {
     ),
 }
 _NOISE_TOKENS = {
+    "ascii",
     "the",
     "and",
     "but",
@@ -139,6 +156,19 @@ _NOISE_TOKENS = {
     "this",
     "memory",
     "recall",
+    "cjk",
+    "intent",
+    "labels",
+    "lang",
+    "length",
+    "long",
+    "medium",
+    "mixed",
+    "none",
+    "other",
+    "question",
+    "short",
+    "statement",
 }
 
 
@@ -182,7 +212,7 @@ def build_gap_replay_cohort(
     root_cause: str,
     limit: int | None = None,
 ) -> GapReplayCohort:
-    """Export deduped gap prompts for regression replay by operational root cause."""
+    """Export deduped gap digests for replay triage by operational root cause."""
     report = build_gap_cluster_report(brain_dir)
     gap_by_id = {gap.gap_id: gap for gap in iter_gap_records(brain_dir)}
     matched_gap_count = 0
@@ -197,7 +227,7 @@ def build_gap_replay_cohort(
             gap = gap_by_id.get(gap_id)
             if gap is None:
                 continue
-            query_key = gap.normalized_query or gap.query
+            query_key = gap.query_digest
             if query_key in seen_queries:
                 continue
             seen_queries.add(query_key)
@@ -207,13 +237,13 @@ def build_gap_replay_cohort(
                 GapReplayCase(
                     gap_id=gap.gap_id,
                     cluster_id=cluster.cluster_id,
-                    query=gap.query,
-                    normalized_query=gap.normalized_query,
+                    query_digest=gap.query_digest,
+                    query_shape=gap.query_shape,
                     reason=gap.reason,
                     evidence=gap.evidence,
                     adapter=gap.adapter,
-                    session_id=gap.session_id,
-                    cwd=gap.cwd,
+                    session_digest=gap.session_digest,
+                    scope_digest=gap.scope_digest,
                     expected_root_cause=cluster.profile.root_cause,
                     expected_owner=cluster.profile.suggested_owner,
                     expected_risk=cluster.profile.risk_level,
@@ -230,7 +260,7 @@ def build_gap_replay_cohort(
 
 def _features(gap: GapRecord) -> _GapFeatures:
     text = _normalize_text(" ".join([
-        gap.normalized_query or gap.query,
+        gap.query_shape,
         gap.reason,
         " ".join(gap.evidence),
     ]))
@@ -265,7 +295,7 @@ def _build_cluster(group: list[_GapFeatures]) -> GapCluster:
         size=len(group),
         labels=labels,
         gap_ids=gap_ids,
-        sample_queries=tuple(feature.gap.query for feature in group[:3]),
+        sample_query_digests=tuple(feature.gap.query_digest for feature in group[:3]),
         reason_counts=reason_counts,
         profile=_build_profile(labels, reason_counts, group),
     )

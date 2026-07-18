@@ -630,7 +630,7 @@ class TestChainLogsAPI:
 
         headers = {"Authorization": f"Bearer {admin_token}"}
         listed = client.get(
-            "/api/chain-logs?hours=72&limit=20&adapter=codex&session_id=sess-chain-api&cwd=agent-memory-hub&status=injected",
+            "/api/chain-logs?hours=72&limit=20&adapter=codex&session_id=sess-chain-api&cwd=/repo/agent-memory-hub&status=injected",
             headers=headers,
         )
 
@@ -641,7 +641,9 @@ class TestChainLogsAPI:
         assert report["summary"]["total_chains"] == 1
         chain = report["chains"][0]
         assert chain["adapter"] == "codex"
-        assert chain["session_id"] == "sess-chain-api"
+        from agent_brain.platform.telemetry_safety import telemetry_digest
+
+        assert chain["session_id"] == telemetry_digest("sess-chain-api")
         assert chain["final_outcome"] == "injected"
 
         detail = client.get(f"/api/chain-logs/{chain['chain_id']}?hours=72", headers=headers)

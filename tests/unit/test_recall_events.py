@@ -24,9 +24,60 @@ def test_record_gap_appends_jsonl_without_memory_body(tmp_path: Path) -> None:
     raw = (tmp_path / "runtime" / "recall-gaps.jsonl").read_text(encoding="utf-8")
 
     assert rows == [record]
-    assert record.normalized_query == "帮我打开浏览器"
+    assert record.query_digest.startswith("sha256:")
+    assert "labels:browser" in record.query_shape
     assert "memory body" not in raw
-    assert "帮我打开浏览器" in raw
+    assert "帮我打开浏览器" not in raw
+
+
+def test_gap_record_cluster_and_replay_never_expose_raw_runtime_identity(
+    tmp_path: Path,
+) -> None:
+    from agent_brain.memory.governance.recall_events import record_gap
+    from agent_brain.memory.governance.recall_gap_clustering import (
+        build_gap_cluster_report,
+        build_gap_replay_cohort,
+    )
+
+    sentinel = "UNIQUE_PRIVATE_PROMPT_SENTINEL"
+    email = "owner@example.test"
+    jwt_shape = ".".join((
+        "eyJhbGciOiJIUzI1NiJ9",
+        "eyJzdWIiOiJzZWNyZXQifQ",
+        "signature",
+    ))
+    private_path = "/" + "Users/private/repo/secret.txt"
+    private_item = "private customer body fragment"
+    record = record_gap(
+        tmp_path,
+        query=f"{sentinel} {email} {jwt_shape} {private_path}",
+        reason="query_not_injectable",
+        evidence=[f"query_signal:too_weak", f"terms={private_item}"],
+        adapter="codex",
+        session_id=f"session-{sentinel}",
+        cwd=private_path,
+    )
+
+    raw = (tmp_path / "runtime" / "recall-gaps.jsonl").read_text(encoding="utf-8")
+    cluster = json.dumps(build_gap_cluster_report(tmp_path).to_dict(), ensure_ascii=False)
+    replay = json.dumps(
+        build_gap_replay_cohort(
+            tmp_path,
+            root_cause="query_gate_underqualified",
+        ).to_dict(),
+        ensure_ascii=False,
+    )
+    exposed = "\n".join((raw, cluster, replay, repr(record)))
+
+    for secret in (sentinel, email, jwt_shape, private_path, private_item):
+        assert secret not in exposed
+    payload = json.loads(raw)
+    assert payload["schema_version"] == 2
+    assert payload["query_digest"].startswith("sha256:")
+    assert "query" not in payload
+    assert "normalized_query" not in payload
+    assert "session_id" not in payload
+    assert "cwd" not in payload
 
 
 def test_record_task_outcome_round_trips_low_confidence_implicit_signal(
@@ -90,7 +141,7 @@ def test_iterators_skip_malformed_jsonl_rows(tmp_path: Path) -> None:
     rows = list(iter_gap_records(tmp_path))
 
     assert len(rows) == 1
-    assert rows[0].query == "q"
+    assert rows[0].query.startswith("sha256:")
 
 
 def test_recall_sidecar_readers_sanitize_observation_and_session_identities(
@@ -146,6 +197,75 @@ def test_recall_sidecar_readers_sanitize_observation_and_session_identities(
     assert "SECRET_RAW_GAP_ID" not in serialized
     assert "SECRET_RAW_OUTCOME_ID" not in serialized
     assert "SECRET_SESSION" not in serialized
+
+
+def test_legacy_gap_reader_redacts_raw_query_path_and_evidence(tmp_path: Path) -> None:
+    from agent_brain.memory.governance.recall_events import iter_gap_records, recall_gaps_path
+
+    sentinel = "LEGACY_PRIVATE_SENTINEL"
+    path = recall_gaps_path(tmp_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps({
+            "gap_id": "legacy-gap-id",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "query": sentinel,
+            "normalized_query": sentinel.lower(),
+            "reason": "query_not_injectable",
+            "evidence": [f"terms={sentinel}"],
+            "session_id": f"session-{sentinel}",
+            "cwd": f"/repo/{sentinel}",
+        })
+        + "\n",
+        encoding="utf-8",
+    )
+
+    record = next(iter_gap_records(tmp_path))
+
+    assert sentinel not in repr(record)
+    assert record.query_digest.startswith("sha256:")
+    assert record.session_digest.startswith("sha256:")
+    assert record.scope_digest.startswith("sha256:")
+
+
+def test_v2_gap_reader_fails_closed_on_raw_digest_or_shape_fields(tmp_path: Path) -> None:
+    from agent_brain.memory.governance.recall_events import iter_gap_records, recall_gaps_path
+
+    sentinel = "V2_PRIVATE_SENTINEL"
+    path = recall_gaps_path(tmp_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    rows = [
+        {
+            "schema_version": 2,
+            "gap_id": "gap-20260719T000000-1234abcd",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "query_digest": sentinel,
+            "query_shape": "lang:cjk|length:short|intent:statement|labels:none",
+            "reason": "empty_recall",
+        },
+        {
+            "schema_version": 2,
+            "gap_id": "gap-20260719T000001-1234abcd",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "query_digest": "sha256:" + "a" * 64,
+            "query_shape": sentinel,
+            "reason": "empty_recall",
+        },
+        {
+            "schema_version": 99,
+            "gap_id": "gap-20260719T000002-1234abcd",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "query_digest": "sha256:" + "b" * 64,
+            "query_shape": "lang:cjk|length:short|intent:statement|labels:none",
+            "reason": "empty_recall",
+        },
+    ]
+    path.write_text(
+        "".join(json.dumps(row) + "\n" for row in rows),
+        encoding="utf-8",
+    )
+
+    assert list(iter_gap_records(tmp_path)) == []
 
 
 def test_recall_drift_report_summarizes_gap_and_outcome_jsonl(tmp_path: Path) -> None:
@@ -332,7 +452,8 @@ def test_recall_gap_replay_cohort_filters_root_cause_and_dedupes_queries(
     assert data["matched_gap_count"] == 2
     assert data["deduped_query_count"] == 1
     assert data["cases"][0]["gap_id"] == first.gap_id
-    assert data["cases"][0]["query"] == "验证"
+    assert data["cases"][0]["query_digest"].startswith("sha256:")
+    assert "query" not in data["cases"][0]
     assert data["cases"][0]["expected_root_cause"] == "query_gate_underqualified"
     assert data["cases"][0]["expected_owner"] == "retrieval-policy"
     assert data["cases"][0]["adapter"] == "codex"

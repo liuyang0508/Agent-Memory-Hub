@@ -32,7 +32,11 @@ from agent_brain.memory.governance.recall_events import (
     sanitize_recall_gap_reason,
 )
 from agent_brain.memory.store.item_ids import observable_memory_items
-from agent_brain.platform.telemetry_safety import parse_utc_timestamp, sanitize_task_id
+from agent_brain.platform.telemetry_safety import (
+    parse_utc_timestamp,
+    sanitize_task_id,
+    telemetry_digest,
+)
 
 
 MAX_WINDOW_HOURS = 72
@@ -244,7 +248,8 @@ def build_chain_log_report(
     if adapter:
         chains = [chain for chain in chains if chain.adapter == adapter]
     if session_id:
-        chains = [chain for chain in chains if chain.session_id == session_id]
+        session_filter = _opaque_scope_identity(session_id)
+        chains = [chain for chain in chains if chain.session_id == session_filter]
     if cwd:
         chains = [chain for chain in chains if _cwd_matches(chain.cwd, cwd)]
     if status:
@@ -256,8 +261,8 @@ def build_chain_log_report(
             "hours": bounded_hours,
             "limit": bounded_limit,
             "adapter": adapter,
-            "session_id": session_id,
-            "cwd": cwd,
+            "session_id": _opaque_scope_identity(session_id),
+            "cwd": _opaque_scope_identity(cwd),
             "status": status,
         },
         summary={
@@ -465,18 +470,18 @@ def _detail_from_bucket(bucket: _ChainBucket, item_meta: dict[str, Any]) -> Chai
         [gap.adapter for gap in bucket.gaps],
         [outcome.adapter for outcome in bucket.outcomes],
     ) or "unknown"
-    session_id = _first_present(
+    session_id = _opaque_scope_identity(_first_present(
         [event.session_id for event in bucket.runtime_events],
         [cohort.session_id for cohort in bucket.injections],
         [gap.session_id for gap in bucket.gaps],
         [outcome.session_id for outcome in bucket.outcomes],
-    )
-    cwd = _first_present(
+    ))
+    cwd = _opaque_scope_identity(_first_present(
         [event.cwd for event in bucket.runtime_events],
         [cohort.cwd for cohort in bucket.injections],
         [gap.cwd for gap in bucket.gaps],
         [outcome.cwd for outcome in bucket.outcomes],
-    )
+    ))
 
     timestamps = [event.timestamp for event in bucket.runtime_events]
     timestamps.extend(cohort.timestamp for cohort in bucket.injections)
@@ -852,7 +857,19 @@ def _bucket(buckets: dict[str, _ChainBucket], key: str, anchor_id: str) -> _Chai
 
 
 def _bucket_key(session_id: str | None, adapter: str | None, cwd: str | None) -> str:
-    return "|".join([session_id or "no-session", adapter or "unknown", cwd or "no-cwd"])
+    return "|".join([
+        _opaque_scope_identity(session_id) or "no-session",
+        adapter or "unknown",
+        _opaque_scope_identity(cwd) or "no-cwd",
+    ])
+
+
+def _opaque_scope_identity(value: str | None) -> str | None:
+    if not value:
+        return None
+    if value.startswith("sha256:") and len(value) == len("sha256:") + 64:
+        return value
+    return telemetry_digest(value)
 
 
 def _chain_bucket_key(scope_key: str, anchor_id: str) -> str:
@@ -1007,7 +1024,7 @@ def _dedupe(values: Iterable[Any]) -> list[Any]:
 def _cwd_matches(chain_cwd: str | None, query: str) -> bool:
     if chain_cwd is None:
         return False
-    return query in chain_cwd or chain_cwd.endswith(query)
+    return chain_cwd == _opaque_scope_identity(query)
 
 
 def _chain_id_from_row(item: dict[str, Any] | Any) -> str:

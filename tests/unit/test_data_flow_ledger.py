@@ -70,7 +70,11 @@ def test_data_flow_skips_extreme_offset_timestamp_and_keeps_later_valid_event(
     lineage = build_memory_lineage_report(tmp_brain, hours=72).to_dict()
 
     assert [event.session_id for event in events] == ["valid-after-poison"]
-    assert [row["session_id"] for row in chain["chains"]] == ["valid-after-poison"]
+    from agent_brain.platform.telemetry_safety import telemetry_digest
+
+    assert [row["session_id"] for row in chain["chains"]] == [
+        telemetry_digest("valid-after-poison")
+    ]
     assert any(
         row["session_id"] == "valid-after-poison" and row["kind"] == "load"
         for row in lineage["events"]
@@ -517,8 +521,8 @@ def test_data_flow_gap_and_lineage_drop_unknown_reason_and_non_store_item_ids(
     raw_ledger = (tmp_brain / "runtime" / "recall-gaps.jsonl").read_text(
         encoding="utf-8"
     )
-    assert "SECRET_UNKNOWN_REASON" in raw_ledger
-    assert "SECRET_ITEM_ID" in raw_ledger
+    assert "SECRET_UNKNOWN_REASON" not in raw_ledger
+    assert "SECRET_ITEM_ID" not in raw_ledger
 
     gap = next(
         event
@@ -528,7 +532,7 @@ def test_data_flow_gap_and_lineage_drop_unknown_reason_and_non_store_item_ids(
     payload = gap.to_dict()
     assert payload["summary"] == "召回缺口：unclassified"
     assert payload["metadata"]["reason"] == "unclassified"
-    assert payload["metadata"]["cwd"] == cwd
+    assert payload["metadata"]["cwd"].startswith("sha256:")
     assert payload["item_ids"] == [item.id]
     assert "SECRET" not in json.dumps(payload, ensure_ascii=False)
     assert "不存在" not in json.dumps(payload, ensure_ascii=False)

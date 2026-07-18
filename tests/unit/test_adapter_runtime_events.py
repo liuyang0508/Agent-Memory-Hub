@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import hashlib
 import os
 import signal
 import shutil
@@ -2396,8 +2395,8 @@ def test_user_prompt_hook_records_recall_gap_when_no_context_matches(tmp_path):
     assert len(gaps) == 1
     assert gaps[0].reason == "empty_recall"
     assert gaps[0].adapter == "codex"
-    assert gaps[0].session_id == "hook-empty-session"
-    assert gaps[0].cwd == "/repo/current"
+    assert gaps[0].session_id.startswith("sha256:")
+    assert gaps[0].cwd.startswith("sha256:")
     assert gaps[0].query.startswith("sha256:")
     assert gaps[0].injected_ids == ()
     assert gaps[0].rejected_ids == ()
@@ -3198,6 +3197,8 @@ def test_user_prompt_hook_auto_detects_whisper_for_audio_recall(tmp_path):
 
 
 def test_user_prompt_hook_records_multimodal_gap_without_injecting_image_memory(tmp_path):
+    import hashlib
+
     script = Path(__file__).resolve().parents[2] / "agent_runtime_kit" / "hooks" / "inject-context.sh"
     store = ItemsStore(tmp_path / "items")
     embedder = HashingEmbedder()

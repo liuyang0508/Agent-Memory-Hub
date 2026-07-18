@@ -682,8 +682,8 @@ def test_cli_search_records_gap_when_firewall_rejects_all(tmp_brain):
     assert gaps[0].injected_ids == ()
     assert gaps[0].rejected_ids == ()
     assert gaps[0].adapter == "codex"
-    assert gaps[0].session_id == "sess-gap"
-    assert gaps[0].cwd == "/repo"
+    assert gaps[0].session_id.startswith("sha256:")
+    assert gaps[0].cwd.startswith("sha256:")
     assert "retrieved_count=1" in gaps[0].evidence
     assert "hydrate_error_count=0" in gaps[0].evidence
     assert "excluded_count=1" in gaps[0].evidence
@@ -733,6 +733,8 @@ def test_cli_search_records_gap_when_retrieval_is_empty(tmp_brain):
 
 
 def test_cli_raw_empty_gap_uses_cli_query_not_hook_prompt(tmp_brain, monkeypatch):
+    import hashlib
+
     from agent_brain.memory.governance.recall_events import iter_gap_records
 
     monkeypatch.setenv("AGENT_MEMORY_HUB_RAW_QUERY", "SECRET_HOOK_PROMPT")
@@ -745,7 +747,9 @@ def test_cli_raw_empty_gap_uses_cli_query_not_hook_prompt(tmp_brain, monkeypatch
     assert result.exit_code == 0, result.output
     gaps = list(iter_gap_records(tmp_brain))
     assert len(gaps) == 1
-    assert gaps[0].query == "explicit raw diagnostic query"
+    assert gaps[0].query == "sha256:" + hashlib.sha256(
+        b"explicit raw diagnostic query"
+    ).hexdigest()
     assert "SECRET_HOOK_PROMPT" not in repr(gaps[0])
 
 
@@ -843,7 +847,7 @@ def test_cli_search_records_partial_gap_when_firewall_rejects_risky_candidates(t
     assert gaps[0].injected_ids == ()
     assert gaps[0].rejected_ids == ()
     assert gaps[0].adapter == "codex"
-    assert gaps[0].session_id == "sess-partial-gap"
+    assert gaps[0].session_id.startswith("sha256:")
     assert "retrieved_count=2" in gaps[0].evidence
     assert "hydrate_error_count=0" in gaps[0].evidence
     assert "included_count=1" in gaps[0].evidence
