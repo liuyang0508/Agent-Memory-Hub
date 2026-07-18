@@ -402,7 +402,7 @@ git commit -m "feat: expose adapter lifecycle governance surfaces"
 - Modify: `tests/unit/test_docs_truth_contract.py`
 - Create: `tests/unit/test_adapter_governance_report.py`
 
-- [ ] **Step 1: 写生成物新鲜度和隐私失败测试**
+- [x] **Step 1: 写生成物新鲜度和隐私失败测试**
 
 ```python
 def test_stage3_report_is_fresh_and_manifest_derived(repo_root):
@@ -414,27 +414,27 @@ def test_stage3_report_is_fresh_and_manifest_derived(repo_root):
     assert report["privacy"]["prohibited_field_count"] == 0
 ```
 
-- [ ] **Step 2: 运行失败测试**
+- [x] **Step 2: 运行失败测试**
 
 Run: `.venv/bin/pytest -q tests/unit/test_adapter_governance_report.py tests/unit/test_docs_truth_contract.py`
 
 Expected: FAIL，报告和生成器尚不存在。
 
-- [ ] **Step 3: 实现确定性生成器**
+- [x] **Step 3: 实现确定性生成器**
 
 `scripts/generate-adapter-governance.py --check` 在以下任一情况退出 1：manifest 缺字段、夹具 schema/hash 不符、两个 pilot batch 未覆盖同一生命周期合同、reason code 非法、kill switch/core isolation 未通过、生成物与当前代码不同、公开字段命中 prompt/transcript/token/secret/私有绝对路径。
 
-- [ ] **Step 4: 生成并检查报告**
+- [x] **Step 4: 生成并检查报告**
 
 Run: `.venv/bin/python scripts/generate-adapter-governance.py && .venv/bin/python scripts/generate-adapter-governance.py --check`
 
 Expected: `adapter-governance: PASS manifests=16 batches=2 privacy=PASS`。
 
-- [ ] **Step 5: 增加稳定 CI job**
+- [x] **Step 5: 增加稳定 CI job**
 
 在 `.github/workflows/governance-gates.yml` 新增 job id/name `adapter-governance`，执行聚焦 lifecycle/system tests 和生成器 `--check`；禁止 `continue-on-error`，并在 docs truth test 中固定 job 名和命令。
 
-- [ ] **Step 6: 运行 gate 并提交**
+- [x] **Step 6: 运行 gate 并提交**
 
 Run: `.venv/bin/pytest -q tests/unit/test_adapter_governance_report.py tests/unit/test_docs_truth_contract.py && .venv/bin/python scripts/generate-adapter-governance.py --check`
 

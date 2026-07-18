@@ -20,6 +20,20 @@ def _read(path: str) -> str:
     return (ROOT / path).read_text(encoding="utf-8")
 
 
+def test_stage3_adapter_governance_docs_are_ci_enforced() -> None:
+    workflow = _read(".github/workflows/governance-gates.yml")
+    readiness = _read(
+        "docs/evaluation/stage3-adapter-productization-readiness.zh.md"
+    )
+
+    assert "  adapter-governance:" in workflow
+    assert "./scripts/generate-adapter-governance.py --check" in workflow
+    assert "continue-on-error" not in workflow
+    assert "阶段三多 Agent 产品化治理就绪报告" in readiness
+    assert "16 个" in readiness
+    assert "shadow → canary → default" in readiness
+
+
 def _agent_facing_recall_guidance() -> dict[str, str]:
     brain_dir = Path("test-brain")
     repo_dir = Path("agent-memory-hub")

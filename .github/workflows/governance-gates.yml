@@ -80,3 +80,27 @@ jobs:
         env:
           MEMORY_HUB_TEST_EMBEDDING: "1"
         run: ./scripts/check-recall-quality.py
+
+  adapter-governance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install test runtime
+        run: pip install -e ".[dev]"
+      - name: Verify adapter lifecycle and core isolation contracts
+        env:
+          MEMORY_HUB_TEST_EMBEDDING: "1"
+        run: >-
+          python -m pytest
+          tests/unit/test_adapter_manifests.py
+          tests/unit/test_adapter_lifecycle_records.py
+          tests/unit/test_adapter_release_controls.py
+          tests/unit/test_adapter_governance_report.py
+          tests/system/test_adapter_lifecycle_contract.py
+          tests/system/test_adapter_core_isolation.py
+          -q
+      - name: Verify committed adapter governance report
+        run: ./scripts/generate-adapter-governance.py --check

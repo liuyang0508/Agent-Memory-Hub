@@ -1,0 +1,39 @@
+{
+  "schema_version": "amh-adapter-productization-evidence/v1",
+  "baseline_commit": "eab685aec5d6bbf8c54004448e6b547e7bcceeff",
+  "pilot_batches": [
+    {
+      "batch": 1,
+      "adapters": ["codex", "qoder"],
+      "checks": {
+        "doctor": true,
+        "install_idempotent": true,
+        "owned_only_uninstall": true,
+        "repair": true,
+        "upgrade_rollback": true
+      }
+    },
+    {
+      "batch": 2,
+      "adapters": ["claude_code", "qoder_work"],
+      "checks": {
+        "doctor": true,
+        "install_idempotent": true,
+        "owned_only_uninstall": true,
+        "repair": true,
+        "upgrade_rollback": true
+      }
+    }
+  ],
+  "core_isolation": {
+    "cli_stats": true,
+    "disabled_hook_clean_protocol": true,
+    "mcp_required_tools": ["read_memory", "search_memory", "write_memory"]
+  },
+  "test_commands": [
+    "pytest tests/system/test_adapter_lifecycle_contract.py",
+    "pytest tests/system/test_adapter_core_isolation.py",
+    "pytest tests/unit/test_adapter_release_controls.py",
+    "bash agent_runtime_kit/hooks/test-hook.sh"
+  ]
+}
