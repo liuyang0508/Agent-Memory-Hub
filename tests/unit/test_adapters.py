@@ -2046,6 +2046,49 @@ class TestQoderAdapterRealInstall:
         assert "predates the current Qoder native AMH bridge" in effectiveness.detail
         assert "latest AMH-hooked Qoder session used native SearchMemory" not in effectiveness.detail
 
+    def test_qoder_transcript_discovery_skips_non_object_json_rows(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        from agent_brain.agent_integrations import qoder as qoder_mod
+
+        transcript = tmp_path / "session.jsonl"
+        transcript.write_text(
+            "\n".join(
+                [
+                    '"scalar"',
+                    "42",
+                    "null",
+                    '["list"]',
+                    json.dumps(
+                        {
+                            "timestamp": "2026-07-19T00:00:00Z",
+                            "cwd": str(tmp_path),
+                            "data": {
+                                "command": (
+                                    "AGENT_MEMORY_HUB_ADAPTER=qoder "
+                                    "inject-context.sh"
+                                )
+                            },
+                        }
+                    ),
+                    "{broken",
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        adapter = qoder_mod.QoderAdapter(brain_dir=tmp_path / "brain")
+
+        assert adapter._cwd_from_transcript(transcript) == tmp_path
+        assert adapter._transcript_observed_time(transcript) is not None
+        assert adapter._classify_transcript_effectiveness(transcript) == "unknown"
+        monkeypatch.setattr(qoder_mod, "QODER_PROJECTS_DIR", tmp_path)
+        effectiveness = adapter._diagnose_client_effectiveness()
+        assert effectiveness.status == "warn"
+        assert "Traceback" not in effectiveness.detail
+
     def test_diagnose_orders_qoder_transcripts_by_internal_timestamp_not_file_mtime(
         self,
         tmp_path,
