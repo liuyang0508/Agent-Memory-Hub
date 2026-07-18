@@ -82,5 +82,39 @@
     "expected_terms": [],
     "expected_injectable": false,
     "expected_reason": "too_weak"
+  },
+  {
+    "id": "engineering_keyword_segmentation_question",
+    "category": "cjk_engineering_question",
+    "prompt": "如果是通过工程来切分提取关键词，难免会出错吧",
+    "min_terms": 1,
+    "expected_terms": ["关键词"],
+    "expected_injectable": true
+  },
+  {
+    "id": "bounded_measurement_subject_question",
+    "category": "cjk_measurement_question",
+    "prompt": "浏览器代理请求多少秒会超时",
+    "min_terms": 1,
+    "expected_terms": ["浏览器代理请求"],
+    "expected_injectable": true
+  },
+  {
+    "id": "measurement_without_topic",
+    "category": "weak_followup",
+    "prompt": "多少秒会超时",
+    "min_terms": 0,
+    "expected_terms": [],
+    "expected_injectable": false,
+    "expected_reason": "unanchored_cjk_clause"
+  },
+  {
+    "id": "uncertainty_wrapper_without_topic",
+    "category": "weak_followup",
+    "prompt": "如果这样做难免会出错吧",
+    "min_terms": 0,
+    "expected_terms": [],
+    "expected_injectable": false,
+    "expected_reason": "unanchored_cjk_clause"
   }
 ]

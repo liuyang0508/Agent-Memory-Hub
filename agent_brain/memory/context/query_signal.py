@@ -117,6 +117,25 @@ _CJK_TASK_ANCHOR_CONTEXT_TERMS = (
     "文案",
     "丢失",
 )
+_CJK_TASK_OPERATION_TERMS = (
+    "切分",
+    "提取",
+    "抽取",
+    "解析",
+    "识别",
+    "生成",
+    "转换",
+    "映射",
+    "过滤",
+    "检索",
+    "召回",
+    "索引",
+)
+_CJK_MEASUREMENT_FOCUS_RE = re.compile(
+    r"(?<![\u4e00-\u9fff])([\u4e00-\u9fff]{3,12}?)"
+    r"(?:多少(?:秒|分钟|小时|天)|多久|多长时间)"
+    r"(?:后|会)?(?:才|就)?(?:超时|过期|失效|刷新|完成|生效|重试)"
+)
 _TEST_STATUS_ASCII_TERMS = {
     "error",
     "errors",
@@ -975,6 +994,9 @@ def _adjacent_ascii_scope_terms(prompt: str, topic_terms: list[str]) -> list[str
 def _cjk_keyphrase_terms(prompt: str) -> list[str]:
     terms: list[str] = []
 
+    for term in _cjk_measurement_focus_terms(prompt):
+        _append_unique(terms, term)
+
     for match in _CJK_TOPIC_RE.finditer(prompt):
         _append_cjk_keyphrase(terms, match.group(1))
 
@@ -990,6 +1012,25 @@ def _cjk_keyphrase_terms(prompt: str) -> list[str]:
     for match in _CJK_CONTEXT_RE.finditer(prompt):
         _append_cjk_keyphrase(terms, match.group(1))
 
+    return terms
+
+
+def _cjk_measurement_focus_terms(prompt: str) -> list[str]:
+    """Extract a bounded subject from explicit duration/timeout questions.
+
+    This is deliberately narrower than general CJK segmentation: the duration
+    operator and outcome verb provide stable grammar boundaries, so a full
+    subject such as ``浏览器代理请求`` can be retained without guessing word
+    boundaries or promoting the conversational tail.
+    """
+    terms: list[str] = []
+    for match in _CJK_MEASUREMENT_FOCUS_RE.finditer(prompt):
+        subject = re.sub(
+            r"^(?:请问|想问|帮我|麻烦|这个|那个|关于)",
+            "",
+            match.group(1),
+        )
+        _append_cjk_keyphrase(terms, subject)
     return terms
 
 
@@ -1017,7 +1058,12 @@ def _anchored_cjk_question_focus_terms(
 
 
 def _task_anchor_terms(prompt: str, anchor_terms: list[str]) -> list[str]:
-    if not anchor_terms and not _looks_like_long_task_anchor_prompt(prompt):
+    has_task_operation = any(term in prompt for term in _CJK_TASK_OPERATION_TERMS)
+    if (
+        not anchor_terms
+        and not _looks_like_long_task_anchor_prompt(prompt)
+        and not has_task_operation
+    ):
         return []
     lowered = prompt.lower()
     terms: list[str] = []
@@ -1029,6 +1075,8 @@ def _task_anchor_terms(prompt: str, anchor_terms: list[str]) -> list[str]:
         if re.search(pattern, lowered):
             _append_unique(terms, term)
     if anchor_terms:
+        return terms
+    if terms and has_task_operation:
         return terms
     if len(terms) >= 2 and any(term in prompt for term in _CJK_TASK_ANCHOR_CONTEXT_TERMS):
         return terms

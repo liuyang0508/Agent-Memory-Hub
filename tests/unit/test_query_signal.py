@@ -38,6 +38,40 @@ def test_core_recall_question_blocks_without_metadata_anchor() -> None:
     assert extract_injection_keywords("为什么召回链路没有进入后处理") == ""
 
 
+def test_engineering_action_keeps_explicit_keyword_topic() -> None:
+    from agent_brain.memory.context.query_signal import analyze_injection_query, extract_injection_keywords
+
+    prompt = "如果是通过工程来切分提取关键词，难免会出错吧"
+    signal = analyze_injection_query(prompt)
+
+    assert signal.injectable
+    assert signal.reason == "ok"
+    assert signal.terms[0] == "关键词"
+    assert "task_anchor" in signal.anchors
+    assert extract_injection_keywords(prompt).split("|")[0] == "关键词"
+
+
+def test_measurement_question_keeps_bounded_cjk_subject() -> None:
+    from agent_brain.memory.context.query_signal import analyze_injection_query, extract_injection_keywords
+
+    prompt = "浏览器代理请求多少秒会超时"
+    signal = analyze_injection_query(prompt)
+
+    assert signal.injectable
+    assert signal.reason == "ok"
+    assert signal.terms[0] == "浏览器代理请求"
+    assert "keyphrase" in signal.anchors
+    assert extract_injection_keywords(prompt).split("|")[0] == "浏览器代理请求"
+
+
+def test_measurement_and_uncertainty_wrappers_do_not_inject_without_a_topic() -> None:
+    from agent_brain.memory.context.query_signal import analyze_injection_query
+
+    for prompt in ("多少秒会超时", "如果这样做难免会出错吧"):
+        signal = analyze_injection_query(prompt)
+        assert not signal.injectable, prompt
+
+
 def test_weak_intent_without_information_anchor_still_blocks() -> None:
     from agent_brain.memory.context.query_signal import analyze_injection_query, extract_injection_keywords
 
