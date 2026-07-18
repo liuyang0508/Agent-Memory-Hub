@@ -51,6 +51,7 @@ CATEGORIES = {
     "exact_entity",
     "weak_or_no_value",
 }
+EVALUATION_NOW = datetime(2026, 7, 17, 12, 0, tzinfo=timezone.utc)
 
 # Human-reviewed closed-set relevance contract. These notes document why the
 # labeled item contains information that can answer the query; retrieval scores
@@ -639,6 +640,7 @@ def _gateway_result(
         ),
         current_scope={"cwd": "/repo/current", "adapter": "codex"},
         max_items=10,
+        now=EVALUATION_NOW,
     )
 
 
@@ -821,6 +823,7 @@ def _evaluate_calibration_report(tmp_path: Path) -> dict[str, Any]:
         rerank=False,
         apply_decay=False,
         record_access=False,
+        temporal_now=EVALUATION_NOW,
     )
     try:
         rows = [(case, _routed_outcome(retriever, case, items)) for case in cases]
@@ -872,6 +875,7 @@ def test_dual_route_candidate_and_injection_governance_matrix(tmp_path: Path) ->
         rerank=False,
         apply_decay=False,
         record_access=False,
+        temporal_now=EVALUATION_NOW,
     )
     rows: list[tuple[dict[str, Any], _Outcome, _Outcome]] = []
     try:

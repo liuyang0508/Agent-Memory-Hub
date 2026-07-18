@@ -6,6 +6,7 @@ import operator
 import re
 import time
 from dataclasses import dataclass, field, replace
+from datetime import datetime
 from typing import TYPE_CHECKING, Callable, SupportsIndex, cast
 
 from agent_brain.platform.embedding import Embedder
@@ -113,6 +114,7 @@ class _SearchPipelineOptions:
     allowed_ids: set[str] | None
     include_superseded: bool
     include_stale_state: bool
+    temporal_now: datetime | None
 
 
 @dataclass(frozen=True)
@@ -144,6 +146,7 @@ class Retriever:
         hopfield_top: int = 20,
         hopfield_beta: float = 8.0,
         mmr_lambda: float | None = None,
+        temporal_now: datetime | None = None,
     ) -> None:
         self.index = index
         self.embedder = embedder
@@ -163,6 +166,7 @@ class Retriever:
         self.hopfield_top = hopfield_top
         self.hopfield_beta = hopfield_beta
         self.mmr_lambda = mmr_lambda
+        self.temporal_now = temporal_now
         self.decay = RetrievalDecay(index)
         self.cross_encoder_reranker = CrossEncoderReranker(
             index,
@@ -359,6 +363,7 @@ class Retriever:
                         self.index,
                         candidates,
                         include_stale_state=options.include_stale_state,
+                        now=options.temporal_now,
                     ),
                 ),
                 _NamedCandidateStage(
@@ -495,6 +500,7 @@ class Retriever:
             allowed_ids=allowed_ids,
             include_superseded=filters.include_superseded,
             include_stale_state=filters.include_stale_state,
+            temporal_now=self.temporal_now,
         )
         stage_traces: dict[str, list[RetrievalStageTrace]] = {}
         if explain:
@@ -788,6 +794,7 @@ class Retriever:
             allowed_ids=allowed_ids,
             include_superseded=filters.include_superseded,
             include_stale_state=filters.include_stale_state,
+            temporal_now=self.temporal_now,
         )
         stage_traces: dict[str, list[RetrievalStageTrace]] = {}
         if explain:

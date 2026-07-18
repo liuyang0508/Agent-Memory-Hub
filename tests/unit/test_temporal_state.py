@@ -99,6 +99,48 @@ def test_stable_decision_is_not_temporal_state() -> None:
     assert signal.reasons == ()
 
 
+def test_restoring_saved_decision_for_current_task_is_stable() -> None:
+    from agent_brain.memory.governance.temporal_state import TemporalStateGate
+
+    item = _item(
+        "decision",
+        "已保存决策恢复",
+        "重新找回早先确认的技术决定和实施路线",
+        days_ago=90,
+        tags=["决策", "技术路线"],
+    )
+
+    signal = TemporalStateGate(now=NOW).evaluate(
+        item,
+        "召回层应把相关的历史决策提供给当前任务。",
+    )
+
+    assert signal.category == "stable"
+    assert signal.status == "current"
+    assert signal.reasons == ()
+
+
+def test_browser_proxy_timeout_fact_is_stable_without_runtime_state_marker() -> None:
+    from agent_brain.memory.governance.temporal_state import TemporalStateGate
+
+    item = _item(
+        "fact",
+        "Browser proxy deadline",
+        "The browser integration proxy has a thirty second request timeout",
+        days_ago=90,
+        tags=["browser", "proxy", "timeout"],
+    )
+
+    signal = TemporalStateGate(now=NOW).evaluate(
+        item,
+        "Requests through the browser bridge stop after 30 seconds.",
+    )
+
+    assert signal.category == "stable"
+    assert signal.status == "current"
+    assert signal.reasons == ()
+
+
 def test_artifact_guide_with_install_and_test_terms_is_stable() -> None:
     from agent_brain.memory.governance.temporal_state import TemporalStateGate
 

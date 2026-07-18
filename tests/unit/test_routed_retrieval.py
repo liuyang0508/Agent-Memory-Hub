@@ -158,6 +158,38 @@ def _retriever(index: _Index, embedder: _Embedder, **kwargs: Any) -> Retriever:
     )
 
 
+def test_retriever_passes_frozen_temporal_clock_to_candidate_stage(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from datetime import datetime, timezone
+    from agent_brain.memory.recall import retrieval as retrieval_module
+
+    frozen_now = datetime(2026, 7, 17, 12, 0, tzinfo=timezone.utc)
+    observed: list[datetime | None] = []
+
+    def temporal_filter(index, candidates, *, include_stale_state=False, now=None):
+        observed.append(now)
+        return candidates
+
+    monkeypatch.setattr(
+        retrieval_module,
+        "filter_stale_temporal_state",
+        temporal_filter,
+    )
+    index = _Index()
+    index.vector_hits = [SimpleNamespace(id="semantic", score=1.0)]
+    index.embeddings["semantic"] = [1.0, 0.0]
+
+    result = _retriever(
+        index,
+        _Embedder([1.0, 0.0]),
+        temporal_now=frozen_now,
+    ).search_routed(_request(normalized_query="semantic"))
+
+    assert [hit.id for hit in result.hits] == ["semantic"]
+    assert observed == [frozen_now]
+
+
 def _low_variable_limit_index(tmp_path):
     from agent_brain.contracts.memory_item import MemoryItem, MemoryType
     from agent_brain.platform.indexing.index import HubIndex

@@ -171,7 +171,6 @@ def _classify(item: MemoryItem, body: str) -> tuple[TemporalCategory, list[str]]
     is_signal = str(item.type) == "signal"
     has_state_anchor = (
         has_strong_state_tag
-        or has_state_term
         or is_signal
         or (has_weak_state_tag and (has_negative or has_positive))
     )
@@ -188,7 +187,7 @@ def _classify(item: MemoryItem, body: str) -> tuple[TemporalCategory, list[str]]
     if has_positive and has_state_anchor:
         reasons.append("positive_state_term")
         return "positive_state", reasons
-    if has_strong_state_tag or has_state_term or is_signal:
+    if has_strong_state_tag or is_signal:
         return "current_state", reasons
     return "stable", []
 

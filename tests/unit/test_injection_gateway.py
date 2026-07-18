@@ -56,6 +56,31 @@ def test_gateway_keeps_empty_query_fail_closed():
     assert "query_not_injectable" in result.cohort_reasons
 
 
+def test_gateway_evaluation_accepts_frozen_temporal_clock(monkeypatch):
+    from agent_brain.memory.context import injection_gateway
+
+    observed = []
+    sentinel = object()
+
+    class FakeFirewall:
+        def __init__(self, *, now=None):
+            observed.append(now)
+
+        def filter(self, candidates, **kwargs):
+            return sentinel
+
+    monkeypatch.setattr(injection_gateway, "ContextFirewall", FakeFirewall)
+
+    result = injection_gateway.evaluate_injection_candidates(
+        [],
+        query="complete question",
+        now=NOW,
+    )
+
+    assert result is sentinel
+    assert observed == [NOW]
+
+
 def test_gateway_builds_routed_context_when_legacy_signal_is_blocked():
     from agent_brain.memory.context.injection_gateway import build_injection_context
     from agent_brain.memory.context.injection_query_context import InjectionQueryContext
@@ -592,7 +617,10 @@ def test_gateway_runs_semantic_answerability_once_per_candidate(monkeypatch):
     monkeypatch.setattr(
         gateway,
         "ContextFirewall",
-        lambda: ContextFirewall(answerability_verifier=verifier),
+        lambda *, now=None: ContextFirewall(
+            now=now,
+            answerability_verifier=verifier,
+        ),
     )
     real_pack = gateway.pack_decisions
 

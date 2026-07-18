@@ -3,6 +3,7 @@
 import logging
 from collections import Counter
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Iterable, Mapping, get_args
 
@@ -155,11 +156,12 @@ def evaluate_injection_candidates(
     max_items: int | None = None,
     current_scope: Mapping[str, str] | None = None,
     query_context: InjectionQueryContext | None = None,
+    now: datetime | None = None,
 ) -> FirewallResult:
     signal = query_signal
     if query_context is None and signal is None and query is not None:
         signal = _analyze_query(query, brain_dir=brain_dir)
-    return ContextFirewall().filter(
+    return ContextFirewall(now=now).filter(
         candidates,
         query=query,
         query_signal=signal,
@@ -180,13 +182,14 @@ def build_injection_context(
     budget_tokens: int | None = None,
     current_scope: Mapping[str, str] | None = None,
     query_context: InjectionQueryContext | None = None,
+    now: datetime | None = None,
 ) -> InjectionResult:
     if requested not in _CONTEXT_VERBOSITIES:
         raise ValueError(f"unsupported context verbosity: {requested!r}")
     signal = query_signal
     if query_context is None and signal is None and query is not None:
         signal = _analyze_query(query, brain_dir=brain_dir)
-    firewall_engine = ContextFirewall()
+    firewall_engine = ContextFirewall(now=now)
     firewall = firewall_engine.filter(
         candidates,
         query=query,
