@@ -15,7 +15,7 @@ from typing import Literal
 from . import AdapterBase, WIPAdapter
 from .evidence import SupportLevel, evidence_for_adapter
 from .memory_boundary import memory_boundary_for_adapter
-from .lifecycle_records import lifecycle_evidence_summary
+from .lifecycle_records import adapter_installation_state, lifecycle_evidence_summary
 from .manifests import manifest_for_adapter
 from .runtime_events import AdapterRuntimeSummary, runtime_event_summary
 from .verifications import AdapterVerificationSummary, adapter_verification_summary
@@ -98,6 +98,12 @@ def capability_for_adapter(
         context_ttl_seconds=manifest.evidence.context_ttl_seconds,
         verification_ttl_seconds=manifest.evidence.verification_ttl_seconds,
     )
+    installation = adapter_installation_state(
+        adapter.brain_dir,
+        name,
+        now=evaluated_at,
+        doctor_ttl_seconds=manifest.evidence.verification_ttl_seconds,
+    )
     verification_effective = _verification_is_effective(
         name,
         verification_summary,
@@ -124,13 +130,16 @@ def capability_for_adapter(
     evidence_level: SupportLevel | None = "verified" if verified else evidence.evidence_level
     evidence_paths = [*evidence.evidence_paths, *verification_summary.evidence]
     verification_recorded = verification_summary.last_record is not None
-    doctor_passed = bool(verification_summary.verified and freshness.verification.fresh)
+    doctor_passed = bool(
+        installation.doctor_passed
+        or (verification_summary.verified and freshness.verification.fresh)
+    )
     states = {
         "implemented": not is_wip,
         # Until the lifecycle ledger lands, a passed verification record is
         # the conservative durable proof that install/config/doctor completed.
-        "installed": verification_recorded,
-        "configured": verification_recorded,
+        "installed": installation.installed or verification_recorded,
+        "configured": installation.configured or verification_recorded,
         "doctor_passed": doctor_passed,
         "runtime_observed": freshness.runtime.fresh,
         "context_injected": freshness.context_injection.fresh,

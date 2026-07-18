@@ -33,6 +33,34 @@ def test_adapter_doctor_returns_web_safe_payload(tmp_path: Path) -> None:
     assert isinstance(data["checks"], list)
 
 
+def test_lifecycle_executor_returns_stable_unknown_adapter_contract(tmp_path: Path) -> None:
+    from agent_brain.product.adapter_onboarding import execute_adapter_action
+
+    result = execute_adapter_action(tmp_path, "does-not-exist", "install", verifier="pytest")
+    data = result.to_dict()
+
+    assert data["schema_version"] == "amh-adapter-lifecycle-result/v1"
+    assert data["status"] == "blocked"
+    assert data["reason_code"] == "UNKNOWN_ADAPTER"
+    assert data["provenance"] is None
+    assert data["repair_command"] == "memory adapter list"
+
+
+def test_lifecycle_executor_records_wip_blocker(tmp_path: Path) -> None:
+    from agent_brain.agent_integrations.lifecycle_records import iter_lifecycle_records
+    from agent_brain.product.adapter_onboarding import execute_adapter_action
+
+    result = execute_adapter_action(tmp_path, "mulerun", "install", verifier="pytest")
+
+    assert result.status == "blocked"
+    assert result.reason_code == "ADAPTER_WIP"
+    assert result.provenance is not None
+    records = list(iter_lifecycle_records(tmp_path, adapter="mulerun"))
+    assert len(records) == 1
+    assert records[0].status == "blocked"
+    assert records[0].reason_code == "ADAPTER_WIP"
+
+
 def test_adapter_verify_hooks_only_without_runtime_does_not_promote_verified(tmp_path: Path) -> None:
     from agent_brain.product.adapter_onboarding import verify_adapter
 

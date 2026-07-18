@@ -24,6 +24,17 @@ class AdapterBase(ABC):
     def __init__(self, brain_dir: Path):
         self.brain_dir = brain_dir
 
+    def owned_paths(self) -> tuple[Path, ...]:
+        """Return files whose AMH-owned portions participate in rollback.
+
+        Adapters that do not yet support transactional upgrade keep the empty
+        default.  A returned config file may also contain user-owned entries;
+        snapshots are private rollback material and uninstall remains
+        responsible for removing only AMH-owned blocks.
+        """
+
+        return ()
+
     @abstractmethod
     def get_config(self) -> AdapterConfig:
         """Return the adapter configuration."""

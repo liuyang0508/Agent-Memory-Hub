@@ -99,6 +99,15 @@ class AdapterLifecycleEvidenceSummary:
         return asdict(self)
 
 
+@dataclass(frozen=True)
+class AdapterInstallationState:
+    installed: bool
+    configured: bool
+    doctor_passed: bool
+    last_action: str | None
+    last_timestamp: str | None
+
+
 def lifecycle_records_path(brain_dir: Path) -> Path:
     return Path(brain_dir) / LIFECYCLE_RECORDS_RELATIVE_PATH
 
@@ -287,6 +296,56 @@ def lifecycle_evidence_summary(
     )
 
 
+def adapter_installation_state(
+    brain_dir: Path,
+    adapter: str,
+    *,
+    now: datetime,
+    doctor_ttl_seconds: int,
+) -> AdapterInstallationState:
+    """Project durable install/config/doctor state from ordered actions."""
+
+    installed = False
+    configured = False
+    doctor_passed = False
+    last_action: str | None = None
+    last_timestamp: str | None = None
+    doctor_timestamp: str | None = None
+    for record in iter_lifecycle_records(brain_dir, adapter=adapter):
+        last_action = record.action
+        last_timestamp = record.timestamp
+        if record.status != "passed":
+            if record.action == "doctor":
+                doctor_passed = False
+                doctor_timestamp = record.timestamp
+            continue
+        if record.action in {"install", "repair", "upgrade"}:
+            installed = True
+            configured = True
+        if record.action in {"doctor", "verify", "repair", "upgrade"}:
+            doctor_passed = True
+            doctor_timestamp = record.timestamp
+        if record.action == "uninstall":
+            installed = False
+            configured = False
+            doctor_passed = False
+            doctor_timestamp = None
+    if doctor_passed:
+        doctor_passed = evidence_freshness(
+            "doctor",
+            doctor_timestamp,
+            now=now,
+            ttl_seconds=doctor_ttl_seconds,
+        ).fresh
+    return AdapterInstallationState(
+        installed=installed,
+        configured=configured,
+        doctor_passed=doctor_passed,
+        last_action=last_action,
+        last_timestamp=last_timestamp,
+    )
+
+
 def _timestamp(now: datetime | None) -> str:
     return _utc(now or datetime.now(timezone.utc)).isoformat()
 
@@ -346,12 +405,14 @@ def _repository_commit() -> str:
 __all__ = [
     "AdapterLifecycleEvidenceSummary",
     "AdapterLifecycleRecord",
+    "AdapterInstallationState",
     "EvidenceFreshness",
     "LIFECYCLE_RECORDS_RELATIVE_PATH",
     "LifecycleAction",
     "LifecycleReasonCode",
     "LifecycleStatus",
     "evidence_freshness",
+    "adapter_installation_state",
     "iter_lifecycle_records",
     "lifecycle_evidence_summary",
     "lifecycle_records_path",

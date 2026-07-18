@@ -93,6 +93,9 @@ class ClaudeCodeAdapter(AdapterBase):
             supports_mcp=True,
         )
 
+    def owned_paths(self) -> tuple[Path, ...]:
+        return (SETTINGS_PATH, AWARENESS_PATH)
+
     def install(self) -> str:
         """Append AMH-owned hooks and MCP server config to settings.json. Idempotent."""
         for event, script in self.HOOK_SCRIPTS.items():

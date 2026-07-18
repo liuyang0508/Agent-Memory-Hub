@@ -190,6 +190,8 @@ git commit -m "feat: govern adapter evidence freshness and provenance"
 
 **Files:**
 - Modify: `agent_brain/product/adapter_onboarding.py`
+- Modify: `agent_brain/agent_integrations/capabilities.py`
+- Modify: `agent_brain/agent_integrations/lifecycle_records.py`
 - Modify: `agent_brain/agent_integrations/__init__.py`
 - Modify: `agent_brain/agent_integrations/codex.py`
 - Modify: `agent_brain/agent_integrations/qoder.py`
@@ -198,7 +200,7 @@ git commit -m "feat: govern adapter evidence freshness and provenance"
 - Test: `tests/unit/test_adapter_onboarding.py`
 - Create: `tests/system/test_adapter_lifecycle_contract.py`
 
-- [ ] **Step 1: 写统一结果、幂等、ownership 与失败回滚测试**
+- [x] **Step 1: 写统一结果、幂等、ownership 与失败回滚测试**
 
 ```python
 def test_codex_lifecycle_is_repeatable_and_owned_only(isolated_codex_home):
@@ -220,13 +222,13 @@ def test_upgrade_failure_restores_owned_snapshot(isolated_qoder_home, monkeypatc
     assert isolated_qoder_home.owned_config_matches_pre_upgrade()
 ```
 
-- [ ] **Step 2: 运行失败测试**
+- [x] **Step 2: 运行失败测试**
 
 Run: `.venv/bin/pytest -q tests/system/test_adapter_lifecycle_contract.py tests/unit/test_adapter_onboarding.py`
 
 Expected: FAIL，原因是统一 executor、repair 和 upgrade 尚不存在。
 
-- [ ] **Step 3: 扩展 adapter 可选 ownership 接口**
+- [x] **Step 3: 扩展 adapter 可选 ownership 接口**
 
 ```python
 class AdapterBase(ABC):
@@ -236,7 +238,7 @@ class AdapterBase(ABC):
 
 四个试点 adapter 只返回 AMH 管理的配置文件/脚本容器；备份写入 `$BRAIN_DIR/backups/adapters/<adapter>/<backup-id>/`，备份 manifest 保存相对槽位和 SHA-256。restore 只覆盖备份时已确认归属 AMH 的块或文件，遇到 ownership 冲突返回 `OWNERSHIP_CONFLICT`。
 
-- [ ] **Step 4: 实现统一 action executor**
+- [x] **Step 4: 实现统一 action executor**
 
 ```python
 def execute_adapter_action(
@@ -252,7 +254,7 @@ def execute_adapter_action(
 
 所有出口返回 `schema_version/adapter/action/status/reason_code/message/state_before/state_after/evidence/repair_command/provenance`。repair 先 doctor，只调用幂等 install 修复 AMH-owned 漂移；upgrade 先备份、执行 install、doctor，失败自动 restore 并再次 doctor；uninstall 重复执行仍返回 passed/no-change。
 
-- [ ] **Step 5: 跑四 adapter 系统合同并提交**
+- [x] **Step 5: 跑四 adapter 系统合同并提交**
 
 Run: `.venv/bin/pytest -q tests/system/test_adapter_lifecycle_contract.py tests/unit/test_adapter_onboarding.py tests/unit/test_adapters.py`
 

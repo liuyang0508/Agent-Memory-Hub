@@ -3,14 +3,27 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import asdict, dataclass
+import hashlib
 import json
+import os
 from pathlib import Path
+import shutil
 import threading
 import time
-from typing import Any
+from typing import Any, Literal
+import uuid
 
-from agent_brain.agent_integrations import WIPAdapter, discover_adapters
+from agent_brain.agent_integrations import AdapterBase, WIPAdapter, discover_adapters
 from agent_brain.agent_integrations.capabilities import AdapterCapability, capabilities_for_all
+from agent_brain.agent_integrations.diagnostics import AdapterDiagnosticReport
+from agent_brain.agent_integrations.lifecycle_records import (
+    LifecycleAction,
+    LifecycleReasonCode,
+    LifecycleStatus,
+    record_lifecycle_event,
+)
+from agent_brain.agent_integrations.manifests import AdapterManifest
 from agent_brain.agent_integrations.registry import get_adapter, resolve_adapter_name
 from agent_brain.agent_integrations.runtime_events import (
     record_runtime_event,
@@ -31,6 +44,28 @@ AMH_MCP_TOOL_MARKERS = (
     "agent-memory-hub.read_memory",
     "agent-memory-hub.write_memory",
 )
+LIFECYCLE_RESULT_SCHEMA_VERSION = "amh-adapter-lifecycle-result/v1"
+
+
+@dataclass(frozen=True)
+class AdapterLifecycleResult:
+    schema_version: str
+    adapter: str
+    requested_adapter: str
+    action: LifecycleAction
+    status: LifecycleStatus
+    reason_code: LifecycleReasonCode
+    message: str
+    state_before: dict[str, object]
+    state_after: dict[str, object]
+    evidence: list[str]
+    repair_command: str
+    provenance: dict[str, object] | None
+    backup_id: str | None = None
+    rollback_status: Literal["passed", "failed"] | None = None
+
+    def to_dict(self) -> dict[str, object]:
+        return asdict(self)
 
 
 def build_onboarding_summary(brain_dir: Path) -> dict[str, Any]:
@@ -109,6 +144,289 @@ def uninstall_adapter(brain_dir: Path, name: str) -> dict[str, Any]:
             "status": "failed",
             "message": str(exc),
         }
+
+
+def execute_adapter_action(
+    brain_dir: Path,
+    name: str,
+    action: LifecycleAction,
+    *,
+    verifier: str = "product",
+    context_probe: bool = False,
+) -> AdapterLifecycleResult:
+    """Execute one adapter lifecycle action with a stable result contract."""
+
+    try:
+        adapter_name, _alias_used, adapter = _adapter(brain_dir, name)
+    except ValueError as exc:
+        return AdapterLifecycleResult(
+            schema_version=LIFECYCLE_RESULT_SCHEMA_VERSION,
+            adapter=name,
+            requested_adapter=name,
+            action=action,
+            status="blocked",
+            reason_code="UNKNOWN_ADAPTER",
+            message=str(exc),
+            state_before={},
+            state_after={},
+            evidence=[],
+            repair_command="memory adapter list",
+            provenance=None,
+        )
+
+    adapter_manifest = _manifest_for(adapter_name, adapter)
+    state_before = _lifecycle_state(brain_dir, adapter_name)
+    backup_id: str | None = None
+    rollback_status: Literal["passed", "failed"] | None = None
+    evidence: list[str] = []
+    status: LifecycleStatus = "passed"
+    reason_code: LifecycleReasonCode = "OK"
+    message = ""
+
+    if isinstance(adapter, WIPAdapter) and action not in {"doctor"}:
+        status = "blocked"
+        reason_code = "ADAPTER_WIP"
+        message = "adapter install path is not implemented"
+    else:
+        try:
+            if action == "install":
+                message = adapter.install()
+            elif action == "doctor":
+                report = _diagnose(adapter)
+                evidence = [f"doctor:{report.overall_status}"]
+                message = f"adapter doctor: {report.overall_status}"
+                if report.overall_status == "error":
+                    status = "failed"
+                    reason_code = "DOCTOR_FAILED"
+            elif action == "verify":
+                verification = _verify_adapter(
+                    brain_dir,
+                    requested_name=name,
+                    adapter_name=adapter_name,
+                    alias_used=None,
+                    adapter=adapter,
+                    verifier=verifier,
+                    context_probe_required=context_probe,
+                    record=True,
+                )
+                evidence = [str(item) for item in verification.get("evidence") or []]
+                message = f"adapter verify: {verification.get('status')}"
+                if verification.get("status") != "passed":
+                    status = "failed"
+                    reason_code = _verification_reason(verification)
+            elif action == "repair":
+                report = _diagnose(adapter)
+                if report.overall_status == "error":
+                    message = adapter.install()
+                    repaired = _diagnose(adapter)
+                    evidence = [f"doctor_before:{report.overall_status}", f"doctor_after:{repaired.overall_status}"]
+                    if repaired.overall_status == "error":
+                        status = "failed"
+                        reason_code = "DOCTOR_FAILED"
+                        message = f"repair did not clear doctor errors: {message}"
+                else:
+                    evidence = [f"doctor:{report.overall_status}"]
+                    message = "adapter repair: no AMH-owned error drift detected"
+            elif action == "upgrade":
+                owned_paths = adapter.owned_paths()
+                if not owned_paths:
+                    status = "blocked"
+                    reason_code = "BACKUP_FAILED"
+                    message = "adapter does not declare rollback-owned paths"
+                else:
+                    backup_id = _create_adapter_backup(brain_dir, adapter_name, owned_paths)
+                    try:
+                        message = adapter.install()
+                        upgraded = _diagnose(adapter)
+                        evidence = [f"doctor_after:{upgraded.overall_status}"]
+                        if upgraded.overall_status == "error":
+                            raise RuntimeError("adapter doctor failed after upgrade")
+                    except (FileNotFoundError, RuntimeError) as exc:
+                        status = "failed"
+                        reason_code = _exception_reason(exc)
+                        message = str(exc)
+                        try:
+                            _restore_adapter_backup(
+                                brain_dir,
+                                adapter_name,
+                                backup_id,
+                                owned_paths,
+                            )
+                            rollback_status = "passed"
+                        except (OSError, RuntimeError, ValueError):
+                            rollback_status = "failed"
+                            reason_code = "ROLLBACK_FAILED"
+            elif action == "uninstall":
+                uninstall = getattr(adapter, "uninstall", None)
+                if not callable(uninstall):
+                    status = "blocked"
+                    reason_code = "ADAPTER_WIP"
+                    message = "adapter has no uninstall path"
+                else:
+                    message = str(uninstall())
+            else:  # pragma: no cover - LifecycleAction is closed, defensive at runtime
+                status = "blocked"
+                reason_code = "INTERNAL_ERROR"
+                message = f"unsupported lifecycle action: {action}"
+        except (FileNotFoundError, RuntimeError) as exc:
+            status = "failed"
+            reason_code = _exception_reason(exc)
+            message = str(exc)
+
+    artifact_hashes = _artifact_hashes(adapter.owned_paths())
+    provenance_record = record_lifecycle_event(
+        brain_dir,
+        adapter=adapter_name,
+        action=action,
+        status=status,
+        reason_code=reason_code,
+        artifact_hashes=artifact_hashes,
+        backup_id=backup_id,
+    )
+    state_after = _lifecycle_state(brain_dir, adapter_name)
+    return AdapterLifecycleResult(
+        schema_version=LIFECYCLE_RESULT_SCHEMA_VERSION,
+        adapter=adapter_name,
+        requested_adapter=name,
+        action=action,
+        status=status,
+        reason_code=reason_code,
+        message=message,
+        state_before=state_before,
+        state_after=state_after,
+        evidence=evidence,
+        repair_command=adapter_manifest.lifecycle.repair,
+        provenance=provenance_record.to_dict(),
+        backup_id=backup_id,
+        rollback_status=rollback_status,
+    )
+
+
+def _manifest_for(adapter_name: str, adapter: AdapterBase) -> AdapterManifest:
+    from agent_brain.agent_integrations.manifests import manifest_for_adapter
+
+    return manifest_for_adapter(adapter_name, adapter)
+
+
+def _lifecycle_state(brain_dir: Path, adapter_name: str) -> dict[str, object]:
+    from agent_brain.agent_integrations.capabilities import capability_for_adapter
+
+    adapter = get_adapter(adapter_name, brain_dir)
+    capability = capability_for_adapter(adapter_name, adapter)
+    return {
+        "states": capability.states,
+        "verified": capability.verified,
+        "verification_blockers": capability.verification_blockers,
+    }
+
+
+def _diagnose(adapter: AdapterBase) -> AdapterDiagnosticReport:
+    diagnose = getattr(adapter, "diagnose", None)
+    if not callable(diagnose):
+        raise RuntimeError("adapter doctor not implemented")
+    report = diagnose()
+    if not isinstance(report, AdapterDiagnosticReport):
+        raise RuntimeError("adapter doctor returned an invalid report")
+    return report
+
+
+def _verification_reason(payload: dict[str, Any]) -> LifecycleReasonCode:
+    blockers = " ".join(str(item).lower() for item in payload.get("blockers") or [])
+    if "context" in blockers:
+        return "CONTEXT_MISSING"
+    if "runtime" in blockers:
+        return "RUNTIME_MISSING"
+    return "DOCTOR_FAILED"
+
+
+def _exception_reason(exc: Exception) -> LifecycleReasonCode:
+    message = str(exc).lower()
+    if "malformed" in message or "must be an object" in message:
+        return "CONFIG_MALFORMED"
+    if isinstance(exc, FileNotFoundError) or "not found" in message or "does not exist" in message:
+        return "CLIENT_MISSING"
+    return "INTERNAL_ERROR"
+
+
+def _create_adapter_backup(
+    brain_dir: Path,
+    adapter_name: str,
+    paths: tuple[Path, ...],
+) -> str:
+    backup_id = f"backup-{uuid.uuid4().hex[:16]}"
+    root = Path(brain_dir) / "backups" / "adapters" / adapter_name / backup_id
+    files_dir = root / "files"
+    files_dir.mkdir(parents=True, mode=0o700)
+    os.chmod(root, 0o700)
+    os.chmod(files_dir, 0o700)
+    entries: list[dict[str, object]] = []
+    for index, path in enumerate(paths):
+        if path.exists() and not path.is_file():
+            raise RuntimeError(f"owned path is not a regular file: {path.name}")
+        exists = path.is_file()
+        entry: dict[str, object] = {
+            "slot": index,
+            "path": str(path),
+            "exists": exists,
+            "sha256": _sha256(path) if exists else None,
+        }
+        if exists:
+            destination = files_dir / str(index)
+            shutil.copyfile(path, destination)
+            destination.chmod(0o600)
+        entries.append(entry)
+    manifest_path = root / "manifest.json"
+    manifest_path.write_text(json.dumps({"paths": entries}, sort_keys=True), encoding="utf-8")
+    manifest_path.chmod(0o600)
+    return backup_id
+
+
+def _restore_adapter_backup(
+    brain_dir: Path,
+    adapter_name: str,
+    backup_id: str,
+    owned_paths: tuple[Path, ...],
+) -> None:
+    root = Path(brain_dir) / "backups" / "adapters" / adapter_name / backup_id
+    manifest_path = root / "manifest.json"
+    try:
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuntimeError("adapter backup manifest is unavailable") from exc
+    allowed = {str(path): path for path in owned_paths}
+    entries = payload.get("paths")
+    if not isinstance(entries, list):
+        raise RuntimeError("adapter backup manifest paths are malformed")
+    for entry in entries:
+        if not isinstance(entry, dict) or str(entry.get("path")) not in allowed:
+            raise RuntimeError("adapter backup ownership mismatch")
+        path = allowed[str(entry["path"])]
+        if bool(entry.get("exists")):
+            source = root / "files" / str(entry.get("slot"))
+            if not source.is_file() or _sha256(source) != entry.get("sha256"):
+                raise RuntimeError("adapter backup checksum mismatch")
+            path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(source, path)
+        elif path.exists():
+            if not path.is_file():
+                raise RuntimeError("refuse to remove non-file rollback target")
+            path.unlink()
+
+
+def _artifact_hashes(paths: tuple[Path, ...]) -> dict[str, str]:
+    return {
+        f"{index}-{path.name}": f"sha256:{_sha256(path)}"
+        for index, path in enumerate(paths)
+        if path.is_file()
+    }
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def doctor_adapter(brain_dir: Path, name: str) -> dict[str, Any]:
@@ -709,8 +1027,10 @@ def _assistant_used_memory_candidates(text: str) -> bool:
 
 
 __all__ = [
+    "AdapterLifecycleResult",
     "build_onboarding_summary",
     "doctor_adapter",
+    "execute_adapter_action",
     "install_verify_adapter",
     "install_adapter",
     "uninstall_adapter",

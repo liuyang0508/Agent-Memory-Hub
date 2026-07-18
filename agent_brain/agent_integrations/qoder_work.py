@@ -96,6 +96,14 @@ class QoderWorkAdapter(AdapterBase):
             supports_mcp=True,
         )
 
+    def owned_paths(self) -> tuple[Path, ...]:
+        return (
+            SETTINGS_PATH,
+            MCP_CONFIG_PATH,
+            AWARENESS_PATH,
+            QODERWORK_SKILLS_DIR / BOOTSTRAP_SKILL_DIR / "SKILL.md",
+        )
+
     def install(self) -> str:
         self._validate_inputs()
         SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)

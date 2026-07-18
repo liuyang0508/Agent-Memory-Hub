@@ -168,6 +168,16 @@ class QoderAdapter(AdapterBase):
             supports_mcp=True,
         )
 
+    def owned_paths(self) -> tuple[Path, ...]:
+        paths = (
+            SETTINGS_PATH,
+            AWARENESS_PATH,
+            self._user_mcp_config_path(),
+            MCP_CONFIG_PATH,
+            MCP_EXTENSION_CONFIG_PATH,
+        )
+        return tuple(dict.fromkeys(paths))
+
     def install(self) -> str:
         self._validate_inputs()
         SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)

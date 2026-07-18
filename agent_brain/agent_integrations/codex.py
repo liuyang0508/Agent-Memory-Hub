@@ -93,6 +93,9 @@ class CodexAdapter(AdapterBase):
             supports_mcp=True,
         )
 
+    def owned_paths(self) -> tuple[Path, ...]:
+        return (AGENTS_MD, CODEX_HOOKS_JSON, CODEX_CONFIG_TOML)
+
     def install(self) -> str:
         self._validate_inputs()
         changed = [
