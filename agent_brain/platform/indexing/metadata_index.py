@@ -90,6 +90,25 @@ class MetadataIndex:
         ).fetchall()
         return {str(row[0]): row[1] for row in rows}
 
+    def get_shadow_metadata(self, item_ids: Sequence[str]) -> dict[str, dict[str, object]]:
+        """Return only metadata permitted in isolated project-shadow diagnostics."""
+        if not item_ids:
+            return {}
+        ids = list(item_ids)
+        placeholders = ",".join("?" for _ in ids)
+        rows = self.connection.execute(
+            f"SELECT id, project, sensitivity, tenant_id FROM items_meta WHERE id IN ({placeholders})",
+            ids,
+        ).fetchall()
+        return {
+            str(row[0]): {
+                "project": row[1],
+                "sensitivity": row[2] or "internal",
+                "tenant_id": row[3],
+            }
+            for row in rows
+        }
+
     def get_superseded_ids(self) -> set[str]:
         """Return IDs whose metadata marks them as superseded."""
         rows = self.connection.execute(

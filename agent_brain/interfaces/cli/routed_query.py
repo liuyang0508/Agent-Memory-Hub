@@ -30,6 +30,7 @@ from agent_brain.memory.recall.routed_types import (
     ProjectScope,
     RecallRequest,
     RouteEvidence,
+    ProjectShadowTrace,
     RoutedSearchResult,
     RouteTrace,
 )
@@ -56,6 +57,7 @@ class HookSearchPayload:
     reason: str
     context: str
     routes: tuple[Mapping[str, object], ...]
+    project_shadow: tuple[Mapping[str, object], ...] = ()
 
     def __post_init__(self) -> None:
         if self.status not in _HOOK_STATUSES:
@@ -68,6 +70,11 @@ class HookSearchPayload:
             self,
             "routes",
             tuple(MappingProxyType(dict(route)) for route in self.routes),
+        )
+        object.__setattr__(
+            self,
+            "project_shadow",
+            tuple(MappingProxyType(dict(trace)) for trace in self.project_shadow),
         )
 
     def to_dict(self) -> dict[str, object]:
@@ -98,6 +105,7 @@ def execute_routed_query(
     clock: Callable[[], float] | None = None,
     overall_deadline: float | None = None,
     semantic_deadline: float | None = None,
+    project_shadow: bool = False,
 ) -> HookSearchPayload:
     """Retrieve, govern, pack, account, and render one routed CLI query.
 
@@ -133,11 +141,13 @@ def execute_routed_query(
             use_routed=use_routed,
             clock=deadline_clock if clock is not None or semantic_deadline is not None else None,
             semantic_deadline=semantic_deadline,
+            project_shadow=project_shadow,
         )
         _raise_if_deadline_expired(deadline_clock, overall_deadline)
         if routed.admission != request.admission:
             raise ValueError("conflicting routed admission")
         routes = _serialize_routes(routed.routes)
+        shadow = _serialize_project_shadow(routed.project_shadow)
         if not request.admission.allowed:
             _raise_if_deadline_expired(deadline_clock, overall_deadline)
             _maybe_record_gap(
@@ -151,8 +161,9 @@ def execute_routed_query(
                 retrieved_count=len(routed.hits),
                 injection=None,
                 hydrate_error_count=0,
+                project_shadow_count=len(shadow),
             )
-            return HookSearchPayload("empty", "admission_rejected", "", routes)
+            return HookSearchPayload("empty", "admission_rejected", "", routes, shadow)
         if not routed.hits:
             _raise_if_deadline_expired(deadline_clock, overall_deadline)
             _maybe_record_gap(
@@ -166,8 +177,9 @@ def execute_routed_query(
                 retrieved_count=0,
                 injection=None,
                 hydrate_error_count=0,
+                project_shadow_count=len(shadow),
             )
-            return HookSearchPayload("empty", "no_candidates", "", routes)
+            return HookSearchPayload("empty", "no_candidates", "", routes, shadow)
 
         items_by_id = {item.id: (item, body) for item, body in store.iter_all()}
         _raise_if_deadline_expired(deadline_clock, overall_deadline)
@@ -231,8 +243,9 @@ def execute_routed_query(
                 retrieved_count=len(routed.hits),
                 injection=injection,
                 hydrate_error_count=hydrate_error_count,
+                project_shadow_count=len(shadow),
             )
-            return HookSearchPayload("empty", "all_rejected", "", routes)
+            return HookSearchPayload("empty", "all_rejected", "", routes, shadow)
 
         metrics = cast(
             dict[str, object],
@@ -274,8 +287,9 @@ def execute_routed_query(
                 retrieved_count=len(routed.hits),
                 injection=injection,
                 hydrate_error_count=hydrate_error_count,
+                project_shadow_count=len(shadow),
             )
-        return HookSearchPayload("injected", "included", context, routes)
+        return HookSearchPayload("injected", "included", context, routes, shadow)
     except TimeoutError:
         logger.warning("routed CLI query timed out")
         return HookSearchPayload("timeout", "overall_timeout", "", ())
@@ -293,6 +307,7 @@ def _generate_candidates(
     use_routed: bool,
     clock: Callable[[], float] | None = None,
     semantic_deadline: float | None = None,
+    project_shadow: bool = False,
 ) -> RoutedSearchResult:
     if use_routed:
         kwargs: dict[str, object] = {
@@ -305,6 +320,8 @@ def _generate_candidates(
             kwargs["clock"] = clock
         if semantic_deadline is not None:
             kwargs["semantic_deadline"] = semantic_deadline
+        if project_shadow:
+            kwargs["enable_project_shadow"] = True
         return retriever.search_routed(request, **kwargs)
 
     effective_query = request.raw_query
@@ -484,6 +501,7 @@ def _maybe_record_gap(
     retrieved_count: int,
     injection: InjectionResult | None,
     hydrate_error_count: int,
+    project_shadow_count: int = 0,
 ) -> None:
     if not enabled or brain_dir is None:
         return
@@ -497,6 +515,8 @@ def _maybe_record_gap(
         f"hydrate_error_count={hydrate_error_count}",
         f"excluded_count={len(excluded) + hydrate_error_count}",
     ]
+    if project_shadow_count:
+        evidence.append(f"project_shadow_count={project_shadow_count}")
     reason_counts = injection_exclusion_reason_counts(
         excluded,
         hydrate_error_count=hydrate_error_count,
@@ -512,6 +532,21 @@ def _maybe_record_gap(
         adapter=adapter,
         session_id=session_id,
         cwd=cwd,
+    )
+
+
+def _serialize_project_shadow(
+    traces: tuple[ProjectShadowTrace, ...],
+) -> tuple[Mapping[str, object], ...]:
+    return tuple(
+        MappingProxyType({
+            "candidate_id_digest": trace.candidate_id_digest,
+            "project": trace.project,
+            "route": trace.route,
+            "reason": trace.reason,
+            "score_bucket": trace.score_bucket,
+        })
+        for trace in traces
     )
 
 

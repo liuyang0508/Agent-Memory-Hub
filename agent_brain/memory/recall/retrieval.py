@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import logging
 import math
 import operator
@@ -48,6 +49,7 @@ from agent_brain.memory.recall.retrieval_types import RetrievedItem
 from agent_brain.memory.recall.retrieval_value import apply_feedback_value_weight
 from agent_brain.memory.recall.routed_fusion import fuse_routes
 from agent_brain.memory.recall.routed_types import (
+    ProjectShadowTrace,
     RecallRequest,
     RoutedSearchResult,
     RouteTrace,
@@ -543,6 +545,8 @@ class Retriever:
         record_access: bool | None = None,
         clock: Callable[[], float] | None = None,
         semantic_deadline: float | None = None,
+        enable_project_shadow: bool = False,
+        project_shadow_top_k: int = 3,
     ) -> RoutedSearchResult:
         """Generate and fuse independent lexical and semantic recall routes.
 
@@ -572,7 +576,18 @@ class Retriever:
         allowed_ids = filter_plan.allowed_ids
         excluded_ids = filter_plan.excluded_ids
         if allowed_ids is not None and not allowed_ids:
-            return RoutedSearchResult([], (), request.admission, {})
+            project_shadow = self._project_shadow_traces(
+                request,
+                filters,
+                top_k=project_shadow_top_k,
+            ) if enable_project_shadow else ()
+            return RoutedSearchResult(
+                [],
+                (),
+                request.admission,
+                {},
+                project_shadow,
+            )
 
         route_traces: list[RouteTrace] = []
         lexical_terms_hits: list[Hit] = []
@@ -834,11 +849,21 @@ class Retriever:
             for candidate in final
             if candidate.id in evidence_by_id
         }
+        project_shadow = (
+            self._project_shadow_traces(
+                request,
+                filters,
+                top_k=project_shadow_top_k,
+            )
+            if enable_project_shadow and not final
+            else ()
+        )
         return RoutedSearchResult(
             final,
             tuple(route_traces),
             request.admission,
             final_evidence,
+            project_shadow,
         )
 
     def _routed_filter_plan(
@@ -869,6 +894,87 @@ class Retriever:
             set(),
         )
 
+    def _project_shadow_traces(
+        self,
+        request: RecallRequest,
+        filters: SearchFilter,
+        *,
+        top_k: int,
+    ) -> tuple[ProjectShadowTrace, ...]:
+        scope = request.project_scope
+        if (
+            top_k <= 0
+            or scope is None
+            or not scope.hard_filter
+            or scope.source != "explicit"
+            or (filters.project is not None and filters.project != scope.value)
+        ):
+            return ()
+        shadow_filters = replace(filters, project=None)
+        if shadow_filters.is_empty:
+            allowed_ids = None
+            excluded_ids = (
+                set()
+                if shadow_filters.include_superseded
+                else self.index.get_superseded_ids()
+            )
+        else:
+            allowed_ids = self._allowed_ids_for_filter(shadow_filters)
+            excluded_ids = set()
+        if allowed_ids is not None and not allowed_ids:
+            return ()
+        try:
+            raw_query = _raw_fallback_bm25_query(
+                request.normalized_query,
+                use_or=self.query_expansion,
+            )
+            hits = list(self.index.bm25_search(
+                raw_query,
+                top_k=min(50, max(10, top_k * 5)),
+                allowed_ids=allowed_ids,
+                excluded_ids=excluded_ids or None,
+            ))
+            metadata = self.index.get_shadow_metadata([str(hit.id) for hit in hits])
+        except Exception:
+            return ()
+
+        traces: list[ProjectShadowTrace] = []
+        for hit in hits:
+            item_id = str(hit.id)
+            row = metadata.get(item_id)
+            if not row:
+                continue
+            project = row.get("project")
+            sensitivity = str(row.get("sensitivity") or "internal")
+            tenant_id = row.get("tenant_id")
+            if (
+                not isinstance(project, str)
+                or not project
+                or project == scope.value
+                or sensitivity not in {"public", "internal"}
+            ):
+                continue
+            if filters.tenant_id is None:
+                if tenant_id is not None:
+                    continue
+            elif tenant_id != filters.tenant_id:
+                continue
+            accepted_rank = len(traces) + 1
+            traces.append(ProjectShadowTrace(
+                candidate_id_digest=(
+                    "sha256:" + hashlib.sha256(item_id.encode("utf-8")).hexdigest()
+                ),
+                project=_safe_shadow_project(project),
+                route="lexical_raw_fallback",
+                reason="possible_project_mismatch",
+                score_bucket=(
+                    "high" if accepted_rank == 1 else "medium" if accepted_rank <= 3 else "low"
+                ),
+            ))
+            if len(traces) >= top_k:
+                break
+        return tuple(traces)
+
 
 def _snapshot(candidates: list[RetrievedItem]) -> dict[str, tuple[int, float]]:
     return {
@@ -888,6 +994,13 @@ def _filter_route_hits(
         if (allowed_ids is None or str(getattr(hit, "id")) in allowed_ids)
         and str(getattr(hit, "id")) not in excluded_ids
     ]
+
+
+def _safe_shadow_project(project: str) -> str:
+    if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}", project):
+        return project
+    digest = hashlib.sha256(project.encode("utf-8")).hexdigest()
+    return f"project-sha256:{digest}"
 
 
 def _raw_fallback_bm25_query(query: str, *, use_or: bool) -> str:

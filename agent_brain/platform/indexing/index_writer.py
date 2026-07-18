@@ -38,6 +38,7 @@ class IndexWriter:
             decay_cls = str(item.retention.decay_class)
             access_cnt = item.retention.access_count
         confidence = getattr(item, "confidence", 0.7)
+        sensitivity = str(getattr(item, "sensitivity", "internal"))
         tenant_id = getattr(item, "tenant_id", None)
         support_count = getattr(item, "support_count", 0)
         contradict_count = getattr(item, "contradict_count", 0)
@@ -50,10 +51,10 @@ class IndexWriter:
             conn.execute(
                 "INSERT OR REPLACE INTO items_meta "
                 "(id, type, project, created_at, tags_json, title, summary, "
-                " confidence, decay_class, last_accessed, access_count, tenant_id, "
+                " confidence, decay_class, last_accessed, access_count, sensitivity, tenant_id, "
                 " support_count, contradict_count, gain_score, superseded_by, maturity, "
                 " context_views_json) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     item.id,
                     str(item.type),
@@ -66,6 +67,7 @@ class IndexWriter:
                     decay_cls,
                     last_acc,
                     access_cnt,
+                    sensitivity,
                     tenant_id,
                     support_count,
                     contradict_count,

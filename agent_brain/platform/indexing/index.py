@@ -236,6 +236,10 @@ class HubIndex:
         """Return the stored project value for each existing item ID."""
         return self.metadata.get_projects(item_ids)
 
+    def get_shadow_metadata(self, item_ids: Sequence[str]) -> dict[str, dict[str, object]]:
+        """Return project, sensitivity, and tenant metadata for shadow gating."""
+        return self.metadata.get_shadow_metadata(item_ids)
+
     def get_superseded_ids(self) -> set[str]:
         """Return IDs whose metadata marks them as superseded."""
         return self.metadata.get_superseded_ids()

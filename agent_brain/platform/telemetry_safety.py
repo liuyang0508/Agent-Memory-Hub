@@ -23,7 +23,7 @@ _SAFE_GAP_EVIDENCE_LABEL_RE = re.compile(
 )
 _SAFE_GAP_AGGREGATE_RE = re.compile(
     r"^(?:retrieved_count|included_count|hydrate_error_count|excluded_count|"
-    r"source_evidence_count)=\d{1,9}$",
+    r"source_evidence_count|project_shadow_count)=\d{1,9}$",
     re.IGNORECASE,
 )
 _SAFE_GAP_DIGEST_RE = re.compile(

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
 from types import MappingProxyType
 from typing import Mapping, Literal, get_args
 
@@ -109,6 +110,25 @@ class RouteEvidence:
 
 
 @dataclass(frozen=True)
+class ProjectShadowTrace:
+    """Privacy-bounded cross-project diagnostic that is never injectable."""
+
+    candidate_id_digest: str
+    project: str
+    route: str
+    reason: Literal["possible_project_mismatch"]
+    score_bucket: Literal["high", "medium", "low"]
+
+    def __post_init__(self) -> None:
+        if not re.fullmatch(r"sha256:[0-9a-f]{64}", self.candidate_id_digest):
+            raise ValueError("project shadow candidate id must be a sha256 digest")
+        if not self.project or len(self.project) > 80:
+            raise ValueError("project shadow project must be bounded")
+        if self.route not in {"lexical_terms", "lexical_raw_fallback"}:
+            raise ValueError("unsupported project shadow route")
+
+
+@dataclass(frozen=True)
 class RoutedSearchResult:
     """Routed hits and their independent per-id evidence.
 
@@ -120,6 +140,7 @@ class RoutedSearchResult:
     routes: tuple[RouteTrace, ...]
     admission: RecallAdmission
     evidence_by_id: Mapping[str, RouteEvidence]
+    project_shadow: tuple[ProjectShadowTrace, ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "hits", list(self.hits))
@@ -128,10 +149,12 @@ class RoutedSearchResult:
             "evidence_by_id",
             MappingProxyType(dict(self.evidence_by_id)),
         )
+        object.__setattr__(self, "project_shadow", tuple(self.project_shadow))
 
 
 __all__ = [
     "ProjectScope",
+    "ProjectShadowTrace",
     "ProjectScopeSource",
     "RecallRequest",
     "RouteEvidence",

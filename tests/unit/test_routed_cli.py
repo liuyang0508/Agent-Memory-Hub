@@ -454,6 +454,125 @@ def test_hook_json_uses_positional_query_and_forces_safe_routed_path(
     assert "WRONG_ENV_QUERY" not in result.output
 
 
+def test_human_project_shadow_prints_only_bounded_diagnostics(
+    tmp_brain,
+    monkeypatch,
+) -> None:
+    import agent_brain.interfaces.cli as cli
+    from agent_brain.interfaces.cli import app
+    from agent_brain.interfaces.cli.commands import query as query_command
+    from agent_brain.interfaces.cli.routed_query import HookSearchPayload
+
+    digest = "sha256:" + "a" * 64
+    monkeypatch.setattr(cli, "_open_components", lambda: (object(), object(), object()))
+    monkeypatch.setattr(
+        query_command,
+        "execute_routed_query",
+        lambda **_kwargs: HookSearchPayload(
+            "empty",
+            "no_candidates",
+            "",
+            (),
+            ({
+                "candidate_id_digest": digest,
+                "project": "project-b",
+                "route": "lexical_raw_fallback",
+                "reason": "possible_project_mismatch",
+                "score_bucket": "high",
+            },),
+        ),
+    )
+
+    result = RUNNER.invoke(app, [
+        "search",
+        "cross project query",
+        "--routed-recall",
+        "--project",
+        "project-a",
+        "--project-shadow",
+        "--format",
+        "text",
+    ])
+
+    assert result.exit_code == 0, result.output
+    assert "no matches" in result.output
+    assert "possible_project_mismatch" in result.output
+    assert "project=project-b" in result.output
+    assert digest in result.output
+    assert "candidate body" not in result.output
+
+
+def test_project_shadow_requires_explicit_project(tmp_brain) -> None:
+    from agent_brain.interfaces.cli import app
+
+    result = RUNNER.invoke(app, [
+        "search",
+        "cross project query",
+        "--routed-recall",
+        "--project-shadow",
+    ])
+
+    assert result.exit_code == 2
+    assert "requires an explicit --project" in result.output
+
+
+def test_execute_project_shadow_records_count_without_candidate_identity(tmp_brain) -> None:
+    from agent_brain.interfaces.cli.routed_query import execute_routed_query
+    from agent_brain.memory.governance.recall_events import iter_gap_records
+    from agent_brain.memory.recall.retrieval import SearchFilter
+    from agent_brain.memory.recall.routed_types import (
+        ProjectShadowTrace,
+        RoutedSearchResult,
+    )
+
+    trace = ProjectShadowTrace(
+        candidate_id_digest="sha256:" + "b" * 64,
+        project="project-b",
+        route="lexical_raw_fallback",
+        reason="possible_project_mismatch",
+        score_bucket="high",
+    )
+
+    class Store:
+        def iter_all(self):
+            return iter(())
+
+    class Retriever:
+        def search_routed(self, request, **kwargs):
+            assert kwargs["enable_project_shadow"] is True
+            return RoutedSearchResult(
+                [],
+                (),
+                request.admission,
+                {},
+                (trace,),
+            )
+
+    payload = execute_routed_query(
+        raw_query="cross project diagnostic",
+        store=Store(),
+        retriever=Retriever(),
+        top_k=3,
+        filters=SearchFilter(project="project-a"),
+        requested="auto",
+        project="project-a",
+        adapter="codex",
+        session_id="session-shadow",
+        cwd="/repo/project-a",
+        brain_dir=tmp_brain,
+        record_recall_gap=True,
+        project_shadow=True,
+    )
+
+    assert payload.status == "empty"
+    assert payload.project_shadow[0]["project"] == "project-b"
+    assert list(payload.to_dict()) == ["status", "reason", "context", "routes"]
+    gap = next(iter_gap_records(tmp_brain))
+    assert "project_shadow_count=1" in gap.evidence
+    assert trace.candidate_id_digest not in repr(gap)
+    assert "project-b" not in repr(gap)
+
+
 def test_hook_json_component_initialization_failure_emits_only_stable_error_json(
     tmp_brain,
     monkeypatch,

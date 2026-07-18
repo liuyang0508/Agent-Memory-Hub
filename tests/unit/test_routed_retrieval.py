@@ -71,6 +71,7 @@ class _Index:
         self.filter_calls: list[dict[str, Any]] = []
         self.get_projects_calls: list[list[str]] = []
         self.get_embeddings_calls: list[list[str]] = []
+        self.shadow_metadata: dict[str, dict[str, object]] = {}
         self.bm25_error_for: dict[str, BaseException] = {}
         self.vector_error: BaseException | None = None
 
@@ -139,6 +140,13 @@ class _Index:
 
     def get_search_metadata(self, item_ids: list[str]) -> dict[str, dict[str, object]]:
         return {}
+
+    def get_shadow_metadata(self, item_ids: list[str]) -> dict[str, dict[str, object]]:
+        return {
+            item_id: self.shadow_metadata[item_id]
+            for item_id in item_ids
+            if item_id in self.shadow_metadata
+        }
 
     def get_texts(self, item_ids: list[str]) -> dict[str, str]:
         return {}
@@ -723,6 +731,95 @@ def test_explicit_project_scope_is_a_hard_filter() -> None:
 
     assert [hit.id for hit in result.hits] == ["in"]
     assert any(call.get("project") == "project-a" for call in index.filter_calls)
+
+
+def test_project_shadow_reports_only_safe_cross_project_diagnostics() -> None:
+    index = _Index()
+    index.projects = {
+        "same-project": "project-a",
+        "safe-cross-project": "project-b",
+        "private-cross-project": "project-b",
+        "other-tenant": "project-c",
+    }
+    index.bm25_hits["shadow"] = [
+        SimpleNamespace(id="same-project", score=9.0),
+        SimpleNamespace(id="safe-cross-project", score=8.0),
+        SimpleNamespace(id="private-cross-project", score=7.0),
+        SimpleNamespace(id="other-tenant", score=6.0),
+    ]
+    index.shadow_metadata = {
+        "same-project": {
+            "project": "project-a",
+            "sensitivity": "internal",
+            "tenant_id": None,
+        },
+        "safe-cross-project": {
+            "project": "project-b",
+            "sensitivity": "internal",
+            "tenant_id": None,
+        },
+        "private-cross-project": {
+            "project": "project-b",
+            "sensitivity": "private",
+            "tenant_id": None,
+        },
+        "other-tenant": {
+            "project": "project-c",
+            "sensitivity": "public",
+            "tenant_id": "tenant-other",
+        },
+    }
+
+    result = _retriever(index, _Embedder()).search_routed(
+        _request(
+            normalized_query="shadow mismatch",
+            lexical_terms=("no-primary-hit",),
+            project_scope=ProjectScope("project-a", "explicit", hard_filter=True),
+        ),
+        enable_project_shadow=True,
+    )
+
+    assert result.hits == []
+    assert result.evidence_by_id == {}
+    assert len(result.project_shadow) == 1
+    trace = result.project_shadow[0]
+    assert trace.candidate_id_digest.startswith("sha256:")
+    assert "safe-cross-project" not in trace.candidate_id_digest
+    assert trace.project == "project-b"
+    assert trace.route == "lexical_raw_fallback"
+    assert trace.reason == "possible_project_mismatch"
+    assert trace.score_bucket == "high"
+
+
+def test_project_shadow_is_default_off_and_requires_explicit_hard_scope() -> None:
+    index = _Index()
+    index.bm25_hits["shadow"] = [
+        SimpleNamespace(id="cross-project", score=8.0),
+    ]
+    index.shadow_metadata["cross-project"] = {
+        "project": "project-b",
+        "sensitivity": "public",
+        "tenant_id": None,
+    }
+    retriever = _retriever(index, _Embedder())
+
+    default = retriever.search_routed(
+        _request(
+            normalized_query="shadow mismatch",
+            lexical_terms=("no-primary-hit",),
+            project_scope=ProjectScope("project-a", "explicit", hard_filter=True),
+        )
+    )
+    unscoped = retriever.search_routed(
+        _request(
+            normalized_query="shadow mismatch",
+            lexical_terms=("no-primary-hit",),
+        ),
+        enable_project_shadow=True,
+    )
+
+    assert default.project_shadow == ()
+    assert unscoped.project_shadow == ()
 
 
 def test_lexical_terms_hard_filter_applies_before_real_bm25_limit(tmp_path) -> None:
@@ -1354,5 +1451,108 @@ def test_metadata_index_get_projects_and_hub_facade(tmp_path) -> None:
             "mem-20260715-100000-project": "project-a",
             "mem-20260715-100001-project-none": None,
         }
+    finally:
+        index.close()
+
+
+def test_metadata_index_persists_shadow_sensitivity_and_tenant_boundaries(tmp_path) -> None:
+    from agent_brain.contracts.memory_item import MemoryItem, MemoryType
+    from agent_brain.platform.indexing.index import HubIndex
+
+    index = HubIndex(tmp_path / "shadow-metadata.db", embedding_dim=2)
+    try:
+        value = MemoryItem(
+            id="mem-20260719-100000-shadow-private",
+            type=MemoryType.fact,
+            created_at="2026-07-19T10:00:00+08:00",
+            title="private shadow metadata",
+            summary="must be filtered from shadow diagnostics",
+            project="project-b",
+            tenant_id="tenant-b",
+            sensitivity="private",
+        )
+        index.upsert(value, "private body", embedding=[1.0, 0.0])
+
+        assert index.get_shadow_metadata([value.id]) == {
+            value.id: {
+                "project": "project-b",
+                "sensitivity": "private",
+                "tenant_id": "tenant-b",
+            }
+        }
+    finally:
+        index.close()
+
+
+def test_real_project_shadow_never_records_access_or_exposes_private_items(tmp_path) -> None:
+    from agent_brain.contracts.memory_item import MemoryItem, MemoryType
+    from agent_brain.platform.indexing.index import HubIndex
+
+    index = HubIndex(tmp_path / "shadow-safety.db", embedding_dim=2)
+    try:
+        values = [
+            MemoryItem(
+                id="mem-20260719-110000-shadow-scope",
+                type=MemoryType.fact,
+                created_at="2026-07-19T11:00:00+08:00",
+                title="unrelated scoped item",
+                summary="project a",
+                project="project-a",
+            ),
+            MemoryItem(
+                id="mem-20260719-110001-shadow-safe",
+                type=MemoryType.fact,
+                created_at="2026-07-19T11:00:01+08:00",
+                title="shadowneedle safe item",
+                summary="project b",
+                project="project-b",
+                sensitivity="internal",
+            ),
+            MemoryItem(
+                id="mem-20260719-110002-shadow-private",
+                type=MemoryType.fact,
+                created_at="2026-07-19T11:00:02+08:00",
+                title="shadowneedle private item",
+                summary="must stay hidden",
+                project="project-b",
+                sensitivity="private",
+            ),
+            MemoryItem(
+                id="mem-20260719-110003-shadow-tenant",
+                type=MemoryType.fact,
+                created_at="2026-07-19T11:00:03+08:00",
+                title="shadowneedle other tenant",
+                summary="must stay hidden",
+                project="project-c",
+                tenant_id="tenant-c",
+                sensitivity="public",
+            ),
+        ]
+        for value in values:
+            index.upsert(value, value.summary, embedding=[1.0, 0.0])
+
+        result = _retriever(
+            index,  # type: ignore[arg-type]
+            _Embedder(),
+            vector_weight=0.0,
+            record_access=True,
+        ).search_routed(
+            _request(
+                normalized_query="shadowneedle",
+                lexical_terms=("shadowneedle",),
+                project_scope=ProjectScope("project-a", "explicit", hard_filter=True),
+            ),
+            enable_project_shadow=True,
+            record_access=True,
+        )
+
+        assert result.hits == []
+        assert [trace.project for trace in result.project_shadow] == ["project-b"]
+        serialized = repr(result.project_shadow)
+        assert values[1].id not in serialized
+        assert values[2].id not in serialized
+        assert values[3].id not in serialized
+        decay = index.get_decay_data([value.id for value in values])
+        assert all(row[4] == 0 for row in decay.values())
     finally:
         index.close()

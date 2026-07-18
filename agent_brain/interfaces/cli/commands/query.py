@@ -113,6 +113,11 @@ def search(
         "--routed-recall",
         help="Use route-aware recall generation before prompt governance.",
     ),
+    project_shadow: bool = typer.Option(
+        False,
+        "--project-shadow",
+        help="Diagnose a possible project mismatch without injecting cross-project items.",
+    ),
     explain: bool = typer.Option(False, "--explain", help="Show retrieval trace in text output."),
     verbosity: str | None = typer.Option(
         None,
@@ -149,6 +154,12 @@ def search(
         and output_format == ROUTED_HOOK_OUTPUT_FORMAT
     )
     effective_context_firewall = context_firewall or hook_json
+    if project_shadow and project is None:
+        typer.echo("--project-shadow requires an explicit --project", err=True)
+        raise typer.Exit(2)
+    if project_shadow and not (routed_recall or hook_json):
+        typer.echo("--project-shadow requires --routed-recall", err=True)
+        raise typer.Exit(2)
     if record_injection_cohort and not effective_context_firewall:
         typer.echo(
             "--record-injection-cohort requires --context-firewall",
@@ -186,6 +197,7 @@ def search(
                     prefer_type=_parse_type_order(prefer_type),
                     record_injection_cohort=record_injection_cohort,
                     record_recall_gap=record_recall_gap,
+                    project_shadow=project_shadow,
                 )
         except Exception:  # noqa: BLE001 - structured hook protocol fails closed
             payload = HookSearchPayload("error", "internal_error", "", ())
@@ -217,11 +229,18 @@ def search(
             prefer_type=_parse_type_order(prefer_type),
             record_injection_cohort=record_injection_cohort,
             record_recall_gap=record_recall_gap,
+            project_shadow=project_shadow,
         )
         if payload.context:
             typer.echo(payload.context)
         else:
             typer.echo("no matches")
+            for trace in payload.project_shadow:
+                typer.echo(
+                    "project-shadow: "
+                    f"{trace['reason']} project={trace['project']} "
+                    f"score={trace['score_bucket']} id={trace['candidate_id_digest']}"
+                )
         return
     query_signal = None
     effective_query = query
