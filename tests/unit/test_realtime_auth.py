@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from urllib.parse import quote
 
 import pytest
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
+
+from web.api.routes.events import event_stream, ws_events
 
 
 @pytest.fixture()
@@ -116,3 +119,57 @@ def test_dashboard_does_not_put_session_token_in_realtime_urls() -> None:
 
     assert "/ws/events?token=" not in dashboard
     assert "/api/events?token=" not in dashboard
+
+
+def test_rejected_sse_long_token_is_removed_from_access_log_scope() -> None:
+    sentinel = "eyJhbGciOiJIUzI1NiJ9.SECRET-SSE-SENTINEL.signature"
+    scope = {
+        "type": "http",
+        "method": "GET",
+        "path": "/api/events",
+        "query_string": f"token={sentinel}".encode(),
+        "headers": [(b"host", b"testserver")],
+    }
+
+    from fastapi import HTTPException, Request
+
+    with pytest.raises(HTTPException, match="session token query is not supported"):
+        asyncio.run(event_stream(Request(scope)))
+
+    assert scope["query_string"] == b""
+    assert sentinel not in repr(scope)
+
+
+def test_rejected_websocket_long_token_is_removed_from_access_log_scope() -> None:
+    sentinel = "eyJhbGciOiJIUzI1NiJ9.SECRET-WS-SENTINEL.signature"
+    sent: list[dict] = []
+    scope = {
+        "type": "websocket",
+        "path": "/ws/events",
+        "query_string": f"token={sentinel}".encode(),
+        "headers": [(b"host", b"testserver")],
+        "scheme": "ws",
+        "server": ("testserver", 80),
+        "client": ("testclient", 50000),
+        "subprotocols": [],
+    }
+
+    async def receive() -> dict:
+        return {"type": "websocket.connect"}
+
+    async def send(message: dict) -> None:
+        sent.append(message)
+
+    from starlette.websockets import WebSocket
+
+    asyncio.run(ws_events(WebSocket(scope, receive, send)))
+
+    assert scope["query_string"] == b""
+    assert sentinel not in repr(scope)
+    assert sent == [
+        {
+            "type": "websocket.close",
+            "code": 4001,
+            "reason": "session token query is not supported",
+        }
+    ]

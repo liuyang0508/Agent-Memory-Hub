@@ -946,14 +946,14 @@ If GitHub reports a different matrix context spelling, replace only the affected
 - [ ] **Step 1: Run focused red-to-green suites**
 
 ```bash
-pytest tests/unit/test_adapters.py tests/unit/test_cli_adapter.py -k 'qoder' -q
-pytest tests/unit/test_external_memory_benchmark.py -q
-pytest tests/unit/test_realtime_auth.py tests/unit/test_web_sse_tenant_scope.py \
+.venv/bin/python -m pytest tests/unit/test_adapters.py tests/unit/test_cli_adapter.py -k 'qoder' -q
+.venv/bin/python -m pytest tests/unit/test_external_memory_benchmark.py -q
+.venv/bin/python -m pytest tests/unit/test_realtime_auth.py tests/unit/test_web_sse_tenant_scope.py \
   tests/unit/test_web_tenant_isolation.py tests/conformance/test_public_hygiene.py -q
-MEMORY_HUB_TEST_EMBEDDING=1 pytest tests/unit/test_resource_lifecycle.py \
+MEMORY_HUB_TEST_EMBEDDING=1 .venv/bin/python -m pytest tests/unit/test_resource_lifecycle.py \
   tests/unit/test_sdk_client.py tests/unit/test_cli_smoke.py \
-  tests/unit/test_web_component_cache.py -q
-pytest tests/conformance/test_docker_contract.py tests/unit/test_ci_governance_contract.py -q
+  tests/unit/test_web_cache_lifecycle.py -q
+.venv/bin/python -m pytest tests/conformance/test_docker_contract.py tests/unit/test_ci_governance_contract.py -q
 ```
 
 Expected: PASS.

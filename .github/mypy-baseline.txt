@@ -457,7 +457,6 @@ agent_brain/memory/store/pending.py: error: Module "agent_brain.contracts.memory
 agent_brain/memory/store/write_types.py: error: Missing type arguments for generic type "dict"  [type-arg]
 agent_brain/platform/doctor.py: error: Missing type arguments for generic type "dict"  [type-arg]
 agent_brain/platform/doctor.py: error: Missing type arguments for generic type "dict"  [type-arg]
-agent_brain/platform/embedding.py: error: Argument 1 to "int" has incompatible type "int | None"; expected "str | Buffer | SupportsInt | SupportsIndex | SupportsTrunc"  [arg-type]
 agent_brain/platform/history.py: error: Missing type arguments for generic type "CompletedProcess"  [type-arg]
 agent_brain/platform/history.py: error: Returning Any from function declared to return "str | None"  [no-any-return]
 agent_brain/platform/history.py: error: Returning Any from function declared to return "str"  [no-any-return]

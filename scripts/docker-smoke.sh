@@ -31,7 +31,7 @@ wait_for_health() {
   local output="$1"
   for _ in $(seq 1 120); do
     if curl --connect-timeout 2 --max-time 5 -fsS \
-      "http://127.0.0.1:${port}/api/health" >"$output"; then
+      "http://127.0.0.1:${port}/api/health" >"$output" 2>/dev/null; then
       python -c 'import json,sys; assert json.load(open(sys.argv[1]))["status"] == "ok"' "$output"
       return 0
     fi
@@ -47,7 +47,7 @@ wait_for_login() {
     if curl --connect-timeout 2 --max-time 5 -fsS -X POST \
       "http://127.0.0.1:${port}/api/auth/login" \
       -H 'Content-Type: application/json' \
-      -d '{"username":"stage1-admin","password":"stage1-password"}' >"$output"; then
+      -d '{"username":"stage1-admin","password":"stage1-password"}' >"$output" 2>/dev/null; then
       python -c 'import json,sys; assert json.load(open(sys.argv[1]))["username"] == "stage1-admin"' "$output"
       return 0
     fi
