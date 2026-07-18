@@ -278,6 +278,43 @@ if [ -f "$PYTHON_RESOLVER" ]; then
     RESOLVER_READY=1
   fi
 fi
+
+# Per-adapter rollout control is evaluated after interpreter identity is
+# verified but before evidence derivation or retrieval.  Missing/corrupt
+# control state is backward-compatible (enabled); an explicit disabled,
+# shadow, or excluded-canary decision returns a clean empty hook protocol and
+# cannot affect the core CLI/MCP processes.
+RELEASE_DECISION="enabled"
+if [ "$RESOLVER_READY" -eq 1 ]; then
+  RELEASE_DECISION=$("$MEMORY_PYTHON" -m agent_brain.agent_integrations.release_controls \
+    decision \
+    --brain-dir "$BRAIN_DIR" \
+    --adapter "${AGENT_MEMORY_HUB_ADAPTER:-unknown}" \
+    --session "$SESSION_ID" \
+    2>/dev/null || printf 'enabled')
+fi
+case "$RELEASE_DECISION" in
+  disabled|shadow|canary_excluded)
+    RELEASE_EVENT="AdapterDisabled"
+    if [ "$RELEASE_DECISION" = "shadow" ]; then
+      RELEASE_EVENT="AdapterShadow"
+    elif [ "$RELEASE_DECISION" = "canary_excluded" ]; then
+      RELEASE_EVENT="AdapterCanaryExcluded"
+    fi
+    if [ -x "$RECORD_TOOL" ]; then
+      "$RECORD_TOOL" \
+        --adapter "${AGENT_MEMORY_HUB_ADAPTER:-unknown}" \
+        --event "$RELEASE_EVENT" \
+        --session "$SESSION_ID" \
+        --cwd "$CWD" \
+        >/dev/null 2>&1 || true
+    fi
+    echo '{}'
+    exit 0
+    ;;
+  enabled) ;;
+  *) ;;
+esac
 RECALL_PROMPT="$PROMPT"
 MULTIMODAL_GAP_JSON=""
 MULTIMODAL_QUERY_HASH=""

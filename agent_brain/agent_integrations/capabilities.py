@@ -65,6 +65,7 @@ class AdapterCapability:
     manifest: dict[str, object]
     states: dict[str, bool]
     evidence_freshness: dict[str, object]
+    release_control: dict[str, object] | None
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -104,6 +105,10 @@ def capability_for_adapter(
         now=evaluated_at,
         doctor_ttl_seconds=manifest.evidence.verification_ttl_seconds,
     )
+    from .release_controls import get_adapter_release_control
+
+    release_control = get_adapter_release_control(adapter.brain_dir, name)
+    adapter_disabled = bool(release_control and release_control.stage == "disabled")
     verification_effective = _verification_is_effective(
         name,
         verification_summary,
@@ -122,6 +127,7 @@ def capability_for_adapter(
         runtime_fresh=freshness.runtime.fresh,
         context_injected=injection_cohort is not None,
         context_fresh=freshness.context_injection.fresh,
+        adapter_disabled=adapter_disabled,
         is_wip=is_wip,
         limitations=evidence.limitations,
     )
@@ -176,6 +182,7 @@ def capability_for_adapter(
             "verification": freshness.verification.to_dict(),
             "stale_reasons": list(freshness.stale_reasons),
         },
+        release_control=release_control.to_dict() if release_control else None,
     )
 
 
@@ -219,6 +226,7 @@ def _verification_blockers(
     runtime_fresh: bool,
     context_injected: bool,
     context_fresh: bool,
+    adapter_disabled: bool,
     is_wip: bool,
     limitations: tuple[str, ...],
 ) -> list[str]:
@@ -226,6 +234,8 @@ def _verification_blockers(
         return list(limitations or ("install path not implemented",))
 
     blockers: list[str] = []
+    if adapter_disabled:
+        blockers.append("adapter disabled by release control")
     if not verification_summary.verified:
         blockers.append(f"evidence level is {evidence_level}, not verified")
     elif not verification_fresh:

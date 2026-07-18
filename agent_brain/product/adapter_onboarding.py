@@ -183,7 +183,19 @@ def execute_adapter_action(
     reason_code: LifecycleReasonCode = "OK"
     message = ""
 
-    if isinstance(adapter, WIPAdapter) and action not in {"doctor"}:
+    from agent_brain.agent_integrations.release_controls import get_adapter_release_control
+
+    release_control = get_adapter_release_control(brain_dir, adapter_name)
+
+    if (
+        release_control is not None
+        and release_control.stage == "disabled"
+        and action not in {"doctor", "uninstall"}
+    ):
+        status = "blocked"
+        reason_code = "ADAPTER_DISABLED"
+        message = "adapter is disabled by its release control; recover through shadow"
+    elif isinstance(adapter, WIPAdapter) and action not in {"doctor"}:
         status = "blocked"
         reason_code = "ADAPTER_WIP"
         message = "adapter install path is not implemented"

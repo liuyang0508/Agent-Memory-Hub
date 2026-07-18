@@ -274,7 +274,7 @@ git commit -m "feat: unify adapter lifecycle transactions"
 - Test: `tests/unit/test_adapter_release_controls.py`
 - Test: `tests/system/test_adapter_core_isolation.py`
 
-- [ ] **Step 1: 写 promotion 与隔离失败测试**
+- [x] **Step 1: 写 promotion 与隔离失败测试**
 
 ```python
 def test_release_control_requires_ordered_promotion(tmp_path):
@@ -291,13 +291,13 @@ def test_disabled_adapter_does_not_disable_core_cli_or_mcp(tmp_path):
     assert run_qoder_hook(tmp_path).status == "adapter_disabled"
 ```
 
-- [ ] **Step 2: 运行失败测试**
+- [x] **Step 2: 运行失败测试**
 
 Run: `.venv/bin/pytest -q tests/unit/test_adapter_release_controls.py tests/system/test_adapter_core_isolation.py`
 
 Expected: FAIL，原因是 release control 和 hook kill switch 不存在。
 
-- [ ] **Step 3: 实现原子 release control**
+- [x] **Step 3: 实现原子 release control**
 
 ```python
 ReleaseStage = Literal["shadow", "canary", "default", "disabled"]
@@ -313,13 +313,13 @@ class AdapterReleaseControl:
 
 记录存储在 `$BRAIN_DIR/runtime/adapter-release-controls.json`，0600、临时文件+replace 原子写。promotion 只允许 shadow→canary→default；任何阶段可进入 disabled；恢复必须回 shadow。
 
-- [ ] **Step 4: 在 hook 最前面加入低成本 adapter 级 fail-open-to-core 检查**
+- [x] **Step 4: 在 hook 最前面加入低成本 adapter 级 fail-open-to-core 检查**
 
 禁用时 adapter hook 返回对应客户端的合法空上下文协议并记录低敏 `AdapterDisabled` runtime event；不退出 core 进程、不改 MCP/CLI 配置、不删除 memory 数据。
 
-- [ ] **Step 5: 跑隔离测试并提交**
+- [x] **Step 5: 跑隔离测试并提交**
 
-Run: `.venv/bin/pytest -q tests/unit/test_adapter_release_controls.py tests/system/test_adapter_core_isolation.py tests/unit/test_adapter_runtime_events.py && bash tests/hook-protocol/test-hook-protocol.sh`
+Run: `.venv/bin/pytest -q tests/unit/test_adapter_release_controls.py tests/system/test_adapter_core_isolation.py tests/unit/test_adapter_runtime_events.py && bash agent_runtime_kit/hooks/test-hook.sh`
 
 Expected: PASS，严格协议 stdout 无污染。
 
