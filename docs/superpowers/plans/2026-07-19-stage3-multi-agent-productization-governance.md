@@ -30,7 +30,7 @@
 - Test: `tests/unit/test_adapter_manifests.py`
 - Test: `tests/unit/test_adapter_capabilities.py`
 
-- [ ] **Step 1: 写 manifest 完整性和状态语义的失败测试**
+- [x] **Step 1: 写 manifest 完整性和状态语义的失败测试**
 
 ```python
 def test_every_registered_adapter_has_complete_v1_manifest(tmp_path):
@@ -56,13 +56,13 @@ def test_verified_requires_fresh_doctor_runtime_and_injection(tmp_path):
     assert cap.verified is True
 ```
 
-- [ ] **Step 2: 运行测试确认当前没有 manifest/六状态字段**
+- [x] **Step 2: 运行测试确认当前没有 manifest/六状态字段**
 
 Run: `.venv/bin/pytest -q tests/unit/test_adapter_manifests.py tests/unit/test_adapter_capabilities.py`
 
 Expected: FAIL，原因是 `agent_brain.agent_integrations.manifests` 不存在或 `AdapterCapability.states` 不存在。
 
-- [ ] **Step 3: 实现不可变 manifest v1**
+- [x] **Step 3: 实现不可变 manifest v1**
 
 ```python
 MANIFEST_SCHEMA_VERSION = "amh-adapter-manifest/v1"
@@ -94,7 +94,7 @@ class AdapterManifest:
 
 为 16 个 registry key 提供显式声明；Codex/Qoder/Claude Code/QoderWork 声明真实 hook event/output protocol，其余 adapter 对不支持的 channel 使用空 tuple，不用虚假占位能力。
 
-- [ ] **Step 4: 在 capability 投影中加入 manifest 和六阶段状态**
+- [x] **Step 4: 在 capability 投影中加入 manifest 和六阶段状态**
 
 ```python
 @dataclass(frozen=True)
@@ -109,7 +109,7 @@ class AdapterCapability:
 
 `verified` 必须同时满足 `configured`、`doctor_passed`、`runtime_observed`、`context_injected`、最新 passed verification 未过期且 adapter 未被 kill switch 禁用；旧 `support_level` 继续由该结果兼容投影。
 
-- [ ] **Step 5: 运行聚焦测试并提交**
+- [x] **Step 5: 运行聚焦测试并提交**
 
 Run: `.venv/bin/pytest -q tests/unit/test_adapter_manifests.py tests/unit/test_adapter_capabilities.py tests/unit/test_adapter_runtime_events.py`
 

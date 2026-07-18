@@ -8,11 +8,14 @@ free-form wording.
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+from datetime import datetime
+from pathlib import Path
 from typing import Literal
 
 from . import AdapterBase, WIPAdapter
 from .evidence import SupportLevel, evidence_for_adapter
 from .memory_boundary import memory_boundary_for_adapter
+from .manifests import manifest_for_adapter
 from .runtime_events import AdapterRuntimeSummary, runtime_event_summary
 from .verifications import AdapterVerificationSummary, adapter_verification_summary
 
@@ -58,12 +61,20 @@ class AdapterCapability:
     verification_status: Literal["verified", "not_verified"]
     verification_blockers: list[str]
     memory_boundary: dict[str, object]
+    manifest: dict[str, object]
+    states: dict[str, bool]
+    evidence_freshness: dict[str, object]
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
 
 
-def capability_for_adapter(name: str, adapter: AdapterBase) -> AdapterCapability:
+def capability_for_adapter(
+    name: str,
+    adapter: AdapterBase,
+    *,
+    now: datetime | None = None,
+) -> AdapterCapability:
     from .registry import metadata_for_adapter
 
     cfg = adapter.get_config()
@@ -71,8 +82,12 @@ def capability_for_adapter(name: str, adapter: AdapterBase) -> AdapterCapability
     metadata = metadata_for_adapter(name)
     integration_modes = _integration_modes(cfg.hook_type, cfg.supports_hooks, cfg.supports_mcp)
     evidence = evidence_for_adapter(name, is_wip=is_wip)
+    manifest = manifest_for_adapter(name, adapter)
     runtime_summary = runtime_event_summary(adapter.brain_dir, name)
     verification_summary = adapter_verification_summary(adapter.brain_dir, name)
+    from agent_brain.memory.context.injection_cohorts import latest_injection_cohort
+
+    injection_cohort = latest_injection_cohort(adapter.brain_dir, adapter=name)
     verification_effective = _verification_is_effective(
         name,
         verification_summary,
@@ -87,6 +102,7 @@ def capability_for_adapter(name: str, adapter: AdapterBase) -> AdapterCapability
         verification_summary=verification_summary,
         verification_effective=verification_effective,
         runtime_required=(cfg.supports_hooks or cfg.supports_mcp) and not is_wip,
+        context_injected=injection_cohort is not None,
         is_wip=is_wip,
         limitations=evidence.limitations,
     )
@@ -94,6 +110,17 @@ def capability_for_adapter(name: str, adapter: AdapterBase) -> AdapterCapability
     support_level: SupportLevel = "verified" if verified else evidence.support_level
     evidence_level: SupportLevel | None = "verified" if verified else evidence.evidence_level
     evidence_paths = [*evidence.evidence_paths, *verification_summary.evidence]
+    doctor_passed = bool(verification_summary.verified)
+    states = {
+        "implemented": not is_wip,
+        # Until the lifecycle ledger lands, a passed verification record is
+        # the conservative durable proof that install/config/doctor completed.
+        "installed": doctor_passed,
+        "configured": doctor_passed,
+        "doctor_passed": doctor_passed,
+        "runtime_observed": runtime_summary.observed,
+        "context_injected": injection_cohort is not None,
+    }
 
     return AdapterCapability(
         name=name,
@@ -117,16 +144,28 @@ def capability_for_adapter(name: str, adapter: AdapterBase) -> AdapterCapability
         verification_status="verified" if verified else "not_verified",
         verification_blockers=verification_blockers,
         memory_boundary=memory_boundary_for_adapter(name, brain_dir=adapter.brain_dir).to_dict(),
+        manifest=manifest.to_dict(),
+        states=states,
+        evidence_freshness={
+            "evaluated_at": now.isoformat() if now is not None else None,
+            "runtime": "unbounded",
+            "context_injection": "unbounded",
+            "verification": "unbounded",
+        },
     )
 
 
-def capabilities_for_all(brain_dir) -> list[AdapterCapability]:
+def capabilities_for_all(
+    brain_dir: Path,
+    *,
+    now: datetime | None = None,
+) -> list[AdapterCapability]:
     from agent_brain.agent_integrations import discover_adapters
     from agent_brain.agent_integrations.registry import get_adapter, list_adapters
 
     discover_adapters()
     return [
-        capability_for_adapter(name, get_adapter(name, brain_dir))
+        capability_for_adapter(name, get_adapter(name, brain_dir), now=now)
         for name in list_adapters()
     ]
 
@@ -152,6 +191,7 @@ def _verification_blockers(
     verification_summary: AdapterVerificationSummary,
     verification_effective: bool,
     runtime_required: bool,
+    context_injected: bool,
     is_wip: bool,
     limitations: tuple[str, ...],
 ) -> list[str]:
@@ -167,6 +207,8 @@ def _verification_blockers(
         blockers.append(f"evidence level is {evidence_level}, not verified")
     if runtime_required and not runtime_summary.observed:
         blockers.append("runtime event not observed")
+    if not context_injected:
+        blockers.append("context injection not observed")
     return blockers
 
 

@@ -442,12 +442,19 @@ def test_qoder_work_gui_context_effective_evidence_can_promote_verified(tmp_path
     from agent_brain.agent_integrations.capabilities import capability_for_adapter
     from agent_brain.agent_integrations.runtime_events import record_runtime_event
     from agent_brain.agent_integrations.verifications import record_adapter_verification
+    from agent_brain.memory.context.injection_cohorts import record_injection_cohort
 
     record_runtime_event(
         tmp_path,
         adapter="qoder_work",
         event_name="UserPromptSubmit",
         session_id="qoderwork-gui-context-effective",
+    )
+    record_injection_cohort(
+        tmp_path,
+        adapter="qoder_work",
+        session_id="qoderwork-gui-context-effective",
+        item_ids=["mem-qoderwork-gui-context-effective"],
     )
     record_adapter_verification(
         tmp_path,
@@ -562,5 +569,6 @@ def test_runtime_observation_does_not_make_install_ready_adapter_verified(tmp_pa
     assert cap.verification_status == "not_verified"
     assert cap.verified is False
     assert cap.verification_blockers == [
-        "evidence level is install-ready, not verified"
+        "evidence level is install-ready, not verified",
+        "context injection not observed",
     ]

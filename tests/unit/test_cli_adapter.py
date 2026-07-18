@@ -494,6 +494,7 @@ def test_legacy_context_pack_diagnostic_rejects_malformed_tokens(
 def test_adapter_install_verify_codex_promotes_after_runtime_observed(tmp_path, monkeypatch):
     from agent_brain.agent_integrations import codex as cx_mod
     from agent_brain.agent_integrations.runtime_events import record_runtime_event
+    from agent_brain.memory.context.injection_cohorts import record_injection_cohort
 
     brain_dir = Path(os.environ["BRAIN_DIR"])
     monkeypatch.setattr(cx_mod, "AGENTS_MD", tmp_path / ".codex" / "AGENTS.md")
@@ -505,6 +506,12 @@ def test_adapter_install_verify_codex_promotes_after_runtime_observed(tmp_path, 
         event_name="UserPromptSubmit",
         session_id="sess-install-verify",
         source="pytest",
+    )
+    record_injection_cohort(
+        brain_dir,
+        adapter="codex",
+        session_id="sess-install-verify",
+        item_ids=["mem-install-verify"],
     )
 
     result = runner.invoke(app, ["adapter", "install-verify", "codex", "--format", "json"])
@@ -521,6 +528,7 @@ def test_adapter_install_verify_codex_promotes_after_runtime_observed(tmp_path, 
 
 def test_adapter_verify_mcp_adapter_promotes_with_active_probe(tmp_path, monkeypatch):
     from agent_brain.agent_integrations import continue_dev as cont_mod
+    from agent_brain.memory.context.injection_cohorts import record_injection_cohort
 
     monkeypatch.setattr(cont_mod, "MCP_CONFIG_PATH", tmp_path / ".continue" / "config.yaml")
     monkeypatch.setattr(
@@ -531,6 +539,13 @@ def test_adapter_verify_mcp_adapter_promotes_with_active_probe(tmp_path, monkeyp
 
     install = runner.invoke(app, ["adapter", "install", "continue_dev"])
     assert install.exit_code == 0, install.output
+
+    record_injection_cohort(
+        Path(os.environ["BRAIN_DIR"]),
+        adapter="continue_dev",
+        session_id="continue-mcp-probe",
+        item_ids=["mem-continue-mcp-probe"],
+    )
 
     result = runner.invoke(app, ["adapter", "verify", "continue_dev", "--format", "json"])
 

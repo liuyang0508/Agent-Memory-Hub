@@ -132,6 +132,7 @@ def test_adapter_verification_record_promotes_verified_capability(tmp_path):
     from agent_brain.agent_integrations.capabilities import capability_for_adapter
     from agent_brain.agent_integrations.runtime_events import record_runtime_event
     from agent_brain.agent_integrations.verifications import record_adapter_verification
+    from agent_brain.memory.context.injection_cohorts import record_injection_cohort
 
     record_runtime_event(
         tmp_path,
@@ -139,6 +140,13 @@ def test_adapter_verification_record_promotes_verified_capability(tmp_path):
         event_name="UserPromptSubmit",
         session_id="sess-runtime",
         now=datetime(2026, 6, 21, 10, 0, tzinfo=timezone.utc),
+    )
+    record_injection_cohort(
+        tmp_path,
+        adapter="codex",
+        session_id="sess-runtime",
+        item_ids=["mem-runtime-verification"],
+        now=datetime(2026, 6, 21, 10, 1, tzinfo=timezone.utc),
     )
     record_adapter_verification(
         tmp_path,
