@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -43,6 +43,14 @@ class MemoryDataRunOptions:
     force: bool = False
     run_level: str = "smoke"
     env: dict[str, str] | None = None
+
+
+@dataclass(frozen=True)
+class MemoryDataResultSummary:
+    artifact_count: int
+    row_count: int
+    failed_count: int
+    malformed_count: int
 
 
 def plan_memorydata_run(
@@ -87,7 +95,6 @@ def run_memorydata(options: MemoryDataRunOptions, *, prereqs: dict[str, Any]) ->
     """Run MemoryData when prereqs are ready and persist a normalized run record."""
 
     artifact_root = _resolved_artifact_root(options.artifact_root)
-    execution_command = memorydata_command(options)
     planned = plan_memorydata_run(options, prereqs=prereqs)
     if planned["status"] == "blocked":
         return planned
@@ -101,6 +108,11 @@ def run_memorydata(options: MemoryDataRunOptions, *, prereqs: dict[str, Any]) ->
         materialize_memorydata_amh_adapter(options.memorydata_repo)
 
     started_at = datetime.now(timezone.utc)
+    run_id = started_at.strftime("%Y%m%dT%H%M%S%fZ")
+    run_artifact_root = artifact_root / "runs" / run_id
+    execution_options = replace(options, artifact_root=run_artifact_root)
+    execution_command = memorydata_command(execution_options)
+    public_execution_command = memorydata_command(execution_options, public=True)
     try:
         result = subprocess.run(
             execution_command,
@@ -111,26 +123,48 @@ def run_memorydata(options: MemoryDataRunOptions, *, prereqs: dict[str, Any]) ->
             timeout=options.timeout_s,
             check=False,
         )
-        _redact_artifact_tree(artifact_root)
-        failed_query_count = _memorydata_failed_query_count(artifact_root)
-        status = "passed" if result.returncode == 0 and failed_query_count == 0 else "failed"
+        _redact_artifact_tree(run_artifact_root)
+        summary = _summarize_memorydata_results(run_artifact_root)
+        expected_rows = max(1, options.max_test_queries)
+        reasons: list[str] = []
+        if result.returncode != 0:
+            reasons.append(f"MemoryData exited with {result.returncode}")
+        if summary.artifact_count == 0:
+            reasons.append("no fresh MemoryData result artifacts")
+        if summary.malformed_count:
+            reasons.append("malformed MemoryData result artifact")
+        if summary.row_count < expected_rows:
+            reasons.append(
+                f"expected at least {expected_rows} result rows; found {summary.row_count}"
+            )
+        if summary.failed_count:
+            reasons.append(
+                f"MemoryData result contains {summary.failed_count} failed query record(s)"
+            )
+        status = "failed" if reasons else "passed"
         payload = {
             **planned,
+            "command": public_execution_command,
             "status": status,
             "returncode": result.returncode,
             "started_at": started_at.isoformat(),
             "completed_at": datetime.now(timezone.utc).isoformat(),
             "stdout_tail": redact_public_text(result.stdout[-4000:]),
             "stderr_tail": redact_public_text(result.stderr[-4000:]),
-            "memorydata_failed_query_count": failed_query_count,
+            "memorydata_result_artifact_count": summary.artifact_count,
+            "memorydata_result_row_count": summary.row_count,
+            "memorydata_failed_query_count": summary.failed_count,
+            "memorydata_malformed_result_count": summary.malformed_count,
             "artifact_root": public_path(artifact_root),
+            "run_artifact_root": public_path(run_artifact_root),
         }
-        if failed_query_count:
-            payload["reason"] = f"MemoryData result contains {failed_query_count} failed query record(s)"
+        if reasons:
+            payload["reason"] = "; ".join(reasons)
     except subprocess.TimeoutExpired as exc:
-        _redact_artifact_tree(artifact_root)
+        _redact_artifact_tree(run_artifact_root)
         payload = {
             **planned,
+            "command": public_execution_command,
             "status": "failed",
             "returncode": None,
             "started_at": started_at.isoformat(),
@@ -139,15 +173,15 @@ def run_memorydata(options: MemoryDataRunOptions, *, prereqs: dict[str, Any]) ->
             "stderr_tail": redact_public_text((exc.stderr or "")[-4000:]) if isinstance(exc.stderr, str) else "",
             "reason": f"MemoryData run timed out after {options.timeout_s}s",
             "artifact_root": public_path(artifact_root),
+            "run_artifact_root": public_path(run_artifact_root),
         }
 
-    raw_path = artifact_root / "run-record.json"
-    raw_path.parent.mkdir(parents=True, exist_ok=True)
-    raw_path.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True),
-        encoding="utf-8",
-    )
-    return {**payload, "run_record": public_path(raw_path)}
+    immutable_record_path = run_artifact_root / "run-record.json"
+    latest_record_path = artifact_root / "run-record.json"
+    payload["immutable_run_record"] = public_path(immutable_record_path)
+    _write_json_atomic(immutable_record_path, payload)
+    _write_json_atomic(latest_record_path, payload)
+    return {**payload, "run_record": public_path(latest_record_path)}
 
 
 def memorydata_command(options: MemoryDataRunOptions, *, public: bool = False) -> list[str]:
@@ -199,20 +233,52 @@ def _redact_artifact_tree(artifact_root: Path) -> int:
     return changed
 
 
-def _memorydata_failed_query_count(artifact_root: Path) -> int:
+def _summarize_memorydata_results(artifact_root: Path) -> MemoryDataResultSummary:
+    artifact_count = 0
+    row_count = 0
     failed_count = 0
+    malformed_count = 0
     for result_path in Path(artifact_root).rglob("*_results.json"):
+        artifact_count += 1
         try:
             payload = json.loads(result_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
+            malformed_count += 1
             continue
-        rows = payload.get("data")
+        rows = payload.get("data") if isinstance(payload, dict) else None
         if not isinstance(rows, list):
+            malformed_count += 1
             continue
+        row_count += len(rows)
+        malformed_count += sum(1 for row in rows if not isinstance(row, dict))
         failed_count += sum(
-            1 for row in rows if isinstance(row, dict) and row.get("status") == "failed"
+            1
+            for row in rows
+            if isinstance(row, dict)
+            and str(row.get("status") or "").lower()
+            in {"failed", "error", "missing", "timeout"}
         )
-    return failed_count
+    return MemoryDataResultSummary(
+        artifact_count=artifact_count,
+        row_count=row_count,
+        failed_count=failed_count,
+        malformed_count=malformed_count,
+    )
+
+
+def _memorydata_failed_query_count(artifact_root: Path) -> int:
+    return _summarize_memorydata_results(artifact_root).failed_count
+
+
+def _write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.tmp")
+    with temporary.open("w", encoding="utf-8") as handle:
+        json.dump(payload, handle, ensure_ascii=False, indent=2, sort_keys=True)
+        handle.write("\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.replace(temporary, path)
 
 
 def _uses_amh_agent_config(agent_config: str | Path) -> bool:

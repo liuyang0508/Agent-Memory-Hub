@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import sys
 from types import SimpleNamespace
 from pathlib import Path
@@ -142,7 +143,15 @@ def test_memorydata_runner_materializes_amh_preset_before_subprocess(
         materialized["repo"] = Path(repo)
         return {"status": "materialized"}
 
-    def fake_run(*args, **kwargs):
+    def fake_run(command, **kwargs):
+        del kwargs
+        execution_root = Path(command[command.index("--artifact_root") + 1])
+        result_path = execution_root / "outputs" / "fixture_results.json"
+        result_path.parent.mkdir(parents=True)
+        result_path.write_text(
+            json.dumps({"data": [{"status": "passed"}]}),
+            encoding="utf-8",
+        )
         return SimpleNamespace(returncode=0, stdout="ok", stderr="")
 
     monkeypatch.setattr(memorydata_runner, "materialize_memorydata_amh_adapter", fake_materialize)

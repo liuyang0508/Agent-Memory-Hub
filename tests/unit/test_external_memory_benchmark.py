@@ -5,6 +5,8 @@ import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
+import pytest
+
 from agent_brain.evaluation.system_benchmark import SystemBenchmarkReport
 
 
@@ -830,15 +832,16 @@ def test_memorydata_runner_marks_zero_exit_run_failed_when_result_contains_faile
     (memorydata_repo / "main.py").write_text("print('fixture')\n", encoding="utf-8")
     artifact_root = tmp_path / "artifacts"
 
-    def fake_run(*args, **kwargs):
-        del args, kwargs
-        results_path = artifact_root / "outputs" / "fixture_results.json"
+    def fake_run(command, **kwargs):
+        del kwargs
+        execution_root = Path(command[command.index("--artifact_root") + 1])
+        results_path = execution_root / "outputs" / "fixture_results.json"
         results_path.parent.mkdir(parents=True)
         results_path.write_text(
             json.dumps({"data": [{"status": "failed", "error": "missing module"}]}),
             encoding="utf-8",
         )
-        return CompletedProcess(["python", "main.py"], 0, stdout="ok", stderr="")
+        return CompletedProcess(command, 0, stdout="ok", stderr="")
 
     monkeypatch.setattr(memorydata_runner.subprocess, "run", fake_run)
 
@@ -858,6 +861,100 @@ def test_memorydata_runner_marks_zero_exit_run_failed_when_result_contains_faile
     assert run["status"] == "failed"
     assert run["memorydata_failed_query_count"] == 1
     assert "failed query" in run["reason"]
+
+
+@pytest.mark.parametrize(
+    ("result_payload", "expected_reason"),
+    [
+        (None, "no fresh MemoryData result artifacts"),
+        ({"data": []}, "expected at least 2 result rows"),
+        ({"data": [{"status": "passed"}]}, "expected at least 2 result rows"),
+        ({"data": "wrong"}, "malformed MemoryData result artifact"),
+    ],
+)
+def test_memorydata_zero_exit_requires_complete_fresh_results(
+    tmp_path: Path,
+    monkeypatch,
+    result_payload,
+    expected_reason: str,
+) -> None:
+    from subprocess import CompletedProcess
+
+    from agent_brain.evaluation import memorydata_runner
+    from agent_brain.evaluation.memorydata_runner import MemoryDataRunOptions, run_memorydata
+
+    memorydata_repo = tmp_path / "MemoryData"
+    memorydata_repo.mkdir()
+    (memorydata_repo / "main.py").write_text("print('fixture')\n", encoding="utf-8")
+    artifact_root = tmp_path / "artifacts"
+
+    def fake_run(command, **kwargs):
+        del kwargs
+        if result_payload is not None:
+            execution_root = Path(command[command.index("--artifact_root") + 1])
+            result_path = execution_root / "outputs" / "fixture_results.json"
+            result_path.parent.mkdir(parents=True)
+            result_path.write_text(json.dumps(result_payload), encoding="utf-8")
+        return CompletedProcess(command, 0, stdout="ok", stderr="")
+
+    monkeypatch.setattr(memorydata_runner.subprocess, "run", fake_run)
+
+    run = run_memorydata(
+        MemoryDataRunOptions(
+            memorydata_repo=memorydata_repo,
+            artifact_root=artifact_root,
+            max_test_queries=2,
+        ),
+        prereqs={
+            "dependencies_ready": True,
+            "missing_dependencies": [],
+            "datasets_ready": True,
+            "endpoint_ready": True,
+        },
+    )
+
+    assert run["status"] == "failed"
+    assert expected_reason in run["reason"]
+
+
+def test_memorydata_runner_ignores_stale_parent_results(tmp_path: Path, monkeypatch) -> None:
+    from subprocess import CompletedProcess
+
+    from agent_brain.evaluation import memorydata_runner
+    from agent_brain.evaluation.memorydata_runner import MemoryDataRunOptions, run_memorydata
+
+    memorydata_repo = tmp_path / "MemoryData"
+    memorydata_repo.mkdir()
+    (memorydata_repo / "main.py").write_text("print('fixture')\n", encoding="utf-8")
+    artifact_root = tmp_path / "artifacts"
+    stale_result = artifact_root / "old" / "stale_results.json"
+    stale_result.parent.mkdir(parents=True)
+    stale_result.write_text(
+        json.dumps({"data": [{"status": "passed"}]}),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        memorydata_runner.subprocess,
+        "run",
+        lambda command, **kwargs: CompletedProcess(command, 0, stdout="ok", stderr=""),
+    )
+
+    run = run_memorydata(
+        MemoryDataRunOptions(
+            memorydata_repo=memorydata_repo,
+            artifact_root=artifact_root,
+        ),
+        prereqs={
+            "dependencies_ready": True,
+            "missing_dependencies": [],
+            "datasets_ready": True,
+            "endpoint_ready": True,
+        },
+    )
+
+    assert run["status"] == "failed"
+    assert "no fresh MemoryData result artifacts" in run["reason"]
 
 
 def test_memorydata_runner_passes_absolute_artifact_root_to_upstream_process(
@@ -905,11 +1002,13 @@ def test_memorydata_runner_passes_absolute_artifact_root_to_upstream_process(
     command = captured["command"]
     artifact_root_arg = Path(command[command.index("--artifact_root") + 1])
     assert artifact_root_arg.is_absolute()
-    assert artifact_root_arg == relative_artifacts.resolve()
+    assert artifact_root_arg.parent.parent == relative_artifacts.resolve()
+    assert artifact_root_arg.parent.name == "runs"
     assert captured["cwd"] == memorydata_repo
     assert run["status"] == "passed"
     assert run["artifact_root"] == "relative-memorydata-artifacts"
     assert run["run_record"] == "relative-memorydata-artifacts/run-record.json"
+    assert run["run_artifact_root"].startswith("relative-memorydata-artifacts/runs/")
 
 
 def test_memorydata_runner_redacts_public_run_record(
@@ -967,7 +1066,8 @@ def test_memorydata_runner_redacts_public_run_record(
     assert str(Path.home()) not in serialized
     assert str(Path.home()) not in record_serialized
     assert "~" in run["stdout_tail"]
-    artifact_text = (artifact_root / "outputs" / "fixture_results.json").read_text(encoding="utf-8")
+    result_path = next(artifact_root.rglob("fixture_results.json"))
+    artifact_text = result_path.read_text(encoding="utf-8")
     assert str(Path.home()) not in artifact_text
     assert str(artifact_root) not in artifact_text
 
