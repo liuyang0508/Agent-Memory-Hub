@@ -93,3 +93,23 @@ def test_managed_cli_components_close_index_on_success_and_error(monkeypatch) ->
         with _shared._managed_components():
             raise RuntimeError("fixture failure")
     assert error_index.close_calls == 1
+
+
+def test_command_components_uses_typer_context_provider(monkeypatch) -> None:
+    from agent_brain.interfaces.cli import _shared
+
+    sentinel = (object(), object(), object())
+
+    class FakeContext:
+        def __init__(self) -> None:
+            self.resource = None
+
+        def with_resource(self, resource):
+            self.resource = resource
+            return sentinel
+
+    context = FakeContext()
+    monkeypatch.setattr(_shared, "_get_current_context", lambda *, silent: context)
+
+    assert _shared._command_components(hook=True) is sentinel
+    assert context.resource is not None

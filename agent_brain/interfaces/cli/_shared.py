@@ -5,8 +5,9 @@
 """
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from importlib import import_module
 import click
 import os
 import sys
@@ -14,6 +15,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import typer
+from typing import Any, cast
 from rich.console import Console
 from rich.table import Table
 from agent_brain._version import __version__
@@ -29,6 +31,13 @@ from agent_brain.memory.governance.evolve.engine import EvolveEngine, EvolveRepo
 from agent_brain.observability import BrainStats, HealthScore, collect_stats
 from agent_brain.contracts.memory_item import MemoryItem, MemoryType, Sensitivity
 from agent_brain.interfaces.cli.doctor_offline import doctor_offline as _doctor_offline
+
+_get_current_context: Callable[..., Any]
+try:
+    _get_current_context = import_module("typer._click.globals").get_current_context
+except (AttributeError, ModuleNotFoundError):
+    # Typer <= 0.25 delegates to the external Click package.
+    _get_current_context = click.get_current_context
 
 # Late binding to the cli package so `_open_components`'s internal embedder
 # lookup stays interceptable by mock.patch("agent_brain.interfaces.cli.get_default_embedder").
@@ -111,10 +120,13 @@ def _command_components(
     hook: bool = False,
 ) -> tuple[ItemsStore, HubIndex, Retriever]:
     """Keep CLI components alive until Click tears down the current command."""
-    context = click.get_current_context(silent=True)
+    context = _get_current_context(silent=True)
     if context is None:
         raise RuntimeError("CLI components require an active Click command context")
-    return context.with_resource(_managed_components(hook=hook))
+    return cast(
+        tuple[ItemsStore, HubIndex, Retriever],
+        context.with_resource(_managed_components(hook=hook)),
+    )
 
 
 def _parse_enum(enum_cls, value: str, flag: str):
