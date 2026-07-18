@@ -152,7 +152,7 @@ def changes(
 
 
 @codegraph_app.command("search")
-def search(
+def codegraph_search(
     query: str | None = typer.Argument(None, help="Natural-language or keyword query"),
     repo: Path = typer.Option(Path.cwd(), "--repo", help="Repository path"),
     project: str | None = typer.Option(None, "--project", help="Override codebase-memory project name"),
@@ -189,5 +189,5 @@ __all__ = [
     "index_status",
     "architecture",
     "changes",
-    "search",
+    "codegraph_search",
 ]

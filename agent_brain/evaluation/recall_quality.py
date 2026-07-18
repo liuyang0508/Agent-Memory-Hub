@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import asdict, dataclass
-from typing import Iterable
+from typing import Any, Callable, Iterable
+
+
+MetricReport = dict[str, Any]
 
 
 @dataclass(frozen=True)
@@ -41,7 +44,7 @@ def build_recall_quality_report(
     corpus_sha256: dict[str, str],
     implementation_sha256: str,
     evaluation_now: str,
-) -> dict[str, object]:
+) -> MetricReport:
     rows = tuple(observations)
     if not rows:
         raise ValueError("recall quality observations must be non-empty")
@@ -59,19 +62,21 @@ def build_recall_quality_report(
             raise ValueError("recall quality counters must be non-negative")
 
     overall = _aggregate(rows)
-    breakdowns = {
-        dimension: {
+    dimensions: tuple[
+        tuple[str, Callable[[RecallQualityObservation], str]], ...
+    ] = (
+        ("split", lambda row: row.split),
+        ("adapter", lambda row: row.adapter),
+        ("project_scope", lambda row: row.project_scope),
+        ("language", lambda row: row.language),
+        ("category", lambda row: row.category),
+    )
+    breakdowns: dict[str, dict[str, MetricReport]] = {}
+    for dimension, getter in dimensions:
+        breakdowns[dimension] = {
             key: _aggregate(tuple(row for row in rows if getter(row) == key))
             for key in sorted({getter(row) for row in rows})
         }
-        for dimension, getter in (
-            ("split", lambda row: row.split),
-            ("adapter", lambda row: row.adapter),
-            ("project_scope", lambda row: row.project_scope),
-            ("language", lambda row: row.language),
-            ("category", lambda row: row.category),
-        )
-    }
     failed_gates = _failed_gates(overall, breakdowns["split"])
     return {
         "schema_version": 1,
@@ -87,7 +92,7 @@ def build_recall_quality_report(
     }
 
 
-def _aggregate(rows: tuple[RecallQualityObservation, ...]) -> dict[str, object]:
+def _aggregate(rows: tuple[RecallQualityObservation, ...]) -> MetricReport:
     retrieval = _retrieval_metrics(rows)
     admission_tp = sum(row.expected_admission and row.admission_allowed for row in rows)
     admission_fp = sum(not row.expected_admission and row.admission_allowed for row in rows)
@@ -135,7 +140,7 @@ def _aggregate(rows: tuple[RecallQualityObservation, ...]) -> dict[str, object]:
     }
 
 
-def _retrieval_metrics(rows: tuple[RecallQualityObservation, ...]) -> dict[str, object]:
+def _retrieval_metrics(rows: tuple[RecallQualityObservation, ...]) -> MetricReport:
     positive = [row for row in rows if row.expected_item_ids]
     reciprocal_ranks: list[float] = []
     recall_at: dict[int, int] = {1: 0, 5: 0, 10: 0}
@@ -166,7 +171,7 @@ def _retrieval_metrics(rows: tuple[RecallQualityObservation, ...]) -> dict[str, 
     }
 
 
-def _injection_metrics(rows: tuple[RecallQualityObservation, ...]) -> dict[str, object]:
+def _injection_metrics(rows: tuple[RecallQualityObservation, ...]) -> MetricReport:
     tp = fp = fn = prohibited = included = 0
     excluded_reasons: Counter[str] = Counter()
     for row in rows:
@@ -193,8 +198,8 @@ def _injection_metrics(rows: tuple[RecallQualityObservation, ...]) -> dict[str, 
 
 
 def _failed_gates(
-    overall: dict[str, object],
-    split_metrics: dict[str, dict[str, object]],
+    overall: MetricReport,
+    split_metrics: dict[str, MetricReport],
 ) -> list[str]:
     failed: list[str] = []
     for split, layers in split_metrics.items():

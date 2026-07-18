@@ -11,6 +11,13 @@ from agent_brain.interfaces.cli.commands import codegraph as codegraph_cmd
 runner = CliRunner()
 
 
+def test_codegraph_search_does_not_overwrite_top_level_memory_search() -> None:
+    from agent_brain.interfaces import cli
+    from agent_brain.interfaces.cli.commands import query as query_cmd
+
+    assert cli.search is query_cmd.search
+
+
 def test_codegraph_project_name_command():
     result = runner.invoke(app, ["codegraph", "project-name", "/tmp/bench/my project+测试"])
 

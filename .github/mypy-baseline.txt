@@ -134,7 +134,6 @@ agent_brain/evaluation/system_benchmark.py: error: Value of type "object" is not
 agent_brain/evaluation/system_benchmark.py: error: Value of type "object" is not indexable  [index]
 agent_brain/evaluation/system_benchmark.py: error: Value of type "object" is not indexable  [index]
 agent_brain/evaluation/system_benchmark.py: error: Value of type "object" is not indexable  [index]
-agent_brain/interfaces/cli/__init__.py: error: Incompatible import of "search" (imported name has type "Callable[[str | None, Path, str | None, str | None, str | None, int, int, str | None, float, str], None]", local name has type "Callable[[str, int, str | None, str | None, str | None, str | None, int | None, str | None, str, bool, bool, str | None, bool, bool, bool, bool, str, str | None, str | None], None]")  [assignment]
 agent_brain/interfaces/cli/__main__.py: error: Module "agent_brain.interfaces.cli" does not explicitly export attribute "app"  [attr-defined]
 agent_brain/interfaces/cli/_shared.py: error: Function is missing a return type annotation  [no-untyped-def]
 agent_brain/interfaces/cli/_shared.py: error: Function is missing a type annotation for one or more parameters  [no-untyped-def]

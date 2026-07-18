@@ -242,7 +242,7 @@ def record_task_outcome_feedback_application(
 def iter_gap_records(brain_dir: Path) -> Iterator[GapRecord]:
     for data in _iter_jsonl(recall_gaps_path(brain_dir)):
         try:
-            schema_version = int(data.get("schema_version", 1))
+            schema_version = int(str(data.get("schema_version", 1)))
             if schema_version == 2:
                 query_digest = _safe_stored_digest(data.get("query_digest"))
                 query_shape = _safe_query_shape(data.get("query_shape"))
