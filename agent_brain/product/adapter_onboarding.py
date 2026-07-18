@@ -807,6 +807,8 @@ def _probe_context_effectiveness(brain_dir: Path, adapter_name: str) -> dict[str
 
     injected_sessions = _sessions_with_injection_cohort(brain_dir, adapter_name)
     for path in _iter_candidate_transcripts(adapter_name):
+        if not _is_recent_context_transcript(path):
+            continue
         qoderwork_gui = adapter_name == "qoder_work" and _is_qoderwork_gui_transcript(path)
         if adapter_name == "qoder_work" and not qoderwork_gui:
             continue
@@ -937,10 +939,24 @@ def _sessions_with_injection_cohort(brain_dir: Path, adapter_name: str) -> set[s
             continue
         if not record.get("item_ids"):
             continue
+        timestamp = record.get("timestamp")
+        if timestamp and not _is_recent_context_timestamp(timestamp):
+            continue
         session_id = str(record.get("session_id") or "").strip()
         if session_id:
             sessions.add(session_id)
     return sessions
+
+
+def _is_recent_context_timestamp(value: object) -> bool:
+    try:
+        observed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        if observed.tzinfo is None:
+            observed = observed.replace(tzinfo=timezone.utc)
+        age_seconds = time.time() - observed.timestamp()
+    except (TypeError, ValueError, OverflowError, OSError):
+        return False
+    return -5 <= age_seconds <= CONTEXT_TOOL_TRACE_RECENCY_SECONDS
 
 
 def _iter_assistant_transcript_text(path: Path) -> list[tuple[str, str]]:

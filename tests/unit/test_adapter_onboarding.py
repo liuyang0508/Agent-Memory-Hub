@@ -535,6 +535,50 @@ def test_adapter_verify_context_probe_records_generic_transcript_evidence(
     assert any(entry.startswith("context_effective=transcript_agent_brain") for entry in data["record"]["evidence"])
 
 
+def test_context_probe_rejects_stale_transcript_and_injection_cohort(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    import os
+    import time
+
+    from agent_brain.product import adapter_onboarding as onboarding
+
+    transcript_root = tmp_path / ".qoderwork" / "workspace"
+    transcript_root.mkdir(parents=True)
+    stale_path = transcript_root / "stale-session.jsonl"
+    stale_path.write_text(
+        '<agent_brain>\nAuto-injected memory candidates, not chat history\n</agent_brain>\n',
+        encoding="utf-8",
+    )
+    stale_at = time.time() - onboarding.CONTEXT_TOOL_TRACE_RECENCY_SECONDS - 60
+    os.utime(stale_path, (stale_at, stale_at))
+
+    runtime = tmp_path / "runtime"
+    runtime.mkdir()
+    (runtime / "injection-cohorts.jsonl").write_text(
+        json.dumps(
+            {
+                "adapter": "qoder_work",
+                "session_id": "stale-session",
+                "item_ids": ["mem-stale"],
+                "timestamp": "2020-01-01T00:00:00+00:00",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        onboarding,
+        "_context_transcript_roots",
+        lambda adapter: [transcript_root],
+    )
+
+    result = onboarding._probe_context_effectiveness(tmp_path, "qoder_work")
+
+    assert result["status"] == "failed"
+
+
 def test_install_verify_uninstall_check_accepts_mcp_probe_without_persisting_runtime(
     tmp_path: Path,
     monkeypatch,
