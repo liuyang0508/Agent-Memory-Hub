@@ -36,6 +36,14 @@ web = [
     "bcrypt>=4.0,<5",
     "python-multipart>=0.0.9",
 ]
+all = [
+    "sentence-transformers>=3.0,<4",
+    "fastapi>=0.111,<1",
+    "uvicorn[standard]>=0.30,<1",
+    "PyJWT>=2.8,<3",
+    "bcrypt>=4.0,<5",
+    "python-multipart>=0.0.9",
+]
 dev = [
     "fastapi>=0.111,<1",
     "uvicorn[standard]>=0.30,<1",

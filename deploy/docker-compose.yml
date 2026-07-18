@@ -18,7 +18,7 @@ services:
       - MEMORY_HUB_LLM_API_KEY=${MEMORY_HUB_LLM_API_KEY:-}
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8742/health')"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8742/api/health', timeout=3)"]
       interval: 30s
       timeout: 5s
       retries: 3
