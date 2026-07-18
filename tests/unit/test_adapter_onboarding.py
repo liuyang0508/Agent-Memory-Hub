@@ -436,6 +436,7 @@ def test_adapter_verify_mcp_adapter_uses_active_probe_without_hook_runtime(
     monkeypatch,
 ) -> None:
     from agent_brain.agent_integrations import continue_dev as cont_mod
+    from agent_brain.memory.context.injection_cohorts import record_injection_cohort
     from agent_brain.product.adapter_onboarding import verify_adapter
 
     mcp_path = tmp_path / ".continue" / "config.yaml"
@@ -443,6 +444,12 @@ def test_adapter_verify_mcp_adapter_uses_active_probe_without_hook_runtime(
     monkeypatch.setattr(cont_mod, "MCP_CONFIG_PATH", mcp_path)
     monkeypatch.setattr(cont_mod, "AWARENESS_PATH", awareness_path)
     cont_mod.ContinueAdapter(brain_dir=tmp_path).install()
+    record_injection_cohort(
+        tmp_path,
+        adapter="continue_dev",
+        session_id="continue-active-probe",
+        item_ids=["mem-continue-active-probe"],
+    )
 
     data = verify_adapter(tmp_path, "continue_dev", verifier="pytest")
 

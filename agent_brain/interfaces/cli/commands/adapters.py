@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from agent_brain.interfaces.cli._app import adapter_app
 from agent_brain.interfaces.cli._shared import Table, _brain_dir, console, typer
 
@@ -25,10 +27,11 @@ def adapter_list(
         typer.echo("No adapters discovered.")
         return
 
-    table = Table(title=f"Agent Adapters ({len(rows)} discovered)")
+    table = Table(title=f"Agent Adapters ({len(rows)} discovered) — evidence truth")
     table.add_column("name")
     table.add_column("support")
-    table.add_column("status")
+    table.add_column("truth")
+    table.add_column("next")
     table.add_column("modes")
     table.add_column("inject")
     table.add_column("evidence")
@@ -50,13 +53,51 @@ def adapter_list(
         table.add_row(
             name,
             f"[{color}]{support}[/{color}]",
-            str(r["status"]),
+            _adapter_truth_state(r),
+            _adapter_next_action(r),
             ", ".join(r["integration_modes"]),
             str(r["inject_method"]),
             evidence,
             "; ".join(r["limitations"]),
         )
     console.print(table)
+
+
+def _adapter_truth_state(row: dict[str, object]) -> str:
+    states = row.get("states")
+    if not isinstance(states, dict):
+        return str(row.get("status") or "unknown")
+    for name in (
+        "context_injected",
+        "runtime_observed",
+        "doctor_passed",
+        "configured",
+        "installed",
+        "implemented",
+    ):
+        if states.get(name):
+            return name
+    return "not_implemented"
+
+
+def _adapter_next_action(row: dict[str, object]) -> str:
+    release = row.get("release_control")
+    if isinstance(release, dict) and release.get("stage") == "disabled":
+        return "enable-shadow"
+    if row.get("verified") is True:
+        return "verified"
+    states = row.get("states")
+    if not isinstance(states, dict) or not states.get("implemented"):
+        return "unsupported"
+    if not states.get("installed"):
+        return "install"
+    if not states.get("configured") or not states.get("doctor_passed"):
+        return "repair"
+    if not states.get("runtime_observed"):
+        return "wait-runtime"
+    if not states.get("context_injected"):
+        return "trigger-recall"
+    return "verify"
 
 
 @adapter_app.command("install")
@@ -67,71 +108,40 @@ def adapter_install(
     """Install an agent adapter — wires the brain pool into that agent's config."""
     import json
 
-    from agent_brain.agent_integrations import discover_adapters
-    from agent_brain.agent_integrations.registry import get_adapter, resolve_adapter_name
+    from agent_brain.product.adapter_onboarding import execute_adapter_action
 
     if format not in {"text", "json"}:
         typer.echo("format must be text or json", err=True)
         raise typer.Exit(2)
 
-    discover_adapters()
-    try:
-        canonical_name, alias_used = resolve_adapter_name(name)
-        adapter = get_adapter(canonical_name, _brain_dir())
-    except ValueError as e:
-        if format == "json":
-            typer.echo(json.dumps(
-                _adapter_install_payload(
-                    adapter=name,
-                    requested_adapter=name,
-                    status="unknown_adapter",
-                    message=str(e),
-                ),
-                indent=2,
-                ensure_ascii=False,
-            ))
-            raise typer.Exit(1)
-        typer.echo(str(e), err=True)
-        raise typer.Exit(1)
-    try:
-        msg = adapter.install()
-    except NotImplementedError as e:
-        payload = _adapter_install_payload(
-            adapter=canonical_name,
-            requested_adapter=name,
-            alias=alias_used,
-            status="adapter_wip",
-            message=str(e),
-        )
-        if format == "json":
-            typer.echo(json.dumps(payload, indent=2, ensure_ascii=False))
-        else:
-            typer.echo(_format_adapter_install_failure(payload), err=True)
-        raise typer.Exit(1)
-    except (FileNotFoundError, RuntimeError) as e:
-        payload = _adapter_install_payload(
-            adapter=canonical_name,
-            requested_adapter=name,
-            alias=alias_used,
-            status=_adapter_install_error_status(e),
-            message=str(e),
-        )
-        if format == "json":
-            typer.echo(json.dumps(payload, indent=2, ensure_ascii=False))
-        else:
-            typer.echo(_format_adapter_install_failure(payload), err=True)
-        raise typer.Exit(1)
+    result = execute_adapter_action(_brain_dir(), name, "install", verifier="cli")
+    legacy_status = {
+        "OK": "configured",
+        "UNKNOWN_ADAPTER": "unknown_adapter",
+        "ADAPTER_WIP": "adapter_wip",
+        "CLIENT_MISSING": "needs_client",
+        "CONFIG_MALFORMED": "malformed_config",
+    }.get(result.reason_code, "failed")
     payload = _adapter_install_payload(
-        adapter=canonical_name,
+        adapter=result.adapter,
         requested_adapter=name,
-        alias=alias_used,
-        status="configured",
-        message=msg,
+        status=legacy_status,
+        message=result.message,
     )
+    payload.update({
+        "schema_version": result.schema_version,
+        "reason_code": result.reason_code,
+        "provenance": result.provenance,
+        "states": result.state_after,
+    })
     if format == "json":
         typer.echo(json.dumps(payload, indent=2, ensure_ascii=False))
+    elif result.status != "passed":
+        typer.echo(_format_adapter_install_failure(payload), err=True)
     else:
-        typer.echo(msg)
+        typer.echo(result.message)
+    if result.status != "passed":
+        raise typer.Exit(1)
 
 
 def _adapter_install_error_status(exc: Exception) -> str:
@@ -211,30 +221,96 @@ def _format_adapter_install_failure(payload: dict[str, object]) -> str:
 @adapter_app.command("uninstall")
 def adapter_uninstall(
     name: str = typer.Argument(..., help="Adapter name to uninstall"),
+    format: str = typer.Option("text", "--format", help="Output format: text or json"),
 ) -> None:
     """Uninstall an agent adapter — removes only hub-owned config entries."""
-    from agent_brain.agent_integrations import discover_adapters
-    from agent_brain.agent_integrations.registry import get_adapter, resolve_adapter_name
+    from agent_brain.product.adapter_onboarding import execute_adapter_action
 
-    discover_adapters()
-    try:
-        canonical_name, _alias_used = resolve_adapter_name(name)
-        adapter = get_adapter(canonical_name, _brain_dir())
-    except ValueError as e:
-        typer.echo(str(e), err=True)
+    result = execute_adapter_action(_brain_dir(), name, "uninstall", verifier="cli")
+    _emit_lifecycle_result(result, format=format, failure_prefix=f"{name}: uninstall failed")
+
+
+def _emit_lifecycle_result(result: Any, *, format: str, failure_prefix: str) -> None:
+    import json
+
+    if format not in {"text", "json"}:
+        typer.echo("format must be text or json", err=True)
+        raise typer.Exit(2)
+    payload = result.to_dict()
+    if format == "json":
+        typer.echo(json.dumps(payload, indent=2, ensure_ascii=False))
+    elif result.status == "passed":
+        typer.echo(result.message)
+    else:
+        typer.echo(f"{failure_prefix} — {result.message}", err=True)
+    if result.status != "passed":
         raise typer.Exit(1)
-    uninstall = getattr(adapter, "uninstall", None)
-    if not callable(uninstall):
-        typer.echo(
-            f"{name}: adapter has no uninstall path "
-            f"(WIP stub — nothing was installed)",
-            err=True,
+
+
+@adapter_app.command("repair")
+def adapter_repair(
+    name: str = typer.Argument(..., help="Adapter name to repair"),
+    format: str = typer.Option("text", "--format", help="Output format: text or json"),
+) -> None:
+    """Repair only AMH-owned adapter drift after a read-only doctor."""
+    from agent_brain.product.adapter_onboarding import execute_adapter_action
+
+    result = execute_adapter_action(_brain_dir(), name, "repair", verifier="cli")
+    _emit_lifecycle_result(result, format=format, failure_prefix=f"{name}: repair failed")
+
+
+@adapter_app.command("upgrade")
+def adapter_upgrade(
+    name: str = typer.Argument(..., help="Adapter name to upgrade"),
+    format: str = typer.Option("text", "--format", help="Output format: text or json"),
+) -> None:
+    """Upgrade an adapter with a private rollback snapshot."""
+    from agent_brain.product.adapter_onboarding import execute_adapter_action
+
+    result = execute_adapter_action(_brain_dir(), name, "upgrade", verifier="cli")
+    _emit_lifecycle_result(result, format=format, failure_prefix=f"{name}: upgrade failed")
+
+
+@adapter_app.command("release")
+def adapter_release(
+    name: str = typer.Argument(..., help="Adapter name to promote or disable"),
+    stage: str = typer.Option(..., "--stage", help="shadow, canary, default, or disabled"),
+    cohort_percent: int | None = typer.Option(None, "--cohort-percent"),
+    reason: str = typer.Option("", "--reason"),
+    format: str = typer.Option("text", "--format", help="Output format: text or json"),
+) -> None:
+    """Apply an ordered per-adapter rollout or kill-switch transition."""
+    import json
+    from typing import cast
+
+    from agent_brain.agent_integrations.release_controls import ReleaseStage, set_adapter_release
+
+    if format not in {"text", "json"}:
+        typer.echo("format must be text or json", err=True)
+        raise typer.Exit(2)
+    if stage not in {"shadow", "canary", "default", "disabled"}:
+        typer.echo("stage must be shadow, canary, default, or disabled", err=True)
+        raise typer.Exit(2)
+    try:
+        result = set_adapter_release(
+            _brain_dir(),
+            name,
+            cast(ReleaseStage, stage),
+            cohort_percent=cohort_percent,
+            reason=reason,
         )
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
         raise typer.Exit(1)
-    try:
-        typer.echo(uninstall())
-    except (FileNotFoundError, RuntimeError) as e:
-        typer.echo(f"{name}: uninstall failed — {e}", err=True)
+    payload = result.to_dict()
+    if format == "json":
+        typer.echo(json.dumps(payload, indent=2, ensure_ascii=False))
+    else:
+        typer.echo(
+            f"{name}: release {result.status} — {result.control.stage} "
+            f"({result.control.cohort_percent}%)"
+        )
+    if result.status != "passed":
         raise typer.Exit(1)
 
 
@@ -266,6 +342,11 @@ def adapter_doctor(
     data = report.to_dict()
     data["requested_adapter"] = name
     data["adapter"] = canonical_name
+    data["schema_version"] = "amh-adapter-lifecycle-result/v1"
+    data["action"] = "doctor"
+    data["status"] = "failed" if report.overall_status == "error" else "passed"
+    data["reason_code"] = "DOCTOR_FAILED" if report.overall_status == "error" else "OK"
+    data["repair_command"] = f"memory adapter repair {canonical_name}"
     if alias_used:
         data["alias"] = alias_used
 
@@ -413,7 +494,10 @@ __all__ = [
     "adapter_list",
     "adapter_install",
     "adapter_install_verify",
+    "adapter_repair",
+    "adapter_release",
     "adapter_uninstall",
+    "adapter_upgrade",
     "adapter_doctor",
     "adapter_verify",
 ]

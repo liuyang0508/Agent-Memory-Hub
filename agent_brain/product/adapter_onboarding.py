@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
 import hashlib
 import json
 import os
@@ -21,9 +22,10 @@ from agent_brain.agent_integrations.lifecycle_records import (
     LifecycleAction,
     LifecycleReasonCode,
     LifecycleStatus,
+    lifecycle_evidence_summary,
     record_lifecycle_event,
 )
-from agent_brain.agent_integrations.manifests import AdapterManifest
+from agent_brain.agent_integrations.manifests import AdapterManifest, manifest_for_adapter
 from agent_brain.agent_integrations.registry import get_adapter, resolve_adapter_name
 from agent_brain.agent_integrations.runtime_events import (
     record_runtime_event,
@@ -79,6 +81,12 @@ def build_onboarding_summary(brain_dir: Path) -> dict[str, Any]:
         "install_ready": sum(1 for cap in caps if cap.support_level == "install-ready"),
         "wip": sum(1 for cap in caps if cap.status == "wip"),
         "verified": sum(1 for cap in caps if cap.verified),
+        "implemented": sum(1 for cap in caps if cap.states["implemented"]),
+        "installed": sum(1 for cap in caps if cap.states["installed"]),
+        "configured": sum(1 for cap in caps if cap.states["configured"]),
+        "doctor_passed": sum(1 for cap in caps if cap.states["doctor_passed"]),
+        "runtime_observed": sum(1 for cap in caps if cap.states["runtime_observed"]),
+        "context_injected": sum(1 for cap in caps if cap.states["context_injected"]),
         "adapters": rows,
     }
 
@@ -459,6 +467,11 @@ def doctor_adapter(brain_dir: Path, name: str) -> dict[str, Any]:
     data["requested_adapter"] = name
     data["adapter"] = adapter_name
     data["alias"] = alias_used
+    data["schema_version"] = LIFECYCLE_RESULT_SCHEMA_VERSION
+    data["action"] = "doctor"
+    data["status"] = "failed" if data.get("overall_status") == "error" else "passed"
+    data["reason_code"] = "DOCTOR_FAILED" if data.get("overall_status") == "error" else "OK"
+    data["repair_command"] = f"memory adapter repair {adapter_name}"
     return data
 
 
@@ -503,6 +516,8 @@ def install_verify_adapter(
 
     adapter_name, alias_used, adapter = _adapter(brain_dir, name)
     result: dict[str, Any] = {
+        "schema_version": LIFECYCLE_RESULT_SCHEMA_VERSION,
+        "action": "install-verify",
         "adapter": adapter_name,
         "requested_adapter": name,
         "alias": alias_used,
@@ -511,6 +526,8 @@ def install_verify_adapter(
         "verification": None,
         "uninstall": None,
         "persistent_verification_recorded": False,
+        "reason_code": "INTERNAL_ERROR",
+        "repair_command": f"memory adapter repair {adapter_name}",
     }
     try:
         result["install"] = {
@@ -520,10 +537,12 @@ def install_verify_adapter(
     except NotImplementedError as exc:
         result["install"] = {"status": "unsupported", "message": str(exc)}
         result["blockers"] = ["adapter install not implemented"]
+        result["reason_code"] = "ADAPTER_WIP"
         return result
     except (FileNotFoundError, RuntimeError) as exc:
         result["install"] = {"status": "failed", "message": str(exc)}
         result["blockers"] = ["adapter install failed"]
+        result["reason_code"] = _exception_reason(exc)
         return result
 
     verification = _verify_adapter(
@@ -557,6 +576,7 @@ def install_verify_adapter(
 
     result["blockers"] = blockers
     result["status"] = "failed" if blockers else "passed"
+    result["reason_code"] = _verification_reason(verification) if blockers else "OK"
     return result
 
 
@@ -622,6 +642,20 @@ def _verify_adapter(
         context_probe = _probe_context_effectiveness(brain_dir, adapter_name)
         if context_probe["status"] != "passed":
             blockers.append("context effectiveness not observed")
+    if record and not (context_probe and context_probe["status"] == "passed"):
+        manifest = manifest_for_adapter(adapter_name, adapter)
+        freshness = lifecycle_evidence_summary(
+            brain_dir,
+            adapter_name,
+            now=datetime.now(timezone.utc),
+            runtime_ttl_seconds=manifest.evidence.runtime_ttl_seconds,
+            context_ttl_seconds=manifest.evidence.context_ttl_seconds,
+            verification_ttl_seconds=manifest.evidence.verification_ttl_seconds,
+        )
+        if not freshness.context_injection.observed:
+            blockers.append("context injection not observed")
+        elif not freshness.context_injection.fresh:
+            blockers.append("context injection evidence stale")
     status = "failed" if blockers else "passed"
     evidence = [
         f"memory adapter doctor {adapter_name} --format json",
@@ -642,10 +676,14 @@ def _verify_adapter(
             note=note or ("; ".join(blockers) if blockers else "doctor and runtime checks passed"),
         )
     return {
+        "schema_version": LIFECYCLE_RESULT_SCHEMA_VERSION,
+        "action": "verify",
         "adapter": adapter_name,
         "requested_adapter": requested_name,
         "alias": alias_used,
         "status": status,
+        "reason_code": _verification_reason({"blockers": blockers}) if blockers else "OK",
+        "repair_command": f"memory adapter repair {adapter_name}",
         "blockers": blockers,
         "evidence": evidence,
         "runtime_events": runtime_summary.count,
@@ -674,14 +712,23 @@ def _adapter_row(cap: AdapterCapability) -> dict[str, Any]:
 
 
 def _next_action(cap: AdapterCapability) -> str:
+    if cap.release_control and cap.release_control.get("stage") == "disabled":
+        return "enable-shadow"
     if cap.verified:
         return "verified"
-    if cap.status == "wip":
+    if not cap.states["implemented"]:
+        return "unsupported"
+    if not cap.states["installed"]:
         return "install"
-    if not cap.runtime_observed and (cap.supports_hooks or cap.supports_mcp):
+    if not cap.states["configured"] or not cap.states["doctor_passed"]:
+        return "repair"
+    stale_reasons = cap.evidence_freshness.get("stale_reasons")
+    if isinstance(stale_reasons, list) and stale_reasons:
+        return "verify"
+    if not cap.states["runtime_observed"]:
         return "wait-runtime"
-    if cap.verification_blockers:
-        return "doctor"
+    if not cap.states["context_injected"]:
+        return "trigger-recall"
     return "verify"
 
 

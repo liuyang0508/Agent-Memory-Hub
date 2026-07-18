@@ -1145,3 +1145,76 @@ def test_adapter_uninstall_openclaw_keeps_failure_when_entry_remains(tmp_path, m
     assert "openclaw: uninstall failed" in result.output
     assert "exit -9" in result.output
     assert "Traceback" not in result.output
+
+
+def test_adapter_repair_and_upgrade_expose_lifecycle_json(tmp_path, monkeypatch):
+    from agent_brain.agent_integrations import codex as codex_module
+
+    monkeypatch.setattr(codex_module, "AGENTS_MD", tmp_path / ".codex" / "AGENTS.md")
+    monkeypatch.setattr(codex_module, "CODEX_HOOKS_JSON", tmp_path / ".codex" / "hooks.json")
+    monkeypatch.setattr(codex_module, "CODEX_CONFIG_TOML", tmp_path / ".codex" / "config.toml")
+    install = runner.invoke(app, ["adapter", "install", "codex"])
+    assert install.exit_code == 0, install.output
+
+    repair = runner.invoke(app, ["adapter", "repair", "codex", "--format", "json"])
+    upgrade = runner.invoke(app, ["adapter", "upgrade", "codex", "--format", "json"])
+
+    for result, action in ((repair, "repair"), (upgrade, "upgrade")):
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.output)
+        assert payload["schema_version"] == "amh-adapter-lifecycle-result/v1"
+        assert payload["action"] == action
+        assert payload["status"] == "passed"
+        assert payload["reason_code"] == "OK"
+        assert payload["provenance"]["action"] == action
+
+
+def test_adapter_release_cli_enforces_ordered_promotion():
+    shadow = runner.invoke(
+        app,
+        ["adapter", "release", "codex", "--stage", "shadow", "--format", "json"],
+    )
+    invalid = runner.invoke(
+        app,
+        ["adapter", "release", "codex", "--stage", "default", "--format", "json"],
+    )
+    canary = runner.invoke(
+        app,
+        [
+            "adapter",
+            "release",
+            "codex",
+            "--stage",
+            "canary",
+            "--cohort-percent",
+            "10",
+            "--format",
+            "json",
+        ],
+    )
+
+    assert shadow.exit_code == 0, shadow.output
+    assert invalid.exit_code == 1
+    assert json.loads(invalid.output)["reason_code"] == "INVALID_PROMOTION"
+    assert canary.exit_code == 0, canary.output
+    assert json.loads(canary.output)["control"]["stage"] == "canary"
+
+
+def test_adapter_uninstall_supports_machine_readable_lifecycle_json(tmp_path, monkeypatch):
+    from agent_brain.agent_integrations import github_copilot as github_module
+
+    instructions = tmp_path / ".github" / "copilot-instructions.md"
+    monkeypatch.setattr(github_module, "INSTRUCTIONS_PATH", instructions)
+    install = runner.invoke(app, ["adapter", "install", "github_copilot"])
+    assert install.exit_code == 0, install.output
+
+    result = runner.invoke(
+        app,
+        ["adapter", "uninstall", "github_copilot", "--format", "json"],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["action"] == "uninstall"
+    assert payload["status"] == "passed"
+    assert payload["reason_code"] == "OK"

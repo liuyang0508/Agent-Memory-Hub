@@ -338,7 +338,7 @@ git commit -m "feat: add isolated adapter release controls"
 - Test: `tests/unit/test_web_api.py`
 - Test: `tests/unit/test_cockpit_summary.py`
 
-- [ ] **Step 1: 写 CLI/Web parity 失败测试**
+- [x] **Step 1: 写 CLI/Web parity 失败测试**
 
 ```python
 def test_cli_and_web_expose_same_six_state_contract(runner, client, admin_headers):
@@ -350,13 +350,13 @@ def test_cli_and_web_expose_same_six_state_contract(runner, client, admin_header
     }
 ```
 
-- [ ] **Step 2: 运行失败测试**
+- [x] **Step 2: 运行失败测试**
 
 Run: `.venv/bin/pytest -q tests/unit/test_cli_adapter.py tests/unit/test_web_api.py tests/unit/test_cockpit_summary.py`
 
 Expected: FAIL，当前 CLI/Web 没有 repair、upgrade、release 和统一 reason code。
 
-- [ ] **Step 3: 将所有 mutating command 路由到统一 executor**
+- [x] **Step 3: 将 mutating command 路由到统一 executor 并保留 install/verify 兼容字段**
 
 CLI 增加：
 
@@ -376,11 +376,11 @@ POST /api/adapters/{name}/release?stage=...&cohort_percent=...
 
 旧 install/verify/uninstall 路径保留，但响应改为同一个 schema；错误 HTTP 状态只由 reason code 映射，payload 不丢失。
 
-- [ ] **Step 4: 更新 cockpit next_action**
+- [x] **Step 4: 更新 cockpit next_action**
 
 优先级固定为：disabled→enable-shadow，未 implemented→unsupported，未 installed→install，未 configured/doctor→repair，stale→verify，未 runtime→wait-runtime，未 injection→trigger-recall，全部满足→verified。
 
-- [ ] **Step 5: 跑 parity 测试并提交**
+- [x] **Step 5: 跑 parity 测试并提交**
 
 Run: `.venv/bin/pytest -q tests/unit/test_cli_adapter.py tests/unit/test_web_api.py tests/unit/test_cockpit_summary.py tests/unit/test_adapter_onboarding.py`
 

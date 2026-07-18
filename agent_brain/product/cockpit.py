@@ -126,14 +126,23 @@ def _adapter_priority_row(cap: AdapterCapability) -> dict[str, Any]:
 
 
 def _adapter_next_action(cap: AdapterCapability) -> str:
+    if cap.release_control and cap.release_control.get("stage") == "disabled":
+        return "enable-shadow"
     if cap.verified:
         return "verified"
-    if cap.status == "wip":
+    if not cap.states["implemented"]:
+        return "unsupported"
+    if not cap.states["installed"]:
         return "install"
-    if not cap.runtime_observed and (cap.supports_hooks or cap.supports_mcp):
+    if not cap.states["configured"] or not cap.states["doctor_passed"]:
+        return "repair"
+    stale_reasons = cap.evidence_freshness.get("stale_reasons")
+    if isinstance(stale_reasons, list) and stale_reasons:
+        return "verify"
+    if not cap.states["runtime_observed"]:
         return "wait-runtime"
-    if cap.verification_blockers:
-        return "doctor"
+    if not cap.states["context_injected"]:
+        return "trigger-recall"
     return "verify"
 
 

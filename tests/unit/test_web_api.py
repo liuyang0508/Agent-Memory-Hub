@@ -365,6 +365,7 @@ class TestAdapterOnboardingAPI:
         monkeypatch: pytest.MonkeyPatch,
     ):
         from agent_brain.agent_integrations import continue_dev as cont_mod
+        from agent_brain.memory.context.injection_cohorts import record_injection_cohort
 
         monkeypatch.setattr(cont_mod, "MCP_CONFIG_PATH", tmp_path / ".continue" / "config.yaml")
         monkeypatch.setattr(
@@ -378,6 +379,12 @@ class TestAdapterOnboardingAPI:
             headers={"Authorization": f"Bearer {admin_token}"},
         )
         assert install.status_code == 200
+        record_injection_cohort(
+            Path(os.environ["BRAIN_DIR"]),
+            adapter="continue_dev",
+            session_id="continue-web-verify",
+            item_ids=["mem-continue-web-verify"],
+        )
 
         resp = client.post(
             "/api/adapters/continue_dev/verify",
@@ -414,6 +421,50 @@ class TestAdapterOnboardingAPI:
         assert data["uninstall"]["status"] == "uninstalled"
         assert data["persistent_verification_recorded"] is False
         assert gh_mod.BEGIN not in instructions.read_text()
+
+    def test_adapter_repair_upgrade_and_release_routes_share_product_contract(
+        self,
+        client: TestClient,
+        admin_token: str,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        from agent_brain.agent_integrations import codex as codex_module
+
+        monkeypatch.setattr(codex_module, "AGENTS_MD", tmp_path / ".codex" / "AGENTS.md")
+        monkeypatch.setattr(
+            codex_module,
+            "CODEX_HOOKS_JSON",
+            tmp_path / ".codex" / "hooks.json",
+        )
+        monkeypatch.setattr(
+            codex_module,
+            "CODEX_CONFIG_TOML",
+            tmp_path / ".codex" / "config.toml",
+        )
+        headers = {"Authorization": f"Bearer {admin_token}"}
+        install = client.post("/api/adapters/codex/install", headers=headers)
+        assert install.status_code == 200, install.text
+
+        repair = client.post("/api/adapters/codex/repair", headers=headers)
+        upgrade = client.post("/api/adapters/codex/upgrade", headers=headers)
+        shadow = client.post(
+            "/api/adapters/codex/release?stage=shadow",
+            headers=headers,
+        )
+        invalid = client.post(
+            "/api/adapters/codex/release?stage=default",
+            headers=headers,
+        )
+
+        assert repair.status_code == 200, repair.text
+        assert upgrade.status_code == 200, upgrade.text
+        assert repair.json()["schema_version"] == "amh-adapter-lifecycle-result/v1"
+        assert upgrade.json()["action"] == "upgrade"
+        assert shadow.status_code == 200, shadow.text
+        assert shadow.json()["control"]["stage"] == "shadow"
+        assert invalid.status_code == 409
+        assert invalid.json()["detail"]["reason_code"] == "INVALID_PROMOTION"
 
 
 class TestMemoryCandidatesAPI:
@@ -566,13 +617,16 @@ class TestApiDocsRoutes:
         data = resp.json()
         paths = {route["path"] for route in data["routes"]}
         assert data["total"] == len(data["routes"])
-        assert data["total"] == 102
+        assert data["total"] == 105
         assert "/api/data-flow" in paths
         assert "/api/chain-logs" in paths
         assert "/api/chain-logs/{chain_id}" in paths
         assert "/api/agents/local-history" in paths
         assert "/api/agents/{agent}/local-history/sync" in paths
         assert "/api/adapters/{name}/install-verify" in paths
+        assert "/api/adapters/{name}/repair" in paths
+        assert "/api/adapters/{name}/upgrade" in paths
+        assert "/api/adapters/{name}/release" in paths
         assert "/api/governance/lifecycle-review" in paths
         assert "/api/governance/lifecycle-apply" in paths
         assert "/api/memory-lineage" in paths
@@ -1023,7 +1077,32 @@ class TestAdapterCapabilitiesAPI:
         assert by_name["codex"]["verification_blockers"] == [
             "evidence level is install-ready, not verified",
             "runtime event not observed",
+            "context injection not observed",
         ]
+
+    def test_adapter_capability_cli_and_web_json_are_identical(
+        self,
+        client: TestClient,
+        admin_token: str,
+    ):
+        from typer.testing import CliRunner
+
+        from agent_brain.interfaces.cli import app
+
+        cli = CliRunner().invoke(app, ["adapter", "list", "--format", "json"])
+        web = client.get(
+            "/api/adapters/capabilities",
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+
+        assert cli.exit_code == 0, cli.output
+        assert web.status_code == 200
+        cli_rows = json.loads(cli.output)
+        web_rows = web.json()
+        for row in [*cli_rows, *web_rows]:
+            row["evidence_freshness"].pop("evaluated_at", None)
+        assert cli_rows == web_rows
+        by_name = {row["name"]: row for row in web_rows}
         assert by_name["codex"]["evidence_paths"] == [
             "tests/unit/test_adapters.py",
             "tests/unit/test_cli_adapter.py",
