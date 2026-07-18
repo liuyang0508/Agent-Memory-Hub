@@ -124,13 +124,11 @@ git commit -m "feat: add versioned adapter capability manifests"
 
 **Files:**
 - Create: `agent_brain/agent_integrations/lifecycle_records.py`
-- Modify: `agent_brain/agent_integrations/runtime_events.py`
-- Modify: `agent_brain/agent_integrations/verifications.py`
-- Modify: `agent_brain/memory/context/injection_cohorts.py`
+- Modify: `agent_brain/agent_integrations/capabilities.py`
 - Test: `tests/unit/test_adapter_lifecycle_records.py`
 - Test: `tests/unit/test_adapter_runtime_events.py`
 
-- [ ] **Step 1: 写 TTL、顺序和隐私失败测试**
+- [x] **Step 1: 写 TTL、顺序和隐私失败测试**
 
 ```python
 def test_stale_runtime_and_verification_cannot_keep_adapter_verified(tmp_path):
@@ -151,13 +149,13 @@ def test_lifecycle_record_is_low_sensitive(tmp_path):
     assert record.commit
 ```
 
-- [ ] **Step 2: 运行测试确认当前 evidence 永不过期且没有 provenance 记录**
+- [x] **Step 2: 运行测试确认当前 evidence 永不过期且没有 provenance 记录**
 
 Run: `.venv/bin/pytest -q tests/unit/test_adapter_lifecycle_records.py tests/unit/test_adapter_runtime_events.py`
 
 Expected: FAIL，原因是 `lifecycle_evidence_summary` 和 `record_lifecycle_event` 不存在。
 
-- [ ] **Step 3: 实现 append-only lifecycle record 与 freshness**
+- [x] **Step 3: 实现 append-only lifecycle record 与 freshness**
 
 ```python
 LifecycleAction = Literal["install", "verify", "doctor", "repair", "upgrade", "uninstall", "release"]
@@ -173,18 +171,18 @@ LifecycleReasonCode = Literal[
 
 记录只包含 adapter/action/status/reason/timestamp/package_version/commit/manifest_version/artifact SHA-256/backup id/cohort，不写 prompt、transcript、memory body、tool arguments、secret 或原始绝对路径。
 
-- [ ] **Step 4: 给 runtime、verification、injection cohort summary 增加 `now` 与 TTL 参数**
+- [x] **Step 4: 给 capability evidence summary 增加 `now` 与 TTL 参数**
 
 保持旧调用默认兼容；新 capability 路径显式传 manifest TTL。解析失败或未来时间戳按 stale/invalid 处理，不能提升 verified。
 
-- [ ] **Step 5: 运行聚焦测试并提交**
+- [x] **Step 5: 运行聚焦测试并提交**
 
 Run: `.venv/bin/pytest -q tests/unit/test_adapter_lifecycle_records.py tests/unit/test_adapter_runtime_events.py tests/unit/test_adapter_onboarding.py`
 
 Expected: PASS。
 
 ```bash
-git add agent_brain/agent_integrations/lifecycle_records.py agent_brain/agent_integrations/runtime_events.py agent_brain/agent_integrations/verifications.py agent_brain/memory/context/injection_cohorts.py tests/unit/test_adapter_lifecycle_records.py tests/unit/test_adapter_runtime_events.py
+git add agent_brain/agent_integrations/lifecycle_records.py agent_brain/agent_integrations/capabilities.py tests/unit/test_adapter_lifecycle_records.py tests/unit/test_adapter_runtime_events.py
 git commit -m "feat: govern adapter evidence freshness and provenance"
 ```
 

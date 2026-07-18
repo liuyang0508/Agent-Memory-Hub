@@ -8,13 +8,14 @@ free-form wording.
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
 
 from . import AdapterBase, WIPAdapter
 from .evidence import SupportLevel, evidence_for_adapter
 from .memory_boundary import memory_boundary_for_adapter
+from .lifecycle_records import lifecycle_evidence_summary
 from .manifests import manifest_for_adapter
 from .runtime_events import AdapterRuntimeSummary, runtime_event_summary
 from .verifications import AdapterVerificationSummary, adapter_verification_summary
@@ -83,11 +84,20 @@ def capability_for_adapter(
     integration_modes = _integration_modes(cfg.hook_type, cfg.supports_hooks, cfg.supports_mcp)
     evidence = evidence_for_adapter(name, is_wip=is_wip)
     manifest = manifest_for_adapter(name, adapter)
+    evaluated_at = now or datetime.now(timezone.utc)
     runtime_summary = runtime_event_summary(adapter.brain_dir, name)
     verification_summary = adapter_verification_summary(adapter.brain_dir, name)
     from agent_brain.memory.context.injection_cohorts import latest_injection_cohort
 
     injection_cohort = latest_injection_cohort(adapter.brain_dir, adapter=name)
+    freshness = lifecycle_evidence_summary(
+        adapter.brain_dir,
+        name,
+        now=evaluated_at,
+        runtime_ttl_seconds=manifest.evidence.runtime_ttl_seconds,
+        context_ttl_seconds=manifest.evidence.context_ttl_seconds,
+        verification_ttl_seconds=manifest.evidence.verification_ttl_seconds,
+    )
     verification_effective = _verification_is_effective(
         name,
         verification_summary,
@@ -101,8 +111,11 @@ def capability_for_adapter(
         runtime_summary=runtime_summary,
         verification_summary=verification_summary,
         verification_effective=verification_effective,
+        verification_fresh=freshness.verification.fresh,
         runtime_required=(cfg.supports_hooks or cfg.supports_mcp) and not is_wip,
+        runtime_fresh=freshness.runtime.fresh,
         context_injected=injection_cohort is not None,
+        context_fresh=freshness.context_injection.fresh,
         is_wip=is_wip,
         limitations=evidence.limitations,
     )
@@ -110,16 +123,17 @@ def capability_for_adapter(
     support_level: SupportLevel = "verified" if verified else evidence.support_level
     evidence_level: SupportLevel | None = "verified" if verified else evidence.evidence_level
     evidence_paths = [*evidence.evidence_paths, *verification_summary.evidence]
-    doctor_passed = bool(verification_summary.verified)
+    verification_recorded = verification_summary.last_record is not None
+    doctor_passed = bool(verification_summary.verified and freshness.verification.fresh)
     states = {
         "implemented": not is_wip,
         # Until the lifecycle ledger lands, a passed verification record is
         # the conservative durable proof that install/config/doctor completed.
-        "installed": doctor_passed,
-        "configured": doctor_passed,
+        "installed": verification_recorded,
+        "configured": verification_recorded,
         "doctor_passed": doctor_passed,
-        "runtime_observed": runtime_summary.observed,
-        "context_injected": injection_cohort is not None,
+        "runtime_observed": freshness.runtime.fresh,
+        "context_injected": freshness.context_injection.fresh,
     }
 
     return AdapterCapability(
@@ -147,10 +161,11 @@ def capability_for_adapter(
         manifest=manifest.to_dict(),
         states=states,
         evidence_freshness={
-            "evaluated_at": now.isoformat() if now is not None else None,
-            "runtime": "unbounded",
-            "context_injection": "unbounded",
-            "verification": "unbounded",
+            "evaluated_at": evaluated_at.isoformat(),
+            "runtime": freshness.runtime.to_dict(),
+            "context_injection": freshness.context_injection.to_dict(),
+            "verification": freshness.verification.to_dict(),
+            "stale_reasons": list(freshness.stale_reasons),
         },
     )
 
@@ -190,8 +205,11 @@ def _verification_blockers(
     runtime_summary: AdapterRuntimeSummary,
     verification_summary: AdapterVerificationSummary,
     verification_effective: bool,
+    verification_fresh: bool,
     runtime_required: bool,
+    runtime_fresh: bool,
     context_injected: bool,
+    context_fresh: bool,
     is_wip: bool,
     limitations: tuple[str, ...],
 ) -> list[str]:
@@ -201,14 +219,20 @@ def _verification_blockers(
     blockers: list[str] = []
     if not verification_summary.verified:
         blockers.append(f"evidence level is {evidence_level}, not verified")
+    elif not verification_fresh:
+        blockers.append("verification evidence stale")
     elif not verification_effective:
         blockers.append("context effectiveness not observed")
     elif evidence_level != "verified":
         blockers.append(f"evidence level is {evidence_level}, not verified")
     if runtime_required and not runtime_summary.observed:
         blockers.append("runtime event not observed")
+    elif runtime_required and not runtime_fresh:
+        blockers.append("runtime evidence stale")
     if not context_injected:
         blockers.append("context injection not observed")
+    elif not context_fresh:
+        blockers.append("context injection evidence stale")
     return blockers
 
 

@@ -119,7 +119,11 @@ def test_capability_projection_reports_runtime_observation_without_promoting_sup
         now=datetime(2026, 6, 9, 10, 0, tzinfo=timezone.utc),
     )
 
-    cap = capability_for_adapter("codex", get_adapter("codex", tmp_path))
+    cap = capability_for_adapter(
+        "codex",
+        get_adapter("codex", tmp_path),
+        now=datetime(2026, 6, 21, 10, 6, tzinfo=timezone.utc),
+    )
 
     assert cap.support_level == "install-ready"
     assert cap.runtime_observed is True
@@ -158,7 +162,11 @@ def test_adapter_verification_record_promotes_verified_capability(tmp_path):
         now=datetime(2026, 6, 21, 10, 5, tzinfo=timezone.utc),
     )
 
-    cap = capability_for_adapter("codex", get_adapter("codex", tmp_path))
+    cap = capability_for_adapter(
+        "codex",
+        get_adapter("codex", tmp_path),
+        now=datetime(2026, 6, 21, 10, 6, tzinfo=timezone.utc),
+    )
 
     assert cap.support_level == "verified"
     assert cap.evidence_level == "verified"
