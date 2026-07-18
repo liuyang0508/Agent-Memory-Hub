@@ -13,6 +13,20 @@ cleanup() {
 }
 trap cleanup EXIT
 
+resolve_port() {
+  local resolved
+  resolved="$(docker port "$name" 8742/tcp | awk -F: 'NR==1 {print $NF}')"
+  test -n "$resolved"
+  printf '%s\n' "$resolved"
+}
+
+dump_container_state() {
+  docker inspect --format \
+    'container={{.Name}} status={{.State.Status}} health={{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}} ports={{json .NetworkSettings.Ports}}' \
+    "$name" >&2 || true
+  docker logs "$name" >&2 || true
+}
+
 wait_for_health() {
   local output="$1"
   for _ in $(seq 1 120); do
@@ -23,7 +37,7 @@ wait_for_health() {
     fi
     sleep 1
   done
-  docker logs "$name" >&2 || true
+  dump_container_state
   return 1
 }
 
@@ -39,7 +53,7 @@ wait_for_login() {
     fi
     sleep 1
   done
-  docker logs "$name" >&2 || true
+  dump_container_state
   return 1
 }
 
@@ -52,8 +66,7 @@ docker run -d \
   -p 127.0.0.1::8742 \
   "$image" >/dev/null
 
-port="$(docker port "$name" 8742/tcp | awk -F: 'NR==1 {print $NF}')"
-test -n "$port"
+port="$(resolve_port)"
 wait_for_health "$tmp_dir/health.json"
 
 init_json="$(curl -fsS -X POST "http://127.0.0.1:${port}/api/auth/init" \
@@ -65,6 +78,7 @@ curl -fsS "http://127.0.0.1:${port}/api/auth/me" \
 python -c 'import json,sys; assert json.load(open(sys.argv[1]))["username"] == "stage1-admin"' "$tmp_dir/me.json"
 
 docker restart "$name" >/dev/null
+port="$(resolve_port)"
 wait_for_health "$tmp_dir/health-restart.json"
 
 wait_for_login "$tmp_dir/login-restart.json"

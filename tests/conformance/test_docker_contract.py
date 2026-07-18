@@ -26,4 +26,6 @@ def test_docker_smoke_covers_auth_and_restart_persistence() -> None:
     assert "docker restart" in smoke
     assert "--mount source=" in smoke
     assert "MEMORY_HUB_NO_MODEL=1" in smoke
+    assert "resolve_port" in smoke
+    assert smoke.count('port="$(resolve_port)"') == 2
     assert "wait_for_login" in smoke
