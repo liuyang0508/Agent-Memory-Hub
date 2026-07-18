@@ -113,8 +113,13 @@ explicit_package_bases = true
 [[tool.mypy.overrides]]
 module = [
     "Foundation",
+    "datasets",
     "litellm",
     "objc",
+    "openai",
+    "pypdf",
+    "sentence_transformers",
+    "sentence_transformers.*",
     "sqlite_vec",
     "yaml",
 ]

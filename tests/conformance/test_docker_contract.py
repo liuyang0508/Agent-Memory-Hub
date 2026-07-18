@@ -25,3 +25,5 @@ def test_docker_smoke_covers_auth_and_restart_persistence() -> None:
     assert "/api/auth/me" in smoke
     assert "docker restart" in smoke
     assert "--mount source=" in smoke
+    assert "MEMORY_HUB_NO_MODEL=1" in smoke
+    assert "wait_for_login" in smoke

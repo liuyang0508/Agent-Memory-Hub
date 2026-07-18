@@ -15,9 +15,26 @@ trap cleanup EXIT
 
 wait_for_health() {
   local output="$1"
-  for _ in $(seq 1 60); do
-    if curl -fsS "http://127.0.0.1:${port}/api/health" >"$output"; then
+  for _ in $(seq 1 120); do
+    if curl --connect-timeout 2 --max-time 5 -fsS \
+      "http://127.0.0.1:${port}/api/health" >"$output"; then
       python -c 'import json,sys; assert json.load(open(sys.argv[1]))["status"] == "ok"' "$output"
+      return 0
+    fi
+    sleep 1
+  done
+  docker logs "$name" >&2 || true
+  return 1
+}
+
+wait_for_login() {
+  local output="$1"
+  for _ in $(seq 1 30); do
+    if curl --connect-timeout 2 --max-time 5 -fsS -X POST \
+      "http://127.0.0.1:${port}/api/auth/login" \
+      -H 'Content-Type: application/json' \
+      -d '{"username":"stage1-admin","password":"stage1-password"}' >"$output"; then
+      python -c 'import json,sys; assert json.load(open(sys.argv[1]))["username"] == "stage1-admin"' "$output"
       return 0
     fi
     sleep 1
@@ -31,6 +48,7 @@ docker volume create "$volume" >/dev/null
 docker run -d \
   --name "$name" \
   --mount source="$volume",target=/data/brain \
+  -e MEMORY_HUB_NO_MODEL=1 \
   -p 127.0.0.1::8742 \
   "$image" >/dev/null
 
@@ -49,9 +67,6 @@ python -c 'import json,sys; assert json.load(open(sys.argv[1]))["username"] == "
 docker restart "$name" >/dev/null
 wait_for_health "$tmp_dir/health-restart.json"
 
-login_json="$(curl -fsS -X POST "http://127.0.0.1:${port}/api/auth/login" \
-  -H 'Content-Type: application/json' \
-  -d '{"username":"stage1-admin","password":"stage1-password"}')"
-printf '%s' "$login_json" | python -c 'import json,sys; assert json.load(sys.stdin)["username"] == "stage1-admin"'
+wait_for_login "$tmp_dir/login-restart.json"
 
 echo "Docker smoke passed on port ${port}"

@@ -24,7 +24,7 @@ def test_hub_index_context_manager_closes_idempotently(tmp_path: Path) -> None:
         index.connection.execute("select 1")
 
 
-@pytest.mark.skipif(not Path("/dev/fd").is_dir(), reason="requires /dev/fd")
+@pytest.mark.skipif(not Path("/dev/fd").is_dir(), reason="requires dev-fd")
 def test_memory_client_context_manager_returns_fd_to_baseline(tmp_path: Path) -> None:
     before = len(os.listdir("/dev/fd"))
 

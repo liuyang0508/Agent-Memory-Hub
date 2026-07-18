@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
-from typing import Protocol
+from typing import Protocol, cast
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +53,7 @@ class SentenceTransformerEmbedder:
 
     def embed(self, text: str) -> list[float]:
         vector = self._model.encode(text, normalize_embeddings=True)
-        return vector.tolist()
+        return cast(list[float], vector.tolist())
 
 
 _embedder_cache: dict[str, Embedder] = {}
