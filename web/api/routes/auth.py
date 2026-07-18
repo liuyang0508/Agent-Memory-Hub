@@ -27,9 +27,11 @@ from pydantic import BaseModel
 from web.auth import (
     CurrentUser,
     authenticate,
+    create_realtime_ticket,
     create_token,
     create_user,
     get_current_user,
+    set_session_cookie,
 )
 
 from web._base import *  # noqa: F401,F403  (state, helpers, models, lifespan, middleware)
@@ -47,12 +49,21 @@ class RegisterRequest(BaseModel):
     tenant_id: str = "default"
 
 @router.post("/api/auth/login")
-async def login(req: LoginRequest):
+async def login(req: LoginRequest, request: Request, response: Response):
     user = authenticate(req.username, req.password)
     if not user:
         raise HTTPException(status_code=401, detail="invalid credentials")
     token = create_token(user)
+    set_session_cookie(response, token, secure=request.url.scheme == "https")
     return {"token": token, "username": user["username"], "tenant_id": user.get("tenant_id")}
+
+
+@router.post("/api/auth/realtime-ticket")
+async def realtime_ticket(user: CurrentUser = Depends(get_current_user)):
+    return {
+        "ticket": create_realtime_ticket(user),
+        "expires_in": 60,
+    }
 
 @router.post("/api/auth/register")
 async def register(req: RegisterRequest, user: CurrentUser = Depends(get_current_user)):
@@ -99,7 +110,7 @@ async def get_me(user: CurrentUser = Depends(get_current_user)):
     return {"username": user.username, "tenant_id": user.tenant_id, "role": user.role, "is_admin": user.is_admin}
 
 @router.post("/api/auth/init")
-async def init_admin(req: LoginRequest):
+async def init_admin(req: LoginRequest, request: Request, response: Response):
     """Create initial admin user. Only works when no users exist."""
     from web.auth import _load_users
     if _load_users():
@@ -107,6 +118,7 @@ async def init_admin(req: LoginRequest):
     info = create_user(req.username, req.password, tenant_id="default", role="admin")
     user = authenticate(req.username, req.password)
     token = create_token(user)
+    set_session_cookie(response, token, secure=request.url.scheme == "https")
     return {"token": token, **info}
 
 @router.get("/api/auth/needs-init")

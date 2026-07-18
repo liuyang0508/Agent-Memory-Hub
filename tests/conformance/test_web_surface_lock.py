@@ -64,6 +64,7 @@ EXPECTED_ROUTES = {
     "POST /api/audit/scan",
     "POST /api/auth/init",
     "POST /api/auth/login",
+    "POST /api/auth/realtime-ticket",
     "POST /api/auth/register",
     "POST /api/auth/rotate-key",
     "POST /api/adapters/{name}/install",

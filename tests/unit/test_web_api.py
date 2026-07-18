@@ -566,7 +566,7 @@ class TestApiDocsRoutes:
         data = resp.json()
         paths = {route["path"] for route in data["routes"]}
         assert data["total"] == len(data["routes"])
-        assert data["total"] == 101
+        assert data["total"] == 102
         assert "/api/data-flow" in paths
         assert "/api/chain-logs" in paths
         assert "/api/chain-logs/{chain_id}" in paths
@@ -576,6 +576,7 @@ class TestApiDocsRoutes:
         assert "/api/governance/lifecycle-review" in paths
         assert "/api/governance/lifecycle-apply" in paths
         assert "/api/memory-lineage" in paths
+        assert "/api/auth/realtime-ticket" in paths
         assert "/ws/events" in paths
         assert "/api/routes" in paths
 

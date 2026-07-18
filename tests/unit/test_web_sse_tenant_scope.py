@@ -102,7 +102,9 @@ def test_ws_stream_does_not_leak_cross_tenant_events(client: TestClient):
     """
     alice, bob = _bootstrap_two_tenants(client)
 
-    with client.websocket_connect(f"/ws/events?token={bob}") as ws:
+    # The last login in _bootstrap_two_tenants is Bob, so TestClient carries
+    # Bob's HttpOnly session cookie into the same-origin WebSocket handshake.
+    with client.websocket_connect("/ws/events") as ws:
         assert ws.receive_json()["event"] == "connected"
 
         # tenant-A creates an item -> item_created scoped to tenant-a (bob must NOT see).

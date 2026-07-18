@@ -13,11 +13,12 @@ from __future__ import annotations
 
 import os
 import secrets
+import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from fastapi import Depends, HTTPException, Request as _FastAPIRequest, status
+from fastapi import Depends, HTTPException, Request as _FastAPIRequest, Response, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 from web.auth_storage import (
@@ -52,8 +53,12 @@ def _verify_password(password: str, hashed: str) -> bool:
 
 ALGORITHM = "HS256"
 TOKEN_EXPIRE_HOURS = 72
+SESSION_COOKIE = "amh_session"
+REALTIME_TICKET_EXPIRE_SECONDS = 60
 
 _bearer = HTTPBearer(auto_error=False)
+_consumed_realtime_tickets: dict[str, int] = {}
+_realtime_ticket_lock = threading.Lock()
 
 
 def _brain_dir() -> Path:
@@ -113,6 +118,18 @@ def decode_token(token: str) -> dict[str, Any]:
     return jwt.decode(token, _secret_key(), algorithms=[ALGORITHM])
 
 
+def set_session_cookie(response: Response, token: str, *, secure: bool) -> None:
+    response.set_cookie(
+        SESSION_COOKIE,
+        token,
+        max_age=TOKEN_EXPIRE_HOURS * 3600,
+        httponly=True,
+        secure=secure,
+        samesite="lax",
+        path="/",
+    )
+
+
 class CurrentUser:
     def __init__(self, username: str, tenant_id: str, role: str):
         self.username = username
@@ -122,6 +139,50 @@ class CurrentUser:
     @property
     def is_admin(self) -> bool:
         return self.role == "admin"
+
+
+def create_realtime_ticket(user: CurrentUser) -> str:
+    if jwt is None:
+        raise RuntimeError("PyJWT not installed: pip install PyJWT")
+    payload = {
+        "sub": user.username,
+        "tenant_id": user.tenant_id,
+        "role": user.role,
+        "purpose": "realtime",
+        "jti": secrets.token_urlsafe(18),
+        "exp": datetime.now(timezone.utc)
+        + timedelta(seconds=REALTIME_TICKET_EXPIRE_SECONDS),
+    }
+    return jwt.encode(payload, _secret_key(), algorithm=ALGORITHM)
+
+
+def _consume_ticket_jti(jti: str, expires_at: int) -> None:
+    now = int(datetime.now(timezone.utc).timestamp())
+    with _realtime_ticket_lock:
+        expired = [
+            key
+            for key, expiry in _consumed_realtime_tickets.items()
+            if expiry <= now
+        ]
+        for key in expired:
+            del _consumed_realtime_tickets[key]
+        if jti in _consumed_realtime_tickets:
+            raise JWTError("realtime ticket already used")
+        _consumed_realtime_tickets[jti] = expires_at
+
+
+def consume_realtime_ticket(ticket: str) -> dict[str, Any]:
+    payload = decode_token(ticket)
+    jti = payload.get("jti")
+    expires_at = payload.get("exp")
+    if (
+        payload.get("purpose") != "realtime"
+        or not isinstance(jti, str)
+        or not isinstance(expires_at, int)
+    ):
+        raise JWTError("invalid realtime ticket")
+    _consume_ticket_jti(jti, expires_at)
+    return payload
 
 
 def require_admin(user: CurrentUser) -> None:
@@ -156,6 +217,8 @@ async def get_current_user(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="missing token")
     try:
         payload = decode_token(creds.credentials)
+        if payload.get("purpose") is not None:
+            raise JWTError("purpose-restricted token")
         return CurrentUser(
             username=payload["sub"],
             tenant_id=payload.get("tenant_id", "default"),
