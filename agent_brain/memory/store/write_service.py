@@ -24,6 +24,7 @@ import json
 import logging
 import mimetypes
 import os
+from collections.abc import Callable
 from pathlib import Path
 import re
 
@@ -34,6 +35,8 @@ from agent_brain.memory.store.field_enrichment import enrich_memory_item
 from agent_brain.memory.store.items_store import ItemsStore
 from agent_brain.memory.store.quality import quality_warnings_for
 from agent_brain.memory.store.write_types import WriteResult
+from agent_brain.platform.embedding import Embedder
+from agent_brain.platform.indexing.index import HubIndex
 from agent_brain.contracts.memory_item import MemoryItem, Refs
 from agent_brain.contracts.resource import (
     ExtractionKind,
@@ -78,8 +81,8 @@ class WriteService:
     def __init__(
         self,
         store: ItemsStore,
-        index=None,
-        embedder=None,
+        index: HubIndex | Callable[[], HubIndex] | None = None,
+        embedder: Embedder | Callable[[], Embedder] | None = None,
         brain_dir: Path | None = None,
         owns_index: bool = False,
     ) -> None:

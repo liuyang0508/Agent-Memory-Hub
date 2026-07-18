@@ -2,7 +2,14 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from agent_brain.memory.governance.feedback import ConfidenceFeedback
+    from agent_brain.memory.recall.retrieval import Retriever
+    from agent_brain.memory.store.items_store import ItemsStore
+    from agent_brain.platform.embedding import Embedder
+    from agent_brain.platform.indexing.index import HubIndex
 
 
 class ClientComponents:
@@ -10,13 +17,13 @@ class ClientComponents:
 
     def __init__(self, brain_dir: Path) -> None:
         self.brain_dir = Path(brain_dir)
-        self._store: Any = None
-        self._index: Any = None
-        self._embedder: Any = None
-        self._retriever: Any = None
-        self._feedback: Any = None
+        self._store: ItemsStore | None = None
+        self._index: HubIndex | None = None
+        self._embedder: Embedder | None = None
+        self._retriever: Retriever | None = None
+        self._feedback: ConfidenceFeedback | None = None
 
-    def get_store(self):
+    def get_store(self) -> ItemsStore:
         if self._store is None:
             from agent_brain.memory.store.items_store import ItemsStore
 
@@ -25,7 +32,7 @@ class ClientComponents:
             self._store = ItemsStore(items_dir=items_dir)
         return self._store
 
-    def get_index(self):
+    def get_index(self) -> HubIndex:
         if self._index is None:
             from agent_brain.platform.indexing.index import HubIndex
 
@@ -35,14 +42,14 @@ class ClientComponents:
             )
         return self._index
 
-    def get_embedder(self):
+    def get_embedder(self) -> Embedder:
         if self._embedder is None:
             from agent_brain.platform.embedding import HashingEmbedder
 
             self._embedder = HashingEmbedder(dim=64)
         return self._embedder
 
-    def get_retriever(self):
+    def get_retriever(self) -> Retriever:
         if self._retriever is None:
             from agent_brain.memory.recall.retrieval import Retriever
 
@@ -52,11 +59,11 @@ class ClientComponents:
             )
         return self._retriever
 
-    def get_feedback(self):
+    def get_feedback(self) -> ConfidenceFeedback:
         if self._feedback is None:
             from agent_brain.memory.governance.feedback import ConfidenceFeedback
 
-            self._feedback = ConfidenceFeedback(
+            self._feedback = ConfidenceFeedback(  # type: ignore[no-untyped-call]
                 index=self.get_index(),
                 items_store=self.get_store(),
             )

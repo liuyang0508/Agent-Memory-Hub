@@ -29,7 +29,7 @@ jobs:
       - name: Skip when deployment secrets are missing
         if: env.DEPLOY_ENABLED != 'true'
         run: |
-          echo "Official website deployment skipped because AIHUB_* deployment secrets are not fully configured."
+          echo "::notice title=AMH_DISTRIBUTION_SECRET_MISSING::reason=missing_secret secret=AIHUB_DEPLOY_BUNDLE workflow=deploy-official-site"
 
       - name: Prepare SSH key
         if: env.DEPLOY_ENABLED == 'true'

@@ -15,6 +15,7 @@ import sqlite3
 import time
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 from uuid import uuid4
 
 from . import AdapterBase, AdapterConfig
@@ -439,7 +440,7 @@ class QoderAdapter(AdapterBase):
             path_strategy="fixed",
         )
 
-    def _move_hook_entry_first(self, entries: list, script: Path) -> bool:
+    def _move_hook_entry_first(self, entries: list[dict[str, Any]], script: Path) -> bool:
         script_paths = _hook_script_aliases(str(script))
         for index, entry in enumerate(entries):
             hooks = entry.get("hooks", [])

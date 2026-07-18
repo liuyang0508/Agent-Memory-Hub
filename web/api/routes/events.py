@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import json as _json
 import os
+from collections.abc import AsyncIterator
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -58,7 +59,10 @@ def _realtime_origin_allowed(origin: str | None, host: str | None) -> bool:
 
 
 @router.get("/api/events")
-async def event_stream(request: Request, ticket: str | None = Query(None)):
+async def event_stream(
+    request: Request,
+    ticket: str | None = Query(None),
+) -> StreamingResponse:
     """Server-Sent Events stream for real-time updates.
 
     Same-origin browsers authenticate with the HttpOnly session cookie. Clients
@@ -81,11 +85,11 @@ async def event_stream(request: Request, ticket: str | None = Query(None)):
         raise HTTPException(status_code=401, detail="invalid realtime credential")
     sub_tenant = payload.get("tenant_id", "default")
     sub_is_admin = payload.get("role") == "admin"
-    q: asyncio.Queue = asyncio.Queue(maxsize=64)
+    q: asyncio.Queue[Any] = asyncio.Queue(maxsize=64)
     entry = (q, sub_tenant, sub_is_admin)
     _sse_subscribers.append(entry)
 
-    async def generate():
+    async def generate() -> AsyncIterator[str]:
         try:
             yield "data: {\"event\":\"connected\"}\n\n"
             while True:
@@ -106,7 +110,7 @@ async def event_stream(request: Request, ticket: str | None = Query(None)):
     )
 
 @router.websocket("/ws/events")
-async def ws_events(ws: WebSocket, ticket: str | None = Query(None)):
+async def ws_events(ws: WebSocket, ticket: str | None = Query(None)) -> None:
     """WebSocket endpoint for bidirectional real-time events."""
     if not _realtime_origin_allowed(ws.headers.get("origin"), ws.headers.get("host")):
         await ws.close(code=4003, reason="realtime origin is not allowed")

@@ -217,3 +217,15 @@ from .mcp_config_diagnostics import (  # noqa: E402
     diagnose_mcp_json_server,
     diagnose_mcp_yaml_server,
 )
+
+
+__all__ = [
+    "AdapterDiagnosticCheck",
+    "AdapterDiagnosticReport",
+    "CheckStatus",
+    "diagnose_layered_context_pack_evidence",
+    "diagnose_mcp_json_server",
+    "diagnose_mcp_yaml_server",
+    "diagnose_runtime_evidence",
+    "overall_status",
+]

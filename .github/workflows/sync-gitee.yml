@@ -23,7 +23,23 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Preflight Gitee distribution secret
+        id: preflight
+        env:
+          GITEE_SSH_PRIVATE_KEY: ${{ secrets.GITEE_SSH_PRIVATE_KEY }}
+        run: |
+          if [ -n "$GITEE_SSH_PRIVATE_KEY" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=AMH_DISTRIBUTION_SECRET_MISSING::reason=missing_secret secret=GITEE_SSH_PRIVATE_KEY workflow=sync-gitee"
+            if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+              exit 1
+            fi
+          fi
+
       - name: Configure Gitee SSH key
+        if: steps.preflight.outputs.enabled == 'true'
         env:
           GITEE_SSH_PRIVATE_KEY: ${{ secrets.GITEE_SSH_PRIVATE_KEY }}
         run: |
@@ -39,6 +55,7 @@ jobs:
           ssh-keyscan gitee.com >> "$HOME/.ssh/known_hosts"
 
       - name: Push GitHub refs to Gitee
+        if: steps.preflight.outputs.enabled == 'true'
         run: |
           set -euo pipefail
           git fetch --prune origin '+refs/heads/*:refs/remotes/origin/*' '+refs/tags/*:refs/tags/*'

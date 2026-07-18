@@ -16,7 +16,7 @@ import secrets
 import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from fastapi import Depends, HTTPException, Request as _FastAPIRequest, Response, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -28,11 +28,14 @@ from web.auth_storage import (
 )
 
 try:
-    import jwt
-    from jwt import InvalidTokenError as JWTError
+    import jwt as _jwt
+    from jwt import InvalidTokenError
+
+    jwt: Any = _jwt
+    JWTError: type[Exception] = InvalidTokenError
 except ImportError:
-    jwt = None  # type: ignore[assignment]
-    JWTError = Exception  # type: ignore[assignment,misc]
+    jwt = None
+    JWTError = Exception
 
 try:
     import bcrypt as _bcrypt
@@ -109,13 +112,13 @@ def create_token(user: dict[str, Any]) -> str:
         "role": user.get("role", "user"),
         "exp": datetime.now(timezone.utc) + timedelta(hours=TOKEN_EXPIRE_HOURS),
     }
-    return jwt.encode(payload, _secret_key(), algorithm=ALGORITHM)
+    return cast(str, jwt.encode(payload, _secret_key(), algorithm=ALGORITHM))
 
 
 def decode_token(token: str) -> dict[str, Any]:
     if jwt is None:
         raise RuntimeError("PyJWT not installed")
-    return jwt.decode(token, _secret_key(), algorithms=[ALGORITHM])
+    return cast(dict[str, Any], jwt.decode(token, _secret_key(), algorithms=[ALGORITHM]))
 
 
 def set_session_cookie(response: Response, token: str, *, secure: bool) -> None:
@@ -153,7 +156,24 @@ def create_realtime_ticket(user: CurrentUser) -> str:
         "exp": datetime.now(timezone.utc)
         + timedelta(seconds=REALTIME_TICKET_EXPIRE_SECONDS),
     }
-    return jwt.encode(payload, _secret_key(), algorithm=ALGORITHM)
+    return cast(str, jwt.encode(payload, _secret_key(), algorithm=ALGORITHM))
+
+
+__all__ = [
+    "CurrentUser",
+    "JWTError",
+    "REALTIME_TICKET_EXPIRE_SECONDS",
+    "SESSION_COOKIE",
+    "authenticate",
+    "consume_realtime_ticket",
+    "create_realtime_ticket",
+    "create_token",
+    "create_user",
+    "decode_token",
+    "get_current_user",
+    "require_admin",
+    "set_session_cookie",
+]
 
 
 def _consume_ticket_jti(jti: str, expires_at: int) -> None:

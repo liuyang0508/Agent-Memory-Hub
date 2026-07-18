@@ -135,12 +135,12 @@ class HubIndex:
                     f"ORDER BY score LIMIT {fetch_k}",
                     (query,),
                 ).fetchall()
-                hits = [
+                filtered_hits = [
                     Hit(id=row[0], score=-row[1])
                     for row in rows
                     if row[0] not in excluded_ids
                 ]
-                return hits[:normalized_top_k]
+                return filtered_hits[:normalized_top_k]
             rows = self.connection.execute(
                 "SELECT id, bm25(items_fts) AS score "
                 "FROM items_fts WHERE items_fts MATCH ? "

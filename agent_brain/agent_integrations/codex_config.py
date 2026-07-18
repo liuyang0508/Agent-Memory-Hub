@@ -140,3 +140,23 @@ def remove_block(existing: str) -> str:
         suffix = suffix[1:]
     prefix = existing[:start].rstrip() + ("\n" if existing[:start].rstrip() else "")
     return prefix + suffix
+
+
+__all__ = [
+    "atomic_write_json",
+    "atomic_write_text",
+    "block_end",
+    "command_references_path",
+    "command_references_prefix",
+    "hook_already_present",
+    "hook_belongs_to",
+    "hook_script_present",
+    "mcp_block",
+    "mcp_section_bounds",
+    "read_json_config",
+    "remove_block",
+    "remove_mcp_block",
+    "update_hook_command",
+    "upsert_block",
+    "upsert_mcp_block",
+]

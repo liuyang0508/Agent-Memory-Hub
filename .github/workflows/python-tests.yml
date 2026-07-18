@@ -28,9 +28,20 @@ jobs:
           pip install -e ".[dev]"
       - name: Lint
         run: ruff check .
-      - name: Type check
-        run: mypy agent_brain web benchmarks
-        continue-on-error: true
+      - name: Type regression gate
+        run: python scripts/check_mypy_baseline.py
+      - name: Strict type check for governance-critical modules
+        run: >-
+          mypy --follow-imports=silent
+          agent_brain/agent_integrations/qoder.py
+          agent_brain/evaluation/memorydata_runner.py
+          agent_brain/platform/indexing/index.py
+          agent_brain/memory/store/write_service.py
+          agent_brain/interfaces/sdk/components.py
+          agent_brain/interfaces/sdk/sdk.py
+          web/auth.py
+          web/api/routes/auth.py
+          web/api/routes/events.py
       - name: Unit tests
         env:
           MEMORY_HUB_TEST_EMBEDDING: "1"

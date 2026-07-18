@@ -49,7 +49,7 @@ class RegisterRequest(BaseModel):
     tenant_id: str = "default"
 
 @router.post("/api/auth/login")
-async def login(req: LoginRequest, request: Request, response: Response):
+async def login(req: LoginRequest, request: Request, response: Response) -> dict[str, Any]:
     user = authenticate(req.username, req.password)
     if not user:
         raise HTTPException(status_code=401, detail="invalid credentials")
@@ -59,14 +59,17 @@ async def login(req: LoginRequest, request: Request, response: Response):
 
 
 @router.post("/api/auth/realtime-ticket")
-async def realtime_ticket(user: CurrentUser = Depends(get_current_user)):
+async def realtime_ticket(user: CurrentUser = Depends(get_current_user)) -> dict[str, Any]:
     return {
         "ticket": create_realtime_ticket(user),
         "expires_in": 60,
     }
 
 @router.post("/api/auth/register")
-async def register(req: RegisterRequest, user: CurrentUser = Depends(get_current_user)):
+async def register(
+    req: RegisterRequest,
+    user: CurrentUser = Depends(get_current_user),
+) -> dict[str, str]:
     if not user.is_admin:
         raise HTTPException(status_code=403, detail="admin only")
     try:
@@ -76,7 +79,7 @@ async def register(req: RegisterRequest, user: CurrentUser = Depends(get_current
         raise HTTPException(status_code=409, detail=str(e))
 
 @router.get("/api/auth/users")
-async def list_users(user: CurrentUser = Depends(get_current_user)):
+async def list_users(user: CurrentUser = Depends(get_current_user)) -> dict[str, Any]:
     if not user.is_admin:
         raise HTTPException(status_code=403, detail="admin only")
     from web.auth import _load_users
@@ -87,7 +90,7 @@ async def list_users(user: CurrentUser = Depends(get_current_user)):
     ]}
 
 @router.post("/api/auth/rotate-key")
-async def rotate_api_key(user: CurrentUser = Depends(get_current_user)):
+async def rotate_api_key(user: CurrentUser = Depends(get_current_user)) -> dict[str, str]:
     """Rotate the current user's API key. Returns the new key."""
     import secrets as _secrets
     from web.auth import _load_users, _save_users
@@ -105,24 +108,30 @@ async def rotate_api_key(user: CurrentUser = Depends(get_current_user)):
     return {"api_key": new_key, "username": user.username}
 
 @router.get("/api/auth/me")
-async def get_me(user: CurrentUser = Depends(get_current_user)):
+async def get_me(user: CurrentUser = Depends(get_current_user)) -> dict[str, Any]:
     """Get current user info."""
     return {"username": user.username, "tenant_id": user.tenant_id, "role": user.role, "is_admin": user.is_admin}
 
 @router.post("/api/auth/init")
-async def init_admin(req: LoginRequest, request: Request, response: Response):
+async def init_admin(
+    req: LoginRequest,
+    request: Request,
+    response: Response,
+) -> dict[str, str]:
     """Create initial admin user. Only works when no users exist."""
     from web.auth import _load_users
     if _load_users():
         raise HTTPException(status_code=409, detail="admin already exists; use /api/auth/login")
     info = create_user(req.username, req.password, tenant_id="default", role="admin")
     user = authenticate(req.username, req.password)
+    if user is None:
+        raise HTTPException(status_code=500, detail="initial admin authentication failed")
     token = create_token(user)
     set_session_cookie(response, token, secure=request.url.scheme == "https")
     return {"token": token, **info}
 
 @router.get("/api/auth/needs-init")
-async def needs_init():
+async def needs_init() -> dict[str, bool]:
     """Whether the system needs first-time admin initialization (no users yet).
 
     Lets the login page auto-detect a fresh install and steer the user to
