@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Stage 1 governance gates** — Python 3.11/3.12, hook, security,
+  benchmark-integrity, and real Docker smoke checks are now required on `main`;
+  the Docker smoke covers authenticated API access and persistent-volume restart.
 - **Unified Injection Gateway** — MCP, SDK, CLI/hooks, brief, and Web prompt
   surfaces now use one fail-closed policy and bounded ContextPack contract.
 - **Dual-route recall candidate pipeline** — routed hook recall combines term
@@ -27,6 +30,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Realtime browser clients now use an HttpOnly session cookie; non-cookie clients
+  exchange Bearer credentials for a short-lived, one-use realtime ticket instead
+  of placing a long-lived JWT in `?token=`.
+- Long-running SDK users should use `with MemoryClient(...)` or call `close()`.
+  Existing containers must be rebuilt to receive the explicit Web/embedding
+  dependencies and HTTP healthcheck. Existing installed hooks still require the
+  documented `memory self-update --repair-hooks` and `memory doctor --fix` repair.
 - **Breaking / next-major:** Python SDK search now enables
   `context_firewall=True` by default. Callers that explicitly need raw retrieval
   diagnostics must pass `context_firewall=False`; raw mode returns no ContextPack,
