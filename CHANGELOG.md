@@ -31,6 +31,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the versioned calibration, heldout, sanitized production replay, and 41-case
   safety contracts, then rejects stale committed retrieval, admission,
   answerability, temporal, abstention, or Gateway injection evidence.
+- **Multi-agent adapter governance** — all 16 adapters publish versioned
+  manifests, six independent readiness states, seven-day evidence TTLs, stable
+  lifecycle JSON/reason codes, AMH-owned repair/upgrade/rollback transactions,
+  and isolated `shadow` → `canary` → `default` rollout with a per-adapter kill
+  switch. The required `adapter-governance` job rejects stale reports, private
+  evidence, broken lifecycle contracts, or core-isolation regressions.
 
 ### Changed
 
@@ -52,6 +58,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `memory self-update --repair-hooks` plus `memory doctor --fix`, or rerun the
   idempotent adapter install followed by
   `memory adapter install-verify <adapter> --format json`.
+- Adapter install, repair, or upgrade success is no longer presented as runtime
+  verification. `verified` additionally requires fresh runtime, context
+  injection, and verification evidence; missing proprietary-client proof remains
+  a machine-readable blocker.
+
+### Fixed
+
+- Adapter context probes now reject stale transcript and timestamped injection
+  cohort evidence. Old Qoder/QoderWork traces can no longer make a fresh
+  `install-verify --context-probe` transaction pass.
 
 ### Release status
 

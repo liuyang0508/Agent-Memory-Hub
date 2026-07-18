@@ -242,6 +242,44 @@ history as successful but superseded evidence. The machine-readable facts are
 `docs/evaluation/dual-route-hook-benchmark-report.json`, and
 `scripts/check-recall-quality.py`.
 
+### Adapter productization governance
+
+Every discovered adapter has a versioned `amh-adapter-manifest/v1` contract for
+platforms, client compatibility, events, payload/output protocols, channels,
+lifecycle commands, evidence TTLs, feature flag, degradation, and rollback.
+Readiness is projected as six independent states:
+
+```
+implemented -> installed -> configured -> doctor_passed
+                                      |-> runtime_observed
+                                      |-> context_injected
+all required states + fresh verification + support level -> verified
+```
+
+The arrows describe prerequisites, not automatic promotion. The current runtime,
+context-injection, doctor, and verification TTL is seven days. Transcript-level
+context probes additionally reject transcript files and timestamped cohorts
+outside their three-day effectiveness window. A fresh injection cohort proves
+that the hook produced a ContextPack; for Qoder-family clients, a matched fresh
+client transcript or AMH tool trace is still required to prove the model session
+actually used that channel.
+
+`install`, `doctor`, `verify`, `repair`, `upgrade`, and `uninstall` return the
+stable `amh-adapter-lifecycle-result/v1` envelope and reason codes. Repair and
+uninstall are constrained to adapter-declared AMH-owned paths. Upgrade writes a
+private snapshot, verifies hashes, and restores it if the transaction fails.
+The low-sensitive provenance ledger stores package/commit/manifest versions,
+artifact hashes, action/status/reason, cohort, and backup ID; it never stores
+prompt or transcript bodies.
+
+Release state is per adapter. Ordered `shadow` → `canary` → `default` promotion
+uses deterministic session buckets; `disabled` is an adapter-local kill switch.
+Disabled/shadow/excluded hook invocations return the adapter's clean empty
+protocol, while core CLI, MCP, storage, and other adapters remain available.
+The generated stage-three report and required `adapter-governance` CI job bind
+manifests, lifecycle/system tests, core isolation, real-machine blocker evidence,
+hook hash, and privacy scanning to the committed source.
+
 ### Budgeted brief authorization boundary
 
 `ItemsStore candidates -> InjectionGateway eligibility -> ContextFirewall -> tier/brief budget -> brief response`

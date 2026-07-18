@@ -455,7 +455,7 @@ git commit -m "ci: require adapter productization evidence"
 - Modify: `docs/architecture.md`
 - Modify: `.github/workflows/governance-gates.yml`
 
-- [ ] **Step 1: 在独立备份下跑第一批真机生命周期**
+- [x] **Step 1: 在独立备份下跑第一批真机生命周期**
 
 Run:
 
@@ -470,7 +470,7 @@ memory adapter upgrade qoder --format json
 
 Expected: 每条均为 `status=passed`、稳定 reason code、fresh provenance；不清理用户自定义 hook。若客户端当前不提供可证明 context 的 transcript，报告必须保留 `context_injected=false`/blocker，不能伪造 verified。
 
-- [ ] **Step 2: 跑第二批同合同真机/隔离证据**
+- [x] **Step 2: 跑第二批同合同真机/隔离证据**
 
 Run:
 
@@ -485,30 +485,30 @@ memory adapter upgrade qoder_work --format json
 
 Expected: 输出 schema/reason/provenance 与第一批一致；任何缺少真实客户端证据的项保持 blocker。
 
-- [ ] **Step 3: 验证包版本、commit、hook hash 与文档一致**
+- [x] **Step 3: 验证包版本、commit、hook hash 与文档一致**
 
 Run: `.venv/bin/python scripts/generate-adapter-governance.py --check && git diff --exit-code docs/evaluation/stage3-adapter-productization-report.json docs/evaluation/stage3-adapter-productization-readiness.zh.md`
 
 Expected: PASS，报告记录当前 `agent_brain.__version__`、HEAD、hook SHA-256 和 manifest version。
 
-- [ ] **Step 4: 跑完整三阶段退出门禁**
+- [x] **Step 4: 跑完整三阶段退出门禁**
 
 Run:
 
 ```bash
 .venv/bin/ruff check .
-.venv/bin/python scripts/check-mypy-baseline.py
+.venv/bin/python scripts/check_mypy_baseline.py
 .venv/bin/pytest -q tests/unit
 .venv/bin/pytest -q tests/system
 .venv/bin/pytest -q tests/conformance
-bash tests/hook-protocol/test-hook-protocol.sh
+bash agent_runtime_kit/hooks/test-hook.sh
 .venv/bin/python scripts/check-recall-quality.py
 .venv/bin/python scripts/generate-adapter-governance.py --check
 ```
 
 Expected: 全部 PASS；mypy 不新增债务；stage1 security/release gates、stage2 recall-quality、stage3 adapter-governance 均保留 required job。
 
-- [ ] **Step 5: 更新公开文档和提交**
+- [x] **Step 5: 更新公开文档和提交**
 
 文档只引用生成报告数字；明确“implemented/installed/configured/doctor/runtime/injected”区别、evidence TTL、kill switch 和真实 blocker，不把 install-ready 写成 verified。
 

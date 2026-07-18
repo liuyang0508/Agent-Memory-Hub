@@ -163,6 +163,34 @@ contains a `review_queue` with item IDs, bounded `memory read` commands, and
 `review_queue`; it defaults to `--dry-run` and only archives matched items when
 you pass `--apply`.
 
+### Adapter lifecycle truth model
+
+Adapter readiness is not a single installed flag. `memory adapter list` exposes
+six separate states: `implemented`, `installed`, `configured`, `doctor_passed`,
+`runtime_observed`, and `context_injected`. An adapter is `verified` only when
+the required runtime, context-injection, and verification evidence is fresh
+(the current manifest TTL is seven days) and the adapter's declared support
+level permits promotion. A successful repair or upgrade transaction does not by
+itself mean that the proprietary client consumed the recalled context.
+
+```bash
+memory adapter doctor codex --format json
+memory adapter install-verify codex --context-probe --format json
+memory adapter repair codex --format json
+memory adapter upgrade codex --format json
+memory adapter release codex --stage shadow --format json
+memory adapter release codex --stage canary --cohort-percent 10 --format json
+memory adapter release codex --stage disabled --reason emergency --format json
+```
+
+Rollout is isolated per adapter (`shadow` → `canary` → `default`), while
+`disabled` is its kill switch; disabling an adapter does not disable the core
+CLI, MCP server, or memory store. Lifecycle JSON uses stable schema and reason
+codes, and upgrade snapshots cover only AMH-owned files. The committed
+[stage-three machine report](./docs/evaluation/stage3-adapter-productization-report.json)
+and [human-readable readiness report](./docs/evaluation/stage3-adapter-productization-readiness.zh.md)
+retain real blockers instead of promoting install-ready adapters to verified.
+
 ### 4. Open the local admin UI
 
 ```bash

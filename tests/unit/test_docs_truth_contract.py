@@ -25,6 +25,9 @@ def test_stage3_adapter_governance_docs_are_ci_enforced() -> None:
     readiness = _read(
         "docs/evaluation/stage3-adapter-productization-readiness.zh.md"
     )
+    readme = _read("README.md")
+    architecture = _read("docs/architecture.md")
+    changelog = _read("CHANGELOG.md")
 
     assert "  adapter-governance:" in workflow
     assert "./scripts/generate-adapter-governance.py --check" in workflow
@@ -32,6 +35,20 @@ def test_stage3_adapter_governance_docs_are_ci_enforced() -> None:
     assert "阶段三多 Agent 产品化治理就绪报告" in readiness
     assert "16 个" in readiness
     assert "shadow → canary → default" in readiness
+    for text in (readme, architecture):
+        for state in (
+            "implemented",
+            "installed",
+            "configured",
+            "doctor_passed",
+            "runtime_observed",
+            "context_injected",
+        ):
+            assert state in text
+        assert "shadow" in text and "canary" in text and "default" in text
+        assert "kill switch" in text
+    assert "successful repair or upgrade transaction does not" in readme
+    assert "rejects stale reports" in changelog
 
 
 def _agent_facing_recall_guidance() -> dict[str, str]:

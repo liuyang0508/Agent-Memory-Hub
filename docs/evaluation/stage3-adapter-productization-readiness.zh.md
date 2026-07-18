@@ -1,9 +1,9 @@
 # 阶段三多 Agent 产品化治理就绪报告
 
-状态：**PASS**  
-证据时间：`2026-07-19T05:30:00+00:00`  
-基线提交：`eab685aec5d6bbf8c54004448e6b547e7bcceeff`  
-实现摘要：`sha256:dd6cf2185af00e5e704b69688d98aa2035563859a000054505e6475beb5b7efe`
+状态：**PASS**
+证据时间：`2026-07-19T05:45:00+08:00`
+基线提交：`eab685aec5d6bbf8c54004448e6b547e7bcceeff`
+实现摘要：`sha256:f344ed1ca06bcfdfc55302be9e5a6f16acaa07302c828c8a62dd0fb3da779e08`
 
 ## 结论
 
@@ -12,6 +12,19 @@
 - 发布控制：`amh-adapter-release-controls/v1`，顺序为 shadow → canary → default，disabled 为单 adapter kill switch；
 - 隐私扫描：pass，违规字段 0；
 - core isolation：CLI、MCP、禁用 hook 空协议均通过。
+
+## 真机边界证据
+
+平台：`darwin-arm64`；证据提交：`bf10a302305b06511953e6b0c31ebf6072008b0c`；hook：`sha256:a716eda7ad90a0a0a645d5e15171d3fdfd73d793269c74aed840119f2ba584bc`。
+
+| Adapter | 批次 | install-verify | 最终判定 | blocker |
+|---|---:|---|---|---|
+| `codex` | 1 | passed / `OK` | verified | - |
+| `qoder` | 1 | failed / `CONTEXT_MISSING` | blocked | context effectiveness not observed; support level remains install-ready |
+| `claude_code` | 2 | passed / `OK` | verified | - |
+| `qoder_work` | 2 | failed / `CONTEXT_MISSING` | blocked | context effectiveness not observed; runtime and context evidence stale |
+
+四个 adapter 的 `repair`、`upgrade` 都以 schema `amh-adapter-lifecycle-result/v1` 返回 `passed / OK`。Qoder 与 QoderWork 的安装和修复可用，但 context effectiveness 不足或证据过期，因此保持 blocked，不以事务成功冒充 verified。
 
 ## 两批合同证据
 

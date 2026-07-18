@@ -9,10 +9,10 @@
       "write_memory"
     ]
   },
-  "evaluated_at": "2026-07-19T05:30:00+00:00",
+  "evaluated_at": "2026-07-19T05:45:00+08:00",
   "failed_gates": [],
-  "fixture_sha256": "sha256:66037478808647c770e9d212e6d687838d38d4271fbff9f2fc8b45cfcd52c1d6",
-  "implementation_sha256": "sha256:dd6cf2185af00e5e704b69688d98aa2035563859a000054505e6475beb5b7efe",
+  "fixture_sha256": "sha256:20f27498c1b703e53ccedca51a4946c261501c1192c87b382e05bfb31c2661c9",
+  "implementation_sha256": "sha256:f344ed1ca06bcfdfc55302be9e5a6f16acaa07302c828c8a62dd0fb3da779e08",
   "lifecycle_result_schema_version": "amh-adapter-lifecycle-result/v1",
   "manifest_count": 16,
   "manifest_schema_version": "amh-adapter-manifest/v1",
@@ -695,6 +695,121 @@
     "prohibited_field_count": 0,
     "status": "pass",
     "violations": []
+  },
+  "real_machine": {
+    "adapters": {
+      "claude_code": {
+        "batch": 2,
+        "blockers": [],
+        "final_states": {
+          "configured": true,
+          "context_injected": true,
+          "doctor_passed": true,
+          "implemented": true,
+          "installed": true,
+          "runtime_observed": true
+        },
+        "install_verify": {
+          "reason_code": "OK",
+          "status": "passed"
+        },
+        "repair": {
+          "reason_code": "OK",
+          "status": "passed"
+        },
+        "upgrade": {
+          "reason_code": "OK",
+          "status": "passed"
+        },
+        "verified": true
+      },
+      "codex": {
+        "batch": 1,
+        "blockers": [],
+        "final_states": {
+          "configured": true,
+          "context_injected": true,
+          "doctor_passed": true,
+          "implemented": true,
+          "installed": true,
+          "runtime_observed": true
+        },
+        "install_verify": {
+          "reason_code": "OK",
+          "status": "passed"
+        },
+        "repair": {
+          "reason_code": "OK",
+          "status": "passed"
+        },
+        "upgrade": {
+          "reason_code": "OK",
+          "status": "passed"
+        },
+        "verified": true
+      },
+      "qoder": {
+        "batch": 1,
+        "blockers": [
+          "context effectiveness not observed",
+          "support level remains install-ready"
+        ],
+        "final_states": {
+          "configured": true,
+          "context_injected": true,
+          "doctor_passed": true,
+          "implemented": true,
+          "installed": true,
+          "runtime_observed": true
+        },
+        "install_verify": {
+          "reason_code": "CONTEXT_MISSING",
+          "status": "failed"
+        },
+        "repair": {
+          "reason_code": "OK",
+          "status": "passed"
+        },
+        "upgrade": {
+          "reason_code": "OK",
+          "status": "passed"
+        },
+        "verified": false
+      },
+      "qoder_work": {
+        "batch": 2,
+        "blockers": [
+          "context effectiveness not observed",
+          "runtime and context evidence stale"
+        ],
+        "final_states": {
+          "configured": true,
+          "context_injected": false,
+          "doctor_passed": true,
+          "implemented": true,
+          "installed": true,
+          "runtime_observed": false
+        },
+        "install_verify": {
+          "reason_code": "CONTEXT_MISSING",
+          "status": "failed"
+        },
+        "repair": {
+          "reason_code": "OK",
+          "status": "passed"
+        },
+        "upgrade": {
+          "reason_code": "OK",
+          "status": "passed"
+        },
+        "verified": false
+      }
+    },
+    "cli_shim_status": "stable-checkout-restored",
+    "evaluated_at": "2026-07-19T05:45:00+08:00",
+    "evidence_commit": "bf10a302305b06511953e6b0c31ebf6072008b0c",
+    "hook_sha256": "sha256:a716eda7ad90a0a0a645d5e15171d3fdfd73d793269c74aed840119f2ba584bc",
+    "platform": "darwin-arm64"
   },
   "reason_codes": [
     "ADAPTER_DISABLED",

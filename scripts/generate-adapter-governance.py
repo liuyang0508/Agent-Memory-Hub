@@ -35,7 +35,7 @@ EVIDENCE_PATH = ROOT / "tests/fixtures/adapter_productization_evidence.json"
 REPORT_PATH = ROOT / "docs/evaluation/stage3-adapter-productization-report.json"
 READINESS_PATH = ROOT / "docs/evaluation/stage3-adapter-productization-readiness.zh.md"
 REPORT_SCHEMA_VERSION = "amh-adapter-productization-report/v1"
-EVALUATION_AT = "2026-07-19T05:30:00+00:00"
+EVALUATION_AT = "2026-07-19T05:45:00+08:00"
 IMPLEMENTATION_PATHS = (
     "agent_brain/agent_integrations/manifests.py",
     "agent_brain/agent_integrations/lifecycle_records.py",
@@ -51,6 +51,20 @@ EXPECTED_BATCHES = (
     (1, ("codex", "qoder")),
     (2, ("claude_code", "qoder_work")),
 )
+EXPECTED_REAL_MACHINE_ADAPTERS = {
+    "codex": (1, True),
+    "qoder": (1, False),
+    "claude_code": (2, True),
+    "qoder_work": (2, False),
+}
+SIX_STATES = {
+    "implemented",
+    "installed",
+    "configured",
+    "doctor_passed",
+    "runtime_observed",
+    "context_injected",
+}
 REQUIRED_CHECKS = frozenset({
     "doctor",
     "install_idempotent",
@@ -118,6 +132,9 @@ def generate_report() -> dict[str, object]:
     core_isolation = evidence.get("core_isolation")
     if not _core_isolation_valid(core_isolation):
         failed_gates.append("core_isolation")
+    real_machine = evidence.get("real_machine")
+    if not _real_machine_valid(real_machine):
+        failed_gates.append("real_machine")
     if not REQUIRED_REASON_CODES <= set(reason_codes):
         failed_gates.append("reason_codes")
     baseline_commit = str(evidence.get("baseline_commit") or "")
@@ -139,6 +156,7 @@ def generate_report() -> dict[str, object]:
         "reason_codes": reason_codes,
         "release_stages": ["shadow", "canary", "default", "disabled"],
         "pilot_batches": pilot_batches,
+        "real_machine": real_machine,
         "core_isolation": core_isolation,
         "test_commands": evidence.get("test_commands"),
         "fixture_sha256": _file_sha256(EVIDENCE_PATH),
@@ -209,6 +227,46 @@ def _core_isolation_valid(value: object) -> bool:
     )
 
 
+def _real_machine_valid(value: object) -> bool:
+    if not isinstance(value, dict):
+        return False
+    if not re.fullmatch(r"[0-9a-f]{40}", str(value.get("evidence_commit") or "")):
+        return False
+    hook_sha256 = str(value.get("hook_sha256") or "")
+    if hook_sha256 != _file_sha256(ROOT / "agent_runtime_kit/hooks/inject-context.sh"):
+        return False
+    if value.get("cli_shim_status") != "stable-checkout-restored":
+        return False
+    adapters = value.get("adapters")
+    if not isinstance(adapters, dict) or set(adapters) != set(EXPECTED_REAL_MACHINE_ADAPTERS):
+        return False
+    for name, (batch, expected_verified) in EXPECTED_REAL_MACHINE_ADAPTERS.items():
+        row = adapters.get(name)
+        if not isinstance(row, dict) or row.get("batch") != batch:
+            return False
+        expected_install = (
+            {"status": "passed", "reason_code": "OK"}
+            if expected_verified
+            else {"status": "failed", "reason_code": "CONTEXT_MISSING"}
+        )
+        if row.get("install_verify") != expected_install:
+            return False
+        for action in ("repair", "upgrade"):
+            if row.get(action) != {"status": "passed", "reason_code": "OK"}:
+                return False
+        states = row.get("final_states")
+        if not isinstance(states, dict) or set(states) != SIX_STATES:
+            return False
+        if not all(isinstance(state, bool) for state in states.values()):
+            return False
+        if row.get("verified") is not expected_verified:
+            return False
+        blockers = row.get("blockers")
+        if not isinstance(blockers, list) or bool(blockers) == expected_verified:
+            return False
+    return True
+
+
 def _privacy_violations(report: dict[str, object]) -> list[str]:
     violations: list[str] = []
 
@@ -269,11 +327,19 @@ def render_markdown(report: dict[str, object]) -> str:
         f"{', '.join(row['channels'])} | {row['output_protocol']} |"
         for row in manifests
     )
+    real_machine = report["real_machine"]
+    real_machine_rows = "\n".join(
+        f"| `{name}` | {row['batch']} | {row['install_verify']['status']} / "
+        f"`{row['install_verify']['reason_code']}` | "
+        f"{'verified' if row['verified'] else 'blocked'} | "
+        f"{'; '.join(row['blockers']) if row['blockers'] else '-'} |"
+        for name, row in real_machine["adapters"].items()
+    )
     return f"""# 阶段三多 Agent 产品化治理就绪报告
 
-状态：**{str(report['status']).upper()}**  
-证据时间：`{report['evaluated_at']}`  
-基线提交：`{report['baseline_commit']}`  
+状态：**{str(report['status']).upper()}**
+证据时间：`{report['evaluated_at']}`
+基线提交：`{report['baseline_commit']}`
 实现摘要：`{report['implementation_sha256']}`
 
 ## 结论
@@ -283,6 +349,16 @@ def render_markdown(report: dict[str, object]) -> str:
 - 发布控制：`{report['release_control_schema_version']}`，顺序为 shadow → canary → default，disabled 为单 adapter kill switch；
 - 隐私扫描：{report['privacy']['status']}，违规字段 {report['privacy']['prohibited_field_count']}；
 - core isolation：CLI、MCP、禁用 hook 空协议均通过。
+
+## 真机边界证据
+
+平台：`{real_machine['platform']}`；证据提交：`{real_machine['evidence_commit']}`；hook：`{real_machine['hook_sha256']}`。
+
+| Adapter | 批次 | install-verify | 最终判定 | blocker |
+|---|---:|---|---|---|
+{real_machine_rows}
+
+四个 adapter 的 `repair`、`upgrade` 都以 schema `{report['lifecycle_result_schema_version']}` 返回 `passed / OK`。Qoder 与 QoderWork 的安装和修复可用，但 context effectiveness 不足或证据过期，因此保持 blocked，不以事务成功冒充 verified。
 
 ## 两批合同证据
 

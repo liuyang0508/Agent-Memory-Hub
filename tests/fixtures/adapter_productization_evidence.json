@@ -30,6 +30,79 @@
     "disabled_hook_clean_protocol": true,
     "mcp_required_tools": ["read_memory", "search_memory", "write_memory"]
   },
+  "real_machine": {
+    "evaluated_at": "2026-07-19T05:45:00+08:00",
+    "evidence_commit": "bf10a302305b06511953e6b0c31ebf6072008b0c",
+    "platform": "darwin-arm64",
+    "hook_sha256": "sha256:a716eda7ad90a0a0a645d5e15171d3fdfd73d793269c74aed840119f2ba584bc",
+    "cli_shim_status": "stable-checkout-restored",
+    "adapters": {
+      "codex": {
+        "batch": 1,
+        "install_verify": {"status": "passed", "reason_code": "OK"},
+        "repair": {"status": "passed", "reason_code": "OK"},
+        "upgrade": {"status": "passed", "reason_code": "OK"},
+        "final_states": {
+          "implemented": true,
+          "installed": true,
+          "configured": true,
+          "doctor_passed": true,
+          "runtime_observed": true,
+          "context_injected": true
+        },
+        "verified": true,
+        "blockers": []
+      },
+      "qoder": {
+        "batch": 1,
+        "install_verify": {"status": "failed", "reason_code": "CONTEXT_MISSING"},
+        "repair": {"status": "passed", "reason_code": "OK"},
+        "upgrade": {"status": "passed", "reason_code": "OK"},
+        "final_states": {
+          "implemented": true,
+          "installed": true,
+          "configured": true,
+          "doctor_passed": true,
+          "runtime_observed": true,
+          "context_injected": true
+        },
+        "verified": false,
+        "blockers": ["context effectiveness not observed", "support level remains install-ready"]
+      },
+      "claude_code": {
+        "batch": 2,
+        "install_verify": {"status": "passed", "reason_code": "OK"},
+        "repair": {"status": "passed", "reason_code": "OK"},
+        "upgrade": {"status": "passed", "reason_code": "OK"},
+        "final_states": {
+          "implemented": true,
+          "installed": true,
+          "configured": true,
+          "doctor_passed": true,
+          "runtime_observed": true,
+          "context_injected": true
+        },
+        "verified": true,
+        "blockers": []
+      },
+      "qoder_work": {
+        "batch": 2,
+        "install_verify": {"status": "failed", "reason_code": "CONTEXT_MISSING"},
+        "repair": {"status": "passed", "reason_code": "OK"},
+        "upgrade": {"status": "passed", "reason_code": "OK"},
+        "final_states": {
+          "implemented": true,
+          "installed": true,
+          "configured": true,
+          "doctor_passed": true,
+          "runtime_observed": false,
+          "context_injected": false
+        },
+        "verified": false,
+        "blockers": ["context effectiveness not observed", "runtime and context evidence stale"]
+      }
+    }
+  },
   "test_commands": [
     "pytest tests/system/test_adapter_lifecycle_contract.py",
     "pytest tests/system/test_adapter_core_isolation.py",

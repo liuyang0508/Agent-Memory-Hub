@@ -54,6 +54,38 @@ def test_stage3_report_exposes_versioned_contracts_and_provenance() -> None:
     assert re.fullmatch(r"[0-9a-f]{40}", report["baseline_commit"])
     for key in ("fixture_sha256", "implementation_sha256", "manifest_sha256"):
         assert re.fullmatch(r"sha256:[0-9a-f]{64}", report[key])
+    real_machine = report["real_machine"]
+    assert re.fullmatch(r"[0-9a-f]{40}", real_machine["evidence_commit"])
+    assert re.fullmatch(r"sha256:[0-9a-f]{64}", real_machine["hook_sha256"])
+    assert real_machine["cli_shim_status"] == "stable-checkout-restored"
+
+
+def test_stage3_real_machine_evidence_keeps_blockers_truthful() -> None:
+    adapters = _report()["real_machine"]["adapters"]
+
+    assert adapters["codex"]["verified"] is True
+    assert adapters["claude_code"]["verified"] is True
+    assert adapters["qoder"]["verified"] is False
+    assert adapters["qoder_work"]["verified"] is False
+    assert adapters["qoder"]["install_verify"] == {
+        "status": "failed",
+        "reason_code": "CONTEXT_MISSING",
+    }
+    assert adapters["qoder_work"]["install_verify"] == {
+        "status": "failed",
+        "reason_code": "CONTEXT_MISSING",
+    }
+    for row in adapters.values():
+        assert row["repair"] == {"status": "passed", "reason_code": "OK"}
+        assert row["upgrade"] == {"status": "passed", "reason_code": "OK"}
+        assert set(row["final_states"]) == {
+            "implemented",
+            "installed",
+            "configured",
+            "doctor_passed",
+            "runtime_observed",
+            "context_injected",
+        }
 
 
 def test_stage3_report_contains_no_private_or_prompt_payload_fields() -> None:
