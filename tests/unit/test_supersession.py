@@ -49,6 +49,10 @@ def _write_malformed_item(store: ItemsStore, item_id: str) -> None:
     )
 
 
+def _write_invalid_utf8_item(store: ItemsStore, item_id: str) -> None:
+    (store.items_dir / f"{item_id}.md").write_bytes(b"\xff\xfe\xfa")
+
+
 def _write_item_with_mismatched_id(
     store: ItemsStore, requested_id: str, actual_id: str
 ) -> None:
@@ -214,6 +218,43 @@ def test_preview_rejects_malformed_primary_item(tmp_brain_dir, malformed_role):
     assert result.reason == "ITEM_INVALID"
 
 
+def test_preview_rejects_primary_item_with_invalid_utf8(tmp_brain_dir):
+    store = ItemsStore(tmp_brain_dir / "items")
+    replacement_id = "mem-20260719-110000-invalid-utf8-replacement"
+    obsolete = _item("mem-20260719-100000-invalid-utf8-obsolete")
+    _write_invalid_utf8_item(store, replacement_id)
+    store.write(obsolete, "obsolete")
+
+    result = SupersessionService(tmp_brain_dir, store).preview(
+        replacement_id, obsolete.id
+    )
+
+    assert result.status == "blocked"
+    assert result.reason == "ITEM_INVALID"
+
+
+@pytest.mark.parametrize(
+    "error_type",
+    [TypeError, RuntimeError, RecursionError],
+)
+def test_preview_propagates_programming_errors(
+    tmp_brain_dir, monkeypatch, error_type
+):
+    store = ItemsStore(tmp_brain_dir / "items")
+
+    def raising_get(_item_id):
+        raise error_type("programming failure")
+
+    monkeypatch.setattr(store, "get", raising_get)
+    service = SupersessionService(tmp_brain_dir, store)
+
+    with pytest.raises(error_type, match="programming failure"):
+        service.preview(
+            "mem-20260719-110000-error-replacement",
+            "mem-20260719-100000-error-obsolete",
+        )
+
+
 @pytest.mark.parametrize("mismatched_role", ["replacement", "obsolete"])
 def test_preview_rejects_primary_frontmatter_id_mismatch(
     tmp_brain_dir, mismatched_role
@@ -257,7 +298,7 @@ def test_preview_rejects_primary_frontmatter_id_mismatch(
         "UNVERIFIED-BOUNDARY",
     ],
 )
-def test_preview_rejects_replacement_that_needs_review(
+def test_preview_rejects_replacement_with_review_required_tag(
     tmp_brain_dir, review_tag
 ):
     store = ItemsStore(tmp_brain_dir / "items")
@@ -419,6 +460,26 @@ def test_preview_rejects_malformed_replacement_chain_item(tmp_brain_dir):
     store.write(obsolete, "obsolete")
     store.write(replacement, "replacement")
     _write_malformed_item(store, chain_id)
+
+    result = SupersessionService(tmp_brain_dir, store).preview(
+        replacement.id, obsolete.id
+    )
+
+    assert result.status == "blocked"
+    assert result.reason == "BROKEN_REPLACEMENT_CHAIN"
+
+
+def test_preview_rejects_replacement_chain_item_with_invalid_utf8(tmp_brain_dir):
+    store = ItemsStore(tmp_brain_dir / "items")
+    chain_id = "mem-20260719-105000-invalid-utf8-chain"
+    obsolete = _item("mem-20260719-100000-invalid-utf8-chain-obsolete")
+    replacement = _item(
+        "mem-20260719-110000-invalid-utf8-chain-replacement",
+        superseded_by=chain_id,
+    )
+    store.write(obsolete, "obsolete")
+    store.write(replacement, "replacement")
+    _write_invalid_utf8_item(store, chain_id)
 
     result = SupersessionService(tmp_brain_dir, store).preview(
         replacement.id, obsolete.id

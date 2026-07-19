@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import Any, Literal
 
 import yaml
-from pydantic import ValidationError
 
 from agent_brain.contracts.memory_enums import Sensitivity, memory_enum_value
 from agent_brain.contracts.memory_item import MemoryItem, is_valid_memory_item_id
@@ -17,12 +16,7 @@ _ItemLoadStatus = Literal["ok", "missing", "invalid"]
 
 _ITEM_READ_ERRORS = (
     OSError,
-    RecursionError,
-    TypeError,
-    UnicodeError,
     ValueError,
-    OverflowError,
-    ValidationError,
     yaml.YAMLError,
 )
 
@@ -104,9 +98,10 @@ class SupersessionService:
             if next_id in seen:
                 return "SUPERSESSION_CYCLE"
             seen.add(next_id)
-            cursor, load_status = self._load_item(next_id)
-            if cursor is None or load_status != "ok":
+            next_item, load_status = self._load_item(next_id)
+            if next_item is None or load_status != "ok":
                 return "BROKEN_REPLACEMENT_CHAIN"
+            cursor = next_item
         return "OK"
 
     def _load_item(self, item_id: str) -> tuple[MemoryItem | None, _ItemLoadStatus]:
