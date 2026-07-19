@@ -2,6 +2,11 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import subprocess
+import sys
+
+
+ROOT = Path(__file__).parents[2]
 
 
 def _digest(character: str) -> str:
@@ -195,3 +200,56 @@ def test_atomic_manifest_writer_does_not_add_sensitive_fields(tmp_path: Path) ->
     ):
         assert forbidden not in serialized
     assert json.loads(serialized)["status"] == "pass"
+
+
+def test_verifier_cli_rejects_partial_manifest(tmp_path: Path) -> None:
+    path = tmp_path / "manifest.json"
+    manifest = _valid_manifest()
+    manifest["results"] = list(manifest["results"])[:-1]  # type: ignore[arg-type]
+    path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "scripts/check-hook-recall-evidence.py",
+            str(path),
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 1
+    assert "G0:planned_result_mismatch" in completed.stdout
+
+
+def test_runner_cli_writes_terminal_manifest_when_hook_times_out(
+    tmp_path: Path,
+) -> None:
+    hook = tmp_path / "timeout-hook.sh"
+    hook.write_text("#!/usr/bin/env bash\nsleep 1\nprintf '{}\\n'\n", encoding="utf-8")
+    hook.chmod(0o700)
+    output = tmp_path / "evidence.json"
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "scripts/run-hook-recall-evidence.py",
+            "--hook",
+            str(hook),
+            "--timeout-seconds",
+            "0.05",
+            "--output",
+            str(output),
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    assert payload["status"] == "fail"
+    assert payload["counts"]["executed"] == 11
+    assert any(failure.startswith("G3:hook_timeout:") for failure in payload["failed_gates"])
