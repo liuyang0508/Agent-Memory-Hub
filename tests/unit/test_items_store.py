@@ -133,6 +133,107 @@ def test_iter_all_skips_fifo_without_blocking_or_writing_it(tmp_path: Path) -> N
     assert stat.S_ISFIFO(fifo.stat().st_mode)
 
 
+def test_items_store_canonicalizes_trusted_symlink_ancestor_once(
+    tmp_path: Path,
+) -> None:
+    from agent_brain.memory.store.items_store import ItemsStore
+
+    real_root = tmp_path / "real-root"
+    real_root.mkdir()
+    alias = tmp_path / "trusted-alias"
+    alias.symlink_to(real_root, target_is_directory=True)
+    store = ItemsStore(alias / "items")
+    item = MemoryItem(
+        id="mem-20260720-120001-symlink-ancestor",
+        type=MemoryType.fact,
+        created_at=datetime.fromisoformat("2026-07-20T12:00:01+00:00"),
+        title="canonical ancestor",
+        summary="trusted configured ancestor is resolved once",
+    )
+    store.write(item, "body")
+
+    alias.unlink()
+
+    assert store.items_dir == (real_root / "items").resolve()
+    assert [loaded.id for loaded, _body in store.iter_all()] == [item.id]
+
+
+def test_iter_all_unsupported_descriptor_fallback_reads_only_regular_files(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from agent_brain.memory.store import items_store as items_store_module
+    from agent_brain.memory.store.items_store import ItemsStore
+
+    store = ItemsStore(tmp_path / "items")
+    item = MemoryItem(
+        id="mem-20260720-120002-fallback-regular",
+        type=MemoryType.fact,
+        created_at=datetime.fromisoformat("2026-07-20T12:00:02+00:00"),
+        title="fallback regular",
+        summary="ordinary item remains readable without descriptor traversal",
+    )
+    store.write(item, "body")
+    outside = tmp_path / "outside.md"
+    outside.write_bytes((store.items_dir / f"{item.id}.md").read_bytes())
+    symlink_id = "mem-20260720-120003-fallback-symlink"
+    symlink = store.items_dir / f"{symlink_id}.md"
+    symlink.symlink_to(outside)
+    fifo_id = "mem-20260720-120004-fallback-fifo"
+    fifo = store.items_dir / f"{fifo_id}.md"
+    os.mkfifo(fifo)
+    monkeypatch.setattr(
+        items_store_module,
+        "secure_dir_fd_io_supported",
+        lambda: False,
+    )
+
+    loaded = list(store.iter_all())
+
+    assert [loaded_item.id for loaded_item, _body in loaded] == [item.id]
+    assert {row.path.name for row in store.last_scan.skipped} == {
+        symlink.name,
+        fifo.name,
+    }
+    assert store.get_nofollow(item.id)[0].id == item.id
+    with pytest.raises(OSError):
+        store.get_nofollow(symlink_id)
+    with pytest.raises(OSError):
+        store.get_nofollow(fifo_id)
+    assert stat.S_ISLNK(symlink.lstat().st_mode)
+    assert stat.S_ISFIFO(fifo.lstat().st_mode)
+
+
+def test_unsupported_descriptor_fallback_enforces_bounded_reads(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from agent_brain.memory.store import items_store as items_store_module
+    from agent_brain.memory.store.items_store import ItemsStore
+
+    store = ItemsStore(tmp_path / "items")
+    item = MemoryItem(
+        id="mem-20260720-120005-fallback-bounded",
+        type=MemoryType.fact,
+        created_at=datetime.fromisoformat("2026-07-20T12:00:05+00:00"),
+        title="fallback bounded",
+        summary="fallback rejects oversized ordinary files",
+    )
+    store.write(item, "body")
+    monkeypatch.setattr(
+        items_store_module,
+        "secure_dir_fd_io_supported",
+        lambda: False,
+    )
+    monkeypatch.setattr(items_store_module, "_MAX_FALLBACK_ITEM_BYTES", 64)
+
+    assert list(store.iter_all()) == []
+    assert store.last_scan.skipped_count == 1
+    assert "exceeds size limit" in store.last_scan.skipped[0].reason
+    with pytest.raises(OSError, match="exceeds size limit"):
+        store.get_nofollow(item.id)
+
+
 def test_atomic_updates_and_rollback_preserve_existing_posix_mode(
     tmp_brain_dir: Path,
 ) -> None:

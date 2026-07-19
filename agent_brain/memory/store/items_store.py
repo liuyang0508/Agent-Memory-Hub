@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import stat
 import tempfile
 import threading
 import uuid
@@ -26,6 +27,8 @@ from agent_brain.platform.secure_io import (
     open_regular_file_at,
     secure_dir_fd_io_supported,
 )
+
+_MAX_FALLBACK_ITEM_BYTES = 64 * 1024 * 1024
 
 
 def _atomic_write_bytes(
@@ -64,6 +67,50 @@ def _read_descriptor_bytes(descriptor: int) -> bytes:
         if not chunk:
             return b"".join(chunks)
         chunks.append(chunk)
+
+
+def _read_regular_file_fallback(path: Path) -> bytes:
+    """Best-effort no-symlink regular read when dir-fd traversal is unavailable."""
+    before = os.lstat(path)
+    if not stat.S_ISREG(before.st_mode):
+        raise OSError("secure read target is not a regular file")
+    flags = (
+        os.O_RDONLY
+        | getattr(os, "O_BINARY", 0)
+        | getattr(os, "O_CLOEXEC", 0)
+        | getattr(os, "O_NONBLOCK", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+    )
+    descriptor = os.open(path, flags)
+    try:
+        opened = os.fstat(descriptor)
+        if not stat.S_ISREG(opened.st_mode):
+            raise OSError("secure read target is not a regular file")
+        if (before.st_dev, before.st_ino) != (opened.st_dev, opened.st_ino):
+            raise OSError("secure read target changed before open")
+        if opened.st_size > _MAX_FALLBACK_ITEM_BYTES:
+            raise OSError("secure read target exceeds size limit")
+        chunks: list[bytes] = []
+        remaining = _MAX_FALLBACK_ITEM_BYTES + 1
+        while remaining > 0:
+            chunk = os.read(descriptor, min(65536, remaining))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        data = b"".join(chunks)
+        after = os.fstat(descriptor)
+        if len(data) > _MAX_FALLBACK_ITEM_BYTES:
+            raise OSError("secure read target exceeds size limit")
+        if (
+            (opened.st_dev, opened.st_ino, opened.st_size, opened.st_mtime_ns)
+            != (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns)
+            or len(data) != after.st_size
+        ):
+            raise OSError("secure read target changed during read")
+        return data
+    finally:
+        os.close(descriptor)
 
 
 def make_item_id(title: str, when: datetime | None = None, label: str | None = None) -> str:
@@ -138,7 +185,10 @@ class ItemsStore:
     """Append-only md frontmatter items store. md is source of truth."""
 
     def __init__(self, items_dir: Path) -> None:
-        self.items_dir = items_dir
+        # The configured store path is trusted. Resolve it once so legitimate
+        # platform aliases such as macOS /tmp -> /private/tmp work, while every
+        # later POSIX read remains anchored to a canonical, no-follow path.
+        self.items_dir = Path(items_dir).expanduser().resolve(strict=False)
         self.items_dir.mkdir(parents=True, exist_ok=True)
         # Records of items skipped during the most recent iter_all sweep.
         # Callers (e.g. governance pipeline) can read this to surface skipped
@@ -177,7 +227,8 @@ class ItemsStore:
     def _iter_nofollow_markdown(self) -> Iterator[tuple[Path, bytes]]:
         """Yield descriptor-anchored regular markdown files in path order."""
         if not secure_dir_fd_io_supported():
-            raise OSError("secure directory descriptor IO is unavailable")
+            yield from self._iter_fallback_markdown()
+            return
         root_descriptor = open_directory_path_without_symlinks(self.items_dir)
         stack: list[tuple[int, tuple[str, ...], Iterator[os.DirEntry[str]]]] = []
         try:
@@ -221,6 +272,29 @@ class ItemsStore:
                 directory, _relative, _entries = stack.pop()
                 close_descriptor(directory)
 
+    def _iter_fallback_markdown(self) -> Iterator[tuple[Path, bytes]]:
+        """Yield ordinary files with lstat/open/fstat race checks."""
+        stack = [self.items_dir]
+        while stack:
+            directory = stack.pop()
+            try:
+                entries = sorted(os.scandir(directory), key=lambda row: row.name)
+            except Exception as exc:  # noqa: BLE001 - traversal boundary.
+                self._record_skip(directory, exc)
+                continue
+            child_directories: list[Path] = []
+            for entry in entries:
+                path = directory / entry.name
+                try:
+                    opened = entry.stat(follow_symlinks=False)
+                    if stat.S_ISDIR(opened.st_mode):
+                        child_directories.append(path)
+                    elif path.suffix == ".md":
+                        yield path, _read_regular_file_fallback(path)
+                except Exception as exc:  # noqa: BLE001 - per-entry boundary.
+                    self._record_skip(path, exc)
+            stack.extend(reversed(child_directories))
+
     def _record_skip(self, path: Path, error: BaseException) -> None:
         reason = f"{type(error).__name__}: {error}".splitlines()[0][:200]
         self.last_scan.skipped.append(SkipRecord(path=path, reason=reason))
@@ -237,15 +311,18 @@ class ItemsStore:
         """Read one canonical active item without following filesystem links."""
         if not is_valid_memory_item_id(item_id):
             raise ValueError("invalid memory item id")
-        directory_fd = open_directory_path_without_symlinks(self.items_dir)
-        try:
-            descriptor = open_regular_file_at(directory_fd, f"{item_id}.md")
+        if secure_dir_fd_io_supported():
+            directory_fd = open_directory_path_without_symlinks(self.items_dir)
             try:
-                data = _read_descriptor_bytes(descriptor)
+                descriptor = open_regular_file_at(directory_fd, f"{item_id}.md")
+                try:
+                    data = _read_descriptor_bytes(descriptor)
+                finally:
+                    close_descriptor(descriptor)
             finally:
-                close_descriptor(descriptor)
-        finally:
-            close_descriptor(directory_fd)
+                close_descriptor(directory_fd)
+        else:
+            data = _read_regular_file_fallback(self.items_dir / f"{item_id}.md")
         text = data.decode("utf-8-sig")
         text = text.replace("\r\n", "\n").replace("\r", "\n")
         return parse_item_markdown(text)
