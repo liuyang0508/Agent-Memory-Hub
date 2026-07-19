@@ -233,6 +233,7 @@ class QoderWorkAdapter(AdapterBase):
 
     def diagnose(self) -> AdapterDiagnosticReport:
         checks = [
+            self._diagnose_runtime_authority(),
             self._diagnose_settings_hooks(),
             self._diagnose_prompt_hook_mode(),
             self._diagnose_hook_scripts(),
@@ -280,13 +281,32 @@ class QoderWorkAdapter(AdapterBase):
                 )
 
     def _diagnose_settings_hooks(self) -> AdapterDiagnosticCheck:
+        expected_commands = {
+            event: self._hook_command(event, self.hooks_dir / self.HOOK_SCRIPTS[event])
+            for event in self.HOOK_EVENTS
+        }
         return diagnose_settings_hooks(
             settings_path=SETTINGS_PATH,
             hooks_dir=self.hooks_dir,
             hook_events=self.HOOK_EVENTS,
             hook_scripts=self.HOOK_SCRIPTS,
+            expected_commands=expected_commands,
             adapter_label="QoderWork",
             install_command="run: memory adapter install qoder_work",
+        )
+
+    def _diagnose_runtime_authority(self) -> AdapterDiagnosticCheck:
+        if not self.runtime_authority.valid:
+            return AdapterDiagnosticCheck(
+                name="qoder_work runtime authority",
+                status="error",
+                detail=str(self.runtime_authority.error),
+                fix="run: memory doctor --fix, then repair this adapter",
+            )
+        return AdapterDiagnosticCheck(
+            name="qoder_work runtime authority",
+            status="ok",
+            detail=f"stable runtime root selected via {self.runtime_authority.source}",
         )
 
     def _diagnose_hook_scripts(self) -> AdapterDiagnosticCheck:

@@ -27,6 +27,9 @@ def _stable_repo(root: Path) -> Path:
     python.parent.mkdir(parents=True)
     python.write_text("#!/bin/sh\nexit 0\n")
     python.chmod(0o755)
+    memory = root / ".venv" / "bin" / "memory"
+    memory.write_text("#!/bin/sh\nexit 0\n")
+    memory.chmod(0o755)
     return root
 
 
@@ -151,6 +154,13 @@ def _managed(commands: list[str], name: str) -> list[str]:
     return [command for command in commands if f"/agent_runtime_kit/hooks/{name}" in command]
 
 
+def _write_managed_shim(path: Path, stable_repo: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        f'#!/bin/sh\nexec "{stable_repo / ".venv/bin/memory"}" "$@"\n'
+    )
+
+
 def test_install_converges_hooks_mcp_and_preserves_foreign(harness: Harness) -> None:
     foreign = _seed_drift(harness)
 
@@ -246,3 +256,95 @@ def test_uninstall_removes_all_managed_handlers_and_preserves_foreign(harness: H
     serialized = harness.settings.read_text()
     assert "inject-context.sh" not in serialized
     assert "session-end-signal.sh" not in serialized
+
+
+@pytest.mark.parametrize("fault", ("duplicate", "wrong-script", "command-drift"))
+def test_doctor_rejects_non_converged_hooks(harness: Harness, fault: str) -> None:
+    _seed_drift(harness)
+    harness.adapter.install()
+    payload = json.loads(harness.settings.read_text())
+    entries = payload["hooks"]["UserPromptSubmit"]
+    if fault == "duplicate":
+        entries.append(
+            {
+                "matcher": "",
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "/old/agent_runtime_kit/hooks/inject-context.sh",
+                    }
+                ],
+            }
+        )
+    elif fault == "wrong-script":
+        entries[0]["hooks"][0]["command"] = (
+            "/stable/agent_runtime_kit/hooks/session-end-signal.sh"
+        )
+    else:
+        entries[0]["hooks"][0]["command"] += " --unsafe-drift"
+    harness.settings.write_text(json.dumps(payload))
+
+    report = harness.adapter.diagnose().to_dict()
+    check = next(item for item in report["checks"] if item["name"].endswith("settings hooks"))
+
+    assert check["status"] == "error"
+    assert "foreign-before" not in check["detail"]
+
+
+def test_invalid_managed_shim_fails_before_mutation_and_doctor_reports_error(
+    harness: Harness,
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    harness.settings.unlink(missing_ok=True)
+    bin_dir = tmp_path / "broken-bin"
+    shim = bin_dir / "memory"
+    shim.parent.mkdir(parents=True)
+    shim.write_text("#!/bin/sh\nexec /deleted/worktree/memory $@\n")
+    monkeypatch.setenv("AGENT_MEMORY_HUB_BIN", str(bin_dir))
+    adapter = type(harness.adapter)(harness.adapter.brain_dir)
+
+    with pytest.raises(RuntimeError, match="memory doctor --fix"):
+        adapter.install()
+
+    assert not harness.settings.exists()
+    report = adapter.diagnose().to_dict()
+    authority = next(
+        item for item in report["checks"] if item["name"].endswith("runtime authority")
+    )
+    assert authority["status"] == "error"
+    assert "memory doctor --fix" in authority["detail"]
+
+
+def test_valid_managed_shim_selects_stable_repo_for_hooks_and_mcp(
+    harness: Harness,
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    harness.settings.unlink(missing_ok=True)
+    bin_dir = tmp_path / "managed-bin"
+    _write_managed_shim(bin_dir / "memory", harness.stable_repo)
+    monkeypatch.setenv("AGENT_MEMORY_HUB_BIN", str(bin_dir))
+    adapter = type(harness.adapter)(harness.adapter.brain_dir)
+
+    adapter.install()
+
+    assert adapter.repo_dir == harness.stable_repo.resolve()
+    assert str(harness.stable_repo) in harness.settings.read_text()
+    for path in harness.mcp_paths:
+        server = json.loads(path.read_text())["mcpServers"]["agent-memory-hub"]
+        assert server["command"] == str(harness.stable_repo / ".venv/bin/python")
+        assert server["env"]["PYTHONPATH"] == str(harness.stable_repo)
+
+
+def test_doctor_rejects_non_executable_hook_script(harness: Harness) -> None:
+    _seed_drift(harness)
+    harness.adapter.install()
+    script = harness.stable_repo / "agent_runtime_kit" / "hooks" / "inject-context.sh"
+    script.chmod(0o644)
+
+    report = harness.adapter.diagnose().to_dict()
+    check = next(item for item in report["checks"] if item["name"].endswith("hook scripts"))
+
+    assert check["status"] == "error"
+    assert "not executable" in check["detail"]
