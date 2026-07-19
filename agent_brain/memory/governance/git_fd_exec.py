@@ -74,9 +74,9 @@ def main() -> None:
             "GIT_TERMINAL_PROMPT": "0",
             "GIT_NO_REPLACE_OBJECTS": "1",
             "GIT_AUTHOR_NAME": "agent-memory-hub",
-            "GIT_AUTHOR_EMAIL": "lifecycle@agent-memory-hub.invalid",
+            "GIT_AUTHOR_EMAIL": "amh-test@example.invalid",
             "GIT_COMMITTER_NAME": "agent-memory-hub",
-            "GIT_COMMITTER_EMAIL": "lifecycle@agent-memory-hub.invalid",
+            "GIT_COMMITTER_EMAIL": "amh-test@example.invalid",
             "LC_ALL": "C",
         }
         os.execve(args.git, [args.git, *git_args], environment)
