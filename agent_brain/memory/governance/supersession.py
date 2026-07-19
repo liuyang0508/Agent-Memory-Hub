@@ -21,6 +21,7 @@ from agent_brain.memory.governance.lifecycle_snapshot import (
     LifecycleSnapshotError,
     LifecycleSnapshotStore,
 )
+from agent_brain.memory.store.durable_fs import lifecycle_mutation_capability
 from agent_brain.memory.store.items_store import ItemsStore
 
 SupersessionStatus = Literal[
@@ -82,6 +83,14 @@ class SupersessionService:
     ) -> SupersessionResult:
         if not apply:
             return self.preview(replacement_id, obsolete_id)
+        if not lifecycle_mutation_capability():
+            return SupersessionResult(
+                "blocked",
+                "PLATFORM_UNSUPPORTED",
+                replacement_id,
+                obsolete_id,
+                dry_run=False,
+            )
 
         with lifecycle_transaction_lock(self.brain_dir):
             preview = self.preview(replacement_id, obsolete_id)
@@ -203,6 +212,14 @@ class SupersessionService:
     ) -> SupersessionResult:
         if not apply:
             return self._preview_revert_current(replacement_id, obsolete_id)
+        if not lifecycle_mutation_capability():
+            return SupersessionResult(
+                "blocked",
+                "PLATFORM_UNSUPPORTED",
+                replacement_id,
+                obsolete_id,
+                dry_run=False,
+            )
 
         with lifecycle_transaction_lock(self.brain_dir):
             preview = self._preview_revert_current(replacement_id, obsolete_id)

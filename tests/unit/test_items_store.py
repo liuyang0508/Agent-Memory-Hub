@@ -166,8 +166,8 @@ def test_atomic_replace_fsyncs_parent_directory_after_replace(
     real_replace = os.replace
     real_fsync = os.fsync
 
-    def tracking_replace(source, destination):
-        real_replace(source, destination)
+    def tracking_replace(source, destination, **kwargs):
+        real_replace(source, destination, **kwargs)
         events.append("replace")
 
     def tracking_fsync(fd):
@@ -188,7 +188,7 @@ def test_atomic_replace_fsyncs_parent_directory_after_replace(
 def test_atomic_directory_preflight_failure_has_zero_side_effects(
     tmp_brain_dir: Path, monkeypatch, unsupported: str
 ) -> None:
-    from agent_brain.memory.store.items_store import ItemsStore
+    from agent_brain.memory.store.items_store import ItemsStore, _atomic_write_bytes
 
     store = ItemsStore(tmp_brain_dir / "items")
     item = MemoryItem(
@@ -208,7 +208,31 @@ def test_atomic_directory_preflight_failure_has_zero_side_effects(
         monkeypatch.setattr(os, "name", "nt")
 
     with pytest.raises(OSError, match="DIRECTORY_FSYNC_UNSUPPORTED"):
-        store.update_frontmatter(item.id, summary="after")
+        _atomic_write_bytes(path, b"after", require_durable=True)
 
     assert (path.read_bytes(), path.stat().st_mode, path.stat().st_mtime_ns) == before
     assert sorted(entry.name for entry in store.items_dir.iterdir()) == directory_before
+
+
+def test_nondurable_platform_keeps_ordinary_memory_update_available(
+    tmp_brain_dir: Path, monkeypatch
+) -> None:
+    from agent_brain.memory.store import items_store as items_store_module
+    from agent_brain.memory.store.items_store import ItemsStore
+
+    store = ItemsStore(tmp_brain_dir / "items")
+    item = MemoryItem(
+        id="mem-20260719-140000-windows-compatible",
+        type=MemoryType.fact,
+        created_at=datetime.fromisoformat("2026-07-19T14:00:00+00:00"),
+        title="ordinary",
+        summary="before",
+    )
+    store.write(item, "body")
+    monkeypatch.setattr(
+        items_store_module, "lifecycle_mutation_capability", lambda: False
+    )
+
+    updated = store.update_frontmatter(item.id, summary="after")
+
+    assert updated.summary == "after"

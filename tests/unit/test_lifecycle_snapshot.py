@@ -1,3 +1,4 @@
+import os
 import stat
 import subprocess
 from pathlib import Path
@@ -79,8 +80,8 @@ def test_restore_is_pair_selective_and_treats_special_id_literally(
     snapshot = store.snapshot_pair(
         old_id, paths[old_id].read_bytes(), NEW_ID, paths[NEW_ID].read_bytes()
     )
-    paths[old_id].write_bytes(b"old after")
-    paths[NEW_ID].write_bytes(b"new after")
+    paths[old_id].unlink()
+    paths[NEW_ID].unlink()
     paths[third_id].write_bytes(b"third after")
     runtime_other.write_bytes(b"runtime after")
 
@@ -88,6 +89,8 @@ def test_restore_is_pair_selective_and_treats_special_id_literally(
 
     assert paths[old_id].read_bytes() == b"old before"
     assert paths[NEW_ID].read_bytes() == b"new before"
+    assert stat.S_IMODE(paths[old_id].stat().st_mode) == 0o600
+    assert stat.S_IMODE(paths[NEW_ID].stat().st_mode) == 0o600
     assert paths[third_id].read_bytes() == b"third after"
     assert runtime_other.read_bytes() == b"runtime after"
 
@@ -125,6 +128,21 @@ def test_snapshot_refuses_symlink_items_root(tmp_brain_dir: Path) -> None:
         )
 
 
+def test_snapshot_accepts_macos_var_private_var_alias_by_inode(
+    tmp_brain_dir: Path,
+) -> None:
+    text = str(tmp_brain_dir)
+    if not text.startswith("/private/var/"):
+        pytest.skip("macOS /var alias not present")
+    alias_items = Path(text.replace("/private/var/", "/var/", 1)) / "items"
+
+    snapshot = LifecycleSnapshotStore(tmp_brain_dir, alias_items).snapshot_pair(
+        OLD_ID, b"old", NEW_ID, b"new"
+    )
+
+    assert snapshot
+
+
 def test_snapshot_disables_malicious_git_hooks(tmp_brain_dir: Path) -> None:
     store = LifecycleSnapshotStore(tmp_brain_dir)
     first = store.snapshot_pair(OLD_ID, b"old", NEW_ID, b"new")
@@ -146,11 +164,68 @@ def test_git_timeout_maps_to_closed_snapshot_error(
     def timeout(*_args, **_kwargs):
         raise subprocess.TimeoutExpired(["git"], 5, output=b"private body")
 
-    monkeypatch.setattr(snapshot_module.subprocess, "run", timeout)
-
-    with pytest.raises(LifecycleSnapshotError, match="SNAPSHOT_FAILED") as caught:
-        LifecycleSnapshotStore(tmp_brain_dir).snapshot_pair(
-            OLD_ID, b"old secret", NEW_ID, b"new secret"
-        )
+    store = LifecycleSnapshotStore(tmp_brain_dir)
+    with monkeypatch.context() as scoped:
+        scoped.setattr(snapshot_module.subprocess, "run", timeout)
+        with pytest.raises(LifecycleSnapshotError, match="SNAPSHOT_FAILED") as caught:
+            store.snapshot_pair(OLD_ID, b"old secret", NEW_ID, b"new secret")
 
     assert "private" not in str(caught.value)
+    runtime = tmp_brain_dir / "runtime"
+    assert not (runtime / "lifecycle-history.git").exists()
+    assert not list(runtime.glob(".lifecycle-history-*.tmp"))
+    assert store.snapshot_pair(OLD_ID, b"old", NEW_ID, b"new")
+
+
+@pytest.mark.parametrize("control", [False, True])
+def test_snapshot_marker_failure_cleans_temp_and_allows_retry(
+    tmp_brain_dir: Path, monkeypatch, control: bool
+) -> None:
+    store = LifecycleSnapshotStore(tmp_brain_dir)
+    real_write = os.write
+
+    def fail_marker(fd, data):
+        if bytes(data).startswith(b"agent-memory-hub lifecycle"):
+            if control:
+                raise KeyboardInterrupt("marker control")
+            raise OSError("marker failure")
+        return real_write(fd, data)
+
+    with monkeypatch.context() as scoped:
+        scoped.setattr(os, "write", fail_marker)
+        expected = KeyboardInterrupt if control else LifecycleSnapshotError
+        with pytest.raises(expected):
+            store.snapshot_pair(OLD_ID, b"old", NEW_ID, b"new")
+
+    runtime = tmp_brain_dir / "runtime"
+    assert not (runtime / "lifecycle-history.git").exists()
+    assert not list(runtime.glob(".lifecycle-history-*.tmp"))
+    assert store.snapshot_pair(OLD_ID, b"old", NEW_ID, b"new")
+
+
+def test_snapshot_init_adopts_concurrently_published_valid_repository(
+    tmp_brain_dir: Path, monkeypatch
+) -> None:
+    store = LifecycleSnapshotStore(tmp_brain_dir)
+    real_rename = snapshot_module.SecureDirectory.rename
+    raced = False
+
+    def publish_then_report_conflict(directory, source, destination):
+        nonlocal raced
+        if destination == "lifecycle-history.git" and not raced:
+            raced = True
+            real_rename(directory, source, destination)
+            raise FileExistsError("simulated concurrent publication")
+        return real_rename(directory, source, destination)
+
+    monkeypatch.setattr(
+        snapshot_module.SecureDirectory, "rename", publish_then_report_conflict
+    )
+
+    snapshot = store.snapshot_pair(OLD_ID, b"old", NEW_ID, b"new")
+
+    assert raced is True
+    assert snapshot
+    runtime = tmp_brain_dir / "runtime"
+    assert (runtime / "lifecycle-history.git").is_dir()
+    assert not list(runtime.glob(".lifecycle-history-*.tmp"))

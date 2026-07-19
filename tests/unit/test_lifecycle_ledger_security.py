@@ -14,6 +14,7 @@ from agent_brain.memory.governance.lifecycle_ledger import (
     latest_applied_supersession_record,
     lifecycle_transaction_lock,
 )
+from agent_brain.memory.store.durable_fs import SecureDirectory
 
 
 OLD_ID = "mem-20260719-100000-ledger-old"
@@ -96,6 +97,67 @@ def test_reader_rejects_ledger_symlink_even_when_external_contains_valid_json(
     (runtime / "lifecycle-actions.jsonl").symlink_to(external)
 
     assert latest_applied_supersession_record(tmp_brain_dir, NEW_ID, OLD_ID) is None
+
+
+def test_ledger_append_stays_on_runtime_inode_after_parent_swap(
+    tmp_brain_dir: Path, monkeypatch
+) -> None:
+    runtime_path = tmp_brain_dir / "runtime"
+    moved = tmp_brain_dir / "moved-runtime"
+    victim = tmp_brain_dir / "victim-runtime"
+    real_open = SecureDirectory.open_or_create_file
+    swapped = False
+
+    def swap_then_open(self, name, flags, mode=0o600):
+        nonlocal swapped
+        if name == "lifecycle-actions.jsonl" and not swapped:
+            runtime_path.rename(moved)
+            victim.mkdir()
+            (victim / name).write_bytes(b"victim\n")
+            (victim / name).chmod(0o640)
+            runtime_path.symlink_to(victim, target_is_directory=True)
+            swapped = True
+        return real_open(self, name, flags, mode)
+
+    monkeypatch.setattr(SecureDirectory, "open_or_create_file", swap_then_open)
+
+    append_lifecycle_record(tmp_brain_dir, _record())
+
+    assert (victim / "lifecycle-actions.jsonl").read_bytes() == b"victim\n"
+    assert stat.S_IMODE((victim / "lifecycle-actions.jsonl").stat().st_mode) == 0o640
+    assert b'"status":"applied"' in (moved / "lifecycle-actions.jsonl").read_bytes()
+
+
+def test_transaction_lock_stays_on_runtime_inode_after_parent_swap(
+    tmp_brain_dir: Path, monkeypatch
+) -> None:
+    runtime_path = tmp_brain_dir / "runtime"
+    moved = tmp_brain_dir / "moved-runtime"
+    victim = tmp_brain_dir / "victim-runtime"
+    real_open = SecureDirectory.open_or_create_file
+    swapped = False
+
+    def swap_then_open(self, name, flags, mode=0o600):
+        nonlocal swapped
+        if name == ".lifecycle-transaction.lock" and not swapped:
+            runtime_path.rename(moved)
+            victim.mkdir()
+            (victim / name).write_bytes(b"victim")
+            (victim / name).chmod(0o640)
+            runtime_path.symlink_to(victim, target_is_directory=True)
+            swapped = True
+        return real_open(self, name, flags, mode)
+
+    monkeypatch.setattr(SecureDirectory, "open_or_create_file", swap_then_open)
+
+    with lifecycle_transaction_lock(tmp_brain_dir):
+        pass
+
+    assert (victim / ".lifecycle-transaction.lock").read_bytes() == b"victim"
+    assert (
+        stat.S_IMODE((victim / ".lifecycle-transaction.lock").stat().st_mode) == 0o640
+    )
+    assert (moved / ".lifecycle-transaction.lock").exists()
 
 
 @pytest.mark.parametrize(

@@ -801,6 +801,79 @@ def test_apply_false_is_preview_only_without_snapshot_or_ledger(tmp_brain_dir):
     assert not (tmp_brain_dir / "runtime" / "lifecycle-actions.jsonl").exists()
 
 
+def test_platform_unsupported_apply_is_side_effect_free(tmp_brain_dir, monkeypatch):
+    store, old, new = _seed_pair(tmp_brain_dir)
+    before = {
+        path.relative_to(tmp_brain_dir): path.read_bytes()
+        for path in tmp_brain_dir.rglob("*")
+        if path.is_file()
+    }
+    monkeypatch.setattr(
+        "agent_brain.memory.governance.supersession.lifecycle_mutation_capability",
+        lambda: False,
+    )
+
+    result = SupersessionService(tmp_brain_dir, store).apply(new.id, old.id, apply=True)
+
+    after = {
+        path.relative_to(tmp_brain_dir): path.read_bytes()
+        for path in tmp_brain_dir.rglob("*")
+        if path.is_file()
+    }
+    assert result.status == "blocked"
+    assert result.reason == "PLATFORM_UNSUPPORTED"
+    assert result.dry_run is False
+    assert after == before
+    assert not (tmp_brain_dir / "runtime").exists()
+
+
+def test_missing_git_apply_is_blocked_before_runtime_creation(
+    tmp_brain_dir, monkeypatch
+):
+    store, old, new = _seed_pair(tmp_brain_dir)
+    monkeypatch.setenv("PATH", "")
+
+    service = SupersessionService(tmp_brain_dir, store)
+    preview = service.apply(new.id, old.id, apply=False)
+    result = service.apply(new.id, old.id, apply=True)
+
+    assert preview.status == "ready"
+    assert result.status == "blocked"
+    assert result.reason == "PLATFORM_UNSUPPORTED"
+    assert result.dry_run is False
+    assert not (tmp_brain_dir / "runtime").exists()
+
+
+def test_platform_unsupported_revert_is_side_effect_free(tmp_brain_dir, monkeypatch):
+    store, old, new = _seed_pair(tmp_brain_dir)
+    store.update_frontmatter(old.id, superseded_by=new.id)
+    store.link_mem(new.id, old.id)
+    before = {
+        path.relative_to(tmp_brain_dir): path.read_bytes()
+        for path in tmp_brain_dir.rglob("*")
+        if path.is_file()
+    }
+    monkeypatch.setattr(
+        "agent_brain.memory.governance.supersession.lifecycle_mutation_capability",
+        lambda: False,
+    )
+
+    result = SupersessionService(tmp_brain_dir, store).revert(
+        new.id, old.id, apply=True
+    )
+
+    after = {
+        path.relative_to(tmp_brain_dir): path.read_bytes()
+        for path in tmp_brain_dir.rglob("*")
+        if path.is_file()
+    }
+    assert result.status == "blocked"
+    assert result.reason == "PLATFORM_UNSUPPORTED"
+    assert result.dry_run is False
+    assert after == before
+    assert not (tmp_brain_dir / "runtime").exists()
+
+
 def test_apply_revalidates_current_markdown_after_earlier_preview(
     tmp_brain_dir, monkeypatch
 ):
