@@ -1,12 +1,14 @@
 import json
 import os
 import subprocess
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
 
 from agent_brain.contracts.memory_item import MemoryItem, MemoryType, Sensitivity
+from agent_brain.memory.governance import lifecycle_ledger as lifecycle_ledger_module
 from agent_brain.memory.governance.lifecycle_ledger import (
     LifecycleLedgerRecord,
     append_lifecycle_record,
@@ -643,7 +645,7 @@ def test_apply_is_idempotent_and_revert_restores_only_transaction_added_ref(
 
     assert first.status == "applied"
     assert second.status == "already_applied"
-    assert second.dry_run is True
+    assert second.dry_run is False
     assert reverted.status == "reverted"
     assert store.get(old.id)[0].superseded_by is None
     assert old.id not in store.get(new.id)[0].refs.mems
@@ -743,6 +745,47 @@ def test_revert_does_not_skip_malformed_newer_matching_transaction(
     assert old.id in store.get(new.id)[0].refs.mems
 
 
+@pytest.mark.parametrize(
+    "malformed_line",
+    [
+        "{truncated",
+        "[]",
+        json.dumps(
+            {
+                "obsolete_id": "mem-20260719-100000-transaction-old",
+                "replacement_id": "mem-20260719-110000-transaction-new",
+            }
+        ),
+        json.dumps(
+            {
+                "action": "supersede",
+                "timestamp": "2026-07-19T23:59:59+00:00",
+                "status": "applied",
+                "reason": "OK",
+                "obsolete_id": "mem-20260719-100000-transaction-old",
+                "replacement_id": "mem-20260719-110000-transaction-new",
+                "snapshot": None,
+                "replacement_ref_preexisted": 0,
+            }
+        ),
+    ],
+)
+def test_revert_treats_any_malformed_ledger_tail_as_conservative_barrier(
+    tmp_brain_dir, malformed_line
+):
+    store, old, new = _seed_pair(tmp_brain_dir)
+    service = SupersessionService(tmp_brain_dir, store)
+    assert service.apply(new.id, old.id, apply=True).status == "applied"
+    ledger_path = tmp_brain_dir / "runtime" / "lifecycle-actions.jsonl"
+    with ledger_path.open("a", encoding="utf-8") as handle:
+        handle.write(malformed_line + "\n")
+
+    result = service.revert(new.id, old.id, apply=True)
+
+    assert result.status == "reverted"
+    assert old.id in store.get(new.id)[0].refs.mems
+
+
 def test_apply_false_is_preview_only_without_snapshot_or_ledger(tmp_brain_dir):
     store, old, new = _seed_pair(tmp_brain_dir)
     before = {
@@ -783,6 +826,7 @@ def test_apply_revalidates_current_markdown_after_earlier_preview(
 
     assert result.status == "blocked"
     assert result.reason == "PROJECT_MISMATCH"
+    assert result.dry_run is False
     assert store.get(old.id)[0].superseded_by is None
     assert not (tmp_brain_dir / "runtime" / "lifecycle-actions.jsonl").exists()
 
@@ -840,6 +884,251 @@ def test_apply_rolls_back_markdown_before_reraising_keyboard_interrupt(
     assert new_path.read_bytes() == new_before
 
 
+def test_apply_uses_snapshot_fallback_when_raw_pair_restore_fails(
+    tmp_brain_dir, monkeypatch
+):
+    store, old, new = _seed_pair(tmp_brain_dir)
+    old_path = store.items_dir / f"{old.id}.md"
+    new_path = store.items_dir / f"{new.id}.md"
+    old_before = old_path.read_bytes()
+    new_before = new_path.read_bytes()
+    service = SupersessionService(tmp_brain_dir, store)
+    real_snapshot_restore = service._restore_snapshot_pair
+    snapshot_restores = []
+
+    def fail_link(_source_id, _target_id):
+        raise OSError("injected markdown failure")
+
+    def fail_raw_restore(_item_id, _data):
+        raise OSError("injected raw rollback failure")
+
+    def tracking_snapshot_restore(ref, obsolete_id, replacement_id):
+        snapshot_restores.append(ref)
+        return real_snapshot_restore(ref, obsolete_id, replacement_id)
+
+    monkeypatch.setattr(store, "link_mem", fail_link)
+    monkeypatch.setattr(store, "restore_raw", fail_raw_restore)
+    monkeypatch.setattr(service, "_restore_snapshot_pair", tracking_snapshot_restore)
+
+    result = service.apply(new.id, old.id, apply=True)
+
+    assert result.status == "blocked"
+    assert result.reason == "MARKDOWN_UPDATE_FAILED"
+    assert len(snapshot_restores) == 1
+    assert old_path.read_bytes() == old_before
+    assert new_path.read_bytes() == new_before
+
+
+def test_apply_uses_existing_head_when_pretransaction_snapshot_is_clean(
+    tmp_brain_dir, monkeypatch
+):
+    store, old, new = _seed_pair(tmp_brain_dir)
+    baseline = BrainHistory(tmp_brain_dir).snapshot("baseline")
+    assert baseline is not None
+    old_path = store.items_dir / f"{old.id}.md"
+    new_path = store.items_dir / f"{new.id}.md"
+    old_before = old_path.read_bytes()
+    new_before = new_path.read_bytes()
+
+    def fail_link(_source_id, _target_id):
+        raise OSError("injected markdown failure")
+
+    def fail_raw_restore(_item_id, _data):
+        raise OSError("injected raw rollback failure")
+
+    monkeypatch.setattr(store, "link_mem", fail_link)
+    monkeypatch.setattr(store, "restore_raw", fail_raw_restore)
+
+    result = SupersessionService(tmp_brain_dir, store).apply(
+        new.id, old.id, apply=True
+    )
+
+    assert result.status == "blocked"
+    assert result.reason == "MARKDOWN_UPDATE_FAILED"
+    assert result.snapshot == baseline
+    assert old_path.read_bytes() == old_before
+    assert new_path.read_bytes() == new_before
+
+
+def test_exact_raw_rollback_bytes_skip_full_history_fallback_even_if_restore_raises(
+    tmp_brain_dir, monkeypatch
+):
+    store, old, new = _seed_pair(tmp_brain_dir)
+    old_path = store.items_dir / f"{old.id}.md"
+    new_path = store.items_dir / f"{new.id}.md"
+    old_before = old_path.read_bytes()
+    new_before = new_path.read_bytes()
+    real_restore_raw = store.restore_raw
+    service = SupersessionService(tmp_brain_dir, store)
+    snapshot_restore_calls = []
+
+    def fail_link(_source_id, _target_id):
+        raise OSError("injected markdown failure")
+
+    def restore_then_raise(item_id, data):
+        real_restore_raw(item_id, data)
+        raise OSError("injected post-restore housekeeping failure")
+
+    def tracking_snapshot_restore(ref, _obsolete_id, _replacement_id):
+        snapshot_restore_calls.append(ref)
+
+    monkeypatch.setattr(store, "link_mem", fail_link)
+    monkeypatch.setattr(store, "restore_raw", restore_then_raise)
+    monkeypatch.setattr(service, "_restore_snapshot_pair", tracking_snapshot_restore)
+
+    result = service.apply(new.id, old.id, apply=True)
+
+    assert result.status == "blocked"
+    assert result.reason == "MARKDOWN_UPDATE_FAILED"
+    assert snapshot_restore_calls == []
+    assert old_path.read_bytes() == old_before
+    assert new_path.read_bytes() == new_before
+
+
+def test_apply_snapshot_fallback_reraises_original_keyboard_interrupt(
+    tmp_brain_dir, monkeypatch
+):
+    store, old, new = _seed_pair(tmp_brain_dir)
+    old_path = store.items_dir / f"{old.id}.md"
+    new_path = store.items_dir / f"{new.id}.md"
+    old_before = old_path.read_bytes()
+    new_before = new_path.read_bytes()
+
+    def interrupt_link(_source_id, _target_id):
+        raise KeyboardInterrupt
+
+    def fail_raw_restore(_item_id, _data):
+        raise OSError("injected raw rollback failure")
+
+    monkeypatch.setattr(store, "link_mem", interrupt_link)
+    monkeypatch.setattr(store, "restore_raw", fail_raw_restore)
+
+    with pytest.raises(KeyboardInterrupt):
+        SupersessionService(tmp_brain_dir, store).apply(
+            new.id, old.id, apply=True
+        )
+
+    assert old_path.read_bytes() == old_before
+    assert new_path.read_bytes() == new_before
+
+
+def test_apply_reports_rollback_failed_when_raw_and_snapshot_restore_fail(
+    tmp_brain_dir, monkeypatch
+):
+    store, old, new = _seed_pair(tmp_brain_dir)
+
+    def fail_link(_source_id, _target_id):
+        raise OSError("injected markdown failure")
+
+    def fail_raw_restore(_item_id, _data):
+        raise OSError("injected raw rollback failure")
+
+    service = SupersessionService(tmp_brain_dir, store)
+
+    def fail_snapshot_restore(_ref, _obsolete_id, _replacement_id):
+        raise OSError("injected history rollback failure")
+
+    monkeypatch.setattr(store, "link_mem", fail_link)
+    monkeypatch.setattr(store, "restore_raw", fail_raw_restore)
+    monkeypatch.setattr(service, "_restore_snapshot_pair", fail_snapshot_restore)
+
+    result = service.apply(new.id, old.id, apply=True)
+
+    assert result.status == "blocked"
+    assert result.reason == "ROLLBACK_FAILED"
+    assert result.dry_run is False
+    ledger = (tmp_brain_dir / "runtime" / "lifecycle-actions.jsonl").read_text(
+        encoding="utf-8"
+    )
+    assert "ROLLBACK_FAILED" in ledger
+    assert "injected" not in ledger
+
+
+def test_selective_snapshot_fallback_preserves_third_item_and_unrelated_runtime(
+    tmp_brain_dir, monkeypatch
+):
+    store, old, new = _seed_pair(tmp_brain_dir)
+    third = _item("mem-20260719-120000-rollback-third-item")
+    store.write(third, "third body")
+    runtime_path = tmp_brain_dir / "runtime" / "unrelated.jsonl"
+    runtime_path.parent.mkdir(parents=True, exist_ok=True)
+    runtime_path.write_text("before\n", encoding="utf-8")
+    baseline = BrainHistory(tmp_brain_dir).snapshot("baseline with unrelated files")
+    assert baseline is not None
+    old_path = store.items_dir / f"{old.id}.md"
+    new_path = store.items_dir / f"{new.id}.md"
+    old_before = old_path.read_bytes()
+    new_before = new_path.read_bytes()
+
+    def fail_after_external_changes(_source_id, _target_id):
+        store.update_frontmatter(third.id, summary="externally updated third")
+        runtime_path.write_text("after\n", encoding="utf-8")
+        raise OSError("injected markdown failure")
+
+    def fail_raw_restore(_item_id, _data):
+        raise OSError("injected raw rollback failure")
+
+    monkeypatch.setattr(store, "link_mem", fail_after_external_changes)
+    monkeypatch.setattr(store, "restore_raw", fail_raw_restore)
+
+    result = SupersessionService(tmp_brain_dir, store).apply(
+        new.id, old.id, apply=True
+    )
+
+    assert result.status == "blocked"
+    assert result.reason == "MARKDOWN_UPDATE_FAILED"
+    assert old_path.read_bytes() == old_before
+    assert new_path.read_bytes() == new_before
+    assert store.get(third.id)[0].summary == "externally updated third"
+    assert runtime_path.read_text(encoding="utf-8") == "after\n"
+
+
+def test_selective_snapshot_restore_treats_canonical_id_as_literal_pathspec(
+    tmp_brain_dir, monkeypatch
+):
+    store = ItemsStore(tmp_brain_dir / "items")
+    old = _item("mem-20260719-100000-rollback-*")
+    new = _item("mem-20260719-110000-rollback-new")
+    third = _item("mem-20260719-100000-rollback-third")
+    store.write(old, "old body")
+    store.write(new, "new body")
+    store.write(third, "third body")
+    old_path = store.items_dir / f"{old.id}.md"
+    real_run = subprocess.run
+    checkout_commands = []
+
+    def fail_after_third_item_update(_source_id, _target_id):
+        store.update_frontmatter(third.id, summary="third must remain updated")
+        raise OSError("injected markdown failure")
+
+    def fail_raw_restore(item_id, _data):
+        if item_id == old.id:
+            old_path.unlink()
+        raise OSError("injected raw rollback failure")
+
+    def tracking_run(command, *args, **kwargs):
+        if isinstance(command, list) and "checkout" in command:
+            checkout_commands.append(command)
+        return real_run(command, *args, **kwargs)
+
+    monkeypatch.setattr(store, "link_mem", fail_after_third_item_update)
+    monkeypatch.setattr(store, "restore_raw", fail_raw_restore)
+    monkeypatch.setattr(
+        "agent_brain.memory.governance.supersession.subprocess.run",
+        tracking_run,
+    )
+
+    result = SupersessionService(tmp_brain_dir, store).apply(
+        new.id, old.id, apply=True
+    )
+
+    assert result.status == "blocked"
+    assert result.reason == "MARKDOWN_UPDATE_FAILED"
+    assert store.get(third.id)[0].summary == "third must remain updated"
+    assert checkout_commands
+    assert "--literal-pathspecs" in checkout_commands[-1]
+
+
 def test_append_lifecycle_record_restores_original_bytes_when_fsync_fails(
     tmp_brain_dir, monkeypatch
 ):
@@ -873,6 +1162,92 @@ def test_append_lifecycle_record_restores_original_bytes_when_fsync_fails(
         append_lifecycle_record(tmp_brain_dir, record)
 
     assert ledger_path.read_bytes() == before
+
+
+def test_post_fsync_unlock_failure_keeps_durable_ledger_success(
+    tmp_brain_dir, monkeypatch, caplog
+):
+    store, old, new = _seed_pair(tmp_brain_dir)
+
+    def fail_unlock(_handle):
+        raise OSError("sensitive unlock detail")
+
+    monkeypatch.setattr(lifecycle_ledger_module, "_unlock", fail_unlock)
+
+    with caplog.at_level("WARNING"):
+        result = SupersessionService(tmp_brain_dir, store).apply(
+            new.id, old.id, apply=True
+        )
+
+    ledger = (tmp_brain_dir / "runtime" / "lifecycle-actions.jsonl").read_text(
+        encoding="utf-8"
+    )
+    assert result.status == "applied"
+    assert store.get(old.id)[0].superseded_by == new.id
+    assert old.id in store.get(new.id)[0].refs.mems
+    assert '"status":"applied"' in ledger
+    assert "sensitive unlock detail" not in caplog.text
+    assert "LIFECYCLE_LOCK_HOUSEKEEPING_FAILED" in caplog.text
+
+
+def test_post_fsync_close_failure_keeps_durable_ledger_success(
+    tmp_brain_dir, monkeypatch, caplog
+):
+    store, old, new = _seed_pair(tmp_brain_dir)
+    service = SupersessionService(tmp_brain_dir, store)
+    real_record = service._record
+    real_close = os.close
+
+    def close_then_fail(descriptor):
+        real_close(descriptor)
+        raise OSError("sensitive close detail")
+
+    def record_with_close_failure(*args, **kwargs):
+        with monkeypatch.context() as scoped:
+            scoped.setattr(os, "close", close_then_fail)
+            return real_record(*args, **kwargs)
+
+    monkeypatch.setattr(service, "_record", record_with_close_failure)
+
+    with caplog.at_level("WARNING"):
+        result = service.apply(new.id, old.id, apply=True)
+
+    ledger = (tmp_brain_dir / "runtime" / "lifecycle-actions.jsonl").read_text(
+        encoding="utf-8"
+    )
+    assert result.status == "applied"
+    assert store.get(old.id)[0].superseded_by == new.id
+    assert old.id in store.get(new.id)[0].refs.mems
+    assert '"status":"applied"' in ledger
+    assert "sensitive close detail" not in caplog.text
+    assert "LIFECYCLE_LEDGER_HOUSEKEEPING_FAILED" in caplog.text
+
+
+def test_lifecycle_ledger_rejects_subclass_with_sensitive_extra_fields(
+    tmp_brain_dir,
+):
+    @dataclass(frozen=True)
+    class LeakyLedgerRecord(LifecycleLedgerRecord):
+        body: str = "private body"
+        title: str = "private title"
+        secret: str = "private secret"
+
+    record = LeakyLedgerRecord(
+        action="supersede",
+        timestamp="2026-07-19T12:00:00+00:00",
+        status="applied",
+        reason="OK",
+        obsolete_id="mem-20260719-100000-ledger-old",
+        replacement_id="mem-20260719-110000-ledger-new",
+        snapshot=None,
+        replacement_ref_preexisted=False,
+    )
+
+    with pytest.raises(TypeError, match="INVALID_LIFECYCLE_LEDGER_RECORD"):
+        append_lifecycle_record(tmp_brain_dir, record)
+
+    ledger_path = tmp_brain_dir / "runtime" / "lifecycle-actions.jsonl"
+    assert not ledger_path.exists()
 
 
 def test_ledger_failure_rolls_back_markdown_and_skips_index(
@@ -914,6 +1289,37 @@ def test_ledger_failure_rolls_back_markdown_and_skips_index(
     assert index.calls == []
     ledger_path = tmp_brain_dir / "runtime" / "lifecycle-actions.jsonl"
     assert not ledger_path.exists() or b'"status":"applied"' not in ledger_path.read_bytes()
+
+
+def test_ledger_failure_uses_snapshot_fallback_when_raw_restore_fails(
+    tmp_brain_dir, monkeypatch
+):
+    store, old, new = _seed_pair(tmp_brain_dir)
+    old_path = store.items_dir / f"{old.id}.md"
+    new_path = store.items_dir / f"{new.id}.md"
+    old_before = old_path.read_bytes()
+    new_before = new_path.read_bytes()
+
+    def fail_ledger(*_args, **_kwargs):
+        raise OSError("injected ledger failure")
+
+    def fail_raw_restore(_item_id, _data):
+        raise OSError("injected raw rollback failure")
+
+    monkeypatch.setattr(
+        "agent_brain.memory.governance.supersession.append_lifecycle_record",
+        fail_ledger,
+    )
+    monkeypatch.setattr(store, "restore_raw", fail_raw_restore)
+
+    result = SupersessionService(tmp_brain_dir, store).apply(
+        new.id, old.id, apply=True
+    )
+
+    assert result.status == "blocked"
+    assert result.reason == "LEDGER_WRITE_FAILED"
+    assert old_path.read_bytes() == old_before
+    assert new_path.read_bytes() == new_before
 
 
 def test_ledger_keyboard_interrupt_rolls_back_markdown_and_skips_index(
@@ -1000,6 +1406,53 @@ def test_revert_false_is_preview_only_and_requires_exact_current_pointer(
     assert after == before
 
 
+def test_apply_true_early_returns_are_explicit_execution_results(tmp_brain_dir):
+    store, old, new = _seed_pair(tmp_brain_dir)
+    service = SupersessionService(tmp_brain_dir, store)
+    mismatched = _item(
+        "mem-20260719-120000-dry-run-project-mismatch",
+        project="different-project",
+    )
+    store.write(mismatched, "mismatch")
+
+    invalid = service.apply("../outside", old.id, apply=True)
+    missing = service.apply(
+        "mem-20260719-130000-dry-run-missing", old.id, apply=True
+    )
+    blocked = service.apply(mismatched.id, old.id, apply=True)
+    first = service.apply(new.id, old.id, apply=True)
+    already = service.apply(new.id, old.id, apply=True)
+
+    for result in (invalid, missing, blocked):
+        assert result.status == "blocked"
+        assert result.dry_run is False
+    assert first.status == "applied"
+    assert first.dry_run is False
+    assert already.status == "already_applied"
+    assert already.dry_run is False
+
+
+def test_revert_true_early_returns_are_explicit_execution_results(tmp_brain_dir):
+    store, old, new = _seed_pair(tmp_brain_dir)
+    service = SupersessionService(tmp_brain_dir, store)
+
+    invalid = service.revert("../outside", old.id, apply=True)
+    missing = service.revert(
+        "mem-20260719-130000-dry-run-missing", old.id, apply=True
+    )
+    not_applied = service.revert(new.id, old.id, apply=True)
+    other = _item("mem-20260719-120000-dry-run-other-replacement")
+    store.write(other, "other")
+    store.update_frontmatter(old.id, superseded_by=other.id)
+    mismatch = service.revert(new.id, old.id, apply=True)
+
+    for result in (invalid, missing, not_applied, mismatch):
+        assert result.status == "blocked"
+        assert result.dry_run is False
+    assert not_applied.reason == "SUPERSESSION_NOT_APPLIED"
+    assert mismatch.reason == "SUPERSESSION_MISMATCH"
+
+
 def test_revert_rolls_back_both_markdown_files_when_unlink_fails(
     tmp_brain_dir, monkeypatch
 ):
@@ -1026,6 +1479,37 @@ def test_revert_rolls_back_both_markdown_files_when_unlink_fails(
         tmp_brain_dir / "runtime" / "lifecycle-actions.jsonl"
     ).read_text(encoding="utf-8").splitlines()
     assert json.loads(ledger_lines[-1])["reason"] == "MARKDOWN_UPDATE_FAILED"
+
+
+def test_revert_uses_snapshot_fallback_when_raw_pair_restore_fails(
+    tmp_brain_dir, monkeypatch
+):
+    store, old, new = _seed_pair(tmp_brain_dir)
+    service = SupersessionService(tmp_brain_dir, store)
+    assert service.apply(new.id, old.id, apply=True).status == "applied"
+    old_path = store.items_dir / f"{old.id}.md"
+    new_path = store.items_dir / f"{new.id}.md"
+    old_before = old_path.read_bytes()
+    new_before = new_path.read_bytes()
+    ledger_path = tmp_brain_dir / "runtime" / "lifecycle-actions.jsonl"
+    ledger_before = ledger_path.read_bytes()
+
+    def fail_unlink(_source_id, _target_id):
+        raise OSError("injected unlink failure")
+
+    def fail_raw_restore(_item_id, _data):
+        raise OSError("injected raw rollback failure")
+
+    monkeypatch.setattr(store, "unlink_mem", fail_unlink)
+    monkeypatch.setattr(store, "restore_raw", fail_raw_restore)
+
+    result = service.revert(new.id, old.id, apply=True)
+
+    assert result.status == "blocked"
+    assert result.reason == "MARKDOWN_UPDATE_FAILED"
+    assert old_path.read_bytes() == old_before
+    assert new_path.read_bytes() == new_before
+    assert ledger_path.read_bytes().startswith(ledger_before)
 
 
 def test_restore_raw_rejects_noncanonical_id_without_touching_outside_file(

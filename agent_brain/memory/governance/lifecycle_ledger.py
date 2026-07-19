@@ -3,15 +3,17 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import threading
 from contextlib import contextmanager
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from pathlib import Path
 from typing import BinaryIO, Iterator
 
 
 _PROCESS_LOCK = threading.RLock()
+_log = logging.getLogger(__name__)
 _LEDGER_FIELDS = {
     "action",
     "timestamp",
@@ -54,12 +56,24 @@ def append_lifecycle_record(
     brain_dir: Path, record: LifecycleLedgerRecord
 ) -> None:
     """Append and fsync one fixed-schema record, truncating on failure."""
+    if type(record) is not LifecycleLedgerRecord:
+        raise TypeError("INVALID_LIFECYCLE_LEDGER_RECORD")
     runtime_dir = Path(brain_dir) / "runtime"
     runtime_dir.mkdir(parents=True, exist_ok=True)
     ledger_path = runtime_dir / "lifecycle-actions.jsonl"
     lock_path = runtime_dir / ".lifecycle-ledger.lock"
+    payload_data = {
+        "action": record.action,
+        "timestamp": record.timestamp,
+        "status": record.status,
+        "reason": record.reason,
+        "obsolete_id": record.obsolete_id,
+        "replacement_id": record.replacement_id,
+        "snapshot": record.snapshot,
+        "replacement_ref_preexisted": record.replacement_ref_preexisted,
+    }
     payload = (
-        json.dumps(asdict(record), ensure_ascii=True, separators=(",", ":")) + "\n"
+        json.dumps(payload_data, ensure_ascii=True, separators=(",", ":")) + "\n"
     ).encode("utf-8")
 
     with _PROCESS_LOCK, _locked_file(lock_path):
@@ -84,7 +98,10 @@ def append_lifecycle_record(
                     ) from rollback_error
                 raise append_error
         finally:
-            os.close(descriptor)
+            try:
+                os.close(descriptor)
+            except BaseException:
+                _log.warning("LIFECYCLE_LEDGER_HOUSEKEEPING_FAILED")
 
 
 def latest_applied_supersession_record(
@@ -106,20 +123,20 @@ def latest_applied_supersession_record(
         try:
             data = json.loads(line)
         except json.JSONDecodeError:
-            continue
+            return None
         if not isinstance(data, dict):
-            continue
-        if (
-            data.get("obsolete_id") != obsolete_id
-            or data.get("replacement_id") != replacement_id
-        ):
-            continue
+            return None
         if set(data) != _LEDGER_FIELDS or not _valid_record_types(data):
             return None
         try:
             record = LifecycleLedgerRecord(**data)
         except TypeError:
             return None
+        if (
+            record.obsolete_id != obsolete_id
+            or record.replacement_id != replacement_id
+        ):
+            continue
         if (
             record.action == "supersede"
             and record.status == "applied"
@@ -143,9 +160,15 @@ def _locked_file(path: Path) -> Iterator[BinaryIO]:
         try:
             yield handle
         finally:
-            _unlock(handle)
+            try:
+                _unlock(handle)
+            except BaseException:
+                _log.warning("LIFECYCLE_LOCK_HOUSEKEEPING_FAILED")
     finally:
-        handle.close()
+        try:
+            handle.close()
+        except BaseException:
+            _log.warning("LIFECYCLE_LOCK_HOUSEKEEPING_FAILED")
 
 
 def _lock(handle: BinaryIO) -> None:

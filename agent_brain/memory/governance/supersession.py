@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import logging
 import os
-from dataclasses import asdict, dataclass
+import subprocess
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
@@ -61,6 +62,10 @@ class SupersessionResult:
         return asdict(self)
 
 
+class RollbackFailedError(RuntimeError):
+    """The raw and snapshot rollback paths could not restore exact bytes."""
+
+
 class SupersessionService:
     def __init__(self, brain_dir: Path, store: ItemsStore, index: Any = None) -> None:
         self.brain_dir = Path(brain_dir)
@@ -83,10 +88,10 @@ class SupersessionService:
         with lifecycle_transaction_lock(self.brain_dir):
             preview = self.preview(replacement_id, obsolete_id)
             if preview.status != "ready":
-                return preview
+                return self._executed(preview)
             current = self._preview_current(replacement_id, obsolete_id)
             if current.status != "ready":
-                return current
+                return self._executed(current)
 
             replacement, _ = self.store.get(replacement_id)
             obsolete, _ = self.store.get(obsolete_id)
@@ -104,7 +109,17 @@ class SupersessionService:
                 if not replacement_ref_preexisted:
                     self.store.link_mem(replacement.id, obsolete.id)
             except BaseException as error:
-                self._restore_pair(obsolete.id, old_bytes, replacement.id, new_bytes)
+                rollback_result = self._rollback_result(
+                    "supersede",
+                    replacement.id,
+                    obsolete.id,
+                    replacement_ref_preexisted,
+                    old_bytes,
+                    new_bytes,
+                    snapshot,
+                )
+                if rollback_result is not None:
+                    return rollback_result
                 self._record_blocked_best_effort(
                     "supersede",
                     "MARKDOWN_UPDATE_FAILED",
@@ -135,7 +150,17 @@ class SupersessionService:
                     replacement_ref_preexisted,
                 )
             except BaseException as error:
-                self._restore_pair(obsolete.id, old_bytes, replacement.id, new_bytes)
+                rollback_result = self._rollback_result(
+                    "supersede",
+                    replacement.id,
+                    obsolete.id,
+                    replacement_ref_preexisted,
+                    old_bytes,
+                    new_bytes,
+                    snapshot,
+                )
+                if rollback_result is not None:
+                    return rollback_result
                 if not isinstance(error, Exception):
                     raise
                 return SupersessionResult(
@@ -173,10 +198,10 @@ class SupersessionService:
         with lifecycle_transaction_lock(self.brain_dir):
             preview = self._preview_revert_current(replacement_id, obsolete_id)
             if preview.status != "ready":
-                return preview
+                return self._executed(preview)
             current = self._preview_revert_current(replacement_id, obsolete_id)
             if current.status != "ready":
-                return current
+                return self._executed(current)
 
             replacement, _ = self.store.get(replacement_id)
             obsolete, _ = self.store.get(obsolete_id)
@@ -199,7 +224,17 @@ class SupersessionService:
                 if not replacement_ref_preexisted:
                     self.store.unlink_mem(replacement.id, obsolete.id)
             except BaseException as error:
-                self._restore_pair(obsolete.id, old_bytes, replacement.id, new_bytes)
+                rollback_result = self._rollback_result(
+                    "revert-supersession",
+                    replacement.id,
+                    obsolete.id,
+                    replacement_ref_preexisted,
+                    old_bytes,
+                    new_bytes,
+                    snapshot,
+                )
+                if rollback_result is not None:
+                    return rollback_result
                 self._record_blocked_best_effort(
                     "revert-supersession",
                     "MARKDOWN_UPDATE_FAILED",
@@ -230,7 +265,17 @@ class SupersessionService:
                     replacement_ref_preexisted,
                 )
             except BaseException as error:
-                self._restore_pair(obsolete.id, old_bytes, replacement.id, new_bytes)
+                rollback_result = self._rollback_result(
+                    "revert-supersession",
+                    replacement.id,
+                    obsolete.id,
+                    replacement_ref_preexisted,
+                    old_bytes,
+                    new_bytes,
+                    snapshot,
+                )
+                if rollback_result is not None:
+                    return rollback_result
                 if not isinstance(error, Exception):
                     raise
                 return SupersessionResult(
@@ -377,7 +422,11 @@ class SupersessionService:
                 handle.write(prefix + "\n".join(missing) + "\n")
                 handle.flush()
                 os.fsync(handle.fileno())
-        return history.snapshot(message)
+        snapshot = history.snapshot(message)
+        if snapshot is not None:
+            return snapshot
+        latest = history.log(limit=1)
+        return latest[0]["sha"] if latest else None
 
     def _restore_pair(
         self,
@@ -385,19 +434,126 @@ class SupersessionService:
         obsolete_bytes: bytes,
         replacement_id: str,
         replacement_bytes: bytes,
+        snapshot: str | None,
     ) -> None:
-        first_error: Exception | None = None
         try:
             self.store.restore_raw(obsolete_id, obsolete_bytes)
-        except Exception as error:
-            first_error = error
+        except BaseException:
+            pass
         try:
             self.store.restore_raw(replacement_id, replacement_bytes)
-        except Exception as error:
-            if first_error is None:
-                first_error = error
-        if first_error is not None:
-            raise first_error
+        except BaseException:
+            pass
+        if self._pair_matches(
+            obsolete_id, obsolete_bytes, replacement_id, replacement_bytes
+        ):
+            return
+        if snapshot is not None:
+            try:
+                self._restore_snapshot_pair(
+                    snapshot, obsolete_id, replacement_id
+                )
+            except BaseException:
+                pass
+        if self._pair_matches(
+            obsolete_id, obsolete_bytes, replacement_id, replacement_bytes
+        ):
+            return
+        raise RollbackFailedError("ROLLBACK_FAILED")
+
+    def _restore_snapshot_pair(
+        self,
+        snapshot: str,
+        obsolete_id: str,
+        replacement_id: str,
+    ) -> None:
+        brain_root = self.brain_dir.resolve()
+        expected_items_dir = (brain_root / "items").resolve()
+        actual_items_dir = self.store.items_dir.resolve()
+        if actual_items_dir != expected_items_dir:
+            raise RollbackFailedError("ROLLBACK_FAILED")
+
+        relative_paths: list[str] = []
+        for item_id in (obsolete_id, replacement_id):
+            if not is_valid_memory_item_id(item_id):
+                raise RollbackFailedError("ROLLBACK_FAILED")
+            resolved_path = (actual_items_dir / f"{item_id}.md").resolve()
+            if resolved_path.parent != expected_items_dir:
+                raise RollbackFailedError("ROLLBACK_FAILED")
+            try:
+                relative_path = resolved_path.relative_to(brain_root)
+            except ValueError as error:
+                raise RollbackFailedError("ROLLBACK_FAILED") from error
+            relative_paths.append(str(relative_path))
+
+        process = subprocess.run(
+            [
+                "git",
+                "--literal-pathspecs",
+                "-C",
+                str(brain_root),
+                "checkout",
+                snapshot,
+                "--",
+                *relative_paths,
+            ],
+            capture_output=True,
+            text=True,
+        )
+        if process.returncode != 0:
+            raise RollbackFailedError("ROLLBACK_FAILED")
+
+    def _pair_matches(
+        self,
+        obsolete_id: str,
+        obsolete_bytes: bytes,
+        replacement_id: str,
+        replacement_bytes: bytes,
+    ) -> bool:
+        try:
+            return (
+                self._item_path(obsolete_id).read_bytes() == obsolete_bytes
+                and self._item_path(replacement_id).read_bytes() == replacement_bytes
+            )
+        except BaseException:
+            return False
+
+    def _rollback_result(
+        self,
+        action: str,
+        replacement_id: str,
+        obsolete_id: str,
+        replacement_ref_preexisted: bool,
+        obsolete_bytes: bytes,
+        replacement_bytes: bytes,
+        snapshot: str | None,
+    ) -> SupersessionResult | None:
+        try:
+            self._restore_pair(
+                obsolete_id,
+                obsolete_bytes,
+                replacement_id,
+                replacement_bytes,
+                snapshot,
+            )
+        except RollbackFailedError:
+            self._record_blocked_best_effort(
+                action,
+                "ROLLBACK_FAILED",
+                obsolete_id,
+                replacement_id,
+                snapshot,
+                replacement_ref_preexisted,
+            )
+            return SupersessionResult(
+                "blocked",
+                "ROLLBACK_FAILED",
+                replacement_id,
+                obsolete_id,
+                dry_run=False,
+                snapshot=snapshot,
+            )
+        return None
 
     def _record(
         self,
@@ -456,6 +612,10 @@ class SupersessionService:
         except Exception:
             return False
         return True
+
+    @staticmethod
+    def _executed(result: SupersessionResult) -> SupersessionResult:
+        return replace(result, dry_run=False)
 
     @staticmethod
     def _blocked(
