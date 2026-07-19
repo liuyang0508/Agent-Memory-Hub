@@ -5,6 +5,28 @@ import sys
 from pathlib import Path
 
 
+def test_git_fd_exec_pins_crash_durability_config_for_every_operation() -> None:
+    from agent_brain.memory.governance.git_fd_exec import _git_args
+
+    object_id = "a" * 40
+    operations = [
+        ("init", []),
+        ("hash-object", []),
+        ("mktree", []),
+        ("rev-parse", []),
+        ("commit-tree", [object_id]),
+        ("update-ref", [object_id]),
+        ("ls-tree", [object_id]),
+        ("cat-file", [object_id]),
+        ("fsync-capability", []),
+    ]
+
+    for operation, values in operations:
+        args = _git_args(operation, values)
+        assert "core.fsyncMethod=fsync" in args
+        assert "core.fsync=loose-object,reference" in args
+
+
 def test_git_fd_exec_stays_on_open_repo_after_path_swap(tmp_path: Path) -> None:
     from agent_brain.memory.governance import git_fd_exec
 

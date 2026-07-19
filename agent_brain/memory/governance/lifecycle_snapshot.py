@@ -19,6 +19,13 @@ GIT_TIMEOUT_SECONDS = 5
 _MARKER_NAME = "amh-lifecycle-repository"
 _MARKER_BYTES = b"agent-memory-hub lifecycle snapshot repository v1\n"
 _OBJECT_ID = re.compile(rb"(?:[0-9a-f]{40}|[0-9a-f]{64})\Z")
+_MUTATING_GIT_OPERATIONS = {
+    "init",
+    "hash-object",
+    "mktree",
+    "commit-tree",
+    "update-ref",
+}
 
 
 class LifecycleSnapshotError(RuntimeError):
@@ -140,6 +147,7 @@ class LifecycleSnapshotStore:
                     raise LifecycleSnapshotError("SNAPSHOT_FAILED") from None
                 repo = self._initialize_repository(runtime)
             self._validate_marker(repo)
+            self._ensure_git_fsync_support(repo)
             return repo
         finally:
             runtime.close()
@@ -151,6 +159,7 @@ class LifecycleSnapshotStore:
         pending: BaseException | None = None
         try:
             self._git(temp_repo, "init")
+            self._ensure_git_fsync_support(temp_repo)
             descriptor, _ = temp_repo.open_file(
                 _MARKER_NAME, os.O_WRONLY, exclusive=True
             )
@@ -172,6 +181,7 @@ class LifecycleSnapshotStore:
             except OSError:
                 existing = runtime.child("lifecycle-history.git")
                 self._validate_marker(existing)
+                runtime.fsync()
                 return existing
             runtime.fsync()
             return runtime.child("lifecycle-history.git")
@@ -255,7 +265,43 @@ class LifecycleSnapshotStore:
             raise LifecycleSnapshotError("SNAPSHOT_FAILED") from None
         if check and process.returncode != 0:
             raise LifecycleSnapshotError("SNAPSHOT_FAILED")
+        if process.returncode == 0 and operation in _MUTATING_GIT_OPERATIONS:
+            self._fsync_repository(repo)
         return process
+
+    def _ensure_git_fsync_support(self, repo: SecureDirectory) -> None:
+        supported = set(
+            self._git(repo, "fsync-capability").stdout.decode("utf-8").splitlines()
+        )
+        if not {"core.fsync", "core.fsyncMethod"} <= supported:
+            raise LifecycleSnapshotError("SNAPSHOT_FAILED")
+
+    def _fsync_repository(self, repo: SecureDirectory) -> None:
+        self._fsync_tree(repo)
+
+    def _fsync_tree(self, directory: SecureDirectory) -> None:
+        for name in sorted(os.listdir(directory.fd)):
+            opened = directory.stat(name)
+            if stat.S_ISDIR(opened.st_mode):
+                descriptor = os.open(
+                    name,
+                    os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                    dir_fd=directory.fd,
+                )
+                child = SecureDirectory(descriptor)
+                try:
+                    self._fsync_tree(child)
+                finally:
+                    child.close()
+            elif stat.S_ISREG(opened.st_mode):
+                descriptor, _ = directory.open_file(name, os.O_RDONLY)
+                try:
+                    os.fsync(descriptor)
+                finally:
+                    os.close(descriptor)
+            else:
+                raise LifecycleSnapshotError("SNAPSHOT_FAILED")
+        directory.fsync()
 
     def _make_tree(
         self, repo: SecureDirectory, entries: list[tuple[str, str, str, str]]

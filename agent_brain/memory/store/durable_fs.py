@@ -6,6 +6,7 @@ import os
 import shutil
 import stat
 import uuid
+from inspect import signature
 from pathlib import Path
 from types import TracebackType
 from typing import Self
@@ -15,16 +16,26 @@ class DurabilityUnsupportedError(OSError):
     pass
 
 
+try:
+    _REPLACE_SUPPORTS_DIR_FD = {"src_dir_fd", "dst_dir_fd"} <= set(
+        signature(os.replace).parameters
+    )
+except (TypeError, ValueError):
+    _REPLACE_SUPPORTS_DIR_FD = False
+
+
 def lifecycle_mutation_capability() -> bool:
     if os.name == "nt":
         return False
-    required = (os.open, os.stat, os.mkdir, os.unlink, os.rename)
+    required = (os.open, os.stat, os.mkdir, os.unlink, os.rename, os.rmdir)
     helper = Path(__file__).parents[1] / "governance" / "git_fd_exec.py"
     return bool(
         hasattr(os, "O_DIRECTORY")
         and hasattr(os, "O_NOFOLLOW")
         and hasattr(os, "fchdir")
         and all(function in os.supports_dir_fd for function in required)
+        and os.listdir in os.supports_fd
+        and _REPLACE_SUPPORTS_DIR_FD
         and helper.is_file()
         and shutil.which("git") is not None
     )

@@ -4,8 +4,10 @@ import logging
 import os
 import re
 import tempfile
+import threading
 import uuid
 from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -75,6 +77,21 @@ def make_item_id(title: str, when: datetime | None = None, label: str | None = N
     return "-".join(parts)
 
 _log = logging.getLogger(__name__)
+_ITEM_LOCKS_GUARD = threading.Lock()
+_ITEM_LOCKS: dict[tuple[int, int, str], threading.RLock] = {}
+_ITEM_LOCK_STATE = threading.local()
+
+
+@dataclass
+class _HeldItemLock:
+    descriptor: int
+    depth: int
+
+
+@dataclass
+class _ItemLockToken:
+    key: tuple[int, int, str]
+    process_lock: threading.RLock
 
 
 @dataclass
@@ -153,10 +170,24 @@ class ItemsStore:
           update_frontmatter(id, confidence=0.9)
           update_frontmatter(id, **{"retention.access_count": 5})
         """
+        if lifecycle_mutation_capability():
+            with self.locked_items([item_id]) as locked:
+                return locked.update_frontmatter(item_id, **updates)
+        return self._update_frontmatter_path(item_id, **updates)
+
+    def _update_frontmatter_path(
+        self, item_id: str, **updates: object
+    ) -> MemoryItem:
         md_path = self.items_dir / f"{item_id}.md"
         if not md_path.exists():
             raise FileNotFoundError(f"Item {item_id} not found at {md_path}")
         item, body = self._read_one(md_path)
+        updated_item = self._updated_item(item, updates)
+        _atomic_write_text(md_path, render_item_markdown(updated_item, body))
+        return updated_item
+
+    @staticmethod
+    def _updated_item(item: MemoryItem, updates: dict[str, object]) -> MemoryItem:
         data = item.model_dump(mode="json", exclude_none=False)
         summary_updated = "summary" in updates
         context_views_updated = "context_views" in updates or any(
@@ -175,14 +206,16 @@ class ItemsStore:
             context_views = dict(data.get("context_views") or {})
             context_views["locator"] = data.get("summary", "")
             data["context_views"] = context_views
-        updated_item = MemoryItem.model_validate(data)
-        _atomic_write_text(md_path, render_item_markdown(updated_item, body))
-        return updated_item
+        return MemoryItem.model_validate(data)
 
     def restore_raw(self, item_id: str, data: bytes) -> None:
         """Restore one active item from transaction rollback bytes."""
         if not is_valid_memory_item_id(item_id):
             raise ValueError("invalid memory item id")
+        if lifecycle_mutation_capability():
+            with self.locked_items([item_id]) as locked:
+                locked.restore_raw(item_id, data)
+            return
         md_path = self.items_dir / f"{item_id}.md"
         if not md_path.is_file():
             raise FileNotFoundError(f"Item {item_id} not found at {md_path}")
@@ -195,23 +228,16 @@ class ItemsStore:
         graph edges from refs.mems. Returns True if the md was modified; no-op
         (False) if the source md is missing or the link already exists.
         """
+        if lifecycle_mutation_capability():
+            with self.locked_items([source_id]) as locked:
+                return locked.link_mem(source_id, target_id)
         md_path = self.items_dir / f"{source_id}.md"
         if not md_path.exists():
             return False
         item, _ = self._read_one(md_path)
         if target_id in item.refs.mems:
             return False
-        self.update_frontmatter(
-            source_id,
-            refs={
-                "files": item.refs.files,
-                "urls": item.refs.urls,
-                "mems": item.refs.mems + [target_id],
-                "commits": item.refs.commits,
-                "resources": item.refs.resources,
-                "extractions": item.refs.extractions,
-            },
-        )
+        self._update_frontmatter_path(source_id, refs=self._linked_refs(item, target_id))
         return True
 
     def unlink_mem(self, source_id: str, target_id: str) -> bool:
@@ -222,25 +248,119 @@ class ItemsStore:
         # Callers that remove an edge must also call this to make the unlink
         # durable. Returns True if the md was modified; no-op (False) if the
         # source md is missing or target_id is not currently linked.
+        if lifecycle_mutation_capability():
+            with self.locked_items([source_id]) as locked:
+                return locked.unlink_mem(source_id, target_id)
         md_path = self.items_dir / f"{source_id}.md"
         if not md_path.exists():
             return False
         item, _ = self._read_one(md_path)
         if target_id not in item.refs.mems:
             return False
-        new_mems = [m for m in item.refs.mems if m != target_id]
-        self.update_frontmatter(
-            source_id,
-            refs={
-                "files": item.refs.files,
-                "urls": item.refs.urls,
-                "mems": new_mems,
-                "commits": item.refs.commits,
-                "resources": item.refs.resources,
-                "extractions": item.refs.extractions,
-            },
-        )
+        self._update_frontmatter_path(source_id, refs=self._unlinked_refs(item, target_id))
         return True
+
+    @contextmanager
+    def locked_items(self, item_ids: list[str]) -> Iterator[LockedItemsView]:
+        """Hold sorted, process-reentrant item locks and one stable items fd."""
+        canonical = sorted(set(item_ids))
+        if not canonical or any(not is_valid_memory_item_id(item_id) for item_id in canonical):
+            raise ValueError("invalid memory item id")
+        with SecureDirectory.open(self.items_dir) as items:
+            root = os.fstat(items.fd)
+            with items.child(".amh-item-locks", create=True) as lock_directory:
+                tokens: list[_ItemLockToken] = []
+                try:
+                    for item_id in canonical:
+                        tokens.append(
+                            self._acquire_item_lock(
+                                lock_directory,
+                                (root.st_dev, root.st_ino, item_id),
+                                f"{item_id}.lock",
+                            )
+                        )
+                    yield LockedItemsView(items, frozenset(canonical))
+                finally:
+                    for token in reversed(tokens):
+                        self._release_item_lock(token)
+
+    @staticmethod
+    def _acquire_item_lock(
+        lock_directory: SecureDirectory,
+        key: tuple[int, int, str],
+        name: str,
+    ) -> _ItemLockToken:
+        with _ITEM_LOCKS_GUARD:
+            process_lock = _ITEM_LOCKS.setdefault(key, threading.RLock())
+        process_lock.acquire()
+        held = getattr(_ITEM_LOCK_STATE, "held", None)
+        if held is None:
+            held = {}
+            _ITEM_LOCK_STATE.held = held
+        current = held.get(key)
+        if current is not None:
+            current.depth += 1
+            return _ItemLockToken(key, process_lock)
+        descriptor = -1
+        try:
+            descriptor, created = lock_directory.open_or_create_file(name, os.O_RDWR)
+            os.fchmod(descriptor, 0o600)
+            if created:
+                lock_directory.fsync()
+            import fcntl
+
+            fcntl.flock(descriptor, fcntl.LOCK_EX)
+            held[key] = _HeldItemLock(descriptor, 1)
+            return _ItemLockToken(key, process_lock)
+        except BaseException:
+            if descriptor >= 0:
+                os.close(descriptor)
+            process_lock.release()
+            raise
+
+    @staticmethod
+    def _release_item_lock(token: _ItemLockToken) -> None:
+        held = _ITEM_LOCK_STATE.held
+        current = held[token.key]
+        current.depth -= 1
+        try:
+            if current.depth == 0:
+                import fcntl
+
+                try:
+                    fcntl.flock(current.descriptor, fcntl.LOCK_UN)
+                except BaseException:
+                    _log.warning("ITEM_LOCK_HOUSEKEEPING_FAILED")
+                try:
+                    os.close(current.descriptor)
+                except BaseException:
+                    _log.warning("ITEM_LOCK_HOUSEKEEPING_FAILED")
+                finally:
+                    del held[token.key]
+        finally:
+            token.process_lock.release()
+
+    @staticmethod
+    def _linked_refs(item: MemoryItem, target_id: str) -> dict[str, object]:
+        return {
+            "files": item.refs.files,
+            "urls": item.refs.urls,
+            "mems": item.refs.mems + [target_id],
+            "commits": item.refs.commits,
+            "resources": item.refs.resources,
+            "extractions": item.refs.extractions,
+        }
+
+    @staticmethod
+    def _unlinked_refs(item: MemoryItem, target_id: str) -> dict[str, object]:
+        return {
+            "files": item.refs.files,
+            "urls": item.refs.urls,
+            "mems": [mem for mem in item.refs.mems if mem != target_id],
+            "commits": item.refs.commits,
+            "resources": item.refs.resources,
+            "extractions": item.refs.extractions,
+        }
 
     @staticmethod
     def _read_one(path: Path) -> tuple[MemoryItem, str]:
@@ -253,3 +373,61 @@ class ItemsStore:
             return parse_item_markdown(text)
         except ValueError as exc:
             raise ValueError(f"{path}: {exc}") from exc
+
+
+class LockedItemsView:
+    def __init__(self, directory: SecureDirectory, item_ids: frozenset[str]) -> None:
+        self._directory = directory
+        self._item_ids = item_ids
+
+    def read_bytes(self, item_id: str) -> bytes:
+        self._require_locked(item_id)
+        descriptor, _ = self._directory.open_file(f"{item_id}.md", os.O_RDONLY)
+        chunks: list[bytes] = []
+        try:
+            while True:
+                chunk = os.read(descriptor, 65536)
+                if not chunk:
+                    return b"".join(chunks)
+                chunks.append(chunk)
+        finally:
+            os.close(descriptor)
+
+    def get(self, item_id: str) -> tuple[MemoryItem, str]:
+        data = self.read_bytes(item_id)
+        text = data.decode("utf-8-sig").replace("\r\n", "\n").replace("\r", "\n")
+        return parse_item_markdown(text)
+
+    def update_frontmatter(self, item_id: str, **updates: object) -> MemoryItem:
+        item, body = self.get(item_id)
+        updated = ItemsStore._updated_item(item, updates)
+        self._directory.atomic_write(
+            f"{item_id}.md", render_item_markdown(updated, body).encode("utf-8")
+        )
+        return updated
+
+    def restore_raw(self, item_id: str, data: bytes) -> None:
+        self._require_locked(item_id)
+        self._directory.atomic_write(f"{item_id}.md", data)
+
+    def link_mem(self, source_id: str, target_id: str) -> bool:
+        item, _ = self.get(source_id)
+        if target_id in item.refs.mems:
+            return False
+        self.update_frontmatter(
+            source_id, refs=ItemsStore._linked_refs(item, target_id)
+        )
+        return True
+
+    def unlink_mem(self, source_id: str, target_id: str) -> bool:
+        item, _ = self.get(source_id)
+        if target_id not in item.refs.mems:
+            return False
+        self.update_frontmatter(
+            source_id, refs=ItemsStore._unlinked_refs(item, target_id)
+        )
+        return True
+
+    def _require_locked(self, item_id: str) -> None:
+        if item_id not in self._item_ids:
+            raise ValueError("item is not locked")

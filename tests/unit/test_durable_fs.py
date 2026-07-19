@@ -1,6 +1,7 @@
 import os
 from pathlib import Path
 
+from agent_brain.memory.store import durable_fs as durable_fs_module
 from agent_brain.memory.store.durable_fs import (
     SecureDirectory,
     lifecycle_mutation_capability,
@@ -15,6 +16,25 @@ def test_lifecycle_mutation_capability_requires_git_without_writing(
 
     assert lifecycle_mutation_capability() is False
     assert list(tmp_path.iterdir()) == before
+
+
+def test_lifecycle_mutation_capability_covers_recursive_repo_dependencies(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(os, "supports_fd", os.supports_fd - {os.listdir})
+    assert lifecycle_mutation_capability() is False
+
+
+def test_lifecycle_mutation_capability_covers_rmdir_and_replace_dir_fd(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(os, "supports_dir_fd", os.supports_dir_fd - {os.rmdir})
+    assert lifecycle_mutation_capability() is False
+
+    monkeypatch.undo()
+
+    monkeypatch.setattr(durable_fs_module, "_REPLACE_SUPPORTS_DIR_FD", False)
+    assert lifecycle_mutation_capability() is False
 
 
 def test_atomic_write_stays_on_open_items_inode_after_parent_swap(

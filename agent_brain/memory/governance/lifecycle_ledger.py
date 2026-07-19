@@ -35,8 +35,10 @@ _ALLOWED_RECORD_STATES = {
     ("revert-supersession", "reverted", "OK"),
     ("supersede", "blocked", "MARKDOWN_UPDATE_FAILED"),
     ("supersede", "blocked", "ROLLBACK_FAILED"),
+    ("supersede", "blocked", "CONCURRENT_MODIFICATION"),
     ("revert-supersession", "blocked", "MARKDOWN_UPDATE_FAILED"),
     ("revert-supersession", "blocked", "ROLLBACK_FAILED"),
+    ("revert-supersession", "blocked", "CONCURRENT_MODIFICATION"),
 }
 
 
@@ -91,6 +93,7 @@ def append_lifecycle_record(brain_dir: Path, record: LifecycleLedgerRecord) -> N
                         "lifecycle-actions.jsonl", os.O_WRONLY | os.O_APPEND
                     )
                     try:
+                        os.fchmod(descriptor, 0o600)
                         original_length = os.fstat(descriptor).st_size
                         try:
                             _write_all(descriptor, payload)
@@ -136,6 +139,7 @@ def latest_applied_supersession_record(
                         "lifecycle-actions.jsonl", os.O_RDONLY
                     )
                     try:
+                        os.fchmod(descriptor, 0o600)
                         with os.fdopen(descriptor, "rb") as handle:
                             descriptor = -1
                             lines = handle.read().decode("utf-8").splitlines()
@@ -174,6 +178,7 @@ def latest_applied_supersession_record(
 @contextmanager
 def _locked_file(runtime: SecureDirectory, name: str) -> Iterator[BinaryIO]:
     descriptor, created = runtime.open_or_create_file(name, os.O_RDWR)
+    os.fchmod(descriptor, 0o600)
     handle = os.fdopen(descriptor, "r+b", buffering=0)
     try:
         if os.fstat(handle.fileno()).st_size == 0:

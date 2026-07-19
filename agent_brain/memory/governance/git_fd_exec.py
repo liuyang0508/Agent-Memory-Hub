@@ -10,12 +10,25 @@ import sys
 
 
 _OBJECT_ID = re.compile(r"(?:[0-9a-f]{40}|[0-9a-f]{64})\Z")
+_FSYNC_CONFIG = [
+    "-c",
+    "core.fsyncMethod=fsync",
+    "-c",
+    "core.fsync=loose-object,reference",
+]
 
 
 def _git_args(operation: str, values: list[str]) -> list[str]:
     if operation == "init" and not values:
-        return ["init", "--bare", "-q", "."]
-    prefix = ["--git-dir=.", "-c", "core.hooksPath=/dev/null"]
+        return [*_FSYNC_CONFIG, "init", "--bare", "-q", "."]
+    prefix = [
+        "--git-dir=.",
+        "-c",
+        "core.hooksPath=/dev/null",
+        *_FSYNC_CONFIG,
+    ]
+    if operation == "fsync-capability" and not values:
+        return prefix + ["help", "--config"]
     if operation == "hash-object" and not values:
         return prefix + ["hash-object", "-w", "--stdin"]
     if operation == "mktree" and not values:

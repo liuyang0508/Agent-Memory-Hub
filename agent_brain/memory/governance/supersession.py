@@ -22,7 +22,7 @@ from agent_brain.memory.governance.lifecycle_snapshot import (
     LifecycleSnapshotStore,
 )
 from agent_brain.memory.store.durable_fs import lifecycle_mutation_capability
-from agent_brain.memory.store.items_store import ItemsStore
+from agent_brain.memory.store.items_store import ItemsStore, LockedItemsView
 
 SupersessionStatus = Literal[
     "ready", "blocked", "already_applied", "applied", "reverted"
@@ -83,6 +83,11 @@ class SupersessionService:
     ) -> SupersessionResult:
         if not apply:
             return self.preview(replacement_id, obsolete_id)
+        if not (
+            is_valid_memory_item_id(replacement_id)
+            and is_valid_memory_item_id(obsolete_id)
+        ):
+            return self._executed(self.preview(replacement_id, obsolete_id))
         if not lifecycle_mutation_capability():
             return SupersessionResult(
                 "blocked",
@@ -92,7 +97,10 @@ class SupersessionService:
                 dry_run=False,
             )
 
-        with lifecycle_transaction_lock(self.brain_dir):
+        with (
+            lifecycle_transaction_lock(self.brain_dir),
+            self.store.locked_items([replacement_id, obsolete_id]) as locked,
+        ):
             preview = self.preview(replacement_id, obsolete_id)
             if preview.status != "ready":
                 return self._executed(preview)
@@ -100,11 +108,11 @@ class SupersessionService:
             if current.status != "ready":
                 return self._executed(current)
 
-            replacement, _ = self.store.get(replacement_id)
-            obsolete, _ = self.store.get(obsolete_id)
+            replacement, _ = locked.get(replacement_id)
+            obsolete, _ = locked.get(obsolete_id)
             replacement_ref_preexisted = obsolete.id in replacement.refs.mems
-            old_bytes = self._item_path(obsolete.id).read_bytes()
-            new_bytes = self._item_path(replacement.id).read_bytes()
+            old_bytes = locked.read_bytes(obsolete.id)
+            new_bytes = locked.read_bytes(replacement.id)
             try:
                 snapshot = self._snapshot(
                     obsolete.id, old_bytes, replacement.id, new_bytes
@@ -118,12 +126,41 @@ class SupersessionService:
                     dry_run=False,
                 )
 
+            if not self._revalidate_locked_pair(
+                locked,
+                replacement.id,
+                obsolete.id,
+                new_bytes,
+                old_bytes,
+                reverting=False,
+            ):
+                self._record_blocked_best_effort(
+                    "supersede",
+                    "CONCURRENT_MODIFICATION",
+                    obsolete.id,
+                    replacement.id,
+                    snapshot,
+                    replacement_ref_preexisted,
+                )
+                return SupersessionResult(
+                    "blocked",
+                    "CONCURRENT_MODIFICATION",
+                    replacement.id,
+                    obsolete.id,
+                    dry_run=False,
+                    snapshot=snapshot,
+                )
+
+            produced_old_bytes = old_bytes
+            produced_new_bytes = new_bytes
             try:
                 self.store.update_frontmatter(
                     obsolete.id, superseded_by=replacement.id
                 )
+                produced_old_bytes = locked.read_bytes(obsolete.id)
                 if not replacement_ref_preexisted:
                     self.store.link_mem(replacement.id, obsolete.id)
+                    produced_new_bytes = locked.read_bytes(replacement.id)
             except BaseException as error:
                 rollback_result = self._rollback_result(
                     "supersede",
@@ -133,6 +170,9 @@ class SupersessionService:
                     old_bytes,
                     new_bytes,
                     snapshot,
+                    locked,
+                    produced_old_bytes,
+                    produced_new_bytes,
                 )
                 if rollback_result is not None:
                     if not isinstance(error, Exception):
@@ -176,6 +216,9 @@ class SupersessionService:
                     old_bytes,
                     new_bytes,
                     snapshot,
+                    locked,
+                    produced_old_bytes,
+                    produced_new_bytes,
                 )
                 if not isinstance(error, Exception):
                     raise
@@ -212,6 +255,13 @@ class SupersessionService:
     ) -> SupersessionResult:
         if not apply:
             return self._preview_revert_current(replacement_id, obsolete_id)
+        if not (
+            is_valid_memory_item_id(replacement_id)
+            and is_valid_memory_item_id(obsolete_id)
+        ):
+            return self._executed(
+                self._preview_revert_current(replacement_id, obsolete_id)
+            )
         if not lifecycle_mutation_capability():
             return SupersessionResult(
                 "blocked",
@@ -221,7 +271,10 @@ class SupersessionService:
                 dry_run=False,
             )
 
-        with lifecycle_transaction_lock(self.brain_dir):
+        with (
+            lifecycle_transaction_lock(self.brain_dir),
+            self.store.locked_items([replacement_id, obsolete_id]) as locked,
+        ):
             preview = self._preview_revert_current(replacement_id, obsolete_id)
             if preview.status != "ready":
                 return self._executed(preview)
@@ -229,8 +282,8 @@ class SupersessionService:
             if current.status != "ready":
                 return self._executed(current)
 
-            replacement, _ = self.store.get(replacement_id)
-            obsolete, _ = self.store.get(obsolete_id)
+            replacement, _ = locked.get(replacement_id)
+            obsolete, _ = locked.get(obsolete_id)
             applied_record = latest_applied_supersession_record(
                 self.brain_dir, replacement.id, obsolete.id
             )
@@ -239,8 +292,8 @@ class SupersessionService:
                 if applied_record is not None
                 else True
             )
-            old_bytes = self._item_path(obsolete.id).read_bytes()
-            new_bytes = self._item_path(replacement.id).read_bytes()
+            old_bytes = locked.read_bytes(obsolete.id)
+            new_bytes = locked.read_bytes(replacement.id)
             try:
                 snapshot = self._snapshot(
                     obsolete.id, old_bytes, replacement.id, new_bytes
@@ -254,10 +307,39 @@ class SupersessionService:
                     dry_run=False,
                 )
 
+            if not self._revalidate_locked_pair(
+                locked,
+                replacement.id,
+                obsolete.id,
+                new_bytes,
+                old_bytes,
+                reverting=True,
+            ):
+                self._record_blocked_best_effort(
+                    "revert-supersession",
+                    "CONCURRENT_MODIFICATION",
+                    obsolete.id,
+                    replacement.id,
+                    snapshot,
+                    replacement_ref_preexisted,
+                )
+                return SupersessionResult(
+                    "blocked",
+                    "CONCURRENT_MODIFICATION",
+                    replacement.id,
+                    obsolete.id,
+                    dry_run=False,
+                    snapshot=snapshot,
+                )
+
+            produced_old_bytes = old_bytes
+            produced_new_bytes = new_bytes
             try:
                 self.store.update_frontmatter(obsolete.id, superseded_by=None)
+                produced_old_bytes = locked.read_bytes(obsolete.id)
                 if not replacement_ref_preexisted:
                     self.store.unlink_mem(replacement.id, obsolete.id)
+                    produced_new_bytes = locked.read_bytes(replacement.id)
             except BaseException as error:
                 rollback_result = self._rollback_result(
                     "revert-supersession",
@@ -267,6 +349,9 @@ class SupersessionService:
                     old_bytes,
                     new_bytes,
                     snapshot,
+                    locked,
+                    produced_old_bytes,
+                    produced_new_bytes,
                 )
                 if rollback_result is not None:
                     if not isinstance(error, Exception):
@@ -310,6 +395,9 @@ class SupersessionService:
                     old_bytes,
                     new_bytes,
                     snapshot,
+                    locked,
+                    produced_old_bytes,
+                    produced_new_bytes,
                 )
                 if not isinstance(error, Exception):
                     raise
@@ -453,6 +541,34 @@ class SupersessionService:
             replacement_bytes,
         )
 
+    def _revalidate_locked_pair(
+        self,
+        locked: LockedItemsView,
+        replacement_id: str,
+        obsolete_id: str,
+        replacement_bytes: bytes,
+        obsolete_bytes: bytes,
+        *,
+        reverting: bool,
+    ) -> bool:
+        try:
+            if locked.read_bytes(replacement_id) != replacement_bytes:
+                return False
+            if locked.read_bytes(obsolete_id) != obsolete_bytes:
+                return False
+            replacement, _ = locked.get(replacement_id)
+            obsolete, _ = locked.get(obsolete_id)
+        except (OSError, UnicodeError, ValueError, yaml.YAMLError):
+            return False
+        if replacement.id != replacement_id or obsolete.id != obsolete_id:
+            return False
+        if reverting:
+            return obsolete.superseded_by == replacement.id
+        return (
+            self._validate_pair(replacement, obsolete) == "OK"
+            and obsolete.superseded_by is None
+        )
+
     def _restore_pair(
         self,
         obsolete_id: str,
@@ -460,7 +576,20 @@ class SupersessionService:
         replacement_id: str,
         replacement_bytes: bytes,
         snapshot: str | None,
+        locked: LockedItemsView,
+        produced_obsolete_bytes: bytes,
+        produced_replacement_bytes: bytes,
     ) -> None:
+        try:
+            current_obsolete = locked.read_bytes(obsolete_id)
+            current_replacement = locked.read_bytes(replacement_id)
+        except BaseException as error:
+            raise RollbackFailedError("ROLLBACK_FAILED") from error
+        if current_obsolete not in {obsolete_bytes, produced_obsolete_bytes} or (
+            current_replacement
+            not in {replacement_bytes, produced_replacement_bytes}
+        ):
+            raise RollbackFailedError("ROLLBACK_FAILED")
         try:
             self.store.restore_raw(obsolete_id, obsolete_bytes)
         except BaseException:
@@ -470,7 +599,11 @@ class SupersessionService:
         except BaseException:
             pass
         if self._pair_matches(
-            obsolete_id, obsolete_bytes, replacement_id, replacement_bytes
+            obsolete_id,
+            obsolete_bytes,
+            replacement_id,
+            replacement_bytes,
+            locked,
         ):
             return
         if snapshot is not None:
@@ -481,7 +614,11 @@ class SupersessionService:
             except BaseException:
                 pass
         if self._pair_matches(
-            obsolete_id, obsolete_bytes, replacement_id, replacement_bytes
+            obsolete_id,
+            obsolete_bytes,
+            replacement_id,
+            replacement_bytes,
+            locked,
         ):
             return
         raise RollbackFailedError("ROLLBACK_FAILED")
@@ -500,11 +637,12 @@ class SupersessionService:
         obsolete_bytes: bytes,
         replacement_id: str,
         replacement_bytes: bytes,
+        locked: LockedItemsView,
     ) -> bool:
         try:
             return (
-                self._item_path(obsolete_id).read_bytes() == obsolete_bytes
-                and self._item_path(replacement_id).read_bytes() == replacement_bytes
+                locked.read_bytes(obsolete_id) == obsolete_bytes
+                and locked.read_bytes(replacement_id) == replacement_bytes
             )
         except BaseException:
             return False
@@ -518,6 +656,9 @@ class SupersessionService:
         obsolete_bytes: bytes,
         replacement_bytes: bytes,
         snapshot: str | None,
+        locked: LockedItemsView,
+        produced_obsolete_bytes: bytes,
+        produced_replacement_bytes: bytes,
     ) -> SupersessionResult | None:
         try:
             self._restore_pair(
@@ -526,6 +667,9 @@ class SupersessionService:
                 replacement_id,
                 replacement_bytes,
                 snapshot,
+                locked,
+                produced_obsolete_bytes,
+                produced_replacement_bytes,
             )
         except RollbackFailedError:
             self._record_blocked_best_effort(

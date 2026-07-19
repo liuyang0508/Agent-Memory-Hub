@@ -58,6 +58,44 @@ def test_snapshot_uses_private_two_file_tree_without_touching_outer_git(
     assert stat.S_IMODE(repo.stat().st_mode) == 0o700
 
 
+def test_snapshot_fsyncs_object_and_ref_files_and_directories_bottom_up(
+    tmp_brain_dir: Path, monkeypatch
+) -> None:
+    real_fsync = os.fsync
+    fsynced: list[tuple[int, int]] = []
+
+    def tracking_fsync(descriptor):
+        opened = os.fstat(descriptor)
+        fsynced.append((opened.st_dev, opened.st_ino))
+        return real_fsync(descriptor)
+
+    monkeypatch.setattr(os, "fsync", tracking_fsync)
+
+    LifecycleSnapshotStore(tmp_brain_dir).snapshot_pair(
+        OLD_ID, b"old", NEW_ID, b"new"
+    )
+
+    repo = tmp_brain_dir / "runtime" / "lifecycle-history.git"
+    object_files = [
+        path
+        for path in (repo / "objects").glob("[0-9a-f][0-9a-f]/*")
+        if path.is_file()
+    ]
+    ref = repo / "refs" / "heads" / "lifecycle"
+    assert object_files
+    assert ref.is_file()
+    for path in [*object_files, ref]:
+        identity = (path.stat().st_dev, path.stat().st_ino)
+        assert identity in fsynced
+    object_file = object_files[0]
+    chain = [object_file, object_file.parent, repo / "objects", repo]
+    last_positions = [
+        len(fsynced) - 1 - fsynced[::-1].index((path.stat().st_dev, path.stat().st_ino))
+        for path in chain
+    ]
+    assert last_positions == sorted(last_positions)
+
+
 def test_restore_is_pair_selective_and_treats_special_id_literally(
     tmp_brain_dir: Path,
 ) -> None:
@@ -328,6 +366,8 @@ def test_snapshot_init_adopts_concurrently_published_valid_repository(
     store = LifecycleSnapshotStore(tmp_brain_dir)
     real_rename = snapshot_module.SecureDirectory.rename
     raced = False
+    runtime_fsynced_after_race = False
+    real_fsync = snapshot_module.SecureDirectory.fsync
 
     def publish_then_report_conflict(directory, source, destination):
         nonlocal raced
@@ -337,13 +377,25 @@ def test_snapshot_init_adopts_concurrently_published_valid_repository(
             raise FileExistsError("simulated concurrent publication")
         return real_rename(directory, source, destination)
 
+    def track_runtime_fsync(directory):
+        nonlocal runtime_fsynced_after_race
+        opened = os.fstat(directory.fd)
+        runtime = tmp_brain_dir / "runtime"
+        if raced and runtime.exists():
+            expected = runtime.stat()
+            if (opened.st_dev, opened.st_ino) == (expected.st_dev, expected.st_ino):
+                runtime_fsynced_after_race = True
+        return real_fsync(directory)
+
     monkeypatch.setattr(
         snapshot_module.SecureDirectory, "rename", publish_then_report_conflict
     )
+    monkeypatch.setattr(snapshot_module.SecureDirectory, "fsync", track_runtime_fsync)
 
     snapshot = store.snapshot_pair(OLD_ID, b"old", NEW_ID, b"new")
 
     assert raced is True
+    assert runtime_fsynced_after_race is True
     assert snapshot
     runtime = tmp_brain_dir / "runtime"
     assert (runtime / "lifecycle-history.git").is_dir()

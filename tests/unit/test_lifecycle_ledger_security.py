@@ -160,6 +160,37 @@ def test_transaction_lock_stays_on_runtime_inode_after_parent_swap(
     assert (moved / ".lifecycle-transaction.lock").exists()
 
 
+def test_append_tightens_existing_ledger_and_lock_modes(
+    tmp_brain_dir: Path,
+) -> None:
+    runtime = tmp_brain_dir / "runtime"
+    runtime.mkdir()
+    ledger = runtime / "lifecycle-actions.jsonl"
+    lock = runtime / ".lifecycle-ledger.lock"
+    ledger.write_bytes(b"")
+    lock.write_bytes(b"\0")
+    ledger.chmod(0o644)
+    lock.chmod(0o644)
+
+    append_lifecycle_record(tmp_brain_dir, _record())
+
+    assert stat.S_IMODE(ledger.stat().st_mode) == 0o600
+    assert stat.S_IMODE(lock.stat().st_mode) == 0o600
+
+
+def test_transaction_lock_tightens_existing_mode(tmp_brain_dir: Path) -> None:
+    runtime = tmp_brain_dir / "runtime"
+    runtime.mkdir()
+    lock = runtime / ".lifecycle-transaction.lock"
+    lock.write_bytes(b"\0")
+    lock.chmod(0o644)
+
+    with lifecycle_transaction_lock(tmp_brain_dir):
+        pass
+
+    assert stat.S_IMODE(lock.stat().st_mode) == 0o600
+
+
 @pytest.mark.parametrize(
     "record",
     [
