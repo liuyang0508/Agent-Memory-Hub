@@ -775,23 +775,32 @@ def test_govern_apply_lifecycle_archive_rolls_back_when_directory_fsync_fails(
         tags=["runtime"],
     )
     store.write(item, "body")
-    original_link = os.link
+    original_open_file = SecureDirectory.open_file
     original_fsync = SecureDirectory.fsync
-    state = {"linked": False, "failed": False}
+    state = {"published": False, "failed": False}
 
-    def tracking_link(source, destination, *args, **kwargs):
-        result = original_link(source, destination, *args, **kwargs)
-        if source == f"{item.id}.md":
-            state["linked"] = True
+    def tracking_open_file(
+        directory,
+        name,
+        flags,
+        mode=0o600,
+        *,
+        exclusive=False,
+    ):
+        result = original_open_file(
+            directory, name, flags, mode, exclusive=exclusive
+        )
+        if name == f"{item.id}.md" and exclusive:
+            state["published"] = True
         return result
 
     def fail_after_archive_link(directory):
-        if state["linked"] and not state["failed"]:
+        if state["published"] and not state["failed"]:
             state["failed"] = True
             raise OSError("simulated directory fsync failure")
         return original_fsync(directory)
 
-    monkeypatch.setattr(os, "link", tracking_link)
+    monkeypatch.setattr(SecureDirectory, "open_file", tracking_open_file)
     monkeypatch.setattr(SecureDirectory, "fsync", fail_after_archive_link)
     monkeypatch.setattr(lifecycle_review, "lifecycle_mutation_capability", lambda: True)
     monkeypatch.setattr(durable_fs, "lifecycle_mutation_capability", lambda: True)

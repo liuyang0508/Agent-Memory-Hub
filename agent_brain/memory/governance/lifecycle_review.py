@@ -489,7 +489,7 @@ def _keep_active_action(
     index: Any,
 ) -> LifecycleActionResult:
     try:
-        item, _ = items_store.get(action.item_id)
+        item, _ = items_store.get_nofollow(action.item_id)
     except FileNotFoundError:
         return _blocked(action, "ITEM_MISSING", apply=apply)
     except (OSError, UnicodeError, ValueError):
@@ -513,10 +513,14 @@ def _keep_active_action(
             if current.superseded_by:
                 return _blocked(action, "ITEM_SUPERSEDED", apply=True)
             observed_at = datetime.now(timezone.utc)
-            updated = locked.update_frontmatter(
-                action.item_id,
-                **{"validity.observed_at": observed_at},
+            prepared = locked.prepare_update_frontmatter(
+                action.item_id, **{"validity.observed_at": observed_at}
             )
+            locked.apply_prepared(prepared)
+            intended_bytes, intended_identity = locked.read_version(action.item_id)
+            if intended_bytes != prepared.data:
+                return _keep_active_concurrent(action)
+            updated = prepared.updated_item
             try:
                 append_lifecycle_record(
                     brain_dir,
@@ -533,8 +537,19 @@ def _keep_active_action(
                 )
             except (OSError, TypeError, ValueError):
                 try:
+                    current_bytes, current_identity = locked.read_version(
+                        action.item_id
+                    )
+                except (OSError, ValueError, FileNotFoundError):
+                    return _keep_active_concurrent(action)
+                if (
+                    current_bytes != intended_bytes
+                    or current_identity != intended_identity
+                ):
+                    return _keep_active_concurrent(action)
+                try:
                     locked.restore_raw(action.item_id, original_bytes)
-                except (OSError, ValueError):
+                except (OSError, ValueError, FileNotFoundError):
                     return _blocked(
                         action,
                         "KEEP_ACTIVE_ROLLBACK_FAILED",
@@ -562,6 +577,19 @@ def _keep_active_action(
     )
 
 
+def _keep_active_concurrent(
+    action: LifecycleReviewAction,
+) -> LifecycleActionResult:
+    return LifecycleActionResult(
+        action.action,
+        action.item_id,
+        "partial",
+        "CONCURRENT_MODIFICATION",
+        False,
+        index_repair_required=True,
+    )
+
+
 def _defer_action(
     action: LifecycleReviewAction,
     *,
@@ -571,7 +599,7 @@ def _defer_action(
 ) -> LifecycleActionResult:
     assert action.defer_days is not None
     try:
-        items_store.get(action.item_id)
+        items_store.get_nofollow(action.item_id)
     except FileNotFoundError:
         return _blocked(action, "ITEM_MISSING", apply=apply)
     except (OSError, UnicodeError, ValueError):

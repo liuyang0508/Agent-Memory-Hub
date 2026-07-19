@@ -1,4 +1,4 @@
-"""Descriptor-relative, link-first archive transaction for reviewed items."""
+"""Descriptor-relative archive transaction with an independent target inode."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import os
 import stat
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, cast
+from typing import Any, Callable
 
 from agent_brain.contracts.memory_item import MemoryItem, is_valid_memory_item_id
 from agent_brain.memory.governance.lifecycle_ledger import lifecycle_transaction_lock
@@ -16,7 +16,6 @@ from agent_brain.memory.store.durable_fs import SecureDirectory
 from agent_brain.memory.store.item_markdown import parse_item_markdown
 from agent_brain.memory.store.items_store import ItemsStore
 
-_HAS_DIR_FD_LINK = os.link in os.supports_dir_fd
 _MAX_ARCHIVE_ITEM_BYTES = 64 * 1024 * 1024
 
 
@@ -47,6 +46,12 @@ class _ConcurrentModification(OSError):
     pass
 
 
+class _TargetPublishError(OSError):
+    def __init__(self, *, cleanup_failed: bool) -> None:
+        super().__init__("ARCHIVE_TARGET_PUBLISH_FAILED")
+        self.cleanup_failed = cleanup_failed
+
+
 def archive_reviewed_item(
     *,
     brain_dir: Path,
@@ -55,14 +60,10 @@ def archive_reviewed_item(
     eligible: Callable[[MemoryItem], bool],
     index: Any = None,
 ) -> ArchiveTransactionResult:
-    """Exclusively link a verified source into archive, then unlink source.
-
-    A crash before the final unlink leaves source and target as the same inode;
-    the next invocation recognizes that half-transaction and safely completes it.
-    """
+    """Copy verified bytes to an exclusive independent target, then unlink source."""
     if not is_valid_memory_item_id(item_id):
         return ArchiveTransactionResult("blocked", "INVALID_ITEM_ID")
-    if not durable_fs.lifecycle_mutation_capability() or not _HAS_DIR_FD_LINK:
+    if not durable_fs.lifecycle_mutation_capability():
         return ArchiveTransactionResult("blocked", "PLATFORM_UNSUPPORTED")
 
     source = f"{item_id}.md"
@@ -88,13 +89,23 @@ def archive_reviewed_item(
             except (OSError, ValueError):
                 return ArchiveTransactionResult("blocked", "ITEM_INVALID")
 
-            item, _body = _parse_payload(payload)
+            try:
+                item, _body = _parse_payload(payload)
+            except (UnicodeError, ValueError):
+                return ArchiveTransactionResult("blocked", "ITEM_INVALID")
             if item.id != item_id:
                 return ArchiveTransactionResult("blocked", "ITEM_INVALID")
             if not eligible(item):
                 return ArchiveTransactionResult(
                     "blocked", "NOT_IN_LIFECYCLE_REVIEW_QUEUE"
                 )
+
+            try:
+                current = _current_snapshot(items, source)
+            except (OSError, ValueError):
+                return ArchiveTransactionResult("blocked", "CONCURRENT_MODIFICATION")
+            if current is None or not _same_source(expected, current):
+                return ArchiveTransactionResult("blocked", "CONCURRENT_MODIFICATION")
 
             try:
                 target = _read_snapshot(archive, source)[0]
@@ -104,56 +115,55 @@ def archive_reviewed_item(
                 return ArchiveTransactionResult("blocked", "ARCHIVE_TARGET_EXISTS")
 
             if target is not None:
-                if not _same_content(expected, target):
-                    return ArchiveTransactionResult("blocked", "ARCHIVE_TARGET_EXISTS")
+                return _resume_existing_target(
+                    items=items,
+                    archive=archive,
+                    source=source,
+                    expected=expected,
+                    payload=payload,
+                    target=target,
+                    index=index,
+                )
+
+            try:
+                target = _publish_independent_target(
+                    archive=archive,
+                    name=source,
+                    payload=payload,
+                    mode=expected.mode,
+                )
+            except FileExistsError:
                 try:
-                    current = _current_snapshot(items, source)
-                except (OSError, ValueError):
+                    target = _read_snapshot(archive, source)[0]
+                except (OSError, ValueError, _ConcurrentModification):
                     return ArchiveTransactionResult(
                         "blocked", "ARCHIVE_TARGET_EXISTS"
                     )
-                if current is None or not _same_content(expected, current):
-                    return ArchiveTransactionResult("blocked", "ARCHIVE_TARGET_EXISTS")
-                return _finish_linked_archive(
+                return _resume_existing_target(
                     items=items,
                     archive=archive,
                     source=source,
                     expected=expected,
+                    payload=payload,
+                    target=target,
                     index=index,
                 )
-
-            try:
-                current = _current_snapshot(items, source)
-            except (OSError, ValueError):
+            except _TargetPublishError as error:
                 return ArchiveTransactionResult(
-                    "blocked", "CONCURRENT_MODIFICATION"
+                    "partial" if error.cleanup_failed else "blocked",
+                    "ARCHIVE_TARGET_CLEANUP_FAILED"
+                    if error.cleanup_failed
+                    else "ARCHIVE_FAILED",
                 )
-            if current is None or not _same_prelink_snapshot(expected, current):
-                return ArchiveTransactionResult("blocked", "CONCURRENT_MODIFICATION")
-            try:
-                os.link(
-                    source,
-                    source,
-                    src_dir_fd=items.fd,
-                    dst_dir_fd=archive.fd,
-                    follow_symlinks=False,
-                )
-            except FileExistsError:
-                return _recover_link_race(
-                    items=items,
-                    archive=archive,
-                    source=source,
-                    expected=expected,
-                    index=index,
-                )
-            except OSError:
-                return ArchiveTransactionResult("blocked", "ARCHIVE_FAILED")
 
-            return _finish_linked_archive(
+            return _finish_independent_archive(
                 items=items,
                 archive=archive,
                 source=source,
                 expected=expected,
+                payload=payload,
+                target=target,
+                target_created=True,
                 index=index,
             )
     except FileNotFoundError:
@@ -162,88 +172,93 @@ def archive_reviewed_item(
         return ArchiveTransactionResult("blocked", "ARCHIVE_FAILED")
 
 
-def _finish_linked_archive(
+def _resume_existing_target(
     *,
     items: SecureDirectory,
     archive: SecureDirectory,
     source: str,
     expected: _FileSnapshot,
+    payload: bytes,
+    target: _FileSnapshot,
+    index: Any,
+) -> ArchiveTransactionResult:
+    if target.identity == expected.identity:
+        return ArchiveTransactionResult("partial", "ARCHIVE_TARGET_SHARED_INODE")
+    if not _same_payload(expected, target):
+        return ArchiveTransactionResult("blocked", "ARCHIVE_TARGET_EXISTS")
+    return _finish_independent_archive(
+        items=items,
+        archive=archive,
+        source=source,
+        expected=expected,
+        payload=payload,
+        target=target,
+        target_created=False,
+        index=index,
+    )
+
+
+def _finish_independent_archive(
+    *,
+    items: SecureDirectory,
+    archive: SecureDirectory,
+    source: str,
+    expected: _FileSnapshot,
+    payload: bytes,
+    target: _FileSnapshot,
+    target_created: bool,
     index: Any,
 ) -> ArchiveTransactionResult:
     try:
-        _fsync_regular_file(archive, source, expected)
+        _fsync_regular_file(archive, source, target.identity)
         archive.fsync()
-    except _ConcurrentModification:
-        restored = _remove_target_if_source_is_safe(
-            items=items,
-            archive=archive,
-            source=source,
-        )
-        return ArchiveTransactionResult(
-            "blocked",
-            "CONCURRENT_MODIFICATION" if restored else "ARCHIVE_ROLLBACK_FAILED",
-        )
     except (OSError, ValueError):
-        restored = _remove_target_if_source_is_safe(
-            items=items,
-            archive=archive,
-            source=source,
+        cleaned = target_created and _remove_target_if_identity(
+            archive, source, target.identity
         )
         return ArchiveTransactionResult(
-            "blocked",
-            "ARCHIVE_FAILED" if restored else "ARCHIVE_ROLLBACK_FAILED",
+            "blocked" if cleaned else "partial",
+            "ARCHIVE_FAILED" if cleaned else "ARCHIVE_TARGET_DURABILITY_FAILED",
         )
 
     try:
-        target = _current_snapshot(archive, source)
+        target_now = _current_snapshot(archive, source)
     except (OSError, ValueError):
         return ArchiveTransactionResult("partial", "ARCHIVE_TARGET_REPLACED")
     try:
-        current = _current_snapshot(items, source)
+        source_now = _current_snapshot(items, source)
     except (OSError, ValueError):
         return ArchiveTransactionResult("partial", "ARCHIVE_SOURCE_REPLACED")
-    if target is None:
-        return ArchiveTransactionResult("blocked", "ARCHIVE_TARGET_MISSING")
-    if target.identity != expected.identity:
+    if target_now is None or target_now.identity != target.identity:
         return ArchiveTransactionResult("partial", "ARCHIVE_TARGET_REPLACED")
-    if current is None:
-        if _same_content(expected, target):
-            return _applied_with_index(index, source.removesuffix(".md"))
+    if not _same_payload(expected, target_now):
         return ArchiveTransactionResult("partial", "ARCHIVE_CONTENT_CHANGED")
-    if current.identity != expected.identity:
-        if _same_content(expected, target):
+    if source_now is None:
+        return _applied_with_index(index, source.removesuffix(".md"))
+    if not _same_source(expected, source_now):
+        return ArchiveTransactionResult("partial", "ARCHIVE_SOURCE_REPLACED")
+
+    # Compare exact prepared bytes on both names immediately before unlink.
+    try:
+        target_check, target_bytes = _read_snapshot(archive, source)
+        source_check, source_bytes = _read_snapshot(items, source)
+    except FileNotFoundError:
+        try:
+            current_source = _current_snapshot(items, source)
+        except (OSError, ValueError):
             return ArchiveTransactionResult("partial", "ARCHIVE_SOURCE_REPLACED")
-        return ArchiveTransactionResult("partial", "ARCHIVE_CONTENT_CHANGED")
-    if not (_same_content(expected, current) and _same_content(expected, target)):
-        restored = _remove_target_if_source_is_safe(
-            items=items,
-            archive=archive,
-            source=source,
-        )
-        return ArchiveTransactionResult(
-            "blocked",
-            "CONCURRENT_MODIFICATION" if restored else "ARCHIVE_ROLLBACK_FAILED",
-        )
-
-    # Re-read both names immediately before unlink. The cooperative lifecycle
-    # and item locks exclude supported writers; these checks reject external
-    # rename/write races observed before the irreversible name removal.
-    try:
-        target = _current_snapshot(archive, source)
-    except (OSError, ValueError):
-        return ArchiveTransactionResult("partial", "ARCHIVE_TARGET_REPLACED")
-    try:
-        current = _current_snapshot(items, source)
-    except (OSError, ValueError):
-        return ArchiveTransactionResult("partial", "ARCHIVE_SOURCE_REPLACED")
-    if target is None or current is None:
-        if current is None and target is not None and _same_content(expected, target):
+        if current_source is None:
             return _applied_with_index(index, source.removesuffix(".md"))
         return ArchiveTransactionResult("partial", "ARCHIVE_CONTENT_CHANGED")
-    if current.identity != expected.identity:
-        return ArchiveTransactionResult("partial", "ARCHIVE_SOURCE_REPLACED")
-    if not (_same_content(expected, current) and _same_content(expected, target)):
+    except (OSError, ValueError, _ConcurrentModification):
         return ArchiveTransactionResult("partial", "ARCHIVE_CONTENT_CHANGED")
+    if (
+        target_check.identity != target.identity
+        or target_bytes != payload
+        or not _same_source(expected, source_check)
+        or source_bytes != payload
+    ):
+        return ArchiveTransactionResult("partial", "ARCHIVE_SOURCE_REPLACED")
 
     try:
         items.unlink(source)
@@ -262,33 +277,79 @@ def _finish_linked_archive(
     return _applied_with_index(index, source.removesuffix(".md"))
 
 
-def _recover_link_race(
+def _publish_independent_target(
+    *,
+    archive: SecureDirectory,
+    name: str,
+    payload: bytes,
+    mode: int,
+) -> _FileSnapshot:
+    descriptor = -1
+    identity: tuple[int, int] | None = None
+    try:
+        descriptor, _ = archive.open_file(
+            name,
+            os.O_WRONLY | os.O_NONBLOCK,
+            mode,
+            exclusive=True,
+        )
+        opened = os.fstat(descriptor)
+        identity = opened.st_dev, opened.st_ino
+        os.fchmod(descriptor, mode)
+        _write_all(descriptor, payload)
+        os.fsync(descriptor)
+        os.close(descriptor)
+        descriptor = -1
+        archive.fsync()
+        target, written = _read_snapshot(archive, name)
+        if target.identity != identity or written != payload:
+            raise OSError("ARCHIVE_TARGET_VERIFY_FAILED")
+        return target
+    except FileExistsError:
+        raise
+    except BaseException as error:
+        if descriptor >= 0:
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
+        cleaned = identity is not None and _remove_target_if_identity(
+            archive, name, identity
+        )
+        if not isinstance(error, Exception):
+            if not cleaned:
+                error.add_note("ARCHIVE_TARGET_CLEANUP_FAILED")
+            raise
+        raise _TargetPublishError(cleanup_failed=not cleaned) from error
+
+
+def _already_archived_without_source(
     *,
     items: SecureDirectory,
     archive: SecureDirectory,
     source: str,
-    expected: _FileSnapshot,
+    item_id: str,
     index: Any,
 ) -> ArchiveTransactionResult:
     try:
-        target = _current_snapshot(archive, source)
-        current = _current_snapshot(items, source)
-    except (OSError, ValueError):
-        return ArchiveTransactionResult("blocked", "ARCHIVE_TARGET_EXISTS")
-    if (
-        target is not None
-        and current is not None
-        and _same_content(expected, target)
-        and _same_content(expected, current)
-    ):
-        return _finish_linked_archive(
-            items=items,
-            archive=archive,
-            source=source,
-            expected=expected,
-            index=index,
-        )
-    return ArchiveTransactionResult("blocked", "ARCHIVE_TARGET_EXISTS")
+        target, payload = _read_snapshot(archive, source)
+        item, _body = _parse_payload(payload)
+        if item.id != item_id:
+            return ArchiveTransactionResult("blocked", "ARCHIVE_TARGET_INVALID")
+        _fsync_regular_file(archive, source, target.identity)
+        archive.fsync()
+        items.fsync()
+    except FileNotFoundError:
+        return ArchiveTransactionResult("blocked", "SOURCE_MISSING")
+    except (OSError, UnicodeError, ValueError, _ConcurrentModification):
+        return ArchiveTransactionResult("blocked", "ARCHIVE_TARGET_INVALID")
+    indexed = _applied_with_index(index, item_id)
+    return ArchiveTransactionResult(
+        "already_applied",
+        "ALREADY_ARCHIVED",
+        index_repair_attempted=indexed.index_repair_attempted,
+        index_repair_required=indexed.index_repair_required,
+    )
 
 
 def _applied_with_index(index: Any, item_id: str) -> ArchiveTransactionResult:
@@ -307,68 +368,33 @@ def _applied_with_index(index: Any, item_id: str) -> ArchiveTransactionResult:
     )
 
 
-def _already_archived_without_source(
-    *,
-    items: SecureDirectory,
+def _remove_target_if_identity(
     archive: SecureDirectory,
-    source: str,
-    item_id: str,
-    index: Any,
-) -> ArchiveTransactionResult:
-    try:
-        target, payload = _read_snapshot(archive, source)
-        item, _body = _parse_payload(payload)
-        if item.id != item_id:
-            return ArchiveTransactionResult("blocked", "ARCHIVE_TARGET_INVALID")
-        _fsync_regular_file(archive, source, target)
-        archive.fsync()
-        items.fsync()
-    except FileNotFoundError:
-        return ArchiveTransactionResult("blocked", "SOURCE_MISSING")
-    except (OSError, UnicodeError, ValueError, _ConcurrentModification):
-        return ArchiveTransactionResult("blocked", "ARCHIVE_TARGET_INVALID")
-    indexed = _applied_with_index(index, item_id)
-    return ArchiveTransactionResult(
-        "already_applied",
-        "ALREADY_ARCHIVED",
-        index_repair_attempted=indexed.index_repair_attempted,
-        index_repair_required=indexed.index_repair_required,
-    )
-
-
-def _remove_target_if_source_is_safe(
-    *,
-    items: SecureDirectory,
-    archive: SecureDirectory,
-    source: str,
+    name: str,
+    identity: tuple[int, int],
 ) -> bool:
-    """Remove the archive link only while the same inode still has an active name."""
     try:
-        target = _read_snapshot(archive, source)[0]
-        current = _read_snapshot(items, source)[0]
-        if target.identity != current.identity:
+        target = archive.stat(name)
+        if (target.st_dev, target.st_ino) != identity:
             return False
-        archive.unlink(source)
+        archive.unlink(name)
         archive.fsync()
         return True
-    except (FileNotFoundError, OSError, ValueError, _ConcurrentModification):
+    except (FileNotFoundError, OSError, ValueError):
         return False
 
 
 def _fsync_regular_file(
     directory: SecureDirectory,
     name: str,
-    expected: _FileSnapshot,
+    identity: tuple[int, int],
 ) -> None:
-    descriptor, _ = directory.open_file(
-        name,
-        os.O_RDONLY | os.O_NONBLOCK,
-    )
+    descriptor, _ = directory.open_file(name, os.O_RDONLY | os.O_NONBLOCK)
     try:
         opened = os.fstat(descriptor)
         if not stat.S_ISREG(opened.st_mode):
             raise ValueError("ITEM_INVALID")
-        if (opened.st_dev, opened.st_ino) != expected.identity:
+        if (opened.st_dev, opened.st_ino) != identity:
             raise _ConcurrentModification("ARCHIVE_TARGET_REPLACED")
         os.fsync(descriptor)
     finally:
@@ -389,27 +415,14 @@ def _read_snapshot(
     directory: SecureDirectory,
     name: str,
 ) -> tuple[_FileSnapshot, bytes]:
-    descriptor, _ = directory.open_file(
-        name,
-        os.O_RDONLY | os.O_NONBLOCK,
-    )
+    descriptor, _ = directory.open_file(name, os.O_RDONLY | os.O_NONBLOCK)
     try:
         before = os.fstat(descriptor)
         if not stat.S_ISREG(before.st_mode):
             raise ValueError("ITEM_INVALID")
         if before.st_size > _MAX_ARCHIVE_ITEM_BYTES:
             raise ValueError("ITEM_TOO_LARGE")
-        chunks: list[bytes] = []
-        remaining = _MAX_ARCHIVE_ITEM_BYTES + 1
-        while remaining > 0:
-            chunk = os.read(descriptor, min(65536, remaining))
-            if not chunk:
-                break
-            chunks.append(chunk)
-            remaining -= len(chunk)
-        payload = b"".join(chunks)
-        if len(payload) > _MAX_ARCHIVE_ITEM_BYTES:
-            raise ValueError("ITEM_TOO_LARGE")
+        payload = _read_bounded(descriptor)
         after = os.fstat(descriptor)
         if _read_stat_signature(before) != _read_stat_signature(after):
             raise _ConcurrentModification("ITEM_CHANGED_DURING_READ")
@@ -418,6 +431,30 @@ def _read_snapshot(
         return _snapshot(after, payload), payload
     finally:
         os.close(descriptor)
+
+
+def _read_bounded(descriptor: int) -> bytes:
+    chunks: list[bytes] = []
+    remaining = _MAX_ARCHIVE_ITEM_BYTES + 1
+    while remaining > 0:
+        chunk = os.read(descriptor, min(65536, remaining))
+        if not chunk:
+            break
+        chunks.append(chunk)
+        remaining -= len(chunk)
+    payload = b"".join(chunks)
+    if len(payload) > _MAX_ARCHIVE_ITEM_BYTES:
+        raise ValueError("ITEM_TOO_LARGE")
+    return payload
+
+
+def _write_all(descriptor: int, payload: bytes) -> None:
+    remaining = memoryview(payload)
+    while remaining:
+        written = os.write(descriptor, remaining)
+        if written <= 0:
+            raise OSError("ARCHIVE_TARGET_WRITE_FAILED")
+        remaining = remaining[written:]
 
 
 def _snapshot(value: os.stat_result, payload: bytes) -> _FileSnapshot:
@@ -443,11 +480,7 @@ def _read_stat_signature(value: os.stat_result) -> tuple[int, ...]:
     )
 
 
-def _same_prelink_snapshot(left: _FileSnapshot, right: _FileSnapshot) -> bool:
-    return _same_content(left, right) and left.changed_ns == right.changed_ns
-
-
-def _same_content(left: _FileSnapshot, right: _FileSnapshot) -> bool:
+def _same_source(left: _FileSnapshot, right: _FileSnapshot) -> bool:
     return (
         left.identity == right.identity
         and left.mode == right.mode
@@ -457,12 +490,13 @@ def _same_content(left: _FileSnapshot, right: _FileSnapshot) -> bool:
     )
 
 
+def _same_payload(left: _FileSnapshot, right: _FileSnapshot) -> bool:
+    return left.size == right.size and left.digest == right.digest
+
+
 def _parse_payload(payload: bytes) -> tuple[MemoryItem, str]:
     text = payload.decode("utf-8-sig")
-    return cast(
-        tuple[MemoryItem, str],
-        parse_item_markdown(text.replace("\r\n", "\n").replace("\r", "\n")),
-    )
+    return parse_item_markdown(text.replace("\r\n", "\n").replace("\r", "\n"))
 
 
 __all__ = ["ArchiveTransactionResult", "archive_reviewed_item"]

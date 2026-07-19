@@ -3,6 +3,8 @@ import logging
 import os
 from pathlib import Path
 import stat
+import subprocess
+import sys
 
 import pytest
 
@@ -104,6 +106,31 @@ def test_iter_all_records_bad_items_without_warning_noise(tmp_brain_dir: Path, c
         record for record in caplog.records
         if record.name == "agent_brain.memory.store.items_store" and record.levelno >= logging.WARNING
     ]
+
+
+def test_iter_all_skips_fifo_without_blocking_or_writing_it(tmp_path: Path) -> None:
+    from agent_brain.memory.store.items_store import ItemsStore
+
+    store = ItemsStore(tmp_path / "items")
+    fifo = store.items_dir / "mem-20260720-120000-fifo.md"
+    os.mkfifo(fifo)
+    script = (
+        "from pathlib import Path; "
+        "from agent_brain.memory.store.items_store import ItemsStore; "
+        f"store=ItemsStore(Path({str(store.items_dir)!r})); "
+        "print(len(list(store.iter_all())), store.last_scan.skipped_count)"
+    )
+
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        text=True,
+        capture_output=True,
+        timeout=2,
+        check=True,
+    )
+
+    assert completed.stdout.strip() == "0 1"
+    assert stat.S_ISFIFO(fifo.stat().st_mode)
 
 
 def test_atomic_updates_and_rollback_preserve_existing_posix_mode(

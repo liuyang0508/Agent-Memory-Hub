@@ -766,8 +766,8 @@ class SupersessionService:
         if self.index is None:
             return False
         try:
-            obsolete, obsolete_body = self.store.get(obsolete_id)
-            replacement, replacement_body = self.store.get(replacement_id)
+            obsolete, obsolete_body = self.store.get_nofollow(obsolete_id)
+            replacement, replacement_body = self.store.get_nofollow(replacement_id)
             self.index.upsert(obsolete, obsolete_body, embedding=None)
             self.index.upsert(replacement, replacement_body, embedding=None)
         except Exception:

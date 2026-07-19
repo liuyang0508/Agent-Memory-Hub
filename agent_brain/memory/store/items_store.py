@@ -11,7 +11,6 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import cast
 
 from agent_brain.memory.store.item_markdown import parse_item_markdown, render_item_markdown
 from agent_brain.contracts.memory_item import MemoryItem, is_valid_memory_item_id
@@ -19,6 +18,13 @@ from agent_brain.memory.store.durable_fs import (
     SecureDirectory,
     lifecycle_mutation_capability,
     require_lifecycle_mutation_capability,
+)
+from agent_brain.platform.secure_io import (
+    close_descriptor,
+    open_child_directory,
+    open_directory_path_without_symlinks,
+    open_regular_file_at,
+    secure_dir_fd_io_supported,
 )
 
 
@@ -49,6 +55,15 @@ def _atomic_write_bytes(
 
 def _atomic_write_text(path: Path, text: str) -> None:
     _atomic_write_bytes(path, text.encode("utf-8"))
+
+
+def _read_descriptor_bytes(descriptor: int) -> bytes:
+    chunks: list[bytes] = []
+    while True:
+        chunk = os.read(descriptor, 65536)
+        if not chunk:
+            return b"".join(chunks)
+        chunks.append(chunk)
 
 
 def make_item_id(title: str, when: datetime | None = None, label: str | None = None) -> str:
@@ -143,17 +158,73 @@ class ItemsStore:
         malformed historical item from breaking the entire governance pipeline.
         """
         self.last_scan = ScanStats()
-        for md_path in sorted(self.items_dir.rglob("*.md")):
-            if not include_archived:
-                rel_parts = md_path.relative_to(self.items_dir).parts
-                if "archived" in rel_parts[:-1]:
+        try:
+            entries = self._iter_nofollow_markdown()
+            for md_path, data in entries:
+                if not include_archived:
+                    rel_parts = md_path.relative_to(self.items_dir).parts
+                    if "archived" in rel_parts[:-1]:
+                        continue
+                try:
+                    text = data.decode("utf-8-sig")
+                    text = text.replace("\r\n", "\n").replace("\r", "\n")
+                    yield parse_item_markdown(text)
+                except Exception as exc:  # noqa: BLE001 - parse boundary.
+                    self._record_skip(md_path, exc)
+        except Exception as exc:  # noqa: BLE001 - traversal boundary.
+            self._record_skip(self.items_dir, exc)
+
+    def _iter_nofollow_markdown(self) -> Iterator[tuple[Path, bytes]]:
+        """Yield descriptor-anchored regular markdown files in path order."""
+        if not secure_dir_fd_io_supported():
+            raise OSError("secure directory descriptor IO is unavailable")
+        root_descriptor = open_directory_path_without_symlinks(self.items_dir)
+        stack: list[tuple[int, tuple[str, ...], Iterator[os.DirEntry[str]]]] = []
+        try:
+            root_entries = iter(sorted(os.scandir(root_descriptor), key=lambda row: row.name))
+            stack.append((root_descriptor, (), root_entries))
+            root_descriptor = -1
+            while stack:
+                directory, relative, entries = stack[-1]
+                try:
+                    entry = next(entries)
+                except StopIteration:
+                    close_descriptor(directory)
+                    stack.pop()
                     continue
-            try:
-                yield self._read_one(md_path)
-            except Exception as exc:  # noqa: BLE001 — boundary: any parse error
-                reason = f"{type(exc).__name__}: {exc}".splitlines()[0][:200]
-                self.last_scan.skipped.append(SkipRecord(path=md_path, reason=reason))
-                _log.debug("skip %s: %s", md_path.name, reason)
+                path = self.items_dir.joinpath(*relative, entry.name)
+                try:
+                    if entry.is_dir(follow_symlinks=False):
+                        child = open_child_directory(directory, entry.name)
+                        try:
+                            child_entries = iter(
+                                sorted(os.scandir(child), key=lambda row: row.name)
+                            )
+                        except BaseException:
+                            close_descriptor(child)
+                            raise
+                        stack.append((child, (*relative, entry.name), child_entries))
+                        continue
+                    if Path(entry.name).suffix != ".md":
+                        continue
+                    descriptor = open_regular_file_at(directory, entry.name)
+                    try:
+                        yield path, _read_descriptor_bytes(descriptor)
+                    finally:
+                        close_descriptor(descriptor)
+                except Exception as exc:  # noqa: BLE001 - per-entry boundary.
+                    self._record_skip(path, exc)
+        finally:
+            if root_descriptor >= 0:
+                close_descriptor(root_descriptor)
+            while stack:
+                directory, _relative, _entries = stack.pop()
+                close_descriptor(directory)
+
+    def _record_skip(self, path: Path, error: BaseException) -> None:
+        reason = f"{type(error).__name__}: {error}".splitlines()[0][:200]
+        self.last_scan.skipped.append(SkipRecord(path=path, reason=reason))
+        _log.debug("skip %s: %s", path.name, reason)
 
     def get(self, item_id: str) -> tuple[MemoryItem, str]:
         """Read a single item by ID. Raises FileNotFoundError if missing."""
@@ -166,33 +237,18 @@ class ItemsStore:
         """Read one canonical active item without following filesystem links."""
         if not is_valid_memory_item_id(item_id):
             raise ValueError("invalid memory item id")
-        if not (
-            hasattr(os, "O_DIRECTORY")
-            and hasattr(os, "O_NOFOLLOW")
-            and os.open in os.supports_dir_fd
-        ):
-            raise OSError("NOFOLLOW_READ_UNSUPPORTED")
-        directory_fd = os.open(
-            self.items_dir,
-            os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
-        )
-        with SecureDirectory(directory_fd) as items:
-            descriptor, _ = items.open_file(
-                f"{item_id}.md",
-                os.O_RDONLY | os.O_NONBLOCK,
-            )
-            chunks: list[bytes] = []
+        directory_fd = open_directory_path_without_symlinks(self.items_dir)
+        try:
+            descriptor = open_regular_file_at(directory_fd, f"{item_id}.md")
             try:
-                while True:
-                    chunk = os.read(descriptor, 65536)
-                    if not chunk:
-                        break
-                    chunks.append(chunk)
+                data = _read_descriptor_bytes(descriptor)
             finally:
-                os.close(descriptor)
-        text = b"".join(chunks).decode("utf-8-sig")
+                close_descriptor(descriptor)
+        finally:
+            close_descriptor(directory_fd)
+        text = data.decode("utf-8-sig")
         text = text.replace("\r\n", "\n").replace("\r", "\n")
-        return cast(tuple[MemoryItem, str], parse_item_markdown(text))
+        return parse_item_markdown(text)
 
     def write(self, item: MemoryItem, body: str) -> Path:
         """Write item + body to a md file. Returns the file path."""
@@ -423,15 +479,25 @@ class LockedItemsView:
         self._item_ids = item_ids
 
     def read_bytes(self, item_id: str) -> bytes:
+        return self.read_version(item_id)[0]
+
+    def read_version(self, item_id: str) -> tuple[bytes, tuple[int, int]]:
+        """Read exact regular bytes plus stable device/inode under the item lock."""
         self._require_locked(item_id)
-        descriptor, _ = self._directory.open_file(f"{item_id}.md", os.O_RDONLY)
-        chunks: list[bytes] = []
+        descriptor, _ = self._directory.open_file(
+            f"{item_id}.md", os.O_RDONLY | os.O_NONBLOCK
+        )
         try:
-            while True:
-                chunk = os.read(descriptor, 65536)
-                if not chunk:
-                    return b"".join(chunks)
-                chunks.append(chunk)
+            before = os.fstat(descriptor)
+            data = _read_descriptor_bytes(descriptor)
+            after = os.fstat(descriptor)
+            if (
+                (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns)
+                != (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns)
+                or len(data) != after.st_size
+            ):
+                raise OSError("ITEM_CHANGED_DURING_READ")
+            return data, (after.st_dev, after.st_ino)
         finally:
             os.close(descriptor)
 

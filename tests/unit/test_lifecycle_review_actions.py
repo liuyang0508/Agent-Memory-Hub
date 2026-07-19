@@ -76,6 +76,49 @@ def test_lifecycle_preview_does_not_create_conversation_source_directories(
     assert _tree_snapshot(brain) == before
 
 
+def test_lifecycle_surfaces_skip_fifo_without_blocking_or_writing_it(
+    tmp_path: Path,
+) -> None:
+    now = datetime.now(timezone.utc)
+    brain = tmp_path / "brain"
+    store = ItemsStore(brain / "items")
+    regular = _stale_item("mem-20260101-180026-fifo-plan-regular", now=now)
+    fifo_id = "mem-20260101-180027-fifo-lifecycle"
+    store.write(regular, "body")
+    fifo = store.items_dir / f"{fifo_id}.md"
+    os.mkfifo(fifo)
+    script = (
+        "import json; from pathlib import Path; "
+        "from agent_brain.memory.store.items_store import ItemsStore; "
+        "from agent_brain.memory.governance.lifecycle_review import "
+        "LifecycleReviewAction,apply_lifecycle_review_actions,build_lifecycle_review_plan; "
+        f"brain=Path({str(brain)!r}); store=ItemsStore(brain/'items'); "
+        "plan=build_lifecycle_review_plan(brain_dir=brain,items_store=store); "
+        f"archive=apply_lifecycle_review_actions(brain_dir=brain,items_store=store,actions=[LifecycleReviewAction('archive',{fifo_id!r})],apply=False,index_repair=False); "
+        f"keep=apply_lifecycle_review_actions(brain_dir=brain,items_store=store,actions=[LifecycleReviewAction('keep-active',{fifo_id!r})],apply=False,index_repair=False); "
+        f"defer=apply_lifecycle_review_actions(brain_dir=brain,items_store=store,actions=[LifecycleReviewAction('defer',{fifo_id!r},defer_days=7)],apply=False,index_repair=False); "
+        "print(json.dumps({'queue':[x.item_id for x in plan.review_queue],"
+        "'archive':archive['results'][0], 'keep':keep['results'][0], "
+        "'defer':defer['results'][0]}))"
+    )
+
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        text=True,
+        capture_output=True,
+        timeout=3,
+        check=True,
+    )
+    payload = json.loads(completed.stdout)
+
+    assert payload["queue"] == [regular.id]
+    assert payload["archive"]["reason"] == "NOT_IN_LIFECYCLE_REVIEW_QUEUE"
+    assert payload["keep"]["reason"] == "ITEM_INVALID"
+    assert payload["defer"]["reason"] == "ITEM_INVALID"
+    assert stat.S_ISFIFO(fifo.stat().st_mode)
+    assert not (brain / "runtime").exists()
+
+
 def test_lifecycle_queue_hides_future_defer_and_restores_at_deadline(
     tmp_path: Path,
 ) -> None:
@@ -240,6 +283,46 @@ def test_keep_active_rolls_back_markdown_when_ledger_append_fails(
     assert payload["results"][0]["status"] == "blocked"
     assert payload["results"][0]["reason"] == "LEDGER_WRITE_FAILED"
     assert source.read_bytes() == original
+
+
+def test_keep_active_ledger_failure_never_overwrites_concurrent_replacement(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from agent_brain.memory.governance import lifecycle_review
+
+    now = datetime.now(timezone.utc)
+    brain = tmp_path / "brain"
+    store = ItemsStore(brain / "items")
+    item = _stale_item("mem-20260101-180028-keep-concurrent-ledger", now=now)
+    source = store.write(item, "original")
+    replacement_store = ItemsStore(tmp_path / "keep-concurrent-replacement")
+    fresh_bytes = replacement_store.write(item, "concurrent fresh").read_bytes()
+
+    def replace_then_fail(*_args, **_kwargs) -> None:
+        source.unlink()
+        source.write_bytes(fresh_bytes)
+        raise OSError("ledger failed after external replacement")
+
+    monkeypatch.setattr(
+        lifecycle_review,
+        "append_lifecycle_record",
+        replace_then_fail,
+    )
+
+    payload = apply_lifecycle_review_actions(
+        brain_dir=brain,
+        items_store=store,
+        actions=[LifecycleReviewAction("keep-active", item.id)],
+        apply=True,
+        index_repair=False,
+    )
+
+    result = payload["results"][0]
+    assert result["status"] == "partial"
+    assert result["reason"] == "CONCURRENT_MODIFICATION"
+    assert result["index_repair_required"] is True
+    assert source.read_bytes() == fresh_bytes
 
 
 def test_lifecycle_queue_corrupt_ledger_fails_safe_without_writing(
@@ -537,29 +620,28 @@ def test_archive_does_not_archive_stale_descriptor_after_source_replacement(
     replacement_bytes = replacement_path.read_bytes()
     original_bytes = source.read_bytes()
     displaced = tmp_path / "displaced-original.md"
-    original_rename = os.rename
-    original_link = os.link
+    from agent_brain.memory.store.durable_fs import SecureDirectory
+
+    original_open_file = SecureDirectory.open_file
     state = {"replaced": False}
 
-    def replace_before_link(source_name, destination_name, *args, **kwargs):
-        if source_name == f"{item.id}.md" and not state["replaced"]:
+    def replace_before_target(
+        directory,
+        name,
+        flags,
+        mode=0o600,
+        *,
+        exclusive=False,
+    ):
+        if name == source.name and exclusive and not state["replaced"]:
             state["replaced"] = True
-            source_fd = kwargs["src_dir_fd"]
-            original_rename(source_name, displaced, src_dir_fd=source_fd)
-            descriptor = os.open(
-                source_name,
-                os.O_WRONLY | os.O_CREAT | os.O_EXCL,
-                0o600,
-                dir_fd=source_fd,
-            )
-            try:
-                os.write(descriptor, replacement_bytes)
-                os.fsync(descriptor)
-            finally:
-                os.close(descriptor)
-        return original_link(source_name, destination_name, *args, **kwargs)
+            source.rename(displaced)
+            source.write_bytes(replacement_bytes)
+        return original_open_file(
+            directory, name, flags, mode, exclusive=exclusive
+        )
 
-    monkeypatch.setattr(lifecycle_archive.os, "link", replace_before_link)
+    monkeypatch.setattr(SecureDirectory, "open_file", replace_before_target)
 
     result = archive_reviewed_item(
         brain_dir=brain,
@@ -568,11 +650,11 @@ def test_archive_does_not_archive_stale_descriptor_after_source_replacement(
         eligible=lambda _item: True,
     )
 
-    assert result.status == "blocked"
-    assert result.reason == "CONCURRENT_MODIFICATION"
+    assert result.status == "partial"
+    assert result.reason == "ARCHIVE_SOURCE_REPLACED"
     assert source.read_bytes() == replacement_bytes
     assert displaced.read_bytes() == original_bytes
-    assert not (store.items_dir / "archived" / source.name).exists()
+    assert (store.items_dir / "archived" / source.name).read_bytes() == original_bytes
 
 
 def test_archive_never_overwrites_target_created_during_publish(
@@ -588,27 +670,41 @@ def test_archive_never_overwrites_target_created_during_publish(
     source = store.write(item, "original body")
     original_bytes = source.read_bytes()
     concurrent_bytes = b"concurrent archive target"
-    original_link = os.link
+    from agent_brain.memory.store.durable_fs import SecureDirectory
+
+    original_open_file = SecureDirectory.open_file
     state = {"published": False}
 
-    def create_target_before_link(source_name, destination_name, *args, **kwargs):
-        if not state["published"]:
+    def create_target_before_exclusive_open(
+        directory,
+        name,
+        flags,
+        mode=0o600,
+        *,
+        exclusive=False,
+    ):
+        if name == source.name and exclusive and not state["published"]:
             state["published"] = True
-            target_fd = kwargs["dst_dir_fd"]
             descriptor = os.open(
-                destination_name,
+                name,
                 os.O_WRONLY | os.O_CREAT | os.O_EXCL,
                 0o600,
-                dir_fd=target_fd,
+                dir_fd=directory.fd,
             )
             try:
                 os.write(descriptor, concurrent_bytes)
                 os.fsync(descriptor)
             finally:
                 os.close(descriptor)
-        return original_link(source_name, destination_name, *args, **kwargs)
+        return original_open_file(
+            directory, name, flags, mode, exclusive=exclusive
+        )
 
-    monkeypatch.setattr(lifecycle_archive.os, "link", create_target_before_link)
+    monkeypatch.setattr(
+        SecureDirectory,
+        "open_file",
+        create_target_before_exclusive_open,
+    )
 
     result = archive_reviewed_item(
         brain_dir=brain,
@@ -637,26 +733,34 @@ def test_archive_rejects_same_inode_content_change_without_archiving_new_bytes(
     source = store.write(item, "original body")
     replacement_store = ItemsStore(tmp_path / "replacement-inode")
     replacement = replacement_store.write(item, "same inode changed body").read_bytes()
-    original_link = os.link
+    from agent_brain.memory.store.durable_fs import SecureDirectory
+
+    original_bytes = source.read_bytes()
+    original_open_file = SecureDirectory.open_file
     changed = False
 
-    def mutate_before_link(source_name, destination_name, *args, **kwargs):
+    def mutate_before_target(
+        directory,
+        name,
+        flags,
+        mode=0o600,
+        *,
+        exclusive=False,
+    ):
         nonlocal changed
-        if not changed:
+        if name == source.name and exclusive and not changed:
             changed = True
-            descriptor = os.open(
-                source_name,
-                os.O_WRONLY | os.O_TRUNC,
-                dir_fd=kwargs["src_dir_fd"],
-            )
+            descriptor = os.open(source, os.O_WRONLY | os.O_TRUNC)
             try:
                 os.write(descriptor, replacement)
                 os.fsync(descriptor)
             finally:
                 os.close(descriptor)
-        return original_link(source_name, destination_name, *args, **kwargs)
+        return original_open_file(
+            directory, name, flags, mode, exclusive=exclusive
+        )
 
-    monkeypatch.setattr(lifecycle_archive.os, "link", mutate_before_link)
+    monkeypatch.setattr(SecureDirectory, "open_file", mutate_before_target)
 
     result = archive_reviewed_item(
         brain_dir=brain,
@@ -665,10 +769,10 @@ def test_archive_rejects_same_inode_content_change_without_archiving_new_bytes(
         eligible=lambda _item: True,
     )
 
-    assert result.status == "blocked"
-    assert result.reason == "CONCURRENT_MODIFICATION"
+    assert result.status == "partial"
+    assert result.reason == "ARCHIVE_SOURCE_REPLACED"
     assert source.read_bytes() == replacement
-    assert not (store.items_dir / "archived" / source.name).exists()
+    assert (store.items_dir / "archived" / source.name).read_bytes() == original_bytes
 
 
 def test_archive_recovers_linked_half_transaction_without_stage_directory(
@@ -682,7 +786,8 @@ def test_archive_recovers_linked_half_transaction_without_stage_directory(
     archive = store.items_dir / "archived"
     archive.mkdir()
     target = archive / source.name
-    os.link(source, target)
+    target.write_bytes(source.read_bytes())
+    target.chmod(stat.S_IMODE(source.stat().st_mode))
 
     result = archive_reviewed_item(
         brain_dir=brain,
@@ -709,7 +814,8 @@ def test_archive_recognizes_completed_target_when_source_is_already_absent(
     archive = store.items_dir / "archived"
     archive.mkdir()
     target = archive / source.name
-    os.link(source, target)
+    target.write_bytes(source.read_bytes())
+    target.chmod(stat.S_IMODE(source.stat().st_mode))
     source.unlink()
 
     result = archive_reviewed_item(
@@ -739,20 +845,23 @@ def test_archive_keeps_fresh_source_when_replaced_after_exclusive_link(
     replacement_store = ItemsStore(tmp_path / "replacement-post-link")
     fresh_bytes = replacement_store.write(item, "fresh body").read_bytes()
     displaced = tmp_path / "linked-old.md"
-    original_link = os.link
-    original_rename = os.rename
+    original_publish = lifecycle_archive._publish_independent_target
     swapped = False
 
-    def replace_source_after_link(source_name, destination_name, *args, **kwargs):
+    def replace_source_after_publish(**kwargs):
         nonlocal swapped
-        result = original_link(source_name, destination_name, *args, **kwargs)
+        result = original_publish(**kwargs)
         if not swapped:
             swapped = True
-            original_rename(source, displaced)
+            source.rename(displaced)
             source.write_bytes(fresh_bytes)
         return result
 
-    monkeypatch.setattr(lifecycle_archive.os, "link", replace_source_after_link)
+    monkeypatch.setattr(
+        lifecycle_archive,
+        "_publish_independent_target",
+        replace_source_after_publish,
+    )
 
     result = archive_reviewed_item(
         brain_dir=brain,
@@ -768,6 +877,48 @@ def test_archive_keeps_fresh_source_when_replaced_after_exclusive_link(
     assert target.read_bytes() == old_bytes
     assert displaced.read_bytes() == old_bytes
     assert not (store.items_dir / ".amh-lifecycle-stage").exists()
+
+
+def test_archive_keeps_fifo_that_replaces_source_after_target_publish(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from agent_brain.memory.governance import lifecycle_archive
+
+    now = datetime.now(timezone.utc)
+    brain = tmp_path / "brain"
+    store = ItemsStore(brain / "items")
+    item = _stale_item("mem-20260101-180030-archive-post-publish-fifo", now=now)
+    source = store.write(item, "old body")
+    old_bytes = source.read_bytes()
+    displaced = tmp_path / "post-publish-old.md"
+    original_publish = lifecycle_archive._publish_independent_target
+
+    def replace_source_with_fifo(**kwargs):
+        result = original_publish(**kwargs)
+        source.rename(displaced)
+        os.mkfifo(source)
+        return result
+
+    monkeypatch.setattr(
+        lifecycle_archive,
+        "_publish_independent_target",
+        replace_source_with_fifo,
+    )
+
+    result = archive_reviewed_item(
+        brain_dir=brain,
+        items_store=store,
+        item_id=item.id,
+        eligible=lambda _item: True,
+    )
+
+    target = store.items_dir / "archived" / source.name
+    assert result.status == "partial"
+    assert result.reason == "ARCHIVE_SOURCE_REPLACED"
+    assert stat.S_ISFIFO(source.stat().st_mode)
+    assert target.read_bytes() == old_bytes
+    assert displaced.read_bytes() == old_bytes
 
 
 def test_lifecycle_payload_reports_partial_archive_in_legacy_failed_field(
@@ -842,3 +993,32 @@ def test_archive_does_not_misreport_applied_when_fifo_appears_after_unlink(
     assert result.status == "partial"
     assert result.reason == "ARCHIVE_SOURCE_REPLACED"
     assert stat.S_ISFIFO(source.stat().st_mode)
+
+
+def test_archive_target_is_independent_from_writer_fd_to_unlinked_source(
+    tmp_path: Path,
+) -> None:
+    now = datetime.now(timezone.utc)
+    brain = tmp_path / "brain"
+    store = ItemsStore(brain / "items")
+    item = _stale_item("mem-20260101-180029-archive-independent-copy", now=now)
+    source = store.write(item, "original archive payload")
+    original = source.read_bytes()
+    writer = os.open(source, os.O_WRONLY)
+    try:
+        result = archive_reviewed_item(
+            brain_dir=brain,
+            items_store=store,
+            item_id=item.id,
+            eligible=lambda _item: True,
+        )
+        os.lseek(writer, 0, os.SEEK_SET)
+        os.write(writer, b"CORRUPTED OLD INODE")
+        os.fsync(writer)
+    finally:
+        os.close(writer)
+
+    target = store.items_dir / "archived" / source.name
+    assert result.status == "applied"
+    assert not source.exists()
+    assert target.read_bytes() == original
