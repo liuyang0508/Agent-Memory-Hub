@@ -511,6 +511,11 @@ The HTML map carries larger diagrams, sequences, and flow expansions.
 | Loop Contract governance | Shipping | `memory loop run --contract`, `memory loop contract validate`, `memory loop create --contract`, `memory loop verify`, `memory loop feedback`, and `memory loop gate open/approve/reject` bind goals, state, actions, verifiers, budgets, stop conditions, and human gates to LoopRun evidence. AMH is the multi-agent loop fact layer, verification layer, and governance layer; it is not an unattended runner. |
 | Associative-memory expansion | Experimental | Explicit `refs_graph` is shipping; graph expansion, MMR, and Hopfield expansion are switchable enhancements gated by benchmarks. |
 | Retrieval benchmark gate | Shipping | `memory benchmark retrieval --cases ...` and Web `/api/retrieval-gate` evaluate recall@1, recall@k, and MRR against the real index; failing thresholds fail the gate. |
+
+Automatic and `auto` search never promotes a candidate to `detail`: discovery
+returns locator/overview, then the Agent selects 1-3 relevant items and performs
+bounded `read_memory` calls. Explicit `verbosity="detail"` remains available for
+deliberate diagnostics; broad explicit-detail search is warned but not blocked.
 | Headroom-inspired compression | Shipping / optional external provider | AMH internalizes Headroom-style content routing for search results, logs, diffs, JSON, and text; local CCR sidecars keep no-URI compression reversible, while a `headroom` package/CLI remains an optional provider. |
 | Compression benchmark gate | Shipping | `memory benchmark compression` and Web `/api/compression-gate` run few-shot cases that require key anchors to survive, noise to disappear, token savings to stay positive, and reversible retrieval to remain available. |
 | System few-shot gate | Shipping | `memory benchmark system` builds weak-intent, title/locator recall, firewall, and `context_pack` cases from real `MemoryItem` metadata to test query gating, retrieval, firewall decisions, and reversible packing together. |

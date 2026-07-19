@@ -28,6 +28,7 @@ from agent_brain.memory.recall.routed_protocol import (
     ROUTED_HOOK_OUTPUT_FORMAT,
     ROUTED_HOOK_PROTOCOL_AVAILABLE,
 )
+from agent_brain.memory.context.recall_policy import search_governance_warnings
 import agent_brain.interfaces.cli as _cli  # noqa: E402  late binding for test-patched helpers
 
 _CONTEXT_VERBOSITIES = {"locator", "overview", "detail", "auto"}
@@ -204,6 +205,8 @@ def search(
         typer.echo(json.dumps(payload.to_dict(), ensure_ascii=False))
         return
 
+    for warning in search_governance_warnings(verbosity=verbosity, top_k=top_k):
+        typer.echo(f"warning: {warning}", err=True)
     store, _, retriever = _cli._command_components()
     sf = SearchFilter(
         type=type,

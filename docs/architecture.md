@@ -98,6 +98,11 @@ body only after the compact view proves relevant.
 Packing is not authorization. Prompt-facing callers may build this derived view
 only after InjectionGateway and ContextFirewall approve the hydrated candidate.
 
+Staged-recall invariant: **`auto` selects only `locator` or `overview`**. Agents
+select 1-3 relevant candidates before bounded `read_memory` calls. Explicit
+`verbosity="detail"` still returns the canonical body for deliberate diagnostics;
+broad explicit-detail searches receive a non-blocking governance warning.
+
 ## Loop Contract — `agent_brain/memory/loops/`
 
 Loop Engineering uses a contract plus runtime ledger instead of prompt-only

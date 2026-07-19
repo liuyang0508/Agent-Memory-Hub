@@ -20,6 +20,7 @@ class SearchResult:
     retrieval_trace: dict[str, Any] | None = None
     firewall: dict[str, Any] | None = None
     resource_context: list[dict[str, Any]] = field(default_factory=list)
+    governance_warnings: list[str] = field(default_factory=list)
 
 
 def search_items(
@@ -51,8 +52,13 @@ def search_items(
         build_injection_context,
         injection_retrieval_top_k,
     )
+    from agent_brain.memory.context.recall_policy import search_governance_warnings
 
     parsed_verbosity = _parse_verbosity(verbosity)
+    governance_warnings = search_governance_warnings(
+        verbosity=parsed_verbosity,
+        top_k=top_k,
+    )
     items_by_id: dict[str, tuple[Any, str]] = {}
     for item, body in store.iter_all():
         items_by_id[item.id] = (item, body)
@@ -140,6 +146,7 @@ def search_items(
                     item,
                     include_resources=include_resources and context_firewall,
                 ),
+                governance_warnings=list(governance_warnings),
             )
         )
 
@@ -202,14 +209,36 @@ def _resource_context_for_item(
     return contexts
 
 
-def read_item(store: Any, item_id: str) -> dict[str, Any] | None:
+def read_item(
+    store: Any,
+    item_id: str,
+    *,
+    head: int | None = None,
+    view: str = "detail",
+) -> dict[str, Any] | None:
     """Read a single item by ID. Returns dict with 'item' and 'body' or None."""
+    normalized_view = view.strip().lower()
+    if normalized_view not in {"locator", "overview", "detail"}:
+        raise ValueError("view must be one of: locator, overview, detail")
     for item, body in store.iter_all():
         if item.id == item_id:
-            return {
+            result = {
                 "item": item.model_dump(mode="json"),
-                "body": body,
             }
+            if normalized_view == "locator":
+                result["locator"] = item.context_views.locator
+                return result
+            if normalized_view == "overview":
+                result["locator"] = item.context_views.locator
+                result["overview"] = item.context_views.overview
+                return result
+            if head is not None and len(body) > head:
+                result["body"] = body[:head]
+                result["body_truncated"] = True
+                result["full_chars"] = len(body)
+            else:
+                result["body"] = body
+            return result
     return None
 
 

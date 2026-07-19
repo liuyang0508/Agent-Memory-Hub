@@ -8,6 +8,7 @@ from agent_brain.memory.context.injection_gateway import (
     build_injection_context,
     injection_retrieval_top_k,
 )
+from agent_brain.memory.context.recall_policy import search_governance_warnings
 from agent_brain.interfaces.mcp.tools._shared import *  # noqa: F401,F403
 
 
@@ -104,6 +105,10 @@ def search_memory(
     `search_memory(..., verbosity="auto")` results.
     """
     verbosity = _parse_context_verbosity(verbosity)
+    governance_warnings = search_governance_warnings(
+        verbosity=verbosity,
+        top_k=top_k,
+    )
     store, idx, _ = _components()
     embedder = get_default_embedder()
     retriever = Retriever(
@@ -190,6 +195,8 @@ def search_memory(
             result["body"] = pack.text
         else:
             result["snippet"] = pack.text
+        if governance_warnings:
+            result["governance_warnings"] = list(governance_warnings)
         if hit is not None and hit.trace is not None:
             result["retrieval_trace"] = hit.trace.to_dict()
         results.append(result)

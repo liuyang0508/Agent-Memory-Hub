@@ -111,6 +111,29 @@ def test_managed_adapter_runtime_text_contains_no_personal_examples(tmp_path):
         assert "such as `" not in text, f"{surface} contains a literal prompt example"
 
 
+def test_native_adapter_bridges_teach_staged_recall(tmp_path):
+    from agent_brain.agent_integrations import qoder as qoder_mod
+    from agent_brain.agent_integrations import qoder_work as qw_mod
+    from agent_brain.agent_integrations import wukong as wk_mod
+
+    repo_dir = tmp_path / "repo"
+    qoder = qoder_mod.QoderAdapter(brain_dir=tmp_path / "brain", repo_dir=repo_dir)
+    qoder_work = qw_mod.QoderWorkAdapter(brain_dir=tmp_path / "brain", repo_dir=repo_dir)
+    wukong = wk_mod.WukongAdapter(brain_dir=tmp_path / "brain", repo_dir=repo_dir)
+    bridges = {
+        "qoder native memory bridge": qoder._native_memory_bridge_content(),
+        "qoder native priority redirect": qoder._native_priority_redirect_block(),
+        "qoder_work bootstrap skill": qoder_work._bootstrap_skill_content(),
+        "wukong native memory bridge": wukong._native_memory_bridge_content(),
+        "wukong bootstrap skill": wukong._bootstrap_skill_content(),
+    }
+
+    for surface, text in bridges.items():
+        assert "--verbosity auto" in text, f"{surface} does not start with compact search"
+        assert "1-3" in text, f"{surface} does not bound deep reads"
+        assert "显式 detail" in text, f"{surface} does not govern explicit detail"
+
+
 def test_wukong_short_prompt_detector_uses_structure_not_project_name():
     from agent_brain.agent_integrations import wukong as wk_mod
 
@@ -258,6 +281,22 @@ class TestWIPAdaptersRaiseNotImplemented:
         assert isinstance(result, str)
         assert "WIP" in result
         assert "##" in result
+
+
+def test_shared_awareness_teaches_staged_recall_for_every_adapter(tmp_path):
+    from agent_brain.agent_integrations.awareness import render_awareness_block
+
+    awareness = render_awareness_block(
+        agent_name="Test Agent",
+        brain_dir=tmp_path / ".brain",
+        tool_channel="AMH MCP",
+    )
+
+    assert 'search_memory(..., verbosity="auto")' in awareness
+    assert "locator/overview" in awareness
+    assert "1-3" in awareness
+    assert 'read_memory(id, head=2000, view="detail")' in awareness
+    assert "reserve explicit search `verbosity=\"detail\"`" in awareness
 
 
 class TestClaudeCodeAdapterRealInstall:
@@ -2178,6 +2217,33 @@ class TestQoderAdapterRealInstall:
         assert effectiveness.status == "warn"
         assert "native SearchMemory" in effectiveness.detail
         assert "new-native-only.jsonl" in effectiveness.detail
+
+    def test_qoder_transcript_timestamp_skips_non_object_json_rows(self, tmp_path):
+        from datetime import datetime
+
+        from agent_brain.agent_integrations import qoder as qoder_mod
+
+        transcript = tmp_path / "mixed.jsonl"
+        transcript.write_text(
+            "\n".join([
+                json.dumps("plain string"),
+                json.dumps(["list"]),
+                json.dumps(42),
+                json.dumps(True),
+                json.dumps(None),
+                json.dumps({"timestamp": "2026-07-15T00:00:00Z"}),
+            ])
+            + "\n",
+            encoding="utf-8",
+        )
+
+        observed = qoder_mod.QoderAdapter(
+            brain_dir=tmp_path / ".brain"
+        )._transcript_observed_time(transcript)
+
+        assert observed == datetime.fromisoformat(
+            "2026-07-15T00:00:00+00:00"
+        ).timestamp()
 
     def test_diagnose_reports_qoder_native_memory_redirect(self, tmp_path, monkeypatch):
         from agent_brain.agent_integrations import qoder as qoder_mod

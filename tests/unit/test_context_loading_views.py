@@ -145,7 +145,7 @@ def test_cli_context_firewall_defaults_to_auto_overview_for_sourced_fact(tmp_bra
     assert "meta:" not in result.output
 
 
-def test_auto_context_loading_uses_detail_for_raw_item_with_direct_evidence() -> None:
+def test_auto_context_loading_uses_overview_for_raw_item_with_direct_evidence() -> None:
     from agent_brain.memory.context.context_loading import select_context_view
 
     item = MemoryItem(
@@ -165,8 +165,59 @@ def test_auto_context_loading_uses_detail_for_raw_item_with_direct_evidence() ->
 
     selection = select_context_view(item, "raw evidence detail")
 
-    assert selection.view == "detail"
+    assert selection.view == "overview"
     assert "raw_direct_evidence" in selection.reasons
+
+
+def test_auto_context_loading_falls_back_to_locator_when_raw_overview_is_empty() -> None:
+    from agent_brain.memory.context.context_loading import select_context_view
+
+    item = MemoryItem(
+        id="mem-20260615-020004-context-auto-locator",
+        type=MemoryType.artifact,
+        created_at=datetime.now(timezone.utc),
+        title="Raw evidence locator fallback",
+        summary="raw locator only",
+        abstraction="L0",
+        refs={"resources": ["res-direct-evidence"]},
+        context_views={
+            "locator": "raw locator only",
+            "overview": "",
+            "detail_uri": "memory://items/mem-20260615-020004-context-auto-locator/body",
+        },
+    )
+
+    selection = select_context_view(item, "raw body marker")
+
+    assert selection.view == "locator"
+    assert "raw_direct_evidence" in selection.reasons
+
+
+def test_explicit_detail_still_selects_detail_for_raw_direct_evidence() -> None:
+    from agent_brain.memory.context.context_loading import select_context_view
+
+    item = MemoryItem(
+        id="mem-20260615-020004-context-explicit-detail",
+        type=MemoryType.fact,
+        created_at=datetime.now(timezone.utc),
+        title="Explicit detail",
+        summary="detail locator",
+        abstraction="L0",
+        refs={"files": ["/tmp/evidence.log"]},
+    )
+
+    selection = select_context_view(item, "detail body", requested="detail")
+
+    assert selection.view == "detail"
+    assert selection.reasons == ("explicit_detail",)
+
+
+def test_broad_explicit_detail_search_is_warned_but_not_blocked() -> None:
+    from agent_brain.memory.context.recall_policy import search_governance_warnings
+
+    assert search_governance_warnings(verbosity="detail", top_k=4)
+    assert search_governance_warnings(verbosity="detail", top_k=3) == ()
+    assert search_governance_warnings(verbosity="auto", top_k=10) == ()
 
 
 def test_context_pack_is_reversible_and_keeps_detail_out_of_prompt() -> None:
@@ -352,6 +403,57 @@ def test_mcp_search_auto_returns_selected_view_and_load_reason(tmp_brain: Path):
     assert hits[0]["context_pack"]["compressed"] is True
     assert hits[0]["context_pack"]["reversible"] is True
     assert "body" not in hits[0]
+
+
+def test_mcp_staged_search_preserves_explicit_detail_and_warns_when_broad(
+    tmp_brain: Path,
+):
+    from agent_brain.interfaces.mcp.tools._shared import _components_cache
+    from agent_brain.interfaces.mcp.tools.search_tools import search_memory
+
+    _components_cache.clear()
+    idx = HubIndex(db_path=tmp_brain / "index.db", embedding_dim=384)
+    emb = HashingEmbedder()
+    for index in range(5):
+        item_id = f"mem-20260715-02000{index}-staged-mcp"
+        item = MemoryItem(
+            id=item_id,
+            type=MemoryType.artifact,
+            created_at=datetime.now(timezone.utc),
+            title=f"Staged MCP recall {index}",
+            summary=f"staged mcp locator {index}",
+            abstraction="L0",
+            refs={"files": [f"/tmp/staged-mcp-{index}.log"]},
+            context_views={
+                "locator": f"staged mcp locator {index}",
+                "overview": "",
+                "detail_uri": f"memory://items/{item_id}/body",
+            },
+        )
+        body = f"detail-only marker {index}"
+        ItemsStore(tmp_brain / "items").write(item, body)
+        idx.upsert(item, body, embedding=emb.embed(item.context_views.locator))
+
+    auto_hits = search_memory("staged mcp", top_k=5, verbosity="auto")
+    detail_hits = search_memory("staged mcp", top_k=5, verbosity="detail")
+    bounded_detail_hits = search_memory("staged mcp", top_k=3, verbosity="detail")
+
+    assert len(auto_hits) == 5
+    assert all(hit["selected_view"] == "locator" for hit in auto_hits)
+    assert all("body" not in hit for hit in auto_hits)
+    assert all(
+        "detail-only marker" not in hit["context_pack"]["text"]
+        for hit in auto_hits
+    )
+
+    assert len(detail_hits) == 5
+    assert all("detail-only marker" in hit["body"] for hit in detail_hits)
+    assert all(hit["context_pack"]["selected_view"] == "detail" for hit in detail_hits)
+    assert all(hit["governance_warnings"] for hit in detail_hits)
+
+    assert len(bounded_detail_hits) == 3
+    assert all("detail-only marker" in hit["body"] for hit in bounded_detail_hits)
+    assert all("governance_warnings" not in hit for hit in bounded_detail_hits)
 
 
 def test_mcp_search_can_return_retrieval_trace(tmp_brain: Path):

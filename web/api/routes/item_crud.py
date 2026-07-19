@@ -88,7 +88,12 @@ async def list_pinned(user: CurrentUser = Depends(get_current_user)):
 
 
 @router.get("/api/items/{item_id}")
-async def get_item(item_id: str, user: CurrentUser = Depends(get_current_user)):
+async def get_item(
+    item_id: str,
+    head: int | None = Query(None, ge=0),
+    view: str = Query("detail", pattern="^(locator|overview|detail)$"),
+    user: CurrentUser = Depends(get_current_user),
+):
     store, _, _, _ = _components()
     try:
         item, body = store.get(item_id)
@@ -96,7 +101,21 @@ async def get_item(item_id: str, user: CurrentUser = Depends(get_current_user)):
         raise HTTPException(status_code=404, detail="item not found")
     if not _visible(item, user):
         raise HTTPException(status_code=403, detail="access denied")
-    return {"item": item.model_dump(mode="json"), "body": body}
+    result = {"item": item.model_dump(mode="json")}
+    if view == "locator":
+        result["locator"] = item.context_views.locator
+        return result
+    if view == "overview":
+        result["locator"] = item.context_views.locator
+        result["overview"] = item.context_views.overview
+        return result
+    if head is not None and len(body) > head:
+        result["body"] = body[:head]
+        result["body_truncated"] = True
+        result["full_chars"] = len(body)
+    else:
+        result["body"] = body
+    return result
 
 
 @router.delete("/api/items/{item_id}")

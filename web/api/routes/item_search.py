@@ -12,6 +12,7 @@ from agent_brain.memory.context.injection_gateway import (
     build_injection_context,
     injection_retrieval_top_k,
 )
+from agent_brain.memory.context.recall_policy import search_governance_warnings
 from agent_brain.memory.evidence.resource_reading import (
     PROMPT_RESOURCE_SENSITIVITIES,
     ResourceSearchFilter,
@@ -44,6 +45,10 @@ def search_items(
     if not context_firewall and not user.is_admin:
         raise HTTPException(status_code=403, detail="raw search diagnostics are admin only")
 
+    governance_warnings = search_governance_warnings(
+        verbosity=verbosity,
+        top_k=top_k,
+    )
     store, _, retriever, _ = _components()
     sf = SearchFilter(
         type=type,
@@ -144,6 +149,7 @@ def search_items(
             "context_firewall": context_firewall,
             "resource_sidecar": context_firewall and include_resources,
             "verbosity": verbosity,
+            "governance_warnings": list(governance_warnings),
         },
         "resource_results": resource_results,
     }

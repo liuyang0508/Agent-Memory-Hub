@@ -627,6 +627,7 @@ class QoderWorkAdapter(AdapterBase):
                 "- `mcp__agent-memory-hub__brief_memory`：用于恢复项目全貌；",
                 "- `mcp__agent-memory-hub__search_memory`：把完整任务描述作为 query，用于当前具体任务；",
                 "- `mcp__agent-memory-hub__read_memory`：只读取真正需要的 1-3 条详情。",
+                "- 普通检索使用 auto 的 locator/overview 候选；显式 detail 只用于有意、少量的诊断读取。",
                 "",
                 "`brief_memory` 与 `search_memory` 互补，不是相互失败降级。",
                 "`project` 是 hard filter：只在用户明确指定，或 cwd 到项目的映射可确定时设置；不得根据自然语言猜项目。",

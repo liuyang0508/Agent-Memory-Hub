@@ -708,6 +708,25 @@ class TestMemoryClientSearch:
         assert result.firewall is not None
         assert result.firewall["action"] in {"include", "demote"}
 
+    def test_auto_search_uses_compact_snippet_and_preserves_explicit_detail(self, client):
+        item_id = client.write(
+            type="episode",
+            title="SDK staged recall",
+            summary="sdk staged locator",
+            overview="sdk staged overview",
+            body="sdk detail-only marker",
+            refs={"files": ["/tmp/sdk-evidence.log"]},
+        )
+
+        auto = client.search("SDK staged recall", top_k=5, verbosity="auto")[0]
+        detail = client.search("SDK staged recall", top_k=5, verbosity="detail")[0]
+
+        assert auto.id == item_id
+        assert "detail-only marker" not in auto.snippet
+        assert "detail-only marker" not in auto.context_pack["text"]
+        assert "sdk detail-only marker" in detail.context_pack["text"]
+        assert detail.governance_warnings
+
     def test_empty_search(self, client):
         results = client.search("nonexistent gibberish xyz123")
         assert results == []
@@ -723,6 +742,22 @@ class TestMemoryClientRead:
 
     def test_read_nonexistent(self, client):
         assert client.read("mem-99999999-999999-nonexistent") is None
+
+    def test_read_supports_bounded_detail_without_breaking_full_read(self, client):
+        item_id = client.write(
+            type="episode",
+            title="SDK bounded read",
+            summary="bounded locator",
+            body="0123456789",
+        )
+
+        full = client.read(item_id)
+        bounded = client.read(item_id, head=4, view="detail")
+
+        assert bounded["body"] == "0123"
+        assert bounded["body_truncated"] is True
+        assert bounded["full_chars"] == len(full["body"])
+        assert full["body"].rstrip() == "0123456789"
 
 
 class TestMemoryClientFeedback:
