@@ -21,10 +21,7 @@ from .awareness import (
 from .codex_config import (
     atomic_write_json as _atomic_write_json,
     command_references_path as _command_references_path,
-    hook_belongs_to as _hook_belongs_to,
-    hook_script_present as _hook_script_present,
     read_json_config as _read_json_config,
-    update_hook_command as _update_hook_command,
 )
 from .diagnostics import (
     AdapterDiagnosticCheck,
@@ -36,12 +33,14 @@ from .diagnostics import (
 )
 from .hook_config import (
     adapter_hook_command as _adapter_hook_command,
-    hook_script_aliases as _hook_script_aliases,
     POSIX_PATH_EXPANSION,
+    reconcile_managed_hub_hook_event as _reconcile_managed_hub_hook_event,
+    remove_managed_hub_hook_handlers as _remove_managed_hub_hook_handlers,
 )
 from .python_runtime import amh_python_executable
 from .qoder_diagnostics import diagnose_hook_scripts, diagnose_settings_hooks
 from .registry import register_adapter
+from .runtime_authority import resolve_runtime_authority
 
 
 def _path_from_env(env_name: str, default: Path) -> Path:
@@ -83,7 +82,12 @@ class QoderWorkAdapter(AdapterBase):
 
     def __init__(self, brain_dir: Path, repo_dir: Path | None = None):
         super().__init__(brain_dir)
-        self.repo_dir = repo_dir or Path(__file__).resolve().parents[2]
+        module_repo_dir = Path(__file__).resolve().parents[2]
+        self.runtime_authority = resolve_runtime_authority(
+            explicit_repo_dir=repo_dir,
+            module_repo_dir=module_repo_dir,
+        )
+        self.repo_dir = self.runtime_authority.root
         self.hooks_dir = self.repo_dir / "agent_runtime_kit" / "hooks"
 
     def get_config(self) -> AdapterConfig:
@@ -105,36 +109,32 @@ class QoderWorkAdapter(AdapterBase):
         )
 
     def install(self) -> str:
+        self.runtime_authority.require()
         self._validate_inputs()
         SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
         settings = _read_json_config(SETTINGS_PATH)
         hooks = settings.setdefault("hooks", {})
+        if not isinstance(hooks, dict):
+            raise RuntimeError(f"refuse to overwrite {SETTINGS_PATH}: hooks must be an object")
 
+        managed_script_names = frozenset(self.HOOK_SCRIPTS.values())
         changed_events: list[str] = []
         for event in self.HOOK_EVENTS:
             script = self.hooks_dir / self.HOOK_SCRIPTS[event]
             entries = hooks.setdefault(event, [])
-            expected_command = self._hook_command(event, script)
-            if _hook_script_present(entries, str(script)):
-                changed = _update_hook_command(
-                    entries,
-                    script_path=str(script),
-                    expected_command=expected_command,
+            if not isinstance(entries, list):
+                raise RuntimeError(
+                    f"refuse to overwrite {SETTINGS_PATH}: hooks.{event} must be a list"
                 )
-                if event == "UserPromptSubmit":
-                    changed = self._move_hook_entry_first(entries, script) or changed
-                if changed:
-                    changed_events.append(event)
-                continue
-            entry = {
-                "matcher": "",
-                "hooks": [{"type": "command", "command": expected_command}],
-            }
-            if event == "UserPromptSubmit":
-                entries.insert(0, entry)
-            else:
-                entries.append(entry)
-            changed_events.append(event)
+            changed = _reconcile_managed_hub_hook_event(
+                entries,
+                expected_script_path=str(script),
+                expected_command=self._hook_command(event, script),
+                managed_script_names=managed_script_names,
+                place_first=event == "UserPromptSubmit",
+            )
+            if changed:
+                changed_events.append(event)
 
         awareness_changed = install_awareness_block(AWARENESS_PATH, self._awareness_block())
         workspace_awareness = self._install_workspace_awareness()
@@ -189,11 +189,15 @@ class QoderWorkAdapter(AdapterBase):
             )
 
         removed = 0
+        managed_script_names = frozenset(self.HOOK_SCRIPTS.values())
         for event in self.HOOK_EVENTS:
             entries = hooks.get(event, [])
-            kept = [entry for entry in entries if not _hook_belongs_to(entry, str(self.hooks_dir))]
-            removed += len(entries) - len(kept)
-            hooks[event] = kept
+            if not isinstance(entries, list):
+                continue
+            removed += _remove_managed_hub_hook_handlers(
+                entries,
+                managed_script_names=managed_script_names,
+            )
 
         _atomic_write_json(SETTINGS_PATH, settings)
         return (
@@ -369,21 +373,6 @@ class QoderWorkAdapter(AdapterBase):
             extra_env={"MEMORY_PYTHON": amh_python_executable(self.repo_dir)},
             path_strategy="fixed",
         )
-
-    def _move_hook_entry_first(self, entries: list, script: Path) -> bool:
-        script_paths = _hook_script_aliases(str(script))
-        for index, entry in enumerate(entries):
-            hooks = entry.get("hooks", [])
-            if not any(
-                any(_command_references_path(hook.get("command", ""), path) for path in script_paths)
-                for hook in hooks
-            ):
-                continue
-            if index == 0:
-                return False
-            entries.insert(0, entries.pop(index))
-            return True
-        return False
 
     def _awareness_block(self) -> str:
         return render_awareness_block(
