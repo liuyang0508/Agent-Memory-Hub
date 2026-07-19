@@ -35,19 +35,21 @@ import heapq
 import json
 import os
 import re
+import secrets
 import stat
 import uuid
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field as dataclass_field, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import BinaryIO, Literal, TypedDict, cast
 
+import yaml
 from pydantic import ValidationError
 
 from agent_brain.contracts.memory_enums import MemoryType
-from agent_brain.contracts.memory_item import MemoryItem, Source
+from agent_brain.contracts.memory_item import MemoryItem, Refs, Source, Validity
 from agent_brain.memory.store.item_markdown import parse_item_markdown
 from agent_brain.platform.secure_io import (
     close_descriptor,
@@ -64,7 +66,10 @@ def brain_dir() -> Path:
     Mirrors ``WriteService._brain_dir`` so a single ``BRAIN_DIR`` controls every
     entry point (write funnel, pending queue, watermark, doctor).
     """
-    return Path(os.environ.get("BRAIN_DIR", os.path.expanduser("~/.agent-memory-hub")))
+    configured = Path(
+        os.environ.get("BRAIN_DIR", os.path.expanduser("~/.agent-memory-hub"))
+    ).expanduser()
+    return configured.resolve(strict=False)
 
 
 def pending_dir() -> Path:
@@ -122,9 +127,125 @@ _PENDING_ITEM_FIELDS = frozenset(
         "agent",
         "session",
         "validity",
+        "source",
         "allow_unsafe",
     }
 )
+_LEGACY_BOOKKEEPING_FIELDS = frozenset(
+    {
+        "attempt",
+        "attempts",
+        "dead_lettered_at",
+        "error",
+        "last_error",
+        "last_error_code",
+        "last_attempt_at",
+        "next_attempt_at",
+        "next_retry_at",
+        "retry",
+        "retries",
+        "retry_at",
+        "retry_count",
+        "status",
+    }
+)
+
+
+class PendingEnqueueError(OSError):
+    """Stable fail-closed error raised before a pending record is published."""
+
+
+@contextmanager
+def _open_pending_write_directory(brain: Path) -> Iterator[int]:
+    brain.mkdir(parents=True, mode=0o700, exist_ok=True)
+    root_descriptor: int | None = None
+    pending_descriptor: int | None = None
+    try:
+        root_descriptor = open_directory_path_without_symlinks(brain)
+        try:
+            os.mkdir("pending", 0o700, dir_fd=root_descriptor)
+            os.fsync(root_descriptor)
+        except FileExistsError:
+            pass
+        pending_descriptor = open_child_directory(root_descriptor, "pending")
+        os.fchmod(pending_descriptor, 0o700)
+        os.fsync(pending_descriptor)
+        yield pending_descriptor
+    finally:
+        if pending_descriptor is not None:
+            close_descriptor(pending_descriptor)
+        if root_descriptor is not None:
+            close_descriptor(root_descriptor)
+
+
+def _publish_pending_record(brain: Path, filename: str, data: bytes) -> Path:
+    temp_name = f".amh-pending-{secrets.token_hex(16)}.tmp"
+    temp_descriptor: int | None = None
+    temp_created = False
+    with _open_pending_write_directory(brain) as directory_descriptor:
+        try:
+            temp_descriptor = os.open(
+                temp_name,
+                os.O_WRONLY
+                | os.O_CREAT
+                | os.O_EXCL
+                | getattr(os, "O_CLOEXEC", 0)
+                | getattr(os, "O_NOFOLLOW", 0),
+                0o600,
+                dir_fd=directory_descriptor,
+            )
+            temp_created = True
+            os.fchmod(temp_descriptor, 0o600)
+            remaining = memoryview(data)
+            while remaining:
+                written = os.write(temp_descriptor, remaining)
+                if written <= 0:
+                    raise OSError("PENDING_RECORD_WRITE_FAILED")
+                remaining = remaining[written:]
+            os.fsync(temp_descriptor)
+            close_descriptor(temp_descriptor)
+            temp_descriptor = None
+            try:
+                os.link(
+                    temp_name,
+                    filename,
+                    src_dir_fd=directory_descriptor,
+                    dst_dir_fd=directory_descriptor,
+                    follow_symlinks=False,
+                )
+            except FileExistsError as exc:
+                if _read_existing_pending_bytes(directory_descriptor, filename) != data:
+                    raise PendingEnqueueError(
+                        "PENDING_RECORD_FILENAME_CONFLICT"
+                    ) from exc
+            os.fsync(directory_descriptor)
+        finally:
+            if temp_descriptor is not None:
+                close_descriptor(temp_descriptor)
+            if temp_created:
+                try:
+                    os.unlink(temp_name, dir_fd=directory_descriptor)
+                    os.fsync(directory_descriptor)
+                except FileNotFoundError:
+                    pass
+    return brain / "pending" / filename
+
+
+def _read_existing_pending_bytes(directory_descriptor: int, filename: str) -> bytes:
+    descriptor: int | None = None
+    try:
+        descriptor = open_regular_file_at(directory_descriptor, filename)
+        opened = os.fstat(descriptor)
+        if stat.S_IMODE(opened.st_mode) != 0o600:
+            raise PendingEnqueueError("UNSAFE_EXISTING_PENDING_RECORD")
+        return _read_bounded_descriptor(descriptor, MAX_PENDING_RECORD_BYTES)
+    except PendingEnqueueError:
+        raise
+    except (OSError, _PendingReadError) as exc:
+        raise PendingEnqueueError("UNSAFE_EXISTING_PENDING_RECORD") from exc
+    finally:
+        if descriptor is not None:
+            close_descriptor(descriptor)
 
 
 def _utc_now() -> datetime:
@@ -132,21 +253,40 @@ def _utc_now() -> datetime:
 
 
 def _canonical_payload_sha256(item: dict[str, object]) -> str:
-    payload = json.dumps(item, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    payload = json.dumps(
+        item,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    )
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def _legacy_record_id(path: Path, record: dict[str, object]) -> str:
-    seed = f"{path.name}\n{json.dumps(record, ensure_ascii=False, sort_keys=True)}"
+    semantic_record = {
+        key: value for key, value in record.items() if key not in _LEGACY_BOOKKEEPING_FIELDS
+    }
+    seed = (
+        f"{path.name}\n"
+        + json.dumps(
+            semantic_record,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        )
+    )
     return "pending-" + hashlib.sha256(seed.encode("utf-8")).hexdigest()[:24]
 
 
 def _pending_item_id(title: str, original_created_at: datetime, record_id: str) -> str:
     """Stable item identity shared by preview classification and replay."""
 
+    utc_created_at = original_created_at.astimezone(timezone.utc)
     slug = re.sub(r"[/\\]+", "-", "-".join(title.lower().split()))[:30].strip("-")
-    stable = hashlib.sha256(record_id.encode("utf-8")).hexdigest()[:8]
-    return f"mem-{original_created_at:%Y%m%d-%H%M%S}-{slug or 'pending'}-{stable}"
+    stable = hashlib.sha256(record_id.encode("utf-8")).hexdigest()[:24]
+    return f"mem-{utc_created_at:%Y%m%d-%H%M%S}-{slug or 'pending'}-{stable}"
 
 
 def enqueue_write_record(record: dict[str, object]) -> Path:
@@ -159,31 +299,44 @@ def enqueue_write_record(record: dict[str, object]) -> Path:
     time, and canonical payload hash. An explicit ``v=1`` keeps the legacy
     ``ts``/``attempt`` format unchanged for compatibility.
     """
-    d = pending_dir()
-    d.mkdir(parents=True, exist_ok=True)
-    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    path = d / f"{ts}-{uuid.uuid4().hex[:8]}.jsonl"
+    brain = brain_dir()
+    now = _utc_now()
+    ts = now.strftime("%Y%m%dT%H%M%SZ")
+    filename = f"{ts}-{uuid.uuid4().hex[:8]}.jsonl"
     if _record_version(record.get("v")) == 1:
         # Explicit v1 is the compatibility lane. Preview derives v2 metadata
         # without rewriting the legacy file.
         record.setdefault("v", 1)
-        record.setdefault("ts", _utc_now().isoformat())
+        record.setdefault("ts", now.isoformat())
         record.setdefault("attempt", 0)
     else:
-        now = _utc_now().isoformat()
         record.setdefault("v", 2)
         record.setdefault("op", "write")
         record.setdefault("origin", "unknown")
         record.setdefault("record_id", str(uuid.uuid4()))
-        record.setdefault("enqueued_at", now)
+        record.setdefault("enqueued_at", now.isoformat())
         item = record.get("item")
         item_created_at = item.get("created_at") if isinstance(item, dict) else None
         record.setdefault("original_created_at", item_created_at or record["enqueued_at"])
         if isinstance(item, dict):
-            record.setdefault("payload_sha256", _canonical_payload_sha256(item))
+            try:
+                record.setdefault("payload_sha256", _canonical_payload_sha256(item))
+            except (ValueError, OverflowError) as exc:
+                raise PendingEnqueueError("NON_FINITE_PENDING_PAYLOAD") from exc
+            except TypeError as exc:
+                raise PendingEnqueueError("INVALID_PENDING_PAYLOAD") from exc
         record.setdefault("attempt", 0)
-    path.write_text(json.dumps(record, ensure_ascii=False) + "\n", encoding="utf-8")
-    return path
+    try:
+        data = (
+            json.dumps(record, ensure_ascii=False, allow_nan=False) + "\n"
+        ).encode("utf-8")
+    except (ValueError, OverflowError) as exc:
+        raise PendingEnqueueError("NON_FINITE_PENDING_PAYLOAD") from exc
+    except TypeError as exc:
+        raise PendingEnqueueError("INVALID_PENDING_PAYLOAD") from exc
+    if len(data) > MAX_PENDING_RECORD_BYTES:
+        raise PendingEnqueueError("PENDING_RECORD_TOO_LARGE")
+    return _publish_pending_record(brain, filename, data)
 
 
 @dataclass
@@ -220,6 +373,9 @@ class PendingRecordPreview:
     allow_unsafe: bool
     malformed: bool = False
     error: str | None = None
+    _stable_item_id: str | None = dataclass_field(
+        default=None, repr=False, compare=False
+    )
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -256,6 +412,8 @@ class PendingPreview:
     limit: int
     truncated: bool
     records: list[PendingRecordPreview]
+    scan_unavailable: bool = False
+    reason: str | None = None
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -264,6 +422,8 @@ class PendingPreview:
             "limit": self.limit,
             "truncated": self.truncated,
             "records": [record.to_dict() for record in self.records],
+            "scan_unavailable": self.scan_unavailable,
+            "reason": self.reason,
         }
 
 
@@ -285,6 +445,7 @@ class _PendingPreviewCommon(TypedDict):
     session: str | None
     sensitivity: str | None
     allow_unsafe: bool
+    _stable_item_id: str | None
 
 
 @dataclass(frozen=True)
@@ -297,6 +458,8 @@ class _ItemMetadataSnapshot:
 class _PendingPathSnapshot:
     paths: list[Path]
     total: int
+    scan_unavailable: bool = False
+    reason: str | None = None
 
 
 class _DescendingName(str):
@@ -313,15 +476,30 @@ class PendingQueue:
 
     def depth(self) -> int:
         """Number of records still buffered (excludes the dead/ sub-dir)."""
-        return _pending_record_paths().total
+        brain = brain_dir()
+        snapshot = _pending_record_paths(brain / "pending")
+        if snapshot.scan_unavailable:
+            raise PendingEnqueueError(snapshot.reason or "PENDING_SCAN_UNAVAILABLE")
+        return snapshot.total
 
     def preview(self, *, limit: int = 20) -> PendingPreview:
         """Summarize queued records without replaying or mutating them."""
-        path_snapshot = _pending_record_paths()
+        brain = brain_dir()
+        path_snapshot = _pending_record_paths(brain / "pending")
         bounded_limit = max(0, limit)
         scan_cap = max(0, MAX_PENDING_QUEUE_ENTRIES)
         selected = path_snapshot.paths[: min(bounded_limit, scan_cap)]
-        existing = _scan_existing_item_metadata(brain_dir() / "items")
+        if not selected:
+            return PendingPreview(
+                total=path_snapshot.total,
+                returned=0,
+                limit=bounded_limit,
+                truncated=path_snapshot.total > 0,
+                records=[],
+                scan_unavailable=path_snapshot.scan_unavailable,
+                reason=path_snapshot.reason,
+            )
+        existing = _scan_existing_item_metadata(brain / "items")
         records = [
             self._preview_record(
                 path,
@@ -330,12 +508,15 @@ class PendingQueue:
             )
             for path in selected
         ]
+        records = _reconcile_pending_identity_collisions(records)
         return PendingPreview(
             total=path_snapshot.total,
             returned=len(records),
             limit=bounded_limit,
             truncated=path_snapshot.total > len(records),
             records=records,
+            scan_unavailable=path_snapshot.scan_unavailable,
+            reason=path_snapshot.reason,
         )
 
     def replay(self) -> ReplayStats:
@@ -585,19 +766,21 @@ def _classify_pending_record(
             error="INVALID_ITEM_BODY",
         )
 
-    validated_item = _validate_pending_item(
+    validated_item, validation_reason = _validate_pending_item(
         item=item,
+        version=version,
         stable_item_id=_pending_item_id(title, original_created_at, record_id),
         original_created_at=original_created_at,
         payload_sha256=payload_sha256,
     )
     if validated_item is None:
+        reason = validation_reason or "INVALID_ITEM_SCHEMA"
         return PendingRecordPreview(
             **common,
             classification="malformed",
-            reason="INVALID_ITEM_SCHEMA",
+            reason=reason,
             malformed=True,
-            error="INVALID_ITEM_SCHEMA",
+            error=reason,
         )
 
     if not metadata_trusted:
@@ -669,8 +852,8 @@ def _preview_common(
     age_seconds: int,
     payload_sha256: str,
 ) -> _PendingPreviewCommon:
-    sensitivity = _optional_str(item.get("sensitivity"))
-    redact = sensitivity in {"private", "secret"}
+    sensitivity, redact = _preview_sensitivity(item)
+    title = _optional_str(item.get("title"))
     return {
         "path": str(path),
         "record_id": record_id,
@@ -681,7 +864,7 @@ def _preview_common(
         "op": _optional_str(record.get("op")),
         "origin": _optional_str(record.get("origin")),
         "attempt": _safe_attempt(record.get("attempt")),
-        "title": None if redact else _optional_str(item.get("title")),
+        "title": None if redact else title,
         "summary": None if redact else _optional_str(item.get("summary")),
         "type": _optional_str(item.get("type", "fact")),
         "project": None if redact else _optional_str(item.get("project")),
@@ -689,6 +872,9 @@ def _preview_common(
         "session": None if redact else _optional_str(item.get("session")),
         "sensitivity": sensitivity,
         "allow_unsafe": bool(item.get("allow_unsafe")),
+        "_stable_item_id": (
+            _pending_item_id(title, original_created_at, record_id) if title else None
+        ),
     }
 
 
@@ -705,8 +891,7 @@ def _malformed_preview(
 ) -> PendingRecordPreview:
     item_value = record.get("item") if isinstance(record, dict) else None
     item = item_value if isinstance(item_value, dict) else {}
-    sensitivity = _optional_str(item.get("sensitivity"))
-    redact = sensitivity in {"private", "secret"}
+    sensitivity, redact = _preview_sensitivity(item)
     return PendingRecordPreview(
         path=str(path),
         record_id=record_id or _malformed_record_id(path, raw),
@@ -731,33 +916,118 @@ def _malformed_preview(
         allow_unsafe=bool(item.get("allow_unsafe")),
         malformed=True,
         error=reason,
+        _stable_item_id=None,
     )
+
+
+def _preview_sensitivity(item: dict[str, object]) -> tuple[str | None, bool]:
+    if "sensitivity" not in item:
+        return "internal", False
+    value = item.get("sensitivity")
+    if not isinstance(value, str):
+        return None, True
+    if value in {"public", "internal"}:
+        return value, False
+    if value in {"private", "secret"}:
+        return value, True
+    return None, True
+
+
+def _reconcile_pending_identity_collisions(
+    records: list[PendingRecordPreview],
+) -> list[PendingRecordPreview]:
+    conflicts: dict[int, str] = {}
+    duplicates: set[int] = set()
+    getters: tuple[tuple[str, Callable[[PendingRecordPreview], str | None]], ...] = (
+        ("RECORD_ID", lambda row: row.record_id),
+        ("STABLE_ID", lambda row: row._stable_item_id),
+    )
+    for identity_kind, getter in getters:
+        groups: dict[str, list[int]] = {}
+        for index, record in enumerate(records):
+            identity = getter(record)
+            if identity:
+                groups.setdefault(identity, []).append(index)
+        for indexes in groups.values():
+            if len(indexes) < 2:
+                continue
+            hashes = {records[index].payload_sha256 for index in indexes}
+            if len(hashes) != 1 or None in hashes:
+                reason = f"PENDING_{identity_kind}_CONFLICT"
+                for index in indexes:
+                    conflicts.setdefault(index, reason)
+                continue
+            for index in indexes[1:]:
+                duplicates.add(index)
+
+    reconciled: list[PendingRecordPreview] = []
+    for index, record in enumerate(records):
+        if index in conflicts:
+            reconciled.append(
+                replace(
+                    record,
+                    classification="conflict",
+                    reason=conflicts[index],
+                    malformed=False,
+                    error=None,
+                )
+            )
+        elif index in duplicates and record.classification == "ready":
+            reconciled.append(
+                replace(
+                    record,
+                    classification="duplicate_candidate",
+                    reason="PENDING_RECORD_DUPLICATE",
+                )
+            )
+        else:
+            reconciled.append(record)
+    return reconciled
 
 
 def _validate_pending_item(
     *,
     item: dict[str, object],
+    version: int,
     stable_item_id: str,
     original_created_at: datetime,
     payload_sha256: str,
-) -> MemoryItem | None:
+) -> tuple[MemoryItem | None, str | None]:
     if set(item) - _PENDING_ITEM_FIELDS:
-        return None
+        return None, "INVALID_ITEM_SCHEMA"
     allow_unsafe = item.get("allow_unsafe", False)
     if not isinstance(allow_unsafe, bool):
-        return None
+        return None, "INVALID_ITEM_SCHEMA"
+    for field, model in (("refs", Refs), ("validity", Validity), ("source", Source)):
+        nested = item.get(field)
+        if isinstance(nested, dict) and set(nested) - set(model.model_fields):
+            return None, "INVALID_ITEM_SCHEMA"
+        if nested is not None:
+            try:
+                model.model_validate(nested)
+            except (ValidationError, TypeError, ValueError, OverflowError):
+                return None, "INVALID_ITEM_SCHEMA"
+    item_created_at = item.get("created_at")
+    if item_created_at is not None:
+        parsed_created_at, created_reason = _parse_pending_time(
+            item_created_at, field="ITEM_CREATED_AT"
+        )
+        if created_reason or parsed_created_at is None:
+            return None, "INVALID_ITEM_SCHEMA"
+        if version == 2 and parsed_created_at != original_created_at:
+            return None, "ITEM_CREATED_AT_MISMATCH"
     payload = {
         key: value
         for key, value in item.items()
-        if key not in {"body", "allow_unsafe", "created_at"}
+        if key not in {"body", "allow_unsafe", "created_at", "source"}
     }
     payload.setdefault("type", "fact")
     payload.setdefault("summary", "")
     payload.setdefault("tags", [])
     payload.setdefault("confidence", 0.7)
     payload.setdefault("sensitivity", "internal")
-    payload.setdefault("refs", {})
-    payload.setdefault("validity", {})
+    payload["refs"] = item.get("refs") or {}
+    payload["validity"] = item.get("validity") or {}
     payload.update(
         {
             "id": stable_item_id,
@@ -766,9 +1036,9 @@ def _validate_pending_item(
         }
     )
     try:
-        return MemoryItem.model_validate(payload)
+        return MemoryItem.model_validate(payload), None
     except (ValidationError, TypeError, ValueError, OverflowError):
-        return None
+        return None, "INVALID_ITEM_SCHEMA"
 
 
 def _scope_value(value: object) -> str | None:
@@ -869,7 +1139,7 @@ def _parse_pending_time(value: object, *, field: str) -> tuple[datetime | None, 
         return None, f"INVALID_{field}"
     if parsed.tzinfo is None or parsed.utcoffset() is None:
         return None, f"NAIVE_{field}"
-    return parsed, None
+    return parsed.astimezone(timezone.utc), None
 
 
 def _safe_attempt(value: object) -> int:
@@ -897,14 +1167,14 @@ class _PendingReadError(Exception):
         self.reason = reason
 
 
-def _pending_record_paths() -> _PendingPathSnapshot:
-    directory = pending_dir()
+def _pending_record_paths(directory: Path) -> _PendingPathSnapshot:
     retained: list[tuple[_DescendingName, str, Path]] = []
     total = 0
+    scan_failed = False
     retain_limit = max(0, MAX_PENDING_QUEUE_ENTRIES) + 1
 
     def consider(entry: os.DirEntry[str], *, fallback: bool) -> None:
-        nonlocal total
+        nonlocal scan_failed, total
         try:
             if not entry.name.endswith(".jsonl") or entry.is_symlink():
                 return
@@ -914,6 +1184,7 @@ def _pending_record_paths() -> _PendingPathSnapshot:
             elif not entry.is_file(follow_symlinks=False):
                 return
         except OSError:
+            scan_failed = True
             return
         total += 1
         candidate = (_DescendingName(entry.name), entry.name, directory / entry.name)
@@ -929,22 +1200,57 @@ def _pending_record_paths() -> _PendingPathSnapshot:
             with os.scandir(descriptor) as entries:
                 for entry in entries:
                     consider(entry, fallback=False)
-        except OSError:
+        except FileNotFoundError:
             return _PendingPathSnapshot(paths=[], total=0)
+        except OSError:
+            return _PendingPathSnapshot(
+                paths=[],
+                total=0,
+                scan_unavailable=True,
+                reason="PENDING_SCAN_UNAVAILABLE",
+            )
         finally:
             if descriptor is not None:
                 close_descriptor(descriptor)
         ordered = sorted((row[2] for row in retained), key=lambda path: path.name)
-        return _PendingPathSnapshot(paths=ordered, total=total)
+        return _PendingPathSnapshot(
+            paths=ordered,
+            total=total,
+            scan_unavailable=scan_failed,
+            reason="PENDING_SCAN_UNAVAILABLE" if scan_failed else None,
+        )
 
     try:
+        before = os.lstat(directory)
+        if not stat.S_ISDIR(before.st_mode):
+            return _PendingPathSnapshot(
+                paths=[],
+                total=0,
+                scan_unavailable=True,
+                reason="PENDING_SCAN_UNAVAILABLE",
+            )
         with os.scandir(directory) as entries:
             for entry in entries:
                 consider(entry, fallback=True)
-    except OSError:
+        after = os.stat(directory, follow_symlinks=False)
+        if (before.st_dev, before.st_ino) != (after.st_dev, after.st_ino):
+            scan_failed = True
+    except FileNotFoundError:
         return _PendingPathSnapshot(paths=[], total=0)
+    except OSError:
+        return _PendingPathSnapshot(
+            paths=[],
+            total=0,
+            scan_unavailable=True,
+            reason="PENDING_SCAN_UNAVAILABLE",
+        )
     ordered = sorted((row[2] for row in retained), key=lambda path: path.name)
-    return _PendingPathSnapshot(paths=ordered, total=total)
+    return _PendingPathSnapshot(
+        paths=ordered,
+        total=total,
+        scan_unavailable=scan_failed,
+        reason="PENDING_SCAN_UNAVAILABLE" if scan_failed else None,
+    )
 
 
 def _read_pending_record(path: Path) -> bytes:
@@ -1117,7 +1423,15 @@ def _read_item_frontmatter(
                     item, _body = parse_item_markdown(frontmatter.decode("utf-8"))
                     return item, consumed
                 lines.append(line)
-    except (OSError, UnicodeError, ValueError, TypeError, OverflowError):
+    except (
+        OSError,
+        UnicodeError,
+        ValueError,
+        TypeError,
+        OverflowError,
+        ValidationError,
+        yaml.YAMLError,
+    ):
         return None, consumed
     return None, consumed
 

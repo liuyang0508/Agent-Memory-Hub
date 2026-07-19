@@ -4,8 +4,12 @@ import hashlib
 import json
 import os
 import re
+import stat
+import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from uuid import UUID
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -13,7 +17,11 @@ from agent_brain.contracts.memory_item import MemoryItem, Source
 from agent_brain.memory.store import pending as pending_module
 from agent_brain.memory.store.item_markdown import render_item_markdown
 from agent_brain.memory.store.items_store import ItemsStore
-from agent_brain.memory.store.pending import PendingQueue, enqueue_write_record
+from agent_brain.memory.store.pending import (
+    PendingEnqueueError,
+    PendingQueue,
+    enqueue_write_record,
+)
 
 
 NOW = datetime(2026, 7, 20, 12, 0, tzinfo=timezone.utc)
@@ -78,10 +86,12 @@ def _payload_sha256(record: dict[str, object]) -> str:
 def _stable_item_id(record: dict[str, object]) -> str:
     item = record["item"]
     assert isinstance(item, dict)
-    created_at = datetime.fromisoformat(str(record["original_created_at"]))
+    created_at = datetime.fromisoformat(str(record["original_created_at"])).astimezone(
+        timezone.utc
+    )
     title = str(item["title"])
     slug = re.sub(r"[/\\]+", "-", "-".join(title.lower().split()))[:30].strip("-")
-    stable = hashlib.sha256(str(record["record_id"]).encode("utf-8")).hexdigest()[:8]
+    stable = hashlib.sha256(str(record["record_id"]).encode("utf-8")).hexdigest()[:24]
     return f"mem-{created_at:%Y%m%d-%H%M%S}-{slug or 'pending'}-{stable}"
 
 
@@ -175,6 +185,147 @@ def test_default_enqueue_writes_v2_envelope(tmp_brain: Path) -> None:
     assert record["payload_sha256"] == _payload_sha256(record)
 
 
+def test_enqueue_is_durable_and_private_under_umask_zero(tmp_brain: Path) -> None:
+    previous = os.umask(0)
+    try:
+        path = enqueue_write_record(_v2_record())
+    finally:
+        os.umask(previous)
+
+    assert stat.S_IMODE(path.parent.stat().st_mode) == 0o700
+    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+    assert not list(path.parent.glob("*.tmp"))
+
+
+def test_concurrent_same_enqueue_is_idempotent_without_overwrite(
+    tmp_brain: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _freeze_now(monkeypatch)
+    fixed = UUID("11111111-1111-4111-8111-111111111111")
+    monkeypatch.setattr(pending_module.uuid, "uuid4", lambda: fixed)
+    paths: list[Path] = []
+    errors: list[BaseException] = []
+    barrier = threading.Barrier(8)
+
+    def enqueue() -> None:
+        try:
+            barrier.wait()
+            paths.append(enqueue_write_record(_v2_record(record_id=str(fixed))))
+        except BaseException as exc:  # pragma: no cover - asserted below
+            errors.append(exc)
+
+    threads = [threading.Thread(target=enqueue) for _ in range(8)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=5)
+
+    assert errors == []
+    assert len(paths) == 8
+    assert len(set(paths)) == 1
+    assert len(list((tmp_brain / "pending").glob("*.jsonl"))) == 1
+
+
+def test_fixed_filename_collision_with_different_bytes_fails_closed(
+    tmp_brain: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _freeze_now(monkeypatch)
+    fixed = UUID("22222222-2222-4222-8222-222222222222")
+    monkeypatch.setattr(pending_module.uuid, "uuid4", lambda: fixed)
+    enqueue_write_record(_v2_record(record_id=str(fixed)))
+    changed = _v2_record(record_id=str(fixed))
+    changed_item = changed["item"]
+    assert isinstance(changed_item, dict)
+    changed_item["body"] = "different body"
+
+    with pytest.raises(PendingEnqueueError, match="PENDING_RECORD_FILENAME_CONFLICT"):
+        enqueue_write_record(changed)
+
+    files = list((tmp_brain / "pending").glob("*.jsonl"))
+    assert len(files) == 1
+    assert "different body" not in files[0].read_text(encoding="utf-8")
+
+
+def test_enqueue_publish_failure_cleans_temp_and_leaves_no_record(
+    tmp_brain: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        pending_module.os,
+        "link",
+        lambda *args, **kwargs: (_ for _ in ()).throw(OSError("publish failed")),
+    )
+
+    with pytest.raises(OSError, match="publish failed"):
+        enqueue_write_record(_v2_record())
+
+    pending = tmp_brain / "pending"
+    assert list(pending.glob("*.tmp")) == []
+    assert list(pending.glob("*.jsonl")) == []
+
+
+def test_enqueue_write_all_handles_partial_os_writes(
+    tmp_brain: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    original_write = os.write
+
+    def partial_write(descriptor: int, data: object) -> int:
+        view = memoryview(data)  # type: ignore[arg-type]
+        return original_write(descriptor, view[:7])
+
+    monkeypatch.setattr(pending_module.os, "write", partial_write)
+
+    path = enqueue_write_record(_v2_record())
+
+    assert json.loads(path.read_text(encoding="utf-8"))["v"] == 2
+
+
+def test_enqueue_fsync_failure_cleans_unpublished_temp(
+    tmp_brain: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    original_fsync = os.fsync
+
+    def fail_regular_file_fsync(descriptor: int) -> None:
+        if stat.S_ISREG(os.fstat(descriptor).st_mode):
+            raise OSError("simulated file fsync failure")
+        original_fsync(descriptor)
+
+    monkeypatch.setattr(pending_module.os, "fsync", fail_regular_file_fsync)
+
+    with pytest.raises(OSError, match="simulated file fsync failure"):
+        enqueue_write_record(_v2_record())
+
+    pending = tmp_brain / "pending"
+    assert list(pending.glob("*.tmp")) == []
+    assert list(pending.glob("*.jsonl")) == []
+
+
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf")])
+def test_non_finite_payload_is_rejected_without_creating_files(
+    tmp_brain: Path, bad: float
+) -> None:
+    record = _v2_record()
+    item = record["item"]
+    assert isinstance(item, dict)
+    item["confidence"] = bad
+
+    with pytest.raises(PendingEnqueueError, match="NON_FINITE_PENDING_PAYLOAD"):
+        enqueue_write_record(record)
+
+    assert not (tmp_brain / "pending").exists()
+
+
+def test_oversized_enqueue_is_rejected_before_file_creation(tmp_brain: Path) -> None:
+    record = _v2_record()
+    item = record["item"]
+    assert isinstance(item, dict)
+    item["body"] = "x" * (1024 * 1024)
+
+    with pytest.raises(PendingEnqueueError, match="PENDING_RECORD_TOO_LARGE"):
+        enqueue_write_record(record)
+
+    assert not (tmp_brain / "pending").exists()
+
+
 def test_explicit_v1_keeps_legacy_bytes_and_preview_is_read_only(
     tmp_brain: Path,
 ) -> None:
@@ -209,6 +360,33 @@ def test_string_v1_stays_on_legacy_envelope(tmp_brain: Path) -> None:
     assert PendingQueue().preview(limit=1).records[0].classification == "unsupported_type"
 
 
+def test_legacy_identity_ignores_retry_bookkeeping(
+    tmp_brain: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _freeze_now(monkeypatch)
+    record = _legacy_feedback_record()
+    item = record["item"]
+    assert isinstance(item, dict)
+    item["type"] = "fact"
+    path = enqueue_write_record(record)
+    first = PendingQueue().preview(limit=1).records[0]
+    persisted = json.loads(path.read_text(encoding="utf-8"))
+    persisted.update(
+        {
+            "attempt": 4,
+            "last_error_code": "TEMPORARY_FAILURE",
+            "last_attempt_at": "2026-07-20T11:00:00+00:00",
+            "status": "retrying",
+        }
+    )
+    path.write_text(json.dumps(persisted, ensure_ascii=False) + "\n", encoding="utf-8")
+
+    second = PendingQueue().preview(limit=1).records[0]
+
+    assert second.record_id == first.record_id
+    assert second.payload_sha256 == first.payload_sha256
+
+
 def test_v2_preview_preserves_original_time_and_stable_identity(
     tmp_brain: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -227,6 +405,36 @@ def test_v2_preview_preserves_original_time_and_stable_identity(
     assert first.age_seconds == int((NOW - datetime(2026, 7, 1, 10, tzinfo=timezone.utc)).total_seconds())
     assert first.classification == "ready"
     assert first.reason == "READY"
+
+
+def test_stable_item_id_uses_utc_instant_and_96_bit_record_hash() -> None:
+    first = pending_module._pending_item_id(
+        "same title",
+        datetime.fromisoformat("2026-07-01T18:00:00+08:00"),
+        "same-record",
+    )
+    second = pending_module._pending_item_id(
+        "same title",
+        datetime.fromisoformat("2026-07-01T10:00:00+00:00"),
+        "same-record",
+    )
+
+    assert first == second
+    assert first.startswith("mem-20260701-100000-")
+    assert re.search(r"-[0-9a-f]{24}$", first)
+
+
+def test_stable_item_id_distinguishes_dst_fold_instants() -> None:
+    zone = ZoneInfo("America/New_York")
+    first_fold = datetime(2026, 11, 1, 1, 30, tzinfo=zone, fold=0)
+    second_fold = datetime(2026, 11, 1, 1, 30, tzinfo=zone, fold=1)
+
+    first = pending_module._pending_item_id("fold", first_fold, "same-record")
+    second = pending_module._pending_item_id("fold", second_fold, "same-record")
+
+    assert first != second
+    assert "-053000-" in first
+    assert "-063000-" in second
 
 
 def test_legacy_feedback_is_unsupported_not_malformed(tmp_brain: Path) -> None:
@@ -281,6 +489,66 @@ def test_unsupported_type_precedes_other_schema_failures(tmp_brain: Path) -> Non
 
     assert preview.classification == "unsupported_type"
     assert preview.reason == "UNSUPPORTED_MEMORY_TYPE"
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("refs", {"files": [], "filez": ["typo"]}),
+        ("validity", {"ttl_hours": 24, "repoo": "typo"}),
+        ("source", {"kind": "hook", "extractorr": "typo"}),
+        ("source", {"kind": ["not-a-string"]}),
+    ],
+)
+def test_nested_unknown_schema_fields_fail_closed(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    field: str,
+    value: object,
+) -> None:
+    _freeze_now(monkeypatch)
+    record = _v2_record()
+    item = record["item"]
+    assert isinstance(item, dict)
+    item[field] = value
+    enqueue_write_record(record)
+
+    preview = PendingQueue().preview(limit=1).records[0]
+
+    assert preview.classification == "malformed"
+    assert preview.reason == "INVALID_ITEM_SCHEMA"
+
+
+def test_v2_item_created_at_must_match_original_instant(
+    tmp_brain: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _freeze_now(monkeypatch)
+    record = _v2_record(original_created_at="2026-07-01T10:00:00+00:00")
+    item = record["item"]
+    assert isinstance(item, dict)
+    item["created_at"] = "2026-07-01T10:00:01+00:00"
+    enqueue_write_record(record)
+
+    preview = PendingQueue().preview(limit=1).records[0]
+
+    assert preview.classification == "malformed"
+    assert preview.reason == "ITEM_CREATED_AT_MISMATCH"
+
+
+def test_v2_item_created_at_accepts_same_instant_with_different_offset(
+    tmp_brain: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _freeze_now(monkeypatch)
+    record = _v2_record(original_created_at="2026-07-01T10:00:00+00:00")
+    item = record["item"]
+    assert isinstance(item, dict)
+    item["created_at"] = "2026-07-01T18:00:00+08:00"
+    enqueue_write_record(record)
+
+    preview = PendingQueue().preview(limit=1).records[0]
+
+    assert preview.classification == "ready"
+    assert preview.original_created_at == "2026-07-01T10:00:00+00:00"
 
 
 @pytest.mark.parametrize("type_", ["signal", "handoff"])
@@ -373,6 +641,44 @@ def test_malformed_record_does_not_block_other_records(
     assert preview.records[0].reason == "MALFORMED_JSON"
 
 
+def test_same_record_id_and_payload_marks_later_queue_record_duplicate(
+    tmp_brain: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _freeze_now(monkeypatch)
+    enqueue_write_record(_v2_record(record_id="shared-record"))
+    enqueue_write_record(_v2_record(record_id="shared-record"))
+
+    preview = PendingQueue().preview(limit=10)
+
+    assert [record.classification for record in preview.records] == [
+        "ready",
+        "duplicate_candidate",
+    ]
+    assert preview.records[1].reason == "PENDING_RECORD_DUPLICATE"
+
+
+def test_same_record_id_with_different_payload_marks_all_records_conflict(
+    tmp_brain: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _freeze_now(monkeypatch)
+    enqueue_write_record(_v2_record(record_id="shared-record"))
+    changed = _v2_record(record_id="shared-record")
+    item = changed["item"]
+    assert isinstance(item, dict)
+    item["summary"] = "different semantics"
+    enqueue_write_record(changed)
+
+    preview = PendingQueue().preview(limit=10)
+
+    assert [record.classification for record in preview.records] == [
+        "conflict",
+        "conflict",
+    ]
+    assert {record.reason for record in preview.records} == {
+        "PENDING_RECORD_ID_CONFLICT"
+    }
+
+
 def test_oversized_pending_record_fails_closed_without_reading_it(
     tmp_brain: Path,
 ) -> None:
@@ -402,6 +708,49 @@ def test_preview_ignores_symlinks_and_only_reads_regular_files(
 
     assert preview.total == 1
     assert [record.record_id for record in preview.records] == ["pending-test-fact-0001"]
+
+
+def test_brain_dir_symlink_alias_converges_writer_and_scanner(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    target = tmp_path / "real-brain"
+    (target / "items").mkdir(parents=True)
+    alias = tmp_path / "brain-alias"
+    try:
+        alias.symlink_to(target, target_is_directory=True)
+    except (NotImplementedError, OSError):
+        pytest.skip("directory symlink unavailable")
+    monkeypatch.setenv("BRAIN_DIR", str(alias))
+    _freeze_now(monkeypatch)
+
+    path = enqueue_write_record(_v2_record())
+    preview = PendingQueue().preview(limit=1)
+
+    assert path.parent == target.resolve() / "pending"
+    assert preview.total == 1
+    assert preview.records[0].classification == "ready"
+
+
+def test_pending_directory_symlink_is_rejected_and_scan_truth_is_explicit(
+    tmp_brain: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    outside = tmp_brain.parent / "outside-pending"
+    outside.mkdir()
+    try:
+        (tmp_brain / "pending").symlink_to(outside, target_is_directory=True)
+    except (NotImplementedError, OSError):
+        pytest.skip("directory symlink unavailable")
+
+    with pytest.raises((OSError, PendingEnqueueError)):
+        enqueue_write_record(_v2_record())
+    monkeypatch.setattr(pending_module, "secure_dir_fd_io_supported", lambda: False)
+    preview = PendingQueue().preview(limit=1)
+
+    assert preview.scan_unavailable is True
+    assert preview.reason == "PENDING_SCAN_UNAVAILABLE"
+    with pytest.raises(PendingEnqueueError, match="PENDING_SCAN_UNAVAILABLE"):
+        PendingQueue().depth()
+    assert list(outside.iterdir()) == []
 
 
 def test_existing_stable_item_with_same_hash_is_already_written_without_body_read(
@@ -623,6 +972,35 @@ def test_private_preview_redacts_content_fields(
     assert "private body" not in json.dumps(payload)
 
 
+@pytest.mark.parametrize("sensitivity", ["unknown-tier", 7, ["private"]])
+def test_invalid_sensitivity_redacts_content_before_schema_validation(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    sensitivity: object,
+) -> None:
+    _freeze_now(monkeypatch)
+    record = _v2_record()
+    item = record["item"]
+    assert isinstance(item, dict)
+    item.update(
+        {
+            "sensitivity": sensitivity,
+            "title": "must redact title",
+            "summary": "must redact summary",
+            "body": "must redact body",
+        }
+    )
+    enqueue_write_record(record)
+
+    preview = PendingQueue().preview(limit=1).records[0]
+    serialized = json.dumps(preview.to_dict())
+
+    assert preview.classification == "malformed"
+    assert preview.title is None
+    assert preview.summary is None
+    assert "must redact" not in serialized
+
+
 def test_pending_preview_summarizes_records_without_replay(tmp_brain: Path) -> None:
     rec = {
         "v": 1,
@@ -714,3 +1092,36 @@ def test_existing_item_scan_overflow_blocks_ready_classification(
 
     assert preview.classification == "audit_blocked"
     assert preview.reason == "EXISTING_ITEM_SCAN_UNAVAILABLE"
+
+
+def test_malformed_existing_yaml_blocks_selected_preview_without_raising(
+    tmp_brain: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _freeze_now(monkeypatch)
+    enqueue_write_record(_v2_record())
+    (tmp_brain / "items" / "mem-20260701-100000-bad-yaml.md").write_text(
+        "---\nrefs: [unterminated\n---\nbody\n",
+        encoding="utf-8",
+    )
+
+    preview = PendingQueue().preview(limit=1)
+
+    assert preview.records[0].classification == "audit_blocked"
+    assert preview.records[0].reason == "EXISTING_ITEM_SCAN_UNAVAILABLE"
+
+
+def test_limit_zero_does_not_scan_existing_items(
+    tmp_brain: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    enqueue_write_record(_v2_record())
+    monkeypatch.setattr(
+        pending_module,
+        "_scan_existing_item_metadata",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("must not scan")),
+    )
+
+    preview = PendingQueue().preview(limit=0)
+
+    assert preview.total == 1
+    assert preview.returned == 0
+    assert preview.truncated is True
