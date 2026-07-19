@@ -99,6 +99,26 @@ def test_observable_item_id_scan_fails_closed_when_global_entry_budget_is_exceed
     assert item_ids.known_memory_item_ids(tmp_path / "items") == frozenset()
 
 
+def test_legacy_item_lock_tree_does_not_consume_observability_budget(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    import agent_brain.memory.store.item_ids as item_ids
+    from agent_brain.memory.store.items_store import ItemsStore
+
+    items_dir = tmp_path / "items"
+    store = ItemsStore(items_dir)
+    item = _item("mem-20260711-030408-legacy-lock-budget")
+    store.write(item, "body")
+    legacy = items_dir / ".amh-item-locks"
+    legacy.mkdir()
+    for index in range(25):
+        (legacy / f"legacy-{index}.lock").write_text("", encoding="utf-8")
+    monkeypatch.setattr(item_ids, "MAX_OBSERVABILITY_STORE_ENTRIES", 1)
+
+    assert item_ids.known_memory_item_ids(items_dir) == frozenset({item.id})
+
+
 def test_observable_item_id_scan_skips_oversized_frontmatter_and_fails_closed_on_total_bytes(
     tmp_path: Path,
     monkeypatch,

@@ -304,6 +304,8 @@ class ItemsStore:
                     close_descriptor(directory)
                     stack.pop()
                     continue
+                if not relative and entry.name == ".amh-item-locks":
+                    continue
                 path = self.items_dir.joinpath(*relative, entry.name)
                 try:
                     if entry.is_dir(follow_symlinks=False):
@@ -346,6 +348,8 @@ class ItemsStore:
             child_directories: list[Path] = []
             for entry in entries:
                 path = directory / entry.name
+                if directory == self.items_dir and entry.name == ".amh-item-locks":
+                    continue
                 try:
                     opened = entry.stat(follow_symlinks=False)
                     if stat.S_ISDIR(opened.st_mode):
@@ -502,23 +506,26 @@ class ItemsStore:
         canonical = sorted(set(item_ids))
         if not canonical or any(not is_valid_memory_item_id(item_id) for item_id in canonical):
             raise ValueError("invalid memory item id")
-        with SecureDirectory.open(self.items_dir) as items:
-            root = os.fstat(items.fd)
-            with items.child(".amh-item-locks", create=True) as lock_directory:
-                tokens: list[_ItemLockToken] = []
-                try:
-                    for item_id in canonical:
-                        tokens.append(
-                            self._acquire_item_lock(
-                                lock_directory,
-                                (root.st_dev, root.st_ino, item_id),
-                                f"{item_id}.lock",
-                            )
-                        )
-                    yield LockedItemsView(items, frozenset(canonical))
-                finally:
-                    for token in reversed(tokens):
-                        self._release_item_lock(token)
+        with SecureDirectory.open(self.items_dir.parent) as brain:
+            with brain.child("runtime", create=True) as runtime:
+                with runtime.child("locks", create=True) as locks:
+                    with locks.child("items", create=True) as lock_directory:
+                        with SecureDirectory.open(self.items_dir) as items:
+                            root = os.fstat(items.fd)
+                            tokens: list[_ItemLockToken] = []
+                            try:
+                                for item_id in canonical:
+                                    tokens.append(
+                                        self._acquire_item_lock(
+                                            lock_directory,
+                                            (root.st_dev, root.st_ino, item_id),
+                                            f"{item_id}.lock",
+                                        )
+                                    )
+                                yield LockedItemsView(items, frozenset(canonical))
+                            finally:
+                                for token in reversed(tokens):
+                                    self._release_item_lock(token)
 
     @staticmethod
     def _acquire_item_lock(
@@ -648,16 +655,9 @@ class LockedItemsView:
         """Durably create one locked item without following unsafe targets."""
 
         self._require_locked(item_id)
-        try:
-            target = self._directory.stat(f"{item_id}.md")
-        except FileNotFoundError:
-            target = None
-        if target is not None:
-            raise FileExistsError(f"Item {item_id} already exists")
-        self._directory.atomic_write(
+        self._directory.atomic_create(
             f"{item_id}.md",
             data,
-            create_missing=True,
         )
 
     def update_frontmatter(self, item_id: str, **updates: object) -> MemoryItem:

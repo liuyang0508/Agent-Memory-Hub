@@ -1,4 +1,5 @@
 import os
+import stat
 from pathlib import Path
 
 from agent_brain.memory.store import durable_fs as durable_fs_module
@@ -100,3 +101,63 @@ def test_atomic_cleanup_failures_do_not_mask_keyboard_interrupt(
                 raise AssertionError("KeyboardInterrupt was swallowed")
 
     assert target.read_bytes() == b"before"
+
+
+def test_atomic_create_never_replaces_concurrent_target(
+    tmp_path: Path, monkeypatch
+) -> None:
+    real_link = os.link
+    injected = False
+
+    def publish_competitor_then_link(source, target, **kwargs):
+        nonlocal injected
+        if not injected:
+            injected = True
+            target_fd = os.open(
+                target,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                0o600,
+                dir_fd=kwargs["dst_dir_fd"],
+            )
+            try:
+                os.write(target_fd, b"competitor")
+                os.fsync(target_fd)
+            finally:
+                os.close(target_fd)
+        return real_link(source, target, **kwargs)
+
+    with SecureDirectory.open(tmp_path) as directory:
+        with monkeypatch.context() as scoped:
+            scoped.setattr(os, "link", publish_competitor_then_link)
+            try:
+                directory.atomic_create("target.md", b"ours")
+            except FileExistsError:
+                pass
+            else:
+                raise AssertionError("concurrent target was overwritten")
+
+    assert (tmp_path / "target.md").read_bytes() == b"competitor"
+
+
+def test_atomic_create_fsyncs_file_then_directory(tmp_path: Path, monkeypatch) -> None:
+    events: list[str] = []
+    real_fsync = os.fsync
+    real_link = os.link
+
+    def tracking_fsync(descriptor: int) -> None:
+        mode = os.fstat(descriptor).st_mode
+        events.append("dir-fsync" if stat.S_ISDIR(mode) else "file-fsync")
+        real_fsync(descriptor)
+
+    def tracking_link(source, target, **kwargs):
+        events.append("link")
+        return real_link(source, target, **kwargs)
+
+    with SecureDirectory.open(tmp_path) as directory:
+        with monkeypatch.context() as scoped:
+            scoped.setattr(os, "fsync", tracking_fsync)
+            scoped.setattr(os, "link", tracking_link)
+            directory.atomic_create("target.md", b"created")
+
+    assert (tmp_path / "target.md").read_bytes() == b"created"
+    assert events[:3] == ["file-fsync", "link", "dir-fsync"]

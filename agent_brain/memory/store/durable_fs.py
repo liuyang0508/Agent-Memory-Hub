@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import logging
 import shutil
 import stat
 import uuid
@@ -10,6 +11,9 @@ from inspect import signature
 from pathlib import Path
 from types import TracebackType
 from typing import Self
+
+
+_log = logging.getLogger(__name__)
 
 
 class DurabilityUnsupportedError(OSError):
@@ -27,7 +31,7 @@ except (TypeError, ValueError):
 def lifecycle_mutation_capability() -> bool:
     if os.name == "nt":
         return False
-    required = (os.open, os.stat, os.mkdir, os.unlink, os.rename, os.rmdir)
+    required = (os.open, os.stat, os.mkdir, os.link, os.unlink, os.rename, os.rmdir)
     helper = Path(__file__).parents[1] / "governance" / "git_fd_exec.py"
     return bool(
         hasattr(os, "O_DIRECTORY")
@@ -168,6 +172,67 @@ class SecureDirectory:
                 cleanup_failed = True
             if cleanup_failed and pending is None:
                 raise OSError("ATOMIC_WRITE_CLEANUP_FAILED") from None
+
+    def atomic_create(
+        self,
+        name: str,
+        data: bytes,
+        *,
+        mode: int = 0o600,
+    ) -> None:
+        """Durably publish a new regular file without replacing a concurrent target."""
+
+        self._basename(name)
+        temp = f".amh-{uuid.uuid4().hex}.tmp"
+        descriptor = -1
+        pending: BaseException | None = None
+        committed = False
+        try:
+            descriptor, _ = self.open_file(temp, os.O_WRONLY, mode, exclusive=True)
+            os.fchmod(descriptor, mode)
+            remaining = memoryview(data)
+            while remaining:
+                written = os.write(descriptor, remaining)
+                if written <= 0:
+                    raise OSError("ATOMIC_CREATE_FAILED")
+                remaining = remaining[written:]
+            os.fsync(descriptor)
+            os.close(descriptor)
+            descriptor = -1
+            os.link(
+                temp,
+                name,
+                src_dir_fd=self.fd,
+                dst_dir_fd=self.fd,
+                follow_symlinks=False,
+            )
+            self.fsync()
+            committed = True
+        except BaseException as error:
+            pending = error
+            raise
+        finally:
+            if descriptor >= 0:
+                try:
+                    os.close(descriptor)
+                except BaseException:
+                    if pending is not None:
+                        pending.add_note("ATOMIC_CREATE_CLEANUP_FAILED")
+                    elif not committed:
+                        raise
+                    else:
+                        _log.warning("ATOMIC_CREATE_CLEANUP_FAILED")
+            try:
+                os.unlink(temp, dir_fd=self.fd)
+            except FileNotFoundError:
+                pass
+            except BaseException:
+                if pending is not None:
+                    pending.add_note("ATOMIC_CREATE_CLEANUP_FAILED")
+                elif committed:
+                    _log.warning("ATOMIC_CREATE_CLEANUP_FAILED")
+                else:
+                    raise
 
     def rename(self, source: str, destination: str) -> None:
         self._basename(source)

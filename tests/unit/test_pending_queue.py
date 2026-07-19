@@ -5,9 +5,12 @@ import json
 import os
 import re
 import stat
+import sys
 import threading
+import unicodedata
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
@@ -248,6 +251,24 @@ def test_apply_preserves_original_created_at_and_pending_source(
     assert item.source.span_hash == _payload_sha256(record)
 
 
+@pytest.mark.parametrize(
+    ("title", "expected_slug"),
+    [
+        ("Café Memory", "cafe-memory"),
+        ("CON", "pending"),
+        ("<>:\"/\\|?*\x00 中文", "pending"),
+    ],
+)
+def test_pending_item_id_uses_portable_ascii_slug(title: str, expected_slug: str) -> None:
+    item_id = pending_module._pending_item_id(title, NOW, "portable-record")
+
+    slug = item_id.removeprefix("mem-20260720-120000-").rsplit("-", 1)[0]
+    assert slug == expected_slug
+    assert unicodedata.normalize("NFKD", slug) == slug
+    assert re.fullmatch(r"[a-z0-9-]+", slug)
+    assert not any(char in item_id for char in '<>:"/\\|?*\x00')
+
+
 def test_apply_requires_explicit_ids_or_safe_only(tmp_brain: Path) -> None:
     path = enqueue_write_record(_v2_record())
 
@@ -340,12 +361,16 @@ def test_crash_after_write_before_unlink_becomes_already_written(
     original_unlink = pending_module._unlink_pending_record
     failed = False
 
-    def fail_once(candidate: Path, expected_sha256: str) -> None:
+    def fail_once(
+        candidate: Path,
+        expected_sha256: str,
+        expected_identity: tuple[int, int] | None = None,
+    ) -> tuple[str, ...]:
         nonlocal failed
         if candidate == path and not failed:
             failed = True
             raise OSError("simulated unlink failure")
-        original_unlink(candidate, expected_sha256)
+        return original_unlink(candidate, expected_sha256, expected_identity)
 
     monkeypatch.setattr(pending_module, "_unlink_pending_record", fail_once)
 
@@ -358,6 +383,115 @@ def test_crash_after_write_before_unlink_becomes_already_written(
     assert second.results[0].status == "already_written"
     assert not path.exists()
     assert len(list(ItemsStore(tmp_brain / "items").iter_all())) == 1
+
+
+def test_already_written_reconciles_missing_source_ledger_before_consuming_queue(
+    tmp_brain: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _freeze_now(monkeypatch)
+    record = _v2_record(record_id="reconcile-ledger-record")
+    path = enqueue_write_record(record)
+    item_id = _stable_item_id(record)
+    _write_existing_item(
+        tmp_brain,
+        record,
+        item_id=item_id,
+        span_hash=_payload_sha256(record),
+    )
+
+    result = PendingQueue().apply(record_ids=["reconcile-ledger-record"])
+
+    assert result.already_written == 1
+    assert not path.exists()
+    assert (tmp_brain / "sources" / "writes" / f"{item_id}.json").exists()
+
+
+def test_already_written_index_repair_is_honest_and_marks_dirty(
+    tmp_brain: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from agent_brain.memory.store.write_service import WriteService
+
+    _freeze_now(monkeypatch)
+    record = _v2_record(record_id="reconcile-index-record")
+    path = enqueue_write_record(record)
+    item_id = _stable_item_id(record)
+    _write_existing_item(
+        tmp_brain,
+        record,
+        item_id=item_id,
+        span_hash=_payload_sha256(record),
+    )
+    service = WriteService.for_brain(tmp_brain)
+    monkeypatch.setattr(
+        service,
+        "_index_item",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("offline")),
+    )
+    monkeypatch.setattr(WriteService, "for_brain", classmethod(lambda cls, *_args: service))
+
+    result = PendingQueue().apply(record_ids=["reconcile-index-record"])
+
+    assert result.already_written == 1
+    assert result.results[0].index_repair_required is True
+    assert result.results[0].reason == "STABLE_ITEM_ALREADY_WRITTEN_INDEX_REPAIR_REQUIRED"
+    assert item_id in (tmp_brain / ".index-dirty").read_text(encoding="utf-8")
+    assert not path.exists()
+
+
+def test_already_written_keeps_queue_when_source_ledger_repair_fails(
+    tmp_brain: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from agent_brain.memory.store import write_service as write_service_module
+
+    _freeze_now(monkeypatch)
+    record = _v2_record(record_id="reconcile-source-failure")
+    path = enqueue_write_record(record)
+    _write_existing_item(
+        tmp_brain,
+        record,
+        item_id=_stable_item_id(record),
+        span_hash=_payload_sha256(record),
+    )
+    monkeypatch.setattr(
+        write_service_module,
+        "_write_source_record",
+        lambda **_kwargs: (_ for _ in ()).throw(OSError("private filesystem detail")),
+    )
+
+    result = PendingQueue().apply(record_ids=["reconcile-source-failure"])
+
+    assert result.failed == 1
+    assert result.results[0].reason == "SOURCE_LEDGER_REPAIR_REQUIRED"
+    assert path.exists()
+
+
+def test_unlink_directory_fsync_failure_keeps_written_result_with_fixed_warning(
+    tmp_brain: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _freeze_now(monkeypatch)
+    path = enqueue_write_record(_v2_record(record_id="unlink-fsync-record"))
+    pending_identity = os.stat(path.parent)
+    real_fsync = pending_module.SecureDirectory.fsync
+
+    def fail_post_unlink_pending_fsync(directory: object) -> None:
+        opened = os.fstat(directory.fd)  # type: ignore[attr-defined]
+        if (
+            not path.exists()
+            and opened.st_dev == pending_identity.st_dev
+            and opened.st_ino == pending_identity.st_ino
+        ):
+            raise OSError("sensitive mount detail")
+        real_fsync(directory)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(
+        pending_module.SecureDirectory, "fsync", fail_post_unlink_pending_fsync
+    )
+
+    result = PendingQueue().apply(record_ids=["unlink-fsync-record"])
+
+    assert result.written == 1
+    assert result.results[0].warnings == ("PENDING_DIRECTORY_FSYNC_UNAVAILABLE",)
+    assert not path.exists()
 
 
 def test_concurrent_apply_of_same_record_creates_one_item(
@@ -456,6 +590,107 @@ def test_apply_fails_closed_when_pending_changes_after_preview(
 
     assert result.failed == 1
     assert result.results[0].reason == "PENDING_RECORD_CHANGED"
+    assert path.exists()
+    assert list((tmp_brain / "items").glob("*.md")) == []
+
+
+def test_apply_rejects_same_bytes_replaced_inode_after_preview(
+    tmp_brain: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _freeze_now(monkeypatch)
+    path = enqueue_write_record(_v2_record(record_id="inode-swap-record"))
+    queue = PendingQueue()
+    stale_preview = queue.preview(limit=10)
+    replacement = path.with_suffix(".replacement")
+    replacement.write_bytes(path.read_bytes())
+    os.replace(replacement, path)
+    monkeypatch.setattr(queue, "preview", lambda *, limit=20: stale_preview)
+
+    result = queue.apply(record_ids=["inode-swap-record"])
+
+    assert result.failed == 1
+    assert result.results[0].reason == "CONCURRENT_MODIFICATION"
+    assert path.exists()
+    assert list((tmp_brain / "items").glob("*.md")) == []
+
+
+def test_enqueue_waits_while_apply_holds_global_queue_lock(
+    tmp_brain: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _freeze_now(monkeypatch)
+    enqueue_write_record(_v2_record(record_id="apply-first"))
+    queue = PendingQueue()
+    original_preview = queue.preview
+    preview_entered = threading.Event()
+    release_preview = threading.Event()
+    enqueue_finished = threading.Event()
+
+    def paused_preview(*, limit: int = 20):
+        result = original_preview(limit=limit)
+        preview_entered.set()
+        assert release_preview.wait(timeout=5)
+        return result
+
+    monkeypatch.setattr(queue, "preview", paused_preview)
+    apply_thread = threading.Thread(
+        target=lambda: queue.apply(record_ids=["apply-first"]), daemon=True
+    )
+    apply_thread.start()
+    assert preview_entered.wait(timeout=5)
+
+    def enqueue_second() -> None:
+        enqueue_write_record(_v2_record(record_id="enqueue-second"))
+        enqueue_finished.set()
+
+    enqueue_thread = threading.Thread(target=enqueue_second, daemon=True)
+    enqueue_thread.start()
+    assert not enqueue_finished.wait(timeout=0.2)
+    release_preview.set()
+    apply_thread.join(timeout=5)
+    enqueue_thread.join(timeout=5)
+
+    assert not apply_thread.is_alive()
+    assert not enqueue_thread.is_alive()
+    assert enqueue_finished.is_set()
+    assert PendingQueue().preview(limit=10).records[0].record_id == "enqueue-second"
+
+
+def test_windows_queue_lock_uses_one_byte_msvcrt_contract(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "queue.lock"
+    descriptor = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
+    events: list[tuple[int, int]] = []
+    fake_msvcrt = SimpleNamespace(
+        LK_LOCK=10,
+        LK_UNLCK=11,
+        locking=lambda _fd, operation, count: events.append((operation, count)),
+    )
+    monkeypatch.setitem(sys.modules, "msvcrt", fake_msvcrt)
+    monkeypatch.setattr(pending_module.os, "name", "nt")
+    try:
+        kind = pending_module._acquire_queue_file_lock(descriptor)
+        pending_module._release_queue_file_lock(descriptor, kind)
+        assert os.fstat(descriptor).st_size == 1
+    finally:
+        os.close(descriptor)
+
+    assert kind == "msvcrt"
+    assert events == [(10, 1), (11, 1)]
+
+
+def test_apply_reports_platform_unsupported_before_any_mutation(
+    tmp_brain: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = enqueue_write_record(_v2_record(record_id="unsupported-platform-record"))
+    monkeypatch.setattr(
+        pending_module, "lifecycle_mutation_capability", lambda: False
+    )
+
+    result = PendingQueue().apply(record_ids=["unsupported-platform-record"])
+
+    assert result.failed == 1
+    assert result.results[0].reason == "PLATFORM_UNSUPPORTED"
     assert path.exists()
     assert list((tmp_brain / "items").glob("*.md")) == []
 
@@ -1886,14 +2121,14 @@ def test_pending_record_read_failure_blocks_all_selected_records(
     second = enqueue_write_record(_v2_record(record_id="unreadable-record"))
     first.rename(first.parent / "0000-readable.jsonl")
     second.rename(second.parent / "9999-unreadable.jsonl")
-    original_read = pending_module._read_pending_record
+    original_read = pending_module._read_pending_record_snapshot
 
-    def fail_one_read(path: Path) -> bytes:
+    def fail_one_read(path: Path) -> tuple[bytes, tuple[int, int]]:
         if path.name == "9999-unreadable.jsonl":
             raise pending_module._PendingReadError("PENDING_RECORD_READ_FAILED")
         return original_read(path)
 
-    monkeypatch.setattr(pending_module, "_read_pending_record", fail_one_read)
+    monkeypatch.setattr(pending_module, "_read_pending_record_snapshot", fail_one_read)
 
     preview = PendingQueue().preview(limit=1)
 
@@ -1966,6 +2201,30 @@ def test_existing_item_scan_overflow_blocks_ready_classification(
 
     assert preview.classification == "audit_blocked"
     assert preview.reason == "EXISTING_ITEM_SCAN_UNAVAILABLE"
+
+
+def test_legacy_item_lock_tree_does_not_consume_pending_metadata_budget(
+    tmp_brain: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _freeze_now(monkeypatch)
+    existing_record = _v2_record(record_id="existing-other-scope", project="other")
+    _write_existing_item(
+        tmp_brain,
+        existing_record,
+        item_id="mem-20260701-100000-existing-lock-budget",
+        span_hash="existing",
+        project="other",
+    )
+    legacy = tmp_brain / "items" / ".amh-item-locks"
+    legacy.mkdir()
+    for index in range(25):
+        (legacy / f"legacy-{index}.lock").write_text("", encoding="utf-8")
+    enqueue_write_record(_v2_record(record_id="ready-with-legacy-locks"))
+    monkeypatch.setattr(pending_module, "MAX_ITEM_METADATA_ENTRIES", 1)
+
+    preview = PendingQueue().preview(limit=1).records[0]
+
+    assert preview.classification == "ready"
 
 
 def test_malformed_existing_yaml_blocks_selected_preview_without_raising(

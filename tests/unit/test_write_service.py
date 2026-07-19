@@ -10,6 +10,7 @@ import json
 from datetime import datetime, timezone
 
 from agent_brain.contracts.memory_item import MemoryItem, MemoryType, Refs, Source
+from agent_brain.memory.store.items_store import ItemsStore
 from agent_brain.memory.store.write_service import WriteService, WriteResult
 
 
@@ -50,6 +51,46 @@ def test_write_still_written_when_indexing_fails(tmp_brain, monkeypatch):
     assert res.status == "written"      # md append is the only verdict
     assert res.indexed is False
     assert "index" in res.degraded
+
+
+def test_reconcile_existing_repairs_source_ledger_and_index(tmp_brain):
+    item = _item(title="reconcile interrupted write")
+    body = "durable markdown survived the interrupted write"
+    store = ItemsStore(tmp_brain / "items")
+    path = store.write(item, body)
+    svc = WriteService.for_brain(tmp_brain)
+
+    res = svc.reconcile_existing(item=item, body=body)
+
+    assert res.status == "written"
+    assert res.item_id == item.id
+    assert res.path == str(path)
+    assert res.indexed is True
+    assert res.degraded == []
+    source = tmp_brain / "sources" / "writes" / f"{item.id}.json"
+    assert json.loads(source.read_text(encoding="utf-8"))["body_sha256"]
+
+
+def test_reconcile_existing_marks_index_dirty_without_losing_written_verdict(
+    tmp_brain, monkeypatch
+):
+    item = _item(title="reconcile missing index")
+    body = "body"
+    store = ItemsStore(tmp_brain / "items")
+    store.write(item, body)
+    svc = WriteService.for_brain(tmp_brain)
+    monkeypatch.setattr(
+        svc,
+        "_index_item",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("offline")),
+    )
+
+    res = svc.reconcile_existing(item=item, body=body)
+
+    assert res.status == "written"
+    assert res.indexed is False
+    assert res.degraded == ["index"]
+    assert item.id in (tmp_brain / ".index-dirty").read_text(encoding="utf-8")
 
 
 def test_audit_gate_blocks_critical(tmp_brain):

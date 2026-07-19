@@ -140,6 +140,85 @@ def test_cli_sync_pending_apply_requires_a_selection(tmp_brain):
     assert PendingQueue().depth() == 1
 
 
+def test_cli_sync_pending_rejects_record_and_safe_only_together(tmp_brain):
+    result = runner.invoke(
+        app,
+        [
+            "sync-pending",
+            "--apply",
+            "--record",
+            "one",
+            "--safe-only",
+            "--format",
+            "json",
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert "mutually exclusive" in result.output
+
+
+def test_cli_sync_pending_explicit_missing_record_emits_json_then_exits_one(tmp_brain):
+    import json
+
+    result = runner.invoke(
+        app,
+        ["sync-pending", "--apply", "--record", "missing", "--format", "json"],
+    )
+
+    assert result.exit_code == 1
+    payload = json.loads(result.output)
+    assert payload["results"][0]["reason"] == "RECORD_ID_NOT_FOUND"
+
+
+def test_cli_sync_pending_safe_only_audit_blocked_emits_json_then_exits_one(tmp_brain):
+    import json
+
+    pending = tmp_brain / "pending"
+    pending.mkdir(exist_ok=True)
+    (pending / "malformed.jsonl").write_text("{bad json\n", encoding="utf-8")
+
+    result = runner.invoke(
+        app,
+        ["sync-pending", "--apply", "--safe-only", "--format", "json"],
+    )
+
+    assert result.exit_code == 1
+    payload = json.loads(result.output)
+    assert payload["review_required"] == 1
+    assert payload["results"][0]["classification"] == "malformed"
+
+
+def test_cli_sync_pending_safe_only_no_ready_record_can_exit_zero(
+    tmp_brain, monkeypatch
+):
+    from agent_brain.memory.store import pending as pending_module
+    from agent_brain.memory.store.pending import enqueue_write_record
+
+    monkeypatch.setattr(
+        pending_module,
+        "_utc_now",
+        lambda: datetime(2026, 7, 20, tzinfo=timezone.utc),
+    )
+    enqueue_write_record(
+        {
+            "v": 2,
+            "op": "write",
+            "record_id": "old-signal",
+            "enqueued_at": "2025-01-01T00:00:00+00:00",
+            "original_created_at": "2025-01-01T00:00:00+00:00",
+            "item": {"type": "signal", "title": "old", "summary": "old"},
+        }
+    )
+
+    result = runner.invoke(
+        app,
+        ["sync-pending", "--apply", "--safe-only", "--format", "json"],
+    )
+
+    assert result.exit_code == 0, result.output
+
+
 def test_cli_sync_pending_apply_repeated_records_outputs_structured_json(tmp_brain):
     import json
 

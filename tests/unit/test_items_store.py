@@ -472,3 +472,17 @@ def test_fallback_temp_cleanup_failure_after_publish_is_diagnostic_only(
         "committed despite cleanup failure\n"
     )
     assert "ITEM_TEMP_CLEANUP_FAILED" in caplog.text
+
+
+def test_item_locks_live_under_runtime_not_observable_items(tmp_brain_dir: Path) -> None:
+    from agent_brain.memory.store.items_store import ItemsStore
+
+    store = ItemsStore(tmp_brain_dir / "items")
+    item = _fallback_create_item("mem-20260720-123003-runtime-lock")
+
+    store.write(item, "body")
+
+    assert not (store.items_dir / ".amh-item-locks").exists()
+    lock = tmp_brain_dir / "runtime" / "locks" / "items" / f"{item.id}.lock"
+    assert lock.is_file()
+    assert stat.S_IMODE(lock.stat().st_mode) == 0o600

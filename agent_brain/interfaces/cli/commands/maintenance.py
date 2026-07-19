@@ -122,21 +122,36 @@ def sync_pending(
     if not record_ids and not safe_only:
         typer.echo("--apply requires --record or --safe-only", err=True)
         raise typer.Exit(2)
+    if record_ids and safe_only:
+        typer.echo("--record and --safe-only are mutually exclusive", err=True)
+        raise typer.Exit(2)
 
     stats = queue.apply(record_ids=record_ids or None, safe_only=safe_only)
+    if record_ids:
+        unsuccessful = any(
+            result.status not in {"written", "already_written"}
+            for result in stats.results
+        )
+    else:
+        unsuccessful = stats.failed > 0 or any(
+            result.classification in {"audit_blocked", "conflict", "malformed"}
+            for result in stats.results
+        )
     if format == "json":
         typer.echo(json.dumps(stats.to_dict(), ensure_ascii=False, indent=2))
-        return
-    typer.echo(
-        f"written={stats.written} already_written={stats.already_written} "
-        f"review_required={stats.review_required} skipped={stats.skipped} "
-        f"failed={stats.failed} dead={stats.dead}"
-    )
-    for result in stats.results:
+    else:
         typer.echo(
-            f"  {result.record_id}: status={result.status} "
-            f"classification={result.classification or 'unknown'} reason={result.reason}"
+            f"written={stats.written} already_written={stats.already_written} "
+            f"review_required={stats.review_required} skipped={stats.skipped} "
+            f"failed={stats.failed} dead={stats.dead}"
         )
+        for result in stats.results:
+            typer.echo(
+                f"  {result.record_id}: status={result.status} "
+                f"classification={result.classification or 'unknown'} reason={result.reason}"
+            )
+    if unsuccessful:
+        raise typer.Exit(1)
 
 
 @app.command("harvest")

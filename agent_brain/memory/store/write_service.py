@@ -191,9 +191,9 @@ class WriteService:
                 item_path=path,
                 body=body,
             )
-        except Exception as exc:
+        except Exception:
             source_ledger_degraded = True
-            warnings.append(f"source ledger write failed: {exc}")
+            warnings.append("SOURCE_LEDGER_REPAIR_REQUIRED")
         result = WriteResult(status="written", item_id=item.id, path=str(path), warnings=warnings)
         if source_ledger_degraded:
             result.degraded.append("source-ledger")
@@ -203,6 +203,37 @@ class WriteService:
             result.indexed = True
         except Exception:
             result.indexed = False
+            result.degraded.append("index")
+            self._mark_dirty(item.id)
+        return result
+
+    def reconcile_existing(self, *, item: MemoryItem, body: str) -> WriteResult:
+        """Finish durable side effects for an item whose markdown already exists.
+
+        Pending replay can observe the narrow crash window after the source of
+        truth was created but before the source ledger or derived index landed.
+        Reconciliation deliberately uses the stored item/body verbatim: it does
+        not re-audit, enrich, or rewrite markdown.
+        """
+
+        path = self._store.items_dir / f"{item.id}.md"
+        warnings: list[str] = []
+        result = WriteResult(status="written", item_id=item.id, path=str(path), warnings=warnings)
+        try:
+            _write_source_record(
+                brain_dir=self._brain_dir or self._store.items_dir.parent,
+                item=item,
+                item_path=path,
+                body=body,
+            )
+        except Exception:
+            result.degraded.append("source-ledger")
+            warnings.append("SOURCE_LEDGER_REPAIR_REQUIRED")
+
+        try:
+            self._index_item(item, body)
+            result.indexed = True
+        except Exception:
             result.degraded.append("index")
             self._mark_dirty(item.id)
         return result

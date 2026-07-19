@@ -97,6 +97,12 @@ def _observable_memory_items(items_dir: Path) -> dict[str, MemoryItem]:
                 # authorization source, so invalidate the whole observation.
                 return {}
 
+            if depth == 0 and entry.name == ".amh-item-locks":
+                continue
+            if entry.name == "runtime" and _is_item_lock_runtime_tree(
+                directory_descriptor, entry.name
+            ):
+                continue
             entry_count += 1
             if entry_count > MAX_OBSERVABILITY_STORE_ENTRIES:
                 return {}
@@ -156,6 +162,24 @@ def _observable_memory_items(items_dir: Path) -> dict[str, MemoryItem]:
             _close_scan_frame(scan_stack.pop())
 
     return observable
+
+
+def _is_item_lock_runtime_tree(directory_descriptor: int, name: str) -> bool:
+    """Recognize the reserved ``runtime/locks/items`` tree without traversing it."""
+
+    opened: list[int] = []
+    try:
+        current = open_child_directory(directory_descriptor, name)
+        opened.append(current)
+        for component in ("locks", "items"):
+            current = open_child_directory(current, component)
+            opened.append(current)
+        return True
+    except OSError:
+        return False
+    finally:
+        for descriptor in reversed(opened):
+            close_descriptor(descriptor)
 
 
 def known_memory_item_ids(items_dir: Path) -> frozenset[str]:

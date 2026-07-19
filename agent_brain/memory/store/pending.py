@@ -42,6 +42,7 @@ import re
 import secrets
 import stat
 import threading
+import unicodedata
 import uuid
 from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
@@ -57,7 +58,10 @@ from agent_brain.contracts.memory_enums import MemoryType
 from agent_brain.contracts.memory_item import MemoryItem, Refs, Source, Validity
 from agent_brain.memory.store.item_markdown import parse_item_markdown
 from agent_brain.memory.store.items_store import ItemsStore
-from agent_brain.memory.store.durable_fs import SecureDirectory
+from agent_brain.memory.store.durable_fs import (
+    SecureDirectory,
+    lifecycle_mutation_capability,
+)
 from agent_brain.platform.secure_io import (
     close_descriptor,
     open_child_directory,
@@ -176,6 +180,13 @@ _PENDING_ACCESS_FAILURE_REASONS = frozenset(
 )
 _PENDING_RECORD_LOCKS_GUARD = threading.Lock()
 _PENDING_RECORD_LOCKS: dict[str, threading.RLock] = {}
+_PENDING_QUEUE_LOCKS_GUARD = threading.Lock()
+_PENDING_QUEUE_LOCKS: dict[str, threading.RLock] = {}
+_WINDOWS_RESERVED_NAMES = frozenset(
+    {"con", "prn", "aux", "nul"}
+    | {f"com{index}" for index in range(1, 10)}
+    | {f"lpt{index}" for index in range(1, 10)}
+)
 
 
 def _is_reparse_point(opened: object) -> bool:
@@ -557,9 +568,14 @@ def _pending_item_id(title: str, original_created_at: datetime, record_id: str) 
     """Stable item identity shared by preview classification and replay."""
 
     utc_created_at = original_created_at.astimezone(timezone.utc)
-    slug = re.sub(r"[/\\]+", "-", "-".join(title.lower().split()))[:30].strip("-")
+    normalized = unicodedata.normalize("NFKD", title.casefold()).encode(
+        "ascii", "ignore"
+    ).decode("ascii")
+    slug = re.sub(r"[^a-z0-9]+", "-", normalized).strip("-")[:30].rstrip("-")
+    if not slug or slug in _WINDOWS_RESERVED_NAMES:
+        slug = "pending"
     stable = hashlib.sha256(record_id.encode("utf-8")).hexdigest()[:24]
-    return f"mem-{utc_created_at:%Y%m%d-%H%M%S}-{slug or 'pending'}-{stable}"
+    return f"mem-{utc_created_at:%Y%m%d-%H%M%S}-{slug}-{stable}"
 
 
 def enqueue_write_record(record: dict[str, object]) -> Path:
@@ -607,7 +623,8 @@ def enqueue_write_record(record: dict[str, object]) -> Path:
         raise PendingEnqueueError("INVALID_PENDING_PAYLOAD") from exc
     if len(data) > MAX_PENDING_RECORD_BYTES:
         raise PendingEnqueueError("PENDING_RECORD_TOO_LARGE")
-    return _publish_pending_record(brain, filename, data)
+    with _locked_pending_queue(brain):
+        return _publish_pending_record(brain, filename, data)
 
 
 PendingApplyStatus = Literal[
@@ -628,6 +645,8 @@ class PendingApplyResult:
     status: PendingApplyStatus
     reason: str
     item_id: str | None = None
+    index_repair_required: bool = False
+    warnings: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -636,6 +655,8 @@ class PendingApplyResult:
             "status": self.status,
             "reason": self.reason,
             "item_id": self.item_id,
+            "index_repair_required": self.index_repair_required,
+            "warnings": list(self.warnings),
         }
 
 
@@ -707,6 +728,9 @@ class PendingRecordPreview:
     error: str | None = None
     _stable_item_id: str | None = dataclass_field(default=None, repr=False, compare=False)
     _record_sha256: str | None = dataclass_field(default=None, repr=False, compare=False)
+    _record_identity: tuple[int, int] | None = dataclass_field(
+        default=None, repr=False, compare=False
+    )
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -897,9 +921,33 @@ class PendingQueue:
         """Apply explicitly selected records after a complete trusted preview."""
 
         requested = list(record_ids or [])
-        stats = PendingApplyStats()
         if not requested and not safe_only:
+            return PendingApplyStats()
+        if not lifecycle_mutation_capability():
+            stats = PendingApplyStats()
+            for record_id in requested or ["*"]:
+                stats.add(
+                    PendingApplyResult(
+                        record_id=record_id,
+                        classification="audit_blocked",
+                        status="failed",
+                        reason="PLATFORM_UNSUPPORTED",
+                    )
+                )
             return stats
+
+        with _locked_pending_queue(brain_dir()):
+            return self._apply_locked(requested=requested, safe_only=safe_only)
+
+    def _apply_locked(
+        self,
+        *,
+        requested: list[str],
+        safe_only: bool,
+    ) -> PendingApplyStats:
+        """Apply from global truth while the cooperative queue lock is held."""
+
+        stats = PendingApplyStats()
 
         preview = self.preview(limit=MAX_PENDING_QUEUE_ENTRIES + 1)
         scan_reason = preview.reason
@@ -958,7 +1006,7 @@ class PendingQueue:
                     continue
                 selected.append(matches[0])
         else:
-            selected = [record for record in preview.records if record.classification == "ready"]
+            selected = list(preview.records)
 
         service = None
         try:
@@ -967,6 +1015,12 @@ class PendingQueue:
                     stats.add(apply_candidate)
                     continue
                 if safe_only and apply_candidate.classification != "ready":
+                    if apply_candidate.classification in {
+                        "audit_blocked",
+                        "conflict",
+                        "malformed",
+                    }:
+                        stats.add(_review_required_result(apply_candidate))
                     continue
                 if apply_candidate.classification not in {"ready", "already_written"}:
                     stats.add(_review_required_result(apply_candidate))
@@ -993,17 +1047,21 @@ class PendingQueue:
     def _apply_record(self, record: PendingRecordPreview, *, service: object) -> PendingApplyResult:
         path = Path(record.path)
         expected_hash = record._record_sha256
+        expected_identity = record._record_identity
         item_id = record._stable_item_id
-        if expected_hash is None or item_id is None:
+        if expected_hash is None or expected_identity is None or item_id is None:
             return _review_required_result(record)
         try:
             with _locked_pending_record(path):
                 try:
-                    raw = _read_pending_record(path)
+                    raw, current_identity = _read_pending_record_snapshot(path)
                 except _PendingReadError:
                     return _failed_apply_result(record, "PENDING_RECORD_READ_FAILED")
                 except FileNotFoundError:
                     raw = None
+                    current_identity = None
+                if raw is not None and current_identity != expected_identity:
+                    return _failed_apply_result(record, "CONCURRENT_MODIFICATION")
                 if raw is not None and hashlib.sha256(raw).hexdigest() != expected_hash:
                     return _failed_apply_result(record, "PENDING_RECORD_CHANGED")
 
@@ -1017,7 +1075,7 @@ class PendingQueue:
                 store = ItemsStore(brain_dir() / "items")
                 with store.locked_items([item_id]) as locked:
                     try:
-                        existing, _body = locked.get(item_id)
+                        existing, existing_body = locked.get(item_id)
                     except FileNotFoundError:
                         existing = None
                     if existing is not None:
@@ -1025,9 +1083,21 @@ class PendingQueue:
                             (pending_item is None or _same_scope(existing, pending_item))
                             and existing.source.span_hash == record.payload_sha256
                         ):
+                            reconcile = getattr(service, "reconcile_existing")
+                            reconciliation = reconcile(item=existing, body=existing_body)
+                            if "source-ledger" in reconciliation.degraded:
+                                return _failed_apply_result(
+                                    record,
+                                    "SOURCE_LEDGER_REPAIR_REQUIRED",
+                                    item_id=item_id,
+                                )
+                            index_repair_required = "index" in reconciliation.degraded
+                            unlink_warnings: tuple[str, ...] = ()
                             if raw is not None:
                                 try:
-                                    _unlink_pending_record(path, expected_hash)
+                                    unlink_warnings = _unlink_pending_record(
+                                        path, expected_hash, expected_identity
+                                    )
                                 except OSError:
                                     return _failed_apply_result(
                                         record, "PENDING_UNLINK_FAILED", item_id=item_id
@@ -1036,8 +1106,14 @@ class PendingQueue:
                                 record_id=record.record_id,
                                 classification="already_written",
                                 status="already_written",
-                                reason="STABLE_ITEM_ALREADY_WRITTEN",
+                                reason=(
+                                    "STABLE_ITEM_ALREADY_WRITTEN_INDEX_REPAIR_REQUIRED"
+                                    if index_repair_required
+                                    else "STABLE_ITEM_ALREADY_WRITTEN"
+                                ),
                                 item_id=_result_item_id(record, item_id),
+                                index_repair_required=index_repair_required,
+                                warnings=unlink_warnings,
                             )
                         return PendingApplyResult(
                             record_id=record.record_id,
@@ -1060,8 +1136,14 @@ class PendingQueue:
                             reason="AUDIT_BLOCKED",
                             item_id=_result_item_id(record, item_id),
                         )
+                    if "source-ledger" in result.degraded:
+                        return _failed_apply_result(
+                            record, "SOURCE_LEDGER_REPAIR_REQUIRED", item_id=item_id
+                        )
                     try:
-                        _unlink_pending_record(path, expected_hash)
+                        unlink_warnings = _unlink_pending_record(
+                            path, expected_hash, expected_identity
+                        )
                     except OSError:
                         return _failed_apply_result(
                             record, "PENDING_UNLINK_FAILED", item_id=item_id
@@ -1070,8 +1152,14 @@ class PendingQueue:
                         record_id=record.record_id,
                         classification="ready",
                         status="written",
-                        reason="WRITTEN",
+                        reason=(
+                            "WRITTEN_INDEX_REPAIR_REQUIRED"
+                            if "index" in result.degraded
+                            else "WRITTEN"
+                        ),
                         item_id=_result_item_id(record, item_id),
+                        index_repair_required="index" in result.degraded,
+                        warnings=unlink_warnings,
                     )
         except Exception:
             return _failed_apply_result(record, "PENDING_APPLY_FAILED", item_id=item_id)
@@ -1085,7 +1173,7 @@ class PendingQueue:
     ) -> PendingRecordPreview:
         raw: bytes | None = None
         try:
-            raw = _read_pending_record(path)
+            raw, identity = _read_pending_record_snapshot(path)
             line = raw.decode("utf-8").strip().splitlines()[0]
             rec = json.loads(line, parse_constant=_reject_json_constant)
             if not isinstance(rec, dict):
@@ -1100,7 +1188,11 @@ class PendingQueue:
                 existing_items=existing_items,
                 metadata_trusted=metadata_trusted,
             )
-            return replace(preview, _record_sha256=hashlib.sha256(raw).hexdigest())
+            return replace(
+                preview,
+                _record_sha256=hashlib.sha256(raw).hexdigest(),
+                _record_identity=identity,
+            )
         except json.JSONDecodeError:
             return _malformed_preview(path, "MALFORMED_JSON", raw=raw)
         except UnicodeError:
@@ -1153,6 +1245,108 @@ def _result_item_id(record: PendingRecordPreview, item_id: str | None) -> str | 
     return item_id if record.sensitivity in {"public", "internal"} else None
 
 
+def _acquire_queue_file_lock(descriptor: int) -> str:
+    if os.name == "nt":
+        import msvcrt
+
+        if os.fstat(descriptor).st_size == 0:
+            os.write(descriptor, b"\0")
+            os.fsync(descriptor)
+        os.lseek(descriptor, 0, os.SEEK_SET)
+        msvcrt.locking(descriptor, msvcrt.LK_LOCK, 1)
+        return "msvcrt"
+    import fcntl
+
+    fcntl.flock(descriptor, fcntl.LOCK_EX)
+    return "fcntl"
+
+
+def _release_queue_file_lock(descriptor: int, lock_kind: str) -> None:
+    if lock_kind == "msvcrt":
+        import msvcrt
+
+        os.lseek(descriptor, 0, os.SEEK_SET)
+        msvcrt.locking(descriptor, msvcrt.LK_UNLCK, 1)
+        return
+    import fcntl
+
+    fcntl.flock(descriptor, fcntl.LOCK_UN)
+
+
+@contextmanager
+def _locked_pending_queue(brain: Path) -> Iterator[None]:
+    """Serialize cooperative enqueue/apply operations around a fresh preview."""
+
+    key = str(brain.resolve(strict=False))
+    with _PENDING_QUEUE_LOCKS_GUARD:
+        process_lock = _PENDING_QUEUE_LOCKS.setdefault(key, threading.RLock())
+    process_lock.acquire()
+    descriptor = -1
+    lock_kind: str | None = None
+    try:
+        if secure_dir_fd_io_supported():
+            root_descriptor = _open_or_create_secure_directory(brain)
+            try:
+                with SecureDirectory(root_descriptor) as root:
+                    root_descriptor = -1
+                    with root.child("runtime", create=True) as runtime:
+                        with runtime.child("locks", create=True) as locks:
+                            with locks.child("pending", create=True) as pending_locks:
+                                descriptor, created = pending_locks.open_or_create_file(
+                                    "queue.lock", os.O_RDWR
+                                )
+                                os.fchmod(descriptor, 0o600)
+                                if created:
+                                    pending_locks.fsync()
+                                lock_kind = _acquire_queue_file_lock(descriptor)
+                                yield
+            finally:
+                if root_descriptor >= 0:
+                    os.close(root_descriptor)
+        else:
+            lock_dir = brain / "runtime" / "locks" / "pending"
+            _ensure_fallback_directory(lock_dir)
+            lock_path = lock_dir / "queue.lock"
+            try:
+                descriptor = os.open(
+                    lock_path,
+                    os.O_RDWR
+                    | os.O_CREAT
+                    | os.O_EXCL
+                    | getattr(os, "O_BINARY", 0)
+                    | getattr(os, "O_NOFOLLOW", 0),
+                    0o600,
+                )
+                os.write(descriptor, b"\0")
+                os.fsync(descriptor)
+                _fsync_fallback_directory(lock_dir)
+            except FileExistsError:
+                descriptor = os.open(
+                    lock_path,
+                    os.O_RDWR
+                    | getattr(os, "O_BINARY", 0)
+                    | getattr(os, "O_NOFOLLOW", 0),
+                )
+            path_identity = os.lstat(lock_path)
+            opened_identity = os.fstat(descriptor)
+            if (
+                not _is_safe_regular_file(path_identity)
+                or not _is_safe_regular_file(opened_identity)
+                or not _same_file_identity(path_identity, opened_identity)
+            ):
+                raise OSError("UNSAFE_PENDING_QUEUE_LOCK")
+            lock_kind = _acquire_queue_file_lock(descriptor)
+            yield
+    finally:
+        if descriptor >= 0:
+            try:
+                if lock_kind is not None:
+                    _release_queue_file_lock(descriptor, lock_kind)
+            finally:
+                os.close(descriptor)
+        process_lock.release()
+
+
 @contextmanager
 def _locked_pending_record(path: Path) -> Iterator[None]:
     """Coordinate one pending record across threads and cooperating processes."""
@@ -1185,7 +1379,11 @@ def _locked_pending_record(path: Path) -> Iterator[None]:
         process_lock.release()
 
 
-def _unlink_pending_record(path: Path, expected_sha256: str) -> None:
+def _unlink_pending_record(
+    path: Path,
+    expected_sha256: str,
+    expected_identity: tuple[int, int] | None = None,
+) -> tuple[str, ...]:
     """Unlink only the exact no-follow record verified by content and identity."""
 
     with SecureDirectory.open(path.parent) as directory:
@@ -1198,12 +1396,20 @@ def _unlink_pending_record(path: Path, expected_sha256: str) -> None:
             current = directory.stat(path.name)
             if not _same_file_identity(opened, current):
                 raise OSError("PENDING_RECORD_CHANGED")
+            opened_identity = (int(opened.st_dev), int(opened.st_ino))
+            if expected_identity is not None and opened_identity != expected_identity:
+                raise OSError("CONCURRENT_MODIFICATION")
             if hashlib.sha256(raw).hexdigest() != expected_sha256:
                 raise OSError("PENDING_RECORD_CHANGED")
         finally:
             os.close(descriptor)
         directory.unlink(path.name)
-        directory.fsync()
+        try:
+            directory.fsync()
+        except OSError:
+            _log.warning("PENDING_DIRECTORY_FSYNC_UNAVAILABLE")
+            return ("PENDING_DIRECTORY_FSYNC_UNAVAILABLE",)
+    return ()
 
 
 def _pending_write_input(
@@ -1880,14 +2086,27 @@ def _pending_record_paths(directory: Path) -> _PendingPathSnapshot:
     )
 
 
-def _read_pending_record(path: Path) -> bytes:
+def _read_pending_record_snapshot(path: Path) -> tuple[bytes, tuple[int, int]]:
+    """Read a bounded record and bind it to a reliable non-zero file identity."""
+
     if secure_dir_fd_io_supported():
         directory_descriptor: int | None = None
         descriptor: int | None = None
         try:
             directory_descriptor = open_directory_path_without_symlinks(path.parent)
             descriptor = open_regular_file_at(directory_descriptor, path.name)
-            return _read_bounded_descriptor(descriptor, MAX_PENDING_RECORD_BYTES)
+            opened = os.fstat(descriptor)
+            identity = (
+                int(getattr(opened, "st_dev", 0) or 0),
+                int(getattr(opened, "st_ino", 0) or 0),
+            )
+            if not all(identity):
+                raise _PendingReadError("PENDING_RECORD_CHANGED")
+            raw = _read_bounded_descriptor(descriptor, MAX_PENDING_RECORD_BYTES)
+            after = os.fstat(descriptor)
+            if not _same_file_identity(opened, after):
+                raise _PendingReadError("PENDING_RECORD_CHANGED")
+            return raw, identity
         except FileNotFoundError:
             raise
         except OSError as exc:
@@ -1914,7 +2133,14 @@ def _read_pending_record(path: Path) -> bytes:
             opened = os.fstat(descriptor)
             if not _is_safe_regular_file(opened) or not _same_file_identity(before, opened):
                 raise _PendingReadError("PENDING_RECORD_CHANGED")
-            return _read_bounded_descriptor(descriptor, MAX_PENDING_RECORD_BYTES)
+            identity = (
+                int(getattr(opened, "st_dev", 0) or 0),
+                int(getattr(opened, "st_ino", 0) or 0),
+            )
+            if not all(identity):
+                raise _PendingReadError("PENDING_RECORD_CHANGED")
+            raw = _read_bounded_descriptor(descriptor, MAX_PENDING_RECORD_BYTES)
+            return raw, identity
         finally:
             close_descriptor(descriptor)
     except FileNotFoundError:
@@ -1923,6 +2149,10 @@ def _read_pending_record(path: Path) -> bytes:
         raise
     except OSError as exc:
         raise _PendingReadError("PENDING_RECORD_READ_FAILED") from exc
+
+
+def _read_pending_record(path: Path) -> bytes:
+    return _read_pending_record_snapshot(path)[0]
 
 
 def _read_bounded_descriptor(descriptor: int, limit: int) -> bytes:
@@ -1982,6 +2212,8 @@ def _scan_existing_item_metadata(items_dir: Path) -> _ItemMetadataSnapshot:
                 continue
             except OSError:
                 return _ItemMetadataSnapshot(items={}, trusted=False)
+            if depth == 0 and entry.name == ".amh-item-locks":
+                continue
             entry_count += 1
             if entry_count > MAX_ITEM_METADATA_ENTRIES:
                 return _ItemMetadataSnapshot(items={}, trusted=False)
@@ -2073,6 +2305,8 @@ def _scan_existing_item_metadata_fallback(items_dir: Path) -> _ItemMetadataSnaps
                 continue
             except OSError:
                 return _ItemMetadataSnapshot(items={}, trusted=False)
+            if depth == 0 and entry.name == ".amh-item-locks":
+                continue
             entry_count += 1
             if entry_count > MAX_ITEM_METADATA_ENTRIES:
                 return _ItemMetadataSnapshot(items={}, trusted=False)
