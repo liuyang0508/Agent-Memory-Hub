@@ -239,6 +239,50 @@ def test_legacy_feedback_is_unsupported_not_malformed(tmp_brain: Path) -> None:
     assert record.reason == "UNSUPPORTED_MEMORY_TYPE"
 
 
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("confidence", 1.1),
+        ("sensitivity", "top-secret"),
+        ("refs", ["not-a-mapping"]),
+        ("validity", {"ttl_hours": "not-an-int"}),
+        ("tags", "not-a-list"),
+    ],
+)
+def test_invalid_item_schema_fails_closed_without_leaking_body(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    field: str,
+    value: object,
+) -> None:
+    _freeze_now(monkeypatch)
+    record = _v2_record()
+    item = record["item"]
+    assert isinstance(item, dict)
+    item[field] = value
+    item["body"] = "schema failure private body"
+    enqueue_write_record(record)
+
+    preview = PendingQueue().preview(limit=10).records[0]
+
+    assert preview.classification == "malformed"
+    assert preview.reason == "INVALID_ITEM_SCHEMA"
+    assert "schema failure private body" not in json.dumps(preview.to_dict())
+
+
+def test_unsupported_type_precedes_other_schema_failures(tmp_brain: Path) -> None:
+    record = _legacy_feedback_record()
+    item = record["item"]
+    assert isinstance(item, dict)
+    item["confidence"] = 2.0
+    enqueue_write_record(record)
+
+    preview = PendingQueue().preview(limit=1).records[0]
+
+    assert preview.classification == "unsupported_type"
+    assert preview.reason == "UNSUPPORTED_MEMORY_TYPE"
+
+
 @pytest.mark.parametrize("type_", ["signal", "handoff"])
 def test_old_signal_and_handoff_require_review(
     tmp_brain: Path, monkeypatch: pytest.MonkeyPatch, type_: str
@@ -436,6 +480,60 @@ def test_existing_stable_item_with_different_hash_is_conflict(
     assert preview.reason == "STABLE_ITEM_PAYLOAD_CONFLICT"
 
 
+@pytest.mark.parametrize(
+    ("queued_project", "queued_tenant", "existing_project", "existing_tenant"),
+    [
+        ("amh", "tenant-a", "other-project", "tenant-a"),
+        ("amh", "tenant-a", "amh", "tenant-b"),
+    ],
+)
+def test_existing_stable_item_cross_scope_is_conflict_even_with_same_hash(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    queued_project: str,
+    queued_tenant: str,
+    existing_project: str,
+    existing_tenant: str,
+) -> None:
+    _freeze_now(monkeypatch)
+    record = _v2_record(project=queued_project, tenant_id=queued_tenant)
+    enqueue_write_record(record)
+    _write_existing_item(
+        tmp_brain,
+        record,
+        item_id=_stable_item_id(record),
+        span_hash=_payload_sha256(record),
+        project=existing_project,
+        tenant_id=existing_tenant,
+    )
+
+    preview = PendingQueue().preview(limit=10).records[0]
+
+    assert preview.classification == "conflict"
+    assert preview.reason == "STABLE_ITEM_SCOPE_CONFLICT"
+
+
+def test_none_and_empty_scope_are_canonically_equivalent(
+    tmp_brain: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _freeze_now(monkeypatch)
+    record = _v2_record(project=None, tenant_id=None)
+    enqueue_write_record(record)
+    _write_existing_item(
+        tmp_brain,
+        record,
+        item_id=_stable_item_id(record),
+        span_hash=_payload_sha256(record),
+        project="",
+        tenant_id="",
+    )
+
+    preview = PendingQueue().preview(limit=10).records[0]
+
+    assert preview.classification == "already_written"
+    assert preview.reason == "STABLE_ITEM_ALREADY_WRITTEN"
+
+
 def test_same_scope_existing_payload_is_duplicate_candidate(
     tmp_brain: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -570,3 +668,49 @@ def test_preview_limit_and_sort_are_deterministic(
     assert preview.returned == 1
     assert preview.truncated is True
     assert preview.records[0].record_id == "pending-a"
+
+
+def test_pending_scan_cap_keeps_cap_plus_one_and_reports_truncation(
+    tmp_brain: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _freeze_now(monkeypatch)
+    monkeypatch.setattr(pending_module, "MAX_PENDING_QUEUE_ENTRIES", 1)
+    first = enqueue_write_record(_v2_record(record_id="pending-z"))
+    second = enqueue_write_record(_v2_record(record_id="pending-a"))
+    first.rename(first.parent / "z-last.jsonl")
+    second.rename(second.parent / "a-first.jsonl")
+
+    preview = PendingQueue().preview(limit=10)
+
+    assert preview.total == 2
+    assert preview.returned == 1
+    assert preview.truncated is True
+    assert preview.records[0].record_id == "pending-a"
+
+
+def test_existing_item_scan_overflow_blocks_ready_classification(
+    tmp_brain: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _freeze_now(monkeypatch)
+    monkeypatch.setattr(pending_module, "MAX_ITEM_METADATA_ENTRIES", 1)
+    record = _v2_record()
+    enqueue_write_record(record)
+    _write_existing_item(
+        tmp_brain,
+        record,
+        item_id="mem-20260701-100000-first-existing",
+        span_hash=None,
+        project="other-one",
+    )
+    _write_existing_item(
+        tmp_brain,
+        record,
+        item_id="mem-20260701-100001-second-existing",
+        span_hash=None,
+        project="other-two",
+    )
+
+    preview = PendingQueue().preview(limit=10).records[0]
+
+    assert preview.classification == "audit_blocked"
+    assert preview.reason == "EXISTING_ITEM_SCAN_UNAVAILABLE"

@@ -31,6 +31,7 @@ and the offline doctor.
 from __future__ import annotations
 
 import hashlib
+import heapq
 import json
 import os
 import re
@@ -43,8 +44,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import BinaryIO, Literal, TypedDict, cast
 
+from pydantic import ValidationError
+
 from agent_brain.contracts.memory_enums import MemoryType
-from agent_brain.contracts.memory_item import MemoryItem
+from agent_brain.contracts.memory_item import MemoryItem, Source
 from agent_brain.memory.store.item_markdown import parse_item_markdown
 from agent_brain.platform.secure_io import (
     close_descriptor,
@@ -103,6 +106,25 @@ PendingClassification = Literal[
 
 _SUPPORTED_MEMORY_TYPES = frozenset(member.value for member in MemoryType)
 _RECORD_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
+_PENDING_ITEM_FIELDS = frozenset(
+    {
+        "type",
+        "created_at",
+        "title",
+        "summary",
+        "body",
+        "tags",
+        "confidence",
+        "sensitivity",
+        "refs",
+        "project",
+        "tenant_id",
+        "agent",
+        "session",
+        "validity",
+        "allow_unsafe",
+    }
+)
 
 
 def _utc_now() -> datetime:
@@ -271,18 +293,34 @@ class _ItemMetadataSnapshot:
     trusted: bool
 
 
+@dataclass(frozen=True)
+class _PendingPathSnapshot:
+    paths: list[Path]
+    total: int
+
+
+class _DescendingName(str):
+    """Reverse string ordering so heap root is the largest retained filename."""
+
+    def __lt__(self, other: object) -> bool:
+        if not isinstance(other, str):
+            return NotImplemented
+        return str.__gt__(self, other)
+
+
 class PendingQueue:
     """Durable buffer of pending writes, drained through ``WriteService``."""
 
     def depth(self) -> int:
         """Number of records still buffered (excludes the dead/ sub-dir)."""
-        return len(_pending_record_paths())
+        return _pending_record_paths().total
 
     def preview(self, *, limit: int = 20) -> PendingPreview:
         """Summarize queued records without replaying or mutating them."""
-        paths = _pending_record_paths()
+        path_snapshot = _pending_record_paths()
         bounded_limit = max(0, limit)
-        selected = paths[:bounded_limit]
+        scan_cap = max(0, MAX_PENDING_QUEUE_ENTRIES)
+        selected = path_snapshot.paths[: min(bounded_limit, scan_cap)]
         existing = _scan_existing_item_metadata(brain_dir() / "items")
         records = [
             self._preview_record(
@@ -293,10 +331,10 @@ class PendingQueue:
             for path in selected
         ]
         return PendingPreview(
-            total=len(paths),
+            total=path_snapshot.total,
             returned=len(records),
             limit=bounded_limit,
-            truncated=len(paths) > bounded_limit,
+            truncated=path_snapshot.total > len(records),
             records=records,
         )
 
@@ -547,6 +585,21 @@ def _classify_pending_record(
             error="INVALID_ITEM_BODY",
         )
 
+    validated_item = _validate_pending_item(
+        item=item,
+        stable_item_id=_pending_item_id(title, original_created_at, record_id),
+        original_created_at=original_created_at,
+        payload_sha256=payload_sha256,
+    )
+    if validated_item is None:
+        return PendingRecordPreview(
+            **common,
+            classification="malformed",
+            reason="INVALID_ITEM_SCHEMA",
+            malformed=True,
+            error="INVALID_ITEM_SCHEMA",
+        )
+
     if not metadata_trusted:
         return PendingRecordPreview(
             **common,
@@ -554,9 +607,15 @@ def _classify_pending_record(
             reason="EXISTING_ITEM_SCAN_UNAVAILABLE",
         )
 
-    stable_item_id = _pending_item_id(title, original_created_at, record_id)
+    stable_item_id = validated_item.id
     stable_existing = existing_items.get(stable_item_id)
     if stable_existing is not None:
+        if not _same_scope(validated_item, stable_existing):
+            return PendingRecordPreview(
+                **common,
+                classification="conflict",
+                reason="STABLE_ITEM_SCOPE_CONFLICT",
+            )
         if stable_existing.source.span_hash == payload_sha256:
             return PendingRecordPreview(
                 **common,
@@ -570,7 +629,7 @@ def _classify_pending_record(
         )
 
     duplicate_reason = _same_scope_duplicate_reason(
-        item=item,
+        item=validated_item,
         payload_sha256=payload_sha256,
         existing_items=existing_items.values(),
     )
@@ -675,19 +734,72 @@ def _malformed_preview(
     )
 
 
-def _same_scope_duplicate_reason(
+def _validate_pending_item(
     *,
     item: dict[str, object],
+    stable_item_id: str,
+    original_created_at: datetime,
+    payload_sha256: str,
+) -> MemoryItem | None:
+    if set(item) - _PENDING_ITEM_FIELDS:
+        return None
+    allow_unsafe = item.get("allow_unsafe", False)
+    if not isinstance(allow_unsafe, bool):
+        return None
+    payload = {
+        key: value
+        for key, value in item.items()
+        if key not in {"body", "allow_unsafe", "created_at"}
+    }
+    payload.setdefault("type", "fact")
+    payload.setdefault("summary", "")
+    payload.setdefault("tags", [])
+    payload.setdefault("confidence", 0.7)
+    payload.setdefault("sensitivity", "internal")
+    payload.setdefault("refs", {})
+    payload.setdefault("validity", {})
+    payload.update(
+        {
+            "id": stable_item_id,
+            "created_at": original_created_at,
+            "source": Source(kind="pending-replay", span_hash=payload_sha256),
+        }
+    )
+    try:
+        return MemoryItem.model_validate(payload)
+    except (ValidationError, TypeError, ValueError, OverflowError):
+        return None
+
+
+def _scope_value(value: object) -> str | None:
+    if value is None or value == "":
+        return None
+    return str(value)
+
+
+def _same_scope(first: MemoryItem, second: MemoryItem) -> bool:
+    return (
+        _scope_value(first.project) == _scope_value(second.project)
+        and _scope_value(first.tenant_id) == _scope_value(second.tenant_id)
+    )
+
+
+def _same_scope_duplicate_reason(
+    *,
+    item: MemoryItem,
     payload_sha256: str,
     existing_items: Iterable[MemoryItem],
 ) -> str | None:
-    project = _optional_str(item.get("project"))
-    tenant = _optional_str(item.get("tenant_id"))
-    type_value = _optional_str(item.get("type", "fact"))
-    title = (_optional_str(item.get("title")) or "").strip().lower()
-    summary = (_optional_str(item.get("summary")) or "").strip().lower()
+    project = _scope_value(item.project)
+    tenant = _scope_value(item.tenant_id)
+    type_value = str(item.type)
+    title = item.title.strip().lower()
+    summary = item.summary.strip().lower()
     for existing in existing_items:
-        if existing.project != project or existing.tenant_id != tenant:
+        if (
+            _scope_value(existing.project) != project
+            or _scope_value(existing.tenant_id) != tenant
+        ):
             continue
         if existing.source.span_hash == payload_sha256:
             return "SAME_SCOPE_PAYLOAD_DUPLICATE"
@@ -785,48 +897,54 @@ class _PendingReadError(Exception):
         self.reason = reason
 
 
-def _pending_record_paths() -> list[Path]:
+def _pending_record_paths() -> _PendingPathSnapshot:
     directory = pending_dir()
+    retained: list[tuple[_DescendingName, str, Path]] = []
+    total = 0
+    retain_limit = max(0, MAX_PENDING_QUEUE_ENTRIES) + 1
+
+    def consider(entry: os.DirEntry[str], *, fallback: bool) -> None:
+        nonlocal total
+        try:
+            if not entry.name.endswith(".jsonl") or entry.is_symlink():
+                return
+            if fallback:
+                if not stat.S_ISREG(entry.stat(follow_symlinks=False).st_mode):
+                    return
+            elif not entry.is_file(follow_symlinks=False):
+                return
+        except OSError:
+            return
+        total += 1
+        candidate = (_DescendingName(entry.name), entry.name, directory / entry.name)
+        if len(retained) < retain_limit:
+            heapq.heappush(retained, candidate)
+        elif entry.name < retained[0][1]:
+            heapq.heapreplace(retained, candidate)
+
     if secure_dir_fd_io_supported():
         descriptor: int | None = None
         try:
             descriptor = open_directory_path_without_symlinks(directory)
-            entries = sorted(os.scandir(descriptor), key=lambda entry: entry.name)
-            paths: list[Path] = []
-            for entry in entries:
-                if len(paths) >= MAX_PENDING_QUEUE_ENTRIES:
-                    break
-                try:
-                    if (
-                        entry.name.endswith(".jsonl")
-                        and not entry.is_symlink()
-                        and entry.is_file(follow_symlinks=False)
-                    ):
-                        paths.append(directory / entry.name)
-                except OSError:
-                    continue
-            return paths
+            with os.scandir(descriptor) as entries:
+                for entry in entries:
+                    consider(entry, fallback=False)
         except OSError:
-            return []
+            return _PendingPathSnapshot(paths=[], total=0)
         finally:
             if descriptor is not None:
                 close_descriptor(descriptor)
+        ordered = sorted((row[2] for row in retained), key=lambda path: path.name)
+        return _PendingPathSnapshot(paths=ordered, total=total)
 
     try:
-        entries = sorted(os.scandir(directory), key=lambda entry: entry.name)
+        with os.scandir(directory) as entries:
+            for entry in entries:
+                consider(entry, fallback=True)
     except OSError:
-        return []
-    paths = []
-    for entry in entries:
-        if len(paths) >= MAX_PENDING_QUEUE_ENTRIES:
-            break
-        try:
-            opened = entry.stat(follow_symlinks=False)
-            if entry.name.endswith(".jsonl") and stat.S_ISREG(opened.st_mode):
-                paths.append(directory / entry.name)
-        except OSError:
-            continue
-    return paths
+        return _PendingPathSnapshot(paths=[], total=0)
+    ordered = sorted((row[2] for row in retained), key=lambda path: path.name)
+    return _PendingPathSnapshot(paths=ordered, total=total)
 
 
 def _read_pending_record(path: Path) -> bytes:
@@ -909,7 +1027,7 @@ def _scan_existing_item_metadata(items_dir: Path) -> _ItemMetadataSnapshot:
     bytes_read = 0
     try:
         root = open_directory_path_without_symlinks(items_dir)
-        stack.append((root, iter(sorted(os.scandir(root), key=lambda row: row.name)), 0))
+        stack.append((root, os.scandir(root), 0))
         root = None
     except FileNotFoundError:
         return _ItemMetadataSnapshot(items={}, trusted=True)
@@ -921,8 +1039,7 @@ def _scan_existing_item_metadata(items_dir: Path) -> _ItemMetadataSnapshot:
             try:
                 entry = next(entries)
             except StopIteration:
-                close_descriptor(directory)
-                stack.pop()
+                _close_item_scan_frame(stack.pop())
                 continue
             except OSError:
                 return _ItemMetadataSnapshot(items={}, trusted=False)
@@ -936,9 +1053,12 @@ def _scan_existing_item_metadata(items_dir: Path) -> _ItemMetadataSnapshot:
                     if depth >= MAX_ITEM_DIRECTORY_DEPTH:
                         return _ItemMetadataSnapshot(items={}, trusted=False)
                     child = open_child_directory(directory, entry.name)
-                    stack.append(
-                        (child, iter(sorted(os.scandir(child), key=lambda row: row.name)), depth + 1)
-                    )
+                    try:
+                        child_entries = os.scandir(child)
+                    except BaseException:
+                        close_descriptor(child)
+                        raise
+                    stack.append((child, child_entries, depth + 1))
                     continue
                 if not entry.is_file(follow_symlinks=False) or not entry.name.endswith(".md"):
                     continue
@@ -960,8 +1080,17 @@ def _scan_existing_item_metadata(items_dir: Path) -> _ItemMetadataSnapshot:
         if root is not None:
             close_descriptor(root)
         while stack:
-            directory, _entries, _depth = stack.pop()
-            close_descriptor(directory)
+            _close_item_scan_frame(stack.pop())
+
+
+def _close_item_scan_frame(frame: tuple[int, Iterator[os.DirEntry[str]], int]) -> None:
+    directory, entries, _depth = frame
+    close = getattr(entries, "close", None)
+    try:
+        if callable(close):
+            close()
+    finally:
+        close_descriptor(directory)
 
 
 def _read_item_frontmatter(
