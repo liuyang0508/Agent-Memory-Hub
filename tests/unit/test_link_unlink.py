@@ -9,7 +9,7 @@ import pytest
 
 from agent_brain.contracts.memory_item import MemoryItem, MemoryType, Refs
 from agent_brain.interfaces.cli.commands.index_maintenance import reindex_store
-from agent_brain.interfaces.mcp.tools._shared import _components_cache
+from agent_brain.interfaces.mcp.tools._shared import _components, _components_cache
 from agent_brain.interfaces.mcp.tools.graph import link_memories, unlink_memories
 from agent_brain.memory.governance.lifecycle_snapshot import LifecycleSnapshotError
 from agent_brain.memory.governance.supersession import SupersessionService
@@ -148,6 +148,88 @@ class TestIndexLinkUnlink:
 
         assert idx.get_refs(new.id) == [(new.id, old.id, "supersedes")]
 
+    @pytest.mark.parametrize("order", ["obsolete-first", "replacement-first"])
+    def test_upsert_derives_supersedes_from_obsolete_frontmatter_only(
+        self, tmp_brain_dir: Path, order: str
+    ):
+        old = _item(f"single-authority-{order}-old")
+        new = _item(f"single-authority-{order}-new")
+        old = old.model_copy(update={"superseded_by": new.id})
+        assert new.refs.mems == []
+        store = ItemsStore(tmp_brain_dir / "items")
+        store.write(old, "old")
+        store.write(new, "new")
+        idx = HubIndex(tmp_brain_dir / "index.db", embedding_dim=_DIM)
+        embedder = HashingEmbedder(dim=_DIM)
+        items = [(old, "old"), (new, "new")]
+        if order == "replacement-first":
+            items.reverse()
+
+        for _ in range(2):
+            for item, body in items:
+                idx.upsert(item, body, embedder.embed(body))
+
+        assert idx.get_refs(new.id) == [(new.id, old.id, "supersedes")]
+
+    def test_single_authority_reindex_is_idempotent(self, tmp_brain_dir: Path):
+        old = _item("single-authority-reindex-old")
+        new = _item("single-authority-reindex-new")
+        old = old.model_copy(update={"superseded_by": new.id})
+        store = ItemsStore(tmp_brain_dir / "items")
+        store.write(new, "new")
+        store.write(old, "old")
+        idx = HubIndex(tmp_brain_dir / "index.db", embedding_dim=_DIM)
+        embedder = HashingEmbedder(dim=_DIM)
+
+        for _ in range(2):
+            reindex_store(store, idx, embedder, prune=True)
+
+        assert idx.get_refs(new.id) == [(new.id, old.id, "supersedes")]
+
+    @pytest.mark.parametrize("order", ["obsolete-first", "replacement-first"])
+    def test_single_authority_revert_is_order_independent(
+        self, tmp_brain_dir: Path, order: str
+    ):
+        old = _item(f"single-revert-{order}-old")
+        new = _item(f"single-revert-{order}-new")
+        superseded = old.model_copy(update={"superseded_by": new.id})
+        idx = _seed(tmp_brain_dir, [(superseded, "old"), (new, "new")])
+        assert idx.get_refs(new.id) == [(new.id, old.id, "supersedes")]
+        store = ItemsStore(tmp_brain_dir / "items")
+        store.update_frontmatter(old.id, superseded_by=None)
+        reverted, _body = store.get(old.id)
+        items = [(reverted, "old"), (new, "new")]
+        if order == "replacement-first":
+            items.reverse()
+
+        for item, body in items:
+            idx.upsert(item, body, embedding=None)
+
+        assert not any(
+            relation == "supersedes"
+            for *_pair, relation in idx.get_refs(new.id)
+        )
+
+    def test_supersession_reconciliation_preserves_custom_and_removes_generic_relation(
+        self, tmp_brain_dir: Path
+    ):
+        old = _item("relation-authority-old")
+        new = _item("relation-authority-new")
+        idx = _seed(tmp_brain_dir, [(old, "old"), (new, "new")])
+        idx.add_ref(new.id, old.id, "refs")
+        idx.add_ref(new.id, old.id, "refines")
+        superseded = old.model_copy(update={"superseded_by": new.id})
+
+        idx.upsert(superseded, "old", embedding=None)
+        idx.upsert(new, "new", embedding=None)
+
+        assert sorted(idx.get_refs(new.id)) == sorted(
+            [
+                (new.id, old.id, "refines"),
+                (new.id, old.id, "supersedes"),
+            ]
+        )
+
     def test_reindex_rebuilds_only_supersedes_relation_from_frontmatter(
         self, tmp_brain_dir: Path
     ):
@@ -198,6 +280,7 @@ class TestMcpLinkUnlink:
         assert result["linked"] is True
         assert result["status"] == "applied"
         assert result["reason"] == "OK"
+        assert result["index_repair_required"] is False
         assert store.get(old.id)[0].superseded_by == new.id
         assert store.get(new.id)[0].refs.mems == [old.id]
         _store, mcp_index, _retriever = next(iter(_components_cache.values()))
@@ -222,6 +305,9 @@ class TestMcpLinkUnlink:
         assert second["linked"] is True
         assert second["status"] == "already_applied"
         assert second["reason"] == "ALREADY_APPLIED"
+        assert isinstance(first["index_repair_required"], bool)
+        assert first["index_repair_required"] is False
+        assert second["index_repair_required"] is False
         assert ledger.read_bytes() == ledger_after_first
         _store, mcp_index, _retriever = next(iter(_components_cache.values()))
         assert mcp_index.get_refs(new.id) == [(new.id, old.id, "supersedes")]
@@ -245,6 +331,7 @@ class TestMcpLinkUnlink:
         assert result["linked"] is False
         assert result["status"] == "blocked"
         assert result["reason"] == "PLATFORM_UNSUPPORTED"
+        assert result["index_repair_required"] is False
         store = ItemsStore(tmp_brain_dir / "items")
         assert store.get(old.id)[0].superseded_by is None
         assert store.get(new.id)[0].refs.mems == []
@@ -266,6 +353,7 @@ class TestMcpLinkUnlink:
         assert result["linked"] is False
         assert result["status"] == "blocked"
         assert result["reason"] == "PROJECT_MISMATCH"
+        assert result["index_repair_required"] is False
         store = ItemsStore(tmp_brain_dir / "items")
         assert store.get(old.id)[0].superseded_by is None
         assert store.get(new.id)[0].refs.mems == []
@@ -296,12 +384,40 @@ class TestMcpLinkUnlink:
         assert result["linked"] is False
         assert result["status"] == "blocked"
         assert result["reason"] == "SNAPSHOT_FAILED"
+        assert result["index_repair_required"] is False
         assert "raw detail" not in str(result)
         store = ItemsStore(tmp_brain_dir / "items")
         assert store.get(old.id)[0].superseded_by is None
         assert store.get(new.id)[0].refs.mems == []
         _store, mcp_index, _retriever = next(iter(_components_cache.values()))
         assert mcp_index.get_refs(new.id) == []
+
+    def test_supersedes_reports_committed_markdown_when_index_sync_fails(
+        self, tmp_brain_dir: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        old = _item("mcp-index-repair-old")
+        new = _item("mcp-index-repair-new")
+        idx = _seed(tmp_brain_dir, [(old, "old"), (new, "new")])
+        idx.close()
+        monkeypatch.setenv("BRAIN_DIR", str(tmp_brain_dir))
+        monkeypatch.setenv("MEMORY_HUB_TEST_EMBEDDING", "1")
+        _store, mcp_index, _retriever = _components()
+
+        def fail_index_sync(*_args, **_kwargs):
+            raise OSError("raw index failure detail")
+
+        monkeypatch.setattr(mcp_index, "upsert", fail_index_sync)
+
+        result = link_memories(new.id, old.id, relation="supersedes")
+
+        assert result["linked"] is True
+        assert result["status"] == "applied"
+        assert result["reason"] == "OK"
+        assert result["index_repair_required"] is True
+        assert "raw index failure" not in str(result)
+        store = ItemsStore(tmp_brain_dir / "items")
+        assert store.get(old.id)[0].superseded_by == new.id
+        assert store.get(new.id)[0].refs.mems == [old.id]
 
     def test_unlink_refuses_to_bypass_supersession_revert(
         self, tmp_brain_dir: Path, monkeypatch: pytest.MonkeyPatch

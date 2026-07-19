@@ -92,7 +92,11 @@ class IndexWriter:
             )
             if embedding is not None:
                 self.vector.upsert(item.id, embedding)
-            conn.execute("DELETE FROM refs_graph WHERE source_id = ?", (item.id,))
+            conn.execute(
+                "DELETE FROM refs_graph "
+                "WHERE source_id = ? AND relation IN ('refs', 'supersedes')",
+                (item.id,),
+            )
             if hasattr(item, "refs") and item.refs and item.refs.mems:
                 for target_id in item.refs.mems:
                     row = conn.execute(
@@ -121,6 +125,21 @@ class IndexWriter:
                     "INSERT OR IGNORE INTO refs_graph "
                     "(source_id, target_id, relation) VALUES (?, ?, 'supersedes')",
                     (item.superseded_by, item.id),
+                )
+            rows = conn.execute(
+                "SELECT id FROM items_meta WHERE superseded_by = ?",
+                (item.id,),
+            ).fetchall()
+            for obsolete_id, in rows:
+                conn.execute(
+                    "DELETE FROM refs_graph "
+                    "WHERE source_id = ? AND target_id = ? AND relation = 'refs'",
+                    (item.id, obsolete_id),
+                )
+                conn.execute(
+                    "INSERT OR IGNORE INTO refs_graph "
+                    "(source_id, target_id, relation) VALUES (?, ?, 'supersedes')",
+                    (item.id, obsolete_id),
                 )
 
     def delete(self, item_id: str) -> None:

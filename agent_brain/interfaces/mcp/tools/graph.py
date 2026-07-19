@@ -90,6 +90,7 @@ def link_memories(
             "linked": result.status in {"applied", "already_applied"},
             "status": result.status,
             "reason": result.reason,
+            "index_repair_required": result.index_repair_required,
         }
     idx.add_ref(source_id, target_id, relation)
     try:
