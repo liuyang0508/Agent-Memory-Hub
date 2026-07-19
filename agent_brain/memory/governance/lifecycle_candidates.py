@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from bisect import bisect_left
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Iterable, TypeVar
@@ -134,6 +135,13 @@ class _ItemFeatures:
 
 
 @dataclass(frozen=True)
+class _ScopeBitmapIndex:
+    items: tuple[_ItemFeatures, ...]
+    negative_created_keys: tuple[int, ...]
+    closure_mask: int
+
+
+@dataclass(frozen=True)
 class _RankedCandidate:
     result: SupersessionCandidate
     created_key: int
@@ -150,104 +158,130 @@ class SupersessionCandidateRanker:
     ) -> None:
         self._supersedes_edges = frozenset(supersedes_edges)
         self._features_by_id: dict[str, _ItemFeatures] = {}
-        self._features_by_identity: dict[int, _ItemFeatures] = {}
+        self._features_by_identity: dict[int, tuple[MemoryItem, _ItemFeatures]] = {}
         for item in items:
             if not isinstance(item, MemoryItem):
                 raise TypeError("items must contain only MemoryItem instances")
             existing = self._features_by_id.get(item.id)
             if existing is not None:
-                self._features_by_identity[id(item)] = existing
+                self._features_by_identity[id(item)] = (item, existing)
                 continue
             features = _build_item_features(item)
             self._features_by_id[features.item_id] = features
-            self._features_by_identity[id(item)] = features
+            self._features_by_identity[id(item)] = (item, features)
 
-        explicit: dict[tuple[_ScopeKey, str], set[str]] = {}
-        memory_refs: dict[tuple[_ScopeKey, str], set[str]] = {}
-        source_refs: dict[tuple[_ScopeKey, int, str], set[str]] = {}
-        topic_tokens: dict[tuple[_ScopeKey, str], set[str]] = {}
-        base_by_scope: dict[_ScopeKey, list[_ItemFeatures]] = {}
-        closure_by_scope: dict[_ScopeKey, list[_ItemFeatures]] = {}
+        valid_by_scope: dict[_ScopeKey, list[_ItemFeatures]] = {}
         for features in self._features_by_id.values():
+            if not features.superseded and not features.requires_review:
+                valid_by_scope.setdefault(features.scope_key, []).append(features)
+        self._scope_indices = _build_scope_bitmap_indices(valid_by_scope)
+        positions = {
+            (scope_key, features.item_id): position
+            for scope_key, scope_index in self._scope_indices.items()
+            for position, features in enumerate(scope_index.items)
+        }
+
+        explicit: dict[tuple[_ScopeKey, str], int] = {}
+        memory_refs: dict[tuple[_ScopeKey, str], int] = {}
+        source_refs: dict[tuple[_ScopeKey, int, str], int] = {}
+        topic_tokens: dict[tuple[_ScopeKey, str], int] = {}
+        for features in self._features_by_id.values():
+            position = positions.get((features.scope_key, features.item_id))
+            if position is None:
+                continue
+            bit = 1 << position
             for target_id in features.mem_refs:
-                _add_to_index(
+                _add_to_mask_index(
                     memory_refs,
                     (features.scope_key, target_id),
-                    features.item_id,
+                    bit,
                 )
             for field_index, values in enumerate(features.source_refs):
                 for value in values:
-                    _add_to_index(
+                    _add_to_mask_index(
                         source_refs,
                         (features.scope_key, field_index, value),
-                        features.item_id,
+                        bit,
                     )
             for token in features.topic_tokens:
-                _add_to_index(
+                _add_to_mask_index(
                     topic_tokens,
                     (features.scope_key, token),
-                    features.item_id,
+                    bit,
                 )
-            if not features.superseded and not features.requires_review:
-                base_by_scope.setdefault(features.scope_key, []).append(features)
-                if features.closure_language:
-                    closure_by_scope.setdefault(features.scope_key, []).append(features)
         for source_id, target_id in self._supersedes_edges:
             source = self._features_by_id.get(source_id)
             if source is not None:
-                _add_to_index(
-                    explicit,
-                    (source.scope_key, target_id),
-                    source.item_id,
-                )
+                position = positions.get((source.scope_key, source.item_id))
+                if position is not None:
+                    _add_to_mask_index(
+                        explicit,
+                        (source.scope_key, target_id),
+                        1 << position,
+                    )
 
-        self._explicit_index = _freeze_set_index(explicit)
-        self._memory_ref_index = _freeze_set_index(memory_refs)
-        self._source_ref_index = _freeze_set_index(source_refs)
-        self._topic_index = _freeze_set_index(topic_tokens)
-        self._base_by_scope = _freeze_time_index(base_by_scope)
-        self._closure_by_scope = _freeze_time_index(closure_by_scope)
+        self._explicit_index = explicit
+        self._memory_ref_index = memory_refs
+        self._source_ref_index = source_refs
+        self._topic_index = topic_tokens
 
     def rank(self, obsolete: MemoryItem) -> list[SupersessionCandidate]:
         """Return a bounded Top-3 without materializing all scored candidates."""
         if not isinstance(obsolete, MemoryItem):
             raise TypeError("obsolete must be a MemoryItem")
-        obsolete_features = self._features_by_identity.get(id(obsolete))
-        if obsolete_features is None:
+        identity_snapshot = self._features_by_identity.get(id(obsolete))
+        if identity_snapshot is not None and identity_snapshot[0] is obsolete:
+            obsolete_features = identity_snapshot[1]
+        else:
             obsolete_features = _build_item_features(obsolete)
+        scope_index = self._scope_indices.get(obsolete_features.scope_key)
+        if scope_index is None:
+            return []
+        newer_count = bisect_left(
+            scope_index.negative_created_keys,
+            -obsolete_features.created_key,
+        )
+        newer_mask = (1 << newer_count) - 1
+        if not newer_mask:
+            return []
 
-        candidate_ids: set[str] = set()
         direct_key = (obsolete_features.scope_key, obsolete_features.item_id)
-        candidate_ids.update(self._explicit_index.get(direct_key, ()))
-        candidate_ids.update(self._memory_ref_index.get(direct_key, ()))
+        explicit_mask = self._explicit_index.get(direct_key, 0) & newer_mask
+        memory_mask = self._memory_ref_index.get(direct_key, 0) & newer_mask
+        source_mask = 0
         for field_index, values in enumerate(obsolete_features.source_refs):
             for value in values:
-                candidate_ids.update(
-                    self._source_ref_index.get(
-                        (obsolete_features.scope_key, field_index, value),
-                        (),
-                    )
+                source_mask |= self._source_ref_index.get(
+                    (obsolete_features.scope_key, field_index, value),
+                    0,
                 )
+        source_mask &= newer_mask
+        topic_mask = 0
         for token in obsolete_features.topic_tokens:
-            candidate_ids.update(
-                self._topic_index.get((obsolete_features.scope_key, token), ())
+            topic_mask |= self._topic_index.get(
+                (obsolete_features.scope_key, token),
+                0,
             )
-        candidate_ids.update(
-            _latest_newer_ids(
-                self._base_by_scope.get(obsolete_features.scope_key, ()),
-                obsolete_features,
+        topic_mask &= newer_mask
+        closure_mask = scope_index.closure_mask & newer_mask
+
+        candidate_positions = set(_lowest_set_positions(newer_mask, limit=3))
+        candidate_positions.update(_lowest_set_positions(explicit_mask, limit=3))
+        evidence_masks = (memory_mask, source_mask, topic_mask, closure_mask)
+        for signature in range(1, 1 << len(evidence_masks)):
+            signature_mask = newer_mask
+            for index, evidence_mask in enumerate(evidence_masks):
+                if signature & (1 << index):
+                    signature_mask &= evidence_mask
+                    if not signature_mask:
+                        break
+            candidate_positions.update(
+                _lowest_set_positions(signature_mask, limit=3)
             )
-        )
-        candidate_ids.update(
-            _latest_newer_ids(
-                self._closure_by_scope.get(obsolete_features.scope_key, ()),
-                obsolete_features,
-            )
-        )
 
         best: list[_RankedCandidate] = []
-        for candidate_id in candidate_ids:
-            candidate_features = self._features_by_id[candidate_id]
+        for position in candidate_positions:
+            candidate_features = scope_index.items[position]
             if not _is_valid_candidate(candidate_features, obsolete_features):
                 continue
             result = _score_candidate(
@@ -266,48 +300,44 @@ class SupersessionCandidateRanker:
         return [candidate.result for candidate in best]
 
 
-def _add_to_index(
-    index: dict[_IndexKey, set[str]],
+def _add_to_mask_index(
+    index: dict[_IndexKey, int],
     key: _IndexKey,
-    item_id: str,
+    bit: int,
 ) -> None:
-    index.setdefault(key, set()).add(item_id)
+    index[key] = index.get(key, 0) | bit
 
 
-def _freeze_set_index(
-    index: dict[_IndexKey, set[str]],
-) -> dict[_IndexKey, frozenset[str]]:
-    return {key: frozenset(values) for key, values in index.items()}
-
-
-def _freeze_time_index(
+def _build_scope_bitmap_indices(
     index: dict[_ScopeKey, list[_ItemFeatures]],
-) -> dict[_ScopeKey, tuple[_ItemFeatures, ...]]:
-    return {
-        key: tuple(
+) -> dict[_ScopeKey, _ScopeBitmapIndex]:
+    result: dict[_ScopeKey, _ScopeBitmapIndex] = {}
+    for key, values in index.items():
+        items = tuple(
             sorted(
                 values,
                 key=lambda features: (-features.created_key, features.item_id),
             )
         )
-        for key, values in index.items()
-    }
+        closure_mask = 0
+        for position, features in enumerate(items):
+            if features.closure_language:
+                closure_mask |= 1 << position
+        result[key] = _ScopeBitmapIndex(
+            items=items,
+            negative_created_keys=tuple(-features.created_key for features in items),
+            closure_mask=closure_mask,
+        )
+    return result
 
 
-def _latest_newer_ids(
-    index: tuple[_ItemFeatures, ...],
-    obsolete: _ItemFeatures,
-) -> tuple[str, ...]:
-    selected: list[str] = []
-    for candidate in index:
-        if candidate.created_key <= obsolete.created_key:
-            break
-        if candidate.item_id == obsolete.item_id:
-            continue
-        selected.append(candidate.item_id)
-        if len(selected) == 3:
-            break
-    return tuple(selected)
+def _lowest_set_positions(mask: int, *, limit: int) -> tuple[int, ...]:
+    positions: list[int] = []
+    while mask and len(positions) < limit:
+        lowest_bit = mask & -mask
+        positions.append(lowest_bit.bit_length() - 1)
+        mask ^= lowest_bit
+    return tuple(positions)
 
 
 def rank_supersession_candidates(

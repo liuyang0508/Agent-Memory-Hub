@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import random
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
@@ -836,3 +837,162 @@ def test_summary_and_refs_are_bounded_before_feature_indexing() -> None:
     )
 
     assert result[0].evidence_codes == ("NEWER_ITEM",)
+
+
+@pytest.mark.parametrize("common_evidence", ["topic", "source", "memory_ref"])
+def test_common_posting_scores_only_a_fixed_number_of_candidates(
+    common_evidence: str,
+    monkeypatch,
+) -> None:
+    from agent_brain.memory.governance import lifecycle_candidates as candidate_module
+
+    obsolete = _item(
+        "mem-20260719-100000-common-posting-obsolete",
+        title="common-topic obsolete" if common_evidence == "topic" else "obsolete alpha",
+        refs={"files": ["common-source"]} if common_evidence == "source" else {},
+    )
+    replacements = []
+    for index in range(1000):
+        refs: dict[str, list[str]] = {}
+        if common_evidence == "source":
+            refs = {"files": ["common-source"]}
+        elif common_evidence == "memory_ref":
+            refs = {"mems": [obsolete.id]}
+        replacements.append(
+            _item(
+                f"mem-20260720-{index:06d}-common-posting-{index}",
+                created_at=BASE_TIME + timedelta(days=1, seconds=index),
+                title=(
+                    f"common-topic candidate {index}"
+                    if common_evidence == "topic"
+                    else f"candidate-{index}"
+                ),
+                summary="pending",
+                locator="pending",
+                refs=refs,
+            )
+        )
+    scored = 0
+    original = candidate_module._score_candidate
+
+    def counted_score(candidate, old, edges):
+        nonlocal scored
+        scored += 1
+        return original(candidate, old, edges)
+
+    ranker = candidate_module.SupersessionCandidateRanker(
+        items=replacements,
+        supersedes_edges=set(),
+    )
+    monkeypatch.setattr(candidate_module, "_score_candidate", counted_score)
+
+    result = ranker.rank(obsolete)
+
+    assert len(result) == 3
+    assert scored <= 51
+
+
+def test_older_candidate_with_multiple_weak_evidence_beats_common_posting_head() -> None:
+    from agent_brain.memory.governance.lifecycle_candidates import (
+        SupersessionCandidateRanker,
+    )
+
+    obsolete = _item(
+        "mem-20260719-100000-combined-evidence-obsolete",
+        title="common-topic obsolete",
+        refs={"files": ["rare-source"]},
+    )
+    replacements = [
+        _item(
+            f"mem-20260720-{index:06d}-combined-evidence-{index}",
+            created_at=BASE_TIME + timedelta(days=1, seconds=index),
+            title=f"common-topic candidate {index}",
+            summary="pending",
+            locator="pending",
+            refs={"files": ["rare-source"]} if index == 0 else {},
+        )
+        for index in range(1000)
+    ]
+
+    result = SupersessionCandidateRanker(
+        items=replacements,
+        supersedes_edges=set(),
+    ).rank(obsolete)
+
+    assert result[0].replacement_id == replacements[0].id
+    assert result[0].evidence_codes == (
+        "SHARED_SOURCE_EVIDENCE",
+        "TOPIC_OVERLAP",
+        "NEWER_ITEM",
+    )
+
+
+def test_bitmap_query_matches_naive_oracle_for_random_evidence_combinations() -> None:
+    from agent_brain.memory.governance import lifecycle_candidates as candidate_module
+
+    rng = random.Random(20260720)
+    for case in range(12):
+        obsolete = _item(
+            f"mem-20260719-{case:06d}-oracle-obsolete-{case}",
+            title="oracle-topic obsolete",
+            refs={
+                "files": ["source-a", "source-b"],
+                "resources": ["resource-a"],
+            },
+        )
+        replacements = []
+        edges: set[tuple[str, str]] = set()
+        for index in range(120):
+            item_id = f"mem-20260720-{index:06d}-oracle-{case}-{index}"
+            refs: dict[str, list[str]] = {}
+            if rng.random() < 0.35:
+                refs["mems"] = [obsolete.id]
+            if rng.random() < 0.45:
+                refs["files"] = [rng.choice(["source-a", "source-b", "other-source"])]
+            if rng.random() < 0.30:
+                refs["resources"] = [rng.choice(["resource-a", "other-resource"])]
+            replacement = _item(
+                item_id,
+                created_at=BASE_TIME + timedelta(days=1, seconds=index),
+                title=(
+                    f"oracle-topic candidate {index}"
+                    if rng.random() < 0.55
+                    else f"unrelated candidate {index}"
+                ),
+                summary="resolved" if rng.random() < 0.25 else "pending",
+                locator="pending",
+                refs=refs,
+                tags=["needs-review"] if rng.random() < 0.08 else [],
+                superseded_by=(
+                    "mem-20260721-000000-oracle-next"
+                    if rng.random() < 0.08
+                    else None
+                ),
+            )
+            replacements.append(replacement)
+            if rng.random() < 0.05:
+                edges.add((replacement.id, obsolete.id))
+
+        ranker_result = candidate_module.SupersessionCandidateRanker(
+            items=replacements,
+            supersedes_edges=edges,
+        ).rank(obsolete)
+        old_features = candidate_module._build_item_features(obsolete)
+        naive = []
+        frozen_edges = frozenset(edges)
+        for replacement in replacements:
+            features = candidate_module._build_item_features(replacement)
+            if candidate_module._is_valid_candidate(features, old_features):
+                naive.append(
+                    (
+                        candidate_module._score_candidate(
+                            features,
+                            old_features,
+                            frozen_edges,
+                        ),
+                        features.created_key,
+                    )
+                )
+        naive.sort(key=lambda row: (-row[0].score, -row[1], row[0].replacement_id))
+
+        assert ranker_result == [row[0] for row in naive[:3]]
