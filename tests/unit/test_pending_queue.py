@@ -483,6 +483,42 @@ def test_fallback_nested_archived_item_ignores_zero_direntry_identity(
     assert preview.records[0].classification == "already_written"
 
 
+def test_zero_explicit_file_identities_never_match_even_with_identical_metadata(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "identity"
+    path.write_text("same", encoding="utf-8")
+    opened = os.lstat(path)
+    first = _StatProxy(opened, st_dev=0, st_ino=0)
+    second = _StatProxy(opened, st_dev=0, st_ino=0)
+
+    assert pending_module._same_file_identity(first, second) is False
+
+
+def test_zero_explicit_nested_directory_identity_blocks_fallback_scan(
+    tmp_brain: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _freeze_now(monkeypatch)
+    enqueue_write_record(_v2_record())
+    nested = tmp_brain / "items" / "nested"
+    nested.mkdir()
+    original_lstat = os.lstat
+
+    def zero_lstat(path: object, *args: object, **kwargs: object) -> os.stat_result:
+        opened = original_lstat(path, *args, **kwargs)  # type: ignore[arg-type]
+        if Path(os.fspath(path)) == nested:
+            return _StatProxy(opened, st_dev=0, st_ino=0)  # type: ignore[return-value]
+        return opened
+
+    monkeypatch.setattr(pending_module, "secure_dir_fd_io_supported", lambda: False)
+    monkeypatch.setattr(pending_module.os, "lstat", zero_lstat)
+
+    preview = PendingQueue().preview(limit=1)
+
+    assert preview.records[0].classification == "audit_blocked"
+    assert preview.records[0].reason == "EXISTING_ITEM_SCAN_UNAVAILABLE"
+
+
 def test_fallback_rejects_windows_reparse_nested_items_directory(
     tmp_brain: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

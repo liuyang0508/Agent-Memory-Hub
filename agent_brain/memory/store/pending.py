@@ -189,7 +189,7 @@ def _is_safe_regular_file(opened: object) -> bool:
 
 
 def _same_file_identity(first: object, second: object) -> bool:
-    """Compare file identity without assuming Windows exposes dev/inode."""
+    """Compare only reliable filesystem object identifiers; never infer identity."""
 
     first_pair = (
         int(getattr(first, "st_dev", 0) or 0),
@@ -199,22 +199,7 @@ def _same_file_identity(first: object, second: object) -> bool:
         int(getattr(second, "st_dev", 0) or 0),
         int(getattr(second, "st_ino", 0) or 0),
     )
-    if all(first_pair) and all(second_pair):
-        return first_pair == second_pair
-    # Windows filesystems can report a zero dev/inode pair. Creation time and
-    # file kind/attributes are the strongest portable identity fields exposed
-    # by stat/fstat there; size/mtime are intentionally excluded for directories.
-    first_fallback = (
-        int(getattr(first, "st_ctime_ns", 0) or 0),
-        stat.S_IFMT(int(getattr(first, "st_mode"))),
-        int(getattr(first, "st_file_attributes", 0) or 0),
-    )
-    second_fallback = (
-        int(getattr(second, "st_ctime_ns", 0) or 0),
-        stat.S_IFMT(int(getattr(second, "st_mode"))),
-        int(getattr(second, "st_file_attributes", 0) or 0),
-    )
-    return first_fallback[0] != 0 and first_fallback == second_fallback
+    return all(first_pair) and all(second_pair) and first_pair == second_pair
 
 
 def _open_or_create_secure_directory(path: Path) -> int:
