@@ -28,11 +28,13 @@ enums (record → item mapping), ``make_item_id`` (fresh id at replay time). The
 single source of truth for those locations and are reused by the watermark store
 and the offline doctor.
 """
+
 from __future__ import annotations
 
 import hashlib
 import heapq
 import json
+import logging
 import os
 import re
 import secrets
@@ -155,13 +157,68 @@ class PendingEnqueueError(OSError):
     """Stable fail-closed error raised before a pending record is published."""
 
 
+_log = logging.getLogger(__name__)
+_DIRECTORY_OPEN_FLAGS = (
+    os.O_RDONLY
+    | getattr(os, "O_CLOEXEC", 0)
+    | getattr(os, "O_DIRECTORY", 0)
+    | getattr(os, "O_NOFOLLOW", 0)
+)
+
+
+def _open_or_create_secure_directory(path: Path) -> int:
+    """Open a canonical POSIX directory, durably creating missing components."""
+
+    absolute = Path(os.path.abspath(os.fspath(path)))
+    parts = absolute.parts
+    if not parts or parts[0] != os.sep:
+        raise PendingEnqueueError("INVALID_PENDING_DIRECTORY_PATH")
+    descriptor: int | None = os.open(os.sep, _DIRECTORY_OPEN_FLAGS)
+    try:
+        for component in parts[1:]:
+            assert descriptor is not None
+            if component in {"", ".", ".."}:
+                raise PendingEnqueueError("INVALID_PENDING_DIRECTORY_PATH")
+            try:
+                child = open_child_directory(descriptor, component)
+            except FileNotFoundError:
+                created = False
+                try:
+                    os.mkdir(component, 0o700, dir_fd=descriptor)
+                    created = True
+                except FileExistsError:
+                    # A concurrent trusted creator won the race. The no-follow
+                    # open below still verifies that the winner is a directory.
+                    pass
+                if created:
+                    # The new name must be durable in its parent before creating
+                    # descendants beneath it.
+                    os.fsync(descriptor)
+                child = open_child_directory(descriptor, component)
+                if created:
+                    try:
+                        os.fchmod(child, 0o700)
+                        os.fsync(child)
+                    except BaseException:
+                        close_descriptor(child)
+                        raise
+            close_descriptor(descriptor)
+            descriptor = child
+        assert descriptor is not None
+        opened = descriptor
+        descriptor = None
+        return opened
+    finally:
+        if descriptor is not None:
+            close_descriptor(descriptor)
+
+
 @contextmanager
 def _open_pending_write_directory(brain: Path) -> Iterator[int]:
-    brain.mkdir(parents=True, mode=0o700, exist_ok=True)
     root_descriptor: int | None = None
     pending_descriptor: int | None = None
     try:
-        root_descriptor = open_directory_path_without_symlinks(brain)
+        root_descriptor = _open_or_create_secure_directory(brain)
         try:
             os.mkdir("pending", 0o700, dir_fd=root_descriptor)
             os.fsync(root_descriptor)
@@ -179,9 +236,16 @@ def _open_pending_write_directory(brain: Path) -> Iterator[int]:
 
 
 def _publish_pending_record(brain: Path, filename: str, data: bytes) -> Path:
+    if secure_dir_fd_io_supported():
+        return _publish_pending_record_secure(brain, filename, data)
+    return _publish_pending_record_fallback(brain, filename, data)
+
+
+def _publish_pending_record_secure(brain: Path, filename: str, data: bytes) -> Path:
     temp_name = f".amh-pending-{secrets.token_hex(16)}.tmp"
     temp_descriptor: int | None = None
     temp_created = False
+    committed = False
     with _open_pending_write_directory(brain) as directory_descriptor:
         try:
             temp_descriptor = os.open(
@@ -215,10 +279,9 @@ def _publish_pending_record(brain: Path, filename: str, data: bytes) -> Path:
                 )
             except FileExistsError as exc:
                 if _read_existing_pending_bytes(directory_descriptor, filename) != data:
-                    raise PendingEnqueueError(
-                        "PENDING_RECORD_FILENAME_CONFLICT"
-                    ) from exc
+                    raise PendingEnqueueError("PENDING_RECORD_FILENAME_CONFLICT") from exc
             os.fsync(directory_descriptor)
+            committed = True
         finally:
             if temp_descriptor is not None:
                 close_descriptor(temp_descriptor)
@@ -228,7 +291,176 @@ def _publish_pending_record(brain: Path, filename: str, data: bytes) -> Path:
                     os.fsync(directory_descriptor)
                 except FileNotFoundError:
                     pass
+                except OSError:
+                    if not committed:
+                        raise
+                    # The target is already published and directory-synced. A
+                    # housekeeping failure must not turn success into a retry.
+                    _log.warning("PENDING_TEMP_CLEANUP_FAILED")
     return brain / "pending" / filename
+
+
+def _ensure_fallback_directory(path: Path, *, mode: int = 0o700) -> None:
+    """Create/check one canonical absolute directory chain without symlinks."""
+
+    absolute = Path(os.path.abspath(os.fspath(path)))
+    if not absolute.is_absolute():
+        raise PendingEnqueueError("INVALID_PENDING_DIRECTORY_PATH")
+    current = Path(absolute.anchor)
+    for component in absolute.parts[1:]:
+        if component in {"", ".", ".."}:
+            raise PendingEnqueueError("INVALID_PENDING_DIRECTORY_PATH")
+        current /= component
+        created = False
+        try:
+            opened = os.lstat(current)
+        except FileNotFoundError:
+            try:
+                os.mkdir(current, mode)
+                created = True
+            except FileExistsError:
+                pass
+            opened = os.lstat(current)
+        if not stat.S_ISDIR(opened.st_mode):
+            raise PendingEnqueueError("UNSAFE_PENDING_DIRECTORY")
+        if created:
+            try:
+                os.chmod(current, mode, follow_symlinks=False)
+            except (NotImplementedError, OSError):
+                if os.name != "nt":
+                    raise
+
+
+def _fsync_fallback_directory(path: Path) -> None:
+    descriptor: int | None = None
+    try:
+        descriptor = os.open(path, _DIRECTORY_OPEN_FLAGS)
+        os.fsync(descriptor)
+    except OSError:
+        if os.name != "nt":
+            raise
+        # Windows does not expose POSIX directory fsync consistently. The
+        # file itself is flushed and no-replace publication is still enforced.
+        _log.warning("PENDING_DIRECTORY_FSYNC_UNAVAILABLE")
+    finally:
+        if descriptor is not None:
+            close_descriptor(descriptor)
+
+
+def _fallback_fchmod_private(descriptor: int) -> None:
+    try:
+        os.fchmod(descriptor, 0o600)
+    except (AttributeError, OSError):
+        if os.name != "nt":
+            raise
+
+
+def _fallback_link_no_replace(source: Path, target: Path) -> None:
+    try:
+        os.link(source, target, follow_symlinks=False)
+    except (TypeError, NotImplementedError):
+        if os.name != "nt":
+            raise
+        # The source is an exclusively-created regular file, so Windows'
+        # hard-link operation remains no-replace without following user input.
+        os.link(source, target)
+
+
+def _read_existing_pending_path_bytes(path: Path) -> bytes:
+    try:
+        before = os.lstat(path)
+        if not stat.S_ISREG(before.st_mode):
+            raise PendingEnqueueError("UNSAFE_EXISTING_PENDING_RECORD")
+        flags = (
+            os.O_RDONLY
+            | getattr(os, "O_BINARY", 0)
+            | getattr(os, "O_CLOEXEC", 0)
+            | getattr(os, "O_NONBLOCK", 0)
+            | getattr(os, "O_NOFOLLOW", 0)
+        )
+        descriptor = os.open(path, flags)
+        try:
+            opened = os.fstat(descriptor)
+            if not stat.S_ISREG(opened.st_mode) or not os.path.samestat(before, opened):
+                raise PendingEnqueueError("UNSAFE_EXISTING_PENDING_RECORD")
+            if os.name == "posix" and stat.S_IMODE(opened.st_mode) != 0o600:
+                raise PendingEnqueueError("UNSAFE_EXISTING_PENDING_RECORD")
+            return _read_bounded_descriptor(descriptor, MAX_PENDING_RECORD_BYTES)
+        finally:
+            close_descriptor(descriptor)
+    except PendingEnqueueError:
+        raise
+    except (OSError, _PendingReadError) as exc:
+        raise PendingEnqueueError("UNSAFE_EXISTING_PENDING_RECORD") from exc
+
+
+def _publish_pending_record_fallback(brain: Path, filename: str, data: bytes) -> Path:
+    _ensure_fallback_directory(brain)
+    directory = brain / "pending"
+    _ensure_fallback_directory(directory)
+    try:
+        os.chmod(directory, 0o700, follow_symlinks=False)
+    except (NotImplementedError, OSError):
+        if os.name != "nt":
+            raise
+    directory_before = os.lstat(directory)
+    temp_path = directory / f".amh-pending-{secrets.token_hex(16)}.tmp"
+    target_path = directory / filename
+    temp_descriptor: int | None = None
+    temp_created = False
+    committed = False
+    try:
+        flags = (
+            os.O_WRONLY
+            | os.O_CREAT
+            | os.O_EXCL
+            | getattr(os, "O_BINARY", 0)
+            | getattr(os, "O_CLOEXEC", 0)
+            | getattr(os, "O_NOFOLLOW", 0)
+        )
+        temp_descriptor = os.open(temp_path, flags, 0o600)
+        temp_created = True
+        _fallback_fchmod_private(temp_descriptor)
+        temp_identity = os.fstat(temp_descriptor)
+        if not stat.S_ISREG(temp_identity.st_mode):
+            raise PendingEnqueueError("UNSAFE_PENDING_TEMP_RECORD")
+        remaining = memoryview(data)
+        while remaining:
+            written = os.write(temp_descriptor, remaining)
+            if written <= 0:
+                raise OSError("PENDING_RECORD_WRITE_FAILED")
+            remaining = remaining[written:]
+        os.fsync(temp_descriptor)
+        try:
+            _fallback_link_no_replace(temp_path, target_path)
+        except FileExistsError as exc:
+            if _read_existing_pending_path_bytes(target_path) != data:
+                raise PendingEnqueueError("PENDING_RECORD_FILENAME_CONFLICT") from exc
+        else:
+            target_identity = os.lstat(target_path)
+            if not stat.S_ISREG(target_identity.st_mode) or not os.path.samestat(
+                temp_identity, target_identity
+            ):
+                raise PendingEnqueueError("PENDING_RECORD_PUBLISH_IDENTITY_MISMATCH")
+        directory_after = os.lstat(directory)
+        if not os.path.samestat(directory_before, directory_after):
+            raise PendingEnqueueError("PENDING_DIRECTORY_CHANGED")
+        _fsync_fallback_directory(directory)
+        committed = True
+    finally:
+        if temp_descriptor is not None:
+            close_descriptor(temp_descriptor)
+        if temp_created:
+            try:
+                os.unlink(temp_path)
+                _fsync_fallback_directory(directory)
+            except FileNotFoundError:
+                pass
+            except OSError:
+                if not committed:
+                    raise
+                _log.warning("PENDING_TEMP_CLEANUP_FAILED")
+    return target_path
 
 
 def _read_existing_pending_bytes(directory_descriptor: int, filename: str) -> bytes:
@@ -267,15 +499,12 @@ def _legacy_record_id(path: Path, record: dict[str, object]) -> str:
     semantic_record = {
         key: value for key, value in record.items() if key not in _LEGACY_BOOKKEEPING_FIELDS
     }
-    seed = (
-        f"{path.name}\n"
-        + json.dumps(
-            semantic_record,
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-            allow_nan=False,
-        )
+    seed = f"{path.name}\n" + json.dumps(
+        semantic_record,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
     )
     return "pending-" + hashlib.sha256(seed.encode("utf-8")).hexdigest()[:24]
 
@@ -327,9 +556,7 @@ def enqueue_write_record(record: dict[str, object]) -> Path:
                 raise PendingEnqueueError("INVALID_PENDING_PAYLOAD") from exc
         record.setdefault("attempt", 0)
     try:
-        data = (
-            json.dumps(record, ensure_ascii=False, allow_nan=False) + "\n"
-        ).encode("utf-8")
+        data = (json.dumps(record, ensure_ascii=False, allow_nan=False) + "\n").encode("utf-8")
     except (ValueError, OverflowError) as exc:
         raise PendingEnqueueError("NON_FINITE_PENDING_PAYLOAD") from exc
     except TypeError as exc:
@@ -373,9 +600,7 @@ class PendingRecordPreview:
     allow_unsafe: bool
     malformed: bool = False
     error: str | None = None
-    _stable_item_id: str | None = dataclass_field(
-        default=None, repr=False, compare=False
-    )
+    _stable_item_id: str | None = dataclass_field(default=None, repr=False, compare=False)
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -488,8 +713,8 @@ class PendingQueue:
         path_snapshot = _pending_record_paths(brain / "pending")
         bounded_limit = max(0, limit)
         scan_cap = max(0, MAX_PENDING_QUEUE_ENTRIES)
-        selected = path_snapshot.paths[: min(bounded_limit, scan_cap)]
-        if not selected:
+        classification_paths = path_snapshot.paths[:scan_cap]
+        if bounded_limit == 0 or not classification_paths:
             return PendingPreview(
                 total=path_snapshot.total,
                 returned=0,
@@ -506,15 +731,27 @@ class PendingQueue:
                 existing_items=existing.items,
                 metadata_trusted=existing.trusted,
             )
-            for path in selected
+            for path in classification_paths
         ]
         records = _reconcile_pending_identity_collisions(records)
+        if path_snapshot.total > scan_cap:
+            records = [
+                replace(
+                    record,
+                    classification="audit_blocked",
+                    reason="PENDING_QUEUE_TRUNCATED",
+                    malformed=False,
+                    error=None,
+                )
+                for record in records
+            ]
+        displayed = records[:bounded_limit]
         return PendingPreview(
             total=path_snapshot.total,
-            returned=len(records),
+            returned=len(displayed),
             limit=bounded_limit,
-            truncated=path_snapshot.total > len(records),
-            records=records,
+            truncated=path_snapshot.total > len(displayed),
+            records=displayed,
             scan_unavailable=path_snapshot.scan_unavailable,
             reason=path_snapshot.reason,
         )
@@ -560,8 +797,9 @@ class PendingQueue:
                     validity=Validity.model_validate(f.get("validity") or {}),
                     source=Source(kind="pending-replay"),
                 )
-                res = svc.write(item=item, body=f.get("body", ""),
-                                allow_unsafe=f.get("allow_unsafe", False))
+                res = svc.write(
+                    item=item, body=f.get("body", ""), allow_unsafe=f.get("allow_unsafe", False)
+                )
                 if res.status == "written":
                     path.unlink()
                     stats.written += 1
@@ -896,9 +1134,7 @@ def _malformed_preview(
         path=str(path),
         record_id=record_id or _malformed_record_id(path, raw),
         enqueued_at=enqueued_at.isoformat() if enqueued_at else None,
-        original_created_at=(
-            original_created_at.isoformat() if original_created_at else None
-        ),
+        original_created_at=(original_created_at.isoformat() if original_created_at else None),
         age_seconds=None,
         payload_sha256=payload_sha256,
         classification="malformed",
@@ -1048,10 +1284,9 @@ def _scope_value(value: object) -> str | None:
 
 
 def _same_scope(first: MemoryItem, second: MemoryItem) -> bool:
-    return (
-        _scope_value(first.project) == _scope_value(second.project)
-        and _scope_value(first.tenant_id) == _scope_value(second.tenant_id)
-    )
+    return _scope_value(first.project) == _scope_value(second.project) and _scope_value(
+        first.tenant_id
+    ) == _scope_value(second.tenant_id)
 
 
 def _same_scope_duplicate_reason(
@@ -1066,10 +1301,7 @@ def _same_scope_duplicate_reason(
     title = item.title.strip().lower()
     summary = item.summary.strip().lower()
     for existing in existing_items:
-        if (
-            _scope_value(existing.project) != project
-            or _scope_value(existing.tenant_id) != tenant
-        ):
+        if _scope_value(existing.project) != project or _scope_value(existing.tenant_id) != tenant:
             continue
         if existing.source.span_hash == payload_sha256:
             return "SAME_SCOPE_PAYLOAD_DUPLICATE"
@@ -1117,9 +1349,7 @@ def _enqueued_at_value(path: Path, record: dict[str, object], *, version: int) -
     match = re.match(r"^(\d{8}T\d{6}Z)-", path.name)
     if match:
         try:
-            return datetime.strptime(match.group(1), "%Y%m%dT%H%M%SZ").replace(
-                tzinfo=timezone.utc
-            )
+            return datetime.strptime(match.group(1), "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
         except ValueError:
             pass
     return None
@@ -1139,7 +1369,10 @@ def _parse_pending_time(value: object, *, field: str) -> tuple[datetime | None, 
         return None, f"INVALID_{field}"
     if parsed.tzinfo is None or parsed.utcoffset() is None:
         return None, f"NAIVE_{field}"
-    return parsed.astimezone(timezone.utc), None
+    try:
+        return parsed.astimezone(timezone.utc), None
+    except (OverflowError, ValueError):
+        return None, f"INVALID_{field}"
 
 
 def _safe_attempt(value: object) -> int:
@@ -1312,11 +1545,12 @@ def _read_bounded_descriptor(descriptor: int, limit: int) -> bytes:
     after = os.fstat(descriptor)
     if len(data) > limit:
         raise _PendingReadError("PENDING_RECORD_TOO_LARGE")
-    if (
-        (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns)
-        != (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns)
-        or len(data) != after.st_size
-    ):
+    if (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns) != (
+        after.st_dev,
+        after.st_ino,
+        after.st_size,
+        after.st_mtime_ns,
+    ) or len(data) != after.st_size:
         raise _PendingReadError("PENDING_RECORD_CHANGED")
     return data
 
@@ -1325,7 +1559,7 @@ def _scan_existing_item_metadata(items_dir: Path) -> _ItemMetadataSnapshot:
     """Read bounded item frontmatter only; never load Markdown bodies."""
 
     if not secure_dir_fd_io_supported():
-        return _ItemMetadataSnapshot(items={}, trusted=False)
+        return _scan_existing_item_metadata_fallback(items_dir)
     root: int | None = None
     stack: list[tuple[int, Iterator[os.DirEntry[str]], int]] = []
     items: dict[str, MemoryItem] = {}
@@ -1389,6 +1623,149 @@ def _scan_existing_item_metadata(items_dir: Path) -> _ItemMetadataSnapshot:
             _close_item_scan_frame(stack.pop())
 
 
+def _verify_fallback_directory_chain(path: Path) -> os.stat_result:
+    absolute = Path(os.path.abspath(os.fspath(path)))
+    current = Path(absolute.anchor)
+    opened = os.lstat(current)
+    if not stat.S_ISDIR(opened.st_mode):
+        raise OSError("trusted path anchor is not a directory")
+    for component in absolute.parts[1:]:
+        if component in {"", ".", ".."}:
+            raise OSError("invalid trusted directory component")
+        current /= component
+        opened = os.lstat(current)
+        if not stat.S_ISDIR(opened.st_mode):
+            raise OSError("trusted path component is not a directory")
+    return opened
+
+
+def _scan_existing_item_metadata_fallback(items_dir: Path) -> _ItemMetadataSnapshot:
+    """Windows-compatible lstat/open/fstat frontmatter-only traversal."""
+
+    items: dict[str, MemoryItem] = {}
+    entry_count = 0
+    bytes_read = 0
+    stack: list[tuple[Path, Iterator[os.DirEntry[str]], int, os.stat_result]] = []
+    try:
+        root_identity = _verify_fallback_directory_chain(items_dir)
+        stack.append((items_dir, os.scandir(items_dir), 0, root_identity))
+    except FileNotFoundError:
+        return _ItemMetadataSnapshot(items={}, trusted=True)
+    except OSError:
+        return _ItemMetadataSnapshot(items={}, trusted=False)
+    try:
+        while stack:
+            directory, entries, depth, identity = stack[-1]
+            try:
+                entry = next(entries)
+            except StopIteration:
+                close = getattr(entries, "close", None)
+                if callable(close):
+                    close()
+                stack.pop()
+                try:
+                    if not os.path.samestat(identity, os.lstat(directory)):
+                        return _ItemMetadataSnapshot(items={}, trusted=False)
+                except OSError:
+                    return _ItemMetadataSnapshot(items={}, trusted=False)
+                continue
+            except OSError:
+                return _ItemMetadataSnapshot(items={}, trusted=False)
+            entry_count += 1
+            if entry_count > MAX_ITEM_METADATA_ENTRIES:
+                return _ItemMetadataSnapshot(items={}, trusted=False)
+            path = directory / entry.name
+            try:
+                opened = entry.stat(follow_symlinks=False)
+                if stat.S_ISLNK(opened.st_mode):
+                    continue
+                if stat.S_ISDIR(opened.st_mode):
+                    if depth >= MAX_ITEM_DIRECTORY_DEPTH:
+                        return _ItemMetadataSnapshot(items={}, trusted=False)
+                    stack.append((path, os.scandir(path), depth + 1, opened))
+                    continue
+                if not stat.S_ISREG(opened.st_mode) or not entry.name.endswith(".md"):
+                    continue
+                item, consumed = _read_item_frontmatter_fallback(path)
+                bytes_read += consumed
+                if bytes_read > MAX_ITEM_METADATA_BYTES or item is None:
+                    return _ItemMetadataSnapshot(items={}, trusted=False)
+                if path.stem != item.id or item.id in items:
+                    return _ItemMetadataSnapshot(items={}, trusted=False)
+                items[item.id] = item
+            except OSError:
+                return _ItemMetadataSnapshot(items={}, trusted=False)
+        return _ItemMetadataSnapshot(items=items, trusted=True)
+    finally:
+        while stack:
+            _directory, entries, _depth, _identity = stack.pop()
+            close = getattr(entries, "close", None)
+            if callable(close):
+                close()
+
+
+def _read_item_frontmatter_fallback(path: Path) -> tuple[MemoryItem | None, int]:
+    consumed = 0
+    descriptor: int | None = None
+    try:
+        before = os.lstat(path)
+        if not stat.S_ISREG(before.st_mode):
+            return None, consumed
+        flags = (
+            os.O_RDONLY
+            | getattr(os, "O_BINARY", 0)
+            | getattr(os, "O_CLOEXEC", 0)
+            | getattr(os, "O_NONBLOCK", 0)
+            | getattr(os, "O_NOFOLLOW", 0)
+        )
+        descriptor = os.open(path, flags)
+        opened = os.fstat(descriptor)
+        if not stat.S_ISREG(opened.st_mode) or not os.path.samestat(before, opened):
+            return None, consumed
+        handle = cast(BinaryIO, os.fdopen(descriptor, "rb", buffering=0))
+        descriptor = None
+        with handle:
+            opening = handle.readline(MAX_ITEM_FRONTMATTER_BYTES + 1)
+            consumed += len(opening)
+            normalized_opening = opening.rstrip(b"\r\n")
+            if normalized_opening.startswith(b"\xef\xbb\xbf"):
+                normalized_opening = normalized_opening[3:]
+            if normalized_opening != b"---":
+                return None, consumed
+            lines: list[bytes] = []
+            while consumed <= MAX_ITEM_FRONTMATTER_BYTES:
+                line = handle.readline(MAX_ITEM_FRONTMATTER_BYTES - consumed + 1)
+                consumed += len(line)
+                if consumed > MAX_ITEM_FRONTMATTER_BYTES or not line:
+                    return None, consumed
+                if line.rstrip(b"\r\n") == b"---":
+                    frontmatter = b"---\n" + b"".join(lines) + b"---\n"
+                    item, _body = parse_item_markdown(frontmatter.decode("utf-8"))
+                    after = os.fstat(handle.fileno())
+                    if (
+                        opened.st_size != after.st_size
+                        or opened.st_mtime_ns != after.st_mtime_ns
+                        or not os.path.samestat(opened, after)
+                    ):
+                        return None, consumed
+                    return item, consumed
+                lines.append(line)
+    except (
+        OSError,
+        UnicodeError,
+        ValueError,
+        TypeError,
+        OverflowError,
+        ValidationError,
+        yaml.YAMLError,
+    ):
+        return None, consumed
+    finally:
+        if descriptor is not None:
+            close_descriptor(descriptor)
+    return None, consumed
+
+
 def _close_item_scan_frame(frame: tuple[int, Iterator[os.DirEntry[str]], int]) -> None:
     directory, entries, _depth = frame
     close = getattr(entries, "close", None)
@@ -1437,9 +1814,7 @@ def _read_item_frontmatter(
 
 
 @contextmanager
-def _open_regular_binary(
-    directory_descriptor: int, filename: str
-) -> Iterator[BinaryIO]:
+def _open_regular_binary(directory_descriptor: int, filename: str) -> Iterator[BinaryIO]:
     descriptor: int | None = open_regular_file_at(directory_descriptor, filename)
     try:
         assert descriptor is not None

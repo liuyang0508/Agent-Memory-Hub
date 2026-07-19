@@ -77,18 +77,14 @@ def _legacy_feedback_record() -> dict[str, object]:
 
 
 def _payload_sha256(record: dict[str, object]) -> str:
-    payload = json.dumps(
-        record["item"], ensure_ascii=False, sort_keys=True, separators=(",", ":")
-    )
+    payload = json.dumps(record["item"], ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def _stable_item_id(record: dict[str, object]) -> str:
     item = record["item"]
     assert isinstance(item, dict)
-    created_at = datetime.fromisoformat(str(record["original_created_at"])).astimezone(
-        timezone.utc
-    )
+    created_at = datetime.fromisoformat(str(record["original_created_at"])).astimezone(timezone.utc)
     title = str(item["title"])
     slug = re.sub(r"[/\\]+", "-", "-".join(title.lower().split()))[:30].strip("-")
     stable = hashlib.sha256(str(record["record_id"]).encode("utf-8")).hexdigest()[:24]
@@ -96,9 +92,7 @@ def _stable_item_id(record: dict[str, object]) -> str:
 
 
 def _freeze_now(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        "agent_brain.memory.store.pending._utc_now", lambda: NOW, raising=False
-    )
+    monkeypatch.setattr("agent_brain.memory.store.pending._utc_now", lambda: NOW, raising=False)
 
 
 def _write_existing_item(
@@ -299,10 +293,161 @@ def test_enqueue_fsync_failure_cleans_unpublished_temp(
     assert list(pending.glob("*.jsonl")) == []
 
 
-@pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf")])
-def test_non_finite_payload_is_rejected_without_creating_files(
-    tmp_brain: Path, bad: float
+def test_first_brain_creation_fsyncs_parent_before_publishing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    brain = tmp_path / "new" / "deep" / "brain"
+    monkeypatch.setenv("BRAIN_DIR", str(brain))
+    original_fsync = os.fsync
+    original_mkdir = os.mkdir
+    directory_fsyncs = 0
+    creation_events: list[str] = []
+
+    def track_mkdir(path: object, *args: object, **kwargs: object) -> None:
+        original_mkdir(path, *args, **kwargs)  # type: ignore[arg-type]
+        creation_events.append("mkdir")
+
+    def fail_first_directory_fsync(descriptor: int) -> None:
+        nonlocal directory_fsyncs
+        if stat.S_ISDIR(os.fstat(descriptor).st_mode):
+            directory_fsyncs += 1
+            creation_events.append("fsync")
+            if directory_fsyncs == 1:
+                raise OSError("simulated parent fsync failure")
+        original_fsync(descriptor)
+
+    monkeypatch.setattr(pending_module.os, "mkdir", track_mkdir)
+    monkeypatch.setattr(pending_module.os, "fsync", fail_first_directory_fsync)
+
+    with pytest.raises(OSError, match="simulated parent fsync failure"):
+        enqueue_write_record(_v2_record())
+
+    assert directory_fsyncs == 1
+    assert creation_events[:2] == ["mkdir", "fsync"]
+    assert list(brain.glob("pending/*.jsonl")) == []
+
+
+def test_committed_record_survives_temp_cleanup_failure(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    original_unlink = os.unlink
+
+    def fail_temp_cleanup(path: object, *args: object, **kwargs: object) -> None:
+        if str(path).startswith(".amh-pending-"):
+            raise OSError("simulated cleanup failure")
+        original_unlink(path, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(pending_module.os, "unlink", fail_temp_cleanup)
+
+    path = enqueue_write_record(_v2_record())
+
+    assert path.is_file()
+    assert json.loads(path.read_text(encoding="utf-8"))["v"] == 2
+    assert list(path.parent.glob(".amh-pending-*.tmp"))
+    assert "PENDING_TEMP_CLEANUP_FAILED" in caplog.text
+
+
+def test_fallback_capability_enqueue_and_preview_are_functional(
+    tmp_brain: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _freeze_now(monkeypatch)
+    monkeypatch.setattr(pending_module, "secure_dir_fd_io_supported", lambda: False)
+
+    path = enqueue_write_record(_v2_record())
+    preview = PendingQueue().preview(limit=1)
+
+    assert path.is_file()
+    assert preview.scan_unavailable is False
+    assert preview.records[0].classification == "ready"
+
+
+def test_fallback_existing_item_scan_remains_trusted(
+    tmp_brain: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _freeze_now(monkeypatch)
+    record = _v2_record()
+    path = enqueue_write_record(record)
+    _write_existing_item(
+        tmp_brain,
+        record,
+        item_id=_stable_item_id(record),
+        span_hash=_payload_sha256(record),
+    )
+    monkeypatch.setattr(pending_module, "secure_dir_fd_io_supported", lambda: False)
+
+    preview = PendingQueue().preview(limit=1)
+
+    assert path.is_file()
+    assert preview.records[0].classification == "already_written"
+
+
+def test_fallback_rejects_pending_directory_symlink(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    brain = tmp_path / "brain"
+    outside = tmp_path / "outside"
+    brain.mkdir()
+    outside.mkdir()
+    (brain / "pending").symlink_to(outside, target_is_directory=True)
+    monkeypatch.setenv("BRAIN_DIR", str(brain))
+    monkeypatch.setattr(pending_module, "secure_dir_fd_io_supported", lambda: False)
+
+    with pytest.raises(PendingEnqueueError):
+        enqueue_write_record(_v2_record())
+
+    preview = PendingQueue().preview(limit=1)
+    assert preview.scan_unavailable is True
+    assert list(outside.iterdir()) == []
+
+
+def test_fallback_rejects_fifo_pending_record(
+    tmp_brain: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    if not hasattr(os, "mkfifo"):
+        pytest.skip("FIFO creation unavailable")
+    monkeypatch.setattr(pending_module, "secure_dir_fd_io_supported", lambda: False)
+    fifo = tmp_brain / "pending" / "fifo.jsonl"
+    fifo.parent.mkdir()
+    os.mkfifo(fifo)
+
+    with pytest.raises(pending_module._PendingReadError, match="NOT_REGULAR"):
+        pending_module._read_pending_record(fifo)
+
+
+def test_fallback_concurrent_same_enqueue_is_idempotent(
+    tmp_brain: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _freeze_now(monkeypatch)
+    fixed = UUID("33333333-3333-4333-8333-333333333333")
+    monkeypatch.setattr(pending_module.uuid, "uuid4", lambda: fixed)
+    monkeypatch.setattr(pending_module, "secure_dir_fd_io_supported", lambda: False)
+    paths: list[Path] = []
+    errors: list[BaseException] = []
+    barrier = threading.Barrier(8)
+
+    def enqueue() -> None:
+        try:
+            barrier.wait()
+            paths.append(enqueue_write_record(_v2_record(record_id=str(fixed))))
+        except BaseException as exc:  # pragma: no cover - asserted below
+            errors.append(exc)
+
+    threads = [threading.Thread(target=enqueue) for _ in range(8)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=5)
+
+    assert errors == []
+    assert len(paths) == 8
+    assert len(set(paths)) == 1
+    assert len(list((tmp_brain / "pending").glob("*.jsonl"))) == 1
+
+
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf")])
+def test_non_finite_payload_is_rejected_without_creating_files(tmp_brain: Path, bad: float) -> None:
     record = _v2_record()
     item = record["item"]
     assert isinstance(item, dict)
@@ -402,7 +547,9 @@ def test_v2_preview_preserves_original_time_and_stable_identity(
     assert first.payload_sha256 == second.payload_sha256 == _payload_sha256(record)
     assert first.original_created_at == "2026-07-01T10:00:00+00:00"
     assert first.enqueued_at == "2026-07-01T11:00:00+00:00"
-    assert first.age_seconds == int((NOW - datetime(2026, 7, 1, 10, tzinfo=timezone.utc)).total_seconds())
+    assert first.age_seconds == int(
+        (NOW - datetime(2026, 7, 1, 10, tzinfo=timezone.utc)).total_seconds()
+    )
     assert first.classification == "ready"
     assert first.reason == "READY"
 
@@ -571,6 +718,7 @@ def test_old_signal_and_handoff_require_review(
     [
         ("original_created_at", "2026-07-01T10:00:00", "NAIVE_ORIGINAL_CREATED_AT"),
         ("original_created_at", "2026-07-21T10:00:00+00:00", "FUTURE_ORIGINAL_CREATED_AT"),
+        ("original_created_at", "0001-01-01T00:00:00+14:00", "INVALID_ORIGINAL_CREATED_AT"),
         ("enqueued_at", "not-a-time", "INVALID_ENQUEUED_AT"),
     ],
 )
@@ -674,9 +822,7 @@ def test_same_record_id_with_different_payload_marks_all_records_conflict(
         "conflict",
         "conflict",
     ]
-    assert {record.reason for record in preview.records} == {
-        "PENDING_RECORD_ID_CONFLICT"
-    }
+    assert {record.reason for record in preview.records} == {"PENDING_RECORD_ID_CONFLICT"}
 
 
 def test_oversized_pending_record_fails_closed_without_reading_it(
@@ -802,7 +948,11 @@ def test_untrusted_existing_item_scan_blocks_ready_classification(
 ) -> None:
     _freeze_now(monkeypatch)
     enqueue_write_record(_v2_record())
-    monkeypatch.setattr(pending_module, "secure_dir_fd_io_supported", lambda: False)
+    monkeypatch.setattr(
+        pending_module,
+        "_scan_existing_item_metadata",
+        lambda *_args, **_kwargs: pending_module._ItemMetadataSnapshot(items={}, trusted=False),
+    )
 
     preview = PendingQueue().preview(limit=10).records[0]
 
@@ -1048,6 +1198,53 @@ def test_preview_limit_and_sort_are_deterministic(
     assert preview.records[0].record_id == "pending-a"
 
 
+def test_preview_limit_does_not_hide_record_id_conflict(
+    tmp_brain: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _freeze_now(monkeypatch)
+    first_record = _v2_record(record_id="shared-record-id")
+    second_record = _v2_record(record_id="shared-record-id")
+    second_item = second_record["item"]
+    assert isinstance(second_item, dict)
+    second_item["body"] = "conflicting body"
+    first = enqueue_write_record(first_record)
+    second = enqueue_write_record(second_record)
+    first.rename(first.parent / "0000-first.jsonl")
+    second.rename(second.parent / "9999-hidden.jsonl")
+
+    preview = PendingQueue().preview(limit=1)
+
+    assert preview.returned == 1
+    assert preview.records[0].classification == "conflict"
+    assert preview.records[0].reason == "PENDING_RECORD_ID_CONFLICT"
+
+
+def test_preview_limit_does_not_hide_stable_id_conflict(
+    tmp_brain: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _freeze_now(monkeypatch)
+    monkeypatch.setattr(
+        pending_module,
+        "_pending_item_id",
+        lambda *_args, **_kwargs: "mem-20260701-100000-forced-stable-id",
+    )
+    first_record = _v2_record(record_id="first-record-id")
+    second_record = _v2_record(record_id="second-record-id")
+    second_item = second_record["item"]
+    assert isinstance(second_item, dict)
+    second_item["body"] = "conflicting body"
+    first = enqueue_write_record(first_record)
+    second = enqueue_write_record(second_record)
+    first.rename(first.parent / "0000-first.jsonl")
+    second.rename(second.parent / "9999-hidden.jsonl")
+
+    preview = PendingQueue().preview(limit=1)
+
+    assert preview.returned == 1
+    assert preview.records[0].classification == "conflict"
+    assert preview.records[0].reason == "PENDING_STABLE_ID_CONFLICT"
+
+
 def test_pending_scan_cap_keeps_cap_plus_one_and_reports_truncation(
     tmp_brain: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1064,6 +1261,8 @@ def test_pending_scan_cap_keeps_cap_plus_one_and_reports_truncation(
     assert preview.returned == 1
     assert preview.truncated is True
     assert preview.records[0].record_id == "pending-a"
+    assert preview.records[0].classification == "audit_blocked"
+    assert preview.records[0].reason == "PENDING_QUEUE_TRUNCATED"
 
 
 def test_existing_item_scan_overflow_blocks_ready_classification(
