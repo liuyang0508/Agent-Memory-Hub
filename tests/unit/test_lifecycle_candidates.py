@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -458,3 +459,280 @@ def test_wrong_type_inputs_fail_at_the_public_type_boundary() -> None:
             items=[object()],
             supersedes_edges=set(),
         )
+
+
+def test_newer_guard_uses_actual_utc_order_across_dst_fold() -> None:
+    from agent_brain.memory.governance.lifecycle_candidates import (
+        rank_supersession_candidates,
+    )
+
+    eastern = ZoneInfo("America/New_York")
+    obsolete = _item(
+        "mem-20261101-013000-fold-zero",
+        created_at=datetime(2026, 11, 1, 1, 30, tzinfo=eastern, fold=0),
+        title="alpha state",
+        summary="pending",
+        locator="pending",
+    )
+    replacement = _item(
+        "mem-20261101-013001-fold-one",
+        created_at=datetime(2026, 11, 1, 1, 30, tzinfo=eastern, fold=1),
+        title="beta state",
+        summary="pending",
+        locator="pending",
+    )
+
+    result = rank_supersession_candidates(
+        obsolete=obsolete,
+        items=[replacement],
+        supersedes_edges=set(),
+    )
+
+    assert [candidate.replacement_id for candidate in result] == [replacement.id]
+
+
+def test_sort_handles_datetime_max_with_negative_offsets_without_overflow() -> None:
+    from agent_brain.memory.governance.lifecycle_candidates import (
+        rank_supersession_candidates,
+    )
+
+    obsolete = _item(
+        "mem-99980101-000000-extreme-obsolete",
+        created_at=datetime(9998, 1, 1, tzinfo=timezone.utc),
+        title="obsolete alpha",
+        summary="pending",
+        locator="pending",
+    )
+    earlier = _item(
+        "mem-99991231-235958-extreme-earlier",
+        created_at=datetime.max.replace(tzinfo=timezone(-timedelta(hours=12))),
+        title="candidate beta",
+        summary="pending",
+        locator="pending",
+    )
+    later = _item(
+        "mem-99991231-235959-extreme-later",
+        created_at=datetime.max.replace(tzinfo=timezone(-timedelta(hours=13))),
+        title="candidate gamma",
+        summary="pending",
+        locator="pending",
+    )
+
+    result = rank_supersession_candidates(
+        obsolete=obsolete,
+        items=[earlier, later],
+        supersedes_edges=set(),
+    )
+
+    assert [candidate.replacement_id for candidate in result] == [later.id, earlier.id]
+
+
+def test_far_future_microseconds_keep_exact_sort_order() -> None:
+    from agent_brain.memory.governance.lifecycle_candidates import (
+        rank_supersession_candidates,
+    )
+
+    obsolete = _item(
+        "mem-99980101-000000-microsecond-obsolete",
+        created_at=datetime(9998, 1, 1, tzinfo=timezone.utc),
+        title="obsolete alpha",
+        summary="pending",
+        locator="pending",
+    )
+    earlier = _item(
+        "mem-99991231-235958-a-microsecond",
+        created_at=datetime(9999, 12, 31, 23, 59, 59, 999998, tzinfo=timezone.utc),
+        title="candidate beta",
+        summary="pending",
+        locator="pending",
+    )
+    later = _item(
+        "mem-99991231-235959-z-microsecond",
+        created_at=datetime(9999, 12, 31, 23, 59, 59, 999999, tzinfo=timezone.utc),
+        title="candidate gamma",
+        summary="pending",
+        locator="pending",
+    )
+
+    result = rank_supersession_candidates(
+        obsolete=obsolete,
+        items=[earlier, later],
+        supersedes_edges=set(),
+    )
+
+    assert [candidate.replacement_id for candidate in result] == [later.id, earlier.id]
+
+
+def test_empty_superseded_by_is_treated_as_active() -> None:
+    from agent_brain.memory.governance.lifecycle_candidates import (
+        rank_supersession_candidates,
+    )
+
+    obsolete = _item("mem-20260719-100000-empty-superseded-obsolete")
+    replacement = _item(
+        "mem-20260719-110000-empty-superseded-replacement",
+        created_at=BASE_TIME + timedelta(hours=1),
+        title="different beta",
+        summary="pending",
+        locator="pending",
+        superseded_by="",
+    )
+
+    result = rank_supersession_candidates(
+        obsolete=obsolete,
+        items=[replacement],
+        supersedes_edges=set(),
+    )
+
+    assert [candidate.replacement_id for candidate in result] == [replacement.id]
+
+
+@pytest.mark.parametrize(
+    ("obsolete_title", "replacement_title"),
+    [
+        ("𠀀𠀁故障", "𠀀𠀁恢复"),
+        ("カタカナ障害", "カタカナ対応"),
+        ("로그인장애", "로그인복구"),
+    ],
+)
+def test_topic_overlap_supports_astral_han_kana_and_hangul(
+    obsolete_title: str,
+    replacement_title: str,
+) -> None:
+    from agent_brain.memory.governance.lifecycle_candidates import (
+        rank_supersession_candidates,
+    )
+
+    obsolete = _item(
+        "mem-20260719-100000-unicode-obsolete",
+        title=obsolete_title,
+        summary="pending",
+        locator="pending",
+    )
+    replacement = _item(
+        "mem-20260719-110000-unicode-replacement",
+        created_at=BASE_TIME + timedelta(hours=1),
+        title=replacement_title,
+        summary="pending",
+        locator="pending",
+    )
+
+    result = rank_supersession_candidates(
+        obsolete=obsolete,
+        items=[replacement],
+        supersedes_edges=set(),
+    )
+
+    assert "TOPIC_OVERLAP" in result[0].evidence_codes
+
+
+def test_topic_tokenization_ignores_title_and_tags_beyond_fixed_bounds() -> None:
+    from agent_brain.memory.governance.lifecycle_candidates import (
+        rank_supersession_candidates,
+    )
+
+    obsolete = _item(
+        "mem-20260719-100000-bounded-topic-obsolete",
+        title=("x" * 512) + " late-title-anchor",
+        tags=[*[f"oldtag-{index}" for index in range(64)], "late-tag-anchor"],
+        summary="pending",
+        locator="pending",
+    )
+    replacement = _item(
+        "mem-20260719-110000-bounded-topic-replacement",
+        created_at=BASE_TIME + timedelta(hours=1),
+        title=("y" * 512) + " late-title-anchor",
+        tags=[*[f"newtag-{index}" for index in range(64)], "late-tag-anchor"],
+        summary="pending",
+        locator="pending",
+    )
+
+    result = rank_supersession_candidates(
+        obsolete=obsolete,
+        items=[replacement],
+        supersedes_edges=set(),
+    )
+
+    assert result[0].evidence_codes == ("NEWER_ITEM",)
+
+
+def test_ranking_keeps_only_a_bounded_top_three_during_scan(monkeypatch) -> None:
+    from agent_brain.memory.governance import lifecycle_candidates as candidate_module
+
+    obsolete = _item(
+        "mem-20260719-100000-bounded-top-obsolete",
+        title="obsolete root",
+        summary="pending",
+        locator="pending",
+    )
+    replacements = [
+        _item(
+            f"mem-20260720-{index:06d}-bounded-top-{index}",
+            created_at=BASE_TIME + timedelta(days=1, seconds=index),
+            title=f"candidate-{index}",
+            summary="pending",
+            locator="pending",
+        )
+        for index in range(100)
+    ]
+    observed_sizes: list[int] = []
+    original = candidate_module._insert_top_three
+
+    def tracked_insert(best, candidate):
+        observed_sizes.append(len(best))
+        result = original(best, candidate)
+        observed_sizes.append(len(best))
+        return result
+
+    monkeypatch.setattr(candidate_module, "_insert_top_three", tracked_insert)
+
+    result = candidate_module.rank_supersession_candidates(
+        obsolete=obsolete,
+        items=replacements,
+        supersedes_edges=set(),
+    )
+
+    assert len(result) == 3
+    assert max(observed_sizes) <= 3
+
+
+def test_ranking_scores_only_the_matching_scope_and_type_bucket(monkeypatch) -> None:
+    from agent_brain.memory.governance import lifecycle_candidates as candidate_module
+
+    obsolete = _item("mem-20260719-100000-scope-index-obsolete")
+    same_scope = [
+        _item(
+            f"mem-20260720-{index:06d}-scope-index-match-{index}",
+            created_at=BASE_TIME + timedelta(days=1, seconds=index),
+            title=f"matching candidate {index}",
+        )
+        for index in range(5)
+    ]
+    unrelated = [
+        _item(
+            f"mem-20260721-{index:06d}-scope-index-other-{index}",
+            created_at=BASE_TIME + timedelta(days=2, seconds=index),
+            project="other-project" if index % 2 == 0 else "agent-memory-hub",
+            tenant_id="tenant-b" if index % 2 else "tenant-a",
+            item_type=MemoryType.fact if index % 3 == 0 else MemoryType.signal,
+        )
+        for index in range(60)
+    ]
+    scored = 0
+    original = candidate_module._score_candidate
+
+    def counted_score(candidate, old, edges):
+        nonlocal scored
+        scored += 1
+        return original(candidate, old, edges)
+
+    ranker = candidate_module.SupersessionCandidateRanker(
+        items=[*same_scope, *unrelated],
+        supersedes_edges=set(),
+    )
+    monkeypatch.setattr(candidate_module, "_score_candidate", counted_score)
+
+    result = ranker.rank(obsolete)
+
+    assert len(result) == 3
+    assert scored == len(same_scope)

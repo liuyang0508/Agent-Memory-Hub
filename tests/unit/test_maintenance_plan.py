@@ -456,3 +456,95 @@ def test_lifecycle_review_queue_uses_frontmatter_supersession_edges() -> None:
     assert row["candidates"][0]["replacement_id"] == replacement.id
     assert row["candidates"][0]["score"] == 1.0
     assert row["candidates"][0]["evidence_codes"][0] == "EXPLICIT_SUPERSEDES_EDGE"
+
+
+def test_lifecycle_review_queue_precomputes_item_metadata_once(monkeypatch) -> None:
+    from agent_brain.memory.governance import lifecycle_candidates as candidate_module
+    from agent_brain.memory.governance.maintenance_plan import build_maintenance_plan
+
+    items = [
+        _lifecycle_item(
+            f"mem-20260719-{index:06d}-precompute-{index}",
+            created_at=BASE_TIME + timedelta(seconds=index),
+            title=f"precompute topic {index}",
+        )
+        for index in range(20)
+    ]
+    report = AutoGovernanceReport(
+        scanned_items=len(items),
+        actions=[
+            AutoGovernanceAction(
+                action="review_archive",
+                risk="review_required",
+                title=f"Review stale signal {index}",
+                reason="stale_signal_older_than_30_days",
+                item_ids=[items[index].id],
+                details={"issue_type": "stale_signal"},
+            )
+            for index in range(5)
+        ],
+    )
+    calls = 0
+    original = candidate_module._build_item_features
+
+    def counted_features(item):
+        nonlocal calls
+        calls += 1
+        return original(item)
+
+    monkeypatch.setattr(candidate_module, "_build_item_features", counted_features)
+
+    plan = build_maintenance_plan(
+        report,
+        items_by_id={item.id: item for item in items},
+    )
+
+    assert len(plan.review_queue) == 5
+    assert calls == len(items)
+
+
+def test_lifecycle_review_queue_does_not_create_empty_frontmatter_edge(
+    monkeypatch,
+) -> None:
+    from agent_brain.memory.governance import maintenance_plan as plan_module
+
+    obsolete = _lifecycle_item(
+        "mem-20260719-100000-empty-edge-obsolete",
+        created_at=BASE_TIME,
+        title="empty edge obsolete",
+        superseded_by="",
+    )
+    replacement = _lifecycle_item(
+        "mem-20260719-110000-empty-edge-replacement",
+        created_at=BASE_TIME + timedelta(hours=1),
+        title="empty edge replacement",
+    )
+    report = AutoGovernanceReport(
+        scanned_items=2,
+        actions=[
+            AutoGovernanceAction(
+                action="review_archive",
+                risk="review_required",
+                title="Review stale signal",
+                reason="stale_signal_older_than_30_days",
+                item_ids=[obsolete.id],
+                details={"issue_type": "stale_signal"},
+            )
+        ],
+    )
+    captured_edges: set[tuple[str, str]] = set()
+    original = plan_module.SupersessionCandidateRanker
+
+    class RecordingRanker(original):
+        def __init__(self, *, items, supersedes_edges):
+            captured_edges.update(supersedes_edges)
+            super().__init__(items=items, supersedes_edges=supersedes_edges)
+
+    monkeypatch.setattr(plan_module, "SupersessionCandidateRanker", RecordingRanker)
+
+    plan_module.build_maintenance_plan(
+        report,
+        items_by_id={obsolete.id: obsolete, replacement.id: replacement},
+    )
+
+    assert ("", obsolete.id) not in captured_edges

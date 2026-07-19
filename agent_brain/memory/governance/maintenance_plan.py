@@ -13,7 +13,7 @@ from agent_brain.memory.governance.auto_governance import (
     AutoGovernanceReport,
 )
 from agent_brain.memory.governance.lifecycle_candidates import (
-    rank_supersession_candidates,
+    SupersessionCandidateRanker,
 )
 
 
@@ -178,7 +178,11 @@ def build_maintenance_plan(
     normalized_edges.update(
         (item.superseded_by, item.id)
         for item in normalized_items.values()
-        if item.superseded_by is not None
+        if item.superseded_by
+    )
+    candidate_ranker = SupersessionCandidateRanker(
+        items=normalized_items.values(),
+        supersedes_edges=normalized_edges,
     )
     return MaintenancePlan(
         scanned_items=report.scanned_items,
@@ -202,7 +206,7 @@ def build_maintenance_plan(
         review_queue=_build_review_queue(
             lanes,
             items_by_id=normalized_items,
-            supersedes_edges=normalized_edges,
+            candidate_ranker=candidate_ranker,
         ),
     )
 
@@ -289,7 +293,7 @@ def _build_review_queue(
     lanes: list[MaintenancePlanLane],
     *,
     items_by_id: Mapping[str, MemoryItem],
-    supersedes_edges: set[tuple[str, str]],
+    candidate_ranker: SupersessionCandidateRanker,
 ) -> list[MaintenanceReviewQueueItem]:
     rows: list[MaintenanceReviewQueueItem] = []
     seen: set[str] = set()
@@ -305,11 +309,7 @@ def _build_review_queue(
                 seen.add(item_id)
                 obsolete = items_by_id.get(item_id)
                 candidates = (
-                    rank_supersession_candidates(
-                        obsolete=obsolete,
-                        items=items_by_id.values(),
-                        supersedes_edges=supersedes_edges,
-                    )
+                    candidate_ranker.rank(obsolete)
                     if obsolete is not None
                     else []
                 )
