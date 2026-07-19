@@ -102,6 +102,13 @@ _CJK_TOPIC_STOPWORDS = (
 )
 _MICROSECONDS_PER_SECOND = 1_000_000
 _SECONDS_PER_DAY = 86_400
+_DENSE_POSTING_MIN_COUNT = 32
+_PY_INT_BASE_BYTES = 24
+_PY_INT_DIGIT_BITS = 30
+_PY_INT_DIGIT_BYTES = 4
+_PY_TUPLE_BASE_BYTES = 40
+_PY_POINTER_BYTES = 8
+_PY_INT_OBJECT_BYTES = 28
 
 _ScopeKey = tuple[str | None, str | None, str]
 _IndexKey = TypeVar("_IndexKey")
@@ -139,6 +146,19 @@ class _ScopeBitmapIndex:
     items: tuple[_ItemFeatures, ...]
     negative_created_keys: tuple[int, ...]
     closure_mask: int
+
+
+@dataclass(frozen=True)
+class _SparsePosting:
+    positions: tuple[int, ...]
+
+
+@dataclass(frozen=True)
+class _DensePosting:
+    mask: int
+
+
+_Posting = _SparsePosting | _DensePosting
 
 
 @dataclass(frozen=True)
@@ -181,49 +201,48 @@ class SupersessionCandidateRanker:
             for position, features in enumerate(scope_index.items)
         }
 
-        explicit: dict[tuple[_ScopeKey, str], int] = {}
-        memory_refs: dict[tuple[_ScopeKey, str], int] = {}
-        source_refs: dict[tuple[_ScopeKey, int, str], int] = {}
-        topic_tokens: dict[tuple[_ScopeKey, str], int] = {}
+        explicit: dict[tuple[_ScopeKey, str], list[int]] = {}
+        memory_refs: dict[tuple[_ScopeKey, str], list[int]] = {}
+        source_refs: dict[tuple[_ScopeKey, int, str], list[int]] = {}
+        topic_tokens: dict[tuple[_ScopeKey, str], list[int]] = {}
         for features in self._features_by_id.values():
             position = positions.get((features.scope_key, features.item_id))
             if position is None:
                 continue
-            bit = 1 << position
             for target_id in features.mem_refs:
-                _add_to_mask_index(
+                _add_to_posting_builder(
                     memory_refs,
                     (features.scope_key, target_id),
-                    bit,
+                    position,
                 )
             for field_index, values in enumerate(features.source_refs):
                 for value in values:
-                    _add_to_mask_index(
+                    _add_to_posting_builder(
                         source_refs,
                         (features.scope_key, field_index, value),
-                        bit,
+                        position,
                     )
             for token in features.topic_tokens:
-                _add_to_mask_index(
+                _add_to_posting_builder(
                     topic_tokens,
                     (features.scope_key, token),
-                    bit,
+                    position,
                 )
         for source_id, target_id in self._supersedes_edges:
             source = self._features_by_id.get(source_id)
             if source is not None:
                 position = positions.get((source.scope_key, source.item_id))
                 if position is not None:
-                    _add_to_mask_index(
+                    _add_to_posting_builder(
                         explicit,
                         (source.scope_key, target_id),
-                        1 << position,
+                        position,
                     )
 
-        self._explicit_index = explicit
-        self._memory_ref_index = memory_refs
-        self._source_ref_index = source_refs
-        self._topic_index = topic_tokens
+        self._explicit_index = _freeze_posting_index(explicit)
+        self._memory_ref_index = _freeze_posting_index(memory_refs)
+        self._source_ref_index = _freeze_posting_index(source_refs)
+        self._topic_index = _freeze_posting_index(topic_tokens)
 
     def rank(self, obsolete: MemoryItem) -> list[SupersessionCandidate]:
         """Return a bounded Top-3 without materializing all scored candidates."""
@@ -246,21 +265,21 @@ class SupersessionCandidateRanker:
             return []
 
         direct_key = (obsolete_features.scope_key, obsolete_features.item_id)
-        explicit_mask = self._explicit_index.get(direct_key, 0) & newer_mask
-        memory_mask = self._memory_ref_index.get(direct_key, 0) & newer_mask
+        explicit_mask = _posting_mask(self._explicit_index.get(direct_key)) & newer_mask
+        memory_mask = _posting_mask(self._memory_ref_index.get(direct_key)) & newer_mask
         source_mask = 0
         for field_index, values in enumerate(obsolete_features.source_refs):
             for value in values:
-                source_mask |= self._source_ref_index.get(
-                    (obsolete_features.scope_key, field_index, value),
-                    0,
+                source_mask |= _posting_mask(
+                    self._source_ref_index.get(
+                        (obsolete_features.scope_key, field_index, value)
+                    )
                 )
         source_mask &= newer_mask
         topic_mask = 0
         for token in obsolete_features.topic_tokens:
-            topic_mask |= self._topic_index.get(
-                (obsolete_features.scope_key, token),
-                0,
+            topic_mask |= _posting_mask(
+                self._topic_index.get((obsolete_features.scope_key, token))
             )
         topic_mask &= newer_mask
         closure_mask = scope_index.closure_mask & newer_mask
@@ -300,12 +319,47 @@ class SupersessionCandidateRanker:
         return [candidate.result for candidate in best]
 
 
-def _add_to_mask_index(
-    index: dict[_IndexKey, int],
+def _add_to_posting_builder(
+    index: dict[_IndexKey, list[int]],
     key: _IndexKey,
-    bit: int,
+    position: int,
 ) -> None:
-    index[key] = index.get(key, 0) | bit
+    index.setdefault(key, []).append(position)
+
+
+def _freeze_posting_index(
+    index: dict[_IndexKey, list[int]],
+) -> dict[_IndexKey, _Posting]:
+    return {key: _freeze_posting(positions) for key, positions in index.items()}
+
+
+def _freeze_posting(positions: list[int]) -> _Posting:
+    ordered = tuple(sorted(set(positions)))
+    if len(ordered) < _DENSE_POSTING_MIN_COUNT:
+        return _SparsePosting(ordered)
+    max_position = ordered[-1]
+    dense_digits = ((max_position + 1) + _PY_INT_DIGIT_BITS - 1) // _PY_INT_DIGIT_BITS
+    dense_bytes = _PY_INT_BASE_BYTES + (dense_digits * _PY_INT_DIGIT_BYTES)
+    sparse_bytes = _PY_TUPLE_BASE_BYTES + len(ordered) * (
+        _PY_POINTER_BYTES + _PY_INT_OBJECT_BYTES
+    )
+    if dense_bytes > sparse_bytes:
+        return _SparsePosting(ordered)
+    mask = 0
+    for position in ordered:
+        mask |= 1 << position
+    return _DensePosting(mask)
+
+
+def _posting_mask(posting: _Posting | None) -> int:
+    if posting is None:
+        return 0
+    if isinstance(posting, _DensePosting):
+        return posting.mask
+    mask = 0
+    for position in posting.positions:
+        mask |= 1 << position
+    return mask
 
 
 def _build_scope_bitmap_indices(

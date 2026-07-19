@@ -996,3 +996,40 @@ def test_bitmap_query_matches_naive_oracle_for_random_evidence_combinations() ->
         naive.sort(key=lambda row: (-row[0].score, -row[1], row[0].replacement_id))
 
         assert ranker_result == [row[0] for row in naive[:3]]
+
+
+def test_posting_storage_is_sparse_for_unique_tokens_and_dense_for_common_token() -> None:
+    from agent_brain.memory.governance import lifecycle_candidates as candidate_module
+
+    items = [
+        _item(
+            f"mem-20260720-{index:06d}-hybrid-posting-{index}",
+            created_at=BASE_TIME + timedelta(days=1, seconds=index),
+            title=f"unique-token-{index} common-anchor",
+            summary="pending",
+            locator="pending",
+        )
+        for index in range(5000)
+    ]
+    ranker = candidate_module.SupersessionCandidateRanker(
+        items=items,
+        supersedes_edges=set(),
+    )
+    unique_postings = [
+        posting
+        for (_scope, token), posting in ranker._topic_index.items()
+        if token.startswith("unique-token-")
+    ]
+    common_posting = next(
+        posting
+        for (_scope, token), posting in ranker._topic_index.items()
+        if token == "common-anchor"
+    )
+
+    assert len(unique_postings) == len(items)
+    assert all(
+        isinstance(posting, candidate_module._SparsePosting)
+        for posting in unique_postings
+    )
+    assert sum(len(posting.positions) for posting in unique_postings) == len(items)
+    assert isinstance(common_posting, candidate_module._DensePosting)
