@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import stat
 import tempfile
 import uuid
 from collections.abc import Iterator
@@ -15,16 +16,41 @@ from agent_brain.contracts.memory_item import MemoryItem, is_valid_memory_item_i
 
 
 def _atomic_write_bytes(path: Path, data: bytes) -> None:
+    target_stat = path.lstat()
+    if not stat.S_ISREG(target_stat.st_mode):
+        raise OSError("UNSAFE_ATOMIC_WRITE_TARGET")
+    original_mode = stat.S_IMODE(target_stat.st_mode)
     fd, temp_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
     temp_path = Path(temp_name)
     try:
-        with os.fdopen(fd, "wb") as handle:
+        os.fchmod(fd, original_mode)
+        handle = os.fdopen(fd, "wb")
+        fd = -1
+        with handle:
             handle.write(data)
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(temp_path, path)
+        _fsync_directory(path.parent)
     finally:
+        if fd >= 0:
+            os.close(fd)
         temp_path.unlink(missing_ok=True)
+
+
+def _fsync_directory(path: Path) -> None:
+    """Durably persist directory entry changes or fail explicitly."""
+    no_follow = getattr(os, "O_NOFOLLOW", None)
+    if os.name == "nt" or no_follow is None:
+        raise OSError("DIRECTORY_FSYNC_UNSUPPORTED")
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | no_follow
+    descriptor = os.open(path, flags)
+    try:
+        if not stat.S_ISDIR(os.fstat(descriptor).st_mode):
+            raise OSError("DIRECTORY_FSYNC_UNSUPPORTED")
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
 
 
 def _atomic_write_text(path: Path, text: str) -> None:

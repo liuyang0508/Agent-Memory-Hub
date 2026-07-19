@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import logging
-import os
-import subprocess
 from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
@@ -19,8 +17,11 @@ from agent_brain.memory.governance.lifecycle_ledger import (
     latest_applied_supersession_record,
     lifecycle_transaction_lock,
 )
+from agent_brain.memory.governance.lifecycle_snapshot import (
+    LifecycleSnapshotError,
+    LifecycleSnapshotStore,
+)
 from agent_brain.memory.store.items_store import ItemsStore
-from agent_brain.platform.history import BrainHistory
 
 SupersessionStatus = Literal[
     "ready", "blocked", "already_applied", "applied", "reverted"
@@ -28,12 +29,6 @@ SupersessionStatus = Literal[
 _ItemLoadStatus = Literal["ok", "missing", "invalid"]
 
 _log = logging.getLogger(__name__)
-_LIFECYCLE_HISTORY_EXCLUDES = (
-    "/runtime/lifecycle-actions.jsonl",
-    "/runtime/.lifecycle-ledger.lock",
-    "/runtime/.lifecycle-transaction.lock",
-)
-
 _ITEM_READ_ERRORS = (
     OSError,
     ValueError,
@@ -71,6 +66,9 @@ class SupersessionService:
         self.brain_dir = Path(brain_dir)
         self.store = store
         self.index = index
+        self.snapshot_store = LifecycleSnapshotStore(
+            self.brain_dir, self.store.items_dir
+        )
 
     def preview(self, replacement_id: str, obsolete_id: str) -> SupersessionResult:
         return self._preview_current(replacement_id, obsolete_id)
@@ -98,9 +96,18 @@ class SupersessionService:
             replacement_ref_preexisted = obsolete.id in replacement.refs.mems
             old_bytes = self._item_path(obsolete.id).read_bytes()
             new_bytes = self._item_path(replacement.id).read_bytes()
-            snapshot = self._snapshot(
-                f"pre-supersession {replacement.id} -> {obsolete.id}"
-            )
+            try:
+                snapshot = self._snapshot(
+                    obsolete.id, old_bytes, replacement.id, new_bytes
+                )
+            except LifecycleSnapshotError:
+                return SupersessionResult(
+                    "blocked",
+                    "SNAPSHOT_FAILED",
+                    replacement.id,
+                    obsolete.id,
+                    dry_run=False,
+                )
 
             try:
                 self.store.update_frontmatter(
@@ -217,9 +224,18 @@ class SupersessionService:
             )
             old_bytes = self._item_path(obsolete.id).read_bytes()
             new_bytes = self._item_path(replacement.id).read_bytes()
-            snapshot = self._snapshot(
-                f"pre-revert-supersession {replacement.id} -> {obsolete.id}"
-            )
+            try:
+                snapshot = self._snapshot(
+                    obsolete.id, old_bytes, replacement.id, new_bytes
+                )
+            except LifecycleSnapshotError:
+                return SupersessionResult(
+                    "blocked",
+                    "SNAPSHOT_FAILED",
+                    replacement.id,
+                    obsolete.id,
+                    dry_run=False,
+                )
 
             try:
                 self.store.update_frontmatter(obsolete.id, superseded_by=None)
@@ -406,31 +422,19 @@ class SupersessionService:
             raise ValueError("invalid memory item id")
         return self.store.items_dir / f"{item_id}.md"
 
-    def _snapshot(self, message: str) -> str | None:
-        history = BrainHistory(self.brain_dir)
-        exclude_path = self.brain_dir / ".git" / "info" / "exclude"
-        exclude_path.parent.mkdir(parents=True, exist_ok=True)
-        existing = (
-            exclude_path.read_text(encoding="utf-8")
-            if exclude_path.is_file()
-            else ""
+    def _snapshot(
+        self,
+        obsolete_id: str,
+        obsolete_bytes: bytes,
+        replacement_id: str,
+        replacement_bytes: bytes,
+    ) -> str:
+        return self.snapshot_store.snapshot_pair(
+            obsolete_id,
+            obsolete_bytes,
+            replacement_id,
+            replacement_bytes,
         )
-        missing = [
-            pattern
-            for pattern in _LIFECYCLE_HISTORY_EXCLUDES
-            if pattern not in existing.splitlines()
-        ]
-        if missing:
-            prefix = "" if not existing or existing.endswith("\n") else "\n"
-            with exclude_path.open("a", encoding="utf-8") as handle:
-                handle.write(prefix + "\n".join(missing) + "\n")
-                handle.flush()
-                os.fsync(handle.fileno())
-        snapshot = history.snapshot(message)
-        if snapshot is not None:
-            return snapshot
-        latest = history.log(limit=1)
-        return latest[0]["sha"] if latest else None
 
     def _restore_pair(
         self,
@@ -471,41 +475,7 @@ class SupersessionService:
         obsolete_id: str,
         replacement_id: str,
     ) -> None:
-        brain_root = self.brain_dir.resolve()
-        expected_items_dir = (brain_root / "items").resolve()
-        actual_items_dir = self.store.items_dir.resolve()
-        if actual_items_dir != expected_items_dir:
-            raise RollbackFailedError("ROLLBACK_FAILED")
-
-        relative_paths: list[str] = []
-        for item_id in (obsolete_id, replacement_id):
-            if not is_valid_memory_item_id(item_id):
-                raise RollbackFailedError("ROLLBACK_FAILED")
-            resolved_path = (actual_items_dir / f"{item_id}.md").resolve()
-            if resolved_path.parent != expected_items_dir:
-                raise RollbackFailedError("ROLLBACK_FAILED")
-            try:
-                relative_path = resolved_path.relative_to(brain_root)
-            except ValueError as error:
-                raise RollbackFailedError("ROLLBACK_FAILED") from error
-            relative_paths.append(str(relative_path))
-
-        process = subprocess.run(
-            [
-                "git",
-                "--literal-pathspecs",
-                "-C",
-                str(brain_root),
-                "checkout",
-                snapshot,
-                "--",
-                *relative_paths,
-            ],
-            capture_output=True,
-            text=True,
-        )
-        if process.returncode != 0:
-            raise RollbackFailedError("ROLLBACK_FAILED")
+        self.snapshot_store.restore_pair(snapshot, obsolete_id, replacement_id)
 
     def _pair_matches(
         self,
@@ -602,7 +572,7 @@ class SupersessionService:
                 snapshot,
                 replacement_ref_preexisted,
             )
-        except BaseException:
+        except Exception:
             _log.warning("LIFECYCLE_LEDGER_WRITE_FAILED")
 
     def _sync_index(self, replacement_id: str, obsolete_id: str) -> bool:

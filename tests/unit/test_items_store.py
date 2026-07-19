@@ -1,6 +1,10 @@
 from datetime import datetime
 import logging
+import os
 from pathlib import Path
+import stat
+
+import pytest
 
 from agent_brain.contracts.memory_item import MemoryItem, MemoryType
 
@@ -100,3 +104,81 @@ def test_iter_all_records_bad_items_without_warning_noise(tmp_brain_dir: Path, c
         record for record in caplog.records
         if record.name == "agent_brain.memory.store.items_store" and record.levelno >= logging.WARNING
     ]
+
+
+def test_atomic_updates_and_rollback_preserve_existing_posix_mode(
+    tmp_brain_dir: Path,
+) -> None:
+    from agent_brain.memory.store.items_store import ItemsStore
+
+    store = ItemsStore(items_dir=tmp_brain_dir / "items")
+    item = MemoryItem(
+        id="mem-20260719-120000-mode-preserved",
+        type=MemoryType.fact,
+        created_at=datetime.fromisoformat("2026-07-19T12:00:00+00:00"),
+        title="mode",
+        summary="before",
+    )
+    path = store.write(item, "body")
+    path.chmod(0o640)
+    original = path.read_bytes()
+
+    store.update_frontmatter(item.id, summary="after")
+    assert stat.S_IMODE(path.stat().st_mode) == 0o640
+
+    store.restore_raw(item.id, original)
+    assert stat.S_IMODE(path.stat().st_mode) == 0o640
+    assert path.read_bytes() == original
+
+
+@pytest.mark.parametrize("kind", ["symlink", "fifo"])
+def test_atomic_write_rejects_symlink_and_nonregular_targets(
+    tmp_path: Path, kind: str
+) -> None:
+    from agent_brain.memory.store.items_store import _atomic_write_bytes
+
+    target = tmp_path / "target.md"
+    sentinel = tmp_path / "outside.md"
+    sentinel.write_bytes(b"outside")
+    if kind == "symlink":
+        target.symlink_to(sentinel)
+    else:
+        os.mkfifo(target)
+
+    with pytest.raises(OSError, match="UNSAFE_ATOMIC_WRITE_TARGET"):
+        _atomic_write_bytes(target, b"replacement")
+
+    assert sentinel.read_bytes() == b"outside"
+    if kind == "symlink":
+        assert stat.S_ISLNK(target.lstat().st_mode)
+    else:
+        assert stat.S_ISFIFO(target.lstat().st_mode)
+
+
+def test_atomic_replace_fsyncs_parent_directory_after_replace(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from agent_brain.memory.store.items_store import _atomic_write_bytes
+
+    target = tmp_path / "target.md"
+    target.write_bytes(b"before")
+    events: list[str] = []
+    real_replace = os.replace
+    real_fsync = os.fsync
+
+    def tracking_replace(source, destination):
+        real_replace(source, destination)
+        events.append("replace")
+
+    def tracking_fsync(fd):
+        if stat.S_ISDIR(os.fstat(fd).st_mode):
+            events.append("directory-fsync")
+        return real_fsync(fd)
+
+    monkeypatch.setattr(os, "replace", tracking_replace)
+    monkeypatch.setattr(os, "fsync", tracking_fsync)
+
+    _atomic_write_bytes(target, b"after")
+
+    assert target.read_bytes() == b"after"
+    assert events[-2:] == ["replace", "directory-fsync"]

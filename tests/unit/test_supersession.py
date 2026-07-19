@@ -13,6 +13,7 @@ from agent_brain.memory.governance.lifecycle_ledger import (
     LifecycleLedgerRecord,
     append_lifecycle_record,
 )
+from agent_brain.memory.governance.lifecycle_snapshot import LifecycleSnapshotError
 from agent_brain.memory.governance.supersession import SupersessionService
 from agent_brain.memory.store.items_store import ItemsStore
 from agent_brain.platform.history import BrainHistory
@@ -656,7 +657,7 @@ def test_apply_is_idempotent_and_revert_restores_only_transaction_added_ref(
     assert len(ledger_lines) == 2
 
 
-def test_lifecycle_runtime_is_not_tracked_or_rewound_by_brain_history(
+def test_lifecycle_snapshot_does_not_create_or_use_outer_brain_history(
     tmp_brain_dir,
 ):
     store, old, new = _seed_pair(tmp_brain_dir)
@@ -666,17 +667,9 @@ def test_lifecycle_runtime_is_not_tracked_or_rewound_by_brain_history(
     assert applied.snapshot is not None
     assert service.revert(new.id, old.id, apply=True).status == "reverted"
     ledger_path = tmp_brain_dir / "runtime" / "lifecycle-actions.jsonl"
-    ledger_before_restore = ledger_path.read_bytes()
-    tracked = subprocess.run(
-        ["git", "-C", str(tmp_brain_dir), "ls-files"],
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout.splitlines()
-
-    assert not any(path.startswith("runtime/") for path in tracked)
-    BrainHistory(tmp_brain_dir).restore(applied.snapshot)
-    assert ledger_path.read_bytes() == ledger_before_restore
+    assert ledger_path.read_bytes()
+    assert not (tmp_brain_dir / ".git").exists()
+    assert (tmp_brain_dir / "runtime" / "lifecycle-history.git").is_dir()
 
 
 def test_revert_preserves_reference_that_preexisted_supersession(tmp_brain_dir):
@@ -831,6 +824,90 @@ def test_apply_revalidates_current_markdown_after_earlier_preview(
     assert not (tmp_brain_dir / "runtime" / "lifecycle-actions.jsonl").exists()
 
 
+def test_apply_snapshot_failure_is_closed_before_markdown_ledger_or_index(
+    tmp_brain_dir, monkeypatch
+):
+    store, old, new = _seed_pair(tmp_brain_dir)
+    old_path = store.items_dir / f"{old.id}.md"
+    new_path = store.items_dir / f"{new.id}.md"
+    before = (old_path.read_bytes(), new_path.read_bytes())
+
+    class RecordingIndex:
+        calls = []
+
+        def upsert(self, *args, **kwargs):
+            self.calls.append((args, kwargs))
+
+    service = SupersessionService(tmp_brain_dir, store, index=RecordingIndex())
+    monkeypatch.setattr(
+        service.snapshot_store,
+        "snapshot_pair",
+        lambda *_args: (_ for _ in ()).throw(LifecycleSnapshotError("SNAPSHOT_FAILED")),
+    )
+
+    result = service.apply(new.id, old.id, apply=True)
+
+    assert result.status == "blocked"
+    assert result.reason == "SNAPSHOT_FAILED"
+    assert result.dry_run is False
+    assert (old_path.read_bytes(), new_path.read_bytes()) == before
+    assert not (tmp_brain_dir / "runtime" / "lifecycle-actions.jsonl").exists()
+    assert service.index.calls == []
+
+
+def test_apply_snapshot_rejects_store_outside_canonical_brain_items(
+    tmp_brain_dir,
+):
+    external_items = tmp_brain_dir / "other-items"
+    store = ItemsStore(external_items)
+    old = _item("mem-20260719-100000-external-store-old")
+    new = _item("mem-20260719-110000-external-store-new")
+    store.write(old, "old body")
+    store.write(new, "new body")
+    before = {
+        path.name: path.read_bytes() for path in external_items.glob("*.md")
+    }
+
+    result = SupersessionService(tmp_brain_dir, store).apply(
+        new.id, old.id, apply=True
+    )
+
+    assert result.status == "blocked"
+    assert result.reason == "SNAPSHOT_FAILED"
+    assert {
+        path.name: path.read_bytes() for path in external_items.glob("*.md")
+    } == before
+    assert not (tmp_brain_dir / "runtime" / "lifecycle-actions.jsonl").exists()
+
+
+def test_revert_snapshot_failure_is_closed_before_markdown_ledger_or_index(
+    tmp_brain_dir, monkeypatch
+):
+    store, old, new = _seed_pair(tmp_brain_dir)
+    service = SupersessionService(tmp_brain_dir, store)
+    assert service.apply(new.id, old.id, apply=True).status == "applied"
+    old_path = store.items_dir / f"{old.id}.md"
+    new_path = store.items_dir / f"{new.id}.md"
+    ledger_path = tmp_brain_dir / "runtime" / "lifecycle-actions.jsonl"
+    before = (old_path.read_bytes(), new_path.read_bytes(), ledger_path.read_bytes())
+    monkeypatch.setattr(
+        service.snapshot_store,
+        "snapshot_pair",
+        lambda *_args: (_ for _ in ()).throw(LifecycleSnapshotError("SNAPSHOT_FAILED")),
+    )
+
+    result = service.revert(new.id, old.id, apply=True)
+
+    assert result.status == "blocked"
+    assert result.reason == "SNAPSHOT_FAILED"
+    assert result.dry_run is False
+    assert (
+        old_path.read_bytes(),
+        new_path.read_bytes(),
+        ledger_path.read_bytes(),
+    ) == before
+
+
 def test_apply_rolls_back_both_markdown_files_when_second_update_fails(
     tmp_brain_dir, monkeypatch
 ):
@@ -923,12 +1000,18 @@ def test_apply_uses_snapshot_fallback_when_raw_pair_restore_fails(
     assert new_path.read_bytes() == new_before
 
 
-def test_apply_uses_existing_head_when_pretransaction_snapshot_is_clean(
+def test_apply_private_snapshot_does_not_reuse_or_move_existing_outer_head(
     tmp_brain_dir, monkeypatch
 ):
     store, old, new = _seed_pair(tmp_brain_dir)
     baseline = BrainHistory(tmp_brain_dir).snapshot("baseline")
     assert baseline is not None
+    outer_diff_before = subprocess.run(
+        ["git", "-C", str(tmp_brain_dir), "diff", "--binary"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
     old_path = store.items_dir / f"{old.id}.md"
     new_path = store.items_dir / f"{new.id}.md"
     old_before = old_path.read_bytes()
@@ -949,7 +1032,15 @@ def test_apply_uses_existing_head_when_pretransaction_snapshot_is_clean(
 
     assert result.status == "blocked"
     assert result.reason == "MARKDOWN_UPDATE_FAILED"
-    assert result.snapshot == baseline
+    assert result.snapshot is not None
+    assert BrainHistory(tmp_brain_dir).log(limit=1)[0]["sha"] == baseline
+    outer_diff_after = subprocess.run(
+        ["git", "-C", str(tmp_brain_dir), "diff", "--binary"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    assert outer_diff_after == outer_diff_before
     assert old_path.read_bytes() == old_before
     assert new_path.read_bytes() == new_before
 
@@ -1046,6 +1137,28 @@ def test_apply_reports_rollback_failed_when_raw_and_snapshot_restore_fail(
     )
     assert "ROLLBACK_FAILED" in ledger
     assert "injected" not in ledger
+
+
+def test_blocked_audit_best_effort_does_not_swallow_control_exception(
+    tmp_brain_dir, monkeypatch
+):
+    store, old, new = _seed_pair(tmp_brain_dir)
+    service = SupersessionService(tmp_brain_dir, store)
+
+    def interrupt_record(*_args, **_kwargs):
+        raise KeyboardInterrupt("control flow")
+
+    monkeypatch.setattr(service, "_record", interrupt_record)
+
+    with pytest.raises(KeyboardInterrupt, match="control flow"):
+        service._record_blocked_best_effort(
+            "supersede",
+            "ROLLBACK_FAILED",
+            old.id,
+            new.id,
+            "a" * 40,
+            False,
+        )
 
 
 def test_apply_markdown_control_exception_survives_failed_rollback(
@@ -1165,29 +1278,15 @@ def test_selective_snapshot_restore_treats_canonical_id_as_literal_pathspec(
     store.write(new, "new body")
     store.write(third, "third body")
     old_path = store.items_dir / f"{old.id}.md"
-    real_run = subprocess.run
-    checkout_commands = []
-
     def fail_after_third_item_update(_source_id, _target_id):
         store.update_frontmatter(third.id, summary="third must remain updated")
         raise OSError("injected markdown failure")
 
     def fail_raw_restore(item_id, _data):
-        if item_id == old.id:
-            old_path.unlink()
         raise OSError("injected raw rollback failure")
-
-    def tracking_run(command, *args, **kwargs):
-        if isinstance(command, list) and "checkout" in command:
-            checkout_commands.append(command)
-        return real_run(command, *args, **kwargs)
 
     monkeypatch.setattr(store, "link_mem", fail_after_third_item_update)
     monkeypatch.setattr(store, "restore_raw", fail_raw_restore)
-    monkeypatch.setattr(
-        "agent_brain.memory.governance.supersession.subprocess.run",
-        tracking_run,
-    )
 
     result = SupersessionService(tmp_brain_dir, store).apply(
         new.id, old.id, apply=True
@@ -1196,8 +1295,7 @@ def test_selective_snapshot_restore_treats_canonical_id_as_literal_pathspec(
     assert result.status == "blocked"
     assert result.reason == "MARKDOWN_UPDATE_FAILED"
     assert store.get(third.id)[0].summary == "third must remain updated"
-    assert checkout_commands
-    assert "--literal-pathspecs" in checkout_commands[-1]
+    assert store.get(old.id)[0].superseded_by is None
 
 
 def test_append_lifecycle_record_restores_original_bytes_when_fsync_fails(
