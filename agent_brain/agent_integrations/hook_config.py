@@ -1,6 +1,7 @@
 """Shared JSON and hook-command helpers for hook-based adapters."""
 from __future__ import annotations
 
+from collections.abc import Collection
 import json
 import shlex
 from pathlib import Path
@@ -78,6 +79,90 @@ def command_references_hub_hook_script(command: str, script_name: str) -> bool:
         for token in command_tokens(command)
         for suffix in suffixes
     )
+
+
+def _strip_managed_handlers(
+    entries: list,
+    *,
+    managed_script_names: Collection[str],
+) -> tuple[list, int, int | None]:
+    """Return entries without recognized AMH handlers and their first slot."""
+    rebuilt: list = []
+    removed = 0
+    first_managed_slot: int | None = None
+    for entry in entries:
+        if not isinstance(entry, dict) or not isinstance(entry.get("hooks"), list):
+            rebuilt.append(entry)
+            continue
+        filtered: list = []
+        entry_removed = 0
+        for hook in entry["hooks"]:
+            command = str(hook.get("command", "")) if isinstance(hook, dict) else ""
+            owned = isinstance(hook, dict) and any(
+                command_references_hub_hook_script(command, name)
+                for name in managed_script_names
+            )
+            if owned:
+                entry_removed += 1
+                removed += 1
+            else:
+                filtered.append(hook)
+        if entry_removed and first_managed_slot is None:
+            first_managed_slot = len(rebuilt)
+        if entry_removed == 0:
+            rebuilt.append(entry)
+        elif filtered:
+            updated = dict(entry)
+            updated["hooks"] = filtered
+            rebuilt.append(updated)
+    return rebuilt, removed, first_managed_slot
+
+
+def remove_managed_hub_hook_handlers(
+    entries: list,
+    *,
+    managed_script_names: Collection[str],
+) -> int:
+    """Remove recognized AMH handlers while preserving foreign configuration."""
+    rebuilt, removed, _slot = _strip_managed_handlers(
+        entries,
+        managed_script_names=managed_script_names,
+    )
+    if rebuilt != entries:
+        entries[:] = rebuilt
+    return removed
+
+
+def reconcile_managed_hub_hook_event(
+    entries: list,
+    *,
+    expected_script_path: str,
+    expected_command: str,
+    managed_script_names: Collection[str],
+    place_first: bool,
+) -> bool:
+    """Converge an event to one canonical AMH handler without moving foreign ones."""
+    expected_name = Path(expected_script_path).name
+    if expected_name not in managed_script_names:
+        raise ValueError(f"expected script is not managed: {expected_name}")
+    original = list(entries)
+    rebuilt, _removed, first_slot = _strip_managed_handlers(
+        entries,
+        managed_script_names=managed_script_names,
+    )
+    canonical = {
+        "matcher": "",
+        "hooks": [{"type": "command", "command": expected_command}],
+    }
+    position = 0 if place_first else min(
+        first_slot if first_slot is not None else len(rebuilt),
+        len(rebuilt),
+    )
+    rebuilt.insert(position, canonical)
+    if rebuilt == original:
+        return False
+    entries[:] = rebuilt
+    return True
 
 
 def prune_duplicate_hub_hook_handlers(
@@ -249,5 +334,7 @@ __all__ = [
     "POSIX_PATH_EXPANSION",
     "prune_duplicate_hub_hook_handlers",
     "read_json_config",
+    "reconcile_managed_hub_hook_event",
+    "remove_managed_hub_hook_handlers",
     "update_hook_command",
 ]

@@ -527,8 +527,8 @@ Run:
 ```bash
 /Users/liuyang/Desktop/AIAgent/agent-memory-hub/.venv/bin/python -m pytest \
   tests/unit/test_hook_config.py \
-  tests/unit/test_adapters.py::TestClaudeCodeAdapter \
-  tests/unit/test_adapters.py::TestCodexAdapter -q
+  tests/unit/test_adapters.py::TestClaudeCodeAdapterRealInstall \
+  tests/unit/test_adapters.py::TestCodexAdapterRealInstall -q
 ```
 
 Expected: new low-level tests pass and existing Codex/Claude contracts remain green.
