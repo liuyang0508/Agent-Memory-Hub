@@ -882,6 +882,10 @@ def test_apply_rolls_back_markdown_before_reraising_keyboard_interrupt(
 
     assert old_path.read_bytes() == old_before
     assert new_path.read_bytes() == new_before
+    ledger = (tmp_brain_dir / "runtime" / "lifecycle-actions.jsonl").read_text(
+        encoding="utf-8"
+    )
+    assert json.loads(ledger.splitlines()[-1])["reason"] == "MARKDOWN_UPDATE_FAILED"
 
 
 def test_apply_uses_snapshot_fallback_when_raw_pair_restore_fails(
@@ -1042,6 +1046,73 @@ def test_apply_reports_rollback_failed_when_raw_and_snapshot_restore_fail(
     )
     assert "ROLLBACK_FAILED" in ledger
     assert "injected" not in ledger
+
+
+def test_apply_markdown_control_exception_survives_failed_rollback(
+    tmp_brain_dir, monkeypatch
+):
+    store, old, new = _seed_pair(tmp_brain_dir)
+    service = SupersessionService(tmp_brain_dir, store)
+
+    def interrupt_link(_source_id, _target_id):
+        raise KeyboardInterrupt("sensitive apply markdown control flow")
+
+    def fail_raw_restore(_item_id, _data):
+        raise OSError("sensitive raw rollback failure")
+
+    def fail_snapshot_restore(_ref, _obsolete_id, _replacement_id):
+        raise OSError("sensitive snapshot rollback failure")
+
+    monkeypatch.setattr(store, "link_mem", interrupt_link)
+    monkeypatch.setattr(store, "restore_raw", fail_raw_restore)
+    monkeypatch.setattr(service, "_restore_snapshot_pair", fail_snapshot_restore)
+
+    with pytest.raises(KeyboardInterrupt, match="sensitive apply markdown"):
+        service.apply(new.id, old.id, apply=True)
+
+    ledger_path = tmp_brain_dir / "runtime" / "lifecycle-actions.jsonl"
+    ledger = ledger_path.read_text(encoding="utf-8")
+    record = json.loads(ledger.splitlines()[-1])
+    assert record["status"] == "blocked"
+    assert record["reason"] == "ROLLBACK_FAILED"
+    assert '"status":"applied"' not in ledger
+    assert "sensitive" not in ledger
+
+
+def test_apply_ledger_control_exception_survives_failed_rollback(
+    tmp_brain_dir, monkeypatch
+):
+    store, old, new = _seed_pair(tmp_brain_dir)
+    service = SupersessionService(tmp_brain_dir, store)
+
+    def interrupt_applied_record(brain_dir, record):
+        if record.status == "applied":
+            raise SystemExit("sensitive apply ledger control flow")
+        append_lifecycle_record(brain_dir, record)
+
+    def fail_raw_restore(_item_id, _data):
+        raise OSError("sensitive raw rollback failure")
+
+    def fail_snapshot_restore(_ref, _obsolete_id, _replacement_id):
+        raise OSError("sensitive snapshot rollback failure")
+
+    monkeypatch.setattr(
+        "agent_brain.memory.governance.supersession.append_lifecycle_record",
+        interrupt_applied_record,
+    )
+    monkeypatch.setattr(store, "restore_raw", fail_raw_restore)
+    monkeypatch.setattr(service, "_restore_snapshot_pair", fail_snapshot_restore)
+
+    with pytest.raises(SystemExit, match="sensitive apply ledger"):
+        service.apply(new.id, old.id, apply=True)
+
+    ledger_path = tmp_brain_dir / "runtime" / "lifecycle-actions.jsonl"
+    ledger = ledger_path.read_text(encoding="utf-8")
+    record = json.loads(ledger.splitlines()[-1])
+    assert record["status"] == "blocked"
+    assert record["reason"] == "ROLLBACK_FAILED"
+    assert '"status":"applied"' not in ledger
+    assert "sensitive" not in ledger
 
 
 def test_selective_snapshot_fallback_preserves_third_item_and_unrelated_runtime(
@@ -1510,6 +1581,77 @@ def test_revert_uses_snapshot_fallback_when_raw_pair_restore_fails(
     assert old_path.read_bytes() == old_before
     assert new_path.read_bytes() == new_before
     assert ledger_path.read_bytes().startswith(ledger_before)
+
+
+def test_revert_markdown_control_exception_survives_failed_rollback(
+    tmp_brain_dir, monkeypatch
+):
+    store, old, new = _seed_pair(tmp_brain_dir)
+    service = SupersessionService(tmp_brain_dir, store)
+    assert service.apply(new.id, old.id, apply=True).status == "applied"
+
+    def interrupt_unlink(_source_id, _target_id):
+        raise SystemExit("sensitive revert markdown control flow")
+
+    def fail_raw_restore(_item_id, _data):
+        raise OSError("sensitive raw rollback failure")
+
+    def fail_snapshot_restore(_ref, _obsolete_id, _replacement_id):
+        raise OSError("sensitive snapshot rollback failure")
+
+    monkeypatch.setattr(store, "unlink_mem", interrupt_unlink)
+    monkeypatch.setattr(store, "restore_raw", fail_raw_restore)
+    monkeypatch.setattr(service, "_restore_snapshot_pair", fail_snapshot_restore)
+
+    with pytest.raises(SystemExit, match="sensitive revert markdown"):
+        service.revert(new.id, old.id, apply=True)
+
+    ledger = (tmp_brain_dir / "runtime" / "lifecycle-actions.jsonl").read_text(
+        encoding="utf-8"
+    )
+    records = [json.loads(line) for line in ledger.splitlines()]
+    assert records[-1]["status"] == "blocked"
+    assert records[-1]["reason"] == "ROLLBACK_FAILED"
+    assert not any(record["status"] == "reverted" for record in records)
+    assert "sensitive" not in ledger
+
+
+def test_revert_ledger_control_exception_survives_failed_rollback(
+    tmp_brain_dir, monkeypatch
+):
+    store, old, new = _seed_pair(tmp_brain_dir)
+    service = SupersessionService(tmp_brain_dir, store)
+    assert service.apply(new.id, old.id, apply=True).status == "applied"
+
+    def interrupt_reverted_record(brain_dir, record):
+        if record.status == "reverted":
+            raise KeyboardInterrupt("sensitive revert ledger control flow")
+        append_lifecycle_record(brain_dir, record)
+
+    def fail_raw_restore(_item_id, _data):
+        raise OSError("sensitive raw rollback failure")
+
+    def fail_snapshot_restore(_ref, _obsolete_id, _replacement_id):
+        raise OSError("sensitive snapshot rollback failure")
+
+    monkeypatch.setattr(
+        "agent_brain.memory.governance.supersession.append_lifecycle_record",
+        interrupt_reverted_record,
+    )
+    monkeypatch.setattr(store, "restore_raw", fail_raw_restore)
+    monkeypatch.setattr(service, "_restore_snapshot_pair", fail_snapshot_restore)
+
+    with pytest.raises(KeyboardInterrupt, match="sensitive revert ledger"):
+        service.revert(new.id, old.id, apply=True)
+
+    ledger = (tmp_brain_dir / "runtime" / "lifecycle-actions.jsonl").read_text(
+        encoding="utf-8"
+    )
+    records = [json.loads(line) for line in ledger.splitlines()]
+    assert records[-1]["status"] == "blocked"
+    assert records[-1]["reason"] == "ROLLBACK_FAILED"
+    assert not any(record["status"] == "reverted" for record in records)
+    assert "sensitive" not in ledger
 
 
 def test_restore_raw_rejects_noncanonical_id_without_touching_outside_file(

@@ -119,6 +119,8 @@ class SupersessionService:
                     snapshot,
                 )
                 if rollback_result is not None:
+                    if not isinstance(error, Exception):
+                        raise
                     return rollback_result
                 self._record_blocked_best_effort(
                     "supersede",
@@ -159,10 +161,10 @@ class SupersessionService:
                     new_bytes,
                     snapshot,
                 )
-                if rollback_result is not None:
-                    return rollback_result
                 if not isinstance(error, Exception):
                     raise
+                if rollback_result is not None:
+                    return rollback_result
                 return SupersessionResult(
                     "blocked",
                     "LEDGER_WRITE_FAILED",
@@ -234,6 +236,8 @@ class SupersessionService:
                     snapshot,
                 )
                 if rollback_result is not None:
+                    if not isinstance(error, Exception):
+                        raise
                     return rollback_result
                 self._record_blocked_best_effort(
                     "revert-supersession",
@@ -274,10 +278,10 @@ class SupersessionService:
                     new_bytes,
                     snapshot,
                 )
-                if rollback_result is not None:
-                    return rollback_result
                 if not isinstance(error, Exception):
                     raise
+                if rollback_result is not None:
+                    return rollback_result
                 return SupersessionResult(
                     "blocked",
                     "LEDGER_WRITE_FAILED",
