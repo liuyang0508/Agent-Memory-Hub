@@ -148,3 +148,17 @@ def test_legacy_safety_summary_executes_all_41_case_contracts() -> None:
         "prohibited_injection_count": 0,
         "failed_case_ids": [],
     }
+
+
+def test_readiness_separates_routed_core_from_real_hook_evidence() -> None:
+    script_path = ROOT / "scripts" / "check-recall-quality.py"
+    spec = importlib.util.spec_from_file_location("check_recall_quality", script_path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    markdown = module.render_markdown(module.generate_report())
+
+    assert "不把它写成真实 Hook PASS" in markdown
+    assert "hook-recall-evidence artifact" in markdown
+    assert "explicit project hard-filter" in markdown

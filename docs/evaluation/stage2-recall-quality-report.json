@@ -3127,11 +3127,11 @@
   ],
   "corpus_sha256": {
     "calibration_heldout": "sha256:0b9ae97f5e80030653494d6e1c6ed3a6dd5bb461b82b23a32c853421ddcfd422",
-    "production_replay": "sha256:37fad3f69019865044cda5c8371abd127fe282ea4bef4a184676e3a74575b65c"
+    "production_replay": "sha256:fb73539ceb89b289b0af1506bbbc9caae088ff9c36459c44f7b618f3f6442f2c"
   },
   "evaluation_now": "2026-07-19T02:00:00+00:00",
   "failed_gates": [],
-  "implementation_sha256": "sha256:38708aeb507a9e8c1e98cc3a1190f52ddcf072c9a09615159929033ef6afd165",
+  "implementation_sha256": "sha256:babc55428de65873a1723b009c65cb5f512976c1ef74ce06d5704998a8a6f756",
   "layers": {
     "abstention": {
       "case_count": 37,

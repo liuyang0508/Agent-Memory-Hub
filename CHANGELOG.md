@@ -31,6 +31,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the versioned calibration, heldout, sanitized production replay, and 41-case
   safety contracts, then rejects stale committed retrieval, admission,
   answerability, temporal, abstention, or Gateway injection evidence.
+- **Fresh real-Hook recall evidence** — the same required job now sends every
+  Hook-applicable production replay case through the real `inject-context.sh`,
+  independently verifies a commit/Hook/corpus/config-bound manifest, and uploads
+  the low-sensitivity artifact even on failure. Surface contracts unavailable to
+  UserPromptSubmit are reported as `not_applicable`, never as Hook PASS.
 - **Multi-agent adapter governance** — all 16 adapters publish versioned
   manifests, six independent readiness states, seven-day evidence TTLs, stable
   lifecycle JSON/reason codes, AMH-owned repair/upgrade/rollback transactions,

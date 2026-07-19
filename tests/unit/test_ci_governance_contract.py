@@ -39,8 +39,13 @@ def test_recall_quality_job_is_fail_closed_and_replays_fresh_evidence() -> None:
     assert "tests/unit/test_recall_quality_corpus.py" in commands
     assert "tests/system/test_recall_quality_replay.py" in commands
     assert "tests/system/test_dual_route_recall_matrix.py" in commands
+    assert "scripts/run-hook-recall-evidence.py" in commands
+    assert "scripts/check-hook-recall-evidence.py" in commands
+    assert "--require-clean" in commands
     assert "./scripts/check-recall-quality.py" in commands
     assert "--write" not in commands
+    assert "actions/upload-artifact@v4" in workflow_text
+    assert "hook-recall-evidence" in workflow_text
 
 
 def test_adapter_governance_job_is_fail_closed_and_checks_committed_evidence() -> None:
