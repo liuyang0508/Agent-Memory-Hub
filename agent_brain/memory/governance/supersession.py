@@ -4,11 +4,27 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Literal
 
+import yaml
+from pydantic import ValidationError
+
 from agent_brain.contracts.memory_enums import Sensitivity, memory_enum_value
-from agent_brain.contracts.memory_item import MemoryItem
+from agent_brain.contracts.memory_item import MemoryItem, is_valid_memory_item_id
+from agent_brain.memory.context.context_firewall_rules import REVIEW_REQUIRED_TAGS
 from agent_brain.memory.store.items_store import ItemsStore
 
 SupersessionStatus = Literal["ready", "blocked", "already_applied"]
+_ItemLoadStatus = Literal["ok", "missing", "invalid"]
+
+_ITEM_READ_ERRORS = (
+    OSError,
+    RecursionError,
+    TypeError,
+    UnicodeError,
+    ValueError,
+    OverflowError,
+    ValidationError,
+    yaml.YAMLError,
+)
 
 SENSITIVITY_RANK = {
     Sensitivity.public.value: 0,
@@ -39,13 +55,21 @@ class SupersessionService:
         self.index = index
 
     def preview(self, replacement_id: str, obsolete_id: str) -> SupersessionResult:
+        if not (
+            is_valid_memory_item_id(replacement_id)
+            and is_valid_memory_item_id(obsolete_id)
+        ):
+            return self._blocked(replacement_id, obsolete_id, "INVALID_ITEM_ID")
         if replacement_id == obsolete_id:
             return self._blocked(replacement_id, obsolete_id, "SELF_SUPERSESSION")
-        try:
-            replacement, _ = self.store.get(replacement_id)
-            obsolete, _ = self.store.get(obsolete_id)
-        except FileNotFoundError:
-            return self._blocked(replacement_id, obsolete_id, "ITEM_MISSING")
+        replacement, load_status = self._load_item(replacement_id)
+        if replacement is None:
+            reason = "ITEM_MISSING" if load_status == "missing" else "ITEM_INVALID"
+            return self._blocked(replacement_id, obsolete_id, reason)
+        obsolete, load_status = self._load_item(obsolete_id)
+        if obsolete is None:
+            reason = "ITEM_MISSING" if load_status == "missing" else "ITEM_INVALID"
+            return self._blocked(replacement_id, obsolete_id, reason)
         reason = self._validate_pair(replacement, obsolete)
         if reason != "OK":
             return self._blocked(replacement_id, obsolete_id, reason)
@@ -64,7 +88,7 @@ class SupersessionService:
             return "TENANT_MISMATCH"
         if replacement.project != obsolete.project:
             return "PROJECT_MISMATCH"
-        if "needs-review" in replacement.tags:
+        if REVIEW_REQUIRED_TAGS & {tag.lower() for tag in replacement.tags}:
             return "REPLACEMENT_REQUIRES_REVIEW"
         if (
             SENSITIVITY_RANK[memory_enum_value(replacement.sensitivity)]
@@ -74,14 +98,27 @@ class SupersessionService:
         cursor = replacement
         seen = {obsolete.id}
         while cursor.superseded_by:
-            if cursor.superseded_by in seen:
+            next_id = cursor.superseded_by
+            if not is_valid_memory_item_id(next_id):
+                return "BROKEN_REPLACEMENT_CHAIN"
+            if next_id in seen:
                 return "SUPERSESSION_CYCLE"
-            seen.add(cursor.superseded_by)
-            try:
-                cursor, _ = self.store.get(cursor.superseded_by)
-            except FileNotFoundError:
+            seen.add(next_id)
+            cursor, load_status = self._load_item(next_id)
+            if cursor is None or load_status != "ok":
                 return "BROKEN_REPLACEMENT_CHAIN"
         return "OK"
+
+    def _load_item(self, item_id: str) -> tuple[MemoryItem | None, _ItemLoadStatus]:
+        try:
+            item, _ = self.store.get(item_id)
+        except FileNotFoundError:
+            return None, "missing"
+        except _ITEM_READ_ERRORS:
+            return None, "invalid"
+        if item.id != item_id:
+            return None, "invalid"
+        return item, "ok"
 
     @staticmethod
     def _blocked(

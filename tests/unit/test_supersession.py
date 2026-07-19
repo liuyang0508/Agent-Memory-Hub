@@ -1,4 +1,7 @@
 from datetime import datetime, timezone
+from pathlib import Path
+
+import pytest
 
 from agent_brain.contracts.memory_item import MemoryItem, MemoryType, Sensitivity
 from agent_brain.memory.governance.supersession import SupersessionService
@@ -38,6 +41,19 @@ def _write_legacy_without_sensitivity(
     marker = "sensitivity: internal\n"
     assert marker in text
     path.write_text(text.replace(marker, "", 1), encoding="utf-8")
+
+
+def _write_malformed_item(store: ItemsStore, item_id: str) -> None:
+    (store.items_dir / f"{item_id}.md").write_text(
+        "not valid memory frontmatter\n", encoding="utf-8"
+    )
+
+
+def _write_item_with_mismatched_id(
+    store: ItemsStore, requested_id: str, actual_id: str
+) -> None:
+    written = store.write(_item(actual_id), "mismatched")
+    written.replace(store.items_dir / f"{requested_id}.md")
 
 
 def test_preview_accepts_replacement_supersedes_obsolete(tmp_brain_dir):
@@ -139,12 +155,116 @@ def test_preview_rejects_missing_item(tmp_brain_dir):
     assert result.reason == "ITEM_MISSING"
 
 
-def test_preview_rejects_replacement_that_needs_review(tmp_brain_dir):
+def test_preview_rejects_path_ids_without_reading_outside_store(
+    tmp_brain_dir, monkeypatch
+):
+    store = ItemsStore(tmp_brain_dir / "items")
+    valid = _item("mem-20260719-100000-valid-boundary")
+    store.write(valid, "valid")
+    absolute_base = tmp_brain_dir / "absolute-outside"
+    cases = [
+        ("../outside", tmp_brain_dir / "outside.md"),
+        (str(absolute_base), Path(f"{absolute_base}.md")),
+        ("nested/outside", store.items_dir / "nested" / "outside.md"),
+    ]
+    for _, sentinel in cases:
+        sentinel.parent.mkdir(parents=True, exist_ok=True)
+        sentinel.write_text("sentinel must not be read\n", encoding="utf-8")
+
+    original_read_text = Path.read_text
+    read_paths: list[Path] = []
+
+    def tracking_read_text(path: Path, *args, **kwargs):
+        read_paths.append(path.resolve())
+        return original_read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", tracking_read_text)
+    service = SupersessionService(tmp_brain_dir, store)
+
+    for invalid_id, _ in cases:
+        read_paths.clear()
+        result = service.preview(invalid_id, valid.id)
+        assert result.status == "blocked"
+        assert result.reason == "INVALID_ITEM_ID"
+        assert read_paths == []
+
+        result = service.preview(valid.id, invalid_id)
+        assert result.status == "blocked"
+        assert result.reason == "INVALID_ITEM_ID"
+        assert read_paths == []
+
+
+@pytest.mark.parametrize("malformed_role", ["replacement", "obsolete"])
+def test_preview_rejects_malformed_primary_item(tmp_brain_dir, malformed_role):
+    store = ItemsStore(tmp_brain_dir / "items")
+    replacement_id = "mem-20260719-110000-malformed-replacement"
+    obsolete_id = "mem-20260719-100000-malformed-obsolete"
+    if malformed_role == "replacement":
+        _write_malformed_item(store, replacement_id)
+        store.write(_item(obsolete_id), "obsolete")
+    else:
+        store.write(_item(replacement_id), "replacement")
+        _write_malformed_item(store, obsolete_id)
+
+    result = SupersessionService(tmp_brain_dir, store).preview(
+        replacement_id, obsolete_id
+    )
+
+    assert result.status == "blocked"
+    assert result.reason == "ITEM_INVALID"
+
+
+@pytest.mark.parametrize("mismatched_role", ["replacement", "obsolete"])
+def test_preview_rejects_primary_frontmatter_id_mismatch(
+    tmp_brain_dir, mismatched_role
+):
+    store = ItemsStore(tmp_brain_dir / "items")
+    replacement_id = "mem-20260719-110000-requested-replacement"
+    obsolete_id = "mem-20260719-100000-requested-obsolete"
+    if mismatched_role == "replacement":
+        _write_item_with_mismatched_id(
+            store,
+            replacement_id,
+            "mem-20260719-110001-actual-replacement",
+        )
+        store.write(_item(obsolete_id), "obsolete")
+    else:
+        store.write(_item(replacement_id), "replacement")
+        _write_item_with_mismatched_id(
+            store,
+            obsolete_id,
+            "mem-20260719-100001-actual-obsolete",
+        )
+
+    result = SupersessionService(tmp_brain_dir, store).preview(
+        replacement_id, obsolete_id
+    )
+
+    assert result.status == "blocked"
+    assert result.reason == "ITEM_INVALID"
+
+
+@pytest.mark.parametrize(
+    "review_tag",
+    [
+        "needs-review",
+        "NEEDS-REVIEW",
+        "requires-review",
+        "REQUIRES-REVIEW",
+        "review-rejected",
+        "REVIEW-REJECTED",
+        "unverified-boundary",
+        "UNVERIFIED-BOUNDARY",
+    ],
+)
+def test_preview_rejects_replacement_that_needs_review(
+    tmp_brain_dir, review_tag
+):
     store = ItemsStore(tmp_brain_dir / "items")
     obsolete = _item("mem-20260719-100000-reviewed")
     replacement = _item(
         "mem-20260719-110000-needs-review",
-        tags=["lifecycle", "needs-review"],
+        tags=["lifecycle", review_tag],
     )
     store.write(obsolete, "obsolete")
     store.write(replacement, "replacement")
@@ -255,6 +375,123 @@ def test_preview_rejects_broken_replacement_chain(tmp_brain_dir):
 
     assert result.status == "blocked"
     assert result.reason == "BROKEN_REPLACEMENT_CHAIN"
+
+
+def test_preview_rejects_invalid_chain_pointer_without_reading_outside_store(
+    tmp_brain_dir, monkeypatch
+):
+    store = ItemsStore(tmp_brain_dir / "items")
+    obsolete = _item("mem-20260719-100000-invalid-chain-obsolete")
+    replacement = _item(
+        "mem-20260719-110000-invalid-chain-replacement",
+        superseded_by="../outside-chain",
+    )
+    store.write(obsolete, "obsolete")
+    store.write(replacement, "replacement")
+    sentinel = tmp_brain_dir / "outside-chain.md"
+    sentinel.write_text("sentinel must not be read\n", encoding="utf-8")
+    original_read_text = Path.read_text
+    read_paths: list[Path] = []
+
+    def tracking_read_text(path: Path, *args, **kwargs):
+        read_paths.append(path.resolve())
+        return original_read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", tracking_read_text)
+
+    result = SupersessionService(tmp_brain_dir, store).preview(
+        replacement.id, obsolete.id
+    )
+
+    assert result.status == "blocked"
+    assert result.reason == "BROKEN_REPLACEMENT_CHAIN"
+    assert sentinel.resolve() not in read_paths
+
+
+def test_preview_rejects_malformed_replacement_chain_item(tmp_brain_dir):
+    store = ItemsStore(tmp_brain_dir / "items")
+    chain_id = "mem-20260719-105000-malformed-chain"
+    obsolete = _item("mem-20260719-100000-malformed-chain-obsolete")
+    replacement = _item(
+        "mem-20260719-110000-malformed-chain-replacement",
+        superseded_by=chain_id,
+    )
+    store.write(obsolete, "obsolete")
+    store.write(replacement, "replacement")
+    _write_malformed_item(store, chain_id)
+
+    result = SupersessionService(tmp_brain_dir, store).preview(
+        replacement.id, obsolete.id
+    )
+
+    assert result.status == "blocked"
+    assert result.reason == "BROKEN_REPLACEMENT_CHAIN"
+
+
+def test_preview_rejects_replacement_chain_frontmatter_id_mismatch(tmp_brain_dir):
+    store = ItemsStore(tmp_brain_dir / "items")
+    chain_id = "mem-20260719-105000-requested-chain"
+    obsolete = _item("mem-20260719-100000-mismatched-chain-obsolete")
+    replacement = _item(
+        "mem-20260719-110000-mismatched-chain-replacement",
+        superseded_by=chain_id,
+    )
+    store.write(obsolete, "obsolete")
+    store.write(replacement, "replacement")
+    _write_item_with_mismatched_id(
+        store,
+        chain_id,
+        "mem-20260719-105001-actual-chain",
+    )
+
+    result = SupersessionService(tmp_brain_dir, store).preview(
+        replacement.id, obsolete.id
+    )
+
+    assert result.status == "blocked"
+    assert result.reason == "BROKEN_REPLACEMENT_CHAIN"
+
+
+def test_preview_rejects_multihop_cycle_through_obsolete(tmp_brain_dir):
+    store = ItemsStore(tmp_brain_dir / "items")
+    obsolete = _item("mem-20260719-100000-multihop-obsolete")
+    middle = _item(
+        "mem-20260719-105000-multihop-middle",
+        superseded_by=obsolete.id,
+    )
+    replacement = _item(
+        "mem-20260719-110000-multihop-replacement",
+        superseded_by=middle.id,
+    )
+    for item in (obsolete, middle, replacement):
+        store.write(item, item.title)
+
+    result = SupersessionService(tmp_brain_dir, store).preview(
+        replacement.id, obsolete.id
+    )
+
+    assert result.status == "blocked"
+    assert result.reason == "SUPERSESSION_CYCLE"
+
+
+def test_preview_rejects_replacement_chain_self_cycle(tmp_brain_dir):
+    store = ItemsStore(tmp_brain_dir / "items")
+    obsolete = _item("mem-20260719-100000-self-chain-obsolete")
+    middle_id = "mem-20260719-105000-self-chain-middle"
+    middle = _item(middle_id, superseded_by=middle_id)
+    replacement = _item(
+        "mem-20260719-110000-self-chain-replacement",
+        superseded_by=middle.id,
+    )
+    for item in (obsolete, middle, replacement):
+        store.write(item, item.title)
+
+    result = SupersessionService(tmp_brain_dir, store).preview(
+        replacement.id, obsolete.id
+    )
+
+    assert result.status == "blocked"
+    assert result.reason == "SUPERSESSION_CYCLE"
 
 
 def test_preview_does_not_modify_brain_files(tmp_brain_dir):
