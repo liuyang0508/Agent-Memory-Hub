@@ -27,6 +27,71 @@ from agent_brain.memory.store.pending import (
 NOW = datetime(2026, 7, 20, 12, 0, tzinfo=timezone.utc)
 
 
+class _StatProxy:
+    def __init__(self, original: os.stat_result, **overrides: object) -> None:
+        self._original = original
+        self._overrides = overrides
+
+    def __getattr__(self, name: str) -> object:
+        if name in self._overrides:
+            return self._overrides[name]
+        return getattr(self._original, name)
+
+
+class _DirEntryProxy:
+    def __init__(
+        self,
+        original: os.DirEntry[str],
+        *,
+        zero_identity: bool = False,
+    ) -> None:
+        self._original = original
+        self.name = original.name
+        self._zero_identity = zero_identity
+
+    def stat(self, *, follow_symlinks: bool = True) -> os.stat_result:
+        opened = self._original.stat(follow_symlinks=follow_symlinks)
+        if self._zero_identity:
+            return _StatProxy(opened, st_dev=0, st_ino=0)  # type: ignore[return-value]
+        return opened
+
+    def is_symlink(self) -> bool:
+        return self._original.is_symlink()
+
+    def is_file(self, *, follow_symlinks: bool = True) -> bool:
+        return self._original.is_file(follow_symlinks=follow_symlinks)
+
+
+class _ScandirProxy:
+    def __init__(
+        self,
+        original: os.ScandirIterator[str],
+        *,
+        zero_identity: bool = False,
+    ) -> None:
+        self._original = original
+        self._zero_identity = zero_identity
+
+    def __iter__(self) -> _ScandirProxy:
+        return self
+
+    def __next__(self) -> _DirEntryProxy:
+        entry = next(self._original)
+        return _DirEntryProxy(
+            entry,
+            zero_identity=self._zero_identity,
+        )
+
+    def __enter__(self) -> _ScandirProxy:
+        return self
+
+    def __exit__(self, *_args: object) -> None:
+        self.close()
+
+    def close(self) -> None:
+        self._original.close()
+
+
 def _v2_record(
     *,
     record_id: str = "pending-test-fact-0001",
@@ -383,6 +448,68 @@ def test_fallback_existing_item_scan_remains_trusted(
     assert preview.records[0].classification == "already_written"
 
 
+def test_fallback_nested_archived_item_ignores_zero_direntry_identity(
+    tmp_brain: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _freeze_now(monkeypatch)
+    record = _v2_record()
+    enqueue_write_record(record)
+    item_id = _stable_item_id(record)
+    _write_existing_item(
+        tmp_brain,
+        record,
+        item_id=item_id,
+        span_hash=_payload_sha256(record),
+    )
+    nested = tmp_brain / "items" / "archived" / "nested"
+    nested.mkdir(parents=True)
+    (tmp_brain / "items" / f"{item_id}.md").rename(nested / f"{item_id}.md")
+    original_scandir = os.scandir
+    items_root = tmp_brain / "items"
+
+    def zero_identity_scandir(path: object) -> object:
+        opened = original_scandir(path)  # type: ignore[arg-type]
+        candidate = Path(os.fspath(path))
+        return _ScandirProxy(
+            opened,  # type: ignore[arg-type]
+            zero_identity=items_root == candidate or items_root in candidate.parents,
+        )
+
+    monkeypatch.setattr(pending_module, "secure_dir_fd_io_supported", lambda: False)
+    monkeypatch.setattr(pending_module.os, "scandir", zero_identity_scandir)
+
+    preview = PendingQueue().preview(limit=1)
+
+    assert preview.records[0].classification == "already_written"
+
+
+def test_fallback_rejects_windows_reparse_nested_items_directory(
+    tmp_brain: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _freeze_now(monkeypatch)
+    enqueue_write_record(_v2_record())
+    nested = tmp_brain / "items" / "junction"
+    nested.mkdir()
+    original_lstat = os.lstat
+    reparse_flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+
+    def reparse_lstat(path: object, *args: object, **kwargs: object) -> os.stat_result:
+        opened = original_lstat(path, *args, **kwargs)  # type: ignore[arg-type]
+        if Path(os.fspath(path)) == nested:
+            return _StatProxy(  # type: ignore[return-value]
+                opened, st_file_attributes=reparse_flag
+            )
+        return opened
+
+    monkeypatch.setattr(pending_module, "secure_dir_fd_io_supported", lambda: False)
+    monkeypatch.setattr(pending_module.os, "lstat", reparse_lstat)
+
+    preview = PendingQueue().preview(limit=1)
+
+    assert preview.records[0].classification == "audit_blocked"
+    assert preview.records[0].reason == "EXISTING_ITEM_SCAN_UNAVAILABLE"
+
+
 def test_fallback_rejects_pending_directory_symlink(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -400,6 +527,53 @@ def test_fallback_rejects_pending_directory_symlink(
     preview = PendingQueue().preview(limit=1)
     assert preview.scan_unavailable is True
     assert list(outside.iterdir()) == []
+
+
+def test_fallback_rejects_windows_reparse_pending_directory(
+    tmp_brain: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pending = tmp_brain / "pending"
+    pending.mkdir()
+    original_lstat = os.lstat
+    reparse_flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+
+    def reparse_lstat(path: object, *args: object, **kwargs: object) -> os.stat_result:
+        opened = original_lstat(path, *args, **kwargs)  # type: ignore[arg-type]
+        if Path(os.fspath(path)) == pending:
+            return _StatProxy(  # type: ignore[return-value]
+                opened, st_file_attributes=reparse_flag
+            )
+        return opened
+
+    monkeypatch.setattr(pending_module, "secure_dir_fd_io_supported", lambda: False)
+    monkeypatch.setattr(pending_module.os, "lstat", reparse_lstat)
+
+    with pytest.raises(PendingEnqueueError, match="UNSAFE_PENDING_DIRECTORY"):
+        enqueue_write_record(_v2_record())
+
+
+def test_fallback_reparse_pending_file_marks_scan_unavailable(
+    tmp_brain: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = enqueue_write_record(_v2_record())
+    original_lstat = os.lstat
+    reparse_flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+
+    def reparse_lstat(candidate: object, *args: object, **kwargs: object) -> os.stat_result:
+        opened = original_lstat(candidate, *args, **kwargs)  # type: ignore[arg-type]
+        if Path(os.fspath(candidate)) == path:
+            return _StatProxy(  # type: ignore[return-value]
+                opened, st_file_attributes=reparse_flag
+            )
+        return opened
+
+    monkeypatch.setattr(pending_module, "secure_dir_fd_io_supported", lambda: False)
+    monkeypatch.setattr(pending_module.os, "lstat", reparse_lstat)
+
+    preview = PendingQueue().preview(limit=1)
+
+    assert preview.scan_unavailable is True
+    assert preview.reason == "PENDING_SCAN_UNAVAILABLE"
 
 
 def test_fallback_rejects_fifo_pending_record(
@@ -444,6 +618,36 @@ def test_fallback_concurrent_same_enqueue_is_idempotent(
     assert len(paths) == 8
     assert len(set(paths)) == 1
     assert len(list((tmp_brain / "pending").glob("*.jsonl"))) == 1
+
+
+def test_posix_fallback_fsyncs_each_new_parent_before_continuing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    brain = tmp_path / "fallback" / "deep" / "brain"
+    monkeypatch.setenv("BRAIN_DIR", str(brain))
+    monkeypatch.setattr(pending_module, "secure_dir_fd_io_supported", lambda: False)
+    original_mkdir = os.mkdir
+    original_fsync = os.fsync
+    events: list[str] = []
+
+    def track_mkdir(path: object, *args: object, **kwargs: object) -> None:
+        original_mkdir(path, *args, **kwargs)  # type: ignore[arg-type]
+        events.append("mkdir")
+
+    def fail_first_directory_fsync(descriptor: int) -> None:
+        if stat.S_ISDIR(os.fstat(descriptor).st_mode):
+            events.append("fsync")
+            raise OSError("simulated fallback parent fsync failure")
+        original_fsync(descriptor)
+
+    monkeypatch.setattr(pending_module.os, "mkdir", track_mkdir)
+    monkeypatch.setattr(pending_module.os, "fsync", fail_first_directory_fsync)
+
+    with pytest.raises(OSError, match="simulated fallback parent fsync failure"):
+        enqueue_write_record(_v2_record())
+
+    assert events[:2] == ["mkdir", "fsync"]
+    assert list(brain.glob("pending/*.jsonl")) == []
 
 
 @pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf")])
@@ -833,10 +1037,12 @@ def test_oversized_pending_record_fails_closed_without_reading_it(
     path = pending / "oversized.jsonl"
     path.write_bytes(b"{" + b" " * (1024 * 1024) + b"}\n")
 
-    preview = PendingQueue().preview(limit=10).records[0]
+    result = PendingQueue().preview(limit=10)
+    preview = result.records[0]
 
-    assert preview.classification == "malformed"
-    assert preview.reason == "PENDING_RECORD_TOO_LARGE"
+    assert result.scan_unavailable is True
+    assert preview.classification == "audit_blocked"
+    assert preview.reason == "PENDING_SCAN_UNAVAILABLE"
 
 
 def test_preview_ignores_symlinks_and_only_reads_regular_files(
@@ -1243,6 +1449,58 @@ def test_preview_limit_does_not_hide_stable_id_conflict(
     assert preview.returned == 1
     assert preview.records[0].classification == "conflict"
     assert preview.records[0].reason == "PENDING_STABLE_ID_CONFLICT"
+
+
+def test_pending_entry_stat_failure_blocks_all_selected_records(
+    tmp_brain: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _freeze_now(monkeypatch)
+    first = enqueue_write_record(_v2_record(record_id="visible-record"))
+    second = enqueue_write_record(_v2_record(record_id="unknown-record"))
+    first.rename(first.parent / "0000-visible.jsonl")
+    second.rename(second.parent / "9999-unknown.jsonl")
+    hidden = tmp_brain / "pending" / "9999-unknown.jsonl"
+    original_lstat = os.lstat
+
+    def failing_lstat(path: object, *args: object, **kwargs: object) -> os.stat_result:
+        if Path(os.fspath(path)) == hidden:
+            raise OSError("simulated entry stat failure")
+        return original_lstat(path, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(pending_module, "secure_dir_fd_io_supported", lambda: False)
+    monkeypatch.setattr(pending_module.os, "lstat", failing_lstat)
+
+    preview = PendingQueue().preview(limit=1)
+
+    assert preview.scan_unavailable is True
+    assert preview.reason == "PENDING_SCAN_UNAVAILABLE"
+    assert preview.records[0].classification == "audit_blocked"
+    assert preview.records[0].reason == "PENDING_SCAN_UNAVAILABLE"
+
+
+def test_pending_record_read_failure_blocks_all_selected_records(
+    tmp_brain: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _freeze_now(monkeypatch)
+    first = enqueue_write_record(_v2_record(record_id="readable-record"))
+    second = enqueue_write_record(_v2_record(record_id="unreadable-record"))
+    first.rename(first.parent / "0000-readable.jsonl")
+    second.rename(second.parent / "9999-unreadable.jsonl")
+    original_read = pending_module._read_pending_record
+
+    def fail_one_read(path: Path) -> bytes:
+        if path.name == "9999-unreadable.jsonl":
+            raise pending_module._PendingReadError("PENDING_RECORD_READ_FAILED")
+        return original_read(path)
+
+    monkeypatch.setattr(pending_module, "_read_pending_record", fail_one_read)
+
+    preview = PendingQueue().preview(limit=1)
+
+    assert preview.scan_unavailable is True
+    assert preview.reason == "PENDING_SCAN_UNAVAILABLE"
+    assert preview.records[0].classification == "audit_blocked"
+    assert preview.records[0].reason == "PENDING_SCAN_UNAVAILABLE"
 
 
 def test_pending_scan_cap_keeps_cap_plus_one_and_reports_truncation(

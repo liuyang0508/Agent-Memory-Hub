@@ -164,6 +164,57 @@ _DIRECTORY_OPEN_FLAGS = (
     | getattr(os, "O_DIRECTORY", 0)
     | getattr(os, "O_NOFOLLOW", 0)
 )
+_FILE_ATTRIBUTE_REPARSE_POINT = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x0400)
+_PENDING_ACCESS_FAILURE_REASONS = frozenset(
+    {
+        "PENDING_RECORD_CHANGED",
+        "PENDING_RECORD_NOT_REGULAR",
+        "PENDING_RECORD_READ_FAILED",
+        "PENDING_RECORD_TOO_LARGE",
+    }
+)
+
+
+def _is_reparse_point(opened: object) -> bool:
+    attributes = int(getattr(opened, "st_file_attributes", 0) or 0)
+    return bool(attributes & _FILE_ATTRIBUTE_REPARSE_POINT)
+
+
+def _is_safe_directory(opened: object) -> bool:
+    return stat.S_ISDIR(int(getattr(opened, "st_mode"))) and not _is_reparse_point(opened)
+
+
+def _is_safe_regular_file(opened: object) -> bool:
+    return stat.S_ISREG(int(getattr(opened, "st_mode"))) and not _is_reparse_point(opened)
+
+
+def _same_file_identity(first: object, second: object) -> bool:
+    """Compare file identity without assuming Windows exposes dev/inode."""
+
+    first_pair = (
+        int(getattr(first, "st_dev", 0) or 0),
+        int(getattr(first, "st_ino", 0) or 0),
+    )
+    second_pair = (
+        int(getattr(second, "st_dev", 0) or 0),
+        int(getattr(second, "st_ino", 0) or 0),
+    )
+    if all(first_pair) and all(second_pair):
+        return first_pair == second_pair
+    # Windows filesystems can report a zero dev/inode pair. Creation time and
+    # file kind/attributes are the strongest portable identity fields exposed
+    # by stat/fstat there; size/mtime are intentionally excluded for directories.
+    first_fallback = (
+        int(getattr(first, "st_ctime_ns", 0) or 0),
+        stat.S_IFMT(int(getattr(first, "st_mode"))),
+        int(getattr(first, "st_file_attributes", 0) or 0),
+    )
+    second_fallback = (
+        int(getattr(second, "st_ctime_ns", 0) or 0),
+        stat.S_IFMT(int(getattr(second, "st_mode"))),
+        int(getattr(second, "st_file_attributes", 0) or 0),
+    )
+    return first_fallback[0] != 0 and first_fallback == second_fallback
 
 
 def _open_or_create_secure_directory(path: Path) -> int:
@@ -321,7 +372,7 @@ def _ensure_fallback_directory(path: Path, *, mode: int = 0o700) -> None:
             except FileExistsError:
                 pass
             opened = os.lstat(current)
-        if not stat.S_ISDIR(opened.st_mode):
+        if not _is_safe_directory(opened):
             raise PendingEnqueueError("UNSAFE_PENDING_DIRECTORY")
         if created:
             try:
@@ -329,6 +380,7 @@ def _ensure_fallback_directory(path: Path, *, mode: int = 0o700) -> None:
             except (NotImplementedError, OSError):
                 if os.name != "nt":
                     raise
+            _fsync_fallback_directory(current.parent)
 
 
 def _fsync_fallback_directory(path: Path) -> None:
@@ -369,7 +421,7 @@ def _fallback_link_no_replace(source: Path, target: Path) -> None:
 def _read_existing_pending_path_bytes(path: Path) -> bytes:
     try:
         before = os.lstat(path)
-        if not stat.S_ISREG(before.st_mode):
+        if not _is_safe_regular_file(before):
             raise PendingEnqueueError("UNSAFE_EXISTING_PENDING_RECORD")
         flags = (
             os.O_RDONLY
@@ -381,7 +433,7 @@ def _read_existing_pending_path_bytes(path: Path) -> bytes:
         descriptor = os.open(path, flags)
         try:
             opened = os.fstat(descriptor)
-            if not stat.S_ISREG(opened.st_mode) or not os.path.samestat(before, opened):
+            if not _is_safe_regular_file(opened) or not _same_file_identity(before, opened):
                 raise PendingEnqueueError("UNSAFE_EXISTING_PENDING_RECORD")
             if os.name == "posix" and stat.S_IMODE(opened.st_mode) != 0o600:
                 raise PendingEnqueueError("UNSAFE_EXISTING_PENDING_RECORD")
@@ -404,6 +456,8 @@ def _publish_pending_record_fallback(brain: Path, filename: str, data: bytes) ->
         if os.name != "nt":
             raise
     directory_before = os.lstat(directory)
+    if not _is_safe_directory(directory_before):
+        raise PendingEnqueueError("UNSAFE_PENDING_DIRECTORY")
     temp_path = directory / f".amh-pending-{secrets.token_hex(16)}.tmp"
     target_path = directory / filename
     temp_descriptor: int | None = None
@@ -422,7 +476,7 @@ def _publish_pending_record_fallback(brain: Path, filename: str, data: bytes) ->
         temp_created = True
         _fallback_fchmod_private(temp_descriptor)
         temp_identity = os.fstat(temp_descriptor)
-        if not stat.S_ISREG(temp_identity.st_mode):
+        if not _is_safe_regular_file(temp_identity):
             raise PendingEnqueueError("UNSAFE_PENDING_TEMP_RECORD")
         remaining = memoryview(data)
         while remaining:
@@ -438,12 +492,14 @@ def _publish_pending_record_fallback(brain: Path, filename: str, data: bytes) ->
                 raise PendingEnqueueError("PENDING_RECORD_FILENAME_CONFLICT") from exc
         else:
             target_identity = os.lstat(target_path)
-            if not stat.S_ISREG(target_identity.st_mode) or not os.path.samestat(
+            if not _is_safe_regular_file(target_identity) or not _same_file_identity(
                 temp_identity, target_identity
             ):
                 raise PendingEnqueueError("PENDING_RECORD_PUBLISH_IDENTITY_MISMATCH")
         directory_after = os.lstat(directory)
-        if not os.path.samestat(directory_before, directory_after):
+        if not _is_safe_directory(directory_after) or not _same_file_identity(
+            directory_before, directory_after
+        ):
             raise PendingEnqueueError("PENDING_DIRECTORY_CHANGED")
         _fsync_fallback_directory(directory)
         committed = True
@@ -734,7 +790,23 @@ class PendingQueue:
             for path in classification_paths
         ]
         records = _reconcile_pending_identity_collisions(records)
-        if path_snapshot.total > scan_cap:
+        record_access_failed = any(
+            record.reason in _PENDING_ACCESS_FAILURE_REASONS for record in records
+        )
+        scan_unavailable = path_snapshot.scan_unavailable or record_access_failed
+        preview_reason = "PENDING_SCAN_UNAVAILABLE" if scan_unavailable else path_snapshot.reason
+        if scan_unavailable:
+            records = [
+                replace(
+                    record,
+                    classification="audit_blocked",
+                    reason="PENDING_SCAN_UNAVAILABLE",
+                    malformed=False,
+                    error=None,
+                )
+                for record in records
+            ]
+        elif path_snapshot.total > scan_cap:
             records = [
                 replace(
                     record,
@@ -752,8 +824,8 @@ class PendingQueue:
             limit=bounded_limit,
             truncated=path_snapshot.total > len(displayed),
             records=displayed,
-            scan_unavailable=path_snapshot.scan_unavailable,
-            reason=path_snapshot.reason,
+            scan_unavailable=scan_unavailable,
+            reason=preview_reason,
         )
 
     def replay(self) -> ReplayStats:
@@ -1409,12 +1481,16 @@ def _pending_record_paths(directory: Path) -> _PendingPathSnapshot:
     def consider(entry: os.DirEntry[str], *, fallback: bool) -> None:
         nonlocal scan_failed, total
         try:
-            if not entry.name.endswith(".jsonl") or entry.is_symlink():
+            if not entry.name.endswith(".jsonl"):
                 return
             if fallback:
-                if not stat.S_ISREG(entry.stat(follow_symlinks=False).st_mode):
+                opened = os.lstat(directory / entry.name)
+                if _is_reparse_point(opened):
+                    scan_failed = True
                     return
-            elif not entry.is_file(follow_symlinks=False):
+                if not stat.S_ISREG(opened.st_mode):
+                    return
+            elif entry.is_symlink() or not entry.is_file(follow_symlinks=False):
                 return
         except OSError:
             scan_failed = True
@@ -1455,7 +1531,7 @@ def _pending_record_paths(directory: Path) -> _PendingPathSnapshot:
 
     try:
         before = os.lstat(directory)
-        if not stat.S_ISDIR(before.st_mode):
+        if not _is_safe_directory(before):
             return _PendingPathSnapshot(
                 paths=[],
                 total=0,
@@ -1465,8 +1541,8 @@ def _pending_record_paths(directory: Path) -> _PendingPathSnapshot:
         with os.scandir(directory) as entries:
             for entry in entries:
                 consider(entry, fallback=True)
-        after = os.stat(directory, follow_symlinks=False)
-        if (before.st_dev, before.st_ino) != (after.st_dev, after.st_ino):
+        after = os.lstat(directory)
+        if not _is_safe_directory(after) or not _same_file_identity(before, after):
             scan_failed = True
     except FileNotFoundError:
         return _PendingPathSnapshot(paths=[], total=0)
@@ -1504,7 +1580,7 @@ def _read_pending_record(path: Path) -> bytes:
 
     try:
         before = os.lstat(path)
-        if not stat.S_ISREG(before.st_mode):
+        if not _is_safe_regular_file(before):
             raise _PendingReadError("PENDING_RECORD_NOT_REGULAR")
         flags = (
             os.O_RDONLY
@@ -1516,7 +1592,7 @@ def _read_pending_record(path: Path) -> bytes:
         descriptor = os.open(path, flags)
         try:
             opened = os.fstat(descriptor)
-            if (before.st_dev, before.st_ino) != (opened.st_dev, opened.st_ino):
+            if not _is_safe_regular_file(opened) or not _same_file_identity(before, opened):
                 raise _PendingReadError("PENDING_RECORD_CHANGED")
             return _read_bounded_descriptor(descriptor, MAX_PENDING_RECORD_BYTES)
         finally:
@@ -1529,7 +1605,7 @@ def _read_pending_record(path: Path) -> bytes:
 
 def _read_bounded_descriptor(descriptor: int, limit: int) -> bytes:
     before = os.fstat(descriptor)
-    if not stat.S_ISREG(before.st_mode):
+    if not _is_safe_regular_file(before):
         raise _PendingReadError("PENDING_RECORD_NOT_REGULAR")
     if before.st_size > limit:
         raise _PendingReadError("PENDING_RECORD_TOO_LARGE")
@@ -1545,12 +1621,13 @@ def _read_bounded_descriptor(descriptor: int, limit: int) -> bytes:
     after = os.fstat(descriptor)
     if len(data) > limit:
         raise _PendingReadError("PENDING_RECORD_TOO_LARGE")
-    if (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns) != (
-        after.st_dev,
-        after.st_ino,
-        after.st_size,
-        after.st_mtime_ns,
-    ) or len(data) != after.st_size:
+    if (
+        not _is_safe_regular_file(after)
+        or not _same_file_identity(before, after)
+        or before.st_size != after.st_size
+        or before.st_mtime_ns != after.st_mtime_ns
+        or len(data) != after.st_size
+    ):
         raise _PendingReadError("PENDING_RECORD_CHANGED")
     return data
 
@@ -1627,14 +1704,14 @@ def _verify_fallback_directory_chain(path: Path) -> os.stat_result:
     absolute = Path(os.path.abspath(os.fspath(path)))
     current = Path(absolute.anchor)
     opened = os.lstat(current)
-    if not stat.S_ISDIR(opened.st_mode):
+    if not _is_safe_directory(opened):
         raise OSError("trusted path anchor is not a directory")
     for component in absolute.parts[1:]:
         if component in {"", ".", ".."}:
             raise OSError("invalid trusted directory component")
         current /= component
         opened = os.lstat(current)
-        if not stat.S_ISDIR(opened.st_mode):
+        if not _is_safe_directory(opened):
             raise OSError("trusted path component is not a directory")
     return opened
 
@@ -1664,7 +1741,10 @@ def _scan_existing_item_metadata_fallback(items_dir: Path) -> _ItemMetadataSnaps
                     close()
                 stack.pop()
                 try:
-                    if not os.path.samestat(identity, os.lstat(directory)):
+                    current_identity = os.lstat(directory)
+                    if not _is_safe_directory(current_identity) or not _same_file_identity(
+                        identity, current_identity
+                    ):
                         return _ItemMetadataSnapshot(items={}, trusted=False)
                 except OSError:
                     return _ItemMetadataSnapshot(items={}, trusted=False)
@@ -1676,7 +1756,11 @@ def _scan_existing_item_metadata_fallback(items_dir: Path) -> _ItemMetadataSnaps
                 return _ItemMetadataSnapshot(items={}, trusted=False)
             path = directory / entry.name
             try:
-                opened = entry.stat(follow_symlinks=False)
+                # DirEntry identity can be zero on Windows. Use an explicit
+                # path lstat as the pre-open identity for every nested entry.
+                opened = os.lstat(path)
+                if _is_reparse_point(opened):
+                    return _ItemMetadataSnapshot(items={}, trusted=False)
                 if stat.S_ISLNK(opened.st_mode):
                     continue
                 if stat.S_ISDIR(opened.st_mode):
@@ -1709,7 +1793,7 @@ def _read_item_frontmatter_fallback(path: Path) -> tuple[MemoryItem | None, int]
     descriptor: int | None = None
     try:
         before = os.lstat(path)
-        if not stat.S_ISREG(before.st_mode):
+        if not _is_safe_regular_file(before):
             return None, consumed
         flags = (
             os.O_RDONLY
@@ -1720,7 +1804,7 @@ def _read_item_frontmatter_fallback(path: Path) -> tuple[MemoryItem | None, int]
         )
         descriptor = os.open(path, flags)
         opened = os.fstat(descriptor)
-        if not stat.S_ISREG(opened.st_mode) or not os.path.samestat(before, opened):
+        if not _is_safe_regular_file(opened) or not _same_file_identity(before, opened):
             return None, consumed
         handle = cast(BinaryIO, os.fdopen(descriptor, "rb", buffering=0))
         descriptor = None
@@ -1745,7 +1829,8 @@ def _read_item_frontmatter_fallback(path: Path) -> tuple[MemoryItem | None, int]
                     if (
                         opened.st_size != after.st_size
                         or opened.st_mtime_ns != after.st_mtime_ns
-                        or not os.path.samestat(opened, after)
+                        or not _is_safe_regular_file(after)
+                        or not _same_file_identity(opened, after)
                     ):
                         return None, consumed
                     return item, consumed
