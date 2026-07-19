@@ -94,6 +94,15 @@ class _ItemLockToken:
     process_lock: threading.RLock
 
 
+@dataclass(frozen=True)
+class PreparedItemMutation:
+    """Validated exact bytes for one locked item mutation; never persisted as metadata."""
+
+    item_id: str
+    data: bytes = field(repr=False)
+    updated_item: MemoryItem = field(repr=False)
+
+
 @dataclass
 class SkipRecord:
     path: Path
@@ -399,34 +408,64 @@ class LockedItemsView:
         return parse_item_markdown(text)
 
     def update_frontmatter(self, item_id: str, **updates: object) -> MemoryItem:
+        prepared = self.prepare_update_frontmatter(item_id, **updates)
+        self.apply_prepared(prepared)
+        return prepared.updated_item
+
+    def prepare_update_frontmatter(
+        self, item_id: str, **updates: object
+    ) -> PreparedItemMutation:
         item, body = self.get(item_id)
         updated = ItemsStore._updated_item(item, updates)
-        self._directory.atomic_write(
-            f"{item_id}.md", render_item_markdown(updated, body).encode("utf-8")
+        return PreparedItemMutation(
+            item_id,
+            render_item_markdown(updated, body).encode("utf-8"),
+            updated,
         )
-        return updated
+
+    def apply_prepared(self, prepared: PreparedItemMutation) -> None:
+        self._require_locked(prepared.item_id)
+        self._directory.atomic_write(
+            f"{prepared.item_id}.md", prepared.data
+        )
 
     def restore_raw(self, item_id: str, data: bytes) -> None:
         self._require_locked(item_id)
         self._directory.atomic_write(f"{item_id}.md", data)
 
     def link_mem(self, source_id: str, target_id: str) -> bool:
-        item, _ = self.get(source_id)
-        if target_id in item.refs.mems:
+        prepared = self.prepare_link_mem(source_id, target_id)
+        if prepared is None:
             return False
-        self.update_frontmatter(
-            source_id, refs=ItemsStore._linked_refs(item, target_id)
-        )
+        self.apply_prepared(prepared)
         return True
 
+    def prepare_link_mem(
+        self, source_id: str, target_id: str
+    ) -> PreparedItemMutation | None:
+        item, _ = self.get(source_id)
+        if target_id in item.refs.mems:
+            return None
+        return self.prepare_update_frontmatter(
+            source_id, refs=ItemsStore._linked_refs(item, target_id)
+        )
+
     def unlink_mem(self, source_id: str, target_id: str) -> bool:
+        prepared = self.prepare_unlink_mem(source_id, target_id)
+        if prepared is None:
+            return False
+        self.apply_prepared(prepared)
+        return True
+
+    def prepare_unlink_mem(
+        self, source_id: str, target_id: str
+    ) -> PreparedItemMutation | None:
         item, _ = self.get(source_id)
         if target_id not in item.refs.mems:
-            return False
-        self.update_frontmatter(
+            return None
+        return self.prepare_update_frontmatter(
             source_id, refs=ItemsStore._unlinked_refs(item, target_id)
         )
-        return True
 
     def _require_locked(self, item_id: str) -> None:
         if item_id not in self._item_ids:

@@ -1,10 +1,15 @@
+import json
+import os
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
+import pytest
+
 from agent_brain.contracts.memory_item import MemoryItem, MemoryType
 from agent_brain.memory.governance.supersession import SupersessionService
 from agent_brain.memory.store.items_store import ItemsStore
+from agent_brain.memory.store.durable_fs import SecureDirectory
 
 
 OLD_ID = "mem-20260719-100000-concurrency-old"
@@ -238,3 +243,78 @@ def test_snapshot_durability_failure_precedes_markdown_ledger_and_index(
     assert (store.items_dir / f"{new.id}.md").read_bytes() == new_before
     assert not (tmp_brain_dir / "runtime" / "lifecycle-actions.jsonl").exists()
     assert index.calls == []
+
+
+@pytest.mark.parametrize("action", ["apply", "revert"])
+@pytest.mark.parametrize("replace_number", [1, 2])
+@pytest.mark.parametrize("failure_type", [OSError, InterruptedError])
+def test_post_replace_fsync_failure_rolls_back_exact_original_pair(
+    tmp_brain_dir: Path,
+    monkeypatch,
+    action: str,
+    replace_number: int,
+    failure_type: type[OSError],
+) -> None:
+    store, old, new = _seed(tmp_brain_dir)
+    service = SupersessionService(tmp_brain_dir, store)
+    if action == "revert":
+        assert service.apply(new.id, old.id, apply=True).status == "applied"
+    old_path = store.items_dir / f"{old.id}.md"
+    new_path = store.items_dir / f"{new.id}.md"
+    original_old = old_path.read_bytes()
+    original_new = new_path.read_bytes()
+    items_identity = store.items_dir.stat()
+    real_replace = os.replace
+    real_fsync = SecureDirectory.fsync
+    markdown_replaces = 0
+    failed = False
+
+    def track_markdown_replace(source, destination, **kwargs):
+        nonlocal markdown_replaces
+        result = real_replace(source, destination, **kwargs)
+        destination_fd = kwargs.get("dst_dir_fd")
+        if destination_fd is not None and destination in {
+            f"{old.id}.md",
+            f"{new.id}.md",
+        }:
+            opened = os.fstat(destination_fd)
+            if (opened.st_dev, opened.st_ino) == (
+                items_identity.st_dev,
+                items_identity.st_ino,
+            ):
+                markdown_replaces += 1
+        return result
+
+    def fail_after_selected_replace(directory):
+        nonlocal failed
+        opened = os.fstat(directory.fd)
+        if (
+            not failed
+            and markdown_replaces == replace_number
+            and (opened.st_dev, opened.st_ino)
+            == (items_identity.st_dev, items_identity.st_ino)
+        ):
+            failed = True
+            raise failure_type("post-replace parent fsync failure")
+        return real_fsync(directory)
+
+    monkeypatch.setattr(os, "replace", track_markdown_replace)
+    monkeypatch.setattr(SecureDirectory, "fsync", fail_after_selected_replace)
+
+    if action == "apply":
+        result = service.apply(new.id, old.id, apply=True)
+    else:
+        result = service.revert(new.id, old.id, apply=True)
+
+    assert failed is True
+    assert result.status == "blocked"
+    assert result.reason == "MARKDOWN_UPDATE_FAILED"
+    assert old_path.read_bytes() == original_old
+    assert new_path.read_bytes() == original_new
+    ledger_path = tmp_brain_dir / "runtime" / "lifecycle-actions.jsonl"
+    records = [json.loads(line) for line in ledger_path.read_text().splitlines()]
+    assert records[-1]["reason"] == "MARKDOWN_UPDATE_FAILED"
+    if action == "apply":
+        assert not any(record["status"] == "applied" for record in records)
+    else:
+        assert not any(record["status"] == "reverted" for record in records)

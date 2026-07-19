@@ -151,16 +151,27 @@ class SupersessionService:
                     snapshot=snapshot,
                 )
 
-            produced_old_bytes = old_bytes
-            produced_new_bytes = new_bytes
+            produced_old_bytes = locked.prepare_update_frontmatter(
+                obsolete.id, superseded_by=replacement.id
+            ).data
+            prepared_new = (
+                None
+                if replacement_ref_preexisted
+                else locked.prepare_link_mem(replacement.id, obsolete.id)
+            )
+            produced_new_bytes = (
+                new_bytes if prepared_new is None else prepared_new.data
+            )
             try:
                 self.store.update_frontmatter(
                     obsolete.id, superseded_by=replacement.id
                 )
-                produced_old_bytes = locked.read_bytes(obsolete.id)
+                if locked.read_bytes(obsolete.id) != produced_old_bytes:
+                    raise OSError("PREPARED_MUTATION_MISMATCH")
                 if not replacement_ref_preexisted:
                     self.store.link_mem(replacement.id, obsolete.id)
-                    produced_new_bytes = locked.read_bytes(replacement.id)
+                    if locked.read_bytes(replacement.id) != produced_new_bytes:
+                        raise OSError("PREPARED_MUTATION_MISMATCH")
             except BaseException as error:
                 rollback_result = self._rollback_result(
                     "supersede",
@@ -332,14 +343,25 @@ class SupersessionService:
                     snapshot=snapshot,
                 )
 
-            produced_old_bytes = old_bytes
-            produced_new_bytes = new_bytes
+            produced_old_bytes = locked.prepare_update_frontmatter(
+                obsolete.id, superseded_by=None
+            ).data
+            prepared_new = (
+                None
+                if replacement_ref_preexisted
+                else locked.prepare_unlink_mem(replacement.id, obsolete.id)
+            )
+            produced_new_bytes = (
+                new_bytes if prepared_new is None else prepared_new.data
+            )
             try:
                 self.store.update_frontmatter(obsolete.id, superseded_by=None)
-                produced_old_bytes = locked.read_bytes(obsolete.id)
+                if locked.read_bytes(obsolete.id) != produced_old_bytes:
+                    raise OSError("PREPARED_MUTATION_MISMATCH")
                 if not replacement_ref_preexisted:
                     self.store.unlink_mem(replacement.id, obsolete.id)
-                    produced_new_bytes = locked.read_bytes(replacement.id)
+                    if locked.read_bytes(replacement.id) != produced_new_bytes:
+                        raise OSError("PREPARED_MUTATION_MISMATCH")
             except BaseException as error:
                 rollback_result = self._rollback_result(
                     "revert-supersession",
