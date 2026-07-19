@@ -2019,7 +2019,6 @@ class TestLifecycleGovernanceAPI:
     @pytest.mark.parametrize(
         ("payload", "message"),
         [
-            ({}, "actions or item_ids required"),
             (
                 {"actions": [{"action": "supersede", "item_id": "mem-20260101-171104-web-missing-replacement"}]},
                 "replacement_id required",
@@ -2045,6 +2044,27 @@ class TestLifecycleGovernanceAPI:
 
         assert resp.status_code == 422
         assert message in resp.text
+
+    def test_lifecycle_apply_legacy_empty_item_ids_is_route_level_400_after_admin(
+        self,
+        client: TestClient,
+        admin_token: str,
+        user_token: str,
+    ):
+        user_resp = client.post(
+            "/api/governance/lifecycle-apply",
+            json={"item_ids": []},
+            headers={"Authorization": f"Bearer {user_token}"},
+        )
+        admin_resp = client.post(
+            "/api/governance/lifecycle-apply",
+            json={"item_ids": []},
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+
+        assert user_resp.status_code == 403
+        assert admin_resp.status_code == 400
+        assert admin_resp.json() == {"detail": "actions or item_ids required"}
 
     def test_lifecycle_apply_rejects_conflicting_actions(
         self,

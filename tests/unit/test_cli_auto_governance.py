@@ -539,6 +539,54 @@ def test_govern_apply_lifecycle_action_flags_default_to_preview(
         assert not (tmp_brain_dir / "runtime" / "lifecycle-actions.jsonl").exists()
 
 
+def test_govern_apply_lifecycle_pair_option_supports_escaped_colons_in_both_ids(
+    tmp_brain_dir: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("BRAIN_DIR", str(tmp_brain_dir))
+    store = ItemsStore(tmp_brain_dir / "items")
+    old = MemoryItem(
+        id="mem-20260101-171009-cli-old:colon",
+        type=MemoryType.signal,
+        created_at=datetime.now(timezone.utc) - timedelta(days=60),
+        project="amh",
+        title="Old colon",
+        summary="Old colon",
+    )
+    new = MemoryItem(
+        id="mem-20260701-171010-cli-new:colon",
+        type=MemoryType.signal,
+        created_at=datetime.now(timezone.utc) - timedelta(days=2),
+        project="amh",
+        title="New colon",
+        summary="New colon",
+    )
+    store.write(old, "old")
+    store.write(new, "new")
+    escaped_old = old.id.replace(":", "\\:")
+    escaped_new = new.id.replace(":", "\\:")
+    pair = f"{escaped_old}:{escaped_new}"
+
+    result = runner.invoke(
+        app,
+        [
+            "govern",
+            "apply-lifecycle",
+            "--supersede",
+            pair,
+            "--format",
+            "json",
+            "--no-index-repair",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["results"][0]["item_id"] == old.id
+    assert payload["results"][0]["replacement_id"] == new.id
+    assert payload["results"][0]["status"] == "ready"
+
+
 def test_govern_apply_lifecycle_conflicting_actions_exit_two_with_json(
     tmp_brain_dir: Path,
     monkeypatch,

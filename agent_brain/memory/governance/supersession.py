@@ -539,7 +539,7 @@ class SupersessionService:
 
     def _load_item(self, item_id: str) -> tuple[MemoryItem | None, _ItemLoadStatus]:
         try:
-            item, _ = self.store.get(item_id)
+            item, _ = self.store.get_nofollow(item_id)
         except FileNotFoundError:
             return None, "missing"
         except _ITEM_READ_ERRORS:

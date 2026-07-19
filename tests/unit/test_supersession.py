@@ -265,7 +265,7 @@ def test_preview_propagates_programming_errors(
     def raising_get(_item_id):
         raise error_type("programming failure")
 
-    monkeypatch.setattr(store, "get", raising_get)
+    monkeypatch.setattr(store, "get_nofollow", raising_get)
     service = SupersessionService(tmp_brain_dir, store)
 
     with pytest.raises(error_type, match="programming failure"):

@@ -132,11 +132,9 @@ class LifecycleApplyRequest(BaseModel):
     index_repair: bool = True
 
     @model_validator(mode="after")
-    def require_actions(self) -> LifecycleApplyRequest:
+    def validate_legacy_item_ids(self) -> LifecycleApplyRequest:
         from agent_brain.contracts.memory_item import is_valid_memory_item_id
 
-        if not self.actions and not self.item_ids:
-            raise ValueError("actions or item_ids required")
         if any(not is_valid_memory_item_id(item_id) for item_id in self.item_ids):
             raise ValueError("item_ids must contain canonical memory item ids")
         return self
@@ -173,6 +171,8 @@ async def lifecycle_apply(
     """Preview or apply selected lifecycle review actions. Admin only."""
     if not user.is_admin:
         raise HTTPException(status_code=403, detail="admin only")
+    if not req.actions and not req.item_ids:
+        raise HTTPException(status_code=400, detail="actions or item_ids required")
 
     from agent_brain.memory.governance.lifecycle_review import (
         LifecycleReviewAction,

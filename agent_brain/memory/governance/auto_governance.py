@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
 
+from agent_brain.contracts.memory_item import MemoryItem
 from agent_brain.contracts.memory_enums import memory_enum_value
 from agent_brain.memory.evidence.conversation_governance import classify_tier
 from agent_brain.memory.evidence.conversation_store import ConversationStore
@@ -28,6 +29,16 @@ _LIFECYCLE_STALE_DAYS = {
     "signal": 30,
     "handoff": 30,
 }
+
+
+def lifecycle_review_due(item: MemoryItem, *, now: datetime) -> bool:
+    """Return whether an active signal/handoff is due for lifecycle review."""
+    item_type = str(memory_enum_value(item.type))
+    stale_after_days = _LIFECYCLE_STALE_DAYS.get(item_type)
+    if stale_after_days is None or item.superseded_by:
+        return False
+    observed_at = item.validity.observed_at or item.created_at
+    return bool(max(0, (now - observed_at).days) > stale_after_days)
 
 
 @dataclass(frozen=True)
@@ -100,7 +111,7 @@ class AutoGovernanceCycle:
         self.items_store = items_store
         self.index = index
         self.embedder = embedder
-        self.conversation_store = conversation_store or ConversationStore(self.brain_dir)
+        self.conversation_store = conversation_store
         self.now = now or datetime.now(timezone.utc)
         self.include_index = include_index
         self.include_conversations = include_conversations
@@ -179,8 +190,9 @@ class AutoGovernanceCycle:
             stale_after_days = _LIFECYCLE_STALE_DAYS.get(item_type)
             if stale_after_days is None:
                 continue
-            age_days = max(0, (self.now - item.created_at).days)
-            if age_days <= stale_after_days:
+            observed_at = item.validity.observed_at or item.created_at
+            age_days = max(0, (self.now - observed_at).days)
+            if not lifecycle_review_due(item, now=self.now):
                 continue
             actions.append(AutoGovernanceAction(
                 action="review_archive",
@@ -268,8 +280,9 @@ class AutoGovernanceCycle:
         return actions
 
     def _conversation_actions(self, *, apply: bool) -> list[AutoGovernanceAction]:
+        conversation_store = self.conversation_store or ConversationStore(self.brain_dir)
         pending = []
-        for message in self.conversation_store.iter_messages():
+        for message in conversation_store.iter_messages():
             recommended = classify_tier(message, now=self.now)
             if str(message.tier) != recommended.value:
                 pending.append((message, recommended.value))
@@ -283,7 +296,7 @@ class AutoGovernanceCycle:
             "recommended_distribution": _distribution(tier for _message, tier in pending),
         }
         if apply:
-            rebalance = self.conversation_store.rebalance_tiers(now=self.now)
+            rebalance = conversation_store.rebalance_tiers(now=self.now)
             details["rebalance"] = {
                 "scanned": rebalance.scanned,
                 "updated": rebalance.updated,

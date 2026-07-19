@@ -9,7 +9,7 @@ import re
 import threading
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import BinaryIO, Iterator
 
@@ -184,6 +184,82 @@ def latest_applied_supersession_record(
     return None
 
 
+def active_lifecycle_deferrals(
+    brain_dir: Path,
+    *,
+    now: datetime | None = None,
+) -> dict[str, datetime]:
+    """Read active per-item deferrals without creating files or directories.
+
+    A malformed or concurrently partial ledger fails safe by returning no
+    deferrals, which keeps stale items visible for review rather than hiding
+    them based on untrusted state.
+    """
+    records = _read_lifecycle_records_readonly(brain_dir)
+    if records is None:
+        return {}
+    current = now or datetime.now(timezone.utc)
+    deferred: dict[str, datetime] = {}
+    for record in records:
+        if record.action == "defer" and record.status == "deferred":
+            assert record.deferred_until is not None
+            deferred[record.obsolete_id] = datetime.fromisoformat(
+                record.deferred_until
+            )
+        elif record.status in {"applied", "reverted"}:
+            deferred.pop(record.obsolete_id, None)
+    return {
+        item_id: deadline
+        for item_id, deadline in deferred.items()
+        if deadline > current
+    }
+
+
+def _read_lifecycle_records_readonly(
+    brain_dir: Path,
+) -> list[LifecycleLedgerRecord] | None:
+    try:
+        with SecureDirectory.open(Path(brain_dir)) as brain:
+            with brain.child("runtime") as runtime:
+                descriptor, _ = runtime.open_file(
+                    "lifecycle-actions.jsonl", os.O_RDONLY
+                )
+                try:
+                    with os.fdopen(descriptor, "rb") as handle:
+                        descriptor = -1
+                        lines = handle.read().decode("utf-8").splitlines()
+                finally:
+                    if descriptor >= 0:
+                        os.close(descriptor)
+    except FileNotFoundError:
+        return []
+    except (OSError, UnicodeError):
+        return None
+
+    records: list[LifecycleLedgerRecord] = []
+    for line in lines:
+        try:
+            data = json.loads(line)
+        except json.JSONDecodeError:
+            return None
+        if not isinstance(data, dict):
+            return None
+        if set(data) == _LEDGER_FIELDS:
+            data["deferred_until"] = None
+        elif set(data) != _DEFER_LEDGER_FIELDS:
+            return None
+        if not _valid_record_types(data):
+            return None
+        try:
+            record = LifecycleLedgerRecord(**data)
+        except TypeError:
+            return None
+        if not _valid_record(record):
+            return None
+        records.append(record)
+    return records
+
+
 @contextmanager
 def _locked_file(runtime: SecureDirectory, name: str) -> Iterator[BinaryIO]:
     descriptor, created = runtime.open_or_create_file(name, os.O_RDWR)
@@ -338,6 +414,7 @@ def _has_control(value: str) -> bool:
 
 __all__ = [
     "LifecycleLedgerRecord",
+    "active_lifecycle_deferrals",
     "append_lifecycle_record",
     "latest_applied_supersession_record",
     "lifecycle_transaction_lock",

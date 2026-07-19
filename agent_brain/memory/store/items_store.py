@@ -11,6 +11,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import cast
 
 from agent_brain.memory.store.item_markdown import parse_item_markdown, render_item_markdown
 from agent_brain.contracts.memory_item import MemoryItem, is_valid_memory_item_id
@@ -160,6 +161,35 @@ class ItemsStore:
         if not md_path.exists():
             raise FileNotFoundError(f"Item {item_id} not found")
         return self._read_one(md_path)
+
+    def get_nofollow(self, item_id: str) -> tuple[MemoryItem, str]:
+        """Read one canonical active item without following filesystem links."""
+        if not is_valid_memory_item_id(item_id):
+            raise ValueError("invalid memory item id")
+        if not (
+            hasattr(os, "O_DIRECTORY")
+            and hasattr(os, "O_NOFOLLOW")
+            and os.open in os.supports_dir_fd
+        ):
+            raise OSError("NOFOLLOW_READ_UNSUPPORTED")
+        directory_fd = os.open(
+            self.items_dir,
+            os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+        )
+        with SecureDirectory(directory_fd) as items:
+            descriptor, _ = items.open_file(f"{item_id}.md", os.O_RDONLY)
+            chunks: list[bytes] = []
+            try:
+                while True:
+                    chunk = os.read(descriptor, 65536)
+                    if not chunk:
+                        break
+                    chunks.append(chunk)
+            finally:
+                os.close(descriptor)
+        text = b"".join(chunks).decode("utf-8-sig")
+        text = text.replace("\r\n", "\n").replace("\r", "\n")
+        return cast(tuple[MemoryItem, str], parse_item_markdown(text))
 
     def write(self, item: MemoryItem, body: str) -> Path:
         """Write item + body to a md file. Returns the file path."""

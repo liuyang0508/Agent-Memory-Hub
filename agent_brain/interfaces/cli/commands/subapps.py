@@ -378,7 +378,10 @@ def apply_lifecycle_reviews(
     supersede: list[str] | None = typer.Option(
         None,
         "--supersede",
-        help="Supersede OLD with NEW as OLD:NEW (repeatable)",
+        help=(
+            "Supersede OLD with NEW as OLD:NEW (repeatable); "
+            "escape ID colons as \\: and backslashes as \\\\"
+        ),
     ),
     keep_active: list[str] | None = typer.Option(
         None,
@@ -393,7 +396,10 @@ def apply_lifecycle_reviews(
     revert_supersession: list[str] | None = typer.Option(
         None,
         "--revert-supersession",
-        help="Revert OLD/NEW supersession as OLD:NEW (repeatable)",
+        help=(
+            "Revert OLD/NEW supersession as OLD:NEW (repeatable); "
+            "escape ID colons as \\: and backslashes as \\\\"
+        ),
     ),
     apply: bool = typer.Option(
         False,
@@ -421,6 +427,9 @@ def apply_lifecycle_reviews(
         apply_lifecycle_review_items,
         conflicting_lifecycle_action_item,
     )
+    from agent_brain.memory.governance.lifecycle_action_parsing import (
+        parse_escaped_id_pair,
+    )
 
     actions = [
         LifecycleReviewAction(action="archive", item_id=item_id)
@@ -433,10 +442,11 @@ def apply_lifecycle_reviews(
     )
     for action_name, values in pair_options:
         for value in values:
-            old_id, separator, new_id = value.partition(":")
-            if not separator or not old_id or not new_id or ":" in new_id:
+            pair = parse_escaped_id_pair(value)
+            if pair is None:
                 parse_error = {"error": "INVALID_ACTION_ARGUMENT", "value": value}
                 break
+            old_id, new_id = pair
             actions.append(
                 LifecycleReviewAction(
                     action=action_name,
