@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import json
 import os
+import stat
+import subprocess
+import sys
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -13,7 +16,10 @@ from agent_brain.memory.governance.lifecycle_ledger import (
     LifecycleLedgerRecord,
     append_lifecycle_record,
 )
-from agent_brain.memory.governance.lifecycle_archive import archive_reviewed_item
+from agent_brain.memory.governance.lifecycle_archive import (
+    ArchiveTransactionResult,
+    archive_reviewed_item,
+)
 from agent_brain.memory.governance.lifecycle_review import (
     LifecycleReviewAction,
     apply_lifecycle_review_actions,
@@ -155,6 +161,87 @@ def test_lifecycle_queue_later_successful_review_action_supersedes_defer(
     assert item.id in {row.item_id for row in plan.review_queue}
 
 
+def test_keep_active_supersedes_long_defer_and_item_reenters_queue_after_32_days(
+    tmp_path: Path,
+) -> None:
+    now = datetime.now(timezone.utc)
+    brain = tmp_path / "brain"
+    store = ItemsStore(brain / "items")
+    item = _stale_item("mem-20260101-180014-keep-overrides-defer", now=now)
+    store.write(item, "body")
+    append_lifecycle_record(
+        brain,
+        LifecycleLedgerRecord(
+            action="defer",
+            timestamp=(now - timedelta(minutes=1)).isoformat(),
+            status="deferred",
+            reason="OK",
+            obsolete_id=item.id,
+            replacement_id=None,
+            snapshot=None,
+            replacement_ref_preexisted=False,
+            deferred_until=(now + timedelta(days=365)).isoformat(),
+        ),
+    )
+
+    payload = apply_lifecycle_review_actions(
+        brain_dir=brain,
+        items_store=store,
+        actions=[LifecycleReviewAction("keep-active", item.id)],
+        apply=True,
+        index_repair=False,
+    )
+
+    kept, _ = store.get(item.id)
+    assert payload["results"][0]["status"] == "applied"
+    assert kept.validity.observed_at is not None
+    plan = build_lifecycle_review_plan(
+        brain_dir=brain,
+        items_store=store,
+        now=kept.validity.observed_at + timedelta(days=32),
+    )
+    assert [row.item_id for row in plan.review_queue] == [item.id]
+    ledger_rows = [
+        json.loads(line)
+        for line in (brain / "runtime" / "lifecycle-actions.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+    ]
+    assert ledger_rows[-1]["action"] == "keep-active"
+    assert ledger_rows[-1]["status"] == "applied"
+
+
+def test_keep_active_rolls_back_markdown_when_ledger_append_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from agent_brain.memory.governance import lifecycle_review
+
+    now = datetime.now(timezone.utc)
+    brain = tmp_path / "brain"
+    store = ItemsStore(brain / "items")
+    item = _stale_item("mem-20260101-180015-keep-ledger-failure", now=now)
+    source = store.write(item, "body")
+    original = source.read_bytes()
+    monkeypatch.setattr(
+        lifecycle_review,
+        "append_lifecycle_record",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("ledger failed")),
+    )
+
+    payload = apply_lifecycle_review_actions(
+        brain_dir=brain,
+        items_store=store,
+        actions=[LifecycleReviewAction("keep-active", item.id)],
+        apply=True,
+        index_repair=False,
+    )
+
+    assert payload["results"][0]["status"] == "blocked"
+    assert payload["results"][0]["reason"] == "LEDGER_WRITE_FAILED"
+    assert source.read_bytes() == original
+
+
 def test_lifecycle_queue_corrupt_ledger_fails_safe_without_writing(
     tmp_path: Path,
 ) -> None:
@@ -205,6 +292,39 @@ def test_structural_invalid_action_blocks_entire_batch_before_mutation(
         "INVALID_ITEM_ID",
     ]
     assert (store.items_dir / f"{item.id}.md").read_bytes() == before
+    assert not (brain / "runtime").exists()
+
+
+@pytest.mark.parametrize("action_name", ["supersede", "revert-supersession"])
+def test_self_relation_blocks_whole_batch_before_preceding_keep_active(
+    tmp_path: Path,
+    action_name: str,
+) -> None:
+    now = datetime.now(timezone.utc)
+    brain = tmp_path / "brain"
+    store = ItemsStore(brain / "items")
+    kept = _stale_item("mem-20260101-180016-preflight-kept", now=now)
+    related = _stale_item("mem-20260101-180017-preflight-self", now=now)
+    kept_path = store.write(kept, "kept")
+    store.write(related, "related")
+    original = kept_path.read_bytes()
+
+    payload = apply_lifecycle_review_actions(
+        brain_dir=brain,
+        items_store=store,
+        actions=[
+            LifecycleReviewAction("keep-active", kept.id),
+            LifecycleReviewAction(action_name, related.id, related.id),
+        ],
+        apply=True,
+        index_repair=False,
+    )
+
+    assert [row["reason"] for row in payload["results"]] == [
+        "BATCH_VALIDATION_FAILED",
+        "SELF_SUPERSESSION",
+    ]
+    assert kept_path.read_bytes() == original
     assert not (brain / "runtime").exists()
 
 
@@ -367,6 +487,40 @@ def test_supersession_symlink_source_is_structured_blocked_in_preview_and_apply(
     assert external.read_bytes() == external_before
 
 
+def test_supersession_fifo_source_is_nonblocking_structured_item_invalid(
+    tmp_path: Path,
+) -> None:
+    brain = tmp_path / "brain"
+    store = ItemsStore(brain / "items")
+    old_id = "mem-20260101-180018-fifo-old"
+    new = _stale_item(
+        "mem-20260701-180019-fifo-replacement",
+        now=datetime.now(timezone.utc),
+    )
+    store.write(new, "new")
+    os.mkfifo(store.items_dir / f"{old_id}.md")
+    script = (
+        "import json; from pathlib import Path; "
+        "from agent_brain.memory.store.items_store import ItemsStore; "
+        "from agent_brain.memory.governance.supersession import SupersessionService; "
+        f"brain=Path({str(brain)!r}); "
+        f"result=SupersessionService(brain, ItemsStore(brain/'items')).preview({new.id!r}, {old_id!r}); "
+        "print(json.dumps(result.to_dict()))"
+    )
+
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        text=True,
+        capture_output=True,
+        timeout=2,
+        check=True,
+    )
+    result = json.loads(completed.stdout)
+
+    assert result["status"] == "blocked"
+    assert result["reason"] == "ITEM_INVALID"
+
+
 def test_archive_does_not_archive_stale_descriptor_after_source_replacement(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -384,9 +538,10 @@ def test_archive_does_not_archive_stale_descriptor_after_source_replacement(
     original_bytes = source.read_bytes()
     displaced = tmp_path / "displaced-original.md"
     original_rename = os.rename
+    original_link = os.link
     state = {"replaced": False}
 
-    def replace_before_stage(source_name, destination_name, *args, **kwargs):
+    def replace_before_link(source_name, destination_name, *args, **kwargs):
         if source_name == f"{item.id}.md" and not state["replaced"]:
             state["replaced"] = True
             source_fd = kwargs["src_dir_fd"]
@@ -402,14 +557,9 @@ def test_archive_does_not_archive_stale_descriptor_after_source_replacement(
                 os.fsync(descriptor)
             finally:
                 os.close(descriptor)
-        return original_rename(source_name, destination_name, *args, **kwargs)
+        return original_link(source_name, destination_name, *args, **kwargs)
 
-    monkeypatch.setattr(lifecycle_archive.os, "rename", replace_before_stage)
-    monkeypatch.setattr(
-        lifecycle_archive.durable_fs,
-        "lifecycle_mutation_capability",
-        lambda: True,
-    )
+    monkeypatch.setattr(lifecycle_archive.os, "link", replace_before_link)
 
     result = archive_reviewed_item(
         brain_dir=brain,
@@ -472,3 +622,223 @@ def test_archive_never_overwrites_target_created_during_publish(
     assert result.reason == "ARCHIVE_TARGET_EXISTS"
     assert source.read_bytes() == original_bytes
     assert target.read_bytes() == concurrent_bytes
+
+
+def test_archive_rejects_same_inode_content_change_without_archiving_new_bytes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from agent_brain.memory.governance import lifecycle_archive
+
+    now = datetime.now(timezone.utc)
+    brain = tmp_path / "brain"
+    store = ItemsStore(brain / "items")
+    item = _stale_item("mem-20260101-180020-archive-inode-write", now=now)
+    source = store.write(item, "original body")
+    replacement_store = ItemsStore(tmp_path / "replacement-inode")
+    replacement = replacement_store.write(item, "same inode changed body").read_bytes()
+    original_link = os.link
+    changed = False
+
+    def mutate_before_link(source_name, destination_name, *args, **kwargs):
+        nonlocal changed
+        if not changed:
+            changed = True
+            descriptor = os.open(
+                source_name,
+                os.O_WRONLY | os.O_TRUNC,
+                dir_fd=kwargs["src_dir_fd"],
+            )
+            try:
+                os.write(descriptor, replacement)
+                os.fsync(descriptor)
+            finally:
+                os.close(descriptor)
+        return original_link(source_name, destination_name, *args, **kwargs)
+
+    monkeypatch.setattr(lifecycle_archive.os, "link", mutate_before_link)
+
+    result = archive_reviewed_item(
+        brain_dir=brain,
+        items_store=store,
+        item_id=item.id,
+        eligible=lambda _item: True,
+    )
+
+    assert result.status == "blocked"
+    assert result.reason == "CONCURRENT_MODIFICATION"
+    assert source.read_bytes() == replacement
+    assert not (store.items_dir / "archived" / source.name).exists()
+
+
+def test_archive_recovers_linked_half_transaction_without_stage_directory(
+    tmp_path: Path,
+) -> None:
+    now = datetime.now(timezone.utc)
+    brain = tmp_path / "brain"
+    store = ItemsStore(brain / "items")
+    item = _stale_item("mem-20260101-180021-archive-linked-half", now=now)
+    source = store.write(item, "body")
+    archive = store.items_dir / "archived"
+    archive.mkdir()
+    target = archive / source.name
+    os.link(source, target)
+
+    result = archive_reviewed_item(
+        brain_dir=brain,
+        items_store=store,
+        item_id=item.id,
+        eligible=lambda _item: True,
+    )
+
+    assert result.status == "applied"
+    assert result.reason == "OK"
+    assert not source.exists()
+    assert target.exists()
+    assert not (store.items_dir / ".amh-lifecycle-stage").exists()
+
+
+def test_archive_recognizes_completed_target_when_source_is_already_absent(
+    tmp_path: Path,
+) -> None:
+    now = datetime.now(timezone.utc)
+    brain = tmp_path / "brain"
+    store = ItemsStore(brain / "items")
+    item = _stale_item("mem-20260101-180023-archive-completed", now=now)
+    source = store.write(item, "body")
+    archive = store.items_dir / "archived"
+    archive.mkdir()
+    target = archive / source.name
+    os.link(source, target)
+    source.unlink()
+
+    result = archive_reviewed_item(
+        brain_dir=brain,
+        items_store=store,
+        item_id=item.id,
+        eligible=lambda _item: True,
+    )
+
+    assert result.status == "already_applied"
+    assert result.reason == "ALREADY_ARCHIVED"
+    assert target.exists()
+
+
+def test_archive_keeps_fresh_source_when_replaced_after_exclusive_link(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from agent_brain.memory.governance import lifecycle_archive
+
+    now = datetime.now(timezone.utc)
+    brain = tmp_path / "brain"
+    store = ItemsStore(brain / "items")
+    item = _stale_item("mem-20260101-180022-archive-post-link-swap", now=now)
+    source = store.write(item, "old body")
+    old_bytes = source.read_bytes()
+    replacement_store = ItemsStore(tmp_path / "replacement-post-link")
+    fresh_bytes = replacement_store.write(item, "fresh body").read_bytes()
+    displaced = tmp_path / "linked-old.md"
+    original_link = os.link
+    original_rename = os.rename
+    swapped = False
+
+    def replace_source_after_link(source_name, destination_name, *args, **kwargs):
+        nonlocal swapped
+        result = original_link(source_name, destination_name, *args, **kwargs)
+        if not swapped:
+            swapped = True
+            original_rename(source, displaced)
+            source.write_bytes(fresh_bytes)
+        return result
+
+    monkeypatch.setattr(lifecycle_archive.os, "link", replace_source_after_link)
+
+    result = archive_reviewed_item(
+        brain_dir=brain,
+        items_store=store,
+        item_id=item.id,
+        eligible=lambda _item: True,
+    )
+
+    target = store.items_dir / "archived" / source.name
+    assert result.status == "partial"
+    assert result.reason == "ARCHIVE_SOURCE_REPLACED"
+    assert source.read_bytes() == fresh_bytes
+    assert target.read_bytes() == old_bytes
+    assert displaced.read_bytes() == old_bytes
+    assert not (store.items_dir / ".amh-lifecycle-stage").exists()
+
+
+def test_lifecycle_payload_reports_partial_archive_in_legacy_failed_field(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from agent_brain.memory.governance import lifecycle_review
+
+    now = datetime.now(timezone.utc)
+    brain = tmp_path / "brain"
+    store = ItemsStore(brain / "items")
+    item = _stale_item("mem-20260101-180025-archive-partial-payload", now=now)
+    store.write(item, "body")
+    monkeypatch.setattr(
+        lifecycle_review,
+        "archive_reviewed_item",
+        lambda **_kwargs: ArchiveTransactionResult(
+            "partial", "ARCHIVE_SOURCE_REPLACED"
+        ),
+    )
+
+    payload = apply_lifecycle_review_actions(
+        brain_dir=brain,
+        items_store=store,
+        actions=[LifecycleReviewAction("archive", item.id)],
+        apply=True,
+        index_repair=False,
+    )
+
+    assert payload["results"][0]["status"] == "partial"
+    assert payload["failed"] == [
+        {"id": item.id, "reason": "ARCHIVE_SOURCE_REPLACED"}
+    ]
+
+
+def test_archive_does_not_misreport_applied_when_fifo_appears_after_unlink(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from agent_brain.memory.governance import lifecycle_archive
+
+    now = datetime.now(timezone.utc)
+    brain = tmp_path / "brain"
+    store = ItemsStore(brain / "items")
+    item = _stale_item("mem-20260101-180024-archive-post-unlink-fifo", now=now)
+    source = store.write(item, "body")
+    original_unlink = os.unlink
+    inserted = False
+
+    def insert_fifo_after_unlink(path, *args, **kwargs):
+        nonlocal inserted
+        result = original_unlink(path, *args, **kwargs)
+        if path == source.name and not inserted:
+            inserted = True
+            os.mkfifo(source)
+        return result
+
+    monkeypatch.setattr(lifecycle_archive.os, "unlink", insert_fifo_after_unlink)
+    monkeypatch.setattr(
+        lifecycle_archive.durable_fs,
+        "lifecycle_mutation_capability",
+        lambda: True,
+    )
+
+    result = archive_reviewed_item(
+        brain_dir=brain,
+        items_store=store,
+        item_id=item.id,
+        eligible=lambda _item: True,
+    )
+
+    assert result.status == "partial"
+    assert result.reason == "ARCHIVE_SOURCE_REPLACED"
+    assert stat.S_ISFIFO(source.stat().st_mode)

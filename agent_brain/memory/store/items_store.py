@@ -177,7 +177,10 @@ class ItemsStore:
             os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
         )
         with SecureDirectory(directory_fd) as items:
-            descriptor, _ = items.open_file(f"{item_id}.md", os.O_RDONLY)
+            descriptor, _ = items.open_file(
+                f"{item_id}.md",
+                os.O_RDONLY | os.O_NONBLOCK,
+            )
             chunks: list[bytes] = []
             try:
                 while True:

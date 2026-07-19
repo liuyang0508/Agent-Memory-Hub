@@ -380,7 +380,7 @@ def apply_lifecycle_reviews(
         "--supersede",
         help=(
             "Supersede OLD with NEW as OLD:NEW (repeatable); "
-            "escape ID colons as \\: and backslashes as \\\\"
+            "escape ID colons as \\:; backslash is syntax only"
         ),
     ),
     keep_active: list[str] | None = typer.Option(
@@ -398,7 +398,7 @@ def apply_lifecycle_reviews(
         "--revert-supersession",
         help=(
             "Revert OLD/NEW supersession as OLD:NEW (repeatable); "
-            "escape ID colons as \\: and backslashes as \\\\"
+            "escape ID colons as \\:; backslash is syntax only"
         ),
     ),
     apply: bool = typer.Option(

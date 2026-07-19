@@ -41,6 +41,7 @@ _ALLOWED_RECORD_STATES = {
     ("revert-supersession", "blocked", "ROLLBACK_FAILED"),
     ("revert-supersession", "blocked", "CONCURRENT_MODIFICATION"),
     ("defer", "deferred", "OK"),
+    ("keep-active", "applied", "OK"),
 }
 
 
@@ -341,7 +342,7 @@ def _valid_record(record: object) -> bool:
         return False
     assert isinstance(record, LifecycleLedgerRecord)
     replacement_id = record.replacement_id
-    if record.action == "defer":
+    if record.action in {"defer", "keep-active"}:
         if replacement_id is not None:
             return False
     elif not isinstance(replacement_id, str):
@@ -404,6 +405,10 @@ def _valid_record(record: object) -> bool:
         if deferred_until <= parsed_timestamp:
             return False
     elif record.deferred_until is not None:
+        return False
+    if record.action == "keep-active" and (
+        record.snapshot is not None or record.replacement_ref_preexisted
+    ):
         return False
     return type(record.replacement_ref_preexisted) is bool
 

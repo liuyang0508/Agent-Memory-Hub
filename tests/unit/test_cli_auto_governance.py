@@ -587,6 +587,16 @@ def test_govern_apply_lifecycle_pair_option_supports_escaped_colons_in_both_ids(
     assert payload["results"][0]["status"] == "ready"
 
 
+def test_govern_apply_lifecycle_help_describes_backslash_only_as_escape_syntax(
+) -> None:
+    result = runner.invoke(app, ["govern", "apply-lifecycle", "--help"])
+
+    assert result.exit_code == 0, result.output
+    normalized = " ".join(result.output.replace("│", " ").split())
+    assert "backslash is syntax only" in normalized
+    assert "backslashes as" not in normalized
+
+
 def test_govern_apply_lifecycle_conflicting_actions_exit_two_with_json(
     tmp_brain_dir: Path,
     monkeypatch,
@@ -765,24 +775,24 @@ def test_govern_apply_lifecycle_archive_rolls_back_when_directory_fsync_fails(
         tags=["runtime"],
     )
     store.write(item, "body")
-    original_rename = os.rename
+    original_link = os.link
     original_fsync = SecureDirectory.fsync
-    state = {"renamed": False, "failed": False}
+    state = {"linked": False, "failed": False}
 
-    def tracking_rename(source, destination, *args, **kwargs):
-        result = original_rename(source, destination, *args, **kwargs)
+    def tracking_link(source, destination, *args, **kwargs):
+        result = original_link(source, destination, *args, **kwargs)
         if source == f"{item.id}.md":
-            state["renamed"] = True
+            state["linked"] = True
         return result
 
-    def fail_after_archive_rename(directory):
-        if state["renamed"] and not state["failed"]:
+    def fail_after_archive_link(directory):
+        if state["linked"] and not state["failed"]:
             state["failed"] = True
             raise OSError("simulated directory fsync failure")
         return original_fsync(directory)
 
-    monkeypatch.setattr(os, "rename", tracking_rename)
-    monkeypatch.setattr(SecureDirectory, "fsync", fail_after_archive_rename)
+    monkeypatch.setattr(os, "link", tracking_link)
+    monkeypatch.setattr(SecureDirectory, "fsync", fail_after_archive_link)
     monkeypatch.setattr(lifecycle_review, "lifecycle_mutation_capability", lambda: True)
     monkeypatch.setattr(durable_fs, "lifecycle_mutation_capability", lambda: True)
 

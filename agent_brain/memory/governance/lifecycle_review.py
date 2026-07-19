@@ -255,7 +255,7 @@ def _build_action_payload(
     failed = [
         {"id": result.item_id, "reason": result.reason}
         for result in results
-        if not result.dry_run and result.status == "blocked" and not (
+        if not result.dry_run and result.status in {"blocked", "partial"} and not (
             result.action == "archive"
             and result.reason == "NOT_IN_LIFECYCLE_REVIEW_QUEUE"
         )
@@ -413,6 +413,8 @@ def _validate_action(action: LifecycleReviewAction) -> str | None:
     if action.action in {"supersede", "revert-supersession"}:
         if not is_valid_memory_item_id(action.replacement_id):
             return "INVALID_REPLACEMENT_ID"
+        if action.replacement_id == action.item_id:
+            return "SELF_SUPERSESSION"
     elif action.replacement_id is not None:
         return "UNEXPECTED_REPLACEMENT_ID"
     if action.action == "defer" and (
@@ -506,13 +508,39 @@ def _keep_active_action(
             lifecycle_transaction_lock(brain_dir),
             items_store.locked_items([action.item_id]) as locked,
         ):
+            original_bytes = locked.read_bytes(action.item_id)
             current, body = locked.get(action.item_id)
             if current.superseded_by:
                 return _blocked(action, "ITEM_SUPERSEDED", apply=True)
+            observed_at = datetime.now(timezone.utc)
             updated = locked.update_frontmatter(
                 action.item_id,
-                **{"validity.observed_at": datetime.now(timezone.utc)},
+                **{"validity.observed_at": observed_at},
             )
+            try:
+                append_lifecycle_record(
+                    brain_dir,
+                    LifecycleLedgerRecord(
+                        action="keep-active",
+                        timestamp=observed_at.isoformat(),
+                        status="applied",
+                        reason="OK",
+                        obsolete_id=action.item_id,
+                        replacement_id=None,
+                        snapshot=None,
+                        replacement_ref_preexisted=False,
+                    ),
+                )
+            except (OSError, TypeError, ValueError):
+                try:
+                    locked.restore_raw(action.item_id, original_bytes)
+                except (OSError, ValueError):
+                    return _blocked(
+                        action,
+                        "KEEP_ACTIVE_ROLLBACK_FAILED",
+                        apply=True,
+                    )
+                return _blocked(action, "LEDGER_WRITE_FAILED", apply=True)
             if index is not None:
                 try:
                     index.upsert(updated, body, embedding=None)
