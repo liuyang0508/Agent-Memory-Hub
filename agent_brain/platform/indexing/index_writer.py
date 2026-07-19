@@ -95,11 +95,33 @@ class IndexWriter:
             conn.execute("DELETE FROM refs_graph WHERE source_id = ?", (item.id,))
             if hasattr(item, "refs") and item.refs and item.refs.mems:
                 for target_id in item.refs.mems:
+                    row = conn.execute(
+                        "SELECT superseded_by FROM items_meta WHERE id = ?",
+                        (target_id,),
+                    ).fetchone()
+                    relation = (
+                        "supersedes" if row and row[0] == item.id else "refs"
+                    )
                     conn.execute(
                         "INSERT OR IGNORE INTO refs_graph (source_id, target_id, relation) "
-                        "VALUES (?, ?, 'refs')",
-                        (item.id, target_id),
+                        "VALUES (?, ?, ?)",
+                        (item.id, target_id, relation),
                     )
+            conn.execute(
+                "DELETE FROM refs_graph WHERE target_id = ? AND relation = 'supersedes'",
+                (item.id,),
+            )
+            if item.superseded_by:
+                conn.execute(
+                    "DELETE FROM refs_graph "
+                    "WHERE source_id = ? AND target_id = ? AND relation = 'refs'",
+                    (item.superseded_by, item.id),
+                )
+                conn.execute(
+                    "INSERT OR IGNORE INTO refs_graph "
+                    "(source_id, target_id, relation) VALUES (?, ?, 'supersedes')",
+                    (item.superseded_by, item.id),
+                )
 
     def delete(self, item_id: str) -> None:
         """Remove an item from all index tables."""

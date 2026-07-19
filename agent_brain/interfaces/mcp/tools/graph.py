@@ -4,7 +4,8 @@ from __future__ import annotations
 from typing import Any
 
 from agent_brain.interfaces.mcp.tools._shared import *  # noqa: F401,F403
-from agent_brain.interfaces.mcp.tools._shared import _components
+from agent_brain.interfaces.mcp.tools._shared import _brain_dir, _components
+from agent_brain.memory.governance.supersession import SupersessionService
 
 
 def graph_memory(item_id: str, depth: int = 1) -> dict[str, Any]:
@@ -76,12 +77,33 @@ def link_memories(
     this step is the single largest cause of "memory not found" later.
     """
     store, idx, _ = _components()
+    if relation == "supersedes":
+        result = SupersessionService(_brain_dir(), store, idx).apply(
+            replacement_id=source_id,
+            obsolete_id=target_id,
+            apply=True,
+        )
+        return {
+            "source": source_id,
+            "target": target_id,
+            "relation": relation,
+            "linked": result.status in {"applied", "already_applied"},
+            "status": result.status,
+            "reason": result.reason,
+        }
     idx.add_ref(source_id, target_id, relation)
     try:
         store.link_mem(source_id, target_id)
     except Exception:
         pass
-    return {"source": source_id, "target": target_id, "relation": relation, "linked": True}
+    return {
+        "source": source_id,
+        "target": target_id,
+        "relation": relation,
+        "linked": True,
+        "status": "linked",
+        "reason": "OK",
+    }
 
 
 def unlink_memories(
@@ -97,12 +119,39 @@ def unlink_memories(
     either item; both remain in the brain.
     """
     store, idx, _ = _components()
-    removed = idx.remove_ref(source_id, target_id)
+    superseded_in_markdown = False
     try:
-        store.unlink_mem(source_id, target_id)
+        obsolete, _body = store.get(target_id)
+        superseded_in_markdown = obsolete.superseded_by == source_id
     except Exception:
         pass
-    return {"source": source_id, "target": target_id, "removed": removed > 0}
+    superseded_in_graph = any(
+        source == source_id and target == target_id and relation == "supersedes"
+        for source, target, relation in idx.get_refs(source_id)
+    )
+    if superseded_in_markdown or superseded_in_graph:
+        return {
+            "source": source_id,
+            "target": target_id,
+            "removed": False,
+            "status": "blocked",
+            "reason": "SUPERSESSION_REVERT_REQUIRED",
+        }
+
+    removed = idx.remove_ref(source_id, target_id)
+    markdown_removed = False
+    try:
+        markdown_removed = store.unlink_mem(source_id, target_id)
+    except Exception:
+        pass
+    did_remove = removed > 0 or markdown_removed
+    return {
+        "source": source_id,
+        "target": target_id,
+        "removed": did_remove,
+        "status": "removed" if did_remove else "not_found",
+        "reason": "OK" if did_remove else "NOT_FOUND",
+    }
 
 
 def register(mcp) -> None:

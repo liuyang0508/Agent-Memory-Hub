@@ -43,12 +43,24 @@ class GraphIndex:
         )
         self.connection.commit()
 
-    def remove_ref(self, source_id: str, target_id: str) -> int:
+    def remove_ref(
+        self,
+        source_id: str,
+        target_id: str,
+        relation: str | None = None,
+    ) -> int:
         """Remove an edge. Returns rows deleted."""
-        cur = self.connection.execute(
-            "DELETE FROM refs_graph WHERE source_id = ? AND target_id = ?",
-            (source_id, target_id),
-        )
+        if relation is None:
+            cur = self.connection.execute(
+                "DELETE FROM refs_graph WHERE source_id = ? AND target_id = ?",
+                (source_id, target_id),
+            )
+        else:
+            cur = self.connection.execute(
+                "DELETE FROM refs_graph "
+                "WHERE source_id = ? AND target_id = ? AND relation = ?",
+                (source_id, target_id, relation),
+            )
         self.connection.commit()
         return cur.rowcount
 

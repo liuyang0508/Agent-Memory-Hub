@@ -5,10 +5,17 @@ from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
+from agent_brain.contracts.memory_item import MemoryItem, MemoryType, Refs
+from agent_brain.interfaces.cli.commands.index_maintenance import reindex_store
+from agent_brain.interfaces.mcp.tools._shared import _components_cache
+from agent_brain.interfaces.mcp.tools.graph import link_memories, unlink_memories
+from agent_brain.memory.governance.lifecycle_snapshot import LifecycleSnapshotError
+from agent_brain.memory.governance.supersession import SupersessionService
+from agent_brain.memory.store.items_store import ItemsStore
 from agent_brain.platform.embedding import HashingEmbedder
 from agent_brain.platform.indexing.index import HubIndex
-from agent_brain.memory.store.items_store import ItemsStore
-from agent_brain.contracts.memory_item import MemoryItem, MemoryType
 
 _DIM = 8
 
@@ -33,6 +40,28 @@ def _seed(brain_dir: Path, items: list[tuple[MemoryItem, str]]) -> HubIndex:
         store.write(item, body)
         idx.upsert(item, body, embedding=emb.embed(f"{item.title} {body}"))
     return idx
+
+
+def _close_mcp_components() -> None:
+    for _store, index, _retriever in _components_cache.values():
+        index.close()
+    _components_cache.clear()
+
+
+@pytest.fixture(autouse=True)
+def isolate_mcp_components():
+    _close_mcp_components()
+    yield
+    _close_mcp_components()
+
+
+def _superseded_pair(old_suffix: str, new_suffix: str) -> tuple[MemoryItem, MemoryItem]:
+    old = _item(old_suffix)
+    new = _item(new_suffix)
+    return (
+        old.model_copy(update={"superseded_by": new.id}),
+        new.model_copy(update={"refs": Refs(mems=[old.id])}),
+    )
 
 
 def _patch_hermes(brain_dir: Path):
@@ -81,6 +110,280 @@ class TestIndexLinkUnlink:
         refs_b = idx.get_refs(b.id)
         assert len(refs_a) == 1
         assert len(refs_b) == 1
+
+    def test_remove_ref_can_target_one_relation(self, tmp_brain_dir: Path):
+        old, new = _superseded_pair("relation-old", "relation-new")
+        idx = _seed(tmp_brain_dir, [(old, "old"), (new, "new")])
+        idx.add_ref(new.id, old.id, "refs")
+        idx.add_ref(new.id, old.id, "supersedes")
+
+        removed = idx.remove_ref(new.id, old.id, relation="refs")
+
+        assert removed == 1
+        assert idx.get_refs(new.id) == [(new.id, old.id, "supersedes")]
+
+    def test_remove_ref_without_relation_keeps_legacy_all_relation_behavior(
+        self, tmp_brain_dir: Path
+    ):
+        old, new = _superseded_pair("legacy-remove-old", "legacy-remove-new")
+        idx = _seed(tmp_brain_dir, [(old, "old"), (new, "new")])
+        idx.add_ref(new.id, old.id, "refs")
+        idx.add_ref(new.id, old.id, "supersedes")
+
+        removed = idx.remove_ref(new.id, old.id)
+
+        assert removed == 2
+        assert idx.get_refs(new.id) == []
+
+    @pytest.mark.parametrize("order", ["obsolete-first", "replacement-first"])
+    def test_upsert_derives_supersedes_independent_of_item_order(
+        self, tmp_brain_dir: Path, order: str
+    ):
+        old, new = _superseded_pair(f"{order}-old", f"{order}-new")
+        items = [(old, "old"), (new, "new")]
+        if order == "replacement-first":
+            items.reverse()
+
+        idx = _seed(tmp_brain_dir, items)
+
+        assert idx.get_refs(new.id) == [(new.id, old.id, "supersedes")]
+
+    def test_reindex_rebuilds_only_supersedes_relation_from_frontmatter(
+        self, tmp_brain_dir: Path
+    ):
+        old, new = _superseded_pair("reindex-old", "reindex-new")
+        idx = _seed(tmp_brain_dir, [(new, "new"), (old, "old")])
+        store = ItemsStore(tmp_brain_dir / "items")
+        embedder = HashingEmbedder(dim=_DIM)
+
+        reindex_store(store, idx, embedder, prune=True)
+        reindex_store(store, idx, embedder, prune=True)
+
+        assert idx.get_refs(new.id) == [(new.id, old.id, "supersedes")]
+
+    @pytest.mark.parametrize("ref_preexisted", [False, True])
+    def test_governed_revert_restores_the_markdown_derived_relation(
+        self, tmp_brain_dir: Path, ref_preexisted: bool
+    ):
+        old = _item(f"revert-old-{ref_preexisted}")
+        new = _item(f"revert-new-{ref_preexisted}")
+        if ref_preexisted:
+            new = new.model_copy(update={"refs": Refs(mems=[old.id])})
+        idx = _seed(tmp_brain_dir, [(old, "old"), (new, "new")])
+        store = ItemsStore(tmp_brain_dir / "items")
+        service = SupersessionService(tmp_brain_dir, store, idx)
+
+        assert service.apply(new.id, old.id, apply=True).status == "applied"
+        assert idx.get_refs(new.id) == [(new.id, old.id, "supersedes")]
+
+        assert service.revert(new.id, old.id, apply=True).status == "reverted"
+        expected = [(new.id, old.id, "refs")] if ref_preexisted else []
+        assert idx.get_refs(new.id) == expected
+
+
+class TestMcpLinkUnlink:
+    def test_supersedes_updates_obsolete_frontmatter(
+        self, tmp_brain_dir: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        old = _item("mcp-old")
+        new = _item("mcp-new")
+        idx = _seed(tmp_brain_dir, [(old, "old"), (new, "new")])
+        idx.close()
+        monkeypatch.setenv("BRAIN_DIR", str(tmp_brain_dir))
+        monkeypatch.setenv("MEMORY_HUB_TEST_EMBEDDING", "1")
+
+        result = link_memories(new.id, old.id, relation="supersedes")
+
+        store = ItemsStore(tmp_brain_dir / "items")
+        assert result["linked"] is True
+        assert result["status"] == "applied"
+        assert result["reason"] == "OK"
+        assert store.get(old.id)[0].superseded_by == new.id
+        assert store.get(new.id)[0].refs.mems == [old.id]
+        _store, mcp_index, _retriever = next(iter(_components_cache.values()))
+        assert mcp_index.get_refs(new.id) == [(new.id, old.id, "supersedes")]
+
+    def test_repeated_supersedes_is_idempotent(
+        self, tmp_brain_dir: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        old = _item("mcp-repeat-old")
+        new = _item("mcp-repeat-new")
+        idx = _seed(tmp_brain_dir, [(old, "old"), (new, "new")])
+        idx.close()
+        monkeypatch.setenv("BRAIN_DIR", str(tmp_brain_dir))
+        monkeypatch.setenv("MEMORY_HUB_TEST_EMBEDDING", "1")
+
+        first = link_memories(new.id, old.id, relation="supersedes")
+        ledger = tmp_brain_dir / "runtime" / "lifecycle-actions.jsonl"
+        ledger_after_first = ledger.read_bytes()
+        second = link_memories(new.id, old.id, relation="supersedes")
+
+        assert first["status"] == "applied"
+        assert second["linked"] is True
+        assert second["status"] == "already_applied"
+        assert second["reason"] == "ALREADY_APPLIED"
+        assert ledger.read_bytes() == ledger_after_first
+        _store, mcp_index, _retriever = next(iter(_components_cache.values()))
+        assert mcp_index.get_refs(new.id) == [(new.id, old.id, "supersedes")]
+
+    def test_supersedes_platform_failure_does_not_write_graph_or_markdown(
+        self, tmp_brain_dir: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        old = _item("mcp-unsupported-old")
+        new = _item("mcp-unsupported-new")
+        idx = _seed(tmp_brain_dir, [(old, "old"), (new, "new")])
+        idx.close()
+        monkeypatch.setenv("BRAIN_DIR", str(tmp_brain_dir))
+        monkeypatch.setenv("MEMORY_HUB_TEST_EMBEDDING", "1")
+        monkeypatch.setattr(
+            "agent_brain.memory.governance.supersession.lifecycle_mutation_capability",
+            lambda: False,
+        )
+
+        result = link_memories(new.id, old.id, relation="supersedes")
+
+        assert result["linked"] is False
+        assert result["status"] == "blocked"
+        assert result["reason"] == "PLATFORM_UNSUPPORTED"
+        store = ItemsStore(tmp_brain_dir / "items")
+        assert store.get(old.id)[0].superseded_by is None
+        assert store.get(new.id)[0].refs.mems == []
+        _store, mcp_index, _retriever = next(iter(_components_cache.values()))
+        assert mcp_index.get_refs(new.id) == []
+
+    def test_supersedes_validation_failure_does_not_write_graph_or_markdown(
+        self, tmp_brain_dir: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        old = _item("mcp-invalid-old", project="old-project")
+        new = _item("mcp-invalid-new", project="new-project")
+        idx = _seed(tmp_brain_dir, [(old, "old"), (new, "new")])
+        idx.close()
+        monkeypatch.setenv("BRAIN_DIR", str(tmp_brain_dir))
+        monkeypatch.setenv("MEMORY_HUB_TEST_EMBEDDING", "1")
+
+        result = link_memories(new.id, old.id, relation="supersedes")
+
+        assert result["linked"] is False
+        assert result["status"] == "blocked"
+        assert result["reason"] == "PROJECT_MISMATCH"
+        store = ItemsStore(tmp_brain_dir / "items")
+        assert store.get(old.id)[0].superseded_by is None
+        assert store.get(new.id)[0].refs.mems == []
+        _store, mcp_index, _retriever = next(iter(_components_cache.values()))
+        assert mcp_index.get_refs(new.id) == []
+
+    def test_supersedes_snapshot_failure_does_not_write_graph_or_markdown(
+        self, tmp_brain_dir: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        old = _item("mcp-snapshot-old")
+        new = _item("mcp-snapshot-new")
+        idx = _seed(tmp_brain_dir, [(old, "old"), (new, "new")])
+        idx.close()
+        monkeypatch.setenv("BRAIN_DIR", str(tmp_brain_dir))
+        monkeypatch.setenv("MEMORY_HUB_TEST_EMBEDDING", "1")
+
+        def fail_snapshot(*_args, **_kwargs):
+            raise LifecycleSnapshotError("raw detail must not escape")
+
+        monkeypatch.setattr(
+            "agent_brain.memory.governance.lifecycle_snapshot."
+            "LifecycleSnapshotStore.snapshot_pair",
+            fail_snapshot,
+        )
+
+        result = link_memories(new.id, old.id, relation="supersedes")
+
+        assert result["linked"] is False
+        assert result["status"] == "blocked"
+        assert result["reason"] == "SNAPSHOT_FAILED"
+        assert "raw detail" not in str(result)
+        store = ItemsStore(tmp_brain_dir / "items")
+        assert store.get(old.id)[0].superseded_by is None
+        assert store.get(new.id)[0].refs.mems == []
+        _store, mcp_index, _retriever = next(iter(_components_cache.values()))
+        assert mcp_index.get_refs(new.id) == []
+
+    def test_unlink_refuses_to_bypass_supersession_revert(
+        self, tmp_brain_dir: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        old, new = _superseded_pair("mcp-unlink-old", "mcp-unlink-new")
+        idx = _seed(tmp_brain_dir, [(old, "old"), (new, "new")])
+        idx.close()
+        monkeypatch.setenv("BRAIN_DIR", str(tmp_brain_dir))
+        monkeypatch.setenv("MEMORY_HUB_TEST_EMBEDDING", "1")
+
+        result = unlink_memories(new.id, old.id)
+
+        assert result["removed"] is False
+        assert result["status"] == "blocked"
+        assert result["reason"] == "SUPERSESSION_REVERT_REQUIRED"
+        store = ItemsStore(tmp_brain_dir / "items")
+        assert store.get(old.id)[0].superseded_by == new.id
+        assert store.get(new.id)[0].refs.mems == [old.id]
+        _store, mcp_index, _retriever = next(iter(_components_cache.values()))
+        assert mcp_index.get_refs(new.id) == [(new.id, old.id, "supersedes")]
+
+    def test_unlink_refuses_supersession_when_graph_needs_repair(
+        self, tmp_brain_dir: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        old, new = _superseded_pair("mcp-stale-graph-old", "mcp-stale-graph-new")
+        idx = _seed(tmp_brain_dir, [(old, "old"), (new, "new")])
+        idx.remove_ref(new.id, old.id, relation="supersedes")
+        idx.close()
+        monkeypatch.setenv("BRAIN_DIR", str(tmp_brain_dir))
+        monkeypatch.setenv("MEMORY_HUB_TEST_EMBEDDING", "1")
+
+        result = unlink_memories(new.id, old.id)
+
+        assert result["removed"] is False
+        assert result["status"] == "blocked"
+        assert result["reason"] == "SUPERSESSION_REVERT_REQUIRED"
+        store = ItemsStore(tmp_brain_dir / "items")
+        assert store.get(old.id)[0].superseded_by == new.id
+        assert store.get(new.id)[0].refs.mems == [old.id]
+
+    def test_unlink_removes_only_generic_ref(
+        self, tmp_brain_dir: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        source = _item("mcp-ref-source").model_copy(
+            update={"refs": Refs(mems=[_item("mcp-ref-target").id])}
+        )
+        target = _item("mcp-ref-target")
+        idx = _seed(tmp_brain_dir, [(source, "source"), (target, "target")])
+        idx.close()
+        monkeypatch.setenv("BRAIN_DIR", str(tmp_brain_dir))
+        monkeypatch.setenv("MEMORY_HUB_TEST_EMBEDDING", "1")
+
+        result = unlink_memories(source.id, target.id)
+
+        assert result["removed"] is True
+        assert result["status"] == "removed"
+        assert result["reason"] == "OK"
+        store = ItemsStore(tmp_brain_dir / "items")
+        assert store.get(source.id)[0].refs.mems == []
+        _store, mcp_index, _retriever = next(iter(_components_cache.values()))
+        assert mcp_index.get_refs(source.id) == []
+
+    def test_unlink_keeps_existing_custom_relation_removal_behavior(
+        self, tmp_brain_dir: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        target = _item("mcp-custom-target")
+        source = _item("mcp-custom-source").model_copy(
+            update={"refs": Refs(mems=[target.id])}
+        )
+        idx = _seed(tmp_brain_dir, [(source, "source"), (target, "target")])
+        idx.add_ref(source.id, target.id, "refines")
+        idx.close()
+        monkeypatch.setenv("BRAIN_DIR", str(tmp_brain_dir))
+        monkeypatch.setenv("MEMORY_HUB_TEST_EMBEDDING", "1")
+
+        result = unlink_memories(source.id, target.id)
+
+        assert result["removed"] is True
+        store = ItemsStore(tmp_brain_dir / "items")
+        assert store.get(source.id)[0].refs.mems == []
+        _store, mcp_index, _retriever = next(iter(_components_cache.values()))
+        assert mcp_index.get_refs(source.id) == []
 
 
 class TestHermesLinkUnlink:

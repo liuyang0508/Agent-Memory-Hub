@@ -334,9 +334,14 @@ class HubIndex:
         """Add a single edge to the refs graph."""
         self.graph.add_ref(source_id, target_id, relation)
 
-    def remove_ref(self, source_id: str, target_id: str) -> int:
-        """Remove an edge from the refs graph. Returns rows deleted (0 or 1)."""
-        return self.graph.remove_ref(source_id, target_id)
+    def remove_ref(
+        self,
+        source_id: str,
+        target_id: str,
+        relation: str | None = None,
+    ) -> int:
+        """Remove matching refs graph edges and return the number deleted."""
+        return self.graph.remove_ref(source_id, target_id, relation=relation)
 
     def get_refs(self, item_id: str) -> list[tuple[str, str, str]]:
         """Return all edges involving item_id: list of (source, target, relation)."""
