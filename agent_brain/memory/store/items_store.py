@@ -16,13 +16,16 @@ from agent_brain.contracts.memory_item import MemoryItem, is_valid_memory_item_i
 
 
 def _atomic_write_bytes(path: Path, data: bytes) -> None:
-    target_stat = path.lstat()
-    if not stat.S_ISREG(target_stat.st_mode):
-        raise OSError("UNSAFE_ATOMIC_WRITE_TARGET")
-    original_mode = stat.S_IMODE(target_stat.st_mode)
-    fd, temp_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
-    temp_path = Path(temp_name)
+    parent_descriptor = _open_parent_directory(path)
+    fd = -1
+    temp_path: Path | None = None
     try:
+        target_stat = path.lstat()
+        if not stat.S_ISREG(target_stat.st_mode):
+            raise OSError("UNSAFE_ATOMIC_WRITE_TARGET")
+        original_mode = stat.S_IMODE(target_stat.st_mode)
+        fd, temp_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+        temp_path = Path(temp_name)
         os.fchmod(fd, original_mode)
         handle = os.fdopen(fd, "wb")
         fd = -1
@@ -31,26 +34,39 @@ def _atomic_write_bytes(path: Path, data: bytes) -> None:
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(temp_path, path)
-        _fsync_directory(path.parent)
+        os.fsync(parent_descriptor)
     finally:
         if fd >= 0:
             os.close(fd)
-        temp_path.unlink(missing_ok=True)
+        if temp_path is not None:
+            temp_path.unlink(missing_ok=True)
+        os.close(parent_descriptor)
 
 
-def _fsync_directory(path: Path) -> None:
-    """Durably persist directory entry changes or fail explicitly."""
+def _open_parent_directory(path: Path) -> int:
+    """Preflight and hold the exact parent directory used for durability."""
     no_follow = getattr(os, "O_NOFOLLOW", None)
     if os.name == "nt" or no_follow is None:
         raise OSError("DIRECTORY_FSYNC_UNSUPPORTED")
     flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | no_follow
-    descriptor = os.open(path, flags)
+    parent = path.parent
+    resolved_parent = parent.resolve(strict=True)
+    if path.resolve(strict=True).parent != resolved_parent:
+        raise OSError("UNSAFE_ATOMIC_WRITE_TARGET")
+    descriptor = os.open(parent, flags)
     try:
-        if not stat.S_ISDIR(os.fstat(descriptor).st_mode):
+        opened = os.fstat(descriptor)
+        current = parent.lstat()
+        if (
+            not stat.S_ISDIR(opened.st_mode)
+            or stat.S_ISLNK(current.st_mode)
+            or (opened.st_dev, opened.st_ino) != (current.st_dev, current.st_ino)
+        ):
             raise OSError("DIRECTORY_FSYNC_UNSUPPORTED")
-        os.fsync(descriptor)
-    finally:
+        return descriptor
+    except BaseException:
         os.close(descriptor)
+        raise
 
 
 def _atomic_write_text(path: Path, text: str) -> None:

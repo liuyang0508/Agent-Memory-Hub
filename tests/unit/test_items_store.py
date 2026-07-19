@@ -182,3 +182,33 @@ def test_atomic_replace_fsyncs_parent_directory_after_replace(
 
     assert target.read_bytes() == b"after"
     assert events[-2:] == ["replace", "directory-fsync"]
+
+
+@pytest.mark.parametrize("unsupported", ["missing-nofollow", "windows"])
+def test_atomic_directory_preflight_failure_has_zero_side_effects(
+    tmp_brain_dir: Path, monkeypatch, unsupported: str
+) -> None:
+    from agent_brain.memory.store.items_store import ItemsStore
+
+    store = ItemsStore(tmp_brain_dir / "items")
+    item = MemoryItem(
+        id="mem-20260719-130000-preflight",
+        type=MemoryType.fact,
+        created_at=datetime.fromisoformat("2026-07-19T13:00:00+00:00"),
+        title="preflight",
+        summary="before",
+    )
+    path = store.write(item, "body")
+    path.chmod(0o640)
+    before = (path.read_bytes(), path.stat().st_mode, path.stat().st_mtime_ns)
+    directory_before = sorted(entry.name for entry in store.items_dir.iterdir())
+    if unsupported == "missing-nofollow":
+        monkeypatch.delattr(os, "O_NOFOLLOW", raising=False)
+    else:
+        monkeypatch.setattr(os, "name", "nt")
+
+    with pytest.raises(OSError, match="DIRECTORY_FSYNC_UNSUPPORTED"):
+        store.update_frontmatter(item.id, summary="after")
+
+    assert (path.read_bytes(), path.stat().st_mode, path.stat().st_mtime_ns) == before
+    assert sorted(entry.name for entry in store.items_dir.iterdir()) == directory_before
