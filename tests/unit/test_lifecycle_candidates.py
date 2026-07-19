@@ -699,15 +699,28 @@ def test_ranking_keeps_only_a_bounded_top_three_during_scan(monkeypatch) -> None
 def test_ranking_scores_only_the_matching_scope_and_type_bucket(monkeypatch) -> None:
     from agent_brain.memory.governance import lifecycle_candidates as candidate_module
 
-    obsolete = _item("mem-20260719-100000-scope-index-obsolete")
+    obsolete = _item(
+        "mem-20260719-100000-scope-index-obsolete",
+        title="rare-anchor obsolete",
+        refs={"files": ["shared-source"]},
+    )
     same_scope = [
         _item(
             f"mem-20260720-{index:06d}-scope-index-match-{index}",
             created_at=BASE_TIME + timedelta(days=1, seconds=index),
             title=f"matching candidate {index}",
+            summary="resolved" if index == 3 else "pending",
+            refs=(
+                {"mems": [obsolete.id]}
+                if index == 0
+                else {"files": ["shared-source"]}
+                if index == 1
+                else {}
+            ),
         )
-        for index in range(5)
+        for index in range(200)
     ]
+    same_scope[2].title = "rare-anchor candidate"
     unrelated = [
         _item(
             f"mem-20260721-{index:06d}-scope-index-other-{index}",
@@ -735,4 +748,91 @@ def test_ranking_scores_only_the_matching_scope_and_type_bucket(monkeypatch) -> 
     result = ranker.rank(obsolete)
 
     assert len(result) == 3
-    assert scored == len(same_scope)
+    assert scored == 7
+
+
+def test_ranker_snapshots_all_guard_and_scoring_metadata_before_mutation() -> None:
+    from agent_brain.memory.governance.lifecycle_candidates import (
+        SupersessionCandidateRanker,
+    )
+
+    obsolete = _item(
+        "mem-20260719-100000-snapshot-obsolete",
+        title="snapshot login incident",
+        refs={"files": ["shared-source"]},
+    )
+    replacement = _item(
+        "mem-20260719-110000-snapshot-replacement",
+        created_at=BASE_TIME + timedelta(hours=1),
+        title="snapshot login incident",
+        summary="issue resolved",
+        refs={"mems": [obsolete.id], "files": ["shared-source"]},
+    )
+    ranker = SupersessionCandidateRanker(
+        items=[obsolete, replacement],
+        supersedes_edges={(replacement.id, obsolete.id)},
+    )
+    expected = ranker.rank(obsolete)
+
+    obsolete.id = "mem-20260719-120000-mutated-obsolete"
+    obsolete.project = "mutated-project"
+    obsolete.tenant_id = "mutated-tenant"
+    obsolete.type = MemoryType.fact
+    obsolete.created_at = BASE_TIME + timedelta(days=30)
+    obsolete.tags.append("needs-review")
+    obsolete.refs.files.clear()
+    replacement.id = "mem-20260719-130000-mutated-replacement"
+    replacement.project = "other-project"
+    replacement.tenant_id = "other-tenant"
+    replacement.type = MemoryType.fact
+    replacement.created_at = BASE_TIME - timedelta(days=30)
+    replacement.superseded_by = "mem-20260719-140000-another-item"
+    replacement.tags.append("needs-review")
+    replacement.refs.mems.clear()
+    replacement.refs.files.clear()
+
+    assert ranker.rank(obsolete) == expected
+
+
+def test_summary_and_refs_are_bounded_before_feature_indexing() -> None:
+    from agent_brain.memory.governance import lifecycle_candidates as candidate_module
+
+    ref_limit = candidate_module._REF_ENTRY_LIMIT
+    ref_chars = candidate_module._REF_VALUE_SCAN_LIMIT
+    summary_limit = candidate_module._SUMMARY_SCAN_LIMIT
+    obsolete = _item(
+        "mem-20260719-100000-bounded-refs-obsolete",
+        title="obsolete alpha",
+        summary="pending",
+        locator="pending",
+        refs={
+            "files": [*[f"old-{index}" for index in range(ref_limit)], "late-shared"],
+            "resources": [("x" * ref_chars) + "same-tail"],
+        },
+    )
+    replacement = _item(
+        "mem-20260719-110000-bounded-refs-replacement",
+        created_at=BASE_TIME + timedelta(hours=1),
+        title="replacement beta",
+        summary=("x" * summary_limit) + " resolved",
+        locator="pending",
+        refs={
+            "mems": [
+                *[f"mem-placeholder-{index}" for index in range(ref_limit)],
+                obsolete.id,
+            ],
+            "files": [
+                *[f"new-{index}" for index in range(ref_limit)],
+                "late-shared",
+            ],
+            "resources": [("y" * ref_chars) + "same-tail"],
+        },
+    )
+
+    result = candidate_module.rank_supersession_candidates(
+        obsolete=obsolete,
+        items=[replacement],
+        supersedes_edges=set(),
+    )
+
+    assert result[0].evidence_codes == ("NEWER_ITEM",)

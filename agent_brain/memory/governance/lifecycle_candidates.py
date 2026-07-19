@@ -6,7 +6,7 @@ import re
 import unicodedata
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Iterable
+from typing import Iterable, TypeVar
 
 from agent_brain.contracts.memory_enums import MemoryType, memory_enum_value
 from agent_brain.contracts.memory_item import MemoryItem
@@ -14,9 +14,12 @@ from agent_brain.memory.context.context_firewall_rules import REVIEW_REQUIRED_TA
 
 _SOURCE_REF_FIELDS = ("commits", "files", "resources")
 _LOCATOR_SCAN_LIMIT = 512
+_SUMMARY_SCAN_LIMIT = 1024
 _TOPIC_TITLE_SCAN_LIMIT = 512
 _TOPIC_TAG_LIMIT = 64
 _TOPIC_TAG_SCAN_LIMIT = 128
+_REF_ENTRY_LIMIT = 256
+_REF_VALUE_SCAN_LIMIT = 512
 _ASCII_TERM_RE = re.compile(r"[a-z0-9][a-z0-9_.-]{2,}")
 _CLOSURE_RE = re.compile(
     r"(?:\b(?:closed|fixed|obsolete|replaced|replaces|resolved|superseded|supersedes)\b"
@@ -99,6 +102,9 @@ _CJK_TOPIC_STOPWORDS = (
 _MICROSECONDS_PER_SECOND = 1_000_000
 _SECONDS_PER_DAY = 86_400
 
+_ScopeKey = tuple[str | None, str | None, str]
+_IndexKey = TypeVar("_IndexKey")
+
 
 @dataclass(frozen=True)
 class SupersessionCandidate:
@@ -116,8 +122,10 @@ class SupersessionCandidate:
 
 @dataclass(frozen=True)
 class _ItemFeatures:
-    item: MemoryItem
+    item_id: str
+    scope_key: _ScopeKey
     created_key: int
+    superseded: bool
     topic_tokens: frozenset[str]
     mem_refs: frozenset[str]
     source_refs: tuple[frozenset[str], ...]
@@ -131,9 +139,6 @@ class _RankedCandidate:
     created_key: int
 
 
-_ScopeKey = tuple[str | None, str | None, str]
-
-
 class SupersessionCandidateRanker:
     """Reusable feature/index cache for one maintenance planning pass."""
 
@@ -145,27 +150,104 @@ class SupersessionCandidateRanker:
     ) -> None:
         self._supersedes_edges = frozenset(supersedes_edges)
         self._features_by_id: dict[str, _ItemFeatures] = {}
-        groups: dict[_ScopeKey, list[_ItemFeatures]] = {}
+        self._features_by_identity: dict[int, _ItemFeatures] = {}
         for item in items:
             if not isinstance(item, MemoryItem):
                 raise TypeError("items must contain only MemoryItem instances")
-            if item.id in self._features_by_id:
+            existing = self._features_by_id.get(item.id)
+            if existing is not None:
+                self._features_by_identity[id(item)] = existing
                 continue
             features = _build_item_features(item)
-            self._features_by_id[item.id] = features
-            groups.setdefault(_scope_key(item), []).append(features)
-        self._groups = {key: tuple(value) for key, value in groups.items()}
+            self._features_by_id[features.item_id] = features
+            self._features_by_identity[id(item)] = features
+
+        explicit: dict[tuple[_ScopeKey, str], set[str]] = {}
+        memory_refs: dict[tuple[_ScopeKey, str], set[str]] = {}
+        source_refs: dict[tuple[_ScopeKey, int, str], set[str]] = {}
+        topic_tokens: dict[tuple[_ScopeKey, str], set[str]] = {}
+        base_by_scope: dict[_ScopeKey, list[_ItemFeatures]] = {}
+        closure_by_scope: dict[_ScopeKey, list[_ItemFeatures]] = {}
+        for features in self._features_by_id.values():
+            for target_id in features.mem_refs:
+                _add_to_index(
+                    memory_refs,
+                    (features.scope_key, target_id),
+                    features.item_id,
+                )
+            for field_index, values in enumerate(features.source_refs):
+                for value in values:
+                    _add_to_index(
+                        source_refs,
+                        (features.scope_key, field_index, value),
+                        features.item_id,
+                    )
+            for token in features.topic_tokens:
+                _add_to_index(
+                    topic_tokens,
+                    (features.scope_key, token),
+                    features.item_id,
+                )
+            if not features.superseded and not features.requires_review:
+                base_by_scope.setdefault(features.scope_key, []).append(features)
+                if features.closure_language:
+                    closure_by_scope.setdefault(features.scope_key, []).append(features)
+        for source_id, target_id in self._supersedes_edges:
+            source = self._features_by_id.get(source_id)
+            if source is not None:
+                _add_to_index(
+                    explicit,
+                    (source.scope_key, target_id),
+                    source.item_id,
+                )
+
+        self._explicit_index = _freeze_set_index(explicit)
+        self._memory_ref_index = _freeze_set_index(memory_refs)
+        self._source_ref_index = _freeze_set_index(source_refs)
+        self._topic_index = _freeze_set_index(topic_tokens)
+        self._base_by_scope = _freeze_time_index(base_by_scope)
+        self._closure_by_scope = _freeze_time_index(closure_by_scope)
 
     def rank(self, obsolete: MemoryItem) -> list[SupersessionCandidate]:
         """Return a bounded Top-3 without materializing all scored candidates."""
         if not isinstance(obsolete, MemoryItem):
             raise TypeError("obsolete must be a MemoryItem")
-        obsolete_features = self._features_by_id.get(obsolete.id)
-        if obsolete_features is None or obsolete_features.item != obsolete:
+        obsolete_features = self._features_by_identity.get(id(obsolete))
+        if obsolete_features is None:
             obsolete_features = _build_item_features(obsolete)
 
+        candidate_ids: set[str] = set()
+        direct_key = (obsolete_features.scope_key, obsolete_features.item_id)
+        candidate_ids.update(self._explicit_index.get(direct_key, ()))
+        candidate_ids.update(self._memory_ref_index.get(direct_key, ()))
+        for field_index, values in enumerate(obsolete_features.source_refs):
+            for value in values:
+                candidate_ids.update(
+                    self._source_ref_index.get(
+                        (obsolete_features.scope_key, field_index, value),
+                        (),
+                    )
+                )
+        for token in obsolete_features.topic_tokens:
+            candidate_ids.update(
+                self._topic_index.get((obsolete_features.scope_key, token), ())
+            )
+        candidate_ids.update(
+            _latest_newer_ids(
+                self._base_by_scope.get(obsolete_features.scope_key, ()),
+                obsolete_features,
+            )
+        )
+        candidate_ids.update(
+            _latest_newer_ids(
+                self._closure_by_scope.get(obsolete_features.scope_key, ()),
+                obsolete_features,
+            )
+        )
+
         best: list[_RankedCandidate] = []
-        for candidate_features in self._groups.get(_scope_key(obsolete), ()):
+        for candidate_id in candidate_ids:
+            candidate_features = self._features_by_id[candidate_id]
             if not _is_valid_candidate(candidate_features, obsolete_features):
                 continue
             result = _score_candidate(
@@ -182,6 +264,50 @@ class SupersessionCandidateRanker:
                     ),
                 )
         return [candidate.result for candidate in best]
+
+
+def _add_to_index(
+    index: dict[_IndexKey, set[str]],
+    key: _IndexKey,
+    item_id: str,
+) -> None:
+    index.setdefault(key, set()).add(item_id)
+
+
+def _freeze_set_index(
+    index: dict[_IndexKey, set[str]],
+) -> dict[_IndexKey, frozenset[str]]:
+    return {key: frozenset(values) for key, values in index.items()}
+
+
+def _freeze_time_index(
+    index: dict[_ScopeKey, list[_ItemFeatures]],
+) -> dict[_ScopeKey, tuple[_ItemFeatures, ...]]:
+    return {
+        key: tuple(
+            sorted(
+                values,
+                key=lambda features: (-features.created_key, features.item_id),
+            )
+        )
+        for key, values in index.items()
+    }
+
+
+def _latest_newer_ids(
+    index: tuple[_ItemFeatures, ...],
+    obsolete: _ItemFeatures,
+) -> tuple[str, ...]:
+    selected: list[str] = []
+    for candidate in index:
+        if candidate.created_key <= obsolete.created_key:
+            break
+        if candidate.item_id == obsolete.item_id:
+            continue
+        selected.append(candidate.item_id)
+        if len(selected) == 3:
+            break
+    return tuple(selected)
 
 
 def rank_supersession_candidates(
@@ -206,12 +332,15 @@ def rank_supersession_candidates(
 
 def _build_item_features(item: MemoryItem) -> _ItemFeatures:
     return _ItemFeatures(
-        item=item,
+        item_id=item.id,
+        scope_key=_scope_key(item),
         created_key=_utc_microsecond_key(item.created_at),
+        superseded=bool(item.superseded_by),
         topic_tokens=frozenset(_topic_tokens(item)),
-        mem_refs=frozenset(item.refs.mems),
+        mem_refs=frozenset(_bounded_refs(item.refs.mems)),
         source_refs=tuple(
-            frozenset(getattr(item.refs, field)) for field in _SOURCE_REF_FIELDS
+            frozenset(_bounded_refs(getattr(item.refs, field)))
+            for field in _SOURCE_REF_FIELDS
         ),
         closure_language=_has_closure_language(item),
         requires_review=bool(
@@ -228,12 +357,11 @@ def _is_valid_candidate(
     candidate: _ItemFeatures,
     obsolete: _ItemFeatures,
 ) -> bool:
-    candidate_item = candidate.item
-    obsolete_item = obsolete.item
     return (
-        candidate_item.id != obsolete_item.id
+        candidate.item_id != obsolete.item_id
         and candidate.created_key > obsolete.created_key
-        and not candidate_item.superseded_by
+        and candidate.scope_key == obsolete.scope_key
+        and not candidate.superseded
         and not candidate.requires_review
     )
 
@@ -245,13 +373,11 @@ def _score_candidate(
 ) -> SupersessionCandidate:
     evidence: list[str] = []
     score = 0.0
-    candidate_item = candidate.item
-    obsolete_item = obsolete.item
 
-    if (candidate_item.id, obsolete_item.id) in supersedes_edges:
+    if (candidate.item_id, obsolete.item_id) in supersedes_edges:
         evidence.append("EXPLICIT_SUPERSEDES_EDGE")
         score = 1.0
-    if obsolete_item.id in candidate.mem_refs:
+    if obsolete.item_id in candidate.mem_refs:
         evidence.append("EXPLICIT_MEMORY_REF")
         score += 0.45
     if any(left & right for left, right in zip(candidate.source_refs, obsolete.source_refs)):
@@ -267,7 +393,7 @@ def _score_candidate(
     score += 0.05
 
     return SupersessionCandidate(
-        replacement_id=candidate_item.id,
+        replacement_id=candidate.item_id,
         score=round(min(score, 1.0), 2),
         evidence_codes=tuple(evidence),
     )
@@ -291,6 +417,14 @@ def _ranking_key(candidate: _RankedCandidate) -> tuple[float, int, str]:
         -candidate.result.score,
         -candidate.created_key,
         candidate.result.replacement_id,
+    )
+
+
+def _bounded_refs(values: list[str]) -> tuple[str, ...]:
+    return tuple(
+        value
+        for value in values[:_REF_ENTRY_LIMIT]
+        if len(value) <= _REF_VALUE_SCAN_LIMIT
     )
 
 
@@ -344,7 +478,8 @@ def _has_closure_language(candidate: MemoryItem) -> bool:
     if memory_enum_value(candidate.type) != MemoryType.signal.value:
         return False
     locator = candidate.context_views.locator[:_LOCATOR_SCAN_LIMIT]
-    metadata = unicodedata.normalize("NFKC", f"{candidate.summary}\n{locator}").casefold()
+    summary = candidate.summary[:_SUMMARY_SCAN_LIMIT]
+    metadata = unicodedata.normalize("NFKC", f"{summary}\n{locator}").casefold()
     return _CLOSURE_RE.search(metadata) is not None
 
 
