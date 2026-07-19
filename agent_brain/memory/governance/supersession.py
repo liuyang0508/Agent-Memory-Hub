@@ -4,7 +4,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Literal
 
-from agent_brain.contracts.memory_enums import Sensitivity
+from agent_brain.contracts.memory_enums import Sensitivity, memory_enum_value
 from agent_brain.contracts.memory_item import MemoryItem
 from agent_brain.memory.store.items_store import ItemsStore
 
@@ -67,8 +67,8 @@ class SupersessionService:
         if "needs-review" in replacement.tags:
             return "REPLACEMENT_REQUIRES_REVIEW"
         if (
-            SENSITIVITY_RANK[str(replacement.sensitivity)]
-            > SENSITIVITY_RANK[str(obsolete.sensitivity)]
+            SENSITIVITY_RANK[memory_enum_value(replacement.sensitivity)]
+            > SENSITIVITY_RANK[memory_enum_value(obsolete.sensitivity)]
         ):
             return "VISIBILITY_REDUCTION"
         cursor = replacement

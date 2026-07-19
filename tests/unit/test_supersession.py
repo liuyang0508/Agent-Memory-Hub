@@ -11,21 +11,33 @@ def _item(
     project: str = "agent-memory-hub",
     tenant: str | None = None,
     tags: list[str] | None = None,
-    sensitivity: Sensitivity = Sensitivity.internal,
+    sensitivity: Sensitivity | str | None = None,
     superseded_by: str | None = None,
-):
-    return MemoryItem(
-        id=item_id,
-        type=MemoryType.signal,
-        created_at=datetime.now(timezone.utc),
-        title=item_id,
-        summary=f"summary {item_id}",
-        project=project,
-        tenant_id=tenant,
-        tags=tags if tags is not None else ["lifecycle"],
-        sensitivity=sensitivity,
-        superseded_by=superseded_by,
-    )
+) -> MemoryItem:
+    fields = {
+        "id": item_id,
+        "type": MemoryType.signal,
+        "created_at": datetime.now(timezone.utc),
+        "title": item_id,
+        "summary": f"summary {item_id}",
+        "project": project,
+        "tenant_id": tenant,
+        "tags": tags if tags is not None else ["lifecycle"],
+        "superseded_by": superseded_by,
+    }
+    if sensitivity is not None:
+        fields["sensitivity"] = sensitivity
+    return MemoryItem.model_validate(fields)
+
+
+def _write_legacy_without_sensitivity(
+    store: ItemsStore, item: MemoryItem, body: str
+) -> None:
+    path = store.write(item, body)
+    text = path.read_text(encoding="utf-8")
+    marker = "sensitivity: internal\n"
+    assert marker in text
+    path.write_text(text.replace(marker, "", 1), encoding="utf-8")
 
 
 def test_preview_accepts_replacement_supersedes_obsolete(tmp_brain_dir):
@@ -44,6 +56,42 @@ def test_preview_accepts_replacement_supersedes_obsolete(tmp_brain_dir):
     assert result.reason == "OK"
     assert result.replacement_id == new.id
     assert result.obsolete_id == old.id
+
+
+def test_preview_accepts_legacy_items_with_default_sensitivity(tmp_brain_dir):
+    store = ItemsStore(tmp_brain_dir / "items")
+    obsolete = _item("mem-20260719-100000-default-obsolete")
+    replacement = _item("mem-20260719-110000-default-replacement")
+    assert obsolete.sensitivity is Sensitivity.internal
+    assert replacement.sensitivity is Sensitivity.internal
+    _write_legacy_without_sensitivity(store, obsolete, "obsolete")
+    _write_legacy_without_sensitivity(store, replacement, "replacement")
+
+    result = SupersessionService(tmp_brain_dir, store).preview(
+        replacement.id, obsolete.id
+    )
+
+    assert result.status == "ready"
+    assert result.reason == "OK"
+
+
+def test_preview_compares_default_enum_sensitivity_without_error(tmp_brain_dir):
+    store = ItemsStore(tmp_brain_dir / "items")
+    obsolete = _item(
+        "mem-20260719-100000-explicit-public",
+        sensitivity=Sensitivity.public,
+    )
+    replacement = _item("mem-20260719-110000-default-internal")
+    assert replacement.sensitivity is Sensitivity.internal
+    store.write(obsolete, "obsolete")
+    _write_legacy_without_sensitivity(store, replacement, "replacement")
+
+    result = SupersessionService(tmp_brain_dir, store).preview(
+        replacement.id, obsolete.id
+    )
+
+    assert result.status == "blocked"
+    assert result.reason == "VISIBILITY_REDUCTION"
 
 
 def test_preview_rejects_self_cycle_cross_tenant_and_cross_project(tmp_brain_dir):
