@@ -2,28 +2,15 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+
+from agent_brain.diagnostic_types import AdapterDiagnosticCheck, CheckStatus
 
 from .runtime_events import runtime_event_summary
 
 
-CheckStatus = Literal["ok", "warn", "error"]
 _CONTEXT_PACK_VIEWS = frozenset({"locator", "overview", "detail"})
-
-
-@dataclass(frozen=True)
-class AdapterDiagnosticCheck:
-    name: str
-    status: CheckStatus
-    detail: str
-    fix: str = ""
-
-    def to_dict(self) -> dict[str, str]:
-        return asdict(self)
-
-
 @dataclass(frozen=True)
 class AdapterDiagnosticReport:
     adapter: str
@@ -56,8 +43,7 @@ def overall_status(checks: list[AdapterDiagnosticCheck]) -> CheckStatus:
 
 def _native_memory_observed(checks: list[AdapterDiagnosticCheck]) -> bool:
     return any(
-        check.status == "ok" and "native memory bridge" in check.name.lower()
-        for check in checks
+        check.status == "ok" and "native memory bridge" in check.name.lower() for check in checks
     )
 
 

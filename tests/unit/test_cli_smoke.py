@@ -23,9 +23,19 @@ runner = CliRunner()
 
 
 @pytest.fixture
-def seeded_brain(tmp_brain_dir: Path):
-    os.environ["BRAIN_DIR"] = str(tmp_brain_dir)
-    os.environ["MEMORY_HUB_TEST_EMBEDDING"] = "1"
+def seeded_brain(tmp_brain_dir: Path, monkeypatch):
+    from agent_brain.agent_integrations import claude_code, codex
+
+    home = tmp_brain_dir.parent / "home"
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("BRAIN_DIR", str(tmp_brain_dir))
+    monkeypatch.setenv("MEMORY_HUB_TEST_EMBEDDING", "1")
+    monkeypatch.setenv("AGENT_MEMORY_HUB_BIN", str(home / ".local" / "bin"))
+    monkeypatch.setattr(codex, "AGENTS_MD", home / ".codex" / "AGENTS.md")
+    monkeypatch.setattr(codex, "CODEX_HOOKS_JSON", home / ".codex" / "hooks.json")
+    monkeypatch.setattr(codex, "CODEX_CONFIG_TOML", home / ".codex" / "config.toml")
+    monkeypatch.setattr(claude_code, "SETTINGS_PATH", home / ".claude" / "settings.json")
+    monkeypatch.setattr(claude_code, "AWARENESS_PATH", home / ".claude" / "CLAUDE.md")
     store = ItemsStore(tmp_brain_dir / "items")
     for i, (typ, title) in enumerate([
         ("fact", "Python GIL"), ("decision", "use SSE"), ("episode", "debug crash"),
@@ -36,8 +46,6 @@ def seeded_brain(tmp_brain_dir: Path):
             project="alpha", tags=["test", typ],
         ), f"body {title}")
     yield tmp_brain_dir
-    os.environ.pop("BRAIN_DIR", None)
-    os.environ.pop("MEMORY_HUB_TEST_EMBEDDING", None)
 
 
 @pytest.mark.parametrize("argv", [

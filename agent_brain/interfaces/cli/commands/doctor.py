@@ -31,8 +31,12 @@ def _search_index_status(idx_path: Path) -> str:
 
 @app.command()
 def doctor(
-    offline: bool = typer.Option(False, "--offline", help="Report which capabilities work offline right now"),
-    verbose: bool = typer.Option(False, "--verbose", help="Show bounded detail rows for degraded checks"),
+    offline: bool = typer.Option(
+        False, "--offline", help="Report which capabilities work offline right now"
+    ),
+    verbose: bool = typer.Option(
+        False, "--verbose", help="Show bounded detail rows for degraded checks"
+    ),
     repair_malformed: bool = typer.Option(
         False,
         "--repair-malformed",
@@ -58,6 +62,7 @@ def doctor(
     import shutil
     from rich.console import Console
     from rich.table import Table
+    from rich.text import Text
 
     console = Console()
 
@@ -78,7 +83,9 @@ def doctor(
         raise typer.Exit(2)
 
     if (repair_malformed or restore_malformed) and not offline:
-        typer.echo("--repair-malformed and --restore-malformed are only available with --offline", err=True)
+        typer.echo(
+            "--repair-malformed and --restore-malformed are only available with --offline", err=True
+        )
         raise typer.Exit(2)
 
     if offline:
@@ -94,19 +101,28 @@ def doctor(
     repair_failed = False
     if fix:
         from agent_brain.platform import install_repair
+        from agent_brain.platform.adapter_health import bounded_diagnostic_text
 
         actions = install_repair.repair_installation(
             brain_dir=Path(os.environ.get("BRAIN_DIR", os.path.expanduser("~/.agent-memory-hub"))),
         )
         repair_failed = install_repair.has_failures(actions)
         repair_table = Table(title="Installation Repair")
-        repair_table.add_column("Action")
+        repair_table.add_column("Action", overflow="fold")
         repair_table.add_column("Status")
-        repair_table.add_column("Detail")
+        repair_table.add_column("Detail", overflow="fold")
         for action in actions:
             status = action.status
-            style = "green" if status in {"ok", "fixed"} else ("yellow" if status == "dry-run" else "red")
-            repair_table.add_row(action.name, f"[{style}]{status}[/{style}]", action.detail)
+            style = (
+                "green"
+                if status in {"ok", "fixed"}
+                else ("yellow" if status == "dry-run" else "red")
+            )
+            repair_table.add_row(
+                Text(bounded_diagnostic_text(action.name)),
+                Text(bounded_diagnostic_text(status), style=style),
+                Text(bounded_diagnostic_text(action.detail)),
+            )
         console.print(repair_table)
         console.print("")
 
@@ -126,67 +142,22 @@ def doctor(
 
     try:
         from sentence_transformers import SentenceTransformer  # noqa: F401
+
         checks.append(("sentence-transformers", "installed", "OK"))
     except ImportError:
         checks.append(("sentence-transformers", "missing", "ERROR"))
 
     try:
         from fastapi import FastAPI  # noqa: F401
+
         checks.append(("FastAPI (web)", "installed", "OK"))
     except ImportError:
         checks.append(("FastAPI (web)", "missing", "WARN (pip install 'agent-memory-hub[web]')"))
 
-    settings_path = Path.home() / ".claude" / "settings.json"
-    if settings_path.exists():
-        import json
-        try:
-            settings = json.loads(settings_path.read_text())
-            if not isinstance(settings, dict):
-                raise ValueError("settings.json is not a JSON object")
-        except (json.JSONDecodeError, OSError, UnicodeDecodeError, ValueError) as e:
-            settings = None
-            checks.append(("Claude Code settings", f"malformed: {str(e)[:40]}", "ERROR"))
-        if settings is not None:
-            hook_events = [
-                "SessionStart",
-                "UserPromptSubmit",
-                "Stop",
-                "PreCompact",
-                "PostCompact",
-                "SubagentStart",
-                "SubagentStop",
-            ]
-            hooks = settings.get("hooks", {})
-            amh_hooks_count = 0
-            if isinstance(hooks, dict):
-                for event in hook_events:
-                    entries = hooks.get(event, [])
-                    if not isinstance(entries, list):
-                        continue
-                    for entry in entries:
-                        if not isinstance(entry, dict):
-                            continue
-                        for hook in entry.get("hooks", []):
-                            if not isinstance(hook, dict):
-                                continue
-                            command = str(hook.get("command", ""))
-                            if (
-                                "AGENT_MEMORY_HUB_ADAPTER=claude_code" in command
-                                and "agent_runtime_kit/hooks/" in command
-                            ):
-                                amh_hooks_count += 1
-            checks.append((
-                "Claude Code hooks",
-                f"{amh_hooks_count} AMH registered",
-                "OK" if amh_hooks_count > 0 else "MISSING",
-            ))
-            mcp = settings.get("mcpServers", {}).get("agent-memory-hub")
-            checks.append(("MCP server", "configured" if mcp else "missing", "OK" if mcp else "MISSING"))
-    else:
-        checks.append(("Claude Code settings", "not found", "WARN"))
-
     remember_cmd = Path.home() / ".claude" / "commands" / "remember.md"
-    checks.append(("/remember command", str(remember_cmd), "OK" if remember_cmd.exists() else "MISSING"))
+    checks.append(
+        ("/remember command", str(remember_cmd), "OK" if remember_cmd.exists() else "MISSING")
+    )
 
     disk_usage = shutil.disk_usage(str(brain)) if brain.exists() else None
     if disk_usage:
@@ -204,6 +175,18 @@ def doctor(
         value = str(shim["path"])
     checks.append(("memory CLI shim", value, status))
 
+    from agent_brain.platform import adapter_health
+
+    adapter_reports = adapter_health.diagnose_configured_core_adapters(brain)
+    adapter_failed = any(report.status == "error" for report in adapter_reports)
+    for report in adapter_reports:
+        value = (
+            "configured"
+            if not report.non_ok_checks
+            else f"{len(report.non_ok_checks)} non-ok check(s)"
+        )
+        checks.append((f"{report.adapter} adapter", value, report.status.upper()))
+
     table = Table(title="Diagnostic Results")
     table.add_column("Check", style="bold")
     table.add_column("Value")
@@ -215,7 +198,22 @@ def doctor(
 
     ok_count = sum(1 for _, _, s in checks if s == "OK")
     console.print(f"\n[bold]{ok_count}/{len(checks)} checks passed[/bold]")
-    if repair_failed:
+    for report in adapter_reports:
+        if not report.non_ok_checks:
+            continue
+        console.print(f"\nAdapter details: {report.adapter}", style="bold", markup=False)
+        for check in report.non_ok_checks:
+            console.print(
+                f"- {adapter_health.bounded_diagnostic_text(check.name)}: "
+                f"{adapter_health.bounded_diagnostic_text(check.detail)}",
+                markup=False,
+            )
+            if check.fix:
+                console.print(
+                    f"  fix: {adapter_health.bounded_diagnostic_text(check.fix)}",
+                    markup=False,
+                )
+    if repair_failed or adapter_failed:
         raise typer.Exit(1)
 
 
