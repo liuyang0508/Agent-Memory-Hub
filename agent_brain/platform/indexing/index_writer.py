@@ -10,6 +10,9 @@ from agent_brain.platform.indexing.index_schema import segment_cjk
 from agent_brain.platform.indexing.vector_index import VectorIndex
 from agent_brain.contracts.memory_item import MemoryItem
 
+_FALLBACK_SQLITE_VARIABLE_LIMIT = 900
+_MAX_TARGET_METADATA_BATCH = 900
+
 
 class IndexWriter:
     """Coordinates item upsert/delete writes across meta, FTS, vector, and refs tables."""
@@ -98,13 +101,14 @@ class IndexWriter:
                 (item.id,),
             )
             if hasattr(item, "refs") and item.refs and item.refs.mems:
+                target_supersessions = _target_supersessions(
+                    conn, item.refs.mems
+                )
                 for target_id in item.refs.mems:
-                    row = conn.execute(
-                        "SELECT superseded_by FROM items_meta WHERE id = ?",
-                        (target_id,),
-                    ).fetchone()
                     relation = (
-                        "supersedes" if row and row[0] == item.id else "refs"
+                        "supersedes"
+                        if target_supersessions.get(target_id) == item.id
+                        else "refs"
                     )
                     conn.execute(
                         "INSERT OR IGNORE INTO refs_graph (source_id, target_id, relation) "
@@ -142,6 +146,25 @@ class IndexWriter:
                     (item.id, obsolete_id),
                 )
 
+    def prune(self, active_ids: set[str]) -> int:
+        """Atomically remove ghost items and graph edges with missing endpoints."""
+        conn = self.connection
+        with conn:
+            indexed_ids = {
+                row[0] for row in conn.execute("SELECT id FROM items_meta").fetchall()
+            }
+            ghost_ids = sorted(indexed_ids - active_ids)
+            for item_id in ghost_ids:
+                conn.execute("DELETE FROM items_meta WHERE id = ?", (item_id,))
+                conn.execute("DELETE FROM items_fts WHERE id = ?", (item_id,))
+                self.vector.delete(item_id)
+            conn.execute(
+                "DELETE FROM refs_graph "
+                "WHERE source_id NOT IN (SELECT id FROM items_meta) "
+                "OR target_id NOT IN (SELECT id FROM items_meta)"
+            )
+        return len(ghost_ids)
+
     def delete(self, item_id: str) -> None:
         """Remove an item from all index tables."""
         conn = self.connection
@@ -150,6 +173,43 @@ class IndexWriter:
             conn.execute("DELETE FROM items_fts WHERE id = ?", (item_id,))
             self.vector.delete(item_id)
             conn.execute("DELETE FROM refs_graph WHERE source_id = ? OR target_id = ?", (item_id, item_id))
+
+
+def _target_supersessions(
+    conn: sqlite3.Connection,
+    target_ids: list[str],
+) -> dict[str, str | None]:
+    unique_ids = sorted(set(target_ids))
+    if not unique_ids:
+        return {}
+    batch_size = max(
+        1,
+        min(_sqlite_variable_limit(conn), _MAX_TARGET_METADATA_BATCH),
+    )
+    result: dict[str, str | None] = {}
+    for offset in range(0, len(unique_ids), batch_size):
+        chunk = unique_ids[offset : offset + batch_size]
+        placeholders = ",".join("?" for _ in chunk)
+        rows = conn.execute(
+            "SELECT id, superseded_by FROM items_meta "
+            f"WHERE id IN ({placeholders})",
+            chunk,
+        ).fetchall()
+        result.update((item_id, superseded_by) for item_id, superseded_by in rows)
+    return result
+
+
+def _sqlite_variable_limit(conn: sqlite3.Connection) -> int:
+    getlimit = getattr(conn, "getlimit", None)
+    if callable(getlimit):
+        try:
+            limit = int(getlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER))
+        except (AttributeError, sqlite3.Error, TypeError, ValueError):
+            pass
+        else:
+            if limit > 0:
+                return limit
+    return _FALLBACK_SQLITE_VARIABLE_LIMIT
 
 
 __all__ = ["IndexWriter"]

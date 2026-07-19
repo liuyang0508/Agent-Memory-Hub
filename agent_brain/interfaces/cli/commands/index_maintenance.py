@@ -32,9 +32,7 @@ def reindex_store(store: Any, idx: Any, embedder: Any, *, prune: bool = False) -
 
     pruned = 0
     if prune:
-        for ghost_id in idx.all_ids() - md_ids:
-            idx.delete(ghost_id)
-            pruned += 1
+        pruned = idx.prune(md_ids)
     return ReindexResult(indexed=indexed, pruned=pruned)
 
 

@@ -75,6 +75,7 @@ def init_index_schema(
     conn.commit()
     migrate_meta_columns(conn)
     migrate_refs_graph(conn)
+    migrate_query_indexes(conn)
 
 
 def migrate_refs_graph(conn: sqlite3.Connection) -> None:
@@ -119,6 +120,17 @@ def migrate_meta_columns(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+def migrate_query_indexes(conn: sqlite3.Connection) -> None:
+    """Create indexes used by supersession reconciliation and graph cleanup."""
+    conn.executescript("""
+        CREATE INDEX IF NOT EXISTS idx_items_meta_superseded_by
+        ON items_meta(superseded_by);
+        CREATE INDEX IF NOT EXISTS idx_refs_graph_target_relation
+        ON refs_graph(target_id, relation);
+    """)
+    conn.commit()
+
+
 def _backfill_context_loading_columns(conn: sqlite3.Connection) -> None:
     """Backfill maturity/context view metadata for older index rows."""
     rows = conn.execute(
@@ -156,6 +168,7 @@ def _json_string(value: str) -> str:
 __all__ = [
     "init_index_schema",
     "migrate_meta_columns",
+    "migrate_query_indexes",
     "migrate_refs_graph",
     "segment_cjk",
 ]

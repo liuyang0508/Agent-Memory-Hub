@@ -113,6 +113,10 @@ class HubIndex:
         """Remove an item from all index tables (meta + FTS + vec + refs_graph)."""
         self.writer.delete(item_id)
 
+    def prune(self, active_ids: set[str]) -> int:
+        """Atomically prune ghost items and graph edges with missing endpoints."""
+        return self.writer.prune(active_ids)
+
     def bm25_search(
         self,
         query: str,

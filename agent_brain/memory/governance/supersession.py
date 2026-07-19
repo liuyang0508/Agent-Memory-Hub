@@ -102,9 +102,13 @@ class SupersessionService:
             self.store.locked_items([replacement_id, obsolete_id]) as locked,
         ):
             preview = self.preview(replacement_id, obsolete_id)
+            if preview.status == "already_applied":
+                return self._already_applied_with_index_sync(preview)
             if preview.status != "ready":
                 return self._executed(preview)
             current = self._preview_current(replacement_id, obsolete_id)
+            if current.status == "already_applied":
+                return self._already_applied_with_index_sync(current)
             if current.status != "ready":
                 return self._executed(current)
 
@@ -769,6 +773,17 @@ class SupersessionService:
         except Exception:
             return False
         return True
+
+    def _already_applied_with_index_sync(
+        self, result: SupersessionResult
+    ) -> SupersessionResult:
+        return replace(
+            result,
+            dry_run=False,
+            index_repair_required=not self._sync_index(
+                result.replacement_id, result.obsolete_id
+            ),
+        )
 
     @staticmethod
     def _executed(result: SupersessionResult) -> SupersessionResult:

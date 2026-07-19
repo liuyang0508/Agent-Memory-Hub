@@ -3,9 +3,12 @@ from __future__ import annotations
 
 from typing import Any
 
+from agent_brain.contracts.memory_item import is_valid_memory_item_id
 from agent_brain.interfaces.mcp.tools._shared import *  # noqa: F401,F403
 from agent_brain.interfaces.mcp.tools._shared import _brain_dir, _components
+from agent_brain.memory.governance.lifecycle_ledger import lifecycle_transaction_lock
 from agent_brain.memory.governance.supersession import SupersessionService
+from agent_brain.memory.store.durable_fs import lifecycle_mutation_capability
 
 
 def graph_memory(item_id: str, depth: int = 1) -> dict[str, Any]:
@@ -76,6 +79,19 @@ def link_memories(
     Linking is what makes the brain a graph rather than a list. Skipping
     this step is the single largest cause of "memory not found" later.
     """
+    if not (
+        is_valid_memory_item_id(source_id)
+        and is_valid_memory_item_id(target_id)
+    ):
+        return {
+            "source": source_id,
+            "target": target_id,
+            "relation": relation,
+            "linked": False,
+            "status": "blocked",
+            "reason": "INVALID_ITEM_ID",
+            "index_repair_required": False,
+        }
     store, idx, _ = _components()
     if relation == "supersedes":
         result = SupersessionService(_brain_dir(), store, idx).apply(
@@ -104,6 +120,7 @@ def link_memories(
         "linked": True,
         "status": "linked",
         "reason": "OK",
+        "index_repair_required": False,
     }
 
 
@@ -115,43 +132,179 @@ def unlink_memories(
 
     WHEN TO USE
     -----------
-    Only when a previously-correct link is now wrong (e.g. mis-linked
-    `supersedes` between unrelated items). Removing a link does NOT remove
-    either item; both remain in the brain.
+    Only for ordinary `refs` or custom relations that are now wrong.
+    A `supersedes` relation must use the governed revert operation; generic
+    unlink is intentionally blocked. Neither operation removes either item.
     """
-    store, idx, _ = _components()
-    superseded_in_markdown = False
+    if not (
+        is_valid_memory_item_id(source_id)
+        and is_valid_memory_item_id(target_id)
+    ):
+        return _unlink_result(
+            source_id,
+            target_id,
+            status="blocked",
+            reason="INVALID_ITEM_ID",
+        )
     try:
-        obsolete, _body = store.get(target_id)
-        superseded_in_markdown = obsolete.superseded_by == source_id
+        store, idx, _ = _components()
     except Exception:
-        pass
-    superseded_in_graph = any(
-        source == source_id and target == target_id and relation == "supersedes"
-        for source, target, relation in idx.get_refs(source_id)
-    )
-    if superseded_in_markdown or superseded_in_graph:
-        return {
-            "source": source_id,
-            "target": target_id,
-            "removed": False,
-            "status": "blocked",
-            "reason": "SUPERSESSION_REVERT_REQUIRED",
-        }
+        return _unlink_result(
+            source_id,
+            target_id,
+            status="blocked",
+            reason="GRAPH_CHECK_FAILED",
+        )
 
-    removed = idx.remove_ref(source_id, target_id)
-    markdown_removed = False
+    if not lifecycle_mutation_capability():
+        loaded = _load_unlink_pair(store, source_id, target_id)
+        if isinstance(loaded, str):
+            return _unlink_result(
+                source_id, target_id, status="blocked", reason=loaded
+            )
+        source, target = loaded
+        return _unlink_checked(
+            store.unlink_mem,
+            idx,
+            source,
+            target,
+            source_id,
+            target_id,
+        )
+
     try:
-        markdown_removed = store.unlink_mem(source_id, target_id)
+        with (
+            lifecycle_transaction_lock(_brain_dir()),
+            store.locked_items(sorted({source_id, target_id})) as locked,
+        ):
+            loaded = _load_unlink_pair(locked, source_id, target_id)
+            if isinstance(loaded, str):
+                return _unlink_result(
+                    source_id, target_id, status="blocked", reason=loaded
+                )
+            source, target = loaded
+            return _unlink_checked(
+                locked.unlink_mem,
+                idx,
+                source,
+                target,
+                source_id,
+                target_id,
+            )
     except Exception:
-        pass
-    did_remove = removed > 0 or markdown_removed
+        return _unlink_result(
+            source_id,
+            target_id,
+            status="blocked",
+            reason="LOCK_FAILED",
+        )
+
+
+def _load_unlink_pair(
+    reader: Any,
+    source_id: str,
+    target_id: str,
+) -> tuple[Any, Any] | str:
+    try:
+        source, _source_body = reader.get(source_id)
+        target, _target_body = reader.get(target_id)
+    except FileNotFoundError:
+        return "ITEM_MISSING"
+    except Exception:
+        return "ITEM_INVALID"
+    if source.id != source_id or target.id != target_id:
+        return "ITEM_INVALID"
+    return source, target
+
+
+def _unlink_checked(
+    unlink_markdown: Any,
+    idx: Any,
+    source: Any,
+    target: Any,
+    source_id: str,
+    target_id: str,
+) -> dict[str, Any]:
+    try:
+        graph_rows = idx.get_refs(source_id)
+        relations: set[str] = set()
+        for row in graph_rows:
+            if not isinstance(row, (tuple, list)) or len(row) != 3:
+                raise ValueError("invalid graph row")
+            edge_source, edge_target, relation = row
+            if edge_source == source_id and edge_target == target_id:
+                if not isinstance(relation, str):
+                    raise ValueError("invalid graph relation")
+                relations.add(relation)
+    except Exception:
+        return _unlink_result(
+            source_id,
+            target_id,
+            status="blocked",
+            reason="GRAPH_CHECK_FAILED",
+        )
+
+    if target.superseded_by == source_id or "supersedes" in relations:
+        return _unlink_result(
+            source_id,
+            target_id,
+            status="blocked",
+            reason="SUPERSESSION_REVERT_REQUIRED",
+        )
+
+    markdown_removed = False
+    if target_id in source.refs.mems:
+        try:
+            markdown_removed = bool(unlink_markdown(source_id, target_id))
+        except Exception:
+            return _unlink_result(
+                source_id,
+                target_id,
+                status="blocked",
+                reason="MARKDOWN_UPDATE_FAILED",
+            )
+
+    graph_removed = 0
+    try:
+        for relation in sorted(relations):
+            graph_removed += idx.remove_ref(
+                source_id, target_id, relation=relation
+            )
+    except Exception:
+        return _unlink_result(
+            source_id,
+            target_id,
+            status="partial",
+            reason="INDEX_UPDATE_FAILED",
+            index_repair_required=True,
+        )
+
+    did_remove = markdown_removed or graph_removed > 0
+    return _unlink_result(
+        source_id,
+        target_id,
+        removed=did_remove,
+        status="removed" if did_remove else "not_found",
+        reason="OK" if did_remove else "NOT_FOUND",
+    )
+
+
+def _unlink_result(
+    source_id: str,
+    target_id: str,
+    *,
+    removed: bool = False,
+    status: str,
+    reason: str,
+    index_repair_required: bool = False,
+) -> dict[str, Any]:
     return {
         "source": source_id,
         "target": target_id,
-        "removed": did_remove,
-        "status": "removed" if did_remove else "not_found",
-        "reason": "OK" if did_remove else "NOT_FOUND",
+        "removed": removed,
+        "status": status,
+        "reason": reason,
+        "index_repair_required": index_repair_required,
     }
 
 
