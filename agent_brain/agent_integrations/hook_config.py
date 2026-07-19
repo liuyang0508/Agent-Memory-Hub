@@ -82,19 +82,19 @@ def command_references_hub_hook_script(command: str, script_name: str) -> bool:
 
 
 def _strip_managed_handlers(
-    entries: list,
+    entries: list[object],
     *,
     managed_script_names: Collection[str],
-) -> tuple[list, int, int | None]:
+) -> tuple[list[object], int, int | None]:
     """Return entries without recognized AMH handlers and their first slot."""
-    rebuilt: list = []
+    rebuilt: list[object] = []
     removed = 0
     first_managed_slot: int | None = None
     for entry in entries:
         if not isinstance(entry, dict) or not isinstance(entry.get("hooks"), list):
             rebuilt.append(entry)
             continue
-        filtered: list = []
+        filtered: list[object] = []
         entry_removed = 0
         for hook in entry["hooks"]:
             command = str(hook.get("command", "")) if isinstance(hook, dict) else ""
@@ -119,7 +119,7 @@ def _strip_managed_handlers(
 
 
 def remove_managed_hub_hook_handlers(
-    entries: list,
+    entries: list[object],
     *,
     managed_script_names: Collection[str],
 ) -> int:
@@ -134,7 +134,7 @@ def remove_managed_hub_hook_handlers(
 
 
 def reconcile_managed_hub_hook_event(
-    entries: list,
+    entries: list[object],
     *,
     expected_script_path: str,
     expected_command: str,

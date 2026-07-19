@@ -154,7 +154,7 @@ def test_managed_shim_target_must_exist_and_match_repo_contract(tmp_path: Path) 
 Run:
 
 ```bash
-MEMORY_HUB_TEST_EMBEDDING=1 /Users/liuyang/Desktop/AIAgent/agent-memory-hub/.venv/bin/python \
+MEMORY_HUB_TEST_EMBEDDING=1 python \
   -m pytest tests/unit/test_runtime_authority.py -q
 ```
 
@@ -277,9 +277,9 @@ __all__ = [
 Run:
 
 ```bash
-MEMORY_HUB_TEST_EMBEDDING=1 /Users/liuyang/Desktop/AIAgent/agent-memory-hub/.venv/bin/python \
+MEMORY_HUB_TEST_EMBEDDING=1 python \
   -m pytest tests/unit/test_runtime_authority.py -q
-/Users/liuyang/Desktop/AIAgent/agent-memory-hub/.venv/bin/ruff check \
+ruff check \
   agent_brain/agent_integrations/runtime_authority.py tests/unit/test_runtime_authority.py
 ```
 
@@ -425,7 +425,7 @@ def test_remove_managed_handlers_keeps_unknown_and_foreign_commands() -> None:
 Run:
 
 ```bash
-/Users/liuyang/Desktop/AIAgent/agent-memory-hub/.venv/bin/python \
+python \
   -m pytest tests/unit/test_hook_config.py -q
 ```
 
@@ -525,7 +525,7 @@ Use `expected_script_path` in a validation assertion that its basename is in `ma
 Run:
 
 ```bash
-/Users/liuyang/Desktop/AIAgent/agent-memory-hub/.venv/bin/python -m pytest \
+python -m pytest \
   tests/unit/test_hook_config.py \
   tests/unit/test_adapters.py::TestClaudeCodeAdapterRealInstall \
   tests/unit/test_adapters.py::TestCodexAdapterRealInstall -q
@@ -658,7 +658,7 @@ Add tests asserting one canonical prompt/stop handler, foreign command equality,
 Run:
 
 ```bash
-MEMORY_HUB_TEST_EMBEDDING=1 /Users/liuyang/Desktop/AIAgent/agent-memory-hub/.venv/bin/python \
+MEMORY_HUB_TEST_EMBEDDING=1 python \
   -m pytest tests/unit/test_qoder_config_convergence.py -q
 ```
 
@@ -782,7 +782,7 @@ Add an uninstall test that calls install, then uninstall, and proves every forei
 Run:
 
 ```bash
-MEMORY_HUB_TEST_EMBEDDING=1 /Users/liuyang/Desktop/AIAgent/agent-memory-hub/.venv/bin/python -m pytest \
+MEMORY_HUB_TEST_EMBEDDING=1 python -m pytest \
   tests/unit/test_runtime_authority.py \
   tests/unit/test_hook_config.py \
   tests/unit/test_qoder_config_convergence.py \
@@ -843,7 +843,7 @@ Also add a valid-shim integration test: construct the adapter without explicit `
 Run:
 
 ```bash
-/Users/liuyang/Desktop/AIAgent/agent-memory-hub/.venv/bin/python -m pytest \
+python -m pytest \
   tests/unit/test_qoder_config_convergence.py -k doctor -q
 ```
 
@@ -900,7 +900,7 @@ expected_commands = {
 Run:
 
 ```bash
-MEMORY_HUB_TEST_EMBEDDING=1 /Users/liuyang/Desktop/AIAgent/agent-memory-hub/.venv/bin/python -m pytest \
+MEMORY_HUB_TEST_EMBEDDING=1 python -m pytest \
   tests/unit/test_qoder_config_convergence.py \
   tests/unit/test_adapters.py \
   tests/unit/test_adapter_lifecycle_records.py \
@@ -956,7 +956,7 @@ assert report["config_convergence"] == {
 Run:
 
 ```bash
-/Users/liuyang/Desktop/AIAgent/agent-memory-hub/.venv/bin/python -m pytest \
+python -m pytest \
   tests/unit/test_ci_governance_contract.py \
   tests/unit/test_adapter_governance_report.py -q
 ```
@@ -1006,7 +1006,7 @@ Render a Markdown section stating that the machine gate proves config ownership/
 Run:
 
 ```bash
-/Users/liuyang/Desktop/AIAgent/agent-memory-hub/.venv/bin/python scripts/generate-adapter-governance.py
+python scripts/generate-adapter-governance.py
 ```
 
 Add a `CHANGELOG.md` bullet explaining that Qoder-family repair now prunes stale cross-checkout duplicates, preserves foreign hooks, canonicalizes MCP paths, and may require a client restart for fresh effectiveness evidence.
@@ -1016,7 +1016,7 @@ Add a `CHANGELOG.md` bullet explaining that Qoder-family repair now prunes stale
 Run exactly the required job payload:
 
 ```bash
-MEMORY_HUB_TEST_EMBEDDING=1 /Users/liuyang/Desktop/AIAgent/agent-memory-hub/.venv/bin/python -m pytest \
+MEMORY_HUB_TEST_EMBEDDING=1 python -m pytest \
   tests/unit/test_adapter_manifests.py \
   tests/unit/test_adapter_lifecycle_records.py \
   tests/unit/test_adapter_release_controls.py \
@@ -1026,7 +1026,7 @@ MEMORY_HUB_TEST_EMBEDDING=1 /Users/liuyang/Desktop/AIAgent/agent-memory-hub/.ven
   tests/unit/test_qoder_config_convergence.py \
   tests/system/test_adapter_lifecycle_contract.py \
   tests/system/test_adapter_core_isolation.py -q
-/Users/liuyang/Desktop/AIAgent/agent-memory-hub/.venv/bin/python \
+python \
   scripts/generate-adapter-governance.py --check
 ```
 
@@ -1054,7 +1054,7 @@ git commit -m "ci: require qoder config convergence evidence"
 - [ ] **Step 1: Run focused red/green regression suite**
 
 ```bash
-MEMORY_HUB_TEST_EMBEDDING=1 /Users/liuyang/Desktop/AIAgent/agent-memory-hub/.venv/bin/python -m pytest \
+MEMORY_HUB_TEST_EMBEDDING=1 python -m pytest \
   tests/unit/test_runtime_authority.py \
   tests/unit/test_hook_config.py \
   tests/unit/test_qoder_config_convergence.py \
@@ -1068,8 +1068,8 @@ Expected: all focused tests pass.
 - [ ] **Step 2: Run lint, type and whitespace gates**
 
 ```bash
-/Users/liuyang/Desktop/AIAgent/agent-memory-hub/.venv/bin/ruff check .
-/Users/liuyang/Desktop/AIAgent/agent-memory-hub/.venv/bin/python scripts/check_mypy_baseline.py
+ruff check .
+python scripts/check_mypy_baseline.py
 git diff --check
 ```
 
@@ -1149,7 +1149,7 @@ Expected pre-migration evidence on this machine: Qoder 4, QoderWork 3.
 - [ ] **Step 4: Repair both adapters only from stable `main`**
 
 ```bash
-cd /Users/liuyang/Desktop/AIAgent/agent-memory-hub
+cd <stable-agent-memory-hub-checkout>
 memory adapter repair qoder
 memory adapter repair qoder_work
 ```

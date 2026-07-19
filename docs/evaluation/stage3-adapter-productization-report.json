@@ -22,7 +22,7 @@
   "evaluated_at": "2026-07-19T05:45:00+08:00",
   "failed_gates": [],
   "fixture_sha256": "sha256:20f27498c1b703e53ccedca51a4946c261501c1192c87b382e05bfb31c2661c9",
-  "implementation_sha256": "sha256:5cc74394fe767f792d8e4c0146f823926c941d9be4b86ae5a7b5477f82ddc479",
+  "implementation_sha256": "sha256:f59cfda32e27a166cc9aea40bc6a18af1761d8d854c6fc27fdd8cf5d77c29e96",
   "lifecycle_result_schema_version": "amh-adapter-lifecycle-result/v1",
   "manifest_count": 16,
   "manifest_schema_version": "amh-adapter-manifest/v1",
