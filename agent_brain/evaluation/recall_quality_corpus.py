@@ -11,10 +11,14 @@ from typing import Any, Literal
 
 
 RecallQualitySplit = Literal["calibration", "heldout", "production_replay"]
+HookExpectedStatus = Literal["injected", "empty"]
 _SPLITS = frozenset({"calibration", "heldout", "production_replay"})
 _ANSWERABILITY = frozenset({"supported", "partial", "insufficient", "not_applicable"})
 _TEMPORAL = frozenset({"stable", "current", "stale", "conflict", "not_applicable"})
 _DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
+_HOOK_NOT_APPLICABLE_REASONS = frozenset({
+    "explicit_project_scope_unavailable",
+})
 _FORBIDDEN_SOURCE_FIELDS = frozenset({
     "cwd",
     "raw_prompt",
@@ -39,7 +43,18 @@ _REQUIRED_CASE_FIELDS = frozenset({
     "source_kind",
     "source_digest",
     "memory_items",
+    "hook_expectation",
 })
+
+
+@dataclass(frozen=True)
+class HookExpectation:
+    applicable: bool
+    cwd: str | None = None
+    expected_status: HookExpectedStatus | None = None
+    expected_item_ids: tuple[str, ...] = ()
+    prohibited_item_ids: tuple[str, ...] = ()
+    reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -60,6 +75,7 @@ class RecallQualityCase:
     source_kind: str
     source_digest: str
     memory_items: tuple[dict[str, Any], ...]
+    hook_expectation: HookExpectation
 
 
 @dataclass(frozen=True)
@@ -79,7 +95,7 @@ def load_recall_quality_corpus(path: Path) -> RecallQualityCorpus:
         raise ValueError("malformed recall quality corpus") from exc
     if not isinstance(payload, dict):
         raise ValueError("recall quality corpus must be an object")
-    if payload.get("schema_version") != 1:
+    if payload.get("schema_version") != 2:
         raise ValueError("unsupported recall quality schema version")
     if payload.get("append_only") is not True:
         raise ValueError("recall quality corpus must be append-only")
@@ -108,7 +124,7 @@ def load_recall_quality_corpus(path: Path) -> RecallQualityCorpus:
         cases.append(case)
 
     return RecallQualityCorpus(
-        schema_version=1,
+        schema_version=2,
         corpus_version=corpus_version.strip(),
         append_only=True,
         cases=tuple(cases),
@@ -163,7 +179,56 @@ def _parse_case(data: dict[str, Any]) -> RecallQualityCase:
         source_kind=data["source_kind"].strip(),
         source_digest=digest,
         memory_items=tuple(dict(row) for row in memory_items),
+        hook_expectation=_parse_hook_expectation(data["hook_expectation"]),
     )
+
+
+def _parse_hook_expectation(value: Any) -> HookExpectation:
+    if not isinstance(value, dict) or type(value.get("applicable")) is not bool:
+        raise ValueError("hook_expectation must declare boolean applicable")
+    if value["applicable"]:
+        required = {
+            "applicable",
+            "cwd",
+            "expected_status",
+            "expected_item_ids",
+            "prohibited_item_ids",
+        }
+        if set(value) != required:
+            raise ValueError(
+                "applicable hook expectation must use the complete contract"
+            )
+        cwd = value["cwd"]
+        status = value["expected_status"]
+        if not isinstance(cwd, str) or not cwd.startswith("/sanitized/"):
+            raise ValueError("hook expectation cwd must be sanitized")
+        if status not in {"injected", "empty"}:
+            raise ValueError("unsupported hook expected status")
+        expected = _string_tuple(
+            value["expected_item_ids"],
+            "hook expected_item_ids",
+        )
+        prohibited = _string_tuple(
+            value["prohibited_item_ids"],
+            "hook prohibited_item_ids",
+        )
+        if set(expected) & set(prohibited):
+            raise ValueError("hook expected and prohibited item ids overlap")
+        if (status == "injected") != bool(expected):
+            raise ValueError("hook injected expectation requires expected item ids")
+        return HookExpectation(
+            applicable=True,
+            cwd=cwd,
+            expected_status=status,
+            expected_item_ids=expected,
+            prohibited_item_ids=prohibited,
+        )
+    if set(value) != {"applicable", "reason"}:
+        raise ValueError("not-applicable hook expectation only accepts reason")
+    reason = value["reason"]
+    if reason not in _HOOK_NOT_APPLICABLE_REASONS:
+        raise ValueError("unsupported hook not-applicable reason")
+    return HookExpectation(applicable=False, reason=reason)
 
 
 def _string_tuple(value: Any, field: str) -> tuple[str, ...]:
@@ -173,6 +238,8 @@ def _string_tuple(value: Any, field: str) -> tuple[str, ...]:
 
 
 __all__ = [
+    "HookExpectation",
+    "HookExpectedStatus",
     "RecallQualityCase",
     "RecallQualityCorpus",
     "RecallQualitySplit",

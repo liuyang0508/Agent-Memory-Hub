@@ -20,8 +20,8 @@ def test_production_replay_corpus_is_versioned_append_only_and_disjoint() -> Non
         for row in json.loads(LEGACY_FIXTURE.read_text(encoding="utf-8"))
     }
 
-    assert corpus.schema_version == 1
-    assert corpus.corpus_version == "production-replay-v1"
+    assert corpus.schema_version == 2
+    assert corpus.corpus_version == "production-replay-v2"
     assert corpus.append_only is True
     assert len(corpus.cases) >= 12
     assert {case.split for case in corpus.cases} == {"production_replay"}
@@ -45,6 +45,8 @@ def test_production_replay_corpus_is_versioned_append_only_and_disjoint() -> Non
         for case in corpus.cases
     )
     assert corpus.sha256 == "sha256:" + hashlib.sha256(FIXTURE.read_bytes()).hexdigest()
+    assert sum(case.hook_expectation.applicable for case in corpus.cases) == 11
+    assert sum(not case.hook_expectation.applicable for case in corpus.cases) == 1
 
 
 def test_corpus_loader_fails_closed_on_unknown_split(tmp_path: Path) -> None:
@@ -69,3 +71,45 @@ def test_corpus_loader_fails_closed_on_raw_source_fields(tmp_path: Path) -> None
 
     with pytest.raises(ValueError, match="forbidden source field"):
         load_recall_quality_corpus(invalid)
+
+
+def test_hook_expectation_requires_complete_applicable_contract(
+    tmp_path: Path,
+) -> None:
+    from agent_brain.evaluation.recall_quality_corpus import load_recall_quality_corpus
+
+    payload = json.loads(FIXTURE.read_text(encoding="utf-8"))
+    payload["schema_version"] = 2
+    payload["corpus_version"] = "production-replay-v2"
+    payload["cases"] = [payload["cases"][0]]
+    payload["cases"][0]["hook_expectation"] = {"applicable": True}
+    invalid = tmp_path / "invalid.json"
+    invalid.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="applicable hook expectation"):
+        load_recall_quality_corpus(invalid)
+
+
+def test_explicit_project_case_can_be_not_applicable_to_hook(
+    tmp_path: Path,
+) -> None:
+    from agent_brain.evaluation.recall_quality_corpus import load_recall_quality_corpus
+
+    payload = json.loads(FIXTURE.read_text(encoding="utf-8"))
+    payload["schema_version"] = 2
+    payload["corpus_version"] = "production-replay-v2"
+    payload["cases"] = [payload["cases"][0]]
+    payload["cases"][0]["hook_expectation"] = {
+        "applicable": False,
+        "reason": "explicit_project_scope_unavailable",
+    }
+    path = tmp_path / "corpus.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    corpus = load_recall_quality_corpus(path)
+
+    assert corpus.cases[0].hook_expectation.applicable is False
+    assert (
+        corpus.cases[0].hook_expectation.reason
+        == "explicit_project_scope_unavailable"
+    )
