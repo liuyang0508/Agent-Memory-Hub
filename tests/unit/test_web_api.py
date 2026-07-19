@@ -1847,9 +1847,11 @@ class TestLifecycleGovernanceAPI:
                 "category": "lifecycle",
                 "title": "Review stale signal: Web lifecycle signal",
                 "read_command": f"memory read {item.id} --head 2000 --view detail",
-                "recommended_next": "supersede_or_archive_after_review",
+                "recommended_next": "archive_after_review",
                 "can_auto_apply": False,
                 "boundary": "确认是否已有更新 item 可以 supersede，不能确认再 archive",
+                "candidates": [],
+                "reviewed_at": None,
             }
         ]
         assert (brain_dir / "items" / f"{item.id}.md").exists()

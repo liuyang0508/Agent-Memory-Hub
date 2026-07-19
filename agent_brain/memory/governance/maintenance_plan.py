@@ -4,12 +4,16 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import asdict, dataclass, field
-from typing import Any
+from typing import Any, Collection, Mapping
 
+from agent_brain.contracts.memory_item import MemoryItem
 from agent_brain.memory.governance.auto_governance import (
     ActionRisk,
     AutoGovernanceAction,
     AutoGovernanceReport,
+)
+from agent_brain.memory.governance.lifecycle_candidates import (
+    rank_supersession_candidates,
 )
 
 
@@ -67,6 +71,8 @@ class MaintenanceReviewQueueItem:
     recommended_next: str
     can_auto_apply: bool
     boundary: str
+    candidates: list[dict[str, object]] = field(default_factory=list)
+    reviewed_at: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -144,6 +150,8 @@ def build_maintenance_plan(
     limit_per_lane: int = 20,
     action_filter: str | None = None,
     category_filter: str | None = None,
+    items_by_id: Mapping[str, MemoryItem] | None = None,
+    supersedes_edges: Collection[tuple[str, str]] | None = None,
 ) -> MaintenancePlan:
     """Convert raw auto-governance actions into a user-facing plan."""
     deduped_actions = _suppress_duplicate_actions(report.actions)
@@ -165,6 +173,13 @@ def build_maintenance_plan(
         _build_lane(risk, actions_by_risk[risk], limit_per_lane=limit_per_lane)
         for risk in _LANE_ORDER
     ]
+    normalized_items = dict(items_by_id or {})
+    normalized_edges = set(supersedes_edges or ())
+    normalized_edges.update(
+        (item.superseded_by, item.id)
+        for item in normalized_items.values()
+        if item.superseded_by is not None
+    )
     return MaintenancePlan(
         scanned_items=report.scanned_items,
         raw_action_count=len(report.actions),
@@ -184,7 +199,11 @@ def build_maintenance_plan(
         },
         lanes=lanes,
         next_commands=_unique_commands(visible_actions),
-        review_queue=_build_review_queue(lanes),
+        review_queue=_build_review_queue(
+            lanes,
+            items_by_id=normalized_items,
+            supersedes_edges=normalized_edges,
+        ),
     )
 
 
@@ -268,6 +287,9 @@ def _unique_commands(actions: list[AutoGovernanceAction]) -> list[str]:
 
 def _build_review_queue(
     lanes: list[MaintenancePlanLane],
+    *,
+    items_by_id: Mapping[str, MemoryItem],
+    supersedes_edges: set[tuple[str, str]],
 ) -> list[MaintenanceReviewQueueItem]:
     rows: list[MaintenanceReviewQueueItem] = []
     seen: set[str] = set()
@@ -281,6 +303,16 @@ def _build_review_queue(
                 if item_id in seen:
                     continue
                 seen.add(item_id)
+                obsolete = items_by_id.get(item_id)
+                candidates = (
+                    rank_supersession_candidates(
+                        obsolete=obsolete,
+                        items=items_by_id.values(),
+                        supersedes_edges=supersedes_edges,
+                    )
+                    if obsolete is not None
+                    else []
+                )
                 rows.append(
                     MaintenanceReviewQueueItem(
                         item_id=item_id,
@@ -288,9 +320,14 @@ def _build_review_queue(
                         category=action.category,
                         title=action.title,
                         read_command=f"memory read {item_id} --head 2000 --view detail",
-                        recommended_next="supersede_or_archive_after_review",
+                        recommended_next=(
+                            "select_supersession_or_keep_active"
+                            if candidates
+                            else "archive_after_review"
+                        ),
                         can_auto_apply=False,
                         boundary="确认是否已有更新 item 可以 supersede，不能确认再 archive",
+                        candidates=[candidate.to_dict() for candidate in candidates],
                     )
                 )
     return rows

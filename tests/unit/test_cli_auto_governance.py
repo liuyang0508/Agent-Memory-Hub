@@ -330,9 +330,11 @@ def test_govern_plan_lifecycle_json_includes_read_only_review_queue(
             "category": "lifecycle",
             "title": "Review stale signal: Lifecycle queue signal",
             "read_command": f"memory read {item.id} --head 2000 --view detail",
-            "recommended_next": "supersede_or_archive_after_review",
+            "recommended_next": "archive_after_review",
             "can_auto_apply": False,
             "boundary": "确认是否已有更新 item 可以 supersede，不能确认再 archive",
+            "candidates": [],
+            "reviewed_at": None,
         }
     ]
 

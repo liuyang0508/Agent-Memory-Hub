@@ -1,9 +1,39 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+
+from agent_brain.contracts.memory_item import MemoryItem, MemoryType
 from agent_brain.memory.governance.auto_governance import (
     AutoGovernanceAction,
     AutoGovernanceReport,
 )
+
+
+BASE_TIME = datetime(2026, 7, 19, 10, 0, tzinfo=timezone.utc)
+
+
+def _lifecycle_item(
+    item_id: str,
+    *,
+    created_at: datetime,
+    title: str,
+    summary: str = "lifecycle summary",
+    locator: str = "lifecycle locator",
+    refs: dict[str, list[str]] | None = None,
+    superseded_by: str | None = None,
+) -> MemoryItem:
+    return MemoryItem(
+        id=item_id,
+        type=MemoryType.signal,
+        created_at=created_at,
+        project="agent-memory-hub",
+        tenant_id="tenant-a",
+        title=title,
+        summary=summary,
+        refs=refs or {},
+        context_views={"locator": locator},
+        superseded_by=superseded_by,
+    )
 
 
 def test_maintenance_plan_groups_actions_by_execution_lane() -> None:
@@ -244,9 +274,11 @@ def test_maintenance_plan_categorizes_stale_signal_archive_as_lifecycle() -> Non
             "category": "lifecycle",
             "title": "Review stale signal: hook warning",
             "read_command": f"memory read {item_id} --head 2000 --view detail",
-            "recommended_next": "supersede_or_archive_after_review",
+            "recommended_next": "archive_after_review",
             "can_auto_apply": False,
             "boundary": "确认是否已有更新 item 可以 supersede，不能确认再 archive",
+            "candidates": [],
+            "reviewed_at": None,
         }
     ]
 
@@ -301,3 +333,126 @@ def test_maintenance_plan_filters_by_action_and_category() -> None:
     assert payload["action_counts"] == {"review_quality": 1}
     assert payload["category_counts"] == {"summary_too_long": 1}
     assert payload["lanes"][1]["actions"][0]["item_ids"] == ["mem-long"]
+
+
+def test_lifecycle_review_queue_serializes_empty_candidate_defaults_compatibly() -> None:
+    from agent_brain.memory.governance.maintenance_plan import build_maintenance_plan
+
+    obsolete_id = "mem-20260719-100000-obsolete-empty"
+    report = AutoGovernanceReport(
+        scanned_items=1,
+        actions=[
+            AutoGovernanceAction(
+                action="review_archive",
+                risk="review_required",
+                title="Review stale signal",
+                reason="stale_signal_older_than_30_days",
+                item_ids=[obsolete_id],
+                details={"issue_type": "stale_signal"},
+            )
+        ],
+    )
+
+    row = build_maintenance_plan(report).to_dict()["review_queue"][0]
+
+    assert row["recommended_next"] == "archive_after_review"
+    assert row["candidates"] == []
+    assert row["reviewed_at"] is None
+    assert row["can_auto_apply"] is False
+
+
+def test_lifecycle_review_queue_adds_ranked_private_candidates_without_applying() -> None:
+    from agent_brain.memory.governance.maintenance_plan import build_maintenance_plan
+
+    obsolete = _lifecycle_item(
+        "mem-20260719-100000-obsolete-queue",
+        created_at=BASE_TIME,
+        title="login hook incident",
+    )
+    replacement = _lifecycle_item(
+        "mem-20260719-110000-replacement-queue",
+        created_at=BASE_TIME + timedelta(hours=1),
+        title="CANDIDATE_TITLE_SECRET login hook incident",
+        summary="CANDIDATE_SUMMARY_SECRET issue resolved",
+        locator="CANDIDATE_LOCATOR_SECRET",
+        refs={"mems": [obsolete.id]},
+    )
+    report = AutoGovernanceReport(
+        scanned_items=2,
+        actions=[
+            AutoGovernanceAction(
+                action="review_archive",
+                risk="review_required",
+                title="Review stale signal",
+                reason="stale_signal_older_than_30_days",
+                item_ids=[obsolete.id],
+                details={"issue_type": "stale_signal"},
+            )
+        ],
+    )
+
+    plan = build_maintenance_plan(
+        report,
+        items_by_id={obsolete.id: obsolete, replacement.id: replacement},
+        supersedes_edges={(replacement.id, obsolete.id)},
+    )
+    row = plan.to_dict()["review_queue"][0]
+
+    assert row["recommended_next"] == "select_supersession_or_keep_active"
+    assert row["can_auto_apply"] is False
+    assert row["reviewed_at"] is None
+    assert row["candidates"] == [
+        {
+            "replacement_id": replacement.id,
+            "score": 1.0,
+            "evidence_codes": [
+                "EXPLICIT_SUPERSEDES_EDGE",
+                "EXPLICIT_MEMORY_REF",
+                "TOPIC_OVERLAP",
+                "CLOSURE_LANGUAGE",
+                "NEWER_ITEM",
+            ],
+        }
+    ]
+    serialized = str(row["candidates"])
+    assert "CANDIDATE_TITLE_SECRET" not in serialized
+    assert "CANDIDATE_SUMMARY_SECRET" not in serialized
+    assert "CANDIDATE_LOCATOR_SECRET" not in serialized
+
+
+def test_lifecycle_review_queue_uses_frontmatter_supersession_edges() -> None:
+    from agent_brain.memory.governance.maintenance_plan import build_maintenance_plan
+
+    replacement = _lifecycle_item(
+        "mem-20260719-110000-frontmatter-replacement",
+        created_at=BASE_TIME + timedelta(hours=1),
+        title="new unrelated state",
+    )
+    obsolete = _lifecycle_item(
+        "mem-20260719-100000-frontmatter-obsolete",
+        created_at=BASE_TIME,
+        title="old unrelated state",
+        superseded_by=replacement.id,
+    )
+    report = AutoGovernanceReport(
+        scanned_items=2,
+        actions=[
+            AutoGovernanceAction(
+                action="review_archive",
+                risk="review_required",
+                title="Review stale signal",
+                reason="stale_signal_older_than_30_days",
+                item_ids=[obsolete.id],
+                details={"issue_type": "stale_signal"},
+            )
+        ],
+    )
+
+    row = build_maintenance_plan(
+        report,
+        items_by_id={obsolete.id: obsolete, replacement.id: replacement},
+    ).to_dict()["review_queue"][0]
+
+    assert row["candidates"][0]["replacement_id"] == replacement.id
+    assert row["candidates"][0]["score"] == 1.0
+    assert row["candidates"][0]["evidence_codes"][0] == "EXPLICIT_SUPERSEDES_EDGE"
