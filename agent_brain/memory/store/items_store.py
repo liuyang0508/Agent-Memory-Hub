@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import logging
+import os
 import re
+import tempfile
 import uuid
 from collections.abc import Iterator
 from dataclasses import dataclass, field
@@ -9,7 +11,24 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from agent_brain.memory.store.item_markdown import parse_item_markdown, render_item_markdown
-from agent_brain.contracts.memory_item import MemoryItem
+from agent_brain.contracts.memory_item import MemoryItem, is_valid_memory_item_id
+
+
+def _atomic_write_bytes(path: Path, data: bytes) -> None:
+    fd, temp_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    temp_path = Path(temp_name)
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(data)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temp_path, path)
+    finally:
+        temp_path.unlink(missing_ok=True)
+
+
+def _atomic_write_text(path: Path, text: str) -> None:
+    _atomic_write_bytes(path, text.encode("utf-8"))
 
 
 def make_item_id(title: str, when: datetime | None = None, label: str | None = None) -> str:
@@ -140,8 +159,17 @@ class ItemsStore:
             context_views["locator"] = data.get("summary", "")
             data["context_views"] = context_views
         updated_item = MemoryItem.model_validate(data)
-        md_path.write_text(render_item_markdown(updated_item, body), encoding="utf-8")
+        _atomic_write_text(md_path, render_item_markdown(updated_item, body))
         return updated_item
+
+    def restore_raw(self, item_id: str, data: bytes) -> None:
+        """Restore one active item from transaction rollback bytes."""
+        if not is_valid_memory_item_id(item_id):
+            raise ValueError("invalid memory item id")
+        md_path = self.items_dir / f"{item_id}.md"
+        if not md_path.is_file():
+            raise FileNotFoundError(f"Item {item_id} not found at {md_path}")
+        _atomic_write_bytes(md_path, data)
 
     def link_mem(self, source_id: str, target_id: str) -> bool:
         """Add target_id to source_id's refs.mems in md frontmatter.

@@ -1,11 +1,19 @@
+import json
+import os
+import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
 
 from agent_brain.contracts.memory_item import MemoryItem, MemoryType, Sensitivity
+from agent_brain.memory.governance.lifecycle_ledger import (
+    LifecycleLedgerRecord,
+    append_lifecycle_record,
+)
 from agent_brain.memory.governance.supersession import SupersessionService
 from agent_brain.memory.store.items_store import ItemsStore
+from agent_brain.platform.history import BrainHistory
 
 
 def _item(
@@ -58,6 +66,15 @@ def _write_item_with_mismatched_id(
 ) -> None:
     written = store.write(_item(actual_id), "mismatched")
     written.replace(store.items_dir / f"{requested_id}.md")
+
+
+def _seed_pair(brain_dir):
+    store = ItemsStore(brain_dir / "items")
+    old = _item("mem-20260719-100000-transaction-old")
+    new = _item("mem-20260719-110000-transaction-new")
+    store.write(old, "old body")
+    store.write(new, "new body")
+    return store, old, new
 
 
 def test_preview_accepts_replacement_supersedes_obsolete(tmp_brain_dir):
@@ -575,3 +592,450 @@ def test_preview_does_not_modify_brain_files(tmp_brain_dir):
         if path.is_file()
     }
     assert after == before
+
+
+def test_apply_updates_both_markdown_items_and_writes_private_safe_ledger(
+    tmp_brain_dir,
+):
+    store, old, new = _seed_pair(tmp_brain_dir)
+
+    result = SupersessionService(tmp_brain_dir, store).apply(
+        new.id, old.id, apply=True
+    )
+
+    old_after, _ = store.get(old.id)
+    new_after, _ = store.get(new.id)
+    assert result.status == "applied"
+    assert result.dry_run is False
+    assert old_after.superseded_by == new.id
+    assert old.id in new_after.refs.mems
+    ledger_path = tmp_brain_dir / "runtime" / "lifecycle-actions.jsonl"
+    ledger = ledger_path.read_text(encoding="utf-8")
+    assert old.id in ledger and new.id in ledger
+    assert "old body" not in ledger and "new body" not in ledger
+    record = json.loads(ledger)
+    assert set(record) == {
+        "action",
+        "timestamp",
+        "status",
+        "reason",
+        "obsolete_id",
+        "replacement_id",
+        "snapshot",
+        "replacement_ref_preexisted",
+    }
+    assert record["replacement_ref_preexisted"] is False
+    assert ledger_path.stat().st_mode & 0o777 == 0o600
+
+
+def test_apply_is_idempotent_and_revert_restores_only_transaction_added_ref(
+    tmp_brain_dir,
+):
+    store, old, new = _seed_pair(tmp_brain_dir)
+    service = SupersessionService(tmp_brain_dir, store)
+
+    first = service.apply(new.id, old.id, apply=True)
+    ledger_after_first = (
+        tmp_brain_dir / "runtime" / "lifecycle-actions.jsonl"
+    ).read_bytes()
+    second = service.apply(new.id, old.id, apply=True)
+    reverted = service.revert(new.id, old.id, apply=True)
+
+    assert first.status == "applied"
+    assert second.status == "already_applied"
+    assert second.dry_run is True
+    assert reverted.status == "reverted"
+    assert store.get(old.id)[0].superseded_by is None
+    assert old.id not in store.get(new.id)[0].refs.mems
+    ledger_lines = (
+        tmp_brain_dir / "runtime" / "lifecycle-actions.jsonl"
+    ).read_bytes().splitlines()
+    assert ledger_lines[0] + b"\n" == ledger_after_first
+    assert len(ledger_lines) == 2
+
+
+def test_lifecycle_runtime_is_not_tracked_or_rewound_by_brain_history(
+    tmp_brain_dir,
+):
+    store, old, new = _seed_pair(tmp_brain_dir)
+    service = SupersessionService(tmp_brain_dir, store)
+
+    applied = service.apply(new.id, old.id, apply=True)
+    assert applied.snapshot is not None
+    assert service.revert(new.id, old.id, apply=True).status == "reverted"
+    ledger_path = tmp_brain_dir / "runtime" / "lifecycle-actions.jsonl"
+    ledger_before_restore = ledger_path.read_bytes()
+    tracked = subprocess.run(
+        ["git", "-C", str(tmp_brain_dir), "ls-files"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.splitlines()
+
+    assert not any(path.startswith("runtime/") for path in tracked)
+    BrainHistory(tmp_brain_dir).restore(applied.snapshot)
+    assert ledger_path.read_bytes() == ledger_before_restore
+
+
+def test_revert_preserves_reference_that_preexisted_supersession(tmp_brain_dir):
+    store, old, new = _seed_pair(tmp_brain_dir)
+    store.link_mem(new.id, old.id)
+    service = SupersessionService(tmp_brain_dir, store)
+
+    assert service.apply(new.id, old.id, apply=True).status == "applied"
+    result = service.revert(new.id, old.id, apply=True)
+
+    assert result.status == "reverted"
+    assert store.get(old.id)[0].superseded_by is None
+    assert old.id in store.get(new.id)[0].refs.mems
+
+
+def test_revert_preserves_reference_when_matching_ledger_boolean_is_malformed(
+    tmp_brain_dir,
+):
+    store, old, new = _seed_pair(tmp_brain_dir)
+    store.link_mem(new.id, old.id)
+    service = SupersessionService(tmp_brain_dir, store)
+    assert service.apply(new.id, old.id, apply=True).status == "applied"
+    ledger_path = tmp_brain_dir / "runtime" / "lifecycle-actions.jsonl"
+    record = json.loads(ledger_path.read_text(encoding="utf-8"))
+    record["replacement_ref_preexisted"] = 0
+    ledger_path.write_text(json.dumps(record) + "\n", encoding="utf-8")
+
+    result = service.revert(new.id, old.id, apply=True)
+
+    assert result.status == "reverted"
+    assert old.id in store.get(new.id)[0].refs.mems
+
+
+def test_revert_does_not_reuse_apply_record_before_later_successful_revert(
+    tmp_brain_dir,
+):
+    store, old, new = _seed_pair(tmp_brain_dir)
+    service = SupersessionService(tmp_brain_dir, store)
+    assert service.apply(new.id, old.id, apply=True).status == "applied"
+    assert service.revert(new.id, old.id, apply=True).status == "reverted"
+    store.link_mem(new.id, old.id)
+    store.update_frontmatter(old.id, superseded_by=new.id)
+
+    result = service.revert(new.id, old.id, apply=True)
+
+    assert result.status == "reverted"
+    assert old.id in store.get(new.id)[0].refs.mems
+
+
+def test_revert_does_not_skip_malformed_newer_matching_transaction(
+    tmp_brain_dir,
+):
+    store, old, new = _seed_pair(tmp_brain_dir)
+    service = SupersessionService(tmp_brain_dir, store)
+    assert service.apply(new.id, old.id, apply=True).status == "applied"
+    ledger_path = tmp_brain_dir / "runtime" / "lifecycle-actions.jsonl"
+    malformed_newer = json.loads(ledger_path.read_text(encoding="utf-8"))
+    malformed_newer["timestamp"] = "2026-07-19T23:59:59+00:00"
+    malformed_newer["replacement_ref_preexisted"] = 0
+    with ledger_path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(malformed_newer) + "\n")
+
+    result = service.revert(new.id, old.id, apply=True)
+
+    assert result.status == "reverted"
+    assert old.id in store.get(new.id)[0].refs.mems
+
+
+def test_apply_false_is_preview_only_without_snapshot_or_ledger(tmp_brain_dir):
+    store, old, new = _seed_pair(tmp_brain_dir)
+    before = {
+        path.relative_to(tmp_brain_dir): path.read_bytes()
+        for path in tmp_brain_dir.rglob("*")
+        if path.is_file()
+    }
+
+    result = SupersessionService(tmp_brain_dir, store).apply(new.id, old.id)
+
+    after = {
+        path.relative_to(tmp_brain_dir): path.read_bytes()
+        for path in tmp_brain_dir.rglob("*")
+        if path.is_file()
+    }
+    assert result.status == "ready"
+    assert result.dry_run is True
+    assert before == after
+    assert not (tmp_brain_dir / ".git").exists()
+    assert not (tmp_brain_dir / "runtime" / "lifecycle-actions.jsonl").exists()
+
+
+def test_apply_revalidates_current_markdown_after_earlier_preview(
+    tmp_brain_dir, monkeypatch
+):
+    store, old, new = _seed_pair(tmp_brain_dir)
+    service = SupersessionService(tmp_brain_dir, store)
+    original_preview = service.preview
+
+    def stale_preview(replacement_id, obsolete_id):
+        result = original_preview(replacement_id, obsolete_id)
+        store.update_frontmatter(replacement_id, project="different-project")
+        return result
+
+    monkeypatch.setattr(service, "preview", stale_preview)
+
+    result = service.apply(new.id, old.id, apply=True)
+
+    assert result.status == "blocked"
+    assert result.reason == "PROJECT_MISMATCH"
+    assert store.get(old.id)[0].superseded_by is None
+    assert not (tmp_brain_dir / "runtime" / "lifecycle-actions.jsonl").exists()
+
+
+def test_apply_rolls_back_both_markdown_files_when_second_update_fails(
+    tmp_brain_dir, monkeypatch
+):
+    store, old, new = _seed_pair(tmp_brain_dir)
+    old_path = store.items_dir / f"{old.id}.md"
+    new_path = store.items_dir / f"{new.id}.md"
+    old_before = old_path.read_bytes()
+    new_before = new_path.read_bytes()
+
+    def fail_link(_source_id, _target_id):
+        raise OSError("injected second markdown failure")
+
+    monkeypatch.setattr(store, "link_mem", fail_link)
+
+    result = SupersessionService(tmp_brain_dir, store).apply(
+        new.id, old.id, apply=True
+    )
+
+    assert result.status == "blocked"
+    assert result.reason == "MARKDOWN_UPDATE_FAILED"
+    assert result.dry_run is False
+    assert old_path.read_bytes() == old_before
+    assert new_path.read_bytes() == new_before
+    ledger = (tmp_brain_dir / "runtime" / "lifecycle-actions.jsonl").read_text(
+        encoding="utf-8"
+    )
+    assert "MARKDOWN_UPDATE_FAILED" in ledger
+    assert store.get(old.id)[0].superseded_by is None
+
+
+def test_apply_rolls_back_markdown_before_reraising_keyboard_interrupt(
+    tmp_brain_dir, monkeypatch
+):
+    store, old, new = _seed_pair(tmp_brain_dir)
+    old_path = store.items_dir / f"{old.id}.md"
+    new_path = store.items_dir / f"{new.id}.md"
+    old_before = old_path.read_bytes()
+    new_before = new_path.read_bytes()
+
+    def interrupt_link(_source_id, _target_id):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(store, "link_mem", interrupt_link)
+
+    with pytest.raises(KeyboardInterrupt):
+        SupersessionService(tmp_brain_dir, store).apply(
+            new.id, old.id, apply=True
+        )
+
+    assert old_path.read_bytes() == old_before
+    assert new_path.read_bytes() == new_before
+
+
+def test_append_lifecycle_record_restores_original_bytes_when_fsync_fails(
+    tmp_brain_dir, monkeypatch
+):
+    ledger_path = tmp_brain_dir / "runtime" / "lifecycle-actions.jsonl"
+    ledger_path.parent.mkdir(parents=True)
+    ledger_path.write_bytes(b'{"existing":true}\n')
+    before = ledger_path.read_bytes()
+    real_fsync = os.fsync
+    calls = 0
+
+    def fail_once(fd):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise OSError("injected fsync failure")
+        return real_fsync(fd)
+
+    monkeypatch.setattr(os, "fsync", fail_once)
+    record = LifecycleLedgerRecord(
+        action="supersede",
+        timestamp="2026-07-19T12:00:00+00:00",
+        status="applied",
+        reason="OK",
+        obsolete_id="mem-20260719-100000-ledger-old",
+        replacement_id="mem-20260719-110000-ledger-new",
+        snapshot=None,
+        replacement_ref_preexisted=False,
+    )
+
+    with pytest.raises(OSError, match="injected fsync failure"):
+        append_lifecycle_record(tmp_brain_dir, record)
+
+    assert ledger_path.read_bytes() == before
+
+
+def test_ledger_failure_rolls_back_markdown_and_skips_index(
+    tmp_brain_dir, monkeypatch
+):
+    store, old, new = _seed_pair(tmp_brain_dir)
+    old_path = store.items_dir / f"{old.id}.md"
+    new_path = store.items_dir / f"{new.id}.md"
+    old_before = old_path.read_bytes()
+    new_before = new_path.read_bytes()
+
+    class RecordingIndex:
+        def __init__(self):
+            self.calls = []
+
+        def upsert(self, *args, **kwargs):
+            self.calls.append((args, kwargs))
+
+    index = RecordingIndex()
+
+    def fail_ledger(*_args, **_kwargs):
+        raise OSError("injected ledger failure")
+
+    monkeypatch.setattr(
+        "agent_brain.memory.governance.supersession.append_lifecycle_record",
+        fail_ledger,
+    )
+
+    result = SupersessionService(tmp_brain_dir, store, index=index).apply(
+        new.id, old.id, apply=True
+    )
+
+    assert result.status == "blocked"
+    assert result.reason == "LEDGER_WRITE_FAILED"
+    assert result.dry_run is False
+    assert result.snapshot is not None
+    assert old_path.read_bytes() == old_before
+    assert new_path.read_bytes() == new_before
+    assert index.calls == []
+    ledger_path = tmp_brain_dir / "runtime" / "lifecycle-actions.jsonl"
+    assert not ledger_path.exists() or b'"status":"applied"' not in ledger_path.read_bytes()
+
+
+def test_ledger_keyboard_interrupt_rolls_back_markdown_and_skips_index(
+    tmp_brain_dir, monkeypatch
+):
+    store, old, new = _seed_pair(tmp_brain_dir)
+    old_path = store.items_dir / f"{old.id}.md"
+    new_path = store.items_dir / f"{new.id}.md"
+    old_before = old_path.read_bytes()
+    new_before = new_path.read_bytes()
+
+    class RecordingIndex:
+        def __init__(self):
+            self.calls = []
+
+        def upsert(self, *args, **kwargs):
+            self.calls.append((args, kwargs))
+
+    index = RecordingIndex()
+
+    def interrupt_ledger(*_args, **_kwargs):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(
+        "agent_brain.memory.governance.supersession.append_lifecycle_record",
+        interrupt_ledger,
+    )
+
+    with pytest.raises(KeyboardInterrupt):
+        SupersessionService(tmp_brain_dir, store, index=index).apply(
+            new.id, old.id, apply=True
+        )
+
+    assert old_path.read_bytes() == old_before
+    assert new_path.read_bytes() == new_before
+    assert index.calls == []
+
+
+def test_index_failure_keeps_applied_markdown_and_ledger(tmp_brain_dir):
+    store, old, new = _seed_pair(tmp_brain_dir)
+
+    class FailingIndex:
+        def upsert(self, *_args, **_kwargs):
+            raise RuntimeError("injected index failure")
+
+    result = SupersessionService(tmp_brain_dir, store, index=FailingIndex()).apply(
+        new.id, old.id, apply=True
+    )
+
+    assert result.status == "applied"
+    assert result.index_repair_required is True
+    assert store.get(old.id)[0].superseded_by == new.id
+    assert old.id in store.get(new.id)[0].refs.mems
+    ledger = (tmp_brain_dir / "runtime" / "lifecycle-actions.jsonl").read_text(
+        encoding="utf-8"
+    )
+    assert '"status":"applied"' in ledger
+
+
+def test_revert_false_is_preview_only_and_requires_exact_current_pointer(
+    tmp_brain_dir,
+):
+    store, old, new = _seed_pair(tmp_brain_dir)
+    service = SupersessionService(tmp_brain_dir, store)
+
+    not_applied = service.revert(new.id, old.id)
+    assert not_applied.status == "blocked"
+    assert not_applied.reason == "SUPERSESSION_NOT_APPLIED"
+
+    assert service.apply(new.id, old.id, apply=True).status == "applied"
+    before = {
+        path.relative_to(tmp_brain_dir): path.read_bytes()
+        for path in tmp_brain_dir.rglob("*")
+        if path.is_file()
+    }
+    preview = service.revert(new.id, old.id)
+    after = {
+        path.relative_to(tmp_brain_dir): path.read_bytes()
+        for path in tmp_brain_dir.rglob("*")
+        if path.is_file()
+    }
+    assert preview.status == "ready"
+    assert preview.dry_run is True
+    assert after == before
+
+
+def test_revert_rolls_back_both_markdown_files_when_unlink_fails(
+    tmp_brain_dir, monkeypatch
+):
+    store, old, new = _seed_pair(tmp_brain_dir)
+    service = SupersessionService(tmp_brain_dir, store)
+    assert service.apply(new.id, old.id, apply=True).status == "applied"
+    old_path = store.items_dir / f"{old.id}.md"
+    new_path = store.items_dir / f"{new.id}.md"
+    old_before = old_path.read_bytes()
+    new_before = new_path.read_bytes()
+
+    def fail_unlink(_source_id, _target_id):
+        raise OSError("injected second markdown failure")
+
+    monkeypatch.setattr(store, "unlink_mem", fail_unlink)
+
+    result = service.revert(new.id, old.id, apply=True)
+
+    assert result.status == "blocked"
+    assert result.reason == "MARKDOWN_UPDATE_FAILED"
+    assert old_path.read_bytes() == old_before
+    assert new_path.read_bytes() == new_before
+    ledger_lines = (
+        tmp_brain_dir / "runtime" / "lifecycle-actions.jsonl"
+    ).read_text(encoding="utf-8").splitlines()
+    assert json.loads(ledger_lines[-1])["reason"] == "MARKDOWN_UPDATE_FAILED"
+
+
+def test_restore_raw_rejects_noncanonical_id_without_touching_outside_file(
+    tmp_brain_dir,
+):
+    store = ItemsStore(tmp_brain_dir / "items")
+    outside = tmp_brain_dir / "outside.md"
+    outside.write_bytes(b"sentinel")
+
+    with pytest.raises(ValueError, match="invalid memory item id"):
+        store.restore_raw("../outside", b"attacker")
+
+    assert outside.read_bytes() == b"sentinel"

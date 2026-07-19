@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import logging
+import os
 from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
 
@@ -9,10 +12,26 @@ import yaml
 from agent_brain.contracts.memory_enums import Sensitivity, memory_enum_value
 from agent_brain.contracts.memory_item import MemoryItem, is_valid_memory_item_id
 from agent_brain.memory.context.context_firewall_rules import REVIEW_REQUIRED_TAGS
+from agent_brain.memory.governance.lifecycle_ledger import (
+    LifecycleLedgerRecord,
+    append_lifecycle_record,
+    latest_applied_supersession_record,
+    lifecycle_transaction_lock,
+)
 from agent_brain.memory.store.items_store import ItemsStore
+from agent_brain.platform.history import BrainHistory
 
-SupersessionStatus = Literal["ready", "blocked", "already_applied"]
+SupersessionStatus = Literal[
+    "ready", "blocked", "already_applied", "applied", "reverted"
+]
 _ItemLoadStatus = Literal["ok", "missing", "invalid"]
+
+_log = logging.getLogger(__name__)
+_LIFECYCLE_HISTORY_EXCLUDES = (
+    "/runtime/lifecycle-actions.jsonl",
+    "/runtime/.lifecycle-ledger.lock",
+    "/runtime/.lifecycle-transaction.lock",
+)
 
 _ITEM_READ_ERRORS = (
     OSError,
@@ -49,6 +68,196 @@ class SupersessionService:
         self.index = index
 
     def preview(self, replacement_id: str, obsolete_id: str) -> SupersessionResult:
+        return self._preview_current(replacement_id, obsolete_id)
+
+    def apply(
+        self,
+        replacement_id: str,
+        obsolete_id: str,
+        *,
+        apply: bool = False,
+    ) -> SupersessionResult:
+        if not apply:
+            return self.preview(replacement_id, obsolete_id)
+
+        with lifecycle_transaction_lock(self.brain_dir):
+            preview = self.preview(replacement_id, obsolete_id)
+            if preview.status != "ready":
+                return preview
+            current = self._preview_current(replacement_id, obsolete_id)
+            if current.status != "ready":
+                return current
+
+            replacement, _ = self.store.get(replacement_id)
+            obsolete, _ = self.store.get(obsolete_id)
+            replacement_ref_preexisted = obsolete.id in replacement.refs.mems
+            old_bytes = self._item_path(obsolete.id).read_bytes()
+            new_bytes = self._item_path(replacement.id).read_bytes()
+            snapshot = self._snapshot(
+                f"pre-supersession {replacement.id} -> {obsolete.id}"
+            )
+
+            try:
+                self.store.update_frontmatter(
+                    obsolete.id, superseded_by=replacement.id
+                )
+                if not replacement_ref_preexisted:
+                    self.store.link_mem(replacement.id, obsolete.id)
+            except BaseException as error:
+                self._restore_pair(obsolete.id, old_bytes, replacement.id, new_bytes)
+                self._record_blocked_best_effort(
+                    "supersede",
+                    "MARKDOWN_UPDATE_FAILED",
+                    obsolete.id,
+                    replacement.id,
+                    snapshot,
+                    replacement_ref_preexisted,
+                )
+                if not isinstance(error, Exception):
+                    raise
+                return SupersessionResult(
+                    "blocked",
+                    "MARKDOWN_UPDATE_FAILED",
+                    replacement.id,
+                    obsolete.id,
+                    dry_run=False,
+                    snapshot=snapshot,
+                )
+
+            try:
+                self._record(
+                    "supersede",
+                    "applied",
+                    "OK",
+                    obsolete.id,
+                    replacement.id,
+                    snapshot,
+                    replacement_ref_preexisted,
+                )
+            except BaseException as error:
+                self._restore_pair(obsolete.id, old_bytes, replacement.id, new_bytes)
+                if not isinstance(error, Exception):
+                    raise
+                return SupersessionResult(
+                    "blocked",
+                    "LEDGER_WRITE_FAILED",
+                    replacement.id,
+                    obsolete.id,
+                    dry_run=False,
+                    snapshot=snapshot,
+                )
+
+            index_repair_required = not self._sync_index(
+                replacement.id, obsolete.id
+            )
+            return SupersessionResult(
+                "applied",
+                "OK",
+                replacement.id,
+                obsolete.id,
+                dry_run=False,
+                snapshot=snapshot,
+                index_repair_required=index_repair_required,
+            )
+
+    def revert(
+        self,
+        replacement_id: str,
+        obsolete_id: str,
+        *,
+        apply: bool = False,
+    ) -> SupersessionResult:
+        if not apply:
+            return self._preview_revert_current(replacement_id, obsolete_id)
+
+        with lifecycle_transaction_lock(self.brain_dir):
+            preview = self._preview_revert_current(replacement_id, obsolete_id)
+            if preview.status != "ready":
+                return preview
+            current = self._preview_revert_current(replacement_id, obsolete_id)
+            if current.status != "ready":
+                return current
+
+            replacement, _ = self.store.get(replacement_id)
+            obsolete, _ = self.store.get(obsolete_id)
+            applied_record = latest_applied_supersession_record(
+                self.brain_dir, replacement.id, obsolete.id
+            )
+            replacement_ref_preexisted = (
+                applied_record.replacement_ref_preexisted
+                if applied_record is not None
+                else True
+            )
+            old_bytes = self._item_path(obsolete.id).read_bytes()
+            new_bytes = self._item_path(replacement.id).read_bytes()
+            snapshot = self._snapshot(
+                f"pre-revert-supersession {replacement.id} -> {obsolete.id}"
+            )
+
+            try:
+                self.store.update_frontmatter(obsolete.id, superseded_by=None)
+                if not replacement_ref_preexisted:
+                    self.store.unlink_mem(replacement.id, obsolete.id)
+            except BaseException as error:
+                self._restore_pair(obsolete.id, old_bytes, replacement.id, new_bytes)
+                self._record_blocked_best_effort(
+                    "revert-supersession",
+                    "MARKDOWN_UPDATE_FAILED",
+                    obsolete.id,
+                    replacement.id,
+                    snapshot,
+                    replacement_ref_preexisted,
+                )
+                if not isinstance(error, Exception):
+                    raise
+                return SupersessionResult(
+                    "blocked",
+                    "MARKDOWN_UPDATE_FAILED",
+                    replacement.id,
+                    obsolete.id,
+                    dry_run=False,
+                    snapshot=snapshot,
+                )
+
+            try:
+                self._record(
+                    "revert-supersession",
+                    "reverted",
+                    "OK",
+                    obsolete.id,
+                    replacement.id,
+                    snapshot,
+                    replacement_ref_preexisted,
+                )
+            except BaseException as error:
+                self._restore_pair(obsolete.id, old_bytes, replacement.id, new_bytes)
+                if not isinstance(error, Exception):
+                    raise
+                return SupersessionResult(
+                    "blocked",
+                    "LEDGER_WRITE_FAILED",
+                    replacement.id,
+                    obsolete.id,
+                    dry_run=False,
+                    snapshot=snapshot,
+                )
+
+            index_repair_required = not self._sync_index(
+                replacement.id, obsolete.id
+            )
+            return SupersessionResult(
+                "reverted",
+                "OK",
+                replacement.id,
+                obsolete.id,
+                dry_run=False,
+                snapshot=snapshot,
+                index_repair_required=index_repair_required,
+            )
+
+    def _preview_current(
+        self, replacement_id: str, obsolete_id: str
+    ) -> SupersessionResult:
         if not (
             is_valid_memory_item_id(replacement_id)
             and is_valid_memory_item_id(obsolete_id)
@@ -74,6 +283,34 @@ class SupersessionService:
         if obsolete.superseded_by:
             return self._blocked(
                 replacement_id, obsolete_id, "OBSOLETE_ALREADY_SUPERSEDED"
+            )
+        return SupersessionResult("ready", "OK", replacement.id, obsolete.id)
+
+    def _preview_revert_current(
+        self, replacement_id: str, obsolete_id: str
+    ) -> SupersessionResult:
+        if not (
+            is_valid_memory_item_id(replacement_id)
+            and is_valid_memory_item_id(obsolete_id)
+        ):
+            return self._blocked(replacement_id, obsolete_id, "INVALID_ITEM_ID")
+        if replacement_id == obsolete_id:
+            return self._blocked(replacement_id, obsolete_id, "SELF_SUPERSESSION")
+        replacement, load_status = self._load_item(replacement_id)
+        if replacement is None:
+            reason = "ITEM_MISSING" if load_status == "missing" else "ITEM_INVALID"
+            return self._blocked(replacement_id, obsolete_id, reason)
+        obsolete, load_status = self._load_item(obsolete_id)
+        if obsolete is None:
+            reason = "ITEM_MISSING" if load_status == "missing" else "ITEM_INVALID"
+            return self._blocked(replacement_id, obsolete_id, reason)
+        if obsolete.superseded_by is None:
+            return self._blocked(
+                replacement.id, obsolete.id, "SUPERSESSION_NOT_APPLIED"
+            )
+        if obsolete.superseded_by != replacement.id:
+            return self._blocked(
+                replacement.id, obsolete.id, "SUPERSESSION_MISMATCH"
             )
         return SupersessionResult("ready", "OK", replacement.id, obsolete.id)
 
@@ -114,6 +351,111 @@ class SupersessionService:
         if item.id != item_id:
             return None, "invalid"
         return item, "ok"
+
+    def _item_path(self, item_id: str) -> Path:
+        if not is_valid_memory_item_id(item_id):
+            raise ValueError("invalid memory item id")
+        return self.store.items_dir / f"{item_id}.md"
+
+    def _snapshot(self, message: str) -> str | None:
+        history = BrainHistory(self.brain_dir)
+        exclude_path = self.brain_dir / ".git" / "info" / "exclude"
+        exclude_path.parent.mkdir(parents=True, exist_ok=True)
+        existing = (
+            exclude_path.read_text(encoding="utf-8")
+            if exclude_path.is_file()
+            else ""
+        )
+        missing = [
+            pattern
+            for pattern in _LIFECYCLE_HISTORY_EXCLUDES
+            if pattern not in existing.splitlines()
+        ]
+        if missing:
+            prefix = "" if not existing or existing.endswith("\n") else "\n"
+            with exclude_path.open("a", encoding="utf-8") as handle:
+                handle.write(prefix + "\n".join(missing) + "\n")
+                handle.flush()
+                os.fsync(handle.fileno())
+        return history.snapshot(message)
+
+    def _restore_pair(
+        self,
+        obsolete_id: str,
+        obsolete_bytes: bytes,
+        replacement_id: str,
+        replacement_bytes: bytes,
+    ) -> None:
+        first_error: Exception | None = None
+        try:
+            self.store.restore_raw(obsolete_id, obsolete_bytes)
+        except Exception as error:
+            first_error = error
+        try:
+            self.store.restore_raw(replacement_id, replacement_bytes)
+        except Exception as error:
+            if first_error is None:
+                first_error = error
+        if first_error is not None:
+            raise first_error
+
+    def _record(
+        self,
+        action: str,
+        status: str,
+        reason: str,
+        obsolete_id: str,
+        replacement_id: str | None,
+        snapshot: str | None,
+        replacement_ref_preexisted: bool,
+    ) -> None:
+        append_lifecycle_record(
+            self.brain_dir,
+            LifecycleLedgerRecord(
+                action=action,
+                timestamp=datetime.now(timezone.utc).isoformat(),
+                status=status,
+                reason=reason,
+                obsolete_id=obsolete_id,
+                replacement_id=replacement_id,
+                snapshot=snapshot,
+                replacement_ref_preexisted=replacement_ref_preexisted,
+            ),
+        )
+
+    def _record_blocked_best_effort(
+        self,
+        action: str,
+        reason: str,
+        obsolete_id: str,
+        replacement_id: str,
+        snapshot: str | None,
+        replacement_ref_preexisted: bool,
+    ) -> None:
+        try:
+            self._record(
+                action,
+                "blocked",
+                reason,
+                obsolete_id,
+                replacement_id,
+                snapshot,
+                replacement_ref_preexisted,
+            )
+        except BaseException:
+            _log.warning("LIFECYCLE_LEDGER_WRITE_FAILED")
+
+    def _sync_index(self, replacement_id: str, obsolete_id: str) -> bool:
+        if self.index is None:
+            return False
+        try:
+            obsolete, obsolete_body = self.store.get(obsolete_id)
+            replacement, replacement_body = self.store.get(replacement_id)
+            self.index.upsert(obsolete, obsolete_body, embedding=None)
+            self.index.upsert(replacement, replacement_body, embedding=None)
+        except Exception:
+            return False
+        return True
 
     @staticmethod
     def _blocked(
