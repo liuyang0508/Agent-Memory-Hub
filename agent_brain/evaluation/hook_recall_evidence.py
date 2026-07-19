@@ -77,6 +77,29 @@ def validate_hook_recall_manifest(
 ) -> list[str]:
     """Return stable gate failures without trusting runner-owned objects."""
 
+    base_failures = derive_hook_recall_gate_failures(payload, expected=expected)
+    if not isinstance(payload, dict):
+        return base_failures
+    failures = list(base_failures)
+    declared_failures = payload.get("failed_gates")
+    if declared_failures != base_failures:
+        failures.append("G0:failed_gate_summary_mismatch")
+    derived_status = "pass" if not base_failures else "fail"
+    if payload.get("status") != derived_status:
+        if payload.get("status") == "pass":
+            failures.append("G0:false_pass_status")
+        else:
+            failures.append("G0:incorrect_terminal_status")
+    return sorted(set(failures))
+
+
+def derive_hook_recall_gate_failures(
+    payload: object,
+    *,
+    expected: HookRecallExpectedProvenance,
+) -> list[str]:
+    """Derive G0-G3 failures without trusting declared status or summaries."""
+
     if not isinstance(payload, dict) or payload.get("schema_version") != 1:
         return ["G0:invalid_manifest_schema"]
     failures: list[str] = []
@@ -87,17 +110,6 @@ def validate_hook_recall_manifest(
     _check_case_closure(payload, results, failures)
     for result in results:
         _check_case_result(result, failures)
-
-    base_failures = sorted(set(failures))
-    declared_failures = payload.get("failed_gates")
-    if declared_failures != base_failures:
-        failures.append("G0:failed_gate_summary_mismatch")
-    derived_status = "pass" if not base_failures else "fail"
-    if payload.get("status") != derived_status:
-        if payload.get("status") == "pass":
-            failures.append("G0:false_pass_status")
-        else:
-            failures.append("G0:incorrect_terminal_status")
     return sorted(set(failures))
 
 
@@ -355,6 +367,7 @@ def _parse_timestamp(value: object) -> datetime | None:
 
 
 __all__ = [
+    "derive_hook_recall_gate_failures",
     "HookCaseEvidence",
     "HookRecallExpectedProvenance",
     "load_hook_recall_manifest",
