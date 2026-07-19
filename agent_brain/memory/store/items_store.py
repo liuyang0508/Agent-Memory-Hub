@@ -60,32 +60,65 @@ def _atomic_write_text(path: Path, text: str) -> None:
     _atomic_write_bytes(path, text.encode("utf-8"))
 
 
+def _is_windows() -> bool:
+    return os.name == "nt"
+
+
 def _atomic_create_bytes_fallback(path: Path, data: bytes) -> None:
     """Publish new bytes without following or replacing an existing target."""
 
     descriptor, temp_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
     temp_path = Path(temp_name)
+    committed = False
+    pending_error: BaseException | None = None
     try:
         with os.fdopen(descriptor, "wb") as handle:
             handle.write(data)
             handle.flush()
             os.fsync(handle.fileno())
+            temp_identity = os.fstat(handle.fileno())
         try:
             os.link(temp_path, path, follow_symlinks=False)
         except (TypeError, NotImplementedError):
             os.link(temp_path, path)
-        directory = os.open(
-            path.parent,
-            os.O_RDONLY
-            | getattr(os, "O_CLOEXEC", 0)
-            | getattr(os, "O_DIRECTORY", 0),
-        )
+        target_identity = os.lstat(path)
+        temp_key = (temp_identity.st_dev, temp_identity.st_ino)
+        target_key = (target_identity.st_dev, target_identity.st_ino)
+        if (
+            not stat.S_ISREG(target_identity.st_mode)
+            or not all(temp_key)
+            or temp_key != target_key
+        ):
+            raise OSError("ITEM_CREATE_IDENTITY_MISMATCH")
+        committed = True
         try:
-            os.fsync(directory)
-        finally:
-            os.close(directory)
+            directory = os.open(
+                path.parent,
+                os.O_RDONLY
+                | getattr(os, "O_CLOEXEC", 0)
+                | getattr(os, "O_DIRECTORY", 0),
+            )
+            try:
+                os.fsync(directory)
+            finally:
+                os.close(directory)
+        except OSError:
+            if not _is_windows():
+                raise
+            _log.warning("ITEM_DIRECTORY_FSYNC_UNAVAILABLE")
+    except BaseException as error:
+        pending_error = error
+        raise
     finally:
-        temp_path.unlink(missing_ok=True)
+        try:
+            temp_path.unlink(missing_ok=True)
+        except OSError:
+            if committed:
+                _log.warning("ITEM_TEMP_CLEANUP_FAILED")
+            elif pending_error is not None:
+                pending_error.add_note("ITEM_TEMP_CLEANUP_FAILED")
+            else:
+                raise
 
 
 def _read_descriptor_bytes(descriptor: int) -> bytes:

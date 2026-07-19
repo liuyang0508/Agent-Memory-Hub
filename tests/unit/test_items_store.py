@@ -364,3 +364,111 @@ def test_nondurable_platform_keeps_ordinary_memory_update_available(
     updated = store.update_frontmatter(item.id, summary="after")
 
     assert updated.summary == "after"
+
+
+def _fallback_create_item(item_id: str) -> MemoryItem:
+    return MemoryItem(
+        id=item_id,
+        type=MemoryType.fact,
+        created_at=datetime.fromisoformat("2026-07-20T12:30:00+00:00"),
+        title="fallback atomic create",
+        summary="fallback durability boundary",
+    )
+
+
+def test_windows_fallback_dir_fsync_unavailable_does_not_report_committed_write_failed(
+    tmp_brain_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    from agent_brain.memory.store import items_store as items_store_module
+    from agent_brain.memory.store.items_store import ItemsStore
+
+    store = ItemsStore(tmp_brain_dir / "items")
+    item = _fallback_create_item("mem-20260720-123000-windows-fallback")
+    real_open = os.open
+
+    def deny_directory_open(path, flags, *args, **kwargs):
+        if os.fspath(path) == os.fspath(store.items_dir):
+            raise PermissionError("simulated Windows directory handle denial")
+        return real_open(path, flags, *args, **kwargs)
+
+    monkeypatch.setattr(
+        items_store_module, "lifecycle_mutation_capability", lambda: False
+    )
+    monkeypatch.setattr(items_store_module, "_is_windows", lambda: True, raising=False)
+    monkeypatch.setattr(items_store_module.os, "open", deny_directory_open)
+    caplog.set_level(logging.WARNING, logger="agent_brain.memory.store.items_store")
+
+    target = store.write(item, "written once")
+
+    assert target.read_text(encoding="utf-8").endswith("written once\n")
+    assert [path.name for path in store.items_dir.glob("*.md")] == [target.name]
+    with pytest.raises(FileExistsError):
+        store.write(item, "must not overwrite")
+    assert target.read_text(encoding="utf-8").endswith("written once\n")
+    assert "ITEM_DIRECTORY_FSYNC_UNAVAILABLE" in caplog.text
+
+
+def test_posix_fallback_dir_fsync_failure_remains_explicit_after_publish(
+    tmp_brain_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from agent_brain.memory.store import items_store as items_store_module
+    from agent_brain.memory.store.items_store import ItemsStore
+
+    store = ItemsStore(tmp_brain_dir / "items")
+    item = _fallback_create_item("mem-20260720-123001-posix-fallback")
+    real_open = os.open
+
+    def deny_directory_open(path, flags, *args, **kwargs):
+        if os.fspath(path) == os.fspath(store.items_dir):
+            raise PermissionError("simulated POSIX directory fsync precondition failure")
+        return real_open(path, flags, *args, **kwargs)
+
+    monkeypatch.setattr(
+        items_store_module, "lifecycle_mutation_capability", lambda: False
+    )
+    monkeypatch.setattr(items_store_module, "_is_windows", lambda: False, raising=False)
+    monkeypatch.setattr(items_store_module.os, "open", deny_directory_open)
+
+    with pytest.raises(PermissionError, match="POSIX directory fsync"):
+        store.write(item, "published but durability unconfirmed")
+
+    target = store.items_dir / f"{item.id}.md"
+    assert target.is_file()
+    assert target.read_text(encoding="utf-8").endswith(
+        "published but durability unconfirmed\n"
+    )
+
+
+def test_fallback_temp_cleanup_failure_after_publish_is_diagnostic_only(
+    tmp_brain_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    from agent_brain.memory.store import items_store as items_store_module
+    from agent_brain.memory.store.items_store import ItemsStore
+
+    store = ItemsStore(tmp_brain_dir / "items")
+    item = _fallback_create_item("mem-20260720-123002-cleanup-fallback")
+    real_unlink = Path.unlink
+
+    def fail_temp_cleanup(path: Path, *args, **kwargs):
+        if path.parent == store.items_dir and path.name.startswith(f".{item.id}."):
+            raise PermissionError("simulated committed temp cleanup failure")
+        return real_unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(
+        items_store_module, "lifecycle_mutation_capability", lambda: False
+    )
+    monkeypatch.setattr(items_store_module.Path, "unlink", fail_temp_cleanup)
+    caplog.set_level(logging.WARNING, logger="agent_brain.memory.store.items_store")
+
+    target = store.write(item, "committed despite cleanup failure")
+
+    assert target.is_file()
+    assert target.read_text(encoding="utf-8").endswith(
+        "committed despite cleanup failure\n"
+    )
+    assert "ITEM_TEMP_CLEANUP_FAILED" in caplog.text
