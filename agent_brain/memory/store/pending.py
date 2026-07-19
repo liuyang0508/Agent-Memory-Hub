@@ -945,7 +945,19 @@ class PendingQueue:
         requested: list[str],
         safe_only: bool,
     ) -> PendingApplyStats:
-        """Apply from global truth while the cooperative queue lock is held."""
+        """Acquire queue -> catalog before any fresh classification or mutation."""
+
+        store = ItemsStore(brain_dir() / "items")
+        with store.locked_catalog():
+            return self._apply_catalog_locked(requested=requested, safe_only=safe_only)
+
+    def _apply_catalog_locked(
+        self,
+        *,
+        requested: list[str],
+        safe_only: bool,
+    ) -> PendingApplyStats:
+        """Apply from global truth while queue and catalog locks are held."""
 
         stats = PendingApplyStats()
 
@@ -1018,6 +1030,7 @@ class PendingQueue:
                     if apply_candidate.classification in {
                         "audit_blocked",
                         "conflict",
+                        "duplicate_candidate",
                         "malformed",
                     }:
                         stats.add(_review_required_result(apply_candidate))
@@ -1253,7 +1266,7 @@ def _acquire_queue_file_lock(descriptor: int) -> str:
             os.write(descriptor, b"\0")
             os.fsync(descriptor)
         os.lseek(descriptor, 0, os.SEEK_SET)
-        msvcrt.locking(descriptor, msvcrt.LK_LOCK, 1)
+        getattr(msvcrt, "locking")(descriptor, getattr(msvcrt, "LK_LOCK"), 1)
         return "msvcrt"
     import fcntl
 
@@ -1266,7 +1279,7 @@ def _release_queue_file_lock(descriptor: int, lock_kind: str) -> None:
         import msvcrt
 
         os.lseek(descriptor, 0, os.SEEK_SET)
-        msvcrt.locking(descriptor, msvcrt.LK_UNLCK, 1)
+        getattr(msvcrt, "locking")(descriptor, getattr(msvcrt, "LK_UNLCK"), 1)
         return
     import fcntl
 

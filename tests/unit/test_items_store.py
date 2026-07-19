@@ -5,6 +5,8 @@ from pathlib import Path
 import stat
 import subprocess
 import sys
+import threading
+from types import SimpleNamespace
 
 import pytest
 
@@ -486,3 +488,68 @@ def test_item_locks_live_under_runtime_not_observable_items(tmp_brain_dir: Path)
     lock = tmp_brain_dir / "runtime" / "locks" / "items" / f"{item.id}.lock"
     assert lock.is_file()
     assert stat.S_IMODE(lock.stat().st_mode) == 0o600
+
+
+def test_catalog_lock_is_reentrant_across_store_instances(tmp_brain_dir: Path) -> None:
+    from agent_brain.memory.store.items_store import ItemsStore
+
+    first = ItemsStore(tmp_brain_dir / "items")
+    second = ItemsStore(tmp_brain_dir / "items")
+    item = _fallback_create_item("mem-20260720-123004-catalog-reentrant")
+
+    with first.locked_catalog():
+        second.write(item, "nested write")
+
+    assert first.get(item.id)[1].strip() == "nested write"
+    lock = tmp_brain_dir / "runtime" / "locks" / "catalog" / "write.lock"
+    assert lock.is_file()
+    assert stat.S_IMODE(lock.stat().st_mode) == 0o600
+
+
+def test_catalog_lock_serializes_all_store_writes(tmp_brain_dir: Path) -> None:
+    from agent_brain.memory.store.items_store import ItemsStore
+
+    first = ItemsStore(tmp_brain_dir / "items")
+    second = ItemsStore(tmp_brain_dir / "items")
+    item = _fallback_create_item("mem-20260720-123005-catalog-serialized")
+    started = threading.Event()
+    finished = threading.Event()
+
+    def write_second() -> None:
+        started.set()
+        second.write(item, "serialized")
+        finished.set()
+
+    with first.locked_catalog():
+        thread = threading.Thread(target=write_second, daemon=True)
+        thread.start()
+        assert started.wait(timeout=5)
+        assert not finished.wait(timeout=0.2)
+    thread.join(timeout=5)
+
+    assert not thread.is_alive()
+    assert finished.is_set()
+
+
+def test_windows_catalog_lock_uses_one_byte_msvcrt_contract(
+    tmp_brain_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from agent_brain.memory.store import items_store as items_store_module
+    from agent_brain.memory.store.items_store import ItemsStore
+
+    store = ItemsStore(tmp_brain_dir / "items")
+    events: list[tuple[int, int]] = []
+    fake_msvcrt = SimpleNamespace(
+        LK_LOCK=10,
+        LK_UNLCK=11,
+        locking=lambda _fd, operation, count: events.append((operation, count)),
+    )
+    monkeypatch.setitem(sys.modules, "msvcrt", fake_msvcrt)
+    monkeypatch.setattr(items_store_module, "lifecycle_mutation_capability", lambda: False)
+    monkeypatch.setattr(items_store_module.os, "name", "nt")
+
+    with store.locked_catalog():
+        lock = tmp_brain_dir / "runtime" / "locks" / "catalog" / "write.lock"
+        assert lock.stat().st_size == 1
+
+    assert events == [(10, 1), (11, 1)]

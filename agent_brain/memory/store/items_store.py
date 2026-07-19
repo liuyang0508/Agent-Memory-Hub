@@ -204,6 +204,9 @@ _log = logging.getLogger(__name__)
 _ITEM_LOCKS_GUARD = threading.Lock()
 _ITEM_LOCKS: dict[tuple[int, int, str], threading.RLock] = {}
 _ITEM_LOCK_STATE = threading.local()
+_CATALOG_LOCKS_GUARD = threading.Lock()
+_CATALOG_LOCKS: dict[str, threading.RLock] = {}
+_CATALOG_LOCK_STATE = threading.local()
 
 
 @dataclass
@@ -215,6 +218,19 @@ class _HeldItemLock:
 @dataclass
 class _ItemLockToken:
     key: tuple[int, int, str]
+    process_lock: threading.RLock
+
+
+@dataclass
+class _HeldCatalogLock:
+    descriptor: int
+    depth: int
+    kind: str
+
+
+@dataclass
+class _CatalogLockToken:
+    key: str
     process_lock: threading.RLock
 
 
@@ -396,11 +412,12 @@ class ItemsStore:
         """Write item + body to a md file. Returns the file path."""
         out_path = self.items_dir / f"{item.id}.md"
         data = render_item_markdown(item, body).encode("utf-8")
-        if lifecycle_mutation_capability():
-            with self.locked_items([item.id]) as locked:
-                locked.create(item.id, data)
-        else:
-            _atomic_create_bytes_fallback(out_path, data)
+        with self.locked_catalog():
+            if lifecycle_mutation_capability():
+                with self.locked_items([item.id]) as locked:
+                    locked.create(item.id, data)
+            else:
+                _atomic_create_bytes_fallback(out_path, data)
         return out_path
 
     def update_frontmatter(self, item_id: str, **updates: object) -> MemoryItem:
@@ -499,6 +516,138 @@ class ItemsStore:
             return False
         self._update_frontmatter_path(source_id, refs=self._unlinked_refs(item, target_id))
         return True
+
+    @contextmanager
+    def locked_catalog(self) -> Iterator[None]:
+        """Hold the brain-wide write catalog lock, reentrant across store instances."""
+
+        key = str(self.items_dir.parent.resolve(strict=False))
+        with _CATALOG_LOCKS_GUARD:
+            process_lock = _CATALOG_LOCKS.setdefault(key, threading.RLock())
+        process_lock.acquire()
+        held = getattr(_CATALOG_LOCK_STATE, "held", None)
+        if held is None:
+            held = {}
+            _CATALOG_LOCK_STATE.held = held
+        current = held.get(key)
+        if current is not None:
+            current.depth += 1
+            try:
+                yield
+            finally:
+                current.depth -= 1
+                process_lock.release()
+            return
+
+        descriptor = -1
+        try:
+            descriptor, kind = self._acquire_catalog_file_lock()
+            held[key] = _HeldCatalogLock(descriptor=descriptor, depth=1, kind=kind)
+            descriptor = -1
+            try:
+                yield
+            finally:
+                current = held[key]
+                current.depth -= 1
+                if current.depth == 0:
+                    self._release_catalog_file_lock(current)
+                    del held[key]
+        finally:
+            if descriptor >= 0:
+                os.close(descriptor)
+            process_lock.release()
+
+    def _acquire_catalog_file_lock(self) -> tuple[int, str]:
+        descriptor = -1
+        try:
+            if lifecycle_mutation_capability():
+                with SecureDirectory.open(self.items_dir.parent) as brain:
+                    with brain.child("runtime", create=True) as runtime:
+                        with runtime.child("locks", create=True) as locks:
+                            with locks.child("catalog", create=True) as catalog:
+                                descriptor, created = catalog.open_or_create_file(
+                                    "write.lock", os.O_RDWR
+                                )
+                                os.fchmod(descriptor, 0o600)
+                                if os.fstat(descriptor).st_size == 0:
+                                    os.write(descriptor, b"\0")
+                                    os.fsync(descriptor)
+                                if created:
+                                    catalog.fsync()
+            else:
+                current = self.items_dir.parent
+                for component in ("runtime", "locks", "catalog"):
+                    candidate = current / component
+                    try:
+                        os.mkdir(candidate, 0o700)
+                    except FileExistsError:
+                        pass
+                    opened_directory = os.lstat(candidate)
+                    if not stat.S_ISDIR(opened_directory.st_mode) or bool(
+                        int(getattr(opened_directory, "st_file_attributes", 0) or 0)
+                        & 0x0400
+                    ):
+                        raise OSError("UNSAFE_CATALOG_LOCK_DIRECTORY")
+                    current = candidate
+                lock_path = current / "write.lock"
+                descriptor = os.open(
+                    lock_path,
+                    os.O_RDWR
+                    | os.O_CREAT
+                    | getattr(os, "O_BINARY", 0)
+                    | getattr(os, "O_NOFOLLOW", 0),
+                    0o600,
+                )
+                opened = os.fstat(descriptor)
+                path_identity = os.lstat(lock_path)
+                if (
+                    not stat.S_ISREG(opened.st_mode)
+                    or not stat.S_ISREG(path_identity.st_mode)
+                    or (opened.st_dev, opened.st_ino)
+                    != (path_identity.st_dev, path_identity.st_ino)
+                ):
+                    raise OSError("UNSAFE_CATALOG_LOCK_FILE")
+                if opened.st_size == 0:
+                    os.write(descriptor, b"\0")
+                    os.fsync(descriptor)
+
+            if os.name == "nt":
+                import msvcrt
+
+                os.lseek(descriptor, 0, os.SEEK_SET)
+                getattr(msvcrt, "locking")(
+                    descriptor, getattr(msvcrt, "LK_LOCK"), 1
+                )
+                return descriptor, "msvcrt"
+            import fcntl
+
+            fcntl.flock(descriptor, fcntl.LOCK_EX)
+            return descriptor, "fcntl"
+        except BaseException:
+            if descriptor >= 0:
+                os.close(descriptor)
+            raise
+
+    @staticmethod
+    def _release_catalog_file_lock(current: _HeldCatalogLock) -> None:
+        try:
+            if current.kind == "msvcrt":
+                import msvcrt
+
+                os.lseek(current.descriptor, 0, os.SEEK_SET)
+                getattr(msvcrt, "locking")(
+                    current.descriptor, getattr(msvcrt, "LK_UNLCK"), 1
+                )
+            else:
+                import fcntl
+
+                fcntl.flock(current.descriptor, fcntl.LOCK_UN)
+        except BaseException:
+            _log.warning("CATALOG_LOCK_HOUSEKEEPING_FAILED")
+        try:
+            os.close(current.descriptor)
+        except BaseException:
+            _log.warning("CATALOG_LOCK_HOUSEKEEPING_FAILED")
 
     @contextmanager
     def locked_items(self, item_ids: list[str]) -> Iterator[LockedItemsView]:

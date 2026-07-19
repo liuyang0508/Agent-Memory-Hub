@@ -2,6 +2,8 @@ import os
 import stat
 from pathlib import Path
 
+import pytest
+
 from agent_brain.memory.store import durable_fs as durable_fs_module
 from agent_brain.memory.store.durable_fs import (
     SecureDirectory,
@@ -143,6 +145,7 @@ def test_atomic_create_fsyncs_file_then_directory(tmp_path: Path, monkeypatch) -
     events: list[str] = []
     real_fsync = os.fsync
     real_link = os.link
+    real_unlink = os.unlink
 
     def tracking_fsync(descriptor: int) -> None:
         mode = os.fstat(descriptor).st_mode
@@ -153,11 +156,41 @@ def test_atomic_create_fsyncs_file_then_directory(tmp_path: Path, monkeypatch) -
         events.append("link")
         return real_link(source, target, **kwargs)
 
+    def tracking_unlink(target, **kwargs):
+        events.append("unlink")
+        return real_unlink(target, **kwargs)
+
     with SecureDirectory.open(tmp_path) as directory:
         with monkeypatch.context() as scoped:
             scoped.setattr(os, "fsync", tracking_fsync)
             scoped.setattr(os, "link", tracking_link)
+            scoped.setattr(os, "unlink", tracking_unlink)
             directory.atomic_create("target.md", b"created")
 
     assert (tmp_path / "target.md").read_bytes() == b"created"
-    assert events[:3] == ["file-fsync", "link", "dir-fsync"]
+    assert events[:4] == ["file-fsync", "link", "unlink", "dir-fsync"]
+    assert list(tmp_path.glob(".amh-*.tmp")) == []
+
+
+def test_atomic_create_final_fsync_failure_never_overwrites_on_retry(
+    tmp_path: Path, monkeypatch
+) -> None:
+    real_fsync = os.fsync
+
+    def fail_final_directory_fsync(descriptor: int) -> None:
+        if stat.S_ISDIR(os.fstat(descriptor).st_mode):
+            raise OSError("simulated final directory fsync failure")
+        real_fsync(descriptor)
+
+    with SecureDirectory.open(tmp_path) as directory:
+        with monkeypatch.context() as scoped:
+            scoped.setattr(os, "fsync", fail_final_directory_fsync)
+            with pytest.raises(OSError, match="final directory fsync"):
+                directory.atomic_create("target.md", b"first")
+
+    assert (tmp_path / "target.md").read_bytes() == b"first"
+    assert list(tmp_path.glob(".amh-*.tmp")) == []
+    with SecureDirectory.open(tmp_path) as directory:
+        with pytest.raises(FileExistsError):
+            directory.atomic_create("target.md", b"retry")
+    assert (tmp_path / "target.md").read_bytes() == b"first"

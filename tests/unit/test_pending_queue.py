@@ -269,6 +269,28 @@ def test_pending_item_id_uses_portable_ascii_slug(title: str, expected_slug: str
     assert not any(char in item_id for char in '<>:"/\\|?*\x00')
 
 
+def test_pending_unsafe_title_previews_and_applies_without_changing_content(
+    tmp_brain: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _freeze_now(monkeypatch)
+    original_title = '<>:"/\\|?*\x00 中文'
+    record = _v2_record(record_id="unsafe-title-record")
+    item = record["item"]
+    assert isinstance(item, dict)
+    item["title"] = original_title
+    path = enqueue_write_record(record)
+
+    preview = PendingQueue().preview(limit=1)
+    result = PendingQueue().apply(record_ids=["unsafe-title-record"])
+
+    assert preview.records[0].classification == "ready"
+    assert result.written == 1
+    assert not path.exists()
+    stored, _body = next(ItemsStore(tmp_brain / "items").iter_all())
+    assert stored.title == original_title
+    assert not any(char in stored.id for char in '<>:"/\\|?*\x00')
+
+
 def test_apply_requires_explicit_ids_or_safe_only(tmp_brain: Path) -> None:
     path = enqueue_write_record(_v2_record())
 
@@ -1891,6 +1913,52 @@ def test_same_scope_existing_payload_is_duplicate_candidate(
 
     assert preview.classification == "duplicate_candidate"
     assert preview.reason == "SAME_SCOPE_PAYLOAD_DUPLICATE"
+
+
+def test_apply_rescans_catalog_after_stale_preview_and_keeps_duplicate_queued(
+    tmp_brain: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _freeze_now(monkeypatch)
+    record = _v2_record(record_id="catalog-rescan-record")
+    path = enqueue_write_record(record)
+    queue = PendingQueue()
+    stale = queue.preview(limit=10)
+    assert stale.records[0].classification == "ready"
+    store = ItemsStore(tmp_brain / "items")
+    apply_started = threading.Event()
+    apply_finished = threading.Event()
+    outcomes: list[object] = []
+
+    def apply_pending() -> None:
+        apply_started.set()
+        outcomes.append(queue.apply(record_ids=["catalog-rescan-record"]))
+        apply_finished.set()
+
+    with store.locked_catalog():
+        apply_thread = threading.Thread(target=apply_pending, daemon=True)
+        apply_thread.start()
+        assert apply_started.wait(timeout=5)
+        assert not apply_finished.wait(timeout=0.2)
+        _write_existing_item(
+            tmp_brain,
+            record,
+            item_id="mem-20260701-100000-catalog-winner",
+            span_hash=_payload_sha256(record),
+        )
+    apply_thread.join(timeout=5)
+    assert not apply_thread.is_alive()
+    result = outcomes[0]
+
+    assert getattr(result, "review_required") == 1
+    assert getattr(result, "results")[0].classification == "duplicate_candidate"
+    assert getattr(result, "results")[0].reason == "SAME_SCOPE_PAYLOAD_DUPLICATE"
+    assert path.exists()
+    assert len(list(ItemsStore(tmp_brain / "items").iter_all())) == 1
+
+    safe_only = queue.apply(safe_only=True)
+    assert safe_only.review_required == 1
+    assert safe_only.results[0].classification == "duplicate_candidate"
+    assert path.exists()
 
 
 def test_same_scope_title_summary_identity_is_duplicate_candidate(

@@ -99,6 +99,7 @@ class SupersessionService:
 
         with (
             lifecycle_transaction_lock(self.brain_dir),
+            self.store.locked_catalog(),
             self.store.locked_items([replacement_id, obsolete_id]) as locked,
         ):
             preview = self.preview(replacement_id, obsolete_id)
@@ -288,6 +289,7 @@ class SupersessionService:
 
         with (
             lifecycle_transaction_lock(self.brain_dir),
+            self.store.locked_catalog(),
             self.store.locked_items([replacement_id, obsolete_id]) as locked,
         ):
             preview = self._preview_revert_current(replacement_id, obsolete_id)

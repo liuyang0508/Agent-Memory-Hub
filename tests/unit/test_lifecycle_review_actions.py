@@ -116,7 +116,7 @@ def test_lifecycle_surfaces_skip_fifo_without_blocking_or_writing_it(
     assert payload["keep"]["reason"] == "ITEM_INVALID"
     assert payload["defer"]["reason"] == "ITEM_INVALID"
     assert stat.S_ISFIFO(fifo.stat().st_mode)
-    assert not (brain / "runtime").exists()
+    assert not (brain / "runtime" / "lifecycle-actions.jsonl").exists()
 
 
 def test_lifecycle_queue_hides_future_defer_and_restores_at_deadline(
@@ -334,7 +334,7 @@ def test_lifecycle_queue_corrupt_ledger_fails_safe_without_writing(
     item = _stale_item("mem-20260101-180005-defer-corrupt", now=now)
     store.write(item, "body")
     runtime = brain / "runtime"
-    runtime.mkdir()
+    runtime.mkdir(exist_ok=True)
     ledger = runtime / "lifecycle-actions.jsonl"
     ledger.write_text('{"action":"defer"}\nnot-json\n', encoding="utf-8")
     before = _tree_snapshot(brain)
@@ -375,7 +375,7 @@ def test_structural_invalid_action_blocks_entire_batch_before_mutation(
         "INVALID_ITEM_ID",
     ]
     assert (store.items_dir / f"{item.id}.md").read_bytes() == before
-    assert not (brain / "runtime").exists()
+    assert not (brain / "runtime" / "lifecycle-actions.jsonl").exists()
 
 
 @pytest.mark.parametrize("action_name", ["supersede", "revert-supersession"])
@@ -408,7 +408,7 @@ def test_self_relation_blocks_whole_batch_before_preceding_keep_active(
         "SELF_SUPERSESSION",
     ]
     assert kept_path.read_bytes() == original
-    assert not (brain / "runtime").exists()
+    assert not (brain / "runtime" / "lifecycle-actions.jsonl").exists()
 
 
 def test_legacy_archive_reports_index_delete_failure_without_exception_text(

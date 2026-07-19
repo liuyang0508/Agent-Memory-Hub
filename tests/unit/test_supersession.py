@@ -803,6 +803,11 @@ def test_apply_false_is_preview_only_without_snapshot_or_ledger(tmp_brain_dir):
 
 def test_platform_unsupported_apply_is_side_effect_free(tmp_brain_dir, monkeypatch):
     store, old, new = _seed_pair(tmp_brain_dir)
+    before_directories = {
+        path.relative_to(tmp_brain_dir)
+        for path in tmp_brain_dir.rglob("*")
+        if path.is_dir()
+    }
     before = {
         path.relative_to(tmp_brain_dir): path.read_bytes()
         for path in tmp_brain_dir.rglob("*")
@@ -824,13 +829,18 @@ def test_platform_unsupported_apply_is_side_effect_free(tmp_brain_dir, monkeypat
     assert result.reason == "PLATFORM_UNSUPPORTED"
     assert result.dry_run is False
     assert after == before
-    assert not (tmp_brain_dir / "runtime").exists()
+    assert {
+        path.relative_to(tmp_brain_dir)
+        for path in tmp_brain_dir.rglob("*")
+        if path.is_dir()
+    } == before_directories
 
 
-def test_missing_git_apply_is_blocked_before_runtime_creation(
+def test_missing_git_apply_is_blocked_before_new_runtime_mutation(
     tmp_brain_dir, monkeypatch
 ):
     store, old, new = _seed_pair(tmp_brain_dir)
+    before = set(tmp_brain_dir.rglob("*"))
     monkeypatch.setenv("PATH", "")
 
     service = SupersessionService(tmp_brain_dir, store)
@@ -841,13 +851,18 @@ def test_missing_git_apply_is_blocked_before_runtime_creation(
     assert result.status == "blocked"
     assert result.reason == "PLATFORM_UNSUPPORTED"
     assert result.dry_run is False
-    assert not (tmp_brain_dir / "runtime").exists()
+    assert set(tmp_brain_dir.rglob("*")) == before
 
 
 def test_platform_unsupported_revert_is_side_effect_free(tmp_brain_dir, monkeypatch):
     store, old, new = _seed_pair(tmp_brain_dir)
     store.update_frontmatter(old.id, superseded_by=new.id)
     store.link_mem(new.id, old.id)
+    before_directories = {
+        path.relative_to(tmp_brain_dir)
+        for path in tmp_brain_dir.rglob("*")
+        if path.is_dir()
+    }
     before = {
         path.relative_to(tmp_brain_dir): path.read_bytes()
         for path in tmp_brain_dir.rglob("*")
@@ -871,7 +886,11 @@ def test_platform_unsupported_revert_is_side_effect_free(tmp_brain_dir, monkeypa
     assert result.reason == "PLATFORM_UNSUPPORTED"
     assert result.dry_run is False
     assert after == before
-    assert not (tmp_brain_dir / "runtime").exists()
+    assert {
+        path.relative_to(tmp_brain_dir)
+        for path in tmp_brain_dir.rglob("*")
+        if path.is_dir()
+    } == before_directories
 
 
 def test_apply_revalidates_current_markdown_after_earlier_preview(

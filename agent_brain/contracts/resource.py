@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+import unicodedata
 import uuid
 from datetime import datetime, timezone
 from enum import Enum
@@ -36,15 +37,24 @@ class ExtractionKind(str, Enum):
     segment = "segment"
 
 
-_RESOURCE_ID_PATTERN = re.compile(r"^res-\d{8}-\d{6}-[^\s/\\]{1,200}$")
-_EXTRACTION_ID_PATTERN = re.compile(r"^ext-\d{8}-\d{6}-[^\s/\\]{1,200}$")
+_RESOURCE_ID_PATTERN = re.compile(r"^res-\d{8}-\d{6}-[a-z0-9-]{1,200}$")
+_EXTRACTION_ID_PATTERN = re.compile(r"^ext-\d{8}-\d{6}-[a-z0-9-]{1,200}$")
 _SHA256_PATTERN = re.compile(r"^[a-fA-F0-9]{64}$")
+_WINDOWS_RESERVED_NAMES = frozenset(
+    {"con", "prn", "aux", "nul"}
+    | {f"com{index}" for index in range(1, 10)}
+    | {f"lpt{index}" for index in range(1, 10)}
+)
 
 
 def _slug(text: str) -> str:
-    return re.sub(r"[/\\]+", "-", "-".join(text.lower().split()))[:30].strip("-") or (
-        uuid.uuid4().hex[:6]
-    )
+    normalized = unicodedata.normalize("NFKD", text.casefold()).encode(
+        "ascii", "ignore"
+    ).decode("ascii")
+    slug = re.sub(r"[^a-z0-9]+", "-", normalized).strip("-")[:30].rstrip("-")
+    if not slug or slug in _WINDOWS_RESERVED_NAMES:
+        return "item"
+    return slug
 
 
 def make_resource_id(title: str, when: datetime | None = None) -> str:
@@ -70,7 +80,9 @@ def sha256_file(path: Path) -> str:
 
 
 class ResourceRecord(BaseModel):
-    model_config = ConfigDict(extra="forbid", use_enum_values=True)
+    model_config = ConfigDict(
+        extra="forbid", use_enum_values=True, hide_input_in_errors=True
+    )
 
     id: str
     kind: ResourceKind
@@ -90,7 +102,7 @@ class ResourceRecord(BaseModel):
     @classmethod
     def _validate_id(cls, value: str) -> str:
         if not _RESOURCE_ID_PATTERN.match(value):
-            raise ValueError(f"id must match {_RESOURCE_ID_PATTERN.pattern}, got {value!r}")
+            raise ValueError("invalid resource id")
         return value
 
     @field_validator("created_at")
@@ -109,7 +121,9 @@ class ResourceRecord(BaseModel):
 
 
 class ExtractionRecord(BaseModel):
-    model_config = ConfigDict(extra="forbid", use_enum_values=True)
+    model_config = ConfigDict(
+        extra="forbid", use_enum_values=True, hide_input_in_errors=True
+    )
 
     id: str
     resource_id: str
@@ -127,14 +141,14 @@ class ExtractionRecord(BaseModel):
     @classmethod
     def _validate_id(cls, value: str) -> str:
         if not _EXTRACTION_ID_PATTERN.match(value):
-            raise ValueError(f"id must match {_EXTRACTION_ID_PATTERN.pattern}, got {value!r}")
+            raise ValueError("invalid extraction id")
         return value
 
     @field_validator("resource_id")
     @classmethod
     def _validate_resource_id(cls, value: str) -> str:
         if not _RESOURCE_ID_PATTERN.match(value):
-            raise ValueError(f"resource_id must match {_RESOURCE_ID_PATTERN.pattern}, got {value!r}")
+            raise ValueError("invalid resource id")
         return value
 
     @field_validator("created_at")

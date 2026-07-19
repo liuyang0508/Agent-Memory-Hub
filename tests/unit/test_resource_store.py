@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 
 import pytest
@@ -26,6 +27,55 @@ def test_resource_record_validates_id_and_defaults() -> None:
     assert record.tags == []
     assert record.metadata == {}
     assert record.sensitivity == "internal"
+
+
+def test_resource_and_extraction_ids_use_portable_ascii_slugs() -> None:
+    from agent_brain.contracts.resource import make_extraction_id, make_resource_id
+
+    forbidden = '<>:"/\\|?*\x00'
+    for title in ("Café Memory", "CON", '<>:"/\\|?*\x00 中文'):
+        resource_id = make_resource_id(title)
+        extraction_id = make_extraction_id(title)
+        assert re.fullmatch(r"res-\d{8}-\d{6}-[a-z0-9-]+", resource_id)
+        assert re.fullmatch(r"ext-\d{8}-\d{6}-[a-z0-9-]+", extraction_id)
+        assert not any(char in resource_id for char in forbidden)
+        assert not any(char in extraction_id for char in forbidden)
+
+
+def test_resource_id_validation_rejects_controls_without_echoing_input() -> None:
+    from pydantic import ValidationError
+
+    from agent_brain.contracts.resource import ResourceKind, ResourceRecord
+
+    secret_controlled_id = "res-20260720-120000-secret\x00token"
+    with pytest.raises(ValidationError) as error:
+        ResourceRecord(
+            id=secret_controlled_id,
+            kind=ResourceKind.file,
+            uri="file:///tmp/a",
+            title="safe",
+        )
+
+    assert secret_controlled_id not in str(error.value)
+
+    from agent_brain.contracts.resource import (
+        ExtractionKind,
+        ExtractionRecord,
+        make_resource_id,
+        sha256_text,
+    )
+
+    unsafe_extraction_id = "ext-20260720-120000-private\x00detail"
+    with pytest.raises(ValidationError) as extraction_error:
+        ExtractionRecord(
+            id=unsafe_extraction_id,
+            resource_id=make_resource_id("safe"),
+            kind=ExtractionKind.text,
+            extractor="test",
+            content_text="body",
+            content_sha256=sha256_text("body"),
+        )
+    assert unsafe_extraction_id not in str(extraction_error.value)
 
 
 def test_extraction_record_hashes_content() -> None:

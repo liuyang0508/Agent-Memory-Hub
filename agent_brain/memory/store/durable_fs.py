@@ -206,6 +206,7 @@ class SecureDirectory:
                 dst_dir_fd=self.fd,
                 follow_symlinks=False,
             )
+            os.unlink(temp, dir_fd=self.fd)
             self.fsync()
             committed = True
         except BaseException as error:
