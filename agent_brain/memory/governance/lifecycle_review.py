@@ -1,17 +1,73 @@
-"""Lifecycle review queue planning and explicit apply helpers."""
+"""Lifecycle review queue planning and explicit action execution."""
 
 from __future__ import annotations
 
-import shutil
+import os
+from dataclasses import asdict, dataclass, replace
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
+from agent_brain.contracts.memory_item import is_valid_memory_item_id
 from agent_brain.memory.governance.auto_governance import AutoGovernanceCycle
+from agent_brain.memory.governance.lifecycle_ledger import (
+    LifecycleLedgerRecord,
+    append_lifecycle_record,
+    lifecycle_transaction_lock,
+)
 from agent_brain.memory.governance.maintenance_plan import (
     MaintenancePlan,
     build_maintenance_plan,
 )
+from agent_brain.memory.governance.supersession import SupersessionService
+from agent_brain.memory.store.durable_fs import (
+    SecureDirectory,
+    lifecycle_mutation_capability,
+)
 from agent_brain.memory.store.items_store import ItemsStore
+
+LifecycleActionName = Literal[
+    "supersede", "archive", "keep-active", "defer", "revert-supersession"
+]
+_ACTION_NAMES = {
+    "supersede",
+    "archive",
+    "keep-active",
+    "defer",
+    "revert-supersession",
+}
+
+
+class _ArchiveRollbackFailed(OSError):
+    pass
+
+
+@dataclass(frozen=True)
+class LifecycleReviewAction:
+    action: LifecycleActionName
+    item_id: str
+    replacement_id: str | None = None
+    defer_days: int | None = None
+
+    def to_dict(self) -> dict[str, object]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class LifecycleActionResult:
+    action: LifecycleActionName
+    item_id: str
+    status: str
+    reason: str
+    dry_run: bool
+    replacement_id: str | None = None
+    defer_days: int | None = None
+    deferred_until: str | None = None
+    snapshot: str | None = None
+    index_repair_required: bool = False
+
+    def to_dict(self) -> dict[str, object]:
+        return asdict(self)
 
 
 def build_lifecycle_review_plan(
@@ -35,6 +91,141 @@ def build_lifecycle_review_plan(
     )
 
 
+def conflicting_lifecycle_action_item(
+    actions: list[LifecycleReviewAction],
+) -> str | None:
+    """Return the first item with non-identical requested actions."""
+    seen: dict[str, LifecycleReviewAction] = {}
+    for action in actions:
+        previous = seen.get(action.item_id)
+        if previous is not None and previous != action:
+            return action.item_id
+        seen[action.item_id] = action
+    for action in actions:
+        if (
+            action.replacement_id is not None
+            and action.replacement_id != action.item_id
+            and action.replacement_id in seen
+        ):
+            return action.replacement_id
+    return None
+
+
+def apply_lifecycle_review_actions(
+    *,
+    brain_dir: Path,
+    items_store: ItemsStore,
+    actions: list[LifecycleReviewAction],
+    apply: bool = False,
+    index_repair: bool = True,
+) -> dict[str, Any]:
+    """Preview or execute explicit lifecycle actions through shared services.
+
+    The function validates the complete action set before executing any item.
+    Exact duplicates are idempotently collapsed; different actions for one
+    source item are rejected as a batch conflict.
+    """
+    requested = _deduplicate_actions(actions)
+    conflict = conflicting_lifecycle_action_item(requested)
+    if conflict is not None:
+        return {
+            "dry_run": not apply,
+            "requested": [action.to_dict() for action in requested],
+            "results": [],
+            "error": "CONFLICTING_ACTIONS",
+            "item_id": conflict,
+            "index_repair": index_repair,
+        }
+
+    queue_by_id: dict[str, Any] = {}
+    if any(action.action == "archive" for action in requested):
+        plan = build_lifecycle_review_plan(
+            brain_dir=brain_dir,
+            items_store=items_store,
+            limit_per_lane=max(len(list(items_store.iter_all())), len(requested), 1),
+        )
+        queue_by_id = {row.item_id: row for row in plan.review_queue}
+
+    needs_index = any(
+        action.action != "defer" and _validate_action(action) is None
+        for action in requested
+    )
+    idx = (
+        _open_index(brain_dir)
+        if apply and index_repair and needs_index
+        else None
+    )
+    service = SupersessionService(brain_dir, items_store, index=idx)
+    results: list[LifecycleActionResult] = []
+    index_close_failed = False
+    try:
+        for action in requested:
+            results.append(
+                _execute_action(
+                    action,
+                    brain_dir=brain_dir,
+                    items_store=items_store,
+                    service=service,
+                    queue_by_id=queue_by_id,
+                    apply=apply,
+                    index=idx,
+                )
+            )
+    finally:
+        if idx is not None:
+            try:
+                idx.close()
+            except Exception:  # noqa: BLE001 - derived index remains repairable.
+                index_close_failed = True
+    if index_close_failed:
+        results = [
+            replace(result, index_repair_required=True)
+            if result.action != "defer" and not result.dry_run
+            else result
+            for result in results
+        ]
+
+    candidate_rows = [
+        queue_by_id[action.item_id].to_dict()
+        for action in requested
+        if action.action == "archive" and action.item_id in queue_by_id
+    ]
+    archived = [
+        result.item_id
+        for result in results
+        if result.action == "archive" and result.status == "applied"
+    ]
+    skipped = [
+        {"id": result.item_id, "reason": "not_in_lifecycle_review_queue"}
+        for result in results
+        if result.action == "archive"
+        and result.reason == "NOT_IN_LIFECYCLE_REVIEW_QUEUE"
+    ]
+    failed = [
+        {"id": result.item_id, "reason": result.reason}
+        for result in results
+        if not result.dry_run and result.status == "blocked" and not (
+            result.action == "archive"
+            and result.reason == "NOT_IN_LIFECYCLE_REVIEW_QUEUE"
+        )
+    ]
+    return {
+        "dry_run": not apply,
+        "requested": [action.to_dict() for action in requested],
+        "results": [result.to_dict() for result in results],
+        "index_repair": index_repair,
+        # Compatibility fields retained for archive-only callers.
+        "candidates": candidate_rows,
+        "archived": archived,
+        "skipped": skipped,
+        "failed": failed,
+        "boundary": (
+            "archive requires current lifecycle review_queue membership; "
+            "all mutations require explicit apply"
+        ),
+    }
+
+
 def apply_lifecycle_review_items(
     *,
     brain_dir: Path,
@@ -43,76 +234,377 @@ def apply_lifecycle_review_items(
     apply: bool = False,
     index_repair: bool = True,
 ) -> dict[str, Any]:
-    """Preview or archive explicitly selected lifecycle review queue items.
-
-    Only IDs present in the current lifecycle review queue are eligible. This
-    helper intentionally does not supersede memory items; supersession needs a
-    replacement item and remains a separate manual action.
-    """
-    requested = list(dict.fromkeys(item_ids))
-    plan = build_lifecycle_review_plan(
+    """Backward-compatible archive-only lifecycle review wrapper."""
+    payload = apply_lifecycle_review_actions(
         brain_dir=brain_dir,
         items_store=items_store,
-        limit_per_lane=max(len(list(items_store.iter_all())), len(requested), 1),
+        actions=[
+            LifecycleReviewAction(action="archive", item_id=item_id)
+            for item_id in item_ids
+        ],
+        apply=apply,
+        index_repair=index_repair,
     )
-    queue_by_id = {row.item_id: row for row in plan.review_queue}
-    candidates = [
-        queue_by_id[item_id].to_dict()
-        for item_id in requested
-        if item_id in queue_by_id
-    ]
-    skipped = [
-        {"id": item_id, "reason": "not_in_lifecycle_review_queue"}
-        for item_id in requested
-        if item_id not in queue_by_id
-    ]
-    archived: list[str] = []
-    failed: list[dict[str, str]] = []
+    # Historical callers expect a list of IDs rather than action objects.
+    payload["requested"] = list(dict.fromkeys(item_ids))
+    return payload
 
-    idx = None
-    if apply and index_repair:
-        db_path = brain_dir / "index.db"
-        if db_path.exists():
-            from agent_brain.platform.indexing.index import HubIndex
 
-            idx = HubIndex(db_path=db_path)
+def _deduplicate_actions(
+    actions: list[LifecycleReviewAction],
+) -> list[LifecycleReviewAction]:
+    unique: list[LifecycleReviewAction] = []
+    seen: set[LifecycleReviewAction] = set()
+    for action in actions:
+        if action in seen:
+            continue
+        seen.add(action)
+        unique.append(action)
+    return unique
+
+
+def _execute_action(
+    action: LifecycleReviewAction,
+    *,
+    brain_dir: Path,
+    items_store: ItemsStore,
+    service: SupersessionService,
+    queue_by_id: dict[str, Any],
+    apply: bool,
+    index: Any,
+) -> LifecycleActionResult:
+    invalid_reason = _validate_action(action)
+    if invalid_reason is not None:
+        return _blocked(action, invalid_reason, apply=apply)
+
+    if action.action == "supersede":
+        assert action.replacement_id is not None
+        result = service.apply(
+            action.replacement_id,
+            action.item_id,
+            apply=apply,
+        )
+        return LifecycleActionResult(
+            action=action.action,
+            item_id=action.item_id,
+            replacement_id=action.replacement_id,
+            status=result.status,
+            reason=result.reason,
+            dry_run=result.dry_run,
+            snapshot=result.snapshot,
+            index_repair_required=result.index_repair_required,
+        )
+    if action.action == "revert-supersession":
+        assert action.replacement_id is not None
+        result = service.revert(
+            action.replacement_id,
+            action.item_id,
+            apply=apply,
+        )
+        return LifecycleActionResult(
+            action=action.action,
+            item_id=action.item_id,
+            replacement_id=action.replacement_id,
+            status=result.status,
+            reason=result.reason,
+            dry_run=result.dry_run,
+            snapshot=result.snapshot,
+            index_repair_required=result.index_repair_required,
+        )
+    if action.action == "archive":
+        return _archive_action(
+            action,
+            brain_dir=brain_dir,
+            items_store=items_store,
+            queue_by_id=queue_by_id,
+            apply=apply,
+            index=index,
+        )
+    if action.action == "keep-active":
+        return _keep_active_action(
+            action,
+            brain_dir=brain_dir,
+            items_store=items_store,
+            apply=apply,
+            index=index,
+        )
+    return _defer_action(
+        action,
+        brain_dir=brain_dir,
+        items_store=items_store,
+        apply=apply,
+    )
+
+
+def _validate_action(action: LifecycleReviewAction) -> str | None:
+    if action.action not in _ACTION_NAMES:
+        return "INVALID_ACTION"
+    if not is_valid_memory_item_id(action.item_id):
+        return "INVALID_ITEM_ID"
+    if action.action in {"supersede", "revert-supersession"}:
+        if not is_valid_memory_item_id(action.replacement_id):
+            return "INVALID_REPLACEMENT_ID"
+    elif action.replacement_id is not None:
+        return "UNEXPECTED_REPLACEMENT_ID"
+    if action.action == "defer" and (
+        type(action.defer_days) is not int
+        or not 1 <= action.defer_days <= 365
+    ):
+        return "INVALID_DEFER_DAYS"
+    if action.action != "defer" and action.defer_days is not None:
+        return "UNEXPECTED_DEFER_DAYS"
+    return None
+
+
+def _blocked(
+    action: LifecycleReviewAction,
+    reason: str,
+    *,
+    apply: bool,
+) -> LifecycleActionResult:
+    return LifecycleActionResult(
+        action=action.action,
+        item_id=action.item_id,
+        replacement_id=action.replacement_id,
+        defer_days=action.defer_days,
+        status="blocked",
+        reason=reason,
+        dry_run=not apply,
+    )
+
+
+def _archive_action(
+    action: LifecycleReviewAction,
+    *,
+    brain_dir: Path,
+    items_store: ItemsStore,
+    queue_by_id: dict[str, Any],
+    apply: bool,
+    index: Any,
+) -> LifecycleActionResult:
+    if action.item_id not in queue_by_id:
+        return _blocked(action, "NOT_IN_LIFECYCLE_REVIEW_QUEUE", apply=apply)
+    if not apply:
+        return LifecycleActionResult(action.action, action.item_id, "ready", "OK", True)
+    if not lifecycle_mutation_capability():
+        return _blocked(action, "PLATFORM_UNSUPPORTED", apply=True)
     try:
-        if apply:
-            archive_dir = items_store.items_dir / "archived"
-            archive_dir.mkdir(exist_ok=True)
-            for item_id in requested:
-                if item_id not in queue_by_id:
-                    continue
-                src = items_store.items_dir / f"{item_id}.md"
-                if not src.exists():
-                    failed.append({"id": item_id, "reason": "source_missing"})
-                    continue
-                try:
-                    shutil.move(str(src), str(archive_dir / f"{item_id}.md"))
-                    if idx is not None:
-                        try:
-                            idx.delete(item_id)
-                        except Exception as exc:  # noqa: BLE001 - md archive is source-of-truth.
-                            failed.append({"id": item_id, "reason": f"index_delete_failed:{exc}"})
-                    archived.append(item_id)
-                except Exception as exc:  # noqa: BLE001 - report per-item failure.
-                    failed.append({"id": item_id, "reason": str(exc)})
-    finally:
-        if idx is not None:
-            idx.close()
+        with (
+            lifecycle_transaction_lock(brain_dir),
+            items_store.locked_items([action.item_id]),
+        ):
+            current_plan = build_lifecycle_review_plan(
+                brain_dir=brain_dir,
+                items_store=items_store,
+                limit_per_lane=max(len(list(items_store.iter_all())), 1),
+            )
+            if action.item_id not in {
+                row.item_id for row in current_plan.review_queue
+            }:
+                return _blocked(
+                    action,
+                    "NOT_IN_LIFECYCLE_REVIEW_QUEUE",
+                    apply=True,
+                )
+            with SecureDirectory.open(items_store.items_dir) as items:
+                with items.child("archived", create=True) as archive:
+                    source = f"{action.item_id}.md"
+                    descriptor, _ = items.open_file(source, os.O_RDONLY)
+                    os.close(descriptor)
+                    try:
+                        archive.stat(source)
+                    except FileNotFoundError:
+                        pass
+                    else:
+                        return _blocked(action, "ARCHIVE_TARGET_EXISTS", apply=True)
+                    renamed = False
+                    try:
+                        os.rename(
+                            source,
+                            source,
+                            src_dir_fd=items.fd,
+                            dst_dir_fd=archive.fd,
+                        )
+                        renamed = True
+                        items.fsync()
+                        archive.fsync()
+                    except BaseException as archive_error:
+                        if renamed:
+                            try:
+                                os.rename(
+                                    source,
+                                    source,
+                                    src_dir_fd=archive.fd,
+                                    dst_dir_fd=items.fd,
+                                )
+                                archive.fsync()
+                                items.fsync()
+                            except BaseException as rollback_error:
+                                if not isinstance(archive_error, Exception):
+                                    archive_error.add_note("ARCHIVE_ROLLBACK_FAILED")
+                                    raise archive_error
+                                raise _ArchiveRollbackFailed(
+                                    "ARCHIVE_ROLLBACK_FAILED"
+                                ) from rollback_error
+                        raise
+    except _ArchiveRollbackFailed:
+        return _blocked(action, "ARCHIVE_ROLLBACK_FAILED", apply=True)
+    except FileNotFoundError:
+        return _blocked(action, "SOURCE_MISSING", apply=True)
+    except (OSError, ValueError):
+        return _blocked(action, "ARCHIVE_FAILED", apply=True)
 
-    return {
-        "dry_run": not apply,
-        "requested": requested,
-        "candidates": candidates,
-        "archived": archived,
-        "skipped": skipped,
-        "failed": failed,
-        "boundary": "only current lifecycle review_queue items are eligible; supersede remains manual",
-    }
+    index_repair_required = False
+    if index is None:
+        index_repair_required = True
+    else:
+        try:
+            index.delete(action.item_id)
+        except Exception:  # noqa: BLE001 - markdown archive is authoritative.
+            index_repair_required = True
+    return LifecycleActionResult(
+        action.action,
+        action.item_id,
+        "applied",
+        "OK",
+        False,
+        index_repair_required=index_repair_required,
+    )
+
+
+def _keep_active_action(
+    action: LifecycleReviewAction,
+    *,
+    brain_dir: Path,
+    items_store: ItemsStore,
+    apply: bool,
+    index: Any,
+) -> LifecycleActionResult:
+    try:
+        item, _ = items_store.get(action.item_id)
+    except FileNotFoundError:
+        return _blocked(action, "ITEM_MISSING", apply=apply)
+    except (OSError, UnicodeError, ValueError):
+        return _blocked(action, "ITEM_INVALID", apply=apply)
+    if item.superseded_by:
+        return _blocked(action, "ITEM_SUPERSEDED", apply=apply)
+    if not apply:
+        return LifecycleActionResult(action.action, action.item_id, "ready", "OK", True)
+    if not lifecycle_mutation_capability():
+        return _blocked(action, "PLATFORM_UNSUPPORTED", apply=True)
+
+    try:
+        with (
+            lifecycle_transaction_lock(brain_dir),
+            items_store.locked_items([action.item_id]) as locked,
+        ):
+            current, _ = locked.get(action.item_id)
+            if current.superseded_by:
+                return _blocked(action, "ITEM_SUPERSEDED", apply=True)
+            updated = locked.update_frontmatter(
+                action.item_id,
+                **{"validity.observed_at": datetime.now(timezone.utc)},
+            )
+    except FileNotFoundError:
+        return _blocked(action, "ITEM_MISSING", apply=True)
+    except (OSError, UnicodeError, ValueError):
+        return _blocked(action, "MARKDOWN_UPDATE_FAILED", apply=True)
+
+    index_repair_required = False
+    if index is None:
+        index_repair_required = True
+    else:
+        try:
+            _, body = items_store.get(action.item_id)
+            index.upsert(updated, body, embedding=None)
+        except Exception:  # noqa: BLE001 - markdown observation is authoritative.
+            index_repair_required = True
+    return LifecycleActionResult(
+        action.action,
+        action.item_id,
+        "applied",
+        "OK",
+        False,
+        index_repair_required=index_repair_required,
+    )
+
+
+def _defer_action(
+    action: LifecycleReviewAction,
+    *,
+    brain_dir: Path,
+    items_store: ItemsStore,
+    apply: bool,
+) -> LifecycleActionResult:
+    assert action.defer_days is not None
+    try:
+        items_store.get(action.item_id)
+    except FileNotFoundError:
+        return _blocked(action, "ITEM_MISSING", apply=apply)
+    except (OSError, UnicodeError, ValueError):
+        return _blocked(action, "ITEM_INVALID", apply=apply)
+    deferred_until = (
+        datetime.now(timezone.utc) + timedelta(days=action.defer_days)
+    ).isoformat()
+    if not apply:
+        return LifecycleActionResult(
+            action.action,
+            action.item_id,
+            "ready",
+            "OK",
+            True,
+            defer_days=action.defer_days,
+            deferred_until=deferred_until,
+        )
+    if not lifecycle_mutation_capability():
+        return _blocked(action, "PLATFORM_UNSUPPORTED", apply=True)
+    try:
+        with (
+            lifecycle_transaction_lock(brain_dir),
+            items_store.locked_items([action.item_id]) as locked,
+        ):
+            locked.get(action.item_id)
+            append_lifecycle_record(
+                brain_dir,
+                LifecycleLedgerRecord(
+                    action="defer",
+                    timestamp=datetime.now(timezone.utc).isoformat(),
+                    status="deferred",
+                    reason="OK",
+                    obsolete_id=action.item_id,
+                    replacement_id=None,
+                    snapshot=None,
+                    replacement_ref_preexisted=False,
+                    deferred_until=deferred_until,
+                ),
+            )
+    except (OSError, TypeError, ValueError):
+        return _blocked(action, "LEDGER_WRITE_FAILED", apply=True)
+    return LifecycleActionResult(
+        action.action,
+        action.item_id,
+        "deferred",
+        "OK",
+        False,
+        defer_days=action.defer_days,
+        deferred_until=deferred_until,
+    )
+
+
+def _open_index(brain_dir: Path) -> Any:
+    db_path = brain_dir / "index.db"
+    if not db_path.exists():
+        return None
+    from agent_brain.platform.indexing.index import HubIndex
+
+    return HubIndex(db_path=db_path)
 
 
 __all__ = [
+    "LifecycleActionName",
+    "LifecycleReviewAction",
+    "apply_lifecycle_review_actions",
     "apply_lifecycle_review_items",
     "build_lifecycle_review_plan",
+    "conflicting_lifecycle_action_item",
 ]

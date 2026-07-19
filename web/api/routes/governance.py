@@ -7,8 +7,10 @@ binding is unchanged. Infra (helpers/state) comes from web._base.
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from typing import Literal
+
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, model_validator
 
 from web._base import *  # noqa: F401,F403  (state, helpers, models, lifespan, middleware)
 from web.api.routes import governance_activity, governance_audit, governance_webhooks
@@ -93,10 +95,51 @@ async def garbage_collect(req: GcRequest, user: CurrentUser = Depends(get_curren
     return {"deleted": deleted, "candidates": candidates, "dry_run": req.dry_run}
 
 
+class LifecycleActionRequest(BaseModel):
+    action: Literal[
+        "supersede", "archive", "keep-active", "defer", "revert-supersession"
+    ]
+    item_id: str
+    replacement_id: str | None = None
+    defer_days: int | None = None
+
+    @model_validator(mode="after")
+    def validate_action_arguments(self) -> LifecycleActionRequest:
+        from agent_brain.contracts.memory_item import is_valid_memory_item_id
+
+        if not is_valid_memory_item_id(self.item_id):
+            raise ValueError("item_id must be a canonical memory item id")
+        if self.action in {"supersede", "revert-supersession"}:
+            if self.replacement_id is None:
+                raise ValueError("replacement_id required")
+            if not is_valid_memory_item_id(self.replacement_id):
+                raise ValueError("replacement_id must be a canonical memory item id")
+        elif self.replacement_id is not None:
+            raise ValueError("replacement_id is only valid for supersession actions")
+        if self.action == "defer" and (
+            type(self.defer_days) is not int or not 1 <= self.defer_days <= 365
+        ):
+            raise ValueError("defer_days must be between 1 and 365")
+        if self.action != "defer" and self.defer_days is not None:
+            raise ValueError("defer_days is only valid for defer")
+        return self
+
+
 class LifecycleApplyRequest(BaseModel):
-    item_ids: list[str]
+    actions: list[LifecycleActionRequest] = Field(default_factory=list)
+    item_ids: list[str] = Field(default_factory=list)
     apply: bool = False
     index_repair: bool = True
+
+    @model_validator(mode="after")
+    def require_actions(self) -> LifecycleApplyRequest:
+        from agent_brain.contracts.memory_item import is_valid_memory_item_id
+
+        if not self.actions and not self.item_ids:
+            raise ValueError("actions or item_ids required")
+        if any(not is_valid_memory_item_id(item_id) for item_id in self.item_ids):
+            raise ValueError("item_ids must contain canonical memory item ids")
+        return self
 
 
 @router.get("/api/governance/lifecycle-review")
@@ -127,22 +170,50 @@ async def lifecycle_apply(
     req: LifecycleApplyRequest,
     user: CurrentUser = Depends(get_current_user),
 ):
-    """Preview or archive selected lifecycle review queue items. Admin only."""
+    """Preview or apply selected lifecycle review actions. Admin only."""
     if not user.is_admin:
         raise HTTPException(status_code=403, detail="admin only")
-    if not req.item_ids:
-        raise HTTPException(status_code=400, detail="item_ids required")
 
     from agent_brain.memory.governance.lifecycle_review import (
+        LifecycleReviewAction,
+        apply_lifecycle_review_actions,
         apply_lifecycle_review_items,
+        conflicting_lifecycle_action_item,
     )
     from agent_brain.memory.store.items_store import ItemsStore
 
     brain = _brain_dir()
-    return apply_lifecycle_review_items(
+    if req.item_ids and not req.actions:
+        return apply_lifecycle_review_items(
+            brain_dir=brain,
+            items_store=ItemsStore(items_dir=brain / "items"),
+            item_ids=req.item_ids,
+            apply=req.apply,
+            index_repair=req.index_repair,
+        )
+    actions = [
+        LifecycleReviewAction(
+            action=action.action,
+            item_id=action.item_id,
+            replacement_id=action.replacement_id,
+            defer_days=action.defer_days,
+        )
+        for action in req.actions
+    ]
+    actions.extend(
+        LifecycleReviewAction(action="archive", item_id=item_id)
+        for item_id in req.item_ids
+    )
+    conflict = conflicting_lifecycle_action_item(actions)
+    if conflict is not None:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "CONFLICTING_ACTIONS", "item_id": conflict},
+        )
+    return apply_lifecycle_review_actions(
         brain_dir=brain,
         items_store=ItemsStore(items_dir=brain / "items"),
-        item_ids=req.item_ids,
+        actions=actions,
         apply=req.apply,
         index_repair=req.index_repair,
     )

@@ -366,11 +366,39 @@ def governance_readiness(
 
 @govern_app.command("apply-lifecycle")
 def apply_lifecycle_reviews(
-    item_ids: list[str] = typer.Argument(..., help="Lifecycle review_queue item IDs to process"),
+    item_ids: list[str] | None = typer.Argument(
+        None,
+        help="Legacy lifecycle review_queue item IDs to archive",
+    ),
+    archive: list[str] | None = typer.Option(
+        None,
+        "--archive",
+        help="Archive a review_queue item (repeatable)",
+    ),
+    supersede: list[str] | None = typer.Option(
+        None,
+        "--supersede",
+        help="Supersede OLD with NEW as OLD:NEW (repeatable)",
+    ),
+    keep_active: list[str] | None = typer.Option(
+        None,
+        "--keep-active",
+        help="Refresh validity.observed_at for an item (repeatable)",
+    ),
+    defer: list[str] | None = typer.Option(
+        None,
+        "--defer",
+        help="Defer review as ID:DAYS, where DAYS is 1..365 (repeatable)",
+    ),
+    revert_supersession: list[str] | None = typer.Option(
+        None,
+        "--revert-supersession",
+        help="Revert OLD/NEW supersession as OLD:NEW (repeatable)",
+    ),
     apply: bool = typer.Option(
         False,
         "--apply/--dry-run",
-        help="Archive matched lifecycle items; --dry-run previews only",
+        help="Execute selected actions; --dry-run previews only",
     ),
     format: str = typer.Option("markdown", "--format", help="Output format: json or markdown"),
     index_repair: bool = typer.Option(
@@ -379,62 +407,157 @@ def apply_lifecycle_reviews(
         help="Remove archived item rows from index.db when present",
     ),
 ) -> None:
-    """Apply explicitly selected lifecycle review items.
-
-    Defaults to dry-run and only accepts IDs currently present in the lifecycle
-    review_queue. This intentionally does not supersede items; supersession
-    needs a replacement item and remains a separate explicit action.
-    """
+    """Preview or apply explicit lifecycle review actions."""
     import json
 
+    if format not in {"json", "markdown"}:
+        typer.echo("format must be json or markdown", err=True)
+        raise typer.Exit(2)
+
     from agent_brain.memory.governance.lifecycle_review import (
+        LifecycleActionName,
+        LifecycleReviewAction,
+        apply_lifecycle_review_actions,
         apply_lifecycle_review_items,
+        conflicting_lifecycle_action_item,
     )
 
-    brain = _brain_dir()
-    payload = apply_lifecycle_review_items(
-        brain_dir=brain,
-        items_store=_store_only(),
-        item_ids=item_ids,
-        apply=apply,
-        index_repair=index_repair,
+    actions = [
+        LifecycleReviewAction(action="archive", item_id=item_id)
+        for item_id in [*(item_ids or []), *(archive or [])]
+    ]
+    parse_error: dict[str, str] | None = None
+    pair_options: tuple[tuple[LifecycleActionName, list[str]], ...] = (
+        ("supersede", supersede or []),
+        ("revert-supersession", revert_supersession or []),
     )
+    for action_name, values in pair_options:
+        for value in values:
+            old_id, separator, new_id = value.partition(":")
+            if not separator or not old_id or not new_id or ":" in new_id:
+                parse_error = {"error": "INVALID_ACTION_ARGUMENT", "value": value}
+                break
+            actions.append(
+                LifecycleReviewAction(
+                    action=action_name,
+                    item_id=old_id,
+                    replacement_id=new_id,
+                )
+            )
+        if parse_error is not None:
+            break
+    actions.extend(
+        LifecycleReviewAction(action="keep-active", item_id=item_id)
+        for item_id in keep_active or []
+    )
+    if parse_error is None:
+        for value in defer or []:
+            item_id, separator, days_text = value.rpartition(":")
+            try:
+                days = int(days_text)
+            except ValueError:
+                days = 0
+            if not separator or not item_id or not 1 <= days <= 365:
+                parse_error = {"error": "INVALID_ACTION_ARGUMENT", "value": value}
+                break
+            actions.append(
+                LifecycleReviewAction(
+                    action="defer",
+                    item_id=item_id,
+                    defer_days=days,
+                )
+            )
+
+    if parse_error is not None:
+        typer.echo(json.dumps(parse_error, ensure_ascii=False))
+        raise typer.Exit(2)
+    if not actions:
+        typer.echo(json.dumps({"error": "ACTIONS_REQUIRED"}, ensure_ascii=False))
+        raise typer.Exit(2)
+    from agent_brain.contracts.memory_item import is_valid_memory_item_id
+
+    for action in actions:
+        if not is_valid_memory_item_id(action.item_id):
+            typer.echo(
+                json.dumps(
+                    {"error": "INVALID_ITEM_ID", "item_id": action.item_id},
+                    ensure_ascii=False,
+                )
+            )
+            raise typer.Exit(2)
+        if action.replacement_id is not None and not is_valid_memory_item_id(
+            action.replacement_id
+        ):
+            typer.echo(
+                json.dumps(
+                    {
+                        "error": "INVALID_REPLACEMENT_ID",
+                        "replacement_id": action.replacement_id,
+                    },
+                    ensure_ascii=False,
+                )
+            )
+            raise typer.Exit(2)
+    conflict = conflicting_lifecycle_action_item(actions)
+    if conflict is not None:
+        typer.echo(
+            json.dumps(
+                {"error": "CONFLICTING_ACTIONS", "item_id": conflict},
+                ensure_ascii=False,
+            )
+        )
+        raise typer.Exit(2)
+
+    brain = _brain_dir()
+    legacy_only = bool(item_ids) and not any(
+        (archive, supersede, keep_active, defer, revert_supersession)
+    )
+    if legacy_only:
+        payload = apply_lifecycle_review_items(
+            brain_dir=brain,
+            items_store=_store_only(),
+            item_ids=item_ids or [],
+            apply=apply,
+            index_repair=index_repair,
+        )
+    else:
+        payload = apply_lifecycle_review_actions(
+            brain_dir=brain,
+            items_store=_store_only(),
+            actions=actions,
+            apply=apply,
+            index_repair=index_repair,
+        )
     requested = payload["requested"]
-    candidates = payload["candidates"]
-    archived = payload["archived"]
-    skipped = payload["skipped"]
-    failed = payload["failed"]
     if format == "json":
         typer.echo(json.dumps(payload, indent=2, ensure_ascii=False))
         return
-    if format != "markdown":
-        typer.echo("format must be json or markdown", err=True)
-        raise typer.Exit(2)
 
     lines = [
         "# Lifecycle Apply Plan" if not apply else "# Lifecycle Apply Result",
         "",
         f"Dry Run: {'Yes' if payload['dry_run'] else 'No'}",
         f"Requested: {len(requested)}",
-        f"Matched: {len(candidates)}",
-        f"Archived: {len(archived)}",
-        f"Skipped: {len(skipped)}",
-        f"Failed: {len(failed)}",
+        f"Results: {len(payload['results'])}",
+        f"Archived: {len(payload['archived'])}",
+        f"Skipped: {len(payload['skipped'])}",
+        f"Failed: {len(payload['failed'])}",
         "",
     ]
-    for row in candidates:
-        lines.append(f"- {row['item_id']}: {row['title']}")
-        lines.append(f"  - Read: `{row['read_command']}`")
-        lines.append(f"  - Auto Apply: {str(row['can_auto_apply']).lower()}")
-    if skipped:
+    for row in payload["results"]:
+        lines.append(
+            f"- {row['action']} {row['item_id']}: {row['status']} ({row['reason']})"
+        )
+        lines.append(f"  - Index Repair Required: {str(row['index_repair_required']).lower()}")
+    if payload["skipped"]:
         lines.append("")
         lines.append("## Skipped")
-        for row in skipped:
+        for row in payload["skipped"]:
             lines.append(f"- {row['id']}: {row['reason']}")
-    if failed:
+    if payload["failed"]:
         lines.append("")
         lines.append("## Failed")
-        for row in failed:
+        for row in payload["failed"]:
             lines.append(f"- {row['id']}: {row['reason']}")
     typer.echo("\n".join(lines))
 

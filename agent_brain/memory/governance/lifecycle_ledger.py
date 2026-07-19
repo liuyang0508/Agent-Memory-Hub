@@ -29,6 +29,7 @@ _LEDGER_FIELDS = {
     "snapshot",
     "replacement_ref_preexisted",
 }
+_DEFER_LEDGER_FIELDS = _LEDGER_FIELDS | {"deferred_until"}
 _GIT_OBJECT_ID = re.compile(r"(?:[0-9a-f]{40}|[0-9a-f]{64})\Z")
 _ALLOWED_RECORD_STATES = {
     ("supersede", "applied", "OK"),
@@ -39,6 +40,7 @@ _ALLOWED_RECORD_STATES = {
     ("revert-supersession", "blocked", "MARKDOWN_UPDATE_FAILED"),
     ("revert-supersession", "blocked", "ROLLBACK_FAILED"),
     ("revert-supersession", "blocked", "CONCURRENT_MODIFICATION"),
+    ("defer", "deferred", "OK"),
 }
 
 
@@ -52,6 +54,7 @@ class LifecycleLedgerRecord:
     replacement_id: str | None
     snapshot: str | None
     replacement_ref_preexisted: bool
+    deferred_until: str | None = None
 
 
 class LifecycleLedgerRollbackError(OSError):
@@ -81,6 +84,8 @@ def append_lifecycle_record(brain_dir: Path, record: LifecycleLedgerRecord) -> N
         "snapshot": record.snapshot,
         "replacement_ref_preexisted": record.replacement_ref_preexisted,
     }
+    if record.deferred_until is not None:
+        payload_data["deferred_until"] = record.deferred_until
     payload = (
         json.dumps(payload_data, ensure_ascii=True, separators=(",", ":")) + "\n"
     ).encode("utf-8")
@@ -155,7 +160,11 @@ def latest_applied_supersession_record(
             return None
         if not isinstance(data, dict):
             return None
-        if set(data) != _LEDGER_FIELDS or not _valid_record_types(data):
+        if set(data) == _LEDGER_FIELDS:
+            data["deferred_until"] = None
+        elif set(data) != _DEFER_LEDGER_FIELDS:
+            return None
+        if not _valid_record_types(data):
             return None
         try:
             record = LifecycleLedgerRecord(**data)
@@ -243,6 +252,10 @@ def _valid_record_types(data: dict[str, object]) -> bool:
         )
         and (data["replacement_id"] is None or isinstance(data["replacement_id"], str))
         and (data["snapshot"] is None or isinstance(data["snapshot"], str))
+        and (
+            data["deferred_until"] is None
+            or isinstance(data["deferred_until"], str)
+        )
         and type(data["replacement_ref_preexisted"]) is bool
     )
 
@@ -252,7 +265,10 @@ def _valid_record(record: object) -> bool:
         return False
     assert isinstance(record, LifecycleLedgerRecord)
     replacement_id = record.replacement_id
-    if not isinstance(replacement_id, str):
+    if record.action == "defer":
+        if replacement_id is not None:
+            return False
+    elif not isinstance(replacement_id, str):
         return False
     values = (
         record.action,
@@ -260,7 +276,6 @@ def _valid_record(record: object) -> bool:
         record.status,
         record.reason,
         record.obsolete_id,
-        replacement_id,
     )
     if not all(type(value) is str for value in values):
         return False
@@ -272,15 +287,17 @@ def _valid_record(record: object) -> bool:
         or len(record.status) > 24
         or len(record.reason) > 40
         or len(record.obsolete_id) > 240
-        or len(replacement_id) > 240
+    ):
+        return False
+    if replacement_id is not None and (
+        len(replacement_id) > 240 or _has_control(replacement_id)
     ):
         return False
     if (record.action, record.status, record.reason) not in _ALLOWED_RECORD_STATES:
         return False
-    if not (
-        is_valid_memory_item_id(record.obsolete_id)
-        and is_valid_memory_item_id(replacement_id)
-    ):
+    if not is_valid_memory_item_id(record.obsolete_id):
+        return False
+    if replacement_id is not None and not is_valid_memory_item_id(replacement_id):
         return False
     try:
         parsed_timestamp = datetime.fromisoformat(record.timestamp)
@@ -295,6 +312,23 @@ def _valid_record(record: object) -> bool:
             or _GIT_OBJECT_ID.fullmatch(record.snapshot) is None
         ):
             return False
+    if record.action == "defer":
+        if record.snapshot is not None or record.replacement_ref_preexisted:
+            return False
+        if record.deferred_until is None or _has_control(record.deferred_until):
+            return False
+        if len(record.deferred_until) > 64:
+            return False
+        try:
+            deferred_until = datetime.fromisoformat(record.deferred_until)
+        except ValueError:
+            return False
+        if deferred_until.tzinfo is None or deferred_until.utcoffset() != timedelta(0):
+            return False
+        if deferred_until <= parsed_timestamp:
+            return False
+    elif record.deferred_until is not None:
+        return False
     return type(record.replacement_ref_preexisted) is bool
 
 

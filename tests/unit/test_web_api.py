@@ -1939,6 +1939,226 @@ class TestLifecycleGovernanceAPI:
         assert (brain_dir / "items" / "archived" / f"{stale.id}.md").exists()
         assert (brain_dir / "items" / f"{fresh.id}.md").exists()
 
+    def test_lifecycle_apply_mixed_actions_default_to_preview(
+        self,
+        client: TestClient,
+        admin_token: str,
+        brain_dir: Path,
+    ):
+        from agent_brain.memory.store.items_store import ItemsStore
+
+        store = ItemsStore(items_dir=brain_dir / "items")
+        obsolete = MemoryItem(
+            id="mem-20260101-171101-web-lifecycle-obsolete",
+            type=MemoryType.signal,
+            created_at=datetime.now(timezone.utc) - timedelta(days=60),
+            project="agent-memory-hub",
+            title="Obsolete web lifecycle signal",
+            summary="Obsolete web lifecycle signal summary",
+            tags=["runtime"],
+        )
+        replacement = MemoryItem(
+            id="mem-20260701-171102-web-lifecycle-replacement",
+            type=MemoryType.signal,
+            created_at=datetime.now(timezone.utc) - timedelta(days=2),
+            project="agent-memory-hub",
+            title="Replacement web lifecycle signal",
+            summary="Replacement web lifecycle signal summary",
+            tags=["runtime"],
+        )
+        archived = MemoryItem(
+            id="mem-20260101-171103-web-lifecycle-archive",
+            type=MemoryType.handoff,
+            created_at=datetime.now(timezone.utc) - timedelta(days=45),
+            project="agent-memory-hub",
+            title="Archive web lifecycle handoff",
+            summary="Archive web lifecycle handoff summary",
+            tags=["handoff"],
+        )
+        for item in (obsolete, replacement, archived):
+            store.write(item, f"body for {item.id}")
+        before = {
+            item.id: (store.items_dir / f"{item.id}.md").read_bytes()
+            for item in (obsolete, replacement, archived)
+        }
+
+        resp = client.post(
+            "/api/governance/lifecycle-apply",
+            json={
+                "actions": [
+                    {
+                        "action": "supersede",
+                        "item_id": obsolete.id,
+                        "replacement_id": replacement.id,
+                    },
+                    {"action": "archive", "item_id": archived.id},
+                ],
+                "apply": False,
+                "index_repair": True,
+            },
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert data["dry_run"] is True
+        assert [result["action"] for result in data["results"]] == [
+            "supersede",
+            "archive",
+        ]
+        assert [result["status"] for result in data["results"]] == ["ready", "ready"]
+        assert [result["reason"] for result in data["results"]] == ["OK", "OK"]
+        assert all(result["dry_run"] is True for result in data["results"])
+        assert all(
+            result["index_repair_required"] is False for result in data["results"]
+        )
+        for item_id, raw in before.items():
+            assert (store.items_dir / f"{item_id}.md").read_bytes() == raw
+        assert not (brain_dir / "runtime" / "lifecycle-actions.jsonl").exists()
+
+    @pytest.mark.parametrize(
+        ("payload", "message"),
+        [
+            ({}, "actions or item_ids required"),
+            (
+                {"actions": [{"action": "supersede", "item_id": "mem-20260101-171104-web-missing-replacement"}]},
+                "replacement_id required",
+            ),
+            (
+                {"actions": [{"action": "defer", "item_id": "mem-20260101-171105-web-invalid-defer", "defer_days": 366}]},
+                "defer_days must be between 1 and 365",
+            ),
+        ],
+    )
+    def test_lifecycle_apply_validates_action_objects(
+        self,
+        client: TestClient,
+        admin_token: str,
+        payload: dict,
+        message: str,
+    ):
+        resp = client.post(
+            "/api/governance/lifecycle-apply",
+            json=payload,
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+
+        assert resp.status_code == 422
+        assert message in resp.text
+
+    def test_lifecycle_apply_rejects_conflicting_actions(
+        self,
+        client: TestClient,
+        admin_token: str,
+    ):
+        item_id = "mem-20260101-171106-web-lifecycle-conflict"
+        resp = client.post(
+            "/api/governance/lifecycle-apply",
+            json={
+                "actions": [
+                    {"action": "archive", "item_id": item_id},
+                    {"action": "keep-active", "item_id": item_id},
+                ]
+            },
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+
+        assert resp.status_code == 400
+        assert resp.json() == {
+            "detail": {"code": "CONFLICTING_ACTIONS", "item_id": item_id}
+        }
+
+    def test_lifecycle_apply_rejects_replacement_mutated_in_same_batch(
+        self,
+        client: TestClient,
+        admin_token: str,
+    ):
+        old_id = "mem-20260101-171109-web-lifecycle-old"
+        replacement_id = "mem-20260101-171110-web-lifecycle-replacement"
+        resp = client.post(
+            "/api/governance/lifecycle-apply",
+            json={
+                "actions": [
+                    {
+                        "action": "supersede",
+                        "item_id": old_id,
+                        "replacement_id": replacement_id,
+                    },
+                    {"action": "archive", "item_id": replacement_id},
+                ]
+            },
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+
+        assert resp.status_code == 400
+        assert resp.json() == {
+            "detail": {
+                "code": "CONFLICTING_ACTIONS",
+                "item_id": replacement_id,
+            }
+        }
+
+    def test_lifecycle_apply_keep_active_and_defer_apply_explicitly(
+        self,
+        client: TestClient,
+        admin_token: str,
+        brain_dir: Path,
+    ):
+        from agent_brain.memory.store.items_store import ItemsStore
+
+        store = ItemsStore(items_dir=brain_dir / "items")
+        keep = MemoryItem(
+            id="mem-20260101-171107-web-lifecycle-keep",
+            type=MemoryType.signal,
+            created_at=datetime.now(timezone.utc) - timedelta(days=60),
+            title="Keep active lifecycle signal",
+            summary="Keep active lifecycle signal summary",
+            tags=["runtime"],
+        )
+        deferred = MemoryItem(
+            id="mem-20260101-171108-web-lifecycle-defer",
+            type=MemoryType.handoff,
+            created_at=datetime.now(timezone.utc) - timedelta(days=45),
+            title="Deferred lifecycle handoff",
+            summary="Deferred lifecycle handoff summary",
+            tags=["handoff"],
+        )
+        store.write(keep, "keep body")
+        store.write(deferred, "defer body")
+        deferred_before = (store.items_dir / f"{deferred.id}.md").read_bytes()
+
+        resp = client.post(
+            "/api/governance/lifecycle-apply",
+            json={
+                "actions": [
+                    {"action": "keep-active", "item_id": keep.id},
+                    {"action": "defer", "item_id": deferred.id, "defer_days": 7},
+                ],
+                "apply": True,
+                "index_repair": False,
+            },
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert [result["status"] for result in data["results"]] == [
+            "applied",
+            "deferred",
+        ]
+        assert all(result["reason"] == "OK" for result in data["results"])
+        assert all(result["dry_run"] is False for result in data["results"])
+        updated, _ = store.get(keep.id)
+        assert updated.validity.observed_at is not None
+        assert (store.items_dir / f"{deferred.id}.md").read_bytes() == deferred_before
+        ledger = (brain_dir / "runtime" / "lifecycle-actions.jsonl").read_text(
+            encoding="utf-8"
+        )
+        record = json.loads(ledger.splitlines()[-1])
+        assert record["action"] == "defer"
+        assert record["obsolete_id"] == deferred.id
+        assert record["deferred_until"] is not None
+
 
 class TestBatchOps:
     def test_batch_delete(self, client: TestClient, admin_token: str, seed_items):

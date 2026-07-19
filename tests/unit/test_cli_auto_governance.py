@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -476,6 +477,287 @@ def test_govern_apply_lifecycle_apply_archives_only_review_queue_items(
     assert not (tmp_brain_dir / "items" / f"{stale.id}.md").exists()
     assert (tmp_brain_dir / "items" / "archived" / f"{stale.id}.md").exists()
     assert (tmp_brain_dir / "items" / f"{fresh.id}.md").exists()
+
+
+def test_govern_apply_lifecycle_action_flags_default_to_preview(
+    tmp_brain_dir: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("BRAIN_DIR", str(tmp_brain_dir))
+    store = ItemsStore(tmp_brain_dir / "items")
+    obsolete = MemoryItem(
+        id="mem-20260101-171001-cli-lifecycle-obsolete",
+        type=MemoryType.signal,
+        created_at=datetime.now(timezone.utc) - timedelta(days=60),
+        project="agent-memory-hub",
+        title="Obsolete lifecycle signal",
+        summary="Obsolete lifecycle signal summary",
+        tags=["runtime"],
+    )
+    replacement = MemoryItem(
+        id="mem-20260701-171002-cli-lifecycle-replacement",
+        type=MemoryType.signal,
+        created_at=datetime.now(timezone.utc) - timedelta(days=2),
+        project="agent-memory-hub",
+        title="Replacement lifecycle signal",
+        summary="Replacement lifecycle signal summary",
+        tags=["runtime"],
+    )
+    store.write(obsolete, "obsolete body")
+    store.write(replacement, "replacement body")
+    original_obsolete = (store.items_dir / f"{obsolete.id}.md").read_bytes()
+    original_replacement = (store.items_dir / f"{replacement.id}.md").read_bytes()
+
+    commands = [
+        ["--supersede", f"{obsolete.id}:{replacement.id}"],
+        ["--archive", obsolete.id],
+        ["--keep-active", obsolete.id],
+    ]
+    for action_args in commands:
+        result = runner.invoke(
+            app,
+            [
+                "govern",
+                "apply-lifecycle",
+                *action_args,
+                "--format",
+                "json",
+                "--no-index-repair",
+            ],
+        )
+
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.output)
+        assert payload["dry_run"] is True
+        assert payload["results"][0]["status"] == "ready"
+        assert payload["results"][0]["reason"] == "OK"
+        assert payload["results"][0]["dry_run"] is True
+        assert payload["results"][0]["index_repair_required"] is False
+        assert (store.items_dir / f"{obsolete.id}.md").read_bytes() == original_obsolete
+        assert (store.items_dir / f"{replacement.id}.md").read_bytes() == original_replacement
+        assert not (store.items_dir / "archived" / f"{obsolete.id}.md").exists()
+        assert not (tmp_brain_dir / "runtime" / "lifecycle-actions.jsonl").exists()
+
+
+def test_govern_apply_lifecycle_conflicting_actions_exit_two_with_json(
+    tmp_brain_dir: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("BRAIN_DIR", str(tmp_brain_dir))
+    item_id = "mem-20260101-171003-cli-lifecycle-conflict"
+
+    result = runner.invoke(
+        app,
+        [
+            "govern",
+            "apply-lifecycle",
+            "--archive",
+            item_id,
+            "--keep-active",
+            item_id,
+            "--format",
+            "json",
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert json.loads(result.output) == {
+        "error": "CONFLICTING_ACTIONS",
+        "item_id": item_id,
+    }
+
+
+def test_govern_apply_lifecycle_rejects_noncanonical_ids_with_json(
+    tmp_brain_dir: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("BRAIN_DIR", str(tmp_brain_dir))
+
+    result = runner.invoke(
+        app,
+        [
+            "govern",
+            "apply-lifecycle",
+            "--supersede",
+            "../old:mem-20260701-171004-cli-valid-replacement",
+            "--format",
+            "json",
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert json.loads(result.output) == {
+        "error": "INVALID_ITEM_ID",
+        "item_id": "../old",
+    }
+
+
+def test_govern_apply_lifecycle_rejects_format_before_applying(
+    tmp_brain_dir: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("BRAIN_DIR", str(tmp_brain_dir))
+    store = ItemsStore(tmp_brain_dir / "items")
+    item = MemoryItem(
+        id="mem-20260101-171005-cli-lifecycle-invalid-format",
+        type=MemoryType.signal,
+        created_at=datetime.now(timezone.utc) - timedelta(days=60),
+        title="Invalid format must not mutate",
+        summary="Invalid format must not mutate",
+        tags=["runtime"],
+    )
+    store.write(item, "body")
+
+    result = runner.invoke(
+        app,
+        [
+            "govern",
+            "apply-lifecycle",
+            "--archive",
+            item.id,
+            "--apply",
+            "--format",
+            "yaml",
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert (store.items_dir / f"{item.id}.md").exists()
+    assert not (store.items_dir / "archived" / f"{item.id}.md").exists()
+
+
+def test_govern_apply_lifecycle_supersede_and_revert_use_old_new_direction(
+    tmp_brain_dir: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("BRAIN_DIR", str(tmp_brain_dir))
+    store = ItemsStore(tmp_brain_dir / "items")
+    old = MemoryItem(
+        id="mem-20260101-171006-cli-lifecycle-old",
+        type=MemoryType.signal,
+        created_at=datetime.now(timezone.utc) - timedelta(days=60),
+        project="agent-memory-hub",
+        title="Old lifecycle state",
+        summary="Old lifecycle state",
+        tags=["runtime"],
+    )
+    new = MemoryItem(
+        id="mem-20260701-171007-cli-lifecycle-new",
+        type=MemoryType.signal,
+        created_at=datetime.now(timezone.utc) - timedelta(days=2),
+        project="agent-memory-hub",
+        title="New lifecycle state",
+        summary="New lifecycle state",
+        tags=["runtime"],
+    )
+    store.write(old, "old body")
+    store.write(new, "new body")
+
+    applied = runner.invoke(
+        app,
+        [
+            "govern",
+            "apply-lifecycle",
+            "--supersede",
+            f"{old.id}:{new.id}",
+            "--apply",
+            "--format",
+            "json",
+            "--no-index-repair",
+        ],
+    )
+
+    assert applied.exit_code == 0, applied.output
+    applied_payload = json.loads(applied.output)
+    assert applied_payload["results"][0]["status"] == "applied"
+    old_after, _ = store.get(old.id)
+    new_after, _ = store.get(new.id)
+    assert old_after.superseded_by == new.id
+    assert old.id in new_after.refs.mems
+
+    reverted = runner.invoke(
+        app,
+        [
+            "govern",
+            "apply-lifecycle",
+            "--revert-supersession",
+            f"{old.id}:{new.id}",
+            "--apply",
+            "--format",
+            "json",
+            "--no-index-repair",
+        ],
+    )
+
+    assert reverted.exit_code == 0, reverted.output
+    reverted_payload = json.loads(reverted.output)
+    assert reverted_payload["results"][0]["status"] == "reverted"
+    old_after, _ = store.get(old.id)
+    new_after, _ = store.get(new.id)
+    assert old_after.superseded_by is None
+    assert old.id not in new_after.refs.mems
+
+
+def test_govern_apply_lifecycle_archive_rolls_back_when_directory_fsync_fails(
+    tmp_brain_dir: Path,
+    monkeypatch,
+) -> None:
+    from agent_brain.memory.governance import lifecycle_review
+    from agent_brain.memory.store import durable_fs
+    from agent_brain.memory.store.durable_fs import SecureDirectory
+
+    monkeypatch.setenv("BRAIN_DIR", str(tmp_brain_dir))
+    store = ItemsStore(tmp_brain_dir / "items")
+    item = MemoryItem(
+        id="mem-20260101-171008-cli-lifecycle-archive-fsync",
+        type=MemoryType.signal,
+        created_at=datetime.now(timezone.utc) - timedelta(days=60),
+        title="Archive fsync rollback",
+        summary="Archive fsync rollback",
+        tags=["runtime"],
+    )
+    store.write(item, "body")
+    original_rename = os.rename
+    original_fsync = SecureDirectory.fsync
+    state = {"renamed": False, "failed": False}
+
+    def tracking_rename(source, destination, *args, **kwargs):
+        result = original_rename(source, destination, *args, **kwargs)
+        if source == f"{item.id}.md":
+            state["renamed"] = True
+        return result
+
+    def fail_after_archive_rename(directory):
+        if state["renamed"] and not state["failed"]:
+            state["failed"] = True
+            raise OSError("simulated directory fsync failure")
+        return original_fsync(directory)
+
+    monkeypatch.setattr(os, "rename", tracking_rename)
+    monkeypatch.setattr(SecureDirectory, "fsync", fail_after_archive_rename)
+    monkeypatch.setattr(lifecycle_review, "lifecycle_mutation_capability", lambda: True)
+    monkeypatch.setattr(durable_fs, "lifecycle_mutation_capability", lambda: True)
+
+    result = runner.invoke(
+        app,
+        [
+            "govern",
+            "apply-lifecycle",
+            "--archive",
+            item.id,
+            "--apply",
+            "--format",
+            "json",
+            "--no-index-repair",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["results"][0]["status"] == "blocked"
+    assert payload["results"][0]["reason"] == "ARCHIVE_FAILED"
+    assert (store.items_dir / f"{item.id}.md").exists()
+    assert not (store.items_dir / "archived" / f"{item.id}.md").exists()
 
 
 def test_govern_apply_summary_rewrites_dry_run_and_apply_and_rollback(
