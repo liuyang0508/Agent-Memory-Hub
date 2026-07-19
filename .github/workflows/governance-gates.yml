@@ -118,6 +118,9 @@ jobs:
           tests/unit/test_adapter_lifecycle_records.py
           tests/unit/test_adapter_release_controls.py
           tests/unit/test_adapter_governance_report.py
+          tests/unit/test_runtime_authority.py
+          tests/unit/test_hook_config.py
+          tests/unit/test_qoder_config_convergence.py
           tests/system/test_adapter_lifecycle_contract.py
           tests/system/test_adapter_core_isolation.py
           -q

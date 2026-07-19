@@ -63,6 +63,9 @@ def test_adapter_governance_job_is_fail_closed_and_checks_committed_evidence() -
     assert "tests/unit/test_adapter_lifecycle_records.py" in commands
     assert "tests/unit/test_adapter_release_controls.py" in commands
     assert "tests/unit/test_adapter_governance_report.py" in commands
+    assert "tests/unit/test_runtime_authority.py" in commands
+    assert "tests/unit/test_hook_config.py" in commands
+    assert "tests/unit/test_qoder_config_convergence.py" in commands
     assert "tests/system/test_adapter_lifecycle_contract.py" in commands
     assert "tests/system/test_adapter_core_isolation.py" in commands
     assert "./scripts/generate-adapter-governance.py --check" in commands

@@ -70,6 +70,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Qoder/QoderWork adapter repair now removes stale AMH Hook duplicates across
+  temporary and old checkouts without deleting third-party handlers, converges
+  MCP command/PYTHONPATH to the stable managed runtime, and fails closed on
+  malformed runtime shims. Restart the client after repair before collecting
+  fresh context-effectiveness evidence.
 - Adapter context probes now reject stale transcript and timestamped injection
   cohort evidence. Old Qoder/QoderWork traces can no longer make a fresh
   `install-verify --context-probe` transaction pass.

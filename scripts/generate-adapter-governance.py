@@ -41,6 +41,11 @@ IMPLEMENTATION_PATHS = (
     "agent_brain/agent_integrations/lifecycle_records.py",
     "agent_brain/agent_integrations/release_controls.py",
     "agent_brain/agent_integrations/capabilities.py",
+    "agent_brain/agent_integrations/runtime_authority.py",
+    "agent_brain/agent_integrations/hook_config.py",
+    "agent_brain/agent_integrations/qoder.py",
+    "agent_brain/agent_integrations/qoder_work.py",
+    "agent_brain/agent_integrations/qoder_diagnostics.py",
     "agent_brain/product/adapter_onboarding.py",
     "agent_brain/interfaces/cli/commands/adapters.py",
     "web/api/routes/adapters.py",
@@ -155,6 +160,13 @@ def generate_report() -> dict[str, object]:
         "release_control_schema_version": RELEASE_CONTROL_SCHEMA_VERSION,
         "reason_codes": reason_codes,
         "release_stages": ["shadow", "canary", "default", "disabled"],
+        "config_convergence": {
+            "schema_version": "amh-adapter-config-convergence/v1",
+            "adapters": ["qoder", "qoder_work"],
+            "hook_cardinality": 1,
+            "runtime_authority": "managed-memory-shim",
+            "required_check": "adapter-governance",
+        },
         "pilot_batches": pilot_batches,
         "real_machine": real_machine,
         "core_isolation": core_isolation,
@@ -315,6 +327,7 @@ def _json_sha256(value: object) -> str:
 
 
 def render_markdown(report: dict[str, object]) -> str:
+    config_convergence = report["config_convergence"]
     batches = report["pilot_batches"]
     batch_rows = "\n".join(
         f"| {row['batch']} | {', '.join(row['adapters'])} | "
@@ -349,6 +362,10 @@ def render_markdown(report: dict[str, object]) -> str:
 - 发布控制：`{report['release_control_schema_version']}`，顺序为 shadow → canary → default，disabled 为单 adapter kill switch；
 - 隐私扫描：{report['privacy']['status']}，违规字段 {report['privacy']['prohibited_field_count']}；
 - core isolation：CLI、MCP、禁用 hook 空协议均通过。
+
+## Qoder 配置收敛边界
+
+`{config_convergence['schema_version']}` 要求 {', '.join(config_convergence['adapters'])} 的每个受支持事件恰有 {config_convergence['hook_cardinality']} 个 AMH Hook，并通过 `{config_convergence['runtime_authority']}` 选择稳定运行时。该合同由必需检查 `{config_convergence['required_check']}` 执行，证明配置所有权、Hook 基数和稳定运行时选择；真实客户端召回是否生效，仍须新鲜 transcript/context 证据，不能由静态门禁推断。
 
 ## 真机边界证据
 

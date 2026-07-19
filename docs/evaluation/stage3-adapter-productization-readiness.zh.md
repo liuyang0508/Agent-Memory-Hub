@@ -3,7 +3,7 @@
 状态：**PASS**
 证据时间：`2026-07-19T05:45:00+08:00`
 基线提交：`eab685aec5d6bbf8c54004448e6b547e7bcceeff`
-实现摘要：`sha256:f344ed1ca06bcfdfc55302be9e5a6f16acaa07302c828c8a62dd0fb3da779e08`
+实现摘要：`sha256:5cc74394fe767f792d8e4c0146f823926c941d9be4b86ae5a7b5477f82ddc479`
 
 ## 结论
 
@@ -12,6 +12,10 @@
 - 发布控制：`amh-adapter-release-controls/v1`，顺序为 shadow → canary → default，disabled 为单 adapter kill switch；
 - 隐私扫描：pass，违规字段 0；
 - core isolation：CLI、MCP、禁用 hook 空协议均通过。
+
+## Qoder 配置收敛边界
+
+`amh-adapter-config-convergence/v1` 要求 qoder, qoder_work 的每个受支持事件恰有 1 个 AMH Hook，并通过 `managed-memory-shim` 选择稳定运行时。该合同由必需检查 `adapter-governance` 执行，证明配置所有权、Hook 基数和稳定运行时选择；真实客户端召回是否生效，仍须新鲜 transcript/context 证据，不能由静态门禁推断。
 
 ## 真机边界证据
 

@@ -60,6 +60,18 @@ def test_stage3_report_exposes_versioned_contracts_and_provenance() -> None:
     assert real_machine["cli_shim_status"] == "stable-checkout-restored"
 
 
+def test_stage3_report_exposes_qoder_config_convergence_contract() -> None:
+    report = _report()
+
+    assert report["config_convergence"] == {
+        "adapters": ["qoder", "qoder_work"],
+        "hook_cardinality": 1,
+        "required_check": "adapter-governance",
+        "runtime_authority": "managed-memory-shim",
+        "schema_version": "amh-adapter-config-convergence/v1",
+    }
+
+
 def test_stage3_real_machine_evidence_keeps_blockers_truthful() -> None:
     adapters = _report()["real_machine"]["adapters"]
 

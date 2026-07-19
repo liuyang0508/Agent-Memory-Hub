@@ -1,5 +1,15 @@
 {
   "baseline_commit": "eab685aec5d6bbf8c54004448e6b547e7bcceeff",
+  "config_convergence": {
+    "adapters": [
+      "qoder",
+      "qoder_work"
+    ],
+    "hook_cardinality": 1,
+    "required_check": "adapter-governance",
+    "runtime_authority": "managed-memory-shim",
+    "schema_version": "amh-adapter-config-convergence/v1"
+  },
   "core_isolation": {
     "cli_stats": true,
     "disabled_hook_clean_protocol": true,
@@ -12,7 +22,7 @@
   "evaluated_at": "2026-07-19T05:45:00+08:00",
   "failed_gates": [],
   "fixture_sha256": "sha256:20f27498c1b703e53ccedca51a4946c261501c1192c87b382e05bfb31c2661c9",
-  "implementation_sha256": "sha256:f344ed1ca06bcfdfc55302be9e5a6f16acaa07302c828c8a62dd0fb3da779e08",
+  "implementation_sha256": "sha256:5cc74394fe767f792d8e4c0146f823926c941d9be4b86ae5a7b5477f82ddc479",
   "lifecycle_result_schema_version": "amh-adapter-lifecycle-result/v1",
   "manifest_count": 16,
   "manifest_schema_version": "amh-adapter-manifest/v1",
