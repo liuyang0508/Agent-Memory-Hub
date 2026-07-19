@@ -113,6 +113,92 @@ def test_cli_sync_pending_dry_run_outputs_json_without_replay(tmp_brain):
     assert PendingQueue().depth() == 1
 
 
+def test_cli_sync_pending_bare_command_is_always_preview(tmp_brain):
+    import json
+
+    from agent_brain.memory.store.pending import PendingQueue, enqueue_write_record
+
+    enqueue_write_record({"op": "write", "item": {"title": "bare preview", "summary": "s"}})
+
+    result = runner.invoke(app, ["sync-pending", "--format", "json"])
+
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output)["records"][0]["title"] == "bare preview"
+    assert PendingQueue().depth() == 1
+    assert list((tmp_brain / "items").glob("*.md")) == []
+
+
+def test_cli_sync_pending_apply_requires_a_selection(tmp_brain):
+    from agent_brain.memory.store.pending import PendingQueue, enqueue_write_record
+
+    enqueue_write_record({"op": "write", "item": {"title": "selection required"}})
+
+    result = runner.invoke(app, ["sync-pending", "--apply", "--format", "json"])
+
+    assert result.exit_code == 2
+    assert "--record or --safe-only" in result.output
+    assert PendingQueue().depth() == 1
+
+
+def test_cli_sync_pending_apply_repeated_records_outputs_structured_json(tmp_brain):
+    import json
+
+    from agent_brain.memory.store.pending import PendingQueue, enqueue_write_record
+
+    enqueue_write_record(
+        {
+            "op": "write",
+            "record_id": "cli-record-one",
+            "item": {"title": "cli apply one", "summary": "s"},
+        }
+    )
+    enqueue_write_record(
+        {
+            "op": "write",
+            "record_id": "cli-record-two",
+            "item": {"title": "cli apply two", "summary": "s"},
+        }
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "sync-pending",
+            "--apply",
+            "--record",
+            "cli-record-one",
+            "--record",
+            "cli-record-two",
+            "--format",
+            "json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["written"] == 2
+    assert [row["record_id"] for row in payload["results"]] == [
+        "cli-record-one",
+        "cli-record-two",
+    ]
+    assert PendingQueue().depth() == 0
+
+
+def test_cli_sync_pending_dry_run_overrides_apply_and_never_writes(tmp_brain):
+    from agent_brain.memory.store.pending import PendingQueue, enqueue_write_record
+
+    enqueue_write_record({"op": "write", "item": {"title": "dry wins", "summary": "s"}})
+
+    result = runner.invoke(
+        app,
+        ["sync-pending", "--apply", "--safe-only", "--dry-run", "--format", "json"],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert PendingQueue().depth() == 1
+    assert list((tmp_brain / "items").glob("*.md")) == []
+
+
 def test_cli_search_explain_prints_retrieval_trace(tmp_brain):
     store = ItemsStore(tmp_brain / "items")
     embedder = HashingEmbedder()

@@ -27,7 +27,11 @@ def review_status(
     recommended_next = (
         "review list --format json"
         if review.total
-        else ("sync-pending --dry-run --format json" if queue.depth() or pending_dead else "none")
+        else (
+            "memory sync-pending --format json"
+            if queue.depth() or pending_dead
+            else "none"
+        )
     )
     data = {
         "review_total": review.total,

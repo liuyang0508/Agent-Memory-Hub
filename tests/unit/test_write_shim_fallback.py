@@ -396,7 +396,7 @@ def test_shim_pending_record_replays_into_pool(tmp_brain):
 
     from agent_brain.memory.store.pending import PendingQueue
 
-    stats = PendingQueue().replay()
+    stats = PendingQueue().apply(safe_only=True)
     assert stats.written == 1
     assert PendingQueue().depth() == 0
 

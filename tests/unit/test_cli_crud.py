@@ -655,6 +655,18 @@ class TestReviewCLI:
         assert data["pending_dead"] == 0
         assert data["recommended_next"] == "review list --format json"
 
+    def test_review_status_pending_next_action_is_preview_only(self, tmp_brain_dir, monkeypatch):
+        monkeypatch.setenv("BRAIN_DIR", str(tmp_brain_dir))
+        from agent_brain.memory.store.pending import enqueue_write_record
+
+        enqueue_write_record({"op": "write", "item": {"title": "pending only"}})
+
+        result = runner.invoke(app, ["review", "status", "--format", "json"])
+
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+        assert data["recommended_next"] == "memory sync-pending --format json"
+
     def test_review_list_outputs_only_active_review_candidates(self, tmp_brain_dir, monkeypatch):
         monkeypatch.setenv("BRAIN_DIR", str(tmp_brain_dir))
         store = ItemsStore(tmp_brain_dir / "items")

@@ -60,6 +60,34 @@ def _atomic_write_text(path: Path, text: str) -> None:
     _atomic_write_bytes(path, text.encode("utf-8"))
 
 
+def _atomic_create_bytes_fallback(path: Path, data: bytes) -> None:
+    """Publish new bytes without following or replacing an existing target."""
+
+    descriptor, temp_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    temp_path = Path(temp_name)
+    try:
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(data)
+            handle.flush()
+            os.fsync(handle.fileno())
+        try:
+            os.link(temp_path, path, follow_symlinks=False)
+        except (TypeError, NotImplementedError):
+            os.link(temp_path, path)
+        directory = os.open(
+            path.parent,
+            os.O_RDONLY
+            | getattr(os, "O_CLOEXEC", 0)
+            | getattr(os, "O_DIRECTORY", 0),
+        )
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+    finally:
+        temp_path.unlink(missing_ok=True)
+
+
 def _read_descriptor_bytes(descriptor: int) -> bytes:
     chunks: list[bytes] = []
     while True:
@@ -330,12 +358,12 @@ class ItemsStore:
     def write(self, item: MemoryItem, body: str) -> Path:
         """Write item + body to a md file. Returns the file path."""
         out_path = self.items_dir / f"{item.id}.md"
-        if out_path.exists():
-            raise FileExistsError(
-                f"Item {item.id} already exists at {out_path}. "
-                "Append-only: write a new item with new id."
-            )
-        out_path.write_text(render_item_markdown(item, body), encoding="utf-8")
+        data = render_item_markdown(item, body).encode("utf-8")
+        if lifecycle_mutation_capability():
+            with self.locked_items([item.id]) as locked:
+                locked.create(item.id, data)
+        else:
+            _atomic_create_bytes_fallback(out_path, data)
         return out_path
 
     def update_frontmatter(self, item_id: str, **updates: object) -> MemoryItem:
@@ -582,6 +610,22 @@ class LockedItemsView:
         data = self.read_bytes(item_id)
         text = data.decode("utf-8-sig").replace("\r\n", "\n").replace("\r", "\n")
         return parse_item_markdown(text)
+
+    def create(self, item_id: str, data: bytes) -> None:
+        """Durably create one locked item without following unsafe targets."""
+
+        self._require_locked(item_id)
+        try:
+            target = self._directory.stat(f"{item_id}.md")
+        except FileNotFoundError:
+            target = None
+        if target is not None:
+            raise FileExistsError(f"Item {item_id} already exists")
+        self._directory.atomic_write(
+            f"{item_id}.md",
+            data,
+            create_missing=True,
+        )
 
     def update_frontmatter(self, item_id: str, **updates: object) -> MemoryItem:
         prepared = self.prepare_update_frontmatter(item_id, **updates)

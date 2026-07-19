@@ -332,6 +332,24 @@ def test_doctor_offline_renders_four_routed_recall_status_rows(
     assert "lexical raw fallback" in output
 
 
+def test_doctor_pending_next_action_is_preview_only(tmp_brain, monkeypatch):
+    from typer.testing import CliRunner
+
+    from agent_brain.interfaces.cli import app
+    from agent_brain.memory.store.pending import enqueue_write_record
+
+    _create_ready_index(tmp_brain)
+    enqueue_write_record({"op": "write", "item": {"title": "doctor pending"}})
+    monkeypatch.setenv("COLUMNS", "240")
+
+    result = CliRunner().invoke(app, ["doctor", "--offline"])
+
+    assert result.exit_code in {0, 1}, result.output
+    output = " ".join(result.stdout.split())
+    assert "memory sync-pending --format json" in output
+    assert "--apply" not in output
+
+
 def test_doctor_gateway_probe_fails_closed_on_real_import_exception(
     tmp_brain,
     monkeypatch,

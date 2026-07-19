@@ -64,7 +64,7 @@ def doctor_offline(
         rows.append((
             "pending writes (durable buffer)",
             f"{pending_depth} buffered, {pending_dead} dead",
-            "degraded -> run: memory sync-pending",
+            "degraded -> preview: memory sync-pending --format json",
         ))
     else:
         rows.append(("pending writes (durable buffer)", "none buffered", "available"))

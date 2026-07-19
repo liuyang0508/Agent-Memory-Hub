@@ -5,25 +5,27 @@ What it does:
     ``$BRAIN_DIR/pending/`` (default ``~/.agent-memory-hub/pending/``). When the
     Python write path can't run — no interpreter on PATH for the hook shim, a
     locked sqlite, an embedder that won't import — the writer drops the intended
-    write here instead of losing it. ``PendingQueue.replay()`` later re-drives
-    every buffered record through the one true ``WriteService`` funnel and
-    deletes it on success, so the markdown pool eventually converges.
+    write here instead of losing it. ``PendingQueue.preview()`` classifies the
+    backlog without writes; an explicit ``PendingQueue.apply(record_ids=...)``
+    or ``apply(safe_only=True)`` later re-drives selected safe records through
+    the one true ``WriteService`` funnel.
 
 How to use it::
 
     from agent_brain.memory.store.pending import enqueue_write_record, PendingQueue
 
     enqueue_write_record({"op": "write", "item": {"title": ..., "summary": ...}})
-    stats = PendingQueue().replay()   # -> ReplayStats(written, failed, dead)
+    preview = PendingQueue().preview()
+    stats = PendingQueue().apply(record_ids=[preview.records[0].record_id])
     PendingQueue().depth()            # how many records are still buffered
 
-Replay is safe to run repeatedly (idempotent at the queue level): a record that
-writes successfully is unlinked; one that fails has its ``attempt`` counter
-bumped and is parked under ``pending/dead/`` after ``MAX_ATTEMPTS`` so a single
-poison record never blocks the rest of the queue forever.
+Apply is exactly-once at the item boundary: stable item identity plus the source
+payload hash recover a write that completed before queue unlink. Review-required
+records remain queued; no-argument ``replay()`` is a compatibility no-op rather
+than an implicit bulk mutation.
 
 Depends on: ``WriteService`` (the shared write funnel), ``MemoryItem`` + its
-enums (record → item mapping), ``make_item_id`` (fresh id at replay time). The
+enums (record → item mapping), and ``ItemsStore`` locks. The
 ``brain_dir`` / ``pending_dir`` / ``dirty_index_path`` helpers here are the
 single source of truth for those locations and are reused by the watermark store
 and the offline doctor.
@@ -39,6 +41,7 @@ import os
 import re
 import secrets
 import stat
+import threading
 import uuid
 from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
@@ -53,6 +56,8 @@ from pydantic import ValidationError
 from agent_brain.contracts.memory_enums import MemoryType
 from agent_brain.contracts.memory_item import MemoryItem, Refs, Source, Validity
 from agent_brain.memory.store.item_markdown import parse_item_markdown
+from agent_brain.memory.store.items_store import ItemsStore
+from agent_brain.memory.store.durable_fs import SecureDirectory
 from agent_brain.platform.secure_io import (
     close_descriptor,
     open_child_directory,
@@ -88,10 +93,6 @@ def dirty_index_path() -> Path:
     return brain_dir() / ".index-dirty"
 
 
-# After this many failed replays a record is parked under pending/dead/ so one
-# poison record (e.g. content that always trips the audit gate) cannot wedge the
-# whole queue. It stays on disk for inspection rather than being deleted.
-MAX_ATTEMPTS = 5
 MAX_PENDING_RECORD_BYTES = 1024 * 1024
 MAX_PENDING_QUEUE_ENTRIES = 20_000
 MAX_ITEM_FRONTMATTER_BYTES = 64 * 1024
@@ -173,6 +174,8 @@ _PENDING_ACCESS_FAILURE_REASONS = frozenset(
         "PENDING_RECORD_TOO_LARGE",
     }
 )
+_PENDING_RECORD_LOCKS_GUARD = threading.Lock()
+_PENDING_RECORD_LOCKS: dict[str, threading.RLock] = {}
 
 
 def _is_reparse_point(opened: object) -> bool:
@@ -607,13 +610,74 @@ def enqueue_write_record(record: dict[str, object]) -> Path:
     return _publish_pending_record(brain, filename, data)
 
 
+PendingApplyStatus = Literal[
+    "written",
+    "already_written",
+    "review_required",
+    "skipped",
+    "failed",
+]
+
+
+@dataclass(frozen=True)
+class PendingApplyResult:
+    """Low-sensitivity outcome for one explicit pending apply decision."""
+
+    record_id: str
+    classification: PendingClassification | None
+    status: PendingApplyStatus
+    reason: str
+    item_id: str | None = None
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "record_id": self.record_id,
+            "classification": self.classification,
+            "status": self.status,
+            "reason": self.reason,
+            "item_id": self.item_id,
+        }
+
+
 @dataclass
-class ReplayStats:
-    """Outcome of a replay sweep: records drained, retried, and parked as dead."""
+class PendingApplyStats:
+    """Aggregate and per-record outcomes for an explicit apply request."""
 
     written: int = 0
+    already_written: int = 0
+    review_required: int = 0
+    skipped: int = 0
     failed: int = 0
     dead: int = 0
+    results: list[PendingApplyResult] = dataclass_field(default_factory=list)
+
+    def add(self, result: PendingApplyResult) -> None:
+        self.results.append(result)
+        if result.status == "written":
+            self.written += 1
+        elif result.status == "already_written":
+            self.already_written += 1
+        elif result.status == "review_required":
+            self.review_required += 1
+        elif result.status == "skipped":
+            self.skipped += 1
+        elif result.status == "failed":
+            self.failed += 1
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "written": self.written,
+            "already_written": self.already_written,
+            "review_required": self.review_required,
+            "skipped": self.skipped,
+            "failed": self.failed,
+            "dead": self.dead,
+            "results": [result.to_dict() for result in self.results],
+        }
+
+
+# Import compatibility for integrations that named the old aggregate type.
+ReplayStats = PendingApplyStats
 
 
 @dataclass(frozen=True)
@@ -642,6 +706,7 @@ class PendingRecordPreview:
     malformed: bool = False
     error: str | None = None
     _stable_item_id: str | None = dataclass_field(default=None, repr=False, compare=False)
+    _record_sha256: str | None = dataclass_field(default=None, repr=False, compare=False)
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -813,83 +878,203 @@ class PendingQueue:
             reason=preview_reason,
         )
 
-    def replay(self) -> ReplayStats:
-        """Re-drive every buffered record through the write funnel.
+    def replay(
+        self,
+        *,
+        record_ids: Iterable[str] | None = None,
+        safe_only: bool = False,
+    ) -> PendingApplyStats:
+        """Compatibility wrapper for explicit apply; no arguments never mutate."""
 
-        Records are processed oldest-first (filenames sort by timestamp). A
-        record that writes successfully is unlinked; one that fails to build or
-        write is bumped/parked via :meth:`_bump_or_kill`. Returns aggregate
-        counts. Building the ``WriteService`` once amortizes the index/embedder
-        setup across the whole sweep.
-        """
-        from agent_brain.contracts.memory_enums import MemoryType, Sensitivity
-        from agent_brain.contracts.memory_item import MemoryItem, Refs, Source, Validity
-        from agent_brain.memory.store.items_store import make_item_id
-        from agent_brain.memory.store.write_service import WriteService
+        return self.apply(record_ids=record_ids, safe_only=safe_only)
 
-        stats = ReplayStats()
-        d = pending_dir()
-        if not d.exists():
+    def apply(
+        self,
+        *,
+        record_ids: Iterable[str] | None = None,
+        safe_only: bool = False,
+    ) -> PendingApplyStats:
+        """Apply explicitly selected records after a complete trusted preview."""
+
+        requested = list(record_ids or [])
+        stats = PendingApplyStats()
+        if not requested and not safe_only:
             return stats
-        svc = WriteService.for_brain()
-        for path in sorted(d.glob("*.jsonl")):
-            try:
-                rec = json.loads(path.read_text(encoding="utf-8").strip().splitlines()[0])
-                f = rec["item"]
-                now = datetime.now(timezone.utc).astimezone()
-                item = MemoryItem(
-                    id=make_item_id(f["title"], when=now),
-                    type=MemoryType(f.get("type", "fact")),
-                    created_at=now,
-                    title=f["title"],
-                    summary=f.get("summary", ""),
-                    tags=f.get("tags", []),
-                    confidence=f.get("confidence", 0.7),
-                    sensitivity=Sensitivity(f.get("sensitivity", "internal")),
-                    refs=Refs.model_validate(f.get("refs") or {}),
-                    project=f.get("project") or None,
-                    tenant_id=f.get("tenant_id") or None,
-                    agent=f.get("agent") or None,
-                    session=f.get("session") or None,
-                    validity=Validity.model_validate(f.get("validity") or {}),
-                    source=Source(kind="pending-replay"),
+
+        preview = self.preview(limit=MAX_PENDING_QUEUE_ENTRIES + 1)
+        scan_reason = preview.reason
+        if preview.truncated and preview.total > MAX_PENDING_QUEUE_ENTRIES:
+            scan_reason = "PENDING_QUEUE_TRUNCATED"
+        if preview.scan_unavailable or scan_reason == "PENDING_QUEUE_TRUNCATED":
+            identifiers = requested or ["*"]
+            seen: set[str] = set()
+            for record_id in identifiers:
+                if record_id in seen:
+                    stats.add(_duplicate_selection_result(record_id))
+                    continue
+                seen.add(record_id)
+                stats.add(
+                    PendingApplyResult(
+                        record_id=record_id,
+                        classification="audit_blocked",
+                        status="failed",
+                        reason=scan_reason or "PENDING_SCAN_UNAVAILABLE",
+                    )
                 )
-                res = svc.write(
-                    item=item, body=f.get("body", ""), allow_unsafe=f.get("allow_unsafe", False)
-                )
-                if res.status == "written":
-                    path.unlink()
-                    stats.written += 1
-                else:
-                    # Audit-blocked: not a transient failure, so bump/park it
-                    # rather than retrying identically forever.
-                    self._bump_or_kill(path, stats)
-            except Exception:
-                # Malformed record or a genuine write failure (locked store,
-                # disk full). Markdown is the source of truth, so we never crash
-                # the sweep on one bad record — bump it and move on.
-                self._bump_or_kill(path, stats)
+            return stats
+
+        by_id: dict[str, list[PendingRecordPreview]] = {}
+        for record in preview.records:
+            by_id.setdefault(record.record_id, []).append(record)
+
+        selected: list[PendingRecordPreview | PendingApplyResult] = []
+        if requested:
+            seen = set()
+            for record_id in requested:
+                if record_id in seen:
+                    selected.append(_duplicate_selection_result(record_id))
+                    continue
+                seen.add(record_id)
+                matches = by_id.get(record_id, [])
+                if not matches:
+                    selected.append(
+                        PendingApplyResult(
+                            record_id=record_id,
+                            classification=None,
+                            status="skipped",
+                            reason="RECORD_ID_NOT_FOUND",
+                        )
+                    )
+                    continue
+                if len(matches) != 1:
+                    selected.append(
+                        PendingApplyResult(
+                            record_id=record_id,
+                            classification="conflict",
+                            status="review_required",
+                            reason="PENDING_RECORD_ID_CONFLICT",
+                        )
+                    )
+                    continue
+                selected.append(matches[0])
+        else:
+            selected = [record for record in preview.records if record.classification == "ready"]
+
+        service = None
+        try:
+            for apply_candidate in selected:
+                if isinstance(apply_candidate, PendingApplyResult):
+                    stats.add(apply_candidate)
+                    continue
+                if safe_only and apply_candidate.classification != "ready":
+                    continue
+                if apply_candidate.classification not in {"ready", "already_written"}:
+                    stats.add(_review_required_result(apply_candidate))
+                    continue
+                if service is None:
+                    from agent_brain.memory.store.write_service import WriteService
+
+                    try:
+                        service = WriteService.for_brain(brain_dir())
+                    except Exception:
+                        stats.add(
+                            _failed_apply_result(
+                                apply_candidate,
+                                "PENDING_WRITE_SERVICE_UNAVAILABLE",
+                            )
+                        )
+                        continue
+                stats.add(self._apply_record(apply_candidate, service=service))
+        finally:
+            if service is not None:
+                service.close()
         return stats
 
-    def _bump_or_kill(self, path: Path, stats: ReplayStats) -> None:
-        """Increment a record's attempt count, parking it under dead/ at the cap.
-
-        A record whose own bytes can no longer be parsed is treated as already
-        at the cap so it is parked immediately rather than retried forever.
-        """
+    def _apply_record(self, record: PendingRecordPreview, *, service: object) -> PendingApplyResult:
+        path = Path(record.path)
+        expected_hash = record._record_sha256
+        item_id = record._stable_item_id
+        if expected_hash is None or item_id is None:
+            return _review_required_result(record)
         try:
-            rec = json.loads(path.read_text(encoding="utf-8").strip().splitlines()[0])
+            with _locked_pending_record(path):
+                try:
+                    raw = _read_pending_record(path)
+                except _PendingReadError:
+                    return _failed_apply_result(record, "PENDING_RECORD_READ_FAILED")
+                except FileNotFoundError:
+                    raw = None
+                if raw is not None and hashlib.sha256(raw).hexdigest() != expected_hash:
+                    return _failed_apply_result(record, "PENDING_RECORD_CHANGED")
+
+                write_input = (
+                    _pending_write_input(path, raw, record) if raw is not None else None
+                )
+                pending_item = write_input[0] if write_input is not None else None
+                if raw is not None and (pending_item is None or write_input is None):
+                    return _failed_apply_result(record, "PENDING_RECORD_CHANGED")
+
+                store = ItemsStore(brain_dir() / "items")
+                with store.locked_items([item_id]) as locked:
+                    try:
+                        existing, _body = locked.get(item_id)
+                    except FileNotFoundError:
+                        existing = None
+                    if existing is not None:
+                        if (
+                            (pending_item is None or _same_scope(existing, pending_item))
+                            and existing.source.span_hash == record.payload_sha256
+                        ):
+                            if raw is not None:
+                                try:
+                                    _unlink_pending_record(path, expected_hash)
+                                except OSError:
+                                    return _failed_apply_result(
+                                        record, "PENDING_UNLINK_FAILED", item_id=item_id
+                                    )
+                            return PendingApplyResult(
+                                record_id=record.record_id,
+                                classification="already_written",
+                                status="already_written",
+                                reason="STABLE_ITEM_ALREADY_WRITTEN",
+                                item_id=_result_item_id(record, item_id),
+                            )
+                        return PendingApplyResult(
+                            record_id=record.record_id,
+                            classification="conflict",
+                            status="review_required",
+                            reason="STABLE_ITEM_PAYLOAD_CONFLICT",
+                            item_id=_result_item_id(record, item_id),
+                        )
+                    if raw is None:
+                        return _failed_apply_result(record, "PENDING_RECORD_DISAPPEARED")
+                    assert write_input is not None and pending_item is not None
+                    item, body, allow_unsafe = write_input
+                    write = getattr(service, "write")
+                    result = write(item=item, body=body, allow_unsafe=allow_unsafe)
+                    if result.status != "written":
+                        return PendingApplyResult(
+                            record_id=record.record_id,
+                            classification="audit_blocked",
+                            status="review_required",
+                            reason="AUDIT_BLOCKED",
+                            item_id=_result_item_id(record, item_id),
+                        )
+                    try:
+                        _unlink_pending_record(path, expected_hash)
+                    except OSError:
+                        return _failed_apply_result(
+                            record, "PENDING_UNLINK_FAILED", item_id=item_id
+                        )
+                    return PendingApplyResult(
+                        record_id=record.record_id,
+                        classification="ready",
+                        status="written",
+                        reason="WRITTEN",
+                        item_id=_result_item_id(record, item_id),
+                    )
         except Exception:
-            rec = {"attempt": MAX_ATTEMPTS}
-        rec["attempt"] = rec.get("attempt", 0) + 1
-        if rec["attempt"] >= MAX_ATTEMPTS:
-            dead = pending_dir() / "dead"
-            dead.mkdir(parents=True, exist_ok=True)
-            path.rename(dead / path.name)
-            stats.dead += 1
-        else:
-            path.write_text(json.dumps(rec, ensure_ascii=False) + "\n", encoding="utf-8")
-            stats.failed += 1
+            return _failed_apply_result(record, "PENDING_APPLY_FAILED", item_id=item_id)
 
     def _preview_record(
         self,
@@ -908,13 +1093,14 @@ class PendingQueue:
             item = rec.get("item")
             if not isinstance(item, dict):
                 return _malformed_preview(path, "INVALID_ITEM_PAYLOAD", raw=raw)
-            return _classify_pending_record(
+            preview = _classify_pending_record(
                 path=path,
                 record=rec,
                 item=item,
                 existing_items=existing_items,
                 metadata_trusted=metadata_trusted,
             )
+            return replace(preview, _record_sha256=hashlib.sha256(raw).hexdigest())
         except json.JSONDecodeError:
             return _malformed_preview(path, "MALFORMED_JSON", raw=raw)
         except UnicodeError:
@@ -927,6 +1113,153 @@ class PendingQueue:
             # One unexpected record never breaks the queue. Do not reflect raw
             # exception text because it can contain sensitive payload details.
             return _malformed_preview(path, "PENDING_RECORD_READ_FAILED", raw=raw)
+
+
+def _duplicate_selection_result(record_id: str) -> PendingApplyResult:
+    return PendingApplyResult(
+        record_id=record_id,
+        classification=None,
+        status="skipped",
+        reason="DUPLICATE_RECORD_ID_SELECTION",
+    )
+
+
+def _review_required_result(record: PendingRecordPreview) -> PendingApplyResult:
+    return PendingApplyResult(
+        record_id=record.record_id,
+        classification=record.classification,
+        status="review_required",
+        reason=record.reason,
+        item_id=_result_item_id(record, record._stable_item_id),
+    )
+
+
+def _failed_apply_result(
+    record: PendingRecordPreview,
+    reason: str,
+    *,
+    item_id: str | None = None,
+) -> PendingApplyResult:
+    return PendingApplyResult(
+        record_id=record.record_id,
+        classification=record.classification,
+        status="failed",
+        reason=reason,
+        item_id=_result_item_id(record, item_id or record._stable_item_id),
+    )
+
+
+def _result_item_id(record: PendingRecordPreview, item_id: str | None) -> str | None:
+    return item_id if record.sensitivity in {"public", "internal"} else None
+
+
+@contextmanager
+def _locked_pending_record(path: Path) -> Iterator[None]:
+    """Coordinate one pending record across threads and cooperating processes."""
+
+    key = str(path.resolve(strict=False))
+    with _PENDING_RECORD_LOCKS_GUARD:
+        process_lock = _PENDING_RECORD_LOCKS.setdefault(key, threading.RLock())
+    process_lock.acquire()
+    descriptor = -1
+    try:
+        with SecureDirectory.open(path.parent) as directory:
+            with directory.child(".amh-record-locks", create=True) as locks:
+                lock_name = hashlib.sha256(path.name.encode("utf-8")).hexdigest()[:32] + ".lock"
+                descriptor, created = locks.open_or_create_file(lock_name, os.O_RDWR)
+                os.fchmod(descriptor, 0o600)
+                if created:
+                    locks.fsync()
+                import fcntl
+
+                fcntl.flock(descriptor, fcntl.LOCK_EX)
+                yield
+    finally:
+        if descriptor >= 0:
+            try:
+                import fcntl
+
+                fcntl.flock(descriptor, fcntl.LOCK_UN)
+            finally:
+                os.close(descriptor)
+        process_lock.release()
+
+
+def _unlink_pending_record(path: Path, expected_sha256: str) -> None:
+    """Unlink only the exact no-follow record verified by content and identity."""
+
+    with SecureDirectory.open(path.parent) as directory:
+        descriptor, _created = directory.open_file(
+            path.name, os.O_RDONLY | os.O_NONBLOCK
+        )
+        try:
+            opened = os.fstat(descriptor)
+            raw = _read_bounded_descriptor(descriptor, MAX_PENDING_RECORD_BYTES)
+            current = directory.stat(path.name)
+            if not _same_file_identity(opened, current):
+                raise OSError("PENDING_RECORD_CHANGED")
+            if hashlib.sha256(raw).hexdigest() != expected_sha256:
+                raise OSError("PENDING_RECORD_CHANGED")
+        finally:
+            os.close(descriptor)
+        directory.unlink(path.name)
+        directory.fsync()
+
+
+def _pending_write_input(
+    path: Path,
+    raw: bytes,
+    preview: PendingRecordPreview,
+) -> tuple[MemoryItem, str, bool] | None:
+    """Rebuild the exact previewed item without trusting mutable wall-clock state."""
+
+    try:
+        line = raw.decode("utf-8").strip().splitlines()[0]
+        record = json.loads(line, parse_constant=_reject_json_constant)
+        if not isinstance(record, dict):
+            return None
+        item = record.get("item")
+        if not isinstance(item, dict):
+            return None
+        version = _record_version(record.get("v"))
+        if version is None or record.get("op") != "write":
+            return None
+        payload_sha256 = _canonical_payload_sha256(item)
+        if payload_sha256 != preview.payload_sha256:
+            return None
+        if version == 2:
+            if record.get("record_id") != preview.record_id:
+                return None
+            declared_hash = record.get("payload_sha256")
+            if not isinstance(declared_hash, str) or declared_hash.lower() != payload_sha256:
+                return None
+        elif _legacy_record_id(path, record) != preview.record_id:
+            return None
+        if preview.original_created_at is None or preview._stable_item_id is None:
+            return None
+        original_created_at, reason = _parse_pending_time(
+            preview.original_created_at,
+            field="ORIGINAL_CREATED_AT",
+        )
+        if reason or original_created_at is None:
+            return None
+        validated, validation_reason = _validate_pending_item(
+            item=item,
+            version=version,
+            stable_item_id=preview._stable_item_id,
+            original_created_at=original_created_at,
+            payload_sha256=payload_sha256,
+        )
+        if validated is None or validation_reason is not None:
+            return None
+        body = item.get("body", "")
+        if not isinstance(body, str):
+            return None
+        # The apply boundary always re-runs the audit. A queued allow_unsafe bit
+        # cannot silently bypass a governance apply decision.
+        return validated, body, False
+    except (IndexError, UnicodeError, ValueError, TypeError, OverflowError):
+        return None
 
 
 def _classify_pending_record(
@@ -1555,6 +1888,8 @@ def _read_pending_record(path: Path) -> bytes:
             directory_descriptor = open_directory_path_without_symlinks(path.parent)
             descriptor = open_regular_file_at(directory_descriptor, path.name)
             return _read_bounded_descriptor(descriptor, MAX_PENDING_RECORD_BYTES)
+        except FileNotFoundError:
+            raise
         except OSError as exc:
             raise _PendingReadError("PENDING_RECORD_READ_FAILED") from exc
         finally:
@@ -1582,6 +1917,8 @@ def _read_pending_record(path: Path) -> bytes:
             return _read_bounded_descriptor(descriptor, MAX_PENDING_RECORD_BYTES)
         finally:
             close_descriptor(descriptor)
+    except FileNotFoundError:
+        raise
     except _PendingReadError:
         raise
     except OSError as exc:

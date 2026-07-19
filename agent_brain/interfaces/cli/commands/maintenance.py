@@ -69,26 +69,41 @@ def verify(
 
 @app.command("sync-pending")
 def sync_pending(
+    apply: bool = typer.Option(
+        False,
+        "--apply",
+        help="Apply explicitly selected safe records.",
+    ),
+    record_ids: list[str] = typer.Option(
+        [],
+        "--record",
+        help="Pending record id to apply; repeatable.",
+    ),
+    safe_only: bool = typer.Option(
+        False,
+        "--safe-only",
+        help="Apply all records classified ready.",
+    ),
     dry_run: bool = typer.Option(
         False,
         "--dry-run",
-        help="Preview queued records without replaying them.",
+        help="Compatibility alias for preview; always disables apply.",
     ),
-    limit: int = typer.Option(20, "--limit", help="Maximum records to show in dry-run mode."),
+    limit: int = typer.Option(20, "--limit", help="Maximum records to show in preview mode."),
     format: str = typer.Option("text", "--format", help="Output format: text or json."),
 ) -> None:
-    """Replay buffered writes from the pending queue into the brain pool."""
+    """Preview pending writes by default; apply only an explicit selection."""
     from agent_brain.memory.store.pending import PendingQueue
 
+    if format not in {"text", "json"}:
+        typer.echo("format must be text or json", err=True)
+        raise typer.Exit(2)
     queue = PendingQueue()
-    if dry_run:
+    if not apply or dry_run:
         preview = queue.preview(limit=limit)
         if format == "json":
             typer.echo(json.dumps(preview.to_dict(), ensure_ascii=False, indent=2))
             return
-        if format != "text":
-            typer.echo("format must be text or json", err=True)
-            raise typer.Exit(2)
         typer.echo(
             f"pending={preview.total} returned={preview.returned} "
             f"truncated={str(preview.truncated).lower()}"
@@ -101,21 +116,27 @@ def sync_pending(
                 f"  {record.path}: {record.type or 'unknown'} "
                 f"{record.title or '(untitled)'} attempt={record.attempt}"
             )
-        typer.echo("(dry run — no pending records replayed)")
+        typer.echo("(preview — no pending records applied)")
         return
 
-    stats = queue.replay()
-    if format == "json":
-        typer.echo(json.dumps({
-            "written": stats.written,
-            "failed": stats.failed,
-            "dead": stats.dead,
-        }, ensure_ascii=False, indent=2))
-        return
-    if format != "text":
-        typer.echo("format must be text or json", err=True)
+    if not record_ids and not safe_only:
+        typer.echo("--apply requires --record or --safe-only", err=True)
         raise typer.Exit(2)
-    typer.echo(f"written={stats.written} failed={stats.failed} dead={stats.dead}")
+
+    stats = queue.apply(record_ids=record_ids or None, safe_only=safe_only)
+    if format == "json":
+        typer.echo(json.dumps(stats.to_dict(), ensure_ascii=False, indent=2))
+        return
+    typer.echo(
+        f"written={stats.written} already_written={stats.already_written} "
+        f"review_required={stats.review_required} skipped={stats.skipped} "
+        f"failed={stats.failed} dead={stats.dead}"
+    )
+    for result in stats.results:
+        typer.echo(
+            f"  {result.record_id}: status={result.status} "
+            f"classification={result.classification or 'unknown'} reason={result.reason}"
+        )
 
 
 @app.command("harvest")

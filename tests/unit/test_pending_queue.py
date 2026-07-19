@@ -22,6 +22,7 @@ from agent_brain.memory.store.pending import (
     PendingQueue,
     enqueue_write_record,
 )
+from agent_brain.platform.embedding import HashingEmbedder
 
 
 NOW = datetime(2026, 7, 20, 12, 0, tzinfo=timezone.utc)
@@ -190,7 +191,7 @@ def _write_existing_item(
         path.write_bytes(frontmatter + b"\xff\xfe\xfd")
 
 
-def test_enqueue_then_replay_writes_item(tmp_brain: Path) -> None:
+def test_enqueue_then_explicit_safe_replay_writes_item(tmp_brain: Path) -> None:
     rec = {
         "v": 1,
         "op": "write",
@@ -209,7 +210,7 @@ def test_enqueue_then_replay_writes_item(tmp_brain: Path) -> None:
     path = enqueue_write_record(rec)
     assert path.exists()
     q = PendingQueue()
-    stats = q.replay()
+    stats = q.replay(safe_only=True)
     assert stats.written == 1
     assert not path.exists()
     assert q.depth() == 0
@@ -217,6 +218,335 @@ def test_enqueue_then_replay_writes_item(tmp_brain: Path) -> None:
 
 def test_replay_is_idempotent_on_empty(tmp_brain: Path) -> None:
     assert PendingQueue().replay().written == 0
+
+
+def test_replay_without_an_explicit_selection_never_writes(tmp_brain: Path) -> None:
+    path = enqueue_write_record(_v2_record())
+
+    stats = PendingQueue().replay()
+
+    assert stats.written == 0
+    assert path.exists()
+    assert list((tmp_brain / "items").glob("*.md")) == []
+
+
+def test_apply_preserves_original_created_at_and_pending_source(
+    tmp_brain: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _freeze_now(monkeypatch)
+    record = _v2_record()
+    path = enqueue_write_record(record)
+
+    result = PendingQueue().apply(safe_only=True)
+
+    assert result.written == 1
+    assert not path.exists()
+    item, _body = next(ItemsStore(tmp_brain / "items").iter_all())
+    assert item.id == _stable_item_id(record)
+    assert item.created_at.isoformat() == "2026-07-01T10:00:00+00:00"
+    assert item.source.kind == "pending-replay"
+    assert item.source.span_hash == _payload_sha256(record)
+
+
+def test_apply_requires_explicit_ids_or_safe_only(tmp_brain: Path) -> None:
+    path = enqueue_write_record(_v2_record())
+
+    result = PendingQueue().apply()
+
+    assert result.written == 0
+    assert result.skipped == 0
+    assert result.results == []
+    assert path.exists()
+
+
+def test_apply_explicitly_selected_ready_record_only(tmp_brain: Path) -> None:
+    selected = enqueue_write_record(_v2_record(record_id="selected-record"))
+    unselected = enqueue_write_record(_v2_record(record_id="unselected-record"))
+
+    result = PendingQueue().apply(record_ids=["selected-record"])
+
+    assert result.written == 1
+    assert result.results[0].record_id == "selected-record"
+    assert result.results[0].status == "written"
+    assert not selected.exists()
+    assert unselected.exists()
+
+
+def test_apply_safe_only_never_writes_review_classifications(
+    tmp_brain: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _freeze_now(monkeypatch)
+    ready = enqueue_write_record(_v2_record(record_id="ready-record"))
+    stale_record = _v2_record(
+        record_id="stale-record",
+        type_="signal",
+        original_created_at="2026-01-01T10:00:00+00:00",
+    )
+    stale = enqueue_write_record(stale_record)
+
+    result = PendingQueue().apply(safe_only=True)
+
+    assert result.written == 1
+    assert not ready.exists()
+    assert stale.exists()
+    assert [row.record_id for row in result.results] == ["ready-record"]
+
+
+def test_apply_explicit_non_ready_record_reports_review_without_writing(
+    tmp_brain: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _freeze_now(monkeypatch)
+    path = enqueue_write_record(
+        _v2_record(
+            record_id="stale-record",
+            type_="handoff",
+            original_created_at="2026-01-01T10:00:00+00:00",
+        )
+    )
+
+    result = PendingQueue().apply(record_ids=["stale-record"])
+
+    assert result.review_required == 1
+    assert result.results[0].classification == "stale_requires_review"
+    assert result.results[0].status == "review_required"
+    assert result.results[0].reason == "STALE_EPHEMERAL_MEMORY"
+    assert path.exists()
+    assert list((tmp_brain / "items").glob("*.md")) == []
+
+
+def test_apply_reports_missing_and_duplicate_explicit_ids_honestly(tmp_brain: Path) -> None:
+    enqueue_write_record(_v2_record(record_id="present-record"))
+
+    result = PendingQueue().apply(
+        record_ids=["missing-record", "missing-record", "present-record", "present-record"]
+    )
+
+    assert result.written == 1
+    assert result.skipped == 3
+    assert [(row.record_id, row.status, row.reason) for row in result.results] == [
+        ("missing-record", "skipped", "RECORD_ID_NOT_FOUND"),
+        ("missing-record", "skipped", "DUPLICATE_RECORD_ID_SELECTION"),
+        ("present-record", "written", "WRITTEN"),
+        ("present-record", "skipped", "DUPLICATE_RECORD_ID_SELECTION"),
+    ]
+
+
+def test_crash_after_write_before_unlink_becomes_already_written(
+    tmp_brain: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _freeze_now(monkeypatch)
+    path = enqueue_write_record(_v2_record())
+    record_id = PendingQueue().preview(limit=1).records[0].record_id
+    original_unlink = pending_module._unlink_pending_record
+    failed = False
+
+    def fail_once(candidate: Path, expected_sha256: str) -> None:
+        nonlocal failed
+        if candidate == path and not failed:
+            failed = True
+            raise OSError("simulated unlink failure")
+        original_unlink(candidate, expected_sha256)
+
+    monkeypatch.setattr(pending_module, "_unlink_pending_record", fail_once)
+
+    first = PendingQueue().apply(record_ids=[record_id])
+    second = PendingQueue().apply(record_ids=[record_id])
+
+    assert first.failed == 1
+    assert first.results[0].reason == "PENDING_UNLINK_FAILED"
+    assert second.already_written == 1
+    assert second.results[0].status == "already_written"
+    assert not path.exists()
+    assert len(list(ItemsStore(tmp_brain / "items").iter_all())) == 1
+
+
+def test_concurrent_apply_of_same_record_creates_one_item(
+    tmp_brain: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _freeze_now(monkeypatch)
+    enqueue_write_record(_v2_record(record_id="concurrent-record"))
+    barrier = threading.Barrier(8)
+    outcomes: list[object] = []
+    errors: list[BaseException] = []
+
+    def apply_record() -> None:
+        try:
+            barrier.wait()
+            outcomes.append(PendingQueue().apply(record_ids=["concurrent-record"]))
+        except BaseException as exc:  # pragma: no cover - asserted below
+            errors.append(exc)
+
+    threads = [threading.Thread(target=apply_record) for _ in range(8)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=10)
+
+    assert errors == []
+    assert len(outcomes) == 8
+    assert sum(getattr(outcome, "written") for outcome in outcomes) == 1
+    assert len(list(ItemsStore(tmp_brain / "items").iter_all())) == 1
+
+
+def test_items_store_write_never_follows_dangling_item_symlink(tmp_brain: Path) -> None:
+    record = _v2_record(record_id="dangling-target-record")
+    item_payload = record["item"]
+    assert isinstance(item_payload, dict)
+    original_created_at = datetime.fromisoformat(str(record["original_created_at"]))
+    item, reason = pending_module._validate_pending_item(
+        item=item_payload,
+        version=2,
+        stable_item_id=_stable_item_id(record),
+        original_created_at=original_created_at,
+        payload_sha256=_payload_sha256(record),
+    )
+    assert reason is None and item is not None
+    outside = tmp_brain.parent / "outside-item.md"
+    target = tmp_brain / "items" / f"{item.id}.md"
+    target.symlink_to(outside)
+
+    with pytest.raises((FileExistsError, OSError)):
+        ItemsStore(tmp_brain / "items").write(item, "must stay inside")
+
+    assert not outside.exists()
+
+
+def test_apply_stable_id_payload_conflict_fails_closed(
+    tmp_brain: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _freeze_now(monkeypatch)
+    record = _v2_record(record_id="conflicting-record")
+    path = enqueue_write_record(record)
+    _write_existing_item(
+        tmp_brain,
+        record,
+        item_id=_stable_item_id(record),
+        span_hash="different-payload-hash",
+    )
+
+    result = PendingQueue().apply(record_ids=["conflicting-record"])
+
+    assert result.review_required == 1
+    assert result.results[0].classification == "conflict"
+    assert result.results[0].reason == "STABLE_ITEM_PAYLOAD_CONFLICT"
+    assert path.exists()
+    assert len(list(ItemsStore(tmp_brain / "items").iter_all())) == 1
+
+
+def test_apply_fails_closed_when_pending_changes_after_preview(
+    tmp_brain: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _freeze_now(monkeypatch)
+    path = enqueue_write_record(_v2_record(record_id="changed-record"))
+    queue = PendingQueue()
+    original_preview = queue.preview
+
+    def preview_then_change(*, limit: int = 20):
+        preview = original_preview(limit=limit)
+        persisted = json.loads(path.read_text(encoding="utf-8"))
+        item = persisted["item"]
+        assert isinstance(item, dict)
+        item["body"] = "changed after preview"
+        path.write_text(json.dumps(persisted, ensure_ascii=False) + "\n", encoding="utf-8")
+        return preview
+
+    monkeypatch.setattr(queue, "preview", preview_then_change)
+
+    result = queue.apply(record_ids=["changed-record"])
+
+    assert result.failed == 1
+    assert result.results[0].reason == "PENDING_RECORD_CHANGED"
+    assert path.exists()
+    assert list((tmp_brain / "items").glob("*.md")) == []
+
+
+def test_apply_written_with_index_failure_marks_dirty_and_clears_queue(
+    tmp_brain: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from agent_brain.memory.store.write_service import WriteService
+
+    _freeze_now(monkeypatch)
+    record = _v2_record(record_id="index-failure-record")
+    path = enqueue_write_record(record)
+
+    class _FailingIndex:
+        def upsert(self, *_args: object, **_kwargs: object) -> None:
+            raise OSError("simulated index failure")
+
+    service = WriteService(
+        ItemsStore(tmp_brain / "items"),
+        index=_FailingIndex(),  # type: ignore[arg-type]
+        embedder=HashingEmbedder(),
+        brain_dir=tmp_brain,
+    )
+    monkeypatch.setattr(WriteService, "for_brain", classmethod(lambda cls, *_args: service))
+
+    result = PendingQueue().apply(record_ids=["index-failure-record"])
+
+    assert result.written == 1
+    assert not path.exists()
+    assert _stable_item_id(record) in (tmp_brain / ".index-dirty").read_text(encoding="utf-8")
+
+
+def test_one_apply_failure_does_not_hide_or_block_other_selected_records(
+    tmp_brain: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from agent_brain.memory.store.write_service import WriteService
+
+    _freeze_now(monkeypatch)
+    failing_record = _v2_record(record_id="failing-record")
+    first = enqueue_write_record(failing_record)
+    second = enqueue_write_record(_v2_record(record_id="succeeding-record"))
+    failing_item_id = _stable_item_id(failing_record)
+    original_write = WriteService.write
+
+    def fail_one(self: WriteService, *, item: MemoryItem, **kwargs: object):
+        if item.id == failing_item_id:
+            raise OSError("simulated write failure")
+        return original_write(self, item=item, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(WriteService, "write", fail_one)
+
+    result = PendingQueue().apply(record_ids=["failing-record", "succeeding-record"])
+
+    assert result.failed == 1
+    assert result.written == 1
+    assert [row.status for row in result.results] == ["failed", "written"]
+    assert first.exists()
+    assert not second.exists()
+
+
+def test_private_apply_result_never_exposes_body_or_private_metadata(
+    tmp_brain: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _freeze_now(monkeypatch)
+    record = _v2_record(record_id="private-record")
+    item = record["item"]
+    assert isinstance(item, dict)
+    item.update(
+        {
+            "sensitivity": "private",
+            "title": "private title sentinel",
+            "summary": "private summary sentinel",
+            "body": "private body sentinel",
+            "project": "private project sentinel",
+            "agent": "private agent sentinel",
+            "session": "private session sentinel",
+        }
+    )
+    enqueue_write_record(record)
+
+    result = PendingQueue().apply(record_ids=["private-record"])
+    encoded = json.dumps(result.to_dict(), ensure_ascii=False)
+
+    assert result.written == 1
+    assert "private title sentinel" not in encoded
+    assert "private-title-sentinel" not in encoded
+    assert "private summary sentinel" not in encoded
+    assert "private body sentinel" not in encoded
+    assert "private project sentinel" not in encoded
+    assert "private agent sentinel" not in encoded
+    assert "private session sentinel" not in encoded
 
 
 def test_default_enqueue_writes_v2_envelope(tmp_brain: Path) -> None:
@@ -996,6 +1326,20 @@ def test_v2_declared_hash_tamper_is_conflict(
     assert preview.reason == "PAYLOAD_HASH_MISMATCH"
 
 
+def test_apply_accepts_canonical_hash_with_uppercase_hex(
+    tmp_brain: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _freeze_now(monkeypatch)
+    record = _v2_record(record_id="uppercase-hash-record")
+    record["payload_sha256"] = _payload_sha256(record).upper()
+    enqueue_write_record(record)
+
+    result = PendingQueue().apply(record_ids=["uppercase-hash-record"])
+
+    assert result.written == 1
+    assert result.failed == 0
+
+
 def test_audit_blocked_payload_has_closed_classification(
     tmp_brain: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1012,6 +1356,26 @@ def test_audit_blocked_payload_has_closed_classification(
     assert preview.classification == "audit_blocked"
     assert preview.reason == "AUDIT_BLOCKED"
     assert marker not in json.dumps(preview.to_dict())
+
+
+def test_explicit_apply_never_honors_queued_allow_unsafe_audit_bypass(
+    tmp_brain: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _freeze_now(monkeypatch)
+    record = _v2_record(record_id="audit-blocked-record")
+    item = record["item"]
+    assert isinstance(item, dict)
+    item["body"] = "-----BEGIN " + "RSA PRIVATE KEY-----"
+    item["allow_unsafe"] = True
+    path = enqueue_write_record(record)
+
+    result = PendingQueue().apply(record_ids=["audit-blocked-record"])
+
+    assert result.review_required == 1
+    assert result.results[0].classification == "audit_blocked"
+    assert result.results[0].reason == "AUDIT_BLOCKED"
+    assert path.exists()
+    assert list((tmp_brain / "items").glob("*.md")) == []
 
 
 def test_malformed_record_does_not_block_other_records(
@@ -1557,6 +1921,23 @@ def test_pending_scan_cap_keeps_cap_plus_one_and_reports_truncation(
     assert preview.records[0].record_id == "pending-a"
     assert preview.records[0].classification == "audit_blocked"
     assert preview.records[0].reason == "PENDING_QUEUE_TRUNCATED"
+
+
+def test_safe_only_apply_requires_a_complete_trusted_scan(
+    tmp_brain: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _freeze_now(monkeypatch)
+    monkeypatch.setattr(pending_module, "MAX_PENDING_QUEUE_ENTRIES", 1)
+    enqueue_write_record(_v2_record(record_id="first-ready"))
+    enqueue_write_record(_v2_record(record_id="second-ready"))
+
+    result = PendingQueue().apply(safe_only=True)
+
+    assert result.written == 0
+    assert result.failed == 1
+    assert result.results[0].reason == "PENDING_QUEUE_TRUNCATED"
+    assert len(list((tmp_brain / "pending").glob("*.jsonl"))) == 2
+    assert list((tmp_brain / "items").glob("*.md")) == []
 
 
 def test_existing_item_scan_overflow_blocks_ready_classification(
