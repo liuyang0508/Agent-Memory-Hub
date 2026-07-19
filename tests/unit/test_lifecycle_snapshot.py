@@ -95,6 +95,44 @@ def test_restore_is_pair_selective_and_treats_special_id_literally(
     assert runtime_other.read_bytes() == b"runtime after"
 
 
+def test_restore_keeps_validated_items_inode_when_path_is_replaced_by_directory(
+    tmp_brain_dir: Path, monkeypatch
+) -> None:
+    items = tmp_brain_dir / "items"
+    old_path = items / f"{OLD_ID}.md"
+    new_path = items / f"{NEW_ID}.md"
+    old_path.write_bytes(b"old before")
+    new_path.write_bytes(b"new before")
+    store = LifecycleSnapshotStore(tmp_brain_dir)
+    snapshot = store.snapshot_pair(
+        OLD_ID, old_path.read_bytes(), NEW_ID, new_path.read_bytes()
+    )
+    old_path.write_bytes(b"old after")
+    new_path.write_bytes(b"new after")
+    moved = tmp_brain_dir / "validated-items"
+    real_read_tree = store._read_tree
+    swapped = False
+
+    def swap_then_read(repo, object_id):
+        nonlocal swapped
+        if not swapped:
+            items.rename(moved)
+            items.mkdir()
+            (items / f"{OLD_ID}.md").write_bytes(b"victim old")
+            (items / f"{NEW_ID}.md").write_bytes(b"victim new")
+            swapped = True
+        return real_read_tree(repo, object_id)
+
+    monkeypatch.setattr(store, "_read_tree", swap_then_read)
+
+    store.restore_pair(snapshot, OLD_ID, NEW_ID)
+
+    assert (moved / f"{OLD_ID}.md").read_bytes() == b"old before"
+    assert (moved / f"{NEW_ID}.md").read_bytes() == b"new before"
+    assert (items / f"{OLD_ID}.md").read_bytes() == b"victim old"
+    assert (items / f"{NEW_ID}.md").read_bytes() == b"victim new"
+
+
 @pytest.mark.parametrize("unsafe", ["unmarked", "symlink"])
 def test_snapshot_refuses_unmarked_or_symlink_private_repo(
     tmp_brain_dir: Path, unsafe: str
@@ -183,18 +221,99 @@ def test_snapshot_marker_failure_cleans_temp_and_allows_retry(
 ) -> None:
     store = LifecycleSnapshotStore(tmp_brain_dir)
     real_write = os.write
+    marker_fd = None
 
     def fail_marker(fd, data):
+        nonlocal marker_fd
         if bytes(data).startswith(b"agent-memory-hub lifecycle"):
             if control:
-                raise KeyboardInterrupt("marker control")
+                marker_fd = fd
+                return real_write(fd, data[:1])
             raise OSError("marker failure")
+        if control and fd == marker_fd:
+            raise KeyboardInterrupt("marker control")
         return real_write(fd, data)
 
     with monkeypatch.context() as scoped:
         scoped.setattr(os, "write", fail_marker)
         expected = KeyboardInterrupt if control else LifecycleSnapshotError
         with pytest.raises(expected):
+            store.snapshot_pair(OLD_ID, b"old", NEW_ID, b"new")
+
+    runtime = tmp_brain_dir / "runtime"
+    assert not (runtime / "lifecycle-history.git").exists()
+    assert not list(runtime.glob(".lifecycle-history-*.tmp"))
+    assert store.snapshot_pair(OLD_ID, b"old", NEW_ID, b"new")
+
+
+def test_snapshot_marker_retries_one_byte_short_write(
+    tmp_brain_dir: Path, monkeypatch
+) -> None:
+    store = LifecycleSnapshotStore(tmp_brain_dir)
+    real_write = os.write
+    shortened = False
+
+    def short_once(fd, data):
+        nonlocal shortened
+        if bytes(data).startswith(b"agent-memory-hub lifecycle") and not shortened:
+            shortened = True
+            return real_write(fd, data[:1])
+        return real_write(fd, data)
+
+    monkeypatch.setattr(os, "write", short_once)
+
+    snapshot = store.snapshot_pair(OLD_ID, b"old", NEW_ID, b"new")
+
+    assert shortened is True
+    assert snapshot
+    marker = (
+        tmp_brain_dir
+        / "runtime"
+        / "lifecycle-history.git"
+        / "amh-lifecycle-repository"
+    )
+    assert marker.read_bytes() == snapshot_module._MARKER_BYTES
+
+
+def test_snapshot_marker_retries_multiple_short_writes(
+    tmp_brain_dir: Path, monkeypatch
+) -> None:
+    store = LifecycleSnapshotStore(tmp_brain_dir)
+    real_write = os.write
+    marker_fd = None
+    writes = 0
+
+    def short_repeatedly(fd, data):
+        nonlocal marker_fd, writes
+        if bytes(data).startswith(b"agent-memory-hub lifecycle"):
+            marker_fd = fd
+        if fd == marker_fd:
+            writes += 1
+            return real_write(fd, data[:3])
+        return real_write(fd, data)
+
+    monkeypatch.setattr(os, "write", short_repeatedly)
+
+    snapshot = store.snapshot_pair(OLD_ID, b"old", NEW_ID, b"new")
+
+    assert writes > 2
+    assert snapshot
+
+
+def test_snapshot_marker_zero_write_cleans_temp_and_allows_retry(
+    tmp_brain_dir: Path, monkeypatch
+) -> None:
+    store = LifecycleSnapshotStore(tmp_brain_dir)
+    real_write = os.write
+
+    def zero_marker(fd, data):
+        if bytes(data).startswith(b"agent-memory-hub lifecycle"):
+            return 0
+        return real_write(fd, data)
+
+    with monkeypatch.context() as scoped:
+        scoped.setattr(os, "write", zero_marker)
+        with pytest.raises(LifecycleSnapshotError, match="SNAPSHOT_FAILED"):
             store.snapshot_pair(OLD_ID, b"old", NEW_ID, b"new")
 
     runtime = tmp_brain_dir / "runtime"

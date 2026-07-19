@@ -13,7 +13,6 @@ from pathlib import Path
 
 from agent_brain.contracts.memory_item import is_valid_memory_item_id
 from agent_brain.memory.store.durable_fs import SecureDirectory
-from agent_brain.memory.store.items_store import _atomic_write_bytes
 
 
 GIT_TIMEOUT_SECONDS = 5
@@ -85,38 +84,44 @@ class LifecycleSnapshotStore:
         self, snapshot: str, obsolete_id: str, replacement_id: str
     ) -> None:
         try:
-            self._validate_roots_and_ids(obsolete_id, replacement_id)
+            self._validate_ids(obsolete_id, replacement_id)
             if _OBJECT_ID.fullmatch(snapshot.encode("ascii")) is None:
                 raise LifecycleSnapshotError("SNAPSHOT_FAILED")
-            with self._repository(create=False) as repo:
-                root = self._read_tree(repo, snapshot)
-                if set(root) != {b"items"} or root[b"items"][0] != b"tree":
-                    raise LifecycleSnapshotError("SNAPSHOT_FAILED")
-                items = self._read_tree(repo, root[b"items"][1].decode("ascii"))
-                expected = {
-                    f"{obsolete_id}.md".encode(),
-                    f"{replacement_id}.md".encode(),
-                }
-                if set(items) != expected:
-                    raise LifecycleSnapshotError("SNAPSHOT_FAILED")
-                payloads: list[tuple[str, bytes]] = []
-                for item_id in (obsolete_id, replacement_id):
-                    kind, blob = items[f"{item_id}.md".encode()]
-                    if kind != b"blob":
+            with SecureDirectory.open(self.items_dir) as item_directory:
+                self._validate_items_root(item_directory)
+                with self._repository(create=False) as repo:
+                    root = self._read_tree(repo, snapshot)
+                    if set(root) != {b"items"} or root[b"items"][0] != b"tree":
                         raise LifecycleSnapshotError("SNAPSHOT_FAILED")
-                    payloads.append(
-                        (
-                            item_id,
-                            self._git(repo, "cat-file", values=[blob.decode()]).stdout,
-                        )
+                    items = self._read_tree(
+                        repo, root[b"items"][1].decode("ascii")
                     )
-            for item_id, data in payloads:
-                _atomic_write_bytes(
-                    self.items_dir / f"{item_id}.md",
-                    data,
-                    create_missing=True,
-                    require_durable=True,
-                )
+                    expected = {
+                        f"{obsolete_id}.md".encode(),
+                        f"{replacement_id}.md".encode(),
+                    }
+                    if set(items) != expected:
+                        raise LifecycleSnapshotError("SNAPSHOT_FAILED")
+                    payloads: list[tuple[str, bytes]] = []
+                    for item_id in (obsolete_id, replacement_id):
+                        kind, blob = items[f"{item_id}.md".encode()]
+                        if kind != b"blob":
+                            raise LifecycleSnapshotError("SNAPSHOT_FAILED")
+                        payloads.append(
+                            (
+                                item_id,
+                                self._git(
+                                    repo, "cat-file", values=[blob.decode()]
+                                ).stdout,
+                            )
+                        )
+                for item_id, data in payloads:
+                    item_directory.atomic_write(
+                        f"{item_id}.md", data, create_missing=True
+                    )
+                for item_id, data in payloads:
+                    if self._read_file(item_directory, f"{item_id}.md") != data:
+                        raise LifecycleSnapshotError("SNAPSHOT_FAILED")
         except LifecycleSnapshotError:
             raise
         except BaseException as error:
@@ -152,7 +157,7 @@ class LifecycleSnapshotStore:
             marker_error: BaseException | None = None
             try:
                 os.fchmod(descriptor, 0o600)
-                os.write(descriptor, _MARKER_BYTES)
+                self._write_all(descriptor, _MARKER_BYTES)
                 os.fsync(descriptor)
             except BaseException as error:
                 marker_error = error
@@ -160,6 +165,7 @@ class LifecycleSnapshotStore:
             finally:
                 self._close_fd(descriptor, marker_error)
             temp_repo.fsync()
+            self._validate_marker(temp_repo)
             temp_repo.close()
             try:
                 runtime.rename(temporary, "lifecycle-history.git")
@@ -209,16 +215,8 @@ class LifecycleSnapshotStore:
         os.rmdir(name, dir_fd=parent.fd)
 
     def _validate_marker(self, repo: SecureDirectory) -> None:
-        descriptor, _ = repo.open_file(_MARKER_NAME, os.O_RDONLY)
-        read_error: BaseException | None = None
-        try:
-            if os.read(descriptor, len(_MARKER_BYTES) + 1) != _MARKER_BYTES:
-                raise LifecycleSnapshotError("SNAPSHOT_FAILED")
-        except BaseException as error:
-            read_error = error
-            raise
-        finally:
-            self._close_fd(descriptor, read_error)
+        if self._read_file(repo, _MARKER_NAME) != _MARKER_BYTES:
+            raise LifecycleSnapshotError("SNAPSHOT_FAILED")
 
     def _git(
         self,
@@ -283,14 +281,19 @@ class LifecycleSnapshotStore:
         return entries
 
     def _validate_roots_and_ids(self, obsolete_id: str, replacement_id: str) -> None:
-        with (
-            SecureDirectory.open(self.brain_dir) as brain,
-            SecureDirectory.open(self.items_dir) as items,
-        ):
+        self._validate_ids(obsolete_id, replacement_id)
+        with SecureDirectory.open(self.items_dir) as items:
+            self._validate_items_root(items)
+
+    def _validate_items_root(self, items: SecureDirectory) -> None:
+        with SecureDirectory.open(self.brain_dir) as brain:
             expected = brain.stat("items")
             actual = os.fstat(items.fd)
             if (expected.st_dev, expected.st_ino) != (actual.st_dev, actual.st_ino):
                 raise LifecycleSnapshotError("SNAPSHOT_FAILED")
+
+    @staticmethod
+    def _validate_ids(obsolete_id: str, replacement_id: str) -> None:
         for item_id in (obsolete_id, replacement_id):
             if not is_valid_memory_item_id(item_id) or any(
                 ord(c) < 32 or ord(c) == 127 for c in item_id
@@ -298,6 +301,32 @@ class LifecycleSnapshotStore:
                 raise LifecycleSnapshotError("SNAPSHOT_FAILED")
         if obsolete_id == replacement_id:
             raise LifecycleSnapshotError("SNAPSHOT_FAILED")
+
+    @classmethod
+    def _read_file(cls, directory: SecureDirectory, name: str) -> bytes:
+        descriptor, _ = directory.open_file(name, os.O_RDONLY)
+        pending: BaseException | None = None
+        chunks: list[bytes] = []
+        try:
+            while True:
+                chunk = os.read(descriptor, 65536)
+                if not chunk:
+                    return b"".join(chunks)
+                chunks.append(chunk)
+        except BaseException as error:
+            pending = error
+            raise
+        finally:
+            cls._close_fd(descriptor, pending)
+
+    @staticmethod
+    def _write_all(descriptor: int, data: bytes) -> None:
+        remaining = memoryview(data)
+        while remaining:
+            written = os.write(descriptor, remaining)
+            if written <= 0:
+                raise OSError("SNAPSHOT_MARKER_WRITE_FAILED")
+            remaining = remaining[written:]
 
     @staticmethod
     def _object_id(raw: bytes) -> str:
