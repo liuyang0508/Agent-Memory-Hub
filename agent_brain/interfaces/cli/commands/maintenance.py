@@ -91,6 +91,11 @@ def sync_pending(
     ),
     limit: int = typer.Option(20, "--limit", help="Maximum records to show in preview mode."),
     format: str = typer.Option("text", "--format", help="Output format: text or json."),
+    summary_only: bool = typer.Option(
+        False,
+        "--summary-only",
+        help="Emit low-sensitivity aggregate counts without record details.",
+    ),
 ) -> None:
     """Preview pending writes by default; apply only an explicit selection."""
     from agent_brain.memory.store.pending import PendingQueue
@@ -101,6 +106,21 @@ def sync_pending(
     queue = PendingQueue()
     if not apply or dry_run:
         preview = queue.preview(limit=limit)
+        if summary_only:
+            summary = preview.to_summary_dict()
+            if format == "json":
+                typer.echo(json.dumps(summary, ensure_ascii=False, indent=2))
+                return
+            groups = summary["groups"]
+            assert isinstance(groups, dict)
+            typer.echo(
+                f"pending={summary['total']} returned={summary['returned']} "
+                f"truncated={str(summary['truncated']).lower()} "
+                f"ready={groups['ready']} review={groups['review']} "
+                f"blocker={groups['blocker']}"
+            )
+            typer.echo("(summary-only preview — no pending records applied)")
+            return
         if format == "json":
             typer.echo(json.dumps(preview.to_dict(), ensure_ascii=False, indent=2))
             return
@@ -138,18 +158,21 @@ def sync_pending(
             for result in stats.results
         )
     if format == "json":
-        typer.echo(json.dumps(stats.to_dict(), ensure_ascii=False, indent=2))
+        payload = stats.to_summary_dict() if summary_only else stats.to_dict()
+        typer.echo(json.dumps(payload, ensure_ascii=False, indent=2))
     else:
         typer.echo(
             f"written={stats.written} already_written={stats.already_written} "
             f"review_required={stats.review_required} skipped={stats.skipped} "
             f"failed={stats.failed} dead={stats.dead}"
         )
-        for result in stats.results:
-            typer.echo(
-                f"  {result.record_id}: status={result.status} "
-                f"classification={result.classification or 'unknown'} reason={result.reason}"
-            )
+        if not summary_only:
+            for result in stats.results:
+                typer.echo(
+                    f"  {result.record_id}: status={result.status} "
+                    f"classification={result.classification or 'unknown'} "
+                    f"reason={result.reason}"
+                )
     if unsuccessful:
         raise typer.Exit(1)
 

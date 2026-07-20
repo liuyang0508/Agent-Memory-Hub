@@ -128,6 +128,81 @@ PendingClassification = Literal[
     "audit_blocked",
 ]
 
+_PENDING_REVIEW_CLASSIFICATIONS = frozenset(
+    {"stale_requires_review", "duplicate_candidate", "unsupported_type"}
+)
+_PENDING_BLOCKER_CLASSIFICATIONS = frozenset(
+    {"conflict", "malformed", "audit_blocked"}
+)
+_PUBLIC_PENDING_REASONS = frozenset(
+    {
+        "AUDIT_BLOCKED",
+        "AUDIT_SCAN_FAILED",
+        "CONCURRENT_MODIFICATION",
+        "DUPLICATE_RECORD_ID_SELECTION",
+        "EMPTY_PENDING_RECORD",
+        "EXISTING_ITEM_SCAN_UNAVAILABLE",
+        "FUTURE_ENQUEUED_AT",
+        "FUTURE_ORIGINAL_CREATED_AT",
+        "INVALID_ENQUEUED_AT",
+        "INVALID_ITEM_BODY",
+        "INVALID_ITEM_PAYLOAD",
+        "INVALID_ITEM_SCHEMA",
+        "INVALID_ITEM_TITLE",
+        "INVALID_ORIGINAL_CREATED_AT",
+        "INVALID_RECORD_ENCODING",
+        "INVALID_RECORD_ID",
+        "ITEM_CREATED_AT_MISMATCH",
+        "MALFORMED_JSON",
+        "MISSING_ENQUEUED_AT",
+        "MISSING_ORIGINAL_CREATED_AT",
+        "MISSING_PAYLOAD_SHA256",
+        "NAIVE_ENQUEUED_AT",
+        "NAIVE_ORIGINAL_CREATED_AT",
+        "PAYLOAD_HASH_MISMATCH",
+        "PENDING_APPLY_FAILED",
+        "PENDING_DIRECTORY_FSYNC_UNAVAILABLE",
+        "PENDING_ITEM_SNAPSHOT_UNTRUSTED",
+        "PENDING_QUEUE_TRUNCATED",
+        "PENDING_READINESS_BUDGET_EXCEEDED",
+        "PENDING_RECORD_CHANGED",
+        "PENDING_RECORD_DUPLICATE",
+        "PENDING_RECORD_ID_CONFLICT",
+        "PENDING_RECORD_NOT_OBJECT",
+        "PENDING_RECORD_NOT_REGULAR",
+        "PENDING_RECORD_READ_FAILED",
+        "PENDING_RECORD_TOO_LARGE",
+        "PENDING_RECORD_CHANGED",
+        "PENDING_SCAN_UNAVAILABLE",
+        "PENDING_STABLE_ID_CONFLICT",
+        "PENDING_UNLINK_FAILED",
+        "PENDING_WRITE_SERVICE_UNAVAILABLE",
+        "PLATFORM_UNSUPPORTED",
+        "READY",
+        "RECORD_ID_NOT_FOUND",
+        "SAME_SCOPE_METADATA_DUPLICATE",
+        "SAME_SCOPE_PAYLOAD_DUPLICATE",
+        "STABLE_ITEM_ALREADY_WRITTEN",
+        "STABLE_ITEM_ALREADY_WRITTEN_INDEX_REPAIR_REQUIRED",
+        "STABLE_ITEM_PAYLOAD_CONFLICT",
+        "STABLE_ITEM_SCOPE_CONFLICT",
+        "STALE_EPHEMERAL_MEMORY",
+        "UNSUPPORTED_MEMORY_TYPE",
+        "UNSUPPORTED_PENDING_OPERATION",
+        "UNSUPPORTED_PENDING_VERSION",
+        "WRITTEN",
+        "WRITTEN_INDEX_REPAIR_REQUIRED",
+    }
+)
+
+
+def _public_pending_reason(reason: str | None) -> str | None:
+    if reason is None:
+        return None
+    if reason in _PUBLIC_PENDING_REASONS:
+        return reason
+    return "UNKNOWN_PENDING_REASON"
+
 _SUPPORTED_MEMORY_TYPES = frozenset(member.value for member in MemoryType)
 _RECORD_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 _PENDING_ITEM_FIELDS = frozenset(
@@ -710,6 +785,39 @@ class PendingApplyStats:
             "results": [result.to_dict() for result in self.results],
         }
 
+    def to_summary_dict(self) -> dict[str, object]:
+        """Return aggregate apply outcomes without record or item identifiers."""
+
+        statuses = Counter(result.status for result in self.results)
+        classifications = Counter(
+            result.classification or "unknown" for result in self.results
+        )
+        reasons = Counter(
+            _public_pending_reason(result.reason) or "UNKNOWN_PENDING_REASON"
+            for result in self.results
+        )
+        warnings = Counter(
+            _public_pending_reason(warning) or "UNKNOWN_PENDING_REASON"
+            for result in self.results
+            for warning in result.warnings
+        )
+        return {
+            "schema_version": 1,
+            "written": self.written,
+            "already_written": self.already_written,
+            "review_required": self.review_required,
+            "skipped": self.skipped,
+            "failed": self.failed,
+            "dead": self.dead,
+            "status_counts": dict(sorted(statuses.items())),
+            "classification_counts": dict(sorted(classifications.items())),
+            "reason_counts": dict(sorted(reasons.items())),
+            "index_repair_required_count": sum(
+                result.index_repair_required for result in self.results
+            ),
+            "warning_counts": dict(sorted(warnings.items())),
+        }
+
 
 # Import compatibility for integrations that named the old aggregate type.
 ReplayStats = PendingApplyStats
@@ -793,6 +901,42 @@ class PendingPreview:
             "records": [record.to_dict() for record in self.records],
             "scan_unavailable": self.scan_unavailable,
             "reason": self.reason,
+        }
+
+    def to_summary_dict(self) -> dict[str, object]:
+        """Return a bounded aggregate that cannot expose record content or IDs."""
+
+        classifications = Counter(record.classification for record in self.records)
+        reasons = Counter(
+            _public_pending_reason(record.reason) or "UNKNOWN_PENDING_REASON"
+            for record in self.records
+        )
+        return {
+            "schema_version": 1,
+            "total": self.total,
+            "returned": self.returned,
+            "truncated": self.truncated,
+            "scan_unavailable": self.scan_unavailable,
+            "reason": _public_pending_reason(self.reason),
+            "classification_counts": dict(sorted(classifications.items())),
+            "reason_counts": dict(sorted(reasons.items())),
+            "groups": {
+                "ready": classifications["ready"] + classifications["already_written"],
+                "review": sum(
+                    classifications[name] for name in _PENDING_REVIEW_CLASSIFICATIONS
+                ),
+                "blocker": sum(
+                    classifications[name] for name in _PENDING_BLOCKER_CLASSIFICATIONS
+                ),
+            },
+            "oldest_age_seconds": max(
+                (
+                    record.age_seconds
+                    for record in self.records
+                    if record.age_seconds is not None
+                ),
+                default=0,
+            ),
         }
 
 

@@ -128,6 +128,74 @@ def test_cli_sync_pending_bare_command_is_always_preview(tmp_brain):
     assert list((tmp_brain / "items").glob("*.md")) == []
 
 
+def test_cli_sync_pending_summary_only_json_is_low_sensitivity(tmp_brain):
+    import json
+
+    from agent_brain.memory.store.pending import PendingQueue, enqueue_write_record
+
+    enqueue_write_record(
+        {
+            "op": "write",
+            "record_id": "PRIVATE_CLI_RECORD_CANARY",
+            "item": {
+                "title": "PRIVATE_CLI_TITLE_CANARY",
+                "summary": "PRIVATE_CLI_SUMMARY_CANARY",
+            },
+        }
+    )
+
+    result = runner.invoke(
+        app,
+        ["sync-pending", "--summary-only", "--format", "json"],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["schema_version"] == 1
+    assert payload["total"] == 1
+    assert payload["classification_counts"] == {"ready": 1}
+    assert "records" not in payload
+    assert "PRIVATE_CLI_RECORD_CANARY" not in result.output
+    assert "PRIVATE_CLI_TITLE_CANARY" not in result.output
+    assert "PRIVATE_CLI_SUMMARY_CANARY" not in result.output
+    assert PendingQueue().depth() == 1
+
+
+def test_cli_sync_pending_apply_summary_only_omits_per_record_results(tmp_brain):
+    import json
+
+    from agent_brain.memory.store.pending import PendingQueue, enqueue_write_record
+
+    enqueue_write_record(
+        {
+            "op": "write",
+            "record_id": "PRIVATE_APPLY_CLI_CANARY",
+            "item": {"title": "apply summary", "summary": "low sensitivity"},
+        }
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "sync-pending",
+            "--apply",
+            "--record",
+            "PRIVATE_APPLY_CLI_CANARY",
+            "--summary-only",
+            "--format",
+            "json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["written"] == 1
+    assert payload["status_counts"] == {"written": 1}
+    assert "results" not in payload
+    assert "PRIVATE_APPLY_CLI_CANARY" not in result.output
+    assert PendingQueue().depth() == 0
+
+
 def test_cli_sync_pending_apply_requires_a_selection(tmp_brain):
     from agent_brain.memory.store.pending import PendingQueue, enqueue_write_record
 

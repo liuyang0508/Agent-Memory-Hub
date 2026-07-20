@@ -239,6 +239,73 @@ def test_pending_readiness_rejects_untrusted_supplied_item_catalog(
     assert preview.reason == "PENDING_ITEM_SNAPSHOT_UNTRUSTED"
 
 
+def test_pending_summary_contains_counts_without_record_content(tmp_brain):
+    record = _v2_record(record_id="PRIVATE_RECORD_ID_CANARY")
+    item = record["item"]
+    assert isinstance(item, dict)
+    item["title"] = "PRIVATE_TITLE_CANARY"
+    item["summary"] = "PRIVATE_SUMMARY_CANARY"
+    enqueue_write_record(record)
+
+    summary = PendingQueue(brain=tmp_brain).preview(limit=10).to_summary_dict()
+    encoded = json.dumps(summary, sort_keys=True)
+
+    assert summary["schema_version"] == 1
+    assert summary["classification_counts"] == {"ready": 1}
+    assert summary["reason_counts"] == {"READY": 1}
+    assert summary["groups"] == {"ready": 1, "review": 0, "blocker": 0}
+    assert "PRIVATE_RECORD_ID_CANARY" not in encoded
+    assert "PRIVATE_TITLE_CANARY" not in encoded
+    assert "PRIVATE_SUMMARY_CANARY" not in encoded
+    assert "record_id" not in encoded
+
+
+def test_pending_summary_normalizes_unknown_reason_without_leaking_it(tmp_brain):
+    enqueue_write_record(_v2_record(record_id="unknown-summary-reason"))
+    preview = PendingQueue(brain=tmp_brain).preview(limit=10)
+    record = pending_module.replace(
+        preview.records[0],
+        reason="SECRET_BACKEND_EXCEPTION_CANARY",
+    )
+    unknown = pending_module.PendingPreview(
+        total=1,
+        returned=1,
+        limit=10,
+        truncated=False,
+        records=[record],
+    )
+
+    summary = unknown.to_summary_dict()
+    encoded = json.dumps(summary, sort_keys=True)
+
+    assert summary["reason_counts"] == {"UNKNOWN_PENDING_REASON": 1}
+    assert "SECRET_BACKEND_EXCEPTION_CANARY" not in encoded
+
+
+def test_pending_apply_summary_omits_per_record_identifiers():
+    stats = pending_module.PendingApplyStats()
+    stats.add(
+        pending_module.PendingApplyResult(
+            record_id="PRIVATE_APPLY_RECORD_CANARY",
+            item_id="mem-20260720-120000-private-apply-canary",
+            classification="ready",
+            status="written",
+            reason="WRITTEN",
+        )
+    )
+
+    summary = stats.to_summary_dict()
+    encoded = json.dumps(summary, sort_keys=True)
+
+    assert summary["schema_version"] == 1
+    assert summary["status_counts"] == {"written": 1}
+    assert summary["classification_counts"] == {"ready": 1}
+    assert summary["reason_counts"] == {"WRITTEN": 1}
+    assert "results" not in summary
+    assert "PRIVATE_APPLY_RECORD_CANARY" not in encoded
+    assert "private-apply-canary" not in encoded
+
+
 def test_pending_readiness_preview_uses_injectable_deadline_clock(
     tmp_brain,
     monkeypatch,

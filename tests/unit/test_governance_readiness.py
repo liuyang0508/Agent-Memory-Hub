@@ -473,6 +473,39 @@ def test_lifecycle_readiness_reuses_item_scan_for_pending_classification(
     assert lane.metrics["pending_scan_unavailable"] is False
 
 
+def test_lifecycle_readiness_reuses_low_sensitivity_pending_summary(
+    tmp_path,
+    monkeypatch,
+):
+    from agent_brain.memory.store.pending import PendingPreview
+
+    brain = tmp_path / "brain"
+    monkeypatch.setenv("BRAIN_DIR", str(brain))
+    (brain / "items").mkdir(parents=True)
+    enqueue_write_record(
+        {
+            "op": "write",
+            "record_id": "summary-readiness-record",
+            "item": {"type": "fact", "title": "summary readiness"},
+        }
+    )
+    original = PendingPreview.to_summary_dict
+    calls = 0
+
+    def counted_summary(self):
+        nonlocal calls
+        calls += 1
+        return original(self)
+
+    monkeypatch.setattr(PendingPreview, "to_summary_dict", counted_summary)
+
+    lane = build_memory_lifecycle_readiness(brain)
+
+    assert calls >= 1
+    assert lane.metrics["pending_reason_counts"] == {"READY": 1}
+    assert lane.metrics["pending_groups"] == {"ready": 1, "review": 0, "blocker": 0}
+
+
 def test_lifecycle_readiness_never_leaks_private_item_or_pending_content(
     tmp_path,
     monkeypatch,

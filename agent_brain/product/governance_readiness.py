@@ -1054,8 +1054,16 @@ def _pending_truth_readonly(
         preview = None
 
     counts = Counter({name: 0 for name in _PENDING_CLASSIFICATIONS})
-    if preview is not None:
-        counts.update(record.classification for record in preview.records)
+    summary = preview.to_summary_dict() if preview is not None else {}
+    classification_counts = summary.get("classification_counts", {})
+    if isinstance(classification_counts, dict):
+        for name in _PENDING_CLASSIFICATIONS:
+            value = classification_counts.get(name, 0)
+            if type(value) is int and value >= 0:
+                counts[name] = value
+    reason_counts = summary.get("reason_counts", {})
+    if not isinstance(reason_counts, dict):
+        reason_counts = {}
     dead_count, dead_scan_unavailable = _count_dead_pending_readonly(brain_dir / "pending" / "dead")
     pending_scan_unavailable = (
         preview is None
@@ -1065,15 +1073,12 @@ def _pending_truth_readonly(
     total = preview.total if preview is not None else 0
     returned = preview.returned if preview is not None else 0
     truncated = bool(preview.truncated if preview is not None else total)
-    oldest = max(
-        (
-            record.age_seconds
-            for record in (preview.records if preview is not None else [])
-            if record.age_seconds is not None
-        ),
-        default=None,
-    )
+    oldest_value = summary.get("oldest_age_seconds")
+    oldest = oldest_value if type(oldest_value) is int and oldest_value >= 0 else None
     classifications = {name: counts[name] for name in _PENDING_CLASSIFICATIONS}
+    groups = summary.get("groups", {})
+    if not isinstance(groups, dict):
+        groups = {}
     return {
         "pending_total": total,
         "pending_returned": returned,
@@ -1081,13 +1086,12 @@ def _pending_truth_readonly(
         "pending_scan_unavailable": pending_scan_unavailable,
         "pending_oldest_age_seconds": oldest,
         "pending_classifications": classifications,
+        "pending_reason_counts": dict(sorted(reason_counts.items())),
         "pending_dead_count": dead_count,
         "pending_groups": {
-            "ready": counts["ready"] + counts["already_written"],
-            "review": sum(counts[name] for name in _PENDING_REVIEW_CLASSIFICATIONS),
-            "blocker": (
-                sum(counts[name] for name in _PENDING_BLOCKER_CLASSIFICATIONS) + dead_count
-            ),
+            "ready": int(groups.get("ready", 0)),
+            "review": int(groups.get("review", 0)),
+            "blocker": int(groups.get("blocker", 0)) + dead_count,
         },
     }
 
