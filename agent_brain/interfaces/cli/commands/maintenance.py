@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import sqlite3
+from types import SimpleNamespace
 
 from agent_brain.interfaces.cli._app import app
 from agent_brain.interfaces.cli._shared import (
@@ -12,11 +14,16 @@ from agent_brain.interfaces.cli._shared import (
     typer,
 )
 from agent_brain.interfaces.cli.commands.index_maintenance import (
+    IndexRepairResult,
     inspect_index_drift,
     reindex_store,
     repair_index_drift,
+    repair_index_health,
 )
 from agent_brain.memory.governance.index_health import IndexHealthReport
+from agent_brain.memory.store.items_store import ItemsStore
+from agent_brain.platform.indexing.graph_index import GraphIndex
+from agent_brain.platform.indexing.index import HubIndex
 from agent_brain.product.governance_readiness import collect_index_health_readonly
 from agent_brain.interfaces.cli.commands.gc import gc
 import agent_brain.interfaces.cli as _cli  # noqa: E402  late binding for test-patched helpers
@@ -64,15 +71,53 @@ def verify(
             raise typer.Exit(1)
         return
 
-    with _cli._managed_components() as (store, idx, _):
-        drift = inspect_index_drift(store, idx)
-        typer.echo(f"md items: {len(drift.md_ids)}")
-        typer.echo(f"index items: {len(drift.index_ids)}")
-        typer.echo(f"missing from index: {len(drift.missing_in_index)}")
-        typer.echo(f"orphan index rows: {len(drift.orphan_in_index)}")
-        embedder = _cli.get_default_embedder()
-        result = repair_index_drift(store, idx, embedder, drift)
-    typer.echo(f"repaired {result.indexed} items, pruned {result.pruned} orphans")
+    brain = _brain_dir()
+    before = collect_index_health_readonly(brain)
+    if before.status == "clean":
+        result = IndexRepairResult(0, 0, 0, 0, 0)
+        _emit_repair_report(before, result, before, format=format)
+        return
+    if before.status in {"unavailable", "corrupt"}:
+        _emit_repair_report(before, None, None, format=format)
+        raise typer.Exit(1)
+
+    items_dir = brain / "items"
+    store = (
+        ItemsStore(items_dir)
+        if items_dir.exists()
+        else SimpleNamespace(items_dir=items_dir, last_scan=None, iter_all=lambda: iter(()))
+    )
+    needs_full_index = bool(
+        before.missing_ids | before.active_dirty_ids | before.orphan_ids
+    )
+    needs_graph_write = bool(before.frontmatter_only_edges or before.graph_only_edges)
+    connection: sqlite3.Connection | None = None
+    idx: object | None = None
+    if needs_full_index:
+        idx = HubIndex(brain / "index.db")
+    elif needs_graph_write:
+        database_uri = f"{(brain / 'index.db').resolve(strict=False).as_uri()}?mode=rw"
+        connection = sqlite3.connect(database_uri, uri=True, timeout=5.0)
+        connection.execute("PRAGMA busy_timeout=5000")
+        graph = GraphIndex(connection)
+        idx = SimpleNamespace(reconcile_supersedes=graph.replace_supersedes)
+    try:
+        result = repair_index_health(
+            store,
+            idx,
+            before,
+            embedder_factory=_cli.get_default_embedder,
+        )
+    finally:
+        close_index = getattr(idx, "close", None)
+        if callable(close_index):
+            close_index()
+        if connection is not None:
+            connection.close()
+    after = collect_index_health_readonly(brain)
+    _emit_repair_report(before, result, after, format=format)
+    if after.status != "clean":
+        raise typer.Exit(1)
 
 
 def _emit_verify_report(report: IndexHealthReport, *, format: str) -> None:
@@ -104,6 +149,56 @@ def _emit_verify_report(report: IndexHealthReport, *, format: str) -> None:
         typer.echo(f"  missing: {item_id}")
     for item_id in sorted(report.orphan_ids):
         typer.echo(f"  orphan: {item_id}")
+
+
+def _emit_repair_report(
+    before: IndexHealthReport,
+    repair: IndexRepairResult | None,
+    after: IndexHealthReport | None,
+    *,
+    format: str,
+) -> None:
+    repair_summary = (
+        {
+            "upserted": repair.upserted,
+            "pruned": repair.pruned,
+            "supersedes_deleted": repair.supersedes_deleted,
+            "supersedes_inserted": repair.supersedes_inserted,
+            "marker_entries_cleared": repair.marker_entries_cleared,
+        }
+        if repair is not None
+        else None
+    )
+    if format == "json":
+        typer.echo(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "before": before.to_summary_dict(),
+                    "repair": repair_summary,
+                    "after": after.to_summary_dict() if after is not None else None,
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return
+    if repair is None or after is None:
+        _emit_verify_report(before, format="text")
+        return
+    if before.status == "clean":
+        _emit_verify_report(after, format="text")
+        return
+    typer.echo("before repair:")
+    _emit_verify_report(before, format="text")
+    typer.echo(f"repaired {repair.upserted} items, pruned {repair.pruned} orphans")
+    typer.echo(
+        f"reconciled supersedes: deleted={repair.supersedes_deleted}, "
+        f"inserted={repair.supersedes_inserted}; "
+        f"cleared marker entries={repair.marker_entries_cleared}"
+    )
+    typer.echo("after repair:")
+    _emit_verify_report(after, format="text")
 
 
 @app.command("sync-pending")

@@ -15,9 +15,11 @@ from typer.testing import CliRunner
 
 from agent_brain.interfaces.cli import app
 from agent_brain.interfaces.cli.commands import maintenance
+from agent_brain.interfaces.cli.commands.index_maintenance import IndexRepairResult
+from agent_brain.memory.governance.index_health import build_index_health
 from agent_brain.platform.indexing.index import HubIndex
 from agent_brain.memory.store.items_store import ItemsStore
-from agent_brain.memory.store.pending import dirty_index_path
+from agent_brain.memory.store.pending import DirtyIndexMarker, dirty_index_path
 from agent_brain.contracts.memory_item import MemoryItem, MemoryType
 
 runner = CliRunner()
@@ -199,3 +201,192 @@ def test_verify_rejects_unknown_format_without_opening_index(
 
     assert result.exit_code == 2
     assert "format must be text or json" in result.output
+
+
+def test_verify_repair_exits_nonzero_when_after_report_is_not_clean(
+    tmp_brain_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("BRAIN_DIR", str(tmp_brain_dir))
+    before = build_index_health(
+        md_ids={"mem-20260720-140020-after-missing"},
+        index_ids=set(),
+        expected_supersedes=set(),
+        indexed_supersedes=set(),
+        source_scan_trusted=True,
+        graph_status="available",
+        dirty_marker=DirtyIndexMarker("clean"),
+    )
+    reports = iter((before, before))
+    monkeypatch.setattr(
+        maintenance,
+        "collect_index_health_readonly",
+        lambda _brain: next(reports),
+    )
+    monkeypatch.setattr(
+        maintenance,
+        "repair_index_health",
+        lambda *_args, **_kwargs: IndexRepairResult(
+            upserted=1,
+            pruned=0,
+            supersedes_deleted=0,
+            supersedes_inserted=0,
+            marker_entries_cleared=0,
+        ),
+        raising=False,
+    )
+
+    result = runner.invoke(app, ["verify", "--repair", "--format", "json"])
+
+    assert result.exit_code == 1
+    payload = json.loads(result.output)
+    assert set(payload) == {"schema_version", "before", "repair", "after"}
+    assert payload["before"]["status"] == "repair_required"
+    assert payload["after"]["status"] == "repair_required"
+
+
+def test_verify_repair_clean_noop_does_not_open_write_components(
+    tmp_brain_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("BRAIN_DIR", str(tmp_brain_dir))
+    clean = build_index_health(
+        md_ids=set(),
+        index_ids=set(),
+        expected_supersedes=set(),
+        indexed_supersedes=set(),
+        source_scan_trusted=True,
+        graph_status="available",
+        dirty_marker=DirtyIndexMarker("clean"),
+    )
+    monkeypatch.setattr(
+        maintenance,
+        "collect_index_health_readonly",
+        lambda _brain: clean,
+    )
+    monkeypatch.setattr(
+        maintenance._cli,
+        "_managed_components",
+        lambda: (_ for _ in ()).throw(AssertionError("write open")),
+    )
+
+    result = runner.invoke(app, ["verify", "--repair"])
+
+    assert result.exit_code == 0
+    assert "index in sync" in result.output
+
+
+def test_verify_repair_retired_marker_json_is_lazy_and_idempotent(
+    tmp_brain_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("BRAIN_DIR", str(tmp_brain_dir))
+    index = HubIndex(tmp_brain_dir / "index.db")
+    index.close()
+    retired = "mem-20260720-140021-cli-retired"
+    dirty_index_path(tmp_brain_dir).write_text(
+        f"{retired}\n{retired}\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        maintenance._cli,
+        "get_default_embedder",
+        lambda: (_ for _ in ()).throw(AssertionError("embedder opened")),
+    )
+    monkeypatch.setattr(
+        maintenance,
+        "HubIndex",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("index opened")),
+    )
+
+    first = runner.invoke(app, ["verify", "--repair", "--format", "json"])
+    second = runner.invoke(app, ["verify", "--repair", "--format", "json"])
+
+    assert first.exit_code == 0, first.output
+    first_payload = json.loads(first.output)
+    assert first_payload["repair"] == {
+        "upserted": 0,
+        "pruned": 0,
+        "supersedes_deleted": 0,
+        "supersedes_inserted": 0,
+        "marker_entries_cleared": 2,
+    }
+    assert first_payload["after"]["status"] == "clean"
+    assert second.exit_code == 0, second.output
+    second_payload = json.loads(second.output)
+    assert second_payload["before"]["status"] == "clean"
+    assert all(value == 0 for value in second_payload["repair"].values())
+    assert second_payload["after"]["status"] == "clean"
+
+
+def test_verify_repair_untrusted_preflight_is_zero_write(
+    tmp_brain_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("BRAIN_DIR", str(tmp_brain_dir))
+    unavailable = build_index_health(
+        md_ids=set(),
+        index_ids=set(),
+        expected_supersedes=set(),
+        indexed_supersedes=set(),
+        source_scan_trusted=True,
+        graph_status="unavailable",
+        dirty_marker=DirtyIndexMarker("clean"),
+    )
+    monkeypatch.setattr(
+        maintenance,
+        "collect_index_health_readonly",
+        lambda _brain: unavailable,
+    )
+    monkeypatch.setattr(
+        maintenance,
+        "HubIndex",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("write open")),
+    )
+
+    result = runner.invoke(app, ["verify", "--repair", "--format", "json"])
+
+    assert result.exit_code == 1
+    payload = json.loads(result.output)
+    assert payload["before"]["status"] == "unavailable"
+    assert payload["repair"] is None
+    assert payload["after"] is None
+
+
+def test_verify_repair_graph_only_uses_narrow_sqlite_scope(
+    tmp_brain_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("BRAIN_DIR", str(tmp_brain_dir))
+    store = ItemsStore(tmp_brain_dir / "items")
+    source, source_body = _make_item(
+        "mem-20260720-140022-narrow-source", "narrow source"
+    )
+    target, target_body = _make_item(
+        "mem-20260720-140022-narrow-target", "narrow target"
+    )
+    store.write(source, source_body)
+    store.write(target, target_body)
+    index = HubIndex(tmp_brain_dir / "index.db")
+    index.upsert(source, source_body, embedding=None)
+    index.upsert(target, target_body, embedding=None)
+    index.add_ref(source.id, target.id, "supersedes")
+    index.close()
+    monkeypatch.setattr(
+        maintenance,
+        "HubIndex",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("broad index opened")),
+    )
+    monkeypatch.setattr(
+        maintenance._cli,
+        "get_default_embedder",
+        lambda: (_ for _ in ()).throw(AssertionError("embedder opened")),
+    )
+
+    result = runner.invoke(app, ["verify", "--repair", "--format", "json"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["repair"]["supersedes_deleted"] == 1
+    assert payload["repair"]["supersedes_inserted"] == 0
+    assert payload["after"]["status"] == "clean"
