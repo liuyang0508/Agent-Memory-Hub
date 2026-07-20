@@ -5,6 +5,7 @@ import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from click import unstyle
 from typer.testing import CliRunner
 
 from agent_brain.contracts.memory_item import MemoryItem, MemoryType
@@ -592,7 +593,7 @@ def test_govern_apply_lifecycle_help_describes_backslash_only_as_escape_syntax(
     result = runner.invoke(app, ["govern", "apply-lifecycle", "--help"])
 
     assert result.exit_code == 0, result.output
-    normalized = " ".join(result.output.replace("│", " ").split())
+    normalized = " ".join(unstyle(result.output).replace("│", " ").split())
     assert "backslash is syntax only" in normalized
     assert "backslashes as" not in normalized
 
