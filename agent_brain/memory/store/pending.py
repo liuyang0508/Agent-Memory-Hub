@@ -1671,9 +1671,9 @@ def _locked_index_dirty(brain: Path) -> Iterator[None]:
                 if root_descriptor >= 0:
                     close_descriptor(root_descriptor)
         else:
-            runtime = root / "runtime"
-            _ensure_fallback_directory(runtime)
-            lock_path = runtime / "index-dirty.lock"
+            runtime_path = root / "runtime"
+            _ensure_fallback_directory(runtime_path)
+            lock_path = runtime_path / "index-dirty.lock"
             try:
                 descriptor = os.open(
                     lock_path,
@@ -1686,7 +1686,7 @@ def _locked_index_dirty(brain: Path) -> Iterator[None]:
                 )
                 os.write(descriptor, b"\0")
                 os.fsync(descriptor)
-                _fsync_fallback_directory(runtime)
+                _fsync_fallback_directory(runtime_path)
             except FileExistsError:
                 descriptor = os.open(
                     lock_path,

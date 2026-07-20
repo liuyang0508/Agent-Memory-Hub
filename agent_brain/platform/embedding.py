@@ -49,7 +49,10 @@ class SentenceTransformerEmbedder:
         from sentence_transformers import SentenceTransformer
 
         self._model = SentenceTransformer(model_name)
-        self.dim = int(self._model.get_sentence_embedding_dimension())
+        dimension = self._model.get_sentence_embedding_dimension()
+        if dimension is None:
+            raise ValueError("sentence-transformer did not report an embedding dimension")
+        self.dim = int(dimension)
 
     def embed(self, text: str) -> list[float]:
         vector = self._model.encode(text, normalize_embeddings=True)
