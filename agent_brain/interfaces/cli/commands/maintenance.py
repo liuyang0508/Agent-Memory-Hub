@@ -16,6 +16,8 @@ from agent_brain.interfaces.cli.commands.index_maintenance import (
     reindex_store,
     repair_index_drift,
 )
+from agent_brain.memory.governance.index_health import IndexHealthReport
+from agent_brain.product.governance_readiness import collect_index_health_readonly
 from agent_brain.interfaces.cli.commands.gc import gc
 import agent_brain.interfaces.cli as _cli  # noqa: E402  late binding for test-patched helpers
 
@@ -45,26 +47,63 @@ def verify(
         "--repair",
         help="Repair drift: re-upsert all md items and prune orphan index rows.",
     ),
+    format: str = typer.Option(
+        "text",
+        "--format",
+        help="Output format: text or json.",
+    ),
 ) -> None:
     """Diff md (source of truth) against the sqlite index and report drift."""
+    if format not in {"text", "json"}:
+        typer.echo("format must be text or json", err=True)
+        raise typer.Exit(2)
+    if not repair:
+        report = collect_index_health_readonly(_brain_dir())
+        _emit_verify_report(report, format=format)
+        if report.status != "clean":
+            raise typer.Exit(1)
+        return
+
     with _cli._managed_components() as (store, idx, _):
         drift = inspect_index_drift(store, idx)
         typer.echo(f"md items: {len(drift.md_ids)}")
         typer.echo(f"index items: {len(drift.index_ids)}")
         typer.echo(f"missing from index: {len(drift.missing_in_index)}")
         typer.echo(f"orphan index rows: {len(drift.orphan_in_index)}")
-        if not repair:
-            if drift.missing_in_index or drift.orphan_in_index:
-                for mid in sorted(drift.missing_in_index):
-                    typer.echo(f"  missing: {mid}")
-                for oid in sorted(drift.orphan_in_index):
-                    typer.echo(f"  orphan: {oid}")
-                raise typer.Exit(1)
-            typer.echo("index in sync")
-            return
         embedder = _cli.get_default_embedder()
         result = repair_index_drift(store, idx, embedder, drift)
     typer.echo(f"repaired {result.indexed} items, pruned {result.pruned} orphans")
+
+
+def _emit_verify_report(report: IndexHealthReport, *, format: str) -> None:
+    if format == "json":
+        typer.echo(json.dumps(report.to_summary_dict(), ensure_ascii=False, indent=2))
+        return
+    typer.echo(f"md items: {report.md_count}")
+    typer.echo(f"index items: {report.index_count}")
+    typer.echo(f"missing from index: {len(report.missing_ids)}")
+    typer.echo(f"orphan index rows: {len(report.orphan_ids)}")
+    typer.echo(
+        f"dirty marker: {report.dirty_status} "
+        f"(entries={report.dirty_entry_count}, unique={report.dirty_unique_count}, "
+        f"active={len(report.active_dirty_ids)}, orphan={len(report.orphan_dirty_ids)}, "
+        f"retired={len(report.retired_dirty_ids)}, "
+        f"duplicates={report.duplicate_dirty_entries})"
+    )
+    typer.echo(
+        f"supersession graph: {report.graph_status} "
+        f"(expected={len(report.expected_supersedes)}, "
+        f"indexed={len(report.indexed_supersedes)}, "
+        f"frontmatter-only: {len(report.frontmatter_only_edges)}, "
+        f"graph-only: {len(report.graph_only_edges)})"
+    )
+    if report.status == "clean":
+        typer.echo("index in sync")
+        return
+    for item_id in sorted(report.missing_ids):
+        typer.echo(f"  missing: {item_id}")
+    for item_id in sorted(report.orphan_ids):
+        typer.echo(f"  orphan: {item_id}")
 
 
 @app.command("sync-pending")

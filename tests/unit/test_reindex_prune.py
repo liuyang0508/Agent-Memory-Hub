@@ -6,6 +6,7 @@ and there is no reconcile/verify capability.
 """
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -13,8 +14,10 @@ import pytest
 from typer.testing import CliRunner
 
 from agent_brain.interfaces.cli import app
+from agent_brain.interfaces.cli.commands import maintenance
 from agent_brain.platform.indexing.index import HubIndex
 from agent_brain.memory.store.items_store import ItemsStore
+from agent_brain.memory.store.pending import dirty_index_path
 from agent_brain.contracts.memory_item import MemoryItem, MemoryType
 
 runner = CliRunner()
@@ -94,3 +97,105 @@ def test_verify_repair_then_clean(brain_with_ghost: Path):
     check = runner.invoke(app, ["verify"])
     assert check.exit_code == 0, check.output
     assert "index in sync" in check.output
+
+
+def test_verify_fails_when_ids_match_but_dirty_marker_remains(
+    tmp_brain_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("BRAIN_DIR", str(tmp_brain_dir))
+    item, body = _make_item(LIVE_ID, "dirty live")
+    store = ItemsStore(tmp_brain_dir / "items")
+    store.write(item, body)
+    index = HubIndex(tmp_brain_dir / "index.db")
+    index.upsert(item, body, embedding=None)
+    index.close()
+    dirty_index_path(tmp_brain_dir).write_text(f"{item.id}\n", encoding="utf-8")
+
+    result = runner.invoke(app, ["verify"])
+
+    assert result.exit_code == 1
+    assert "index in sync" not in result.output
+    assert "dirty marker: repair_required" in result.output
+
+
+def test_verify_fails_for_graph_only_supersession_without_printing_edge_ids(
+    tmp_brain_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("BRAIN_DIR", str(tmp_brain_dir))
+    store = ItemsStore(tmp_brain_dir / "items")
+    source, source_body = _make_item(
+        "mem-20260720-140003-graph-source", "graph source"
+    )
+    target, target_body = _make_item(
+        "mem-20260720-140003-graph-target", "graph target"
+    )
+    store.write(source, source_body)
+    store.write(target, target_body)
+    index = HubIndex(tmp_brain_dir / "index.db")
+    index.upsert(source, source_body, embedding=None)
+    index.upsert(target, target_body, embedding=None)
+    index.add_ref(source.id, target.id, "supersedes")
+    index.close()
+
+    result = runner.invoke(app, ["verify"])
+
+    assert result.exit_code == 1
+    assert "graph-only: 1" in result.output
+    assert source.id not in result.output
+    assert target.id not in result.output
+
+
+def test_verify_json_is_readonly_and_low_sensitivity(
+    tmp_brain_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("BRAIN_DIR", str(tmp_brain_dir))
+    store = ItemsStore(tmp_brain_dir / "items")
+    item, body = _make_item(
+        "mem-20260720-140004-json-private", "private json source"
+    )
+    store.write(item, body)
+    index = HubIndex(tmp_brain_dir / "index.db")
+    index.upsert(item, body, embedding=None)
+    index.close()
+    monkeypatch.setattr(
+        maintenance._cli,
+        "_managed_components",
+        lambda: (_ for _ in ()).throw(AssertionError("managed write open")),
+    )
+
+    result = runner.invoke(app, ["verify", "--format", "json"])
+
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert set(payload) == {
+        "schema_version",
+        "status",
+        "reason",
+        "repair_required",
+        "source_scan_trusted",
+        "items",
+        "dirty_marker",
+        "supersession",
+    }
+    assert "mem-" not in result.output
+
+
+def test_verify_rejects_unknown_format_without_opening_index(
+    tmp_brain_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("BRAIN_DIR", str(tmp_brain_dir))
+    monkeypatch.setattr(
+        maintenance,
+        "collect_index_health_readonly",
+        lambda _brain: (_ for _ in ()).throw(AssertionError("collector opened")),
+        raising=False,
+    )
+
+    result = runner.invoke(app, ["verify", "--format", "yaml"])
+
+    assert result.exit_code == 2
+    assert "format must be text or json" in result.output
