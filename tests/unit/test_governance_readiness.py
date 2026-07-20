@@ -547,6 +547,7 @@ def test_lifecycle_readiness_reports_lock_and_receipt_operational_truth(
     assert lane.metrics["pending_receipt_ledger_status"] == "healthy"
     assert lane.metrics["pending_receipt_record_count"] == 1
     assert lane.metrics["pending_receipt_incomplete_count"] == 1
+    assert lane.metrics["snapshot_unstable"] is False
     checks = {check.id: check for check in lane.checks}
     assert checks["pending_lock_hygiene"].status == "warn"
     assert checks["pending_receipt_ledger"].status == "warn"

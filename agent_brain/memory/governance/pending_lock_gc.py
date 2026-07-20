@@ -13,6 +13,7 @@ from agent_brain.memory.store.durable_fs import (
     SecureDirectory,
     lifecycle_mutation_capability,
 )
+from agent_brain.platform.secure_io import open_child_directory
 
 
 MAX_PENDING_LOCK_GC_ENTRIES = 20_000
@@ -95,7 +96,14 @@ def _collect_secure(
     truncated = False
     try:
         with SecureDirectory.open(pending_dir) as pending:
-            with pending.child(".amh-record-locks") as locks:
+            lock_directory = (
+                pending.child(".amh-record-locks")
+                if apply
+                else SecureDirectory(
+                    open_child_directory(pending.fd, ".amh-record-locks")
+                )
+            )
+            with lock_directory as locks:
                 with os.scandir(locks.fd) as entries:
                     while True:
                         try:
