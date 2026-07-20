@@ -22,7 +22,8 @@
 | `extractions/ext-*.json` | 从 resource 抽取的文本、OCR/ASR/摘要/片段等证据。 | `WriteService` 从文本文件或 write input 生成；导入服务也可生成。 | 解释某条记忆的证据来源、补充 resource context、后续检索增强。 | `ResourceStore.iter_extractions()`；通过 item 的 `refs.extractions` 追溯。 |
 | `index.db` | 派生索引：元数据、全文索引、向量、引用图谱。 | `WriteService` best-effort upsert；`memory reindex` 重建；repair 操作修复。 | `memory search`、hook 自动注入、Web 搜索、MCP/SDK search。 | `memory search "query" --explain --format text`；源码是 `HubIndex` + `Retriever`。 |
 | `.index-dirty` | index 更新失败时的 item id 行式日志。 | Markdown 已成功写入，但 index/embedder 不可用或 SQLite 写失败时。 | 后续 `sync-pending` / `reindex` / doctor 修复索引漂移。 | `memory reindex` 或维护命令；人工可直接查看。 |
-| `pending/*.jsonl` | 写入口降级缓冲。Python 或完整写入链不可用时，先把待写 item 记录下来。 | hook shim 或写入入口无法调用 `WriteService` 时。 | `memory sync-pending` 重放；失败多次进入 `pending/dead/`。 | `memory sync-pending`；源码是 `PendingQueue.replay()`。 |
+| `pending/*.jsonl` | 写入口降级缓冲。Python 或完整写入链不可用时，先把待写 item 记录下来。 | hook shim 或写入入口无法调用 `WriteService` 时。 | `memory sync-pending` 默认只预览；显式 `--apply --record ...` 或 `--apply --safe-only` 才重放。 | 先用 `memory sync-pending --summary-only --format json` 看低敏聚合；源码是 `PendingQueue.preview()` / `apply()`。 |
+| `runtime/pending-apply-receipts.jsonl` | pending apply 的低敏、append-only 两阶段回执。 | 显式 apply 在写 item 前追加 prepared，完成后追加 completed。 | prepared 没有对应 completed 表示批次证据不完整；不包含 title、summary、path、record id 或 item id。 | `memory govern readiness --format json` 查看 ledger status / incomplete count；不要手工改写。 |
 | `runtime/adapter-events.jsonl` | hook 是否真实跑过的机械证据。只记录 adapter、event、session、cwd，不存 prompt/body。 | SessionStart、UserPromptSubmit、Stop、PreCompact、PostCompact、SubagentStart、SubagentStop hook 执行时。 | adapter doctor、verified gate、运行状态诊断。 | `memory adapter doctor <adapter> --format json`；源码是 `runtime_events.py`。 |
 | `runtime/injection-cohorts.jsonl` | 某次自动注入最终进入上下文的 item id 集合、pack metrics 和安全关键词 `query_terms`。不会存 prompt 正文。 | `inject-context.sh` 调 `memory search --record-injection-cohort` 且有结果时。 | 分析哪些关键词触发了哪些记忆、哪些被反馈采纳/拒绝。 | `memory hook recent --format json`、runtime 诊断、Web trace、`latest_injection_cohort()`。 |
 | `runtime/recall-gaps.jsonl` | 召回缺口：没有结果、query 太弱、候选被 firewall 拒绝、图片/音频缺少 OCR/ASR 文本等。 | hook/search 开启 `--record-recall-gap` 且没有可注入上下文时。 | 发现“为什么没召回”、训练 benchmark/治理候选。 | `memory hook recent --limit 5` 看最近 hook 结果；`memory recall-drift ...` 做批量治理；源码是 `recall_events.py`。 |
@@ -202,7 +203,7 @@ rg "<item-id>" ~/.agent-memory-hub/resources ~/.agent-memory-hub/extractions
 
 ```bash
 memory reindex
-memory sync-pending
+memory sync-pending --summary-only --format json
 memory doctor --offline
 ```
 
@@ -241,7 +242,9 @@ cat ~/.agent-memory-hub/sources/writes/<item-id>.json
 find ~/.agent-memory-hub/resources ~/.agent-memory-hub/extractions -type f | tail
 
 # 7. 修复 pending / index
-memory sync-pending
+memory sync-pending --summary-only --format json
+# 审核 summary 后，才显式选择记录执行：
+memory sync-pending --apply --record <record-id> --summary-only --format json
 memory reindex
 memory doctor --offline
 ```
@@ -254,5 +257,10 @@ memory doctor --offline
 - **检索加速**在 `index.db`，它可重建，不是事实源。
 - **运行诊断**在 `runtime/`，它记录系统行为，不记录完整正文。
 - **失败兜底**在 `pending/` 和 `.index-dirty`，用于恢复，不是最终状态。
+
+pending apply 的完整性边界是：先 durable append prepared receipt，再逐记录走
+`WriteService`，最后 append completed receipt。completed append 失败时，item 写入事实不回滚，
+但 CLI 会返回 `PENDING_RECEIPT_COMPLETION_FAILED` 和 incomplete receipt。record lock 只会在持有
+全局 pending queue lock、确认对应 record 已不存在、且能对同一 inode 取得非阻塞独占锁后删除。
 
 因此用户可以放心：AMH 不是把所有聊天粗暴塞进 prompt，而是把原始证据、可复用结论、索引投影和运行诊断分层管理。

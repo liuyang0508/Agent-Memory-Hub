@@ -144,6 +144,7 @@ memory govern readiness --format markdown
 memory govern plan --category lifecycle --format markdown
 memory govern plan --category lifecycle --format json
 memory govern apply-lifecycle <memory-id> --dry-run --format json
+memory sync-pending --summary-only --limit 100 --format json
 memory search "project decision"
 memory hook recent --limit 5
 ```
@@ -162,6 +163,14 @@ contains a `review_queue` with item IDs, bounded `memory read` commands, and
 `memory govern apply-lifecycle` rechecks selected IDs against the current
 `review_queue`; it defaults to `--dry-run` and only archives matched items when
 you pass `--apply`.
+
+`memory sync-pending` also defaults to preview. Use `--summary-only` when you
+only need classification, blocker reason, lock-hygiene, or batch counts and do
+not want titles, summaries, paths, or record IDs in the output. A mutating run
+still requires `--apply` plus `--record` or `--safe-only`; it persists a
+low-sensitivity prepared/completed receipt before reporting the batch complete.
+An incomplete receipt is an explicit governance warning, not proof that the
+underlying item write failed.
 
 ### Adapter lifecycle truth model
 

@@ -48,6 +48,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   fixture hashes are reproducible offline and do not claim that a real brain
   dry-run has completed. Its branch-protection required context remains pending
   external repository configuration.
+- **Pending operational truth** — lifecycle readiness now reuses its bounded,
+  trusted item metadata snapshot when classifying pending records, eliminating
+  the second full item scan that could falsely exhaust the pending budget on a
+  large brain. The report also exposes low-sensitivity reason counts, record-lock
+  hygiene, and pending apply receipt-ledger health.
+- **Auditable pending batches** — `memory sync-pending --summary-only` provides
+  count-only preview/apply JSON. Explicit apply writes prepared/completed,
+  append-only receipts under `runtime/pending-apply-receipts.jsonl`; partial
+  completion is reported as incomplete. Proven orphan record locks are collected
+  only while the global pending queue lock is held and after a non-blocking
+  exclusive inode check.
 
 ### Changed
 

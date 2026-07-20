@@ -14,7 +14,7 @@
     "observed_drift_count": 1,
     "status": "pass"
   },
-  "implementation_hash": "sha256:22d2af75561560ba6f5d8f62488c81690487185950daf2ed87789f601e11ee5b",
+  "implementation_hash": "sha256:69c819cb23c2239c101ee42df7a3227c0cd619fac74c6c5b978b99ed173b6f0c",
   "implementation_manifest": [
     {
       "path": "agent_brain/agent_integrations/hermes/import_export_tools.py",
@@ -42,7 +42,7 @@
     },
     {
       "path": "agent_brain/interfaces/cli/commands/maintenance.py",
-      "sha256": "sha256:31682cf1be8f6db4bf944577e9a479761156658aeddedf381214f083d1f05281"
+      "sha256": "sha256:c8d8683641d0b80ea20df072e0a507fa9918cbeecf4dc23ad5ba40474d8f7518"
     },
     {
       "path": "agent_brain/interfaces/cli/commands/review.py",
@@ -54,7 +54,7 @@
     },
     {
       "path": "agent_brain/interfaces/cli/doctor_offline.py",
-      "sha256": "sha256:d195a8f337721afe50b61d92766f581e15a7d02ee117f8c145e028f335c487cc"
+      "sha256": "sha256:a079f540b9fcf7a83eb9f23efcbdabbe8e4c6447640acd06624387d354b7f0e5"
     },
     {
       "path": "agent_brain/interfaces/mcp/onboarding.py",
@@ -138,7 +138,7 @@
     },
     {
       "path": "agent_brain/memory/store/pending.py",
-      "sha256": "sha256:282d45da574e67b965a8a859bbd3801a9c824e28454af5912ebb61a10cd6b8e4"
+      "sha256": "sha256:582340bf893fb362a6dc768355405010a338ab3b93fba5c14271bd1792c535d4"
     },
     {
       "path": "agent_brain/memory/store/write_service.py",
@@ -162,7 +162,7 @@
     },
     {
       "path": "agent_brain/product/governance_readiness.py",
-      "sha256": "sha256:e948e23868e4125f7fd50b5ee634f92f24fc3868975d6bee2fa8c61f4a4339dc"
+      "sha256": "sha256:d35aa853aacd0c2e78fc3d0c4234a2bd27ee97efab5af5192ff03277f50f552e"
     },
     {
       "path": "web/api/routes/governance.py",
