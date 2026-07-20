@@ -88,8 +88,78 @@ def test_collect_index_health_readonly_does_not_open_hub_index(
     assert after == before
 
 
+def test_readiness_index_metrics_match_shared_health_report(tmp_path) -> None:
+    brain = tmp_path / "brain"
+    store = ItemsStore(brain / "items")
+    item = _index_health_item("mem-20260720-140023-readiness-shared")
+    store.write(item, item.summary)
+    index = HubIndex(brain / "index.db")
+    index.upsert(item, item.summary, embedding=None)
+    index.close()
+
+    report = collect_index_health_readonly(brain)
+    lane = build_memory_lifecycle_readiness(brain)
+
+    assert lane.metrics["index_health_status"] == report.status
+    assert lane.metrics["index_missing_count"] == len(report.missing_ids)
+    assert lane.metrics["index_orphan_count"] == len(report.orphan_ids)
+    assert lane.metrics["index_dirty_entries"] == report.dirty_entry_count
+    assert lane.metrics["index_dirty_unique"] == report.dirty_unique_count
+    assert lane.metrics["index_dirty_retired"] == len(report.retired_dirty_ids)
+    assert lane.metrics["supersession_drift_count"] == (
+        len(report.frontmatter_only_edges) + len(report.graph_only_edges)
+    )
+
+
+def test_readiness_collects_items_and_index_once(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    import agent_brain.product.governance_readiness as readiness_module
+
+    brain = tmp_path / "brain"
+    store = ItemsStore(brain / "items")
+    item = _index_health_item("mem-20260720-140024-readiness-single-scan")
+    store.write(item, item.summary)
+    index = HubIndex(brain / "index.db")
+    index.upsert(item, item.summary, embedding=None)
+    index.close()
+    item_scans = 0
+    index_scans = 0
+    real_items = readiness_module._read_items_readonly
+    real_index = readiness_module._read_index_projection_readonly
+
+    def counted_items(path):
+        nonlocal item_scans
+        item_scans += 1
+        return real_items(path)
+
+    def counted_index(path):
+        nonlocal index_scans
+        index_scans += 1
+        return real_index(path)
+
+    monkeypatch.setattr(readiness_module, "_read_items_readonly", counted_items)
+    monkeypatch.setattr(
+        readiness_module,
+        "_read_index_projection_readonly",
+        counted_index,
+    )
+
+    lane = build_memory_lifecycle_readiness(brain)
+
+    assert lane.metrics["index_health_status"] == "clean"
+    assert item_scans == 1
+    assert index_scans == 1
+
+
 def _write_supersedes_index(brain: Path, edges: list[tuple[str, str]]) -> None:
     with sqlite3.connect(brain / "index.db") as connection:
+        connection.execute("CREATE TABLE items_meta (id TEXT PRIMARY KEY)")
+        connection.executemany(
+            "INSERT INTO items_meta(id) VALUES (?)",
+            [(item_id,) for item_id in sorted({item_id for edge in edges for item_id in edge})],
+        )
         connection.execute(
             "CREATE TABLE refs_graph ("
             "source_id TEXT NOT NULL, target_id TEXT NOT NULL, "
@@ -133,6 +203,13 @@ def _open_wal_index_without_shm(
     connection = sqlite3.connect(database)
     assert connection.execute("PRAGMA journal_mode=WAL").fetchone() == ("wal",)
     connection.execute("PRAGMA wal_autocheckpoint=0")
+    connection.execute(
+        "CREATE TABLE items_meta (id TEXT PRIMARY KEY)"
+    )
+    connection.executemany(
+        "INSERT INTO items_meta(id) VALUES (?)",
+        [(item_id,) for item_id in edge],
+    )
     connection.execute(
         "CREATE TABLE refs_graph ("
         "source_id TEXT NOT NULL, target_id TEXT NOT NULL, relation TEXT NOT NULL, "
@@ -427,6 +504,11 @@ def test_lifecycle_readiness_fails_on_frontmatter_only_drift_and_ignores_custom_
         title="frontmatter new",
     )
     with sqlite3.connect(brain / "index.db") as connection:
+        connection.execute("CREATE TABLE items_meta (id TEXT PRIMARY KEY)")
+        connection.executemany(
+            "INSERT INTO items_meta(id) VALUES (?)",
+            [(old_id,), (new_id,)],
+        )
         connection.execute(
             "CREATE TABLE refs_graph ("
             "source_id TEXT NOT NULL, target_id TEXT NOT NULL, relation TEXT NOT NULL, "
@@ -841,7 +923,7 @@ def test_lifecycle_readiness_counts_archived_replacement_as_broken(
     assert lane.status == "fail"
 
 
-def test_lifecycle_readiness_ignores_dangling_and_non_supersedes_graph_edges(
+def test_lifecycle_readiness_reports_dangling_supersedes_and_ignores_custom_edges(
     tmp_path,
     monkeypatch,
 ):
@@ -860,6 +942,11 @@ def test_lifecycle_readiness_ignores_dangling_and_non_supersedes_graph_edges(
     )
     missing_id = "mem-20260719-110007-dangling-graph-missing"
     with sqlite3.connect(brain / "index.db") as connection:
+        connection.execute("CREATE TABLE items_meta (id TEXT PRIMARY KEY)")
+        connection.executemany(
+            "INSERT INTO items_meta(id) VALUES (?)",
+            [(active_id,), (missing_id,)],
+        )
         connection.execute(
             "CREATE TABLE refs_graph ("
             "source_id TEXT NOT NULL, target_id TEXT NOT NULL, relation TEXT NOT NULL, "
@@ -876,7 +963,9 @@ def test_lifecycle_readiness_ignores_dangling_and_non_supersedes_graph_edges(
     lane = build_memory_lifecycle_readiness(brain)
 
     assert lane.metrics["supersession_graph_status"] == "available"
-    assert lane.metrics["supersession_drift_count"] == 0
+    assert lane.metrics["supersession_drift_count"] == 1
+    assert lane.metrics["index_orphan_count"] == 1
+    assert lane.metrics["index_health_status"] == "repair_required"
 
 
 def test_lifecycle_readiness_fails_closed_on_malformed_item_and_corrupt_index(

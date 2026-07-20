@@ -388,9 +388,17 @@ def collect_index_health_readonly(brain_dir: Path) -> IndexHealthReport:
 
     brain = Path(brain_dir)
     item_snapshot = _read_items_readonly(brain / "items")
+    projection = _read_index_projection_readonly(brain / "index.db")
+    return _build_index_health_from_snapshots(brain, item_snapshot, projection)
+
+
+def _build_index_health_from_snapshots(
+    brain: Path,
+    item_snapshot: _ReadinessItemsSnapshot,
+    projection: _IndexProjectionTruth,
+) -> IndexHealthReport:
     active_items = item_snapshot.active_items
     active_ids = frozenset(item.id for item in active_items)
-    projection = _read_index_projection_readonly(brain / "index.db")
     expected_supersedes = frozenset(
         (str(item.superseded_by), item.id)
         for item in active_items
@@ -486,30 +494,23 @@ def _memory_lifecycle_lane_once(brain_dir: Path) -> ReadinessLane:
     ]
 
     pending_metrics = _pending_truth_readonly(brain, item_catalog=item_snapshot.catalog)
-    graph_truth = _read_supersedes_graph_readonly(brain / "index.db")
-    frontmatter_edges = frozenset(
-        (str(item.superseded_by), item.id)
-        for item in superseded_items
-        if item.superseded_by in active_ids
+    index_projection = _read_index_projection_readonly(brain / "index.db")
+    index_health = _build_index_health_from_snapshots(
+        brain,
+        item_snapshot,
+        index_projection,
     )
-    if graph_truth.status == "available":
-        comparable_graph_edges = frozenset(
-            (source_id, target_id)
-            for source_id, target_id in graph_truth.edges
-            if source_id in active_ids and target_id in active_ids
-        )
-        supersession_drift_count: int | None = len(
-            frontmatter_edges.symmetric_difference(comparable_graph_edges)
-        )
-    else:
-        supersession_drift_count = None
-
-    index_dirty_status = read_dirty_index_marker(brain).status
-    index_repair_required = (
-        graph_truth.status != "available"
-        or bool(supersession_drift_count)
-        or index_dirty_status != "clean"
+    graph_truth = _IndexGraphTruth(
+        index_health.graph_status,
+        index_health.indexed_supersedes,
     )
+    supersession_drift_count: int | None = (
+        len(index_health.frontmatter_only_edges) + len(index_health.graph_only_edges)
+        if index_health.graph_status == "available"
+        else None
+    )
+    index_dirty_status = index_health.dirty_status
+    index_repair_required = index_health.status != "clean"
     metrics = {
         "total_items": len(items),
         "by_type": dict(sorted(by_type.items())),
@@ -535,6 +536,13 @@ def _memory_lifecycle_lane_once(brain_dir: Path) -> ReadinessLane:
         "supersession_drift_count": supersession_drift_count,
         "index_dirty_status": index_dirty_status,
         "index_repair_required": index_repair_required,
+        "index_health_status": index_health.status,
+        "index_health_reason": index_health.reason,
+        "index_missing_count": len(index_health.missing_ids),
+        "index_orphan_count": len(index_health.orphan_ids),
+        "index_dirty_entries": index_health.dirty_entry_count,
+        "index_dirty_unique": index_health.dirty_unique_count,
+        "index_dirty_retired": len(index_health.retired_dirty_ids),
     }
     checks = [
         _threshold_check(
