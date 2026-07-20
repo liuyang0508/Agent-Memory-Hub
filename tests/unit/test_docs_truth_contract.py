@@ -29,6 +29,7 @@ EXPECTED_LIFECYCLE_IMPLEMENTATION_PATHS = (
     "agent_brain/interfaces/cli/commands/review.py",
     "agent_brain/interfaces/cli/commands/subapps.py",
     "agent_brain/interfaces/cli/doctor_offline.py",
+    "agent_brain/interfaces/mcp/onboarding.py",
     "agent_brain/interfaces/mcp/tools/graph.py",
     "agent_brain/interfaces/mcp/tools/io.py",
     "agent_brain/interfaces/mcp/tools/mutation_tools.py",
@@ -270,6 +271,7 @@ def test_lifecycle_generator_detects_changed_snapshot_and_writes_atomically(
 
     target = tmp_path / "report.json"
     target.write_text("old\n", encoding="utf-8")
+    real_replace = generator.os.replace
 
     def fail_replace(*_args: object, **_kwargs: object) -> None:
         raise OSError("synthetic replace failure")
@@ -279,6 +281,25 @@ def test_lifecycle_generator_detects_changed_snapshot_and_writes_atomically(
         generator._atomic_write_text(target, "new\n")
     assert target.read_text(encoding="utf-8") == "old\n"
     assert not list(tmp_path.glob(".amh-lifecycle-*"))
+
+    monkeypatch.setattr(generator.os, "replace", real_replace)
+    new_target = tmp_path / "new-report.json"
+    generator._atomic_write_text(new_target, "new\n")
+    assert new_target.stat().st_mode & 0o777 == 0o644
+
+    inherited_target = tmp_path / "inherited-report.json"
+    inherited_target.write_text("old\n", encoding="utf-8")
+    inherited_target.chmod(0o640)
+    generator._atomic_write_text(inherited_target, "new\n")
+    assert inherited_target.stat().st_mode & 0o777 == 0o640
+
+
+def test_committed_lifecycle_reports_are_publicly_readable() -> None:
+    for path in (
+        ROOT / "docs/evaluation/lifecycle-governance-readiness.json",
+        ROOT / "docs/evaluation/lifecycle-governance-readiness.zh.md",
+    ):
+        assert path.stat().st_mode & 0o777 == 0o644
 
 
 def test_lifecycle_generator_partial_cross_file_write_is_stale_then_repairable(

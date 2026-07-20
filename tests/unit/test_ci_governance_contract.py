@@ -8,6 +8,15 @@ import yaml
 
 CHECKOUT_SHA = "11bd71901bbe5b1630ceea73d27597364c9af683"
 SETUP_PYTHON_SHA = "a26af69be951a213d495a4c3e4e4022e16d87065"
+UPLOAD_ARTIFACT_SHA = "ea165f8d65b6e75b540449e92b4886f43607fa02"
+
+
+def _assert_all_official_actions_are_pinned(workflow: dict[str, object]) -> None:
+    for configured_job in workflow["jobs"].values():
+        for step in configured_job["steps"]:
+            uses = str(step.get("uses", ""))
+            if uses.startswith("actions/"):
+                assert re.fullmatch(r"actions/[^@]+@[0-9a-f]{40}", uses)
 
 
 def _assert_lifecycle_job_fail_closed(job: dict[str, object]) -> None:
@@ -74,7 +83,7 @@ def test_recall_quality_job_is_fail_closed_and_replays_fresh_evidence() -> None:
     assert "--require-clean" in commands
     assert "./scripts/check-recall-quality.py" in commands
     assert "--write" not in commands
-    assert "actions/upload-artifact@v4" in workflow_text
+    assert f"actions/upload-artifact@{UPLOAD_ARTIFACT_SHA}" in workflow_text
     assert "hook-recall-evidence" in workflow_text
 
 
@@ -159,13 +168,23 @@ def test_lifecycle_governance_workflow_contract_is_exact_and_least_privilege() -
         "name": "Verify committed lifecycle governance evidence",
         "run": "python scripts/generate-lifecycle-governance-report.py --check",
     }
-    for configured_job in workflow["jobs"].values():
-        for step in configured_job["steps"]:
-            uses = str(step.get("uses", ""))
-            if uses.startswith("actions/checkout@") or uses.startswith(
-                "actions/setup-python@"
-            ):
-                assert re.fullmatch(r"[^@]+@[0-9a-f]{40}", uses)
+    _assert_all_official_actions_are_pinned(workflow)
+
+
+def test_governance_workflow_rejects_mutable_upload_artifact_tag() -> None:
+    workflow = yaml.safe_load(
+        Path(".github/workflows/governance-gates.yml").read_text(encoding="utf-8")
+    )
+    mutated = copy.deepcopy(workflow)
+    upload = next(
+        step
+        for step in mutated["jobs"]["recall-quality"]["steps"]
+        if str(step.get("uses", "")).startswith("actions/upload-artifact@")
+    )
+    upload["uses"] = "actions/upload-artifact@v4"
+
+    with pytest.raises(AssertionError):
+        _assert_all_official_actions_are_pinned(mutated)
 
 
 @pytest.mark.parametrize(

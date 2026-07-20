@@ -14,7 +14,7 @@
     "observed_drift_count": 1,
     "status": "pass"
   },
-  "implementation_hash": "sha256:e6bb2f680df1cdfc3df91d608ab9e887d607218ea388f76d152aad0b9289ebb9",
+  "implementation_hash": "sha256:9d3edfe7f30eb6aa967b939c3e6ad836131677018827a3979ad3b68a016433fe",
   "implementation_manifest": [
     {
       "path": "agent_brain/agent_integrations/hermes/import_export_tools.py",
@@ -55,6 +55,10 @@
     {
       "path": "agent_brain/interfaces/cli/doctor_offline.py",
       "sha256": "sha256:d195a8f337721afe50b61d92766f581e15a7d02ee117f8c145e028f335c487cc"
+    },
+    {
+      "path": "agent_brain/interfaces/mcp/onboarding.py",
+      "sha256": "sha256:6c0bf6afa7fee25c32d05812a37249c5f417b26d09043b95277d73e97321f564"
     },
     {
       "path": "agent_brain/interfaces/mcp/tools/graph.py",
@@ -166,7 +170,7 @@
     },
     {
       "path": "scripts/generate-lifecycle-governance-report.py",
-      "sha256": "sha256:c97215e7bc2a5e55fd5071323fc80493f4c67a092942490af292f014dc759204"
+      "sha256": "sha256:6dddbbe74430a093572f168e7288d87e6f8b4ce283f6613accae188510866b12"
     }
   ],
   "overall_status": "pending",

@@ -58,6 +58,7 @@ IMPLEMENTATION_PATHS = (
     "agent_brain/interfaces/cli/commands/review.py",
     "agent_brain/interfaces/cli/commands/subapps.py",
     "agent_brain/interfaces/cli/doctor_offline.py",
+    "agent_brain/interfaces/mcp/onboarding.py",
     "agent_brain/interfaces/mcp/tools/graph.py",
     "agent_brain/interfaces/mcp/tools/io.py",
     "agent_brain/interfaces/mcp/tools/mutation_tools.py",
@@ -165,11 +166,16 @@ def _snapshot_unchanged(snapshot: FileSnapshot) -> bool:
 def _atomic_write_text(path: Path, text: str) -> None:
     destination = Path(path)
     destination.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        mode = stat.S_IMODE(destination.stat().st_mode)
+    except FileNotFoundError:
+        mode = 0o644
     descriptor, temporary = tempfile.mkstemp(
         prefix=".amh-lifecycle-", dir=destination.parent
     )
     temporary_path = Path(temporary)
     try:
+        os.fchmod(descriptor, mode)
         data = text.encode("utf-8")
         written = 0
         while written < len(data):
