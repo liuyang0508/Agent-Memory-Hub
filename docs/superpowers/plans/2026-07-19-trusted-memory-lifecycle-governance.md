@@ -2,6 +2,10 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> 执行状态（2026-07-20）：本地实现与 synthetic fixture 验证完成；整体 release、branch
+> protection required context 和真实 brain dry-run 均保持 `PENDING`。Task 10 Step 4–8 未执行；
+> 未 merge、未 push、未读取或修改真实 brain。历史 TDD 步骤没有逐项重放证据，因此保持未勾选。
+
 **Goal:** 修复 supersession 图与 Markdown 的事实分裂，把 Pending Queue 升级为保留原时间、稳定 ID、默认预览且可审计回放的 v2，并让 CLI、MCP、Web、doctor、readiness 共享同一生命周期合同。
 
 **Architecture:** 保持 `items/*.md` 为长期知识权威，不新增 MemoryItem 状态字段。新增独立的 supersession transaction、candidate generator 和低敏 ledger；pending 使用向后兼容的 v2 envelope 与稳定 replay identity。SQLite、图谱、readiness 和 Web 都是对 Markdown、pending files 与 ledger 的派生视图，失败时必须显式降级或阻断。
@@ -1211,7 +1215,7 @@ git commit -m "ci: require trusted lifecycle governance evidence"
 - Runtime artifact only: `/tmp/amh-lifecycle-readiness.json`
 - Runtime artifact only: `/tmp/amh-pending-preview.json`
 
-- [ ] **Step 1: 跑聚焦测试**
+- [x] **Step 1: 跑聚焦测试**
 
 ```bash
 python -m pytest tests/unit/test_supersession.py tests/unit/test_lifecycle_candidates.py \
@@ -1222,24 +1226,42 @@ python -m pytest tests/unit/test_supersession.py tests/unit/test_lifecycle_candi
 
 Expected: PASS。
 
-- [ ] **Step 2: 跑完整本地门禁**
+2026-07-20 新鲜证据：退出码 0，`368 passed in 196.45s`。
+
+- [x] **Step 2: 跑完整本地门禁**
 
 ```bash
 python -m pytest tests/unit -q
 python -m pytest tests/system -q
 python -m pytest tests/conformance -q
-bash agent_runtime_kit/tests/test_hooks.sh
+bash agent_runtime_kit/hooks/test-hook.sh
 python scripts/check-recall-quality.py
 python scripts/generate-adapter-governance.py --check
 python scripts/generate-lifecycle-governance-report.py --check
 ruff check .
+python scripts/check_mypy_baseline.py
 git diff --check
 ```
 
-Expected: 全部 PASS；如果 Python 3.14 的已知 mypy/依赖问题重现，使用项目支持的 Python 3.12
-环境运行 `python scripts/check_mypy_baseline.py`，不得跳过类型门禁或新增 baseline fingerprint。
+Expected: 全部 PASS。使用项目支持的 Python 3.12 运行类型门禁，不得跳过或新增 baseline
+fingerprint。最初计划中的 `agent_runtime_kit/tests/test_hooks.sh` 从未存在，实际执行入口以
+`.github/workflows/hook-tests.yml` 为事实源，即 `agent_runtime_kit/hooks/test-hook.sh`；旧路径的
+新鲜执行结果为退出码 127，没有创建兼容空壳掩盖该问题。
 
-- [ ] **Step 3: 标记规格与计划完成并提交**
+2026-07-20 新鲜证据（Python 3.12.13）：
+
+- unit：退出码 0，`3432 passed, 2 skipped in 693.29s`；两项 skip 均要求显式读取真实
+  `~/.agent-memory-hub`，本轮按真实 brain 禁读边界未启用；
+- system：退出码 0，`33 passed in 30.76s`；
+- conformance：退出码 0，`56 passed, 2 skipped in 15.31s`；两项 skip 同为真实 brain opt-in；
+- Hook unit tests 权威脚本：退出码 0，`6 passed / 0 failed`；
+- recall quality：退出码 0，`cases=37`；adapter governance：退出码 0，
+  `PASS manifests=16 batches=2 privacy=PASS`；
+- lifecycle governance：退出码 0，`synthetic=PASS release=PENDING real-brain-dry-run=PENDING`；
+- Ruff：退出码 0；mypy baseline：退出码 0，`current=691 baseline=701 resolved=10`；
+- `git diff --check`：退出码 0。
+
+- [x] **Step 3: 标记规格与计划完成并提交**
 
 规格状态改为“实现完成，待真实数据分批治理”；计划中仅勾选已经有命令证据的步骤。提交：
 
@@ -1248,6 +1270,9 @@ git add docs/superpowers/specs/2026-07-19-trusted-memory-lifecycle-governance-de
   docs/superpowers/plans/2026-07-19-trusted-memory-lifecycle-governance.md
 git commit -m "docs: record trusted lifecycle governance verification"
 ```
+
+本步骤只确认规格状态、上述本地证据和提交本身；不把 Step 4–8、外部 required context 或真实
+brain 治理写成已完成。
 
 - [ ] **Step 4: 快进本地 main 并直推 GitHub**
 

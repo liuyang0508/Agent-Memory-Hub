@@ -2,7 +2,11 @@
 
 日期：2026-07-19（Asia/Shanghai）
 
-状态：已批准并进入实施计划
+状态：实现完成，待真实数据分批治理
+
+验证边界（2026-07-20）：代码与 synthetic fixture 的本地门禁已通过；整体 release 仍为
+`PENDING`，branch protection required context 仍待仓库管理员配置，真实 brain dry-run 尚未
+运行。真实 backlog 未被读取或修改，任何分批 `--apply` 仍须用户对具体批次单独批准。
 
 ## 1. 背景与实时证据
 
