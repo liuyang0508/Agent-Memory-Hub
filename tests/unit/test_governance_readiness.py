@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import subprocess
+import sys
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -82,6 +84,59 @@ def _open_wal_index_without_shm(
     assert Path(f"{database}-wal").exists()
     assert not Path(f"{database}-shm").exists()
     return connection
+
+
+def _create_hot_rollback_journal(
+    brain: Path,
+    *,
+    committed_edge: tuple[str, str],
+    dirty_edge: tuple[str, str],
+) -> Path:
+    database = brain / "index.db"
+    with sqlite3.connect(database) as connection:
+        connection.execute("PRAGMA journal_mode=DELETE")
+        connection.execute(
+            "CREATE TABLE refs_graph ("
+            "source_id TEXT NOT NULL, target_id TEXT NOT NULL, relation TEXT NOT NULL)"
+        )
+        connection.execute(
+            "CREATE TABLE spill (sequence INTEGER PRIMARY KEY, payload BLOB)"
+        )
+        connection.execute(
+            "INSERT INTO refs_graph VALUES (?, ?, 'supersedes')",
+            committed_edge,
+        )
+    script = """
+import os
+import sqlite3
+import sys
+
+database, dirty_source, dirty_target = sys.argv[1:]
+connection = sqlite3.connect(database)
+connection.execute("PRAGMA journal_mode=DELETE")
+connection.execute("PRAGMA synchronous=FULL")
+connection.execute("PRAGMA cache_size=1")
+connection.execute("PRAGMA cache_spill=ON")
+connection.execute("BEGIN IMMEDIATE")
+connection.execute("DELETE FROM refs_graph")
+connection.execute(
+    "INSERT INTO refs_graph VALUES (?, ?, 'supersedes')",
+    (dirty_source, dirty_target),
+)
+for _index in range(2000):
+    connection.execute("INSERT INTO spill(payload) VALUES (?)", (b"x" * 4000,))
+os._exit(0)
+"""
+    subprocess.run(
+        [sys.executable, "-c", script, str(database), *dirty_edge],
+        check=True,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    journal = Path(f"{database}-journal")
+    assert journal.exists()
+    return database
 
 
 def _write_item(
@@ -741,3 +796,105 @@ def test_lifecycle_readiness_reads_wal_snapshot_only_from_external_temp_copy(
             assert not Path(database).parent.exists()
     finally:
         writer.close()
+
+
+def test_lifecycle_readiness_rolls_back_hot_journal_only_in_temp_snapshot(
+    tmp_path,
+):
+    import agent_brain.product.governance_readiness as readiness_module
+
+    brain = tmp_path / "brain"
+    brain.mkdir()
+    committed_edge = ("committed-new", "committed-old")
+    dirty_edge = ("dirty-new", "dirty-old")
+    database = _create_hot_rollback_journal(
+        brain,
+        committed_edge=committed_edge,
+        dirty_edge=dirty_edge,
+    )
+    raw_copy = tmp_path / "raw-without-journal.db"
+    raw_copy.write_bytes(database.read_bytes())
+    with sqlite3.connect(
+        f"{raw_copy.as_uri()}?mode=ro&immutable=1",
+        uri=True,
+    ) as connection:
+        assert connection.execute(
+            "SELECT source_id, target_id FROM refs_graph WHERE relation = 'supersedes'"
+        ).fetchall() == [dirty_edge]
+    before = _full_tree_snapshot(brain)
+
+    truth = readiness_module._read_supersedes_graph_readonly(database)
+
+    assert truth.status == "available"
+    assert truth.edges == frozenset({committed_edge})
+    assert dirty_edge not in truth.edges
+    assert _full_tree_snapshot(brain) == before
+
+
+def test_lifecycle_readiness_ignores_stale_non_hot_journal_without_mutation(
+    tmp_path,
+):
+    import agent_brain.product.governance_readiness as readiness_module
+
+    brain = tmp_path / "brain"
+    brain.mkdir()
+    committed_edge = ("stale-journal-new", "stale-journal-old")
+    _write_supersedes_index(brain, [committed_edge])
+    journal = brain / "index.db-journal"
+    journal.write_bytes(b"\0" * 1024)
+    before = _full_tree_snapshot(brain)
+
+    truth = readiness_module._read_supersedes_graph_readonly(brain / "index.db")
+
+    assert truth.status == "available"
+    assert truth.edges == frozenset({committed_edge})
+    assert _full_tree_snapshot(brain) == before
+
+
+def test_lifecycle_readiness_rejects_oversized_rollback_journal(
+    tmp_path,
+    monkeypatch,
+):
+    import agent_brain.product.governance_readiness as readiness_module
+
+    brain = tmp_path / "brain"
+    brain.mkdir()
+    _write_supersedes_index(brain, [("bounded-new", "bounded-old")])
+    journal = brain / "index.db-journal"
+    journal.write_bytes(b"\0" * 1024)
+    before = _full_tree_snapshot(brain)
+    monkeypatch.setitem(readiness_module._INDEX_COMPONENT_LIMITS, "-journal", 512)
+
+    truth = readiness_module._read_supersedes_graph_readonly(brain / "index.db")
+
+    assert truth.status == "unavailable"
+    assert _full_tree_snapshot(brain) == before
+
+
+def test_lifecycle_readiness_rejects_journal_changed_during_snapshot(
+    tmp_path,
+    monkeypatch,
+):
+    import agent_brain.product.governance_readiness as readiness_module
+
+    brain = tmp_path / "brain"
+    brain.mkdir()
+    _write_supersedes_index(brain, [("changing-new", "changing-old")])
+    journal = brain / "index.db-journal"
+    journal.write_bytes(b"\0" * 1024)
+    real_copy = readiness_module._copy_index_component
+
+    def copy_then_change(source, destination, **kwargs):
+        real_copy(source, destination, **kwargs)
+        if source.name == "index.db-journal":
+            source.write_bytes(source.read_bytes() + b"changed")
+
+    monkeypatch.setattr(
+        readiness_module,
+        "_copy_index_component",
+        copy_then_change,
+    )
+
+    truth = readiness_module._read_supersedes_graph_readonly(brain / "index.db")
+
+    assert truth.status == "unavailable"

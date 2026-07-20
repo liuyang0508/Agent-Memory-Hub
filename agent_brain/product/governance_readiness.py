@@ -322,8 +322,9 @@ _INDEX_COMPONENT_LIMITS = {
     "": 512 * 1024 * 1024,
     "-wal": 512 * 1024 * 1024,
     "-shm": 64 * 1024 * 1024,
+    "-journal": 512 * 1024 * 1024,
 }
-_MAX_INDEX_SNAPSHOT_BYTES = 1024 * 1024 * 1024
+_MAX_INDEX_SNAPSHOT_BYTES = 2 * 1024 * 1024 * 1024
 _SQLITE_SHARED_FIRST_BYTE = 0x40000002
 
 
@@ -672,7 +673,9 @@ def _query_supersedes_from_external_snapshot(
         for suffix in _INDEX_COMPONENT_LIMITS
     }
     states: dict[str, _IndexComponentState | None] = {"": primary}
-    for suffix in ("-wal", "-shm"):
+    for suffix in _INDEX_COMPONENT_LIMITS:
+        if not suffix:
+            continue
         try:
             states[suffix] = _index_component_state(
                 source_paths[suffix],
