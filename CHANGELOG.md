@@ -59,6 +59,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   completion is reported as incomplete. Proven orphan record locks are collected
   only while the global pending queue lock is held and after a non-blocking
   exclusive inode check.
+- **Index operational truth** — `memory verify --format json` now compares
+  Markdown and `items_meta` IDs, `.index-dirty` repair debt, and Markdown-derived
+  supersession against `refs_graph` through an external read-only SQLite
+  snapshot. Explicit `memory verify --repair` repairs only affected categories,
+  keeps embedding initialization lazy, and requires a clean read-only `after`
+  report.
 
 ### Changed
 
@@ -68,6 +74,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   keep-active、defer 与 revert-supersession 都要求显式 `--apply`。MCP
   `link_memories(..., relation="supersedes")` 也默认预览，只有
   `apply=true` 才提交；普通 relation 仍保持即时链接。
+- `memory verify` 的默认 text 输出继续保留原有 item 数量与 missing/orphan
+  明细，并新增 marker/graph 聚合；additive JSON 输出只包含数量和闭集 reason，
+  不输出 item id、路径或正文。退出码从“ID 集合一致”收紧为三维状态全部 clean。
 
 - Realtime browser clients now use an HttpOnly session cookie; non-cookie clients
   exchange Bearer credentials for a short-lived, one-use realtime ticket instead

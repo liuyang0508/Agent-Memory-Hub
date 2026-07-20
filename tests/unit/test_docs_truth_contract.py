@@ -1886,3 +1886,15 @@ def test_agent_native_memory_boundary_doc_keeps_amh_truth_source_clear():
     assert "Qoder/Wukong" in boundary
     assert "`last_injection` 来自 runtime injection cohort ledger" in boundary
     assert "awareness、tool、automatic hook、fallback 四层分开证明" in boundary
+
+
+def test_docs_describe_three_dimensional_verify_and_explicit_repair() -> None:
+    readme = _read("README.md")
+    lifecycle = _read("docs/storage-lifecycle.zh.md")
+    for text in (readme, lifecycle):
+        assert "memory verify --format json" in text
+        assert "items_meta" in text
+        assert ".index-dirty" in text
+        assert "refs_graph" in text
+        assert "memory verify --repair" in text
+    assert "不会自动修复" in lifecycle

@@ -608,6 +608,15 @@ def _run_graph_drift_contract(fixture: dict[str, object]) -> dict[str, object]:
             if isinstance(raw, dict):
                 _write_item(store, raw)
         with sqlite3.connect(brain / "index.db") as connection:
+            connection.execute("CREATE TABLE items_meta (id TEXT PRIMARY KEY)")
+            connection.executemany(
+                "INSERT INTO items_meta(id) VALUES (?)",
+                [
+                    (str(item["id"]),)
+                    for item in items
+                    if isinstance(item, dict) and isinstance(item.get("id"), str)
+                ],
+            )
             connection.execute(
                 "CREATE TABLE refs_graph ("
                 "source_id TEXT NOT NULL, target_id TEXT NOT NULL, "

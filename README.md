@@ -145,6 +145,7 @@ memory govern plan --category lifecycle --format markdown
 memory govern plan --category lifecycle --format json
 memory govern apply-lifecycle <memory-id> --dry-run --format json
 memory sync-pending --summary-only --limit 100 --format json
+memory verify --format json
 memory search "project decision"
 memory hook recent --limit 5
 ```
@@ -171,6 +172,19 @@ still requires `--apply` plus `--record` or `--safe-only`; it persists a
 low-sensitivity prepared/completed receipt before reporting the batch complete.
 An incomplete receipt is an explicit governance warning, not proof that the
 underlying item write failed.
+
+`memory verify --format json` is a non-mutating index health check across three
+sources: active Markdown versus `items_meta` IDs, the `.index-dirty` repair-debt
+marker, and frontmatter supersession versus the derived `refs_graph` projection.
+It returns success only when all three dimensions are clean. Repair remains an
+explicit operation:
+
+```bash
+memory verify --repair --format json
+```
+
+Repair is category-scoped, closes its write connection before the final
+read-only verification, and succeeds only when the `after` report is clean.
 
 ### Adapter lifecycle truth model
 

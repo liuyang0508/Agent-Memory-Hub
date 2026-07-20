@@ -14,7 +14,7 @@
     "observed_drift_count": 1,
     "status": "pass"
   },
-  "implementation_hash": "sha256:69c819cb23c2239c101ee42df7a3227c0cd619fac74c6c5b978b99ed173b6f0c",
+  "implementation_hash": "sha256:b34cd38868273ed5cee19b670233a2432ac11160b3a509436e2cabab663f39af",
   "implementation_manifest": [
     {
       "path": "agent_brain/agent_integrations/hermes/import_export_tools.py",
@@ -38,11 +38,11 @@
     },
     {
       "path": "agent_brain/interfaces/cli/commands/index_maintenance.py",
-      "sha256": "sha256:85a09b833066d42c757f7dc0ff7d868a6779a661cec6c1439301e5017d84ac84"
+      "sha256": "sha256:ceec333276eb2671fd2246e70027214034e7037831b013fd1958d01431058910"
     },
     {
       "path": "agent_brain/interfaces/cli/commands/maintenance.py",
-      "sha256": "sha256:c8d8683641d0b80ea20df072e0a507fa9918cbeecf4dc23ad5ba40474d8f7518"
+      "sha256": "sha256:326946bd4e115c1a367af3d8f14fc88c638c90e679dcd379c3006d2112e318f5"
     },
     {
       "path": "agent_brain/interfaces/cli/commands/review.py",
@@ -146,11 +146,11 @@
     },
     {
       "path": "agent_brain/platform/indexing/graph_index.py",
-      "sha256": "sha256:6c8c9f5e2046511f340f22ab8ea2d078837275ee2f1aeb89ae13ef0e38db56a5"
+      "sha256": "sha256:4a57655f2b5dd146ce567db280a31587bc03e6fe20364d9c9dbcf995a9458442"
     },
     {
       "path": "agent_brain/platform/indexing/index.py",
-      "sha256": "sha256:abf38e65088b7f965a7a3f5e4653c26c4ffa7810fafe4223aecb3a916764a50f"
+      "sha256": "sha256:447681d12804eb49cb44351445a76233ec657b46f36f571a71d7db977e7860b2"
     },
     {
       "path": "agent_brain/platform/indexing/index_schema.py",
@@ -162,7 +162,7 @@
     },
     {
       "path": "agent_brain/product/governance_readiness.py",
-      "sha256": "sha256:d35aa853aacd0c2e78fc3d0c4234a2bd27ee97efab5af5192ff03277f50f552e"
+      "sha256": "sha256:d7d877e71a47022afa3dda011410821fd0abeea9fa9eb77e9577992c0003feda"
     },
     {
       "path": "web/api/routes/governance.py",
@@ -170,7 +170,7 @@
     },
     {
       "path": "scripts/generate-lifecycle-governance-report.py",
-      "sha256": "sha256:6dddbbe74430a093572f168e7288d87e6f8b4ce283f6613accae188510866b12"
+      "sha256": "sha256:8470fca3d38099d1c8bc53ec3bf13721973e3527101f3d96b24c6c5b123168d9"
     }
   ],
   "overall_status": "pending",

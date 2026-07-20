@@ -20,8 +20,8 @@
 | `sources/writes/<item-id>.json` | 每条长期记忆的写入账本：谁写的、何时写、正文 hash、refs、validity、source kind。 | `WriteService.write()` 成功写入 `items/` 后同步写。 | provenance、Web/诊断、追溯某条 item 从哪个写入入口来。 | 直接读 JSON；也可从 Web/诊断页展示。 |
 | `resources/res-*.json` | 外部或本地资料的资源登记：文件、PDF、图片、网页、write input 等资源的 uri、hash、mime、大小、tags。 | `WriteService` 遇到 `refs.files` 会镜像本地文件；没有 extraction 时会把写入正文作为 write-input resource 证据。 | 证据诊断、resource context、Web/SDK include_resources。 | `ResourceStore.iter_resources()`；搜索接口可打开 resource context。 |
 | `extractions/ext-*.json` | 从 resource 抽取的文本、OCR/ASR/摘要/片段等证据。 | `WriteService` 从文本文件或 write input 生成；导入服务也可生成。 | 解释某条记忆的证据来源、补充 resource context、后续检索增强。 | `ResourceStore.iter_extractions()`；通过 item 的 `refs.extractions` 追溯。 |
-| `index.db` | 派生索引：元数据、全文索引、向量、引用图谱。 | `WriteService` best-effort upsert；`memory reindex` 重建；repair 操作修复。 | `memory search`、hook 自动注入、Web 搜索、MCP/SDK search。 | `memory search "query" --explain --format text`；源码是 `HubIndex` + `Retriever`。 |
-| `.index-dirty` | index 更新失败时的 item id 行式日志。 | Markdown 已成功写入，但 index/embedder 不可用或 SQLite 写失败时。 | 后续 `sync-pending` / `reindex` / doctor 修复索引漂移。 | `memory reindex` 或维护命令；人工可直接查看。 |
+| `index.db` | 派生索引：`items_meta` 元数据、全文索引、向量、`refs_graph` 引用图谱。 | `WriteService` best-effort upsert；`memory reindex` 重建；显式 repair 按类别修复。 | `memory search`、hook 自动注入、Web 搜索、MCP/SDK search。 | `memory search "query" --explain --format text`；`memory verify --format json` 检查投影健康；源码是 `HubIndex` + `Retriever`。 |
+| `.index-dirty` | index 更新失败后的待核销修复债，按行记录 item id。 | Markdown 已成功写入，但 index/embedder 不可用或 SQLite 写失败时。 | `memory verify` 与 readiness 只读检查；显式 repair 核销。 | `memory verify --format json` 先预览，确认后才运行 `memory verify --repair --format json`。 |
 | `pending/*.jsonl` | 写入口降级缓冲。Python 或完整写入链不可用时，先把待写 item 记录下来。 | hook shim 或写入入口无法调用 `WriteService` 时。 | `memory sync-pending` 默认只预览；显式 `--apply --record ...` 或 `--apply --safe-only` 才重放。 | 先用 `memory sync-pending --summary-only --format json` 看低敏聚合；源码是 `PendingQueue.preview()` / `apply()`。 |
 | `runtime/pending-apply-receipts.jsonl` | pending apply 的低敏、append-only 两阶段回执。 | 显式 apply 在写 item 前追加 prepared，完成后追加 completed。 | prepared 没有对应 completed 表示批次证据不完整；不包含 title、summary、path、record id 或 item id。 | `memory govern readiness --format json` 查看 ledger status / incomplete count；不要手工改写。 |
 | `runtime/adapter-events.jsonl` | hook 是否真实跑过的机械证据。只记录 adapter、event、session、cwd，不存 prompt/body。 | SessionStart、UserPromptSubmit、Stop、PreCompact、PostCompact、SubagentStart、SubagentStop hook 执行时。 | adapter doctor、verified gate、运行状态诊断。 | `memory adapter doctor <adapter> --format json`；源码是 `runtime_events.py`。 |
@@ -199,9 +199,34 @@ rg "<item-id>" ~/.agent-memory-hub/resources ~/.agent-memory-hub/extractions
 - 写入不会因为索引失败而丢失。
 - `.index-dirty` 会记录需要修复的 item。
 
+索引健康不是只比较“文件数是否相等”，而是同时核对三层事实：
+
+1. active `items/**/*.md` 是 identity 与 supersession 的权威事实源，`items_meta` 是派生 ID 投影；
+2. `.index-dirty` 是尚未核销的修复债；
+3. Markdown 的 `superseded_by` 是权威关系，`refs_graph` 中的 `supersedes` 是派生图投影。
+
+先执行严格只读检查：
+
+```bash
+memory verify --format json
+```
+
+verify、readiness 和 hook 不会自动修复。只有用户显式执行下面的命令，系统才会在可信
+preflight 后按 missing/active-dirty、orphan、supersession、retired marker 分类处理，并在关闭
+写连接后重新生成 `after` 报告：
+
+```bash
+memory verify --repair --format json
+```
+
+只有 `after.status=clean` 才表示修复成功。若 source、marker 或 SQLite snapshot 不可信，命令
+会保持零写入并返回非零退出码。
+
 修复方式：
 
 ```bash
+memory verify --format json
+memory verify --repair --format json
 memory reindex
 memory sync-pending --summary-only --format json
 memory doctor --offline
