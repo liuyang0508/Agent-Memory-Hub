@@ -75,6 +75,11 @@ from agent_brain.memory.governance.pending_receipts import (
     incomplete_pending_receipt,
     prepare_pending_receipt,
 )
+from agent_brain.memory.governance.pending_lock_gc import (
+    PendingLockGcReport,
+    collect_pending_record_locks,
+    pending_record_lock_name,
+)
 from agent_brain.memory.store.durable_fs import (
     SecureDirectory,
     lifecycle_mutation_capability,
@@ -773,6 +778,7 @@ class PendingApplyStats:
     results: list[PendingApplyResult] = dataclass_field(default_factory=list)
     receipt: PendingBatchReceipt | None = None
     governance_reason: str | None = None
+    lock_gc_report: PendingLockGcReport | None = None
 
     def add(self, result: PendingApplyResult) -> None:
         self.results.append(result)
@@ -798,6 +804,9 @@ class PendingApplyStats:
             "results": [result.to_dict() for result in self.results],
             "receipt": self.receipt.to_dict() if self.receipt is not None else None,
             "governance_reason": self.governance_reason,
+            "lock_gc": (
+                self.lock_gc_report.to_dict() if self.lock_gc_report is not None else None
+            ),
         }
 
     def to_summary_dict(self) -> dict[str, object]:
@@ -833,6 +842,9 @@ class PendingApplyStats:
             "warning_counts": dict(sorted(warnings.items())),
             "receipt": self.receipt.to_dict() if self.receipt is not None else None,
             "governance_reason": _public_pending_reason(self.governance_reason),
+            "lock_gc": (
+                self.lock_gc_report.to_dict() if self.lock_gc_report is not None else None
+            ),
         }
 
 
@@ -1631,6 +1643,34 @@ class PendingQueue:
         finally:
             if service is not None:
                 service.close()
+        remaining_paths = _pending_record_paths(
+            self._brain_dir() / "pending",
+            entry_cap=MAX_PENDING_QUEUE_ENTRIES,
+        )
+        if remaining_paths.scan_unavailable or remaining_paths.total > len(
+            remaining_paths.paths
+        ):
+            stats.lock_gc_report = PendingLockGcReport(
+                truncated=True,
+                reason="PENDING_LOCK_GC_TRUNCATED",
+            )
+        else:
+            try:
+                stats.lock_gc_report = collect_pending_record_locks(
+                    self._brain_dir() / "pending",
+                    live_record_names={path.name for path in remaining_paths.paths},
+                    apply=True,
+                    limit=MAX_PENDING_QUEUE_ENTRIES,
+                )
+            except Exception:
+                stats.lock_gc_report = PendingLockGcReport(
+                    reason="PENDING_LOCK_GC_UNAVAILABLE",
+                )
+        batch_warnings = (
+            (stats.lock_gc_report.reason,)
+            if stats.lock_gc_report is not None and stats.lock_gc_report.reason is not None
+            else ()
+        )
         try:
             completed_receipt = complete_pending_receipt(
                 prepared_receipt,
@@ -1646,6 +1686,7 @@ class PendingQueue:
                     for result in stats.results
                 ],
                 depth_after=self.depth(),
+                batch_warnings=batch_warnings,
             )
             append_pending_receipt(self._brain_dir(), completed_receipt)
             stats.receipt = completed_receipt
@@ -2053,7 +2094,7 @@ def _locked_pending_record(path: Path) -> Iterator[None]:
     try:
         with SecureDirectory.open(path.parent) as directory:
             with directory.child(".amh-record-locks", create=True) as locks:
-                lock_name = hashlib.sha256(path.name.encode("utf-8")).hexdigest()[:32] + ".lock"
+                lock_name = pending_record_lock_name(path.name)
                 descriptor, created = locks.open_or_create_file(lock_name, os.O_RDWR)
                 os.fchmod(descriptor, 0o600)
                 if created:

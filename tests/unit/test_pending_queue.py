@@ -665,6 +665,67 @@ def test_apply_reports_incomplete_receipt_when_completion_append_fails(
     assert health.incomplete_count == 1
 
 
+def test_apply_collects_applied_record_lock_and_preserves_live_lock(
+    tmp_brain: Path,
+) -> None:
+    from agent_brain.memory.governance.pending_lock_gc import pending_record_lock_name
+
+    selected = enqueue_write_record(_v2_record(record_id="lock-gc-selected"))
+    unselected = enqueue_write_record(_v2_record(record_id="lock-gc-unselected"))
+    locks = tmp_brain / "pending" / ".amh-record-locks"
+    locks.mkdir()
+    live_lock = locks / pending_record_lock_name(unselected.name)
+    live_lock.write_bytes(b"")
+    os.chmod(live_lock, 0o600)
+
+    result = PendingQueue().apply(record_ids=["lock-gc-selected"])
+
+    assert result.written == 1
+    assert result.lock_gc_report is not None
+    assert result.lock_gc_report.total == 2
+    assert result.lock_gc_report.orphan == 1
+    assert result.lock_gc_report.deleted == 1
+    assert result.lock_gc_report.preserved == 1
+    assert not selected.exists()
+    assert live_lock.exists()
+    assert result.receipt is not None
+    assert result.receipt.warning_counts == {}
+
+
+def test_apply_records_lock_gc_warning_in_completed_receipt(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from agent_brain.memory.governance.pending_lock_gc import PendingLockGcReport
+
+    enqueue_write_record(_v2_record(record_id="lock-gc-warning"))
+
+    def truncated_gc(*_args, **_kwargs):
+        return PendingLockGcReport(
+            total=1,
+            orphan=1,
+            preserved=1,
+            truncated=True,
+            reason="PENDING_LOCK_GC_TRUNCATED",
+        )
+
+    monkeypatch.setattr(
+        pending_module,
+        "collect_pending_record_locks",
+        truncated_gc,
+        raising=False,
+    )
+
+    result = PendingQueue().apply(record_ids=["lock-gc-warning"])
+
+    assert result.written == 1
+    assert result.lock_gc_report is not None
+    assert result.lock_gc_report.truncated is True
+    assert result.receipt is not None
+    assert result.receipt.state == "completed"
+    assert result.receipt.warning_counts == {"PENDING_LOCK_GC_TRUNCATED": 1}
+
+
 def test_apply_safe_only_never_writes_review_classifications(
     tmp_brain: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

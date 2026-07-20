@@ -80,6 +80,9 @@ _ALLOWED_REASONS = frozenset(
         "PENDING_APPLY_FAILED",
         "PENDING_DIRECTORY_FSYNC_UNAVAILABLE",
         "PENDING_ITEM_SNAPSHOT_UNTRUSTED",
+        "PENDING_LOCK_GC_TRUNCATED",
+        "PENDING_LOCK_GC_UNAVAILABLE",
+        "PENDING_LOCK_GC_UNSAFE_ENTRY",
         "PENDING_QUEUE_TRUNCATED",
         "PENDING_READINESS_BUDGET_EXCEEDED",
         "PENDING_RECORD_CHANGED",
@@ -249,6 +252,7 @@ def complete_pending_receipt(
     outcomes: Iterable[PendingReceiptOutcome],
     depth_after: int,
     completed_at: str | None = None,
+    batch_warnings: Iterable[str] = (),
 ) -> PendingBatchReceipt:
     if not _valid_receipt(prepared) or prepared.state != "prepared":
         raise TypeError("INVALID_PREPARED_PENDING_RECEIPT")
@@ -256,7 +260,10 @@ def complete_pending_receipt(
     status_counts: Counter[str] = Counter()
     classification_counts: Counter[str] = Counter()
     reason_counts: Counter[str] = Counter()
-    warning_counts: Counter[str] = Counter()
+    normalized_batch_warnings = tuple(
+        sorted(_public_reason(warning) for warning in batch_warnings)
+    )
+    warning_counts: Counter[str] = Counter(normalized_batch_warnings)
     canonical_outcomes: list[tuple[object, ...]] = []
     index_repair_required_count = 0
     for outcome in rows:
@@ -296,7 +303,10 @@ def complete_pending_receipt(
         state="completed",
         result_digest=_canonical_digest(
             b"amh.pending.result.v1",
-            sorted(canonical_outcomes),
+            {
+                "outcomes": sorted(canonical_outcomes),
+                "batch_warnings": normalized_batch_warnings,
+            },
         ),
     )
     if not _valid_receipt(completed):

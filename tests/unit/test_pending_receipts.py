@@ -81,6 +81,18 @@ def test_pending_receipt_completion_contains_only_aggregate_outcomes():
     assert "PRIVATE_RECORD_ID_CANARY" not in encoded
 
 
+def test_pending_receipt_completion_includes_bounded_batch_warnings():
+    completed = receipts_module.complete_pending_receipt(
+        _prepared(),
+        outcomes=[],
+        depth_after=3,
+        completed_at=COMPLETED_AT,
+        batch_warnings=("PENDING_LOCK_GC_TRUNCATED",),
+    )
+
+    assert completed.warning_counts == {"PENDING_LOCK_GC_TRUNCATED": 1}
+
+
 def test_pending_receipt_ledger_is_durable_private_and_reports_incomplete(tmp_brain):
     prepared = _prepared()
     receipts_module.append_pending_receipt(tmp_brain, prepared)
