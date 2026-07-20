@@ -2797,18 +2797,18 @@ def _scan_existing_item_metadata(
                         return _ItemMetadataSnapshot(items={}, trusted=False)
                     _require_readiness_deadline(deadline_at)
                     child = open_child_directory(directory, entry.name)
-                    _require_readiness_deadline(deadline_at)
                     try:
+                        _require_readiness_deadline(deadline_at)
                         child_entries = os.scandir(child)
                         try:
                             _require_readiness_deadline(deadline_at)
+                            stack.append((child, child_entries, depth + 1))
                         except BaseException:
                             child_entries.close()
                             raise
                     except BaseException:
                         close_descriptor(child)
                         raise
-                    stack.append((child, child_entries, depth + 1))
                     continue
                 is_file = entry.is_file(follow_symlinks=False)
                 _require_readiness_deadline(deadline_at)

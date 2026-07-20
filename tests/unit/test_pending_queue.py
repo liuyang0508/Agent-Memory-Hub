@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import errno
 import hashlib
 import json
 import os
@@ -2532,6 +2533,55 @@ def test_existing_item_scan_stops_immediately_after_absolute_deadline(
     assert snapshot.trusted is False
     assert snapshot.reason == "PENDING_READINESS_BUDGET_EXCEEDED"
     assert visits <= 2
+
+
+def test_secure_metadata_deadline_after_child_open_closes_descriptor_once(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    nested = tmp_brain / "items" / "nested"
+    nested.mkdir()
+    real_open_child = pending_module.open_child_directory
+    real_close = pending_module.close_descriptor
+    opened_children: list[int] = []
+    close_counts: dict[int, int] = {}
+    expired = False
+
+    def open_child_then_expire(parent: int, name: str) -> int:
+        nonlocal expired
+        child = real_open_child(parent, name)
+        opened_children.append(child)
+        expired = True
+        return child
+
+    def tracked_close(descriptor: int) -> None:
+        close_counts[descriptor] = close_counts.get(descriptor, 0) + 1
+        real_close(descriptor)
+
+    monkeypatch.setattr(pending_module, "secure_dir_fd_io_supported", lambda: True)
+    monkeypatch.setattr(pending_module, "open_child_directory", open_child_then_expire)
+    monkeypatch.setattr(pending_module, "close_descriptor", tracked_close)
+    monkeypatch.setattr(pending_module, "_monotonic", lambda: 2.0 if expired else 0.0)
+
+    snapshot = pending_module._scan_existing_item_metadata(
+        tmp_brain / "items",
+        deadline_at=1.0,
+    )
+
+    assert snapshot.trusted is False
+    assert snapshot.reason == "PENDING_READINESS_BUDGET_EXCEEDED"
+    assert len(opened_children) == 1
+    child = opened_children[0]
+    assert close_counts[child] == 1
+    try:
+        with pytest.raises(OSError) as caught:
+            os.fstat(child)
+        assert caught.value.errno == errno.EBADF
+    finally:
+        try:
+            os.close(child)
+        except OSError as error:
+            assert error.errno == errno.EBADF
 
 
 def test_malformed_existing_yaml_blocks_selected_preview_without_raising(
