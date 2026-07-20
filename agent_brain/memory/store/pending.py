@@ -46,7 +46,7 @@ import time
 import unicodedata
 import uuid
 from collections import Counter
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass, field as dataclass_field, replace
 from datetime import datetime, timezone
@@ -833,10 +833,18 @@ class _PendingPreviewCommon(TypedDict):
 
 
 @dataclass(frozen=True)
-class _ItemMetadataSnapshot:
-    items: dict[str, MemoryItem]
+class PendingItemCatalogSnapshot:
+    """Bounded item metadata supplied to pending classification."""
+
+    items: Mapping[str, MemoryItem]
     trusted: bool
     reason: str | None = None
+    entry_count: int = 0
+    metadata_bytes: int = 0
+
+
+# Private compatibility for tests and integrations that imported the old name.
+_ItemMetadataSnapshot = PendingItemCatalogSnapshot
 
 
 @dataclass(frozen=True)
@@ -1073,6 +1081,7 @@ class PendingQueue:
         *,
         limit: int,
         deadline_at: float | None = None,
+        item_catalog: PendingItemCatalogSnapshot | None = None,
     ) -> PendingPreview:
         brain = self._brain_dir()
         bounded_limit = max(0, limit)
@@ -1088,10 +1097,22 @@ class PendingQueue:
                 scan_unavailable=path_snapshot.scan_unavailable,
                 reason=path_snapshot.reason,
             )
-        existing = _scan_existing_item_metadata(
-            brain / "items",
-            deadline_at=deadline_at,
-        )
+        existing = item_catalog
+        if existing is None:
+            existing = _scan_existing_item_metadata(
+                brain / "items",
+                deadline_at=deadline_at,
+            )
+        elif not existing.trusted:
+            return PendingPreview(
+                total=path_snapshot.total,
+                returned=0,
+                limit=bounded_limit,
+                truncated=path_snapshot.total > 0,
+                records=[],
+                scan_unavailable=True,
+                reason="PENDING_ITEM_SNAPSHOT_UNTRUSTED",
+            )
         if existing.reason == "PENDING_READINESS_BUDGET_EXCEEDED":
             return PendingPreview(
                 total=path_snapshot.total,
@@ -1187,6 +1208,7 @@ class PendingQueue:
         limit: int = 20,
         max_total_bytes: int = 16 * 1024 * 1024,
         deadline_seconds: float = 1.0,
+        item_catalog: PendingItemCatalogSnapshot | None = None,
     ) -> PendingPreview:
         """Preview with explicit byte and wall-clock budgets for readiness."""
 
@@ -1243,6 +1265,7 @@ class PendingQueue:
             snapshot,
             limit=bounded_limit,
             deadline_at=deadline_at,
+            item_catalog=item_catalog,
         )
         if _monotonic() - started <= deadline_seconds:
             return preview

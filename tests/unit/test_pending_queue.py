@@ -180,6 +180,65 @@ def test_pending_readiness_preview_fails_closed_on_total_byte_budget(
     assert preview.reason == "PENDING_READINESS_BUDGET_EXCEEDED"
 
 
+def test_pending_readiness_uses_supplied_item_catalog_without_rescanning(
+    tmp_brain,
+    monkeypatch,
+):
+    enqueue_write_record(_v2_record(record_id="shared-catalog-record"))
+
+    def forbidden_scan(*_args, **_kwargs):
+        raise AssertionError("readiness must not rescan item metadata")
+
+    monkeypatch.setattr(pending_module, "_scan_existing_item_metadata", forbidden_scan)
+    catalog = pending_module.PendingItemCatalogSnapshot(
+        items={},
+        trusted=True,
+        entry_count=0,
+        metadata_bytes=0,
+    )
+
+    preview = PendingQueue(brain=tmp_brain).preview_for_readiness(
+        limit=10,
+        max_total_bytes=1024 * 1024,
+        deadline_seconds=1.0,
+        item_catalog=catalog,
+    )
+
+    assert preview.scan_unavailable is False
+    assert preview.returned == 1
+    assert preview.records[0].classification == "ready"
+
+
+def test_pending_readiness_rejects_untrusted_supplied_item_catalog(
+    tmp_brain,
+    monkeypatch,
+):
+    enqueue_write_record(_v2_record(record_id="untrusted-catalog-record"))
+
+    def forbidden_scan(*_args, **_kwargs):
+        raise AssertionError("untrusted catalog must fail closed without a rescan")
+
+    monkeypatch.setattr(pending_module, "_scan_existing_item_metadata", forbidden_scan)
+    catalog = pending_module.PendingItemCatalogSnapshot(
+        items={},
+        trusted=False,
+        reason="ITEM_SCAN_UNAVAILABLE",
+        entry_count=1,
+        metadata_bytes=128,
+    )
+
+    preview = PendingQueue(brain=tmp_brain).preview_for_readiness(
+        limit=10,
+        max_total_bytes=1024 * 1024,
+        deadline_seconds=1.0,
+        item_catalog=catalog,
+    )
+
+    assert preview.scan_unavailable is True
+    assert preview.returned == 0
+    assert preview.reason == "PENDING_ITEM_SNAPSHOT_UNTRUSTED"
+
+
 def test_pending_readiness_preview_uses_injectable_deadline_clock(
     tmp_brain,
     monkeypatch,

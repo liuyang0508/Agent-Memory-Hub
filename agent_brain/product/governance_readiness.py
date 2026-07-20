@@ -27,6 +27,7 @@ from agent_brain.memory.governance.lifecycle_ledger import (
 from agent_brain.memory.store.item_markdown import parse_item_markdown
 from agent_brain.memory.store.pending import (
     MAX_PENDING_QUEUE_ENTRIES,
+    PendingItemCatalogSnapshot,
     PendingQueue,
     read_dirty_index_marker,
 )
@@ -357,6 +358,15 @@ _MAX_SUPERSEDES_TOTAL_BYTES = 32 * 1024 * 1024
 _snapshot_monotonic = time.monotonic
 
 
+@dataclass(frozen=True)
+class _ReadinessItemsSnapshot:
+    active_items: tuple[MemoryItem, ...]
+    catalog: PendingItemCatalogSnapshot
+    archived_count: int
+    malformed_count: int
+    scan_unavailable: bool
+
+
 def build_memory_lifecycle_readiness(brain_dir: Path) -> ReadinessLane:
     """Aggregate lifecycle health without exposing item or queue content."""
     return _memory_lifecycle_lane(brain_dir)
@@ -380,9 +390,11 @@ def _memory_lifecycle_lane(brain_dir: Path) -> ReadinessLane:
 def _memory_lifecycle_lane_once(brain_dir: Path) -> ReadinessLane:
     brain = Path(brain_dir)
     now = datetime.now(timezone.utc)
-    items, archived_count, malformed_item_count, item_scan_unavailable = _read_items_readonly(
-        brain / "items"
-    )
+    item_snapshot = _read_items_readonly(brain / "items")
+    items = list(item_snapshot.active_items)
+    archived_count = item_snapshot.archived_count
+    malformed_item_count = item_snapshot.malformed_count
+    item_scan_unavailable = item_snapshot.scan_unavailable
     active_ids = {item.id for item in items}
     by_type: dict[str, int] = {}
     stale_items: list[tuple[MemoryItem, int]] = []
@@ -434,7 +446,7 @@ def _memory_lifecycle_lane_once(brain_dir: Path) -> ReadinessLane:
         (item, age_seconds) for item, age_seconds in stale_items if item.id not in deferrals
     ]
 
-    pending_metrics = _pending_truth_readonly(brain)
+    pending_metrics = _pending_truth_readonly(brain, item_catalog=item_snapshot.catalog)
     graph_truth = _read_supersedes_graph_readonly(brain / "index.db")
     frontmatter_edges = frozenset(
         (str(item.superseded_by), item.id)
@@ -705,27 +717,64 @@ def _lifecycle_generation_token(
     return tuple(sorted(states))
 
 
-def _read_items_readonly(
-    items_dir: Path,
-) -> tuple[list[MemoryItem], int, int, bool]:
+def _build_readiness_items_snapshot(
+    *,
+    active_items: list[MemoryItem],
+    catalog_items: dict[str, MemoryItem],
+    archived_count: int,
+    malformed_count: int,
+    scan_unavailable: bool,
+    entry_count: int,
+    metadata_bytes: int,
+) -> _ReadinessItemsSnapshot:
+    trusted = not scan_unavailable and malformed_count == 0
+    return _ReadinessItemsSnapshot(
+        active_items=tuple(active_items),
+        catalog=PendingItemCatalogSnapshot(
+            items=dict(catalog_items) if trusted else {},
+            trusted=trusted,
+            reason=None if trusted else "ITEM_SCAN_UNAVAILABLE",
+            entry_count=entry_count,
+            metadata_bytes=metadata_bytes,
+        ),
+        archived_count=archived_count,
+        malformed_count=malformed_count,
+        scan_unavailable=scan_unavailable,
+    )
+
+
+def _read_items_readonly(items_dir: Path) -> _ReadinessItemsSnapshot:
     if not secure_dir_fd_io_supported():
         return _read_items_readonly_fallback(items_dir)
     root: int | None = None
     stack: list[tuple[int, Iterator[os.DirEntry[str]], int, bool]] = []
     active_items: list[MemoryItem] = []
+    catalog_items: dict[str, MemoryItem] = {}
     archived_count = 0
     malformed_count = 0
     entry_count = 0
     bytes_read = 0
     seen_ids: set[str] = set()
+
+    def finish(scan_unavailable: bool) -> _ReadinessItemsSnapshot:
+        return _build_readiness_items_snapshot(
+            active_items=active_items,
+            catalog_items=catalog_items,
+            archived_count=archived_count,
+            malformed_count=malformed_count,
+            scan_unavailable=scan_unavailable,
+            entry_count=entry_count,
+            metadata_bytes=bytes_read,
+        )
+
     try:
         root = open_directory_path_without_symlinks(items_dir)
         stack.append((root, os.scandir(root), 0, False))
         root = None
     except FileNotFoundError:
-        return [], 0, 0, False
+        return finish(False)
     except OSError:
-        return [], 0, 0, True
+        return finish(True)
     try:
         while stack:
             directory, entries, depth, archived = stack[-1]
@@ -735,18 +784,18 @@ def _read_items_readonly(
                 _close_readiness_scan_frame(stack.pop())
                 continue
             except OSError:
-                return active_items, archived_count, malformed_count, True
+                return finish(True)
             if depth == 0 and entry.name == ".amh-item-locks":
                 continue
             entry_count += 1
             if entry_count > _MAX_READINESS_ITEM_ENTRIES:
-                return active_items, archived_count, malformed_count, True
+                return finish(True)
             try:
                 if entry.is_symlink():
-                    return active_items, archived_count, malformed_count, True
+                    return finish(True)
                 if entry.is_dir(follow_symlinks=False):
                     if depth >= _MAX_READINESS_ITEM_DEPTH:
-                        return active_items, archived_count, malformed_count, True
+                        return finish(True)
                     child = open_child_directory(directory, entry.name)
                     try:
                         child_entries = os.scandir(child)
@@ -767,20 +816,21 @@ def _read_items_readonly(
                 item, consumed = _read_readiness_frontmatter(directory, entry.name)
                 bytes_read += consumed
                 if bytes_read > _MAX_READINESS_ITEM_METADATA_BYTES:
-                    return active_items, archived_count, malformed_count, True
+                    return finish(True)
                 if item is None or Path(entry.name).stem != item.id:
                     malformed_count += 1
                     continue
                 if item.id in seen_ids:
-                    return active_items, archived_count, malformed_count, True
+                    return finish(True)
                 seen_ids.add(item.id)
+                catalog_items[item.id] = item
                 if archived:
                     archived_count += 1
                 else:
                     active_items.append(item)
             except OSError:
-                return active_items, archived_count, malformed_count, True
-        return active_items, archived_count, malformed_count, False
+                return finish(True)
+        return finish(False)
     finally:
         if root is not None:
             close_descriptor(root)
@@ -790,23 +840,36 @@ def _read_items_readonly(
 
 def _read_items_readonly_fallback(
     items_dir: Path,
-) -> tuple[list[MemoryItem], int, int, bool]:
+) -> _ReadinessItemsSnapshot:
     active_items: list[MemoryItem] = []
+    catalog_items: dict[str, MemoryItem] = {}
     archived_count = 0
     malformed_count = 0
     seen_ids: set[str] = set()
     entry_count = 0
     bytes_read = 0
     stack: list[tuple[Path, Iterator[os.DirEntry[str]], int, bool, os.stat_result]] = []
+
+    def finish(scan_unavailable: bool) -> _ReadinessItemsSnapshot:
+        return _build_readiness_items_snapshot(
+            active_items=active_items,
+            catalog_items=catalog_items,
+            archived_count=archived_count,
+            malformed_count=malformed_count,
+            scan_unavailable=scan_unavailable,
+            entry_count=entry_count,
+            metadata_bytes=bytes_read,
+        )
+
     try:
         root_state = os.lstat(items_dir)
         if not stat.S_ISDIR(root_state.st_mode) or stat.S_ISLNK(root_state.st_mode):
-            return [], 0, 0, True
+            return finish(True)
         stack.append((items_dir, os.scandir(items_dir), 0, False, root_state))
     except FileNotFoundError:
-        return [], 0, 0, False
+        return finish(False)
     except OSError:
-        return [], 0, 0, True
+        return finish(True)
     try:
         while stack:
             directory, entries, depth, archived, identity = stack[-1]
@@ -817,23 +880,23 @@ def _read_items_readonly_fallback(
                 stack.pop()
                 try:
                     if not _same_readiness_state(identity, os.lstat(directory)):
-                        return active_items, archived_count, malformed_count, True
+                        return finish(True)
                 except OSError:
-                    return active_items, archived_count, malformed_count, True
+                    return finish(True)
                 continue
             if depth == 0 and entry.name == ".amh-item-locks":
                 continue
             entry_count += 1
             if entry_count > _MAX_READINESS_ITEM_ENTRIES:
-                return active_items, archived_count, malformed_count, True
+                return finish(True)
             path = directory / entry.name
             try:
                 opened = os.lstat(path)
                 if stat.S_ISLNK(opened.st_mode):
-                    return active_items, archived_count, malformed_count, True
+                    return finish(True)
                 if stat.S_ISDIR(opened.st_mode):
                     if depth >= _MAX_READINESS_ITEM_DEPTH:
-                        return active_items, archived_count, malformed_count, True
+                        return finish(True)
                     stack.append(
                         (
                             path,
@@ -849,20 +912,21 @@ def _read_items_readonly_fallback(
                 item, consumed = _read_readiness_frontmatter_path(path, opened)
                 bytes_read += consumed
                 if bytes_read > _MAX_READINESS_ITEM_METADATA_BYTES:
-                    return active_items, archived_count, malformed_count, True
+                    return finish(True)
                 if item is None or path.stem != item.id:
                     malformed_count += 1
                     continue
                 if item.id in seen_ids:
-                    return active_items, archived_count, malformed_count, True
+                    return finish(True)
                 seen_ids.add(item.id)
+                catalog_items[item.id] = item
                 if archived:
                     archived_count += 1
                 else:
                     active_items.append(item)
             except OSError:
-                return active_items, archived_count, malformed_count, True
-        return active_items, archived_count, malformed_count, False
+                return finish(True)
+        return finish(False)
     finally:
         while stack:
             _directory, entries, _depth, _archived, _identity = stack.pop()
@@ -973,13 +1037,18 @@ def _close_scandir_iterator(entries: Iterator[os.DirEntry[str]]) -> None:
         close()
 
 
-def _pending_truth_readonly(brain_dir: Path) -> dict[str, Any]:
+def _pending_truth_readonly(
+    brain_dir: Path,
+    *,
+    item_catalog: PendingItemCatalogSnapshot,
+) -> dict[str, Any]:
     queue = PendingQueue(brain=brain_dir)
     try:
         preview = queue.preview_for_readiness(
             limit=MAX_PENDING_QUEUE_ENTRIES,
             max_total_bytes=16 * 1024 * 1024,
             deadline_seconds=1.0,
+            item_catalog=item_catalog,
         )
     except (OSError, RuntimeError, ValueError):
         preview = None

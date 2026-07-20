@@ -434,6 +434,45 @@ def test_lifecycle_readiness_fails_closed_when_pending_scan_is_unavailable(
     assert lane.metrics["pending_scan_unavailable"] is True
 
 
+def test_lifecycle_readiness_reuses_item_scan_for_pending_classification(
+    tmp_path,
+    monkeypatch,
+):
+    from agent_brain.memory.store import pending as pending_module
+
+    brain = tmp_path / "brain"
+    monkeypatch.setenv("BRAIN_DIR", str(brain))
+    (brain / "items").mkdir(parents=True)
+    enqueue_write_record(
+        {
+            "v": 2,
+            "op": "write",
+            "origin": "hook",
+            "record_id": "readiness-shared-catalog",
+            "enqueued_at": "2026-07-20T10:00:00+00:00",
+            "original_created_at": "2026-07-20T10:00:00+00:00",
+            "item": {
+                "type": "fact",
+                "title": "shared catalog",
+                "summary": "classify without a second item scan",
+                "tags": ["pending"],
+                "sensitivity": "internal",
+            },
+        }
+    )
+
+    def forbidden_scan(*_args, **_kwargs):
+        raise AssertionError("readiness performed a second item metadata scan")
+
+    monkeypatch.setattr(pending_module, "_scan_existing_item_metadata", forbidden_scan)
+
+    lane = build_memory_lifecycle_readiness(brain)
+
+    assert lane.metrics["pending_total"] == 1
+    assert lane.metrics["pending_returned"] == 1
+    assert lane.metrics["pending_scan_unavailable"] is False
+
+
 def test_lifecycle_readiness_never_leaks_private_item_or_pending_content(
     tmp_path,
     monkeypatch,
