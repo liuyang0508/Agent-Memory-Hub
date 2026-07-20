@@ -909,7 +909,10 @@ class LockedItemsView:
         )
 
     def unlink_mem(self, source_id: str, target_id: str) -> bool:
-        prepared = self.prepare_unlink_mem(source_id, target_id)
+        try:
+            prepared = self.prepare_unlink_mem(source_id, target_id)
+        except FileNotFoundError:
+            return False
         if prepared is None:
             return False
         self.apply_prepared(prepared)

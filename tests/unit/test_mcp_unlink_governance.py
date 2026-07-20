@@ -273,6 +273,7 @@ def test_unlink_waits_for_concurrent_apply_and_then_blocks(
             source.id,
             target.id,
             "supersedes",
+            apply=True,
         )
         assert apply_holds_lock.wait(timeout=5)
         unlink_future = pool.submit(
