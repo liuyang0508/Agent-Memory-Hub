@@ -137,3 +137,39 @@ def test_pending_lock_gc_fallback_is_report_only(tmp_path, monkeypatch):
     assert report.deleted == 0
     assert report.reason == "PENDING_LOCK_GC_UNAVAILABLE"
     assert orphan.exists()
+
+
+def test_pending_lock_gc_blocks_inode_replacement_before_unlink(
+    tmp_path,
+    monkeypatch,
+):
+    from agent_brain.memory.store.durable_fs import SecureDirectory
+
+    pending = tmp_path / "pending"
+    orphan = _lock_file(pending, "inode-swap-orphan.jsonl")
+    original_stat = SecureDirectory.stat
+    target_name = orphan.name
+    calls = 0
+
+    def swap_on_second_stat(self, name: str):
+        nonlocal calls
+        if name == target_name:
+            calls += 1
+            if calls == 2:
+                orphan.unlink()
+                orphan.write_bytes(b"")
+                orphan.chmod(0o600)
+        return original_stat(self, name)
+
+    monkeypatch.setattr(SecureDirectory, "stat", swap_on_second_stat)
+
+    report = lock_gc.collect_pending_record_locks(
+        pending,
+        live_record_names=set(),
+        apply=True,
+    )
+
+    assert calls == 2
+    assert report.deleted == 0
+    assert report.preserved == 1
+    assert orphan.exists()

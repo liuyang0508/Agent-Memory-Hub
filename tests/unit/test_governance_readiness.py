@@ -506,6 +506,125 @@ def test_lifecycle_readiness_reuses_low_sensitivity_pending_summary(
     assert lane.metrics["pending_groups"] == {"ready": 1, "review": 0, "blocker": 0}
 
 
+def test_lifecycle_readiness_reports_lock_and_receipt_operational_truth(
+    tmp_path,
+    monkeypatch,
+):
+    from agent_brain.memory.governance.pending_lock_gc import pending_record_lock_name
+    from agent_brain.memory.governance.pending_receipts import (
+        PendingReceiptSelection,
+        append_pending_receipt,
+        prepare_pending_receipt,
+    )
+
+    brain = tmp_path / "brain"
+    monkeypatch.setenv("BRAIN_DIR", str(brain))
+    (brain / "items").mkdir(parents=True)
+    pending = brain / "pending"
+    locks = pending / ".amh-record-locks"
+    locks.mkdir(parents=True)
+    orphan = locks / pending_record_lock_name("orphan.jsonl")
+    orphan.write_bytes(b"")
+    orphan.chmod(0o600)
+    prepared = prepare_pending_receipt(
+        selection_mode="explicit",
+        requested_count=1,
+        selected=[
+            PendingReceiptSelection(
+                record_id="receipt-health-record",
+                payload_sha256="a" * 64,
+            )
+        ],
+        depth_before=0,
+    )
+    append_pending_receipt(brain, prepared)
+
+    lane = build_memory_lifecycle_readiness(brain)
+
+    assert lane.metrics["pending_lock_files"] == 1
+    assert lane.metrics["pending_orphan_lock_files"] == 1
+    assert lane.metrics["pending_unsafe_lock_files"] == 0
+    assert lane.metrics["pending_receipt_ledger_status"] == "healthy"
+    assert lane.metrics["pending_receipt_record_count"] == 1
+    assert lane.metrics["pending_receipt_incomplete_count"] == 1
+    checks = {check.id: check for check in lane.checks}
+    assert checks["pending_lock_hygiene"].status == "warn"
+    assert checks["pending_receipt_ledger"].status == "warn"
+
+
+def test_lifecycle_readiness_fails_closed_on_corrupt_receipt_ledger(
+    tmp_path,
+    monkeypatch,
+):
+    brain = tmp_path / "brain"
+    monkeypatch.setenv("BRAIN_DIR", str(brain))
+    (brain / "items").mkdir(parents=True)
+    runtime = brain / "runtime"
+    runtime.mkdir()
+    ledger = runtime / "pending-apply-receipts.jsonl"
+    ledger.write_text("{bad json\n", encoding="utf-8")
+    ledger.chmod(0o600)
+
+    lane = build_memory_lifecycle_readiness(brain)
+
+    assert lane.metrics["pending_receipt_ledger_status"] == "corrupt"
+    checks = {check.id: check for check in lane.checks}
+    assert checks["pending_receipt_ledger"].status == "fail"
+    assert lane.status == "fail"
+
+
+def test_lifecycle_readiness_large_catalog_classifies_pending_without_rescan(
+    tmp_path,
+    monkeypatch,
+):
+    from agent_brain.memory.store import pending as pending_module
+    from agent_brain.memory.store.item_markdown import render_item_markdown
+
+    brain = tmp_path / "brain"
+    monkeypatch.setenv("BRAIN_DIR", str(brain))
+    items = brain / "items"
+    items.mkdir(parents=True)
+    created_at = datetime(2026, 7, 20, 10, 0, tzinfo=timezone.utc)
+    for index in range(2500):
+        item = MemoryItem(
+            id=f"mem-20260720-100000-scale-{index:04d}",
+            type=MemoryType.fact,
+            created_at=created_at,
+            title=f"scale item {index}",
+            summary=f"scale summary {index}",
+            tags=["scale"],
+        )
+        (items / f"{item.id}.md").write_text(
+            render_item_markdown(item, "scale body"),
+            encoding="utf-8",
+        )
+    for index in range(100):
+        enqueue_write_record(
+            {
+                "op": "write",
+                "record_id": f"scale-pending-{index:03d}",
+                "item": {
+                    "type": "fact",
+                    "title": f"scale pending {index}",
+                    "summary": f"scale pending summary {index}",
+                },
+            }
+        )
+
+    def forbidden_scan(*_args, **_kwargs):
+        raise AssertionError("large readiness path rescanned item metadata")
+
+    monkeypatch.setattr(pending_module, "_scan_existing_item_metadata", forbidden_scan)
+
+    lane = build_memory_lifecycle_readiness(brain)
+
+    assert lane.metrics["total_items"] == 2500
+    assert lane.metrics["pending_total"] == 100
+    assert lane.metrics["pending_returned"] == 100
+    assert lane.metrics["pending_reason_counts"] == {"READY": 100}
+    assert lane.metrics["pending_scan_unavailable"] is False
+
+
 def test_lifecycle_readiness_never_leaks_private_item_or_pending_content(
     tmp_path,
     monkeypatch,

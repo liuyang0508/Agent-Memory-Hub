@@ -24,6 +24,14 @@ from agent_brain.memory.governance.auto_governance import lifecycle_review_due
 from agent_brain.memory.governance.lifecycle_ledger import (
     active_lifecycle_deferrals_readonly,
 )
+from agent_brain.memory.governance.pending_lock_gc import (
+    PendingLockGcReport,
+    collect_pending_record_locks,
+)
+from agent_brain.memory.governance.pending_receipts import (
+    MAX_PENDING_RECEIPT_LEDGER_BYTES,
+    read_pending_receipt_ledger_health,
+)
 from agent_brain.memory.store.item_markdown import parse_item_markdown
 from agent_brain.memory.store.pending import (
     MAX_PENDING_QUEUE_ENTRIES,
@@ -299,22 +307,6 @@ _PENDING_CLASSIFICATIONS = (
     "malformed",
     "audit_blocked",
 )
-_PENDING_REVIEW_CLASSIFICATIONS = frozenset(
-    {
-        "stale_requires_review",
-        "duplicate_candidate",
-        "unsupported_type",
-    }
-)
-_PENDING_BLOCKER_CLASSIFICATIONS = frozenset(
-    {
-        "conflict",
-        "malformed",
-        "audit_blocked",
-    }
-)
-
-
 @dataclass(frozen=True)
 class _IndexGraphTruth:
     status: str
@@ -536,6 +528,8 @@ def _memory_lifecycle_lane_once(brain_dir: Path) -> ReadinessLane:
             count=broken_superseded_count,
         ),
         _pending_integrity_check(pending_metrics),
+        _pending_lock_hygiene_check(pending_metrics),
+        _pending_receipt_ledger_check(pending_metrics),
         _pending_age_check(pending_metrics["pending_oldest_age_seconds"]),
         _aggregate_check(
             "item_scan",
@@ -581,8 +575,12 @@ def _memory_lifecycle_lane_once(brain_dir: Path) -> ReadinessLane:
         pending_metrics["pending_total"]
         or pending_metrics["pending_dead_count"]
         or pending_metrics["pending_scan_unavailable"]
+        or pending_metrics["pending_orphan_lock_files"]
+        or pending_metrics["pending_receipt_incomplete_count"]
+        or pending_metrics["pending_receipt_ledger_status"]
+        in {"corrupt", "unavailable"}
     ):
-        next_actions.append("memory sync-pending --format json")
+        next_actions.append("memory sync-pending --summary-only --format json")
     if index_repair_required:
         next_actions.append("memory verify")
         if index_dirty_status == "repair_required":
@@ -703,6 +701,12 @@ def _lifecycle_generation_token(
             "runtime/lifecycle-actions.jsonl",
             recursive=False,
             file_limit=_MAX_LIFECYCLE_LEDGER_BYTES,
+        )
+        add(
+            brain / "runtime" / "pending-apply-receipts.jsonl",
+            "runtime/pending-apply-receipts.jsonl",
+            recursive=False,
+            file_limit=MAX_PENDING_RECEIPT_LEDGER_BYTES,
         )
         add(brain / ".index-dirty", ".index-dirty", recursive=False)
         for suffix in _INDEX_COMPONENT_LIMITS:
@@ -1073,6 +1077,19 @@ def _pending_truth_readonly(
     total = preview.total if preview is not None else 0
     returned = preview.returned if preview is not None else 0
     truncated = bool(preview.truncated if preview is not None else total)
+    if preview is not None and not pending_scan_unavailable and not truncated:
+        try:
+            lock_report = collect_pending_record_locks(
+                brain_dir / "pending",
+                live_record_names={Path(record.path).name for record in preview.records},
+                apply=False,
+                limit=MAX_PENDING_QUEUE_ENTRIES,
+            )
+        except (OSError, RuntimeError, ValueError):
+            lock_report = PendingLockGcReport(reason="PENDING_LOCK_GC_UNAVAILABLE")
+    else:
+        lock_report = PendingLockGcReport(reason="PENDING_LOCK_GC_UNAVAILABLE")
+    receipt_health = read_pending_receipt_ledger_health(brain_dir)
     oldest_value = summary.get("oldest_age_seconds")
     oldest = oldest_value if type(oldest_value) is int and oldest_value >= 0 else None
     classifications = {name: counts[name] for name in _PENDING_CLASSIFICATIONS}
@@ -1088,6 +1105,14 @@ def _pending_truth_readonly(
         "pending_classifications": classifications,
         "pending_reason_counts": dict(sorted(reason_counts.items())),
         "pending_dead_count": dead_count,
+        "pending_lock_files": lock_report.total,
+        "pending_orphan_lock_files": lock_report.orphan,
+        "pending_unsafe_lock_files": lock_report.unsafe,
+        "pending_lock_scan_truncated": lock_report.truncated,
+        "pending_lock_gc_reason": lock_report.reason,
+        "pending_receipt_ledger_status": receipt_health.status,
+        "pending_receipt_record_count": receipt_health.record_count,
+        "pending_receipt_incomplete_count": receipt_health.incomplete_count,
         "pending_groups": {
             "ready": int(groups.get("ready", 0)),
             "review": int(groups.get("review", 0)),
@@ -1481,6 +1506,51 @@ def _pending_integrity_check(metrics: dict[str, Any]) -> ReadinessCheck:
             "malformed_count": classifications["malformed"],
             "audit_blocked_count": classifications["audit_blocked"],
             "dead_count": metrics["pending_dead_count"],
+        },
+    )
+
+
+def _pending_lock_hygiene_check(metrics: dict[str, Any]) -> ReadinessCheck:
+    orphan = int(metrics["pending_orphan_lock_files"])
+    unsafe = int(metrics["pending_unsafe_lock_files"])
+    truncated = bool(metrics["pending_lock_scan_truncated"])
+    reason = metrics["pending_lock_gc_reason"]
+    if unsafe or truncated or reason == "PENDING_LOCK_GC_UNAVAILABLE":
+        status = "fail"
+    elif orphan:
+        status = "warn"
+    else:
+        status = "pass"
+    return ReadinessCheck(
+        "pending_lock_hygiene",
+        status,
+        "pending record lock hygiene",
+        f"orphan={orphan} unsafe={unsafe} truncated={str(truncated).lower()}",
+        evidence={
+            "lock_count": metrics["pending_lock_files"],
+            "orphan_count": orphan,
+            "unsafe_count": unsafe,
+        },
+    )
+
+
+def _pending_receipt_ledger_check(metrics: dict[str, Any]) -> ReadinessCheck:
+    ledger_status = str(metrics["pending_receipt_ledger_status"])
+    incomplete = int(metrics["pending_receipt_incomplete_count"])
+    if ledger_status in {"corrupt", "unavailable"}:
+        status = "fail"
+    elif incomplete:
+        status = "warn"
+    else:
+        status = "pass"
+    return ReadinessCheck(
+        "pending_receipt_ledger",
+        status,
+        "pending apply receipt ledger",
+        f"status={ledger_status} incomplete={incomplete}",
+        evidence={
+            "record_count": metrics["pending_receipt_record_count"],
+            "incomplete_count": incomplete,
         },
     )
 

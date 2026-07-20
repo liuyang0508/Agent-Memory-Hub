@@ -142,12 +142,6 @@ PendingClassification = Literal[
     "audit_blocked",
 ]
 
-_PENDING_REVIEW_CLASSIFICATIONS = frozenset(
-    {"stale_requires_review", "duplicate_candidate", "unsupported_type"}
-)
-_PENDING_BLOCKER_CLASSIFICATIONS = frozenset(
-    {"conflict", "malformed", "audit_blocked"}
-)
 _PUBLIC_PENDING_REASONS = frozenset(
     {
         "AUDIT_BLOCKED",
@@ -951,11 +945,15 @@ class PendingPreview:
             "reason_counts": dict(sorted(reasons.items())),
             "groups": {
                 "ready": classifications["ready"] + classifications["already_written"],
-                "review": sum(
-                    classifications[name] for name in _PENDING_REVIEW_CLASSIFICATIONS
+                "review": (
+                    classifications["stale_requires_review"]
+                    + classifications["duplicate_candidate"]
+                    + classifications["unsupported_type"]
                 ),
-                "blocker": sum(
-                    classifications[name] for name in _PENDING_BLOCKER_CLASSIFICATIONS
+                "blocker": (
+                    classifications["conflict"]
+                    + classifications["malformed"]
+                    + classifications["audit_blocked"]
                 ),
             },
             "oldest_age_seconds": max(
@@ -1816,7 +1814,7 @@ class PendingQueue:
         self,
         path: Path,
         *,
-        existing_items: dict[str, MemoryItem],
+        existing_items: Mapping[str, MemoryItem],
         metadata_trusted: bool,
         deadline_at: float | None = None,
     ) -> PendingRecordPreview:
@@ -2206,7 +2204,7 @@ def _classify_pending_record(
     path: Path,
     record: dict[str, object],
     item: dict[str, object],
-    existing_items: dict[str, MemoryItem],
+    existing_items: Mapping[str, MemoryItem],
     metadata_trusted: bool,
 ) -> PendingRecordPreview:
     version = _record_version(record.get("v"))
@@ -3127,7 +3125,12 @@ def _scan_existing_item_metadata(
                 items[item.id] = item
             except OSError:
                 return _ItemMetadataSnapshot(items={}, trusted=False)
-        return _ItemMetadataSnapshot(items=items, trusted=True)
+        return _ItemMetadataSnapshot(
+            items=items,
+            trusted=True,
+            entry_count=entry_count,
+            metadata_bytes=bytes_read,
+        )
     except _PendingReadError as exc:
         return _ItemMetadataSnapshot(items={}, trusted=False, reason=exc.reason)
     finally:
@@ -3258,7 +3261,12 @@ def _scan_existing_item_metadata_fallback(
                 items[item.id] = item
             except OSError:
                 return _ItemMetadataSnapshot(items={}, trusted=False)
-        return _ItemMetadataSnapshot(items=items, trusted=True)
+        return _ItemMetadataSnapshot(
+            items=items,
+            trusted=True,
+            entry_count=entry_count,
+            metadata_bytes=bytes_read,
+        )
     except _PendingReadError as exc:
         return _ItemMetadataSnapshot(items={}, trusted=False, reason=exc.reason)
     finally:

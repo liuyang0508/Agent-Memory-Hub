@@ -346,7 +346,7 @@ def test_doctor_pending_next_action_is_preview_only(tmp_brain, monkeypatch):
 
     assert result.exit_code in {0, 1}, result.output
     output = " ".join(result.stdout.split())
-    assert "memory sync-pending --format json" in output
+    assert "memory sync-pending --summary-only --format json" in output
     assert "--apply" not in output
 
 
@@ -406,7 +406,7 @@ def test_doctor_pending_row_reports_ready_review_blocker_and_oldest(
     assert "review=1" in output
     assert "blocker=1" in output
     assert "oldest=" in output
-    assert "memory sync-pending --format json" in output
+    assert "memory sync-pending --summary-only --format json" in output
     assert "--apply" not in output
 
 

@@ -72,9 +72,13 @@ def doctor_offline(
         or lifecycle_metrics["pending_dead_count"]
         or lifecycle_metrics["pending_scan_unavailable"]
         or lifecycle_metrics["pending_truncated"]
+        or lifecycle_metrics["pending_orphan_lock_files"]
+        or lifecycle_metrics["pending_receipt_incomplete_count"]
+        or lifecycle_metrics["pending_receipt_ledger_status"]
+        in {"corrupt", "unavailable"}
     )
     if pending_requires_attention:
-        preview_command = "memory sync-pending --format json"
+        preview_command = "memory sync-pending --summary-only --format json"
     elif lifecycle_metrics["review_queue_count"]:
         preview_command = "memory govern plan --category lifecycle --format markdown"
     else:

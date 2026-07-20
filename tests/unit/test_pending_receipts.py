@@ -158,3 +158,35 @@ def test_pending_receipt_append_refuses_corrupt_existing_ledger(tmp_brain):
         receipts_module.append_pending_receipt(tmp_brain, _prepared())
 
     assert ledger.read_bytes() == before
+
+
+def test_pending_receipt_ledger_symlink_is_unavailable_and_never_followed(tmp_brain):
+    runtime = tmp_brain / "runtime"
+    runtime.mkdir(parents=True)
+    outside = tmp_brain.parent / "outside-receipt-ledger"
+    outside.write_text("outside\n", encoding="utf-8")
+    ledger = runtime / "pending-apply-receipts.jsonl"
+    try:
+        ledger.symlink_to(outside)
+    except (NotImplementedError, OSError):
+        pytest.skip("symlink unavailable")
+
+    health = receipts_module.read_pending_receipt_ledger_health(tmp_brain)
+
+    assert health.status == "unavailable"
+    with pytest.raises(OSError):
+        receipts_module.append_pending_receipt(tmp_brain, _prepared())
+    assert outside.read_text(encoding="utf-8") == "outside\n"
+
+
+def test_pending_receipt_health_rejects_oversized_ledger(tmp_brain):
+    runtime = tmp_brain / "runtime"
+    runtime.mkdir(parents=True)
+    ledger = runtime / "pending-apply-receipts.jsonl"
+    with ledger.open("wb") as handle:
+        handle.truncate(receipts_module.MAX_PENDING_RECEIPT_LEDGER_BYTES + 1)
+    os.chmod(ledger, 0o600)
+
+    health = receipts_module.read_pending_receipt_ledger_health(tmp_brain)
+
+    assert health.status == "corrupt"

@@ -402,6 +402,22 @@ def test_metadata_deadline_after_root_open_closes_directory_descriptor(
     assert len(closed) == 1
 
 
+def test_item_catalog_snapshot_reports_scan_bounds(tmp_brain):
+    record = _v2_record(record_id="catalog-bounds-record")
+    _write_existing_item(
+        tmp_brain,
+        record,
+        item_id=_stable_item_id(record),
+        span_hash=_payload_sha256(record),
+    )
+
+    snapshot = pending_module._scan_existing_item_metadata(tmp_brain / "items")
+
+    assert snapshot.trusted is True
+    assert snapshot.entry_count >= 1
+    assert snapshot.metadata_bytes > 0
+
+
 def test_pending_path_scan_allows_exact_cap_and_rejects_cap_plus_one(
     tmp_brain,
 ) -> None:
