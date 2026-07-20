@@ -40,6 +40,7 @@ class ExtractionKind(str, Enum):
 _RESOURCE_ID_PATTERN = re.compile(r"^res-\d{8}-\d{6}-(?P<tail>.{1,200})$")
 _EXTRACTION_ID_PATTERN = re.compile(r"^ext-\d{8}-\d{6}-(?P<tail>.{1,200})$")
 _SHA256_PATTERN = re.compile(r"^[a-fA-F0-9]{64}$")
+_UNSAFE_PLATFORM_ID_CHARACTERS = frozenset('<>:"/\\|?*')
 _WINDOWS_RESERVED_NAMES = frozenset(
     {"con", "prn", "aux", "nul"}
     | {f"com{index}" for index in range(1, 10)}
@@ -62,13 +63,16 @@ def _validate_legacy_safe_id(value: str, pattern: re.Pattern[str], reason: str) 
     if match is None:
         raise ValueError(reason)
     tail = match.group("tail")
-    if tail in {".", ".."} or ".." in tail or tail.endswith("."):
+    if tail in {".", ".."} or tail.endswith("."):
         raise ValueError(reason)
     for character in tail:
         category = unicodedata.category(character)
-        if character in "._-" or category[0] in {"L", "M", "N"}:
-            continue
-        raise ValueError(reason)
+        if (
+            character in _UNSAFE_PLATFORM_ID_CHARACTERS
+            or character.isspace()
+            or category.startswith("C")
+        ):
+            raise ValueError(reason)
     return value
 
 

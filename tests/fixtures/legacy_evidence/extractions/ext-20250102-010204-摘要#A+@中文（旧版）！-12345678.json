@@ -1,0 +1,8 @@
+{
+  "id": "ext-20250102-010204-摘要#A+@中文（旧版）！-12345678",
+  "resource_id": "res-20250102-010203-旧版#A+官网@README，回填、审核！-abcdef12",
+  "kind": "text",
+  "extractor": "legacy-import",
+  "content_text": "旧版证据，含#@+与中文标点！",
+  "content_sha256": "95c5e3c0aefe6f58b59d4790faa0c2f8c6a6e64294e9e0ff545d48571dc1ff39"
+}

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Iterator
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, cast
 
@@ -11,6 +13,23 @@ from agent_brain.contracts.resource import (
     validate_extraction_id,
     validate_resource_id,
 )
+
+_log = logging.getLogger(__name__)
+
+
+@dataclass
+class EvidenceSkipRecord:
+    path: Path
+    reason: str
+
+
+@dataclass
+class EvidenceScanStats:
+    skipped: list[EvidenceSkipRecord] = field(default_factory=list)
+
+    @property
+    def skipped_count(self) -> int:
+        return len(self.skipped)
 
 
 class ResourceStore:
@@ -22,6 +41,7 @@ class ResourceStore:
         self.extractions_dir = self.root_dir / "extractions"
         self.resources_dir.mkdir(parents=True, exist_ok=True)
         self.extractions_dir.mkdir(parents=True, exist_ok=True)
+        self.last_scan = EvidenceScanStats()
 
     def write_resource(self, record: ResourceRecord) -> Path:
         path = self.resources_dir / f"{record.id}.json"
@@ -55,14 +75,30 @@ class ResourceStore:
         return ExtractionRecord.model_validate(self._read_json(path))
 
     def iter_resources(self) -> Iterator[ResourceRecord]:
+        self.last_scan = EvidenceScanStats()
         for path in sorted(self.resources_dir.glob("*.json")):
-            yield ResourceRecord.model_validate(self._read_json(path))
+            try:
+                record = ResourceRecord.model_validate(self._read_json(path))
+            except Exception as error:  # noqa: BLE001 - isolate corrupt records.
+                self._record_skip(path, error)
+                continue
+            yield record
 
     def iter_extractions(self, resource_id: str | None = None) -> Iterator[ExtractionRecord]:
+        self.last_scan = EvidenceScanStats()
         for path in sorted(self.extractions_dir.glob("*.json")):
-            record = ExtractionRecord.model_validate(self._read_json(path))
+            try:
+                record = ExtractionRecord.model_validate(self._read_json(path))
+            except Exception as error:  # noqa: BLE001 - isolate corrupt records.
+                self._record_skip(path, error)
+                continue
             if resource_id is None or record.resource_id == resource_id:
                 yield record
+
+    def _record_skip(self, path: Path, error: BaseException) -> None:
+        reason = f"{type(error).__name__}: {error}".splitlines()[0][:200]
+        self.last_scan.skipped.append(EvidenceSkipRecord(path=path, reason=reason))
+        _log.debug("skip evidence %s: %s", path.name, reason)
 
     @staticmethod
     def _write_json(path: Path, data: dict[str, Any]) -> None:

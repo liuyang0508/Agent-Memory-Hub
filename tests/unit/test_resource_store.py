@@ -75,15 +75,111 @@ def test_legacy_unicode_evidence_ids_validate_and_load_without_rewrite(
     )
 
 
+def test_legacy_punctuation_evidence_fixtures_load_without_rewrite(
+    fixtures_dir: Path,
+) -> None:
+    from agent_brain.memory.evidence.resource_store import ResourceStore
+
+    root = fixtures_dir / "legacy_evidence"
+    resource_id = "res-20250102-010203-旧版#A+官网@README，回填、审核！-abcdef12"
+    extraction_id = "ext-20250102-010204-摘要#A+@中文（旧版）！-12345678"
+
+    store = ResourceStore(root)
+
+    assert store.get_resource(resource_id).id == resource_id
+    assert store.get_extraction(extraction_id).id == extraction_id
+
+
+def test_resource_iteration_skips_one_unsafe_record_and_keeps_valid_records(
+    tmp_path: Path,
+) -> None:
+    from agent_brain.contracts.resource import ResourceKind, ResourceRecord, make_resource_id
+    from agent_brain.memory.evidence.resource_store import ResourceStore
+
+    store = ResourceStore(tmp_path)
+    valid = ResourceRecord(
+        id=make_resource_id("valid"),
+        kind=ResourceKind.document,
+        uri="memory://valid",
+        title="valid",
+    )
+    store.write_resource(valid)
+    (store.resources_dir / "000-unsafe.json").write_text(
+        json.dumps(
+            {
+                "id": "res-20250102-010203-unsafe:colon-abcdef12",
+                "kind": "document",
+                "uri": "memory://unsafe",
+                "title": "unsafe",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert [record.id for record in store.iter_resources()] == [valid.id]
+    assert store.last_scan.skipped_count == 1
+    assert store.last_scan.skipped[0].path.name == "000-unsafe.json"
+
+
+def test_extraction_iteration_skips_one_corrupt_record_and_keeps_valid_records(
+    tmp_path: Path,
+) -> None:
+    from agent_brain.contracts.resource import (
+        ExtractionKind,
+        ExtractionRecord,
+        ResourceKind,
+        ResourceRecord,
+        make_extraction_id,
+        make_resource_id,
+        sha256_text,
+    )
+    from agent_brain.memory.evidence.resource_store import ResourceStore
+
+    store = ResourceStore(tmp_path)
+    resource = ResourceRecord(
+        id=make_resource_id("valid resource"),
+        kind=ResourceKind.document,
+        uri="memory://valid",
+        title="valid",
+    )
+    extraction = ExtractionRecord(
+        id=make_extraction_id("valid extraction"),
+        resource_id=resource.id,
+        kind=ExtractionKind.text,
+        extractor="test",
+        content_text="valid",
+        content_sha256=sha256_text("valid"),
+    )
+    store.write_resource(resource)
+    store.write_extraction(extraction)
+    (store.extractions_dir / "000-corrupt.json").write_text(
+        "{not-json\n", encoding="utf-8"
+    )
+
+    assert [record.id for record in store.iter_extractions()] == [extraction.id]
+    assert store.last_scan.skipped_count == 1
+    assert store.last_scan.skipped[0].path.name == "000-corrupt.json"
+
+
 @pytest.mark.parametrize(
     "unsafe_id",
     [
         "res-20250101-010203-../escape",
         "res-20250101-010203-back\\slash",
         "res-20250101-010203-colon:name",
+        "res-20250101-010203-less<than",
+        "res-20250101-010203-greater>than",
+        'res-20250101-010203-double"quote',
+        "res-20250101-010203-pipe|name",
+        "res-20250101-010203-question?name",
         "res-20250101-010203-star*name",
         "res-20250101-010203-white space",
+        "res-20250101-010203-nonbreaking\u00a0space",
+        "res-20250101-010203-zero\u200bwidth",
+        "res-20250101-010203-bidi\u202ename",
+        "res-20250101-010203-tab\tname",
         "res-20250101-010203-control\x00name",
+        "res-20250101-010203-",
         "res-20250101-010203-..",
         "res-20250101-010203-trailing.",
     ],
