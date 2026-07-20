@@ -2,7 +2,7 @@
 
 日期：2026-07-20（Asia/Shanghai）
 
-状态：待用户复核
+状态：已批准，待实现
 
 ## 1. 背景与现场证据
 
@@ -98,12 +98,14 @@ marker entry 分为：
 @dataclass(frozen=True)
 class IndexHealthReport:
     status: Literal["clean", "repair_required", "corrupt", "unavailable"]
+    reason: str | None
     source_scan_trusted: bool
     md_count: int
     index_count: int
     missing_ids: frozenset[str]
     orphan_ids: frozenset[str]
     dirty_status: str
+    dirty_entries: tuple[str, ...]
     dirty_entry_count: int
     dirty_unique_count: int
     active_dirty_ids: frozenset[str]
@@ -123,18 +125,21 @@ summary 方法只允许 schema version、状态、
 
 ### 6.2 采集器
 
-CLI 采集器在 `ItemsStore.iter_all()` 完整扫描后获得：
+CLI preview 不再通过 `_managed_components()` 打开 live `HubIndex`。它复用 readiness 的
+descriptor-relative items 读取和外部 SQLite component snapshot，在严格只读路径上获得：
 
 - `md_ids`；
 - `expected_supersedes={(replacement_id, obsolete_id)}`；
 - `source_scan_trusted`，任何 skipped/error/truncated 都 fail closed。
 
-index 侧在既有 managed `HubIndex` 连接中有界读取 `items_meta.id` 与
+外部 SQLite snapshot 在同一个一致性副本中有界读取 `items_meta.id` 与
 `refs_graph(relation=supersedes)`。dirty marker 继续复用已有 no-follow、size/entry cap 和
-canonical id parser。
+canonical id parser。纯 `memory verify` 因此不初始化 schema、不切换 WAL、不创建 embedder，也
+不修改 index component metadata。
 
-readiness 继续使用外部 SQLite snapshot，避免 live connection 带来的 schema/WAL 写入；它把安全
-采集到的 index ids/edges 交给同一个纯比较函数。共享的是判定语义，不强行共享不同信任边界的 I/O。
+readiness 与 CLI preview 共享这套只读采集器和纯比较函数。只有显式 `--repair` 在 preflight
+report 可修且可信后，才进入现有 managed write connection；写连接关闭后再通过外部 snapshot
+生成最终 `after` report。
 
 ### 6.3 CLI 合同
 
@@ -154,13 +159,15 @@ repair 必须显式调用 `memory verify --repair`，并遵循以下顺序：
 
 1. 在 repair 前生成完整 `before` report；
 2. 若 source scan、dirty marker 或 graph 采集不可信，零写入退出；
-3. 对 `missing_ids ∪ active_dirty_ids` re-upsert source item；只有该集合非空时才初始化 embedder；
+3. 只有此时才打开 managed write connection；对 `missing_ids ∪ active_dirty_ids` re-upsert
+   source item，且只有该集合非空时才初始化 embedder；
 4. prune `orphan_ids`；
 5. 在单个 SQLite transaction 中把全部 `relation=supersedes` 替换成
    `expected_supersedes`，不触碰其他 relation；
 6. 清理 captured marker 中已证明处理完成的 entries：active 已 upsert、orphan 已 prune、retired
    已确认两侧都不存在；并发追加由现有 entry-count/marker-lock 语义保留；
-7. 重新完整采集 `after` report；只有 `after.status=clean` 才 exit 0。
+7. 关闭 managed write connection，重新通过外部只读 snapshot 完整采集 `after` report；只有
+   `after.status=clean` 才 exit 0。
 
 若 upsert、prune、graph reconciliation 或 marker clear 任一步失败：
 
@@ -174,6 +181,7 @@ repair 必须显式调用 `memory verify --repair`，并遵循以下顺序：
 
 - repair 沿用 catalog/index 的既有锁序，不引入反向锁；
 - source scan 完成度必须检查 `ItemsStore.last_scan`；
+- preview 与 after verification 不得构造 `HubIndex` 或 embedder；
 - graph replacement 在一个 SQLite transaction 内完成；
 - marker 清理由既有 marker file lock、identity check 和 expected entry counts 防止丢失并发 append；
 - repair 后的第二次 health scan 是成功判定的唯一依据；
