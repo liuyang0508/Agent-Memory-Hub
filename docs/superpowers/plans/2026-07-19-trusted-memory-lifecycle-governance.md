@@ -1267,7 +1267,9 @@ fingerprint。最初计划中的 `agent_runtime_kit/tests/test_hooks.sh` 从未�
 
 ```bash
 git add docs/superpowers/specs/2026-07-19-trusted-memory-lifecycle-governance-design.md \
-  docs/superpowers/plans/2026-07-19-trusted-memory-lifecycle-governance.md
+  docs/superpowers/plans/2026-07-19-trusted-memory-lifecycle-governance.md \
+  docs/evaluation/lifecycle-governance-readiness.json \
+  docs/evaluation/lifecycle-governance-readiness.zh.md
 git commit -m "docs: record trusted lifecycle governance verification"
 ```
 
