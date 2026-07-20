@@ -16,12 +16,76 @@ from agent_brain.contracts.memory_item import MemoryItem, MemoryType
 from agent_brain.interfaces.cli import app
 from agent_brain.memory.store.items_store import ItemsStore
 from agent_brain.memory.store.pending import enqueue_write_record
+from agent_brain.platform.indexing.index import HubIndex
 from agent_brain.product.governance_readiness import (
     build_governance_readiness_report,
     build_memory_lifecycle_readiness,
+    collect_index_health_readonly,
 )
 
 runner = CliRunner()
+
+
+def _index_health_item(
+    item_id: str,
+    *,
+    superseded_by: str | None = None,
+) -> MemoryItem:
+    return MemoryItem(
+        id=item_id,
+        type=MemoryType.fact,
+        created_at=datetime.now(timezone.utc),
+        title=item_id,
+        summary=f"{item_id} summary",
+        superseded_by=superseded_by,
+    )
+
+
+def test_readonly_index_projection_returns_ids_and_supersedes(tmp_path) -> None:
+    import agent_brain.product.governance_readiness as readiness_module
+
+    brain = tmp_path / "brain"
+    brain.mkdir()
+    new = _index_health_item("mem-20260720-140002-snapshot-new")
+    old = _index_health_item(
+        "mem-20260720-140002-snapshot-old",
+        superseded_by=new.id,
+    )
+    index = HubIndex(brain / "index.db")
+    index.upsert(new, "new", embedding=None)
+    index.upsert(old, "old", embedding=None)
+    index.close()
+
+    truth = readiness_module._read_index_projection_readonly(brain / "index.db")
+
+    assert truth.status == "available"
+    assert truth.item_ids == frozenset({old.id, new.id})
+    assert truth.supersedes == frozenset({(new.id, old.id)})
+
+
+def test_collect_index_health_readonly_does_not_open_hub_index(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    brain = tmp_path / "brain"
+    store = ItemsStore(brain / "items")
+    item = _index_health_item("mem-20260720-140002-readonly-health")
+    store.write(item, item.summary)
+    index = HubIndex(brain / "index.db")
+    index.upsert(item, item.summary, embedding=None)
+    index.close()
+
+    monkeypatch.setattr(
+        "agent_brain.platform.indexing.index.HubIndex.__init__",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("write open")),
+    )
+
+    before = _full_tree_snapshot(brain)
+    report = collect_index_health_readonly(brain)
+    after = _full_tree_snapshot(brain)
+
+    assert report.status == "clean"
+    assert after == before
 
 
 def _write_supersedes_index(brain: Path, edges: list[tuple[str, str]]) -> None:

@@ -15,7 +15,7 @@ import subprocess
 import sys
 import tempfile
 import time
-from typing import Any, BinaryIO
+from typing import Any, BinaryIO, Literal
 
 from agent_brain.contracts.memory_enums import memory_enum_value
 from agent_brain.contracts.memory_item import MemoryItem
@@ -23,6 +23,10 @@ from agent_brain.memory.context.query_signal import diagnose_injection_query
 from agent_brain.memory.governance.auto_governance import lifecycle_review_due
 from agent_brain.memory.governance.lifecycle_ledger import (
     active_lifecycle_deferrals_readonly,
+)
+from agent_brain.memory.governance.index_health import (
+    IndexHealthReport,
+    build_index_health,
 )
 from agent_brain.memory.governance.pending_lock_gc import (
     PendingLockGcReport,
@@ -314,6 +318,21 @@ class _IndexGraphTruth:
 
 
 @dataclass(frozen=True)
+class _IndexProjectionTruth:
+    status: Literal["available", "not_available", "unavailable"]
+    item_ids: frozenset[str]
+    supersedes: frozenset[tuple[str, str]]
+
+
+@dataclass(frozen=True)
+class _IndexSnapshotProjection:
+    item_ids: tuple[str, ...]
+    items_available: bool
+    supersedes: tuple[tuple[str, str], ...]
+    graph_available: bool
+
+
+@dataclass(frozen=True)
 class _IndexComponentState:
     device: int
     inode: int
@@ -362,6 +381,34 @@ class _ReadinessItemsSnapshot:
 def build_memory_lifecycle_readiness(brain_dir: Path) -> ReadinessLane:
     """Aggregate lifecycle health without exposing item or queue content."""
     return _memory_lifecycle_lane(brain_dir)
+
+
+def collect_index_health_readonly(brain_dir: Path) -> IndexHealthReport:
+    """Collect source, marker, and index truth without opening the live database."""
+
+    brain = Path(brain_dir)
+    item_snapshot = _read_items_readonly(brain / "items")
+    active_items = item_snapshot.active_items
+    active_ids = frozenset(item.id for item in active_items)
+    projection = _read_index_projection_readonly(brain / "index.db")
+    expected_supersedes = frozenset(
+        (str(item.superseded_by), item.id)
+        for item in active_items
+        if item.superseded_by in active_ids
+    )
+    return build_index_health(
+        md_ids=active_ids,
+        index_ids=projection.item_ids,
+        expected_supersedes=expected_supersedes,
+        indexed_supersedes=projection.supersedes,
+        source_scan_trusted=(
+            not item_snapshot.scan_unavailable
+            and item_snapshot.malformed_count == 0
+            and item_snapshot.catalog.trusted
+        ),
+        graph_status=projection.status,
+        dirty_marker=read_dirty_index_marker(brain),
+    )
 
 
 def _memory_lifecycle_lane(brain_dir: Path) -> ReadinessLane:
@@ -1159,7 +1206,36 @@ def _count_dead_pending_readonly(dead_dir: Path) -> tuple[int, bool]:
     return count, False
 
 
+def _read_index_projection_readonly(db_path: Path) -> _IndexProjectionTruth:
+    try:
+        primary = _index_component_state(
+            db_path,
+            limit=_INDEX_COMPONENT_LIMITS[""],
+        )
+    except FileNotFoundError:
+        return _IndexProjectionTruth("not_available", frozenset(), frozenset())
+    except (OSError, ValueError):
+        return _IndexProjectionTruth("unavailable", frozenset(), frozenset())
+
+    try:
+        snapshot = _query_index_projection_from_external_snapshot(
+            db_path,
+            primary=primary,
+        )
+    except (OSError, sqlite3.Error, subprocess.SubprocessError, ValueError):
+        return _IndexProjectionTruth("unavailable", frozenset(), frozenset())
+    if not snapshot.items_available or not snapshot.graph_available:
+        return _IndexProjectionTruth("not_available", frozenset(), frozenset())
+    return _IndexProjectionTruth(
+        "available",
+        frozenset(snapshot.item_ids),
+        frozenset(snapshot.supersedes),
+    )
+
+
 def _read_supersedes_graph_readonly(db_path: Path) -> _IndexGraphTruth:
+    """Compatibility view for callers that only require the graph projection."""
+
     try:
         primary = _index_component_state(
             db_path,
@@ -1169,27 +1245,23 @@ def _read_supersedes_graph_readonly(db_path: Path) -> _IndexGraphTruth:
         return _IndexGraphTruth("not_available", frozenset())
     except (OSError, ValueError):
         return _IndexGraphTruth("unavailable", frozenset())
-
     try:
-        rows, table_available = _query_supersedes_from_external_snapshot(
+        snapshot = _query_index_projection_from_external_snapshot(
             db_path,
             primary=primary,
         )
     except (OSError, sqlite3.Error, subprocess.SubprocessError, ValueError):
         return _IndexGraphTruth("unavailable", frozenset())
-    if not table_available:
+    if not snapshot.graph_available:
         return _IndexGraphTruth("not_available", frozenset())
-    return _IndexGraphTruth(
-        "available",
-        frozenset((str(source), str(target)) for source, target in rows),
-    )
+    return _IndexGraphTruth("available", frozenset(snapshot.supersedes))
 
 
-def _query_supersedes_from_external_snapshot(
+def _query_index_projection_from_external_snapshot(
     db_path: Path,
     *,
     primary: _IndexComponentState,
-) -> tuple[list[tuple[object, object]], bool]:
+) -> _IndexSnapshotProjection:
     source_paths = {suffix: Path(f"{db_path}{suffix}") for suffix in _INDEX_COMPONENT_LIMITS}
     states: dict[str, _IndexComponentState | None] = {"": primary}
     for suffix in _INDEX_COMPONENT_LIMITS:
@@ -1238,11 +1310,24 @@ def _query_supersedes_from_external_snapshot(
         with sqlite3.connect(str(temp_database), timeout=0.1) as connection:
             connection.execute("PRAGMA busy_timeout=100")
             connection.execute("PRAGMA query_only=ON")
-            table = connection.execute(
-                "SELECT 1 FROM sqlite_master " "WHERE type = 'table' AND name = 'refs_graph'"
-            ).fetchone()
-            if table is None:
-                return [], False
+            tables = {
+                str(row[0])
+                for row in connection.execute(
+                    "SELECT name FROM sqlite_master WHERE type = 'table'"
+                ).fetchall()
+            }
+            items_available = "items_meta" in tables
+            graph_available = "refs_graph" in tables
+            item_ids = (
+                _read_index_item_ids_bounded(connection) if items_available else []
+            )
+            if not graph_available:
+                return _IndexSnapshotProjection(
+                    item_ids=tuple(item_ids),
+                    items_available=items_available,
+                    supersedes=(),
+                    graph_available=False,
+                )
             if not _refs_graph_schema_is_unique(connection):
                 raise _UnsafeIndexSnapshot("REFS_GRAPH_SCHEMA_UNSAFE")
             aggregate = connection.execute(
@@ -1303,7 +1388,81 @@ def _query_supersedes_from_external_snapshot(
                         raise _UnsafeIndexSnapshot("REFS_GRAPH_DUPLICATE_ROW")
                     seen.add(edge)
                     edges.append((source, target))
-            return edges, True
+            return _IndexSnapshotProjection(
+                item_ids=tuple(item_ids),
+                items_available=items_available,
+                supersedes=tuple((str(source), str(target)) for source, target in edges),
+                graph_available=True,
+            )
+
+
+def _read_index_item_ids_bounded(connection: sqlite3.Connection) -> list[str]:
+    if not _items_meta_id_schema_is_unique(connection):
+        raise _UnsafeIndexSnapshot("ITEMS_META_SCHEMA_UNSAFE")
+    aggregate = connection.execute(
+        "SELECT COUNT(*), "
+        "COALESCE(SUM(length(CAST(id AS BLOB))), 0), "
+        "COALESCE(MAX(length(CAST(id AS BLOB))), 0), "
+        "COALESCE(SUM(CASE WHEN typeof(id) != 'text' THEN 1 ELSE 0 END), 0) "
+        "FROM items_meta"
+    ).fetchone()
+    if aggregate is None:
+        raise _UnsafeIndexSnapshot("ITEMS_META_AGGREGATE_UNAVAILABLE")
+    row_count, total_bytes, max_id_bytes, bad_types = (int(value) for value in aggregate)
+    if row_count > _MAX_READINESS_ITEM_ENTRIES:
+        raise _UnsafeIndexSnapshot("ITEMS_META_ROW_BUDGET_EXCEEDED")
+    if total_bytes > _MAX_READINESS_ITEM_METADATA_BYTES:
+        raise _UnsafeIndexSnapshot("ITEMS_META_BYTE_BUDGET_EXCEEDED")
+    if max_id_bytes > _MAX_SUPERSEDES_ID_BYTES:
+        raise _UnsafeIndexSnapshot("ITEMS_META_ID_TOO_LARGE")
+    if bad_types:
+        raise _UnsafeIndexSnapshot("ITEMS_META_ROW_INVALID")
+    duplicate = connection.execute(
+        "SELECT 1 FROM items_meta GROUP BY id HAVING COUNT(*) > 1 LIMIT 1"
+    ).fetchone()
+    if duplicate is not None:
+        raise _UnsafeIndexSnapshot("ITEMS_META_DUPLICATE_ROW")
+
+    ids: list[str] = []
+    cursor = connection.execute(
+        "SELECT id FROM items_meta ORDER BY id LIMIT ?",
+        (_MAX_READINESS_ITEM_ENTRIES + 1,),
+    )
+    while True:
+        batch = cursor.fetchmany(512)
+        if not batch:
+            break
+        for row in batch:
+            if len(ids) >= _MAX_READINESS_ITEM_ENTRIES:
+                raise _UnsafeIndexSnapshot("ITEMS_META_ROW_BUDGET_EXCEEDED")
+            item_id = row[0]
+            if not isinstance(item_id, str):
+                raise _UnsafeIndexSnapshot("ITEMS_META_ROW_INVALID")
+            ids.append(item_id)
+    if len(ids) != row_count:
+        raise _UnsafeIndexSnapshot("ITEMS_META_ROW_COUNT_CHANGED")
+    return ids
+
+
+def _items_meta_id_schema_is_unique(connection: sqlite3.Connection) -> bool:
+    table_info = connection.execute("PRAGMA table_info(items_meta)").fetchall()
+    if "id" not in {str(row[1]) for row in table_info}:
+        return False
+    if any(str(row[1]) == "id" and int(row[5]) > 0 for row in table_info):
+        return True
+    for row in connection.execute("PRAGMA index_list(items_meta)").fetchall():
+        if not bool(row[2]) or (len(row) > 4 and bool(row[4])):
+            continue
+        index_name = str(row[1]).replace('"', '""')
+        indexed_columns = [
+            str(index_row[2])
+            for index_row in connection.execute(
+                f'PRAGMA index_info("{index_name}")'
+            ).fetchall()
+        ]
+        if indexed_columns == ["id"]:
+            return True
+    return False
 
 
 def _refs_graph_schema_is_unique(connection: sqlite3.Connection) -> bool:

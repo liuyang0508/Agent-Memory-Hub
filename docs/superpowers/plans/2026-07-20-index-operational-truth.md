@@ -999,7 +999,7 @@ orphan record lock 未被顺带修改。
 - [ ] **Step 8：清理本次 worktree 与已合并分支**
 
 ```bash
-git worktree remove /Users/liuyang/.config/superpowers/worktrees/agent-memory-hub/index-operational-truth
+git worktree remove "$WORKTREE"
 git branch -d feat/index-operational-truth
 ```
 
