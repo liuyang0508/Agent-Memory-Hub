@@ -1,3 +1,4 @@
+import importlib.util
 import hashlib
 import json
 import os
@@ -14,6 +15,105 @@ from agent_brain.interfaces.mcp.tools.search_tools import search_memory
 
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+def _load_lifecycle_governance_generator():
+    path = ROOT / "scripts/generate-lifecycle-governance-report.py"
+    assert path.is_file()
+    spec = importlib.util.spec_from_file_location(
+        "generate_lifecycle_governance_report", path
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_lifecycle_governance_report_is_reproducible_and_fail_closed(tmp_path):
+    generator = _load_lifecycle_governance_generator()
+    assert (
+        generator.EXIT_PASS,
+        generator.EXIT_FAILED_GATES,
+        generator.EXIT_STALE_EVIDENCE,
+        generator.EXIT_INVALID_INPUT,
+    ) == (0, 1, 2, 3)
+    report_path = ROOT / "docs/evaluation/lifecycle-governance-readiness.json"
+    markdown_path = ROOT / "docs/evaluation/lifecycle-governance-readiness.zh.md"
+    fixture_path = ROOT / "tests/fixtures/lifecycle_governance_evidence_v1.json"
+
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert report["schema_version"] == "amh-lifecycle-governance-readiness/v1"
+    assert report["overall_status"] == "pass"
+    assert report["failed_gates"] == []
+    assert report["implementation_hash"].startswith("sha256:")
+    assert report["fixture_hash"].startswith("sha256:")
+    assert report["supersession_contract"]["status"] == "pass"
+    assert report["pending_contract"]["status"] == "pass"
+    assert report["surface_parity"]["status"] == "pass"
+    assert report["privacy"]["status"] == "pass"
+    assert report["evidence_scope"]["real_brain_dry_run"] == "pending"
+
+    assert generator.canonical_json(generator.generate_report()) == report_path.read_text(
+        encoding="utf-8"
+    )
+    assert generator.render_markdown(report) == markdown_path.read_text(encoding="utf-8")
+
+    tampered_fixture = tmp_path / "fixture.json"
+    fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
+    fixture["supersession_cases"][0]["expected_reason"] = "TAMPERED_REASON"
+    tampered_fixture.write_text(
+        json.dumps(fixture, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    tampered_report = generator.generate_report(fixture_path=tampered_fixture)
+    assert tampered_report["overall_status"] == "fail"
+    assert "supersession_contract" in tampered_report["failed_gates"]
+    assert generator.committed_report_mismatches(
+        report_path=report_path,
+        fixture_path=tampered_fixture,
+    ) == ["fixture_hash_mismatch", "report_bytes_mismatch"]
+
+    completed = subprocess.run(
+        [sys.executable, "scripts/generate-lifecycle-governance-report.py", "--check"],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert "lifecycle-governance: PASS" in completed.stdout
+
+
+def test_lifecycle_governance_public_evidence_has_bounded_truth_claims():
+    fixture = _read("tests/fixtures/lifecycle_governance_evidence_v1.json")
+    report = _read("docs/evaluation/lifecycle-governance-readiness.json")
+    readiness = _read("docs/evaluation/lifecycle-governance-readiness.zh.md")
+    changelog = _read("CHANGELOG.md")
+    stage1_plan = _read(
+        "docs/superpowers/plans/2026-07-19-stage1-reliability-security-release.md"
+    )
+    public_text = "\n".join((fixture, report, readiness))
+
+    assert "代码与 synthetic fixture：`PASS`" in readiness
+    assert "真实 brain dry-run：`PENDING`" in readiness
+    assert "真实 brain 已完成" not in readiness
+    assert "sync-pending" in changelog and "默认预览" in changelog
+    assert "apply-lifecycle" in changelog and "默认预览" in changelog
+    assert (
+        "> 历史执行计划；当前完成状态以 "
+        "`docs/evaluation/stage1-reliability-security-release-readiness.zh.md` 为准。"
+        in stage1_plan
+    )
+    for forbidden in (
+        "/Users/",
+        "/home/",
+        "/var/folders/",
+        "raw prompt",
+        "transcript",
+        "Authorization:",
+    ):
+        assert forbidden not in public_text
 
 
 def _read(path: str) -> str:

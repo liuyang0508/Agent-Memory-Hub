@@ -1,0 +1,217 @@
+{
+  "evidence_scope": {
+    "code_and_synthetic_fixture": "pass",
+    "real_brain_dry_run": "pending"
+  },
+  "failed_gates": [],
+  "fixture_hash": "sha256:e1f2c19cd2da4dee4f331e375e6b73d8e6511d530fc11cb09132513adf64b7d5",
+  "fixture_schema_version": "amh-lifecycle-governance-evidence/v1",
+  "generator_version": "amh-lifecycle-governance-generator/v1",
+  "graph_drift_contract": {
+    "expected_drift_count": 1,
+    "observed_drift_count": 1,
+    "status": "pass"
+  },
+  "implementation_hash": "sha256:12b6a44b70eb1df0e602e60d82d3b5e89ae1eff31d4bad3419f7f1db29d647d4",
+  "implementation_manifest": [
+    {
+      "path": "agent_brain/interfaces/cli/commands/maintenance.py",
+      "sha256": "sha256:31682cf1be8f6db4bf944577e9a479761156658aeddedf381214f083d1f05281"
+    },
+    {
+      "path": "agent_brain/interfaces/cli/commands/review.py",
+      "sha256": "sha256:33b9c188b51184317a8a1549500311f4dff70b924f8bd92cf07eb1e49dc95ab3"
+    },
+    {
+      "path": "agent_brain/interfaces/cli/commands/subapps.py",
+      "sha256": "sha256:d36eb809bde0c5fe637f93ba475672f443f8a1fa5f2e06f70d288806afece425"
+    },
+    {
+      "path": "agent_brain/interfaces/cli/doctor_offline.py",
+      "sha256": "sha256:d195a8f337721afe50b61d92766f581e15a7d02ee117f8c145e028f335c487cc"
+    },
+    {
+      "path": "agent_brain/interfaces/mcp/tools/graph.py",
+      "sha256": "sha256:752cf57868521c775624a5ca8e81c374b6252c13610a5dc2c5722232b5efe104"
+    },
+    {
+      "path": "agent_brain/memory/governance/git_fd_exec.py",
+      "sha256": "sha256:123e6d49b8add848e908d465913451b284672287c1e380639c55b87c5f70d3b9"
+    },
+    {
+      "path": "agent_brain/memory/governance/lifecycle_action_parsing.py",
+      "sha256": "sha256:bc161c4d6d64156f18a2c5c926350f32c936472aec151bb46faa58bb3316ba6e"
+    },
+    {
+      "path": "agent_brain/memory/governance/lifecycle_archive.py",
+      "sha256": "sha256:2288ebea4b17112060b59fbb50e62ab832ead5f30e718f3ca72a2447a28b8034"
+    },
+    {
+      "path": "agent_brain/memory/governance/lifecycle_candidates.py",
+      "sha256": "sha256:d7df82ffc27472235cfe9614c38f9fab4816a93e53760c23fc5a0e706bb1e198"
+    },
+    {
+      "path": "agent_brain/memory/governance/lifecycle_ledger.py",
+      "sha256": "sha256:73c2f7f6aafa97ed79dd16a3f48f30119f7c124fa2dedebcb08364aea74b67df"
+    },
+    {
+      "path": "agent_brain/memory/governance/lifecycle_review.py",
+      "sha256": "sha256:9dddd1da8fbac1b93e64c8fd7e4e6c3003ef57bd5c11e627ddc583c7d049a839"
+    },
+    {
+      "path": "agent_brain/memory/governance/lifecycle_snapshot.py",
+      "sha256": "sha256:d431532f10bbee2db1823b5435ef41497385775c2b0566bb4986f745473a7d1f"
+    },
+    {
+      "path": "agent_brain/memory/governance/maintenance_plan.py",
+      "sha256": "sha256:b2b3ff022fcc0fc40dc4de588153e901eeaffe6b2385b2b33723c826bff8e321"
+    },
+    {
+      "path": "agent_brain/memory/governance/supersession.py",
+      "sha256": "sha256:bae8667741fbe9dd79fbcc8514543a945f877e3cfd73468a305d276a1996e04a"
+    },
+    {
+      "path": "agent_brain/memory/store/durable_fs.py",
+      "sha256": "sha256:26fb6242c1674673bcf93959cde0829e658527209dc1c9b86d0c2306ceff99e6"
+    },
+    {
+      "path": "agent_brain/memory/store/items_store.py",
+      "sha256": "sha256:58ed64604ac5a2b06a7c5df4ae6a1339eb7eb4cd1bbea619cef96dbd61ff8efd"
+    },
+    {
+      "path": "agent_brain/memory/store/pending.py",
+      "sha256": "sha256:282d45da574e67b965a8a859bbd3801a9c824e28454af5912ebb61a10cd6b8e4"
+    },
+    {
+      "path": "agent_brain/platform/indexing/graph_index.py",
+      "sha256": "sha256:6c8c9f5e2046511f340f22ab8ea2d078837275ee2f1aeb89ae13ef0e38db56a5"
+    },
+    {
+      "path": "agent_brain/platform/indexing/index.py",
+      "sha256": "sha256:abf38e65088b7f965a7a3f5e4653c26c4ffa7810fafe4223aecb3a916764a50f"
+    },
+    {
+      "path": "agent_brain/platform/indexing/index_schema.py",
+      "sha256": "sha256:5d31177c382b53530edfb74b6dbfecc482c04853070759907aa9ff9109bebcf4"
+    },
+    {
+      "path": "agent_brain/platform/indexing/index_writer.py",
+      "sha256": "sha256:64b165758388935a1f768f93de645822cc4907bce2f2bdafef8f3c69e81618e0"
+    },
+    {
+      "path": "agent_brain/product/governance_readiness.py",
+      "sha256": "sha256:e948e23868e4125f7fd50b5ee634f92f24fc3868975d6bee2fa8c61f4a4339dc"
+    },
+    {
+      "path": "web/api/routes/governance.py",
+      "sha256": "sha256:9dcdfa5948b264842c78c3fe91c379c2a27c4395567c1e78af9e3da7ec026ef1"
+    },
+    {
+      "path": "scripts/generate-lifecycle-governance-report.py",
+      "sha256": "sha256:d46fd6625c108dbf0b04e51e19563aecd94399cba75ade8aaf736351897e75bf"
+    }
+  ],
+  "overall_status": "pass",
+  "pending_contract": {
+    "cases": [
+      {
+        "classification": "already_written",
+        "id": "already-written",
+        "pass": true,
+        "reason": "STABLE_ITEM_ALREADY_WRITTEN"
+      },
+      {
+        "classification": "malformed",
+        "id": "malformed-record",
+        "pass": true,
+        "reason": "MALFORMED_JSON"
+      },
+      {
+        "classification": "ready",
+        "id": "ready-fact",
+        "pass": true,
+        "reason": "READY"
+      },
+      {
+        "classification": "stale_requires_review",
+        "id": "stale-pending",
+        "pass": true,
+        "reason": "STALE_EPHEMERAL_MEMORY"
+      },
+      {
+        "classification": "unsupported_type",
+        "id": "unsupported-feedback",
+        "pass": true,
+        "reason": "UNSUPPORTED_MEMORY_TYPE"
+      }
+    ],
+    "preview_only": true,
+    "status": "pass"
+  },
+  "privacy": {
+    "finding_count": 0,
+    "rules": [],
+    "status": "pass"
+  },
+  "schema_version": "amh-lifecycle-governance-readiness/v1",
+  "supersession_contract": {
+    "cases": [
+      {
+        "candidate_ids": [
+          "mem-20260102-000000-valid-replacement"
+        ],
+        "id": "valid-supersession",
+        "pass": true,
+        "reason": "OK",
+        "status": "ready"
+      },
+      {
+        "candidate_ids": [],
+        "id": "cycle",
+        "pass": true,
+        "reason": "SUPERSESSION_CYCLE",
+        "status": "blocked"
+      },
+      {
+        "candidate_ids": [],
+        "id": "cross-tenant",
+        "pass": true,
+        "reason": "TENANT_MISMATCH",
+        "status": "blocked"
+      }
+    ],
+    "status": "pass"
+  },
+  "surface_parity": {
+    "actions": [
+      "archive",
+      "defer",
+      "keep-active",
+      "revert-supersession",
+      "supersede"
+    ],
+    "cli_actions": [
+      "archive",
+      "defer",
+      "keep-active",
+      "revert-supersession",
+      "supersede"
+    ],
+    "cli_preview_default": true,
+    "core_actions": [
+      "archive",
+      "defer",
+      "keep-active",
+      "revert-supersession",
+      "supersede"
+    ],
+    "status": "pass",
+    "web_actions": [
+      "archive",
+      "defer",
+      "keep-active",
+      "revert-supersession",
+      "supersede"
+    ]
+  }
+}

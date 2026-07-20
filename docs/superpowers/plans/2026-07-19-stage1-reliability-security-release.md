@@ -1,5 +1,7 @@
 # Stage 1 Reliability, Security, and Release Gates Implementation Plan
 
+> 历史执行计划；当前完成状态以 `docs/evaluation/stage1-reliability-security-release-readiness.zh.md` 为准。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Close the verified crash, false-green benchmark, realtime credential leak, resource-lifecycle, container, and release-gate gaps required by Stage 1 of the three-stage governance design.

@@ -22,6 +22,7 @@ def test_governance_workflow_has_stable_required_job_names() -> None:
         "docker-smoke",
         "recall-quality",
         "adapter-governance",
+        "lifecycle-governance",
     }
 
 
@@ -69,6 +70,25 @@ def test_adapter_governance_job_is_fail_closed_and_checks_committed_evidence() -
     assert "tests/system/test_adapter_lifecycle_contract.py" in commands
     assert "tests/system/test_adapter_core_isolation.py" in commands
     assert "./scripts/generate-adapter-governance.py --check" in commands
+
+
+def test_lifecycle_governance_job_is_fail_closed_and_checks_committed_evidence() -> None:
+    workflow_text = Path(".github/workflows/governance-gates.yml").read_text(
+        encoding="utf-8"
+    )
+    workflow = yaml.safe_load(workflow_text)
+    job = workflow["jobs"]["lifecycle-governance"]
+    commands = "\n".join(
+        str(step.get("run", "")) for step in job["steps"] if isinstance(step, dict)
+    )
+
+    assert "continue-on-error" not in job
+    assert "|| true" not in commands
+    assert "tests/unit/test_supersession.py" in commands
+    assert "tests/unit/test_lifecycle_candidates.py" in commands
+    assert "tests/unit/test_pending_queue.py" in commands
+    assert "tests/unit/test_governance_readiness.py" in commands
+    assert "python scripts/generate-lifecycle-governance-report.py --check" in commands
 
 
 def test_distribution_workflows_explain_missing_secrets_without_becoming_core_gates() -> None:

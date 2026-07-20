@@ -1,0 +1,240 @@
+{
+  "graph_drift": {
+    "expected_drift_count": 1,
+    "index_edges": [],
+    "items": [
+      {
+        "created_at": "2026-01-01T00:00:00+00:00",
+        "id": "mem-20260101-000000-drift-obsolete",
+        "project": "synthetic-governance",
+        "summary": "Synthetic obsolete graph state",
+        "superseded_by": "mem-20260102-000000-drift-replacement",
+        "tags": [
+          "synthetic"
+        ],
+        "tenant_id": "tenant-fixture-a",
+        "title": "Synthetic obsolete graph state",
+        "type": "signal"
+      },
+      {
+        "created_at": "2026-01-02T00:00:00+00:00",
+        "id": "mem-20260102-000000-drift-replacement",
+        "project": "synthetic-governance",
+        "summary": "Synthetic replacement graph state",
+        "tags": [
+          "synthetic"
+        ],
+        "tenant_id": "tenant-fixture-a",
+        "title": "Synthetic replacement graph state",
+        "type": "signal"
+      }
+    ]
+  },
+  "pending_cases": [
+    {
+      "expected_classification": "ready",
+      "expected_reason": "READY",
+      "id": "ready-fact",
+      "record": {
+        "enqueued_at": "2025-01-02T00:00:00+00:00",
+        "item": {
+          "project": "synthetic-governance",
+          "sensitivity": "internal",
+          "summary": "Synthetic ready fact summary",
+          "tags": [
+            "synthetic-ready"
+          ],
+          "tenant_id": "tenant-fixture-a",
+          "title": "Synthetic ready fact alpha",
+          "type": "fact"
+        },
+        "op": "write",
+        "origin": "fixture",
+        "original_created_at": "2025-01-01T00:00:00+00:00",
+        "record_id": "pending-fixture-ready-fact",
+        "v": 2
+      }
+    },
+    {
+      "expected_classification": "stale_requires_review",
+      "expected_reason": "STALE_EPHEMERAL_MEMORY",
+      "id": "stale-pending",
+      "record": {
+        "enqueued_at": "2025-01-02T00:00:00+00:00",
+        "item": {
+          "project": "synthetic-governance",
+          "sensitivity": "internal",
+          "summary": "Synthetic stale signal summary",
+          "tags": [
+            "synthetic-stale"
+          ],
+          "tenant_id": "tenant-fixture-a",
+          "title": "Synthetic stale signal beta",
+          "type": "signal"
+        },
+        "op": "write",
+        "origin": "fixture",
+        "original_created_at": "2025-01-01T00:00:00+00:00",
+        "record_id": "pending-fixture-stale-signal",
+        "v": 2
+      }
+    },
+    {
+      "expected_classification": "already_written",
+      "expected_reason": "STABLE_ITEM_ALREADY_WRITTEN",
+      "id": "already-written",
+      "record": {
+        "enqueued_at": "2025-01-02T00:00:00+00:00",
+        "item": {
+          "project": "synthetic-governance",
+          "sensitivity": "internal",
+          "summary": "Synthetic already written summary",
+          "tags": [
+            "synthetic-written"
+          ],
+          "tenant_id": "tenant-fixture-a",
+          "title": "Synthetic written fact gamma",
+          "type": "fact"
+        },
+        "op": "write",
+        "origin": "fixture",
+        "original_created_at": "2025-01-01T00:00:00+00:00",
+        "record_id": "pending-fixture-already-written",
+        "v": 2
+      },
+      "seed_existing": true
+    },
+    {
+      "expected_classification": "unsupported_type",
+      "expected_reason": "UNSUPPORTED_MEMORY_TYPE",
+      "id": "unsupported-feedback",
+      "record": {
+        "item": {
+          "project": "synthetic-governance",
+          "sensitivity": "internal",
+          "summary": "Synthetic unsupported feedback summary",
+          "tags": [
+            "synthetic-unsupported"
+          ],
+          "tenant_id": "tenant-fixture-a",
+          "title": "Synthetic unsupported feedback delta",
+          "type": "feedback"
+        },
+        "op": "write",
+        "origin": "fixture",
+        "ts": "2025-01-02T00:00:00+00:00",
+        "v": 1
+      }
+    },
+    {
+      "expected_classification": "malformed",
+      "expected_reason": "MALFORMED_JSON",
+      "id": "malformed-record",
+      "raw_line": "{synthetic-malformed-record"
+    }
+  ],
+  "schema_version": "amh-lifecycle-governance-evidence/v1",
+  "supersession_cases": [
+    {
+      "expected_candidate": "mem-20260102-000000-valid-replacement",
+      "expected_reason": "OK",
+      "expected_status": "ready",
+      "id": "valid-supersession",
+      "obsolete": {
+        "created_at": "2026-01-01T00:00:00+00:00",
+        "id": "mem-20260101-000000-valid-obsolete",
+        "project": "synthetic-governance",
+        "summary": "Synthetic issue remains open",
+        "tags": [
+          "synthetic-valid"
+        ],
+        "tenant_id": "tenant-fixture-a",
+        "title": "Synthetic lifecycle issue",
+        "type": "signal"
+      },
+      "replacement": {
+        "created_at": "2026-01-02T00:00:00+00:00",
+        "id": "mem-20260102-000000-valid-replacement",
+        "project": "synthetic-governance",
+        "refs": {
+          "mems": [
+            "mem-20260101-000000-valid-obsolete"
+          ]
+        },
+        "summary": "Synthetic issue resolved",
+        "tags": [
+          "synthetic-valid"
+        ],
+        "tenant_id": "tenant-fixture-a",
+        "title": "Synthetic lifecycle issue resolved",
+        "type": "signal"
+      }
+    },
+    {
+      "expected_reason": "SUPERSESSION_CYCLE",
+      "expected_status": "blocked",
+      "id": "cycle",
+      "obsolete": {
+        "created_at": "2026-01-03T00:00:00+00:00",
+        "id": "mem-20260103-000000-cycle-obsolete",
+        "project": "synthetic-governance",
+        "summary": "Synthetic cycle obsolete",
+        "tags": [
+          "synthetic-cycle"
+        ],
+        "tenant_id": "tenant-fixture-a",
+        "title": "Synthetic cycle obsolete",
+        "type": "signal"
+      },
+      "replacement": {
+        "created_at": "2026-01-04T00:00:00+00:00",
+        "id": "mem-20260104-000000-cycle-replacement",
+        "project": "synthetic-governance",
+        "summary": "Synthetic cycle replacement",
+        "superseded_by": "mem-20260103-000000-cycle-obsolete",
+        "tags": [
+          "synthetic-cycle"
+        ],
+        "tenant_id": "tenant-fixture-a",
+        "title": "Synthetic cycle replacement",
+        "type": "signal"
+      }
+    },
+    {
+      "expected_reason": "TENANT_MISMATCH",
+      "expected_status": "blocked",
+      "id": "cross-tenant",
+      "obsolete": {
+        "created_at": "2026-01-05T00:00:00+00:00",
+        "id": "mem-20260105-000000-tenant-obsolete",
+        "project": "synthetic-governance",
+        "summary": "Synthetic tenant obsolete",
+        "tags": [
+          "synthetic-tenant"
+        ],
+        "tenant_id": "tenant-fixture-a",
+        "title": "Synthetic tenant obsolete",
+        "type": "signal"
+      },
+      "replacement": {
+        "created_at": "2026-01-06T00:00:00+00:00",
+        "id": "mem-20260106-000000-tenant-replacement",
+        "project": "synthetic-governance",
+        "summary": "Synthetic tenant replacement",
+        "tags": [
+          "synthetic-tenant"
+        ],
+        "tenant_id": "tenant-fixture-b",
+        "title": "Synthetic tenant replacement",
+        "type": "signal"
+      }
+    }
+  ],
+  "surface_actions": [
+    "archive",
+    "defer",
+    "keep-active",
+    "revert-supersession",
+    "supersede"
+  ]
+}
