@@ -47,6 +47,43 @@ def _tree_snapshot(root: Path) -> dict[str, tuple[bool, int, int]]:
     }
 
 
+def _full_tree_snapshot(root: Path) -> dict[str, tuple[bool, int, bytes]]:
+    paths = [root, *sorted(root.rglob("*"))]
+    return {
+        "." if path == root else path.relative_to(root).as_posix(): (
+            path.is_dir(),
+            path.stat().st_mtime_ns,
+            b"" if path.is_dir() else path.read_bytes(),
+        )
+        for path in paths
+    }
+
+
+def _open_wal_index_without_shm(
+    brain: Path,
+    edge: tuple[str, str],
+) -> sqlite3.Connection:
+    database = brain / "index.db"
+    connection = sqlite3.connect(database)
+    assert connection.execute("PRAGMA journal_mode=WAL").fetchone() == ("wal",)
+    connection.execute("PRAGMA wal_autocheckpoint=0")
+    connection.execute(
+        "CREATE TABLE refs_graph ("
+        "source_id TEXT NOT NULL, target_id TEXT NOT NULL, relation TEXT NOT NULL)"
+    )
+    connection.commit()
+    connection.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    connection.execute(
+        "INSERT INTO refs_graph VALUES (?, ?, 'supersedes')",
+        edge,
+    )
+    connection.commit()
+    Path(f"{database}-shm").unlink()
+    assert Path(f"{database}-wal").exists()
+    assert not Path(f"{database}-shm").exists()
+    return connection
+
+
 def _write_item(
     store: ItemsStore,
     item_id: str,
@@ -650,3 +687,57 @@ def test_lifecycle_readiness_reads_pending_from_explicit_brain_not_environment(
     assert lane.metrics["pending_total"] == 1
     assert lane.metrics["pending_classifications"]["ready"] == 1
     assert not other_brain.exists()
+
+
+def test_lifecycle_readiness_reads_wal_snapshot_only_from_external_temp_copy(
+    tmp_path,
+    monkeypatch,
+):
+    import agent_brain.product.governance_readiness as readiness_module
+
+    brain = tmp_path / "brain"
+    monkeypatch.setenv("BRAIN_DIR", str(brain))
+    store = ItemsStore(brain / "items")
+    old_id = "mem-20260720-100000-wal-snapshot-old"
+    new_id = "mem-20260720-110000-wal-snapshot-new"
+    old = MemoryItem(
+        id=old_id,
+        type=MemoryType.fact,
+        created_at=datetime.now(timezone.utc) - timedelta(days=2),
+        title="wal old",
+        summary="wal old summary",
+        superseded_by=new_id,
+    )
+    new = MemoryItem(
+        id=new_id,
+        type=MemoryType.fact,
+        created_at=datetime.now(timezone.utc) - timedelta(days=1),
+        title="wal new",
+        summary="wal new summary",
+    )
+    store.write(old, "old body")
+    store.write(new, "new body")
+    writer = _open_wal_index_without_shm(brain, (new_id, old_id))
+    before = _full_tree_snapshot(brain)
+    real_connect = sqlite3.connect
+    opened_databases: list[str] = []
+
+    def track_connect(database, *args, **kwargs):
+        opened_databases.append(str(database))
+        return real_connect(database, *args, **kwargs)
+
+    monkeypatch.setattr(readiness_module.sqlite3, "connect", track_connect)
+    try:
+        lane = build_memory_lifecycle_readiness(brain)
+        after = _full_tree_snapshot(brain)
+        assert lane.metrics["supersession_graph_status"] == "available"
+        assert lane.metrics["supersession_drift_count"] == 0
+        assert after == before
+        assert opened_databases
+        assert all(str(brain) not in database for database in opened_databases)
+        for database in opened_databases:
+            if database.startswith("file:"):
+                continue
+            assert not Path(database).parent.exists()
+    finally:
+        writer.close()

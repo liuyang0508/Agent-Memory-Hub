@@ -9,6 +9,10 @@ import json
 import os
 from pathlib import Path
 import sqlite3
+import stat
+import subprocess
+import sys
+import tempfile
 from typing import Any
 
 from agent_brain.contracts.memory_enums import memory_enum_value
@@ -298,6 +302,29 @@ _PENDING_BLOCKER_CLASSIFICATIONS = frozenset({
 class _IndexGraphTruth:
     status: str
     edges: frozenset[tuple[str, str]]
+
+
+@dataclass(frozen=True)
+class _IndexComponentState:
+    device: int
+    inode: int
+    mode: int
+    size: int
+    mtime_ns: int
+    ctime_ns: int
+
+
+class _UnsafeIndexSnapshot(OSError):
+    """The source index cannot be copied into one stable bounded snapshot."""
+
+
+_INDEX_COMPONENT_LIMITS = {
+    "": 512 * 1024 * 1024,
+    "-wal": 512 * 1024 * 1024,
+    "-shm": 64 * 1024 * 1024,
+}
+_MAX_INDEX_SNAPSHOT_BYTES = 1024 * 1024 * 1024
+_SQLITE_SHARED_FIRST_BYTE = 0x40000002
 
 
 def build_memory_lifecycle_readiness(brain_dir: Path) -> ReadinessLane:
@@ -611,22 +638,82 @@ def _count_dead_pending_readonly(dead_dir: Path) -> tuple[int, bool]:
 
 def _read_supersedes_graph_readonly(db_path: Path) -> _IndexGraphTruth:
     try:
-        opened = os.lstat(db_path)
+        primary = _index_component_state(
+            db_path,
+            limit=_INDEX_COMPONENT_LIMITS[""],
+        )
     except FileNotFoundError:
         return _IndexGraphTruth("not_available", frozenset())
-    except OSError:
-        return _IndexGraphTruth("unavailable", frozenset())
-    if not os.path.isfile(db_path) or os.path.islink(db_path):
-        return _IndexGraphTruth("unavailable", frozenset())
-    if not opened.st_ino or not opened.st_dev:
+    except (OSError, ValueError):
         return _IndexGraphTruth("unavailable", frozenset())
 
     try:
-        with sqlite3.connect(
-            f"{db_path.resolve().as_uri()}?mode=ro",
-            uri=True,
-            timeout=0.1,
-        ) as connection:
+        rows, table_available = _query_supersedes_from_external_snapshot(
+            db_path,
+            primary=primary,
+        )
+    except (OSError, sqlite3.Error, subprocess.SubprocessError, ValueError):
+        return _IndexGraphTruth("unavailable", frozenset())
+    if not table_available:
+        return _IndexGraphTruth("not_available", frozenset())
+    return _IndexGraphTruth(
+        "available",
+        frozenset((str(source), str(target)) for source, target in rows),
+    )
+
+
+def _query_supersedes_from_external_snapshot(
+    db_path: Path,
+    *,
+    primary: _IndexComponentState,
+) -> tuple[list[tuple[object, object]], bool]:
+    source_paths = {
+        suffix: Path(f"{db_path}{suffix}")
+        for suffix in _INDEX_COMPONENT_LIMITS
+    }
+    states: dict[str, _IndexComponentState | None] = {"": primary}
+    for suffix in ("-wal", "-shm"):
+        try:
+            states[suffix] = _index_component_state(
+                source_paths[suffix],
+                limit=_INDEX_COMPONENT_LIMITS[suffix],
+            )
+        except FileNotFoundError:
+            states[suffix] = None
+    if sum(state.size for state in states.values() if state is not None) > (
+        _MAX_INDEX_SNAPSHOT_BYTES
+    ):
+        raise _UnsafeIndexSnapshot("INDEX_SNAPSHOT_TOO_LARGE")
+
+    with tempfile.TemporaryDirectory(prefix="amh-readiness-index-") as temporary:
+        temp_dir = Path(temporary)
+        os.chmod(temp_dir, 0o700)
+        for suffix, state in states.items():
+            if state is None:
+                continue
+            _copy_index_component(
+                source_paths[suffix],
+                temp_dir / f"index.db{suffix}",
+                expected=state,
+                check_sqlite_lock=(suffix == ""),
+            )
+        for suffix, expected in states.items():
+            source = source_paths[suffix]
+            if expected is None:
+                try:
+                    os.lstat(source)
+                except FileNotFoundError:
+                    continue
+                raise _UnsafeIndexSnapshot("INDEX_COMPONENT_APPEARED")
+            current = _index_component_state(
+                source,
+                limit=_INDEX_COMPONENT_LIMITS[suffix],
+            )
+            if current != expected:
+                raise _UnsafeIndexSnapshot("INDEX_COMPONENT_CHANGED")
+
+        temp_database = temp_dir / "index.db"
+        with sqlite3.connect(str(temp_database), timeout=0.1) as connection:
             connection.execute("PRAGMA busy_timeout=100")
             connection.execute("PRAGMA query_only=ON")
             table = connection.execute(
@@ -634,17 +721,148 @@ def _read_supersedes_graph_readonly(db_path: Path) -> _IndexGraphTruth:
                 "WHERE type = 'table' AND name = 'refs_graph'"
             ).fetchone()
             if table is None:
-                return _IndexGraphTruth("not_available", frozenset())
+                return [], False
             rows = connection.execute(
                 "SELECT source_id, target_id FROM refs_graph WHERE relation = ?",
                 ("supersedes",),
             ).fetchall()
-    except (OSError, sqlite3.Error):
-        return _IndexGraphTruth("unavailable", frozenset())
-    return _IndexGraphTruth(
-        "available",
-        frozenset((str(source), str(target)) for source, target in rows),
+            return rows, True
+
+
+def _index_component_state(path: Path, *, limit: int) -> _IndexComponentState:
+    opened = os.lstat(path)
+    if not stat.S_ISREG(opened.st_mode) or stat.S_ISLNK(opened.st_mode):
+        raise _UnsafeIndexSnapshot("INDEX_COMPONENT_NOT_REGULAR")
+    if not opened.st_dev or not opened.st_ino:
+        raise _UnsafeIndexSnapshot("INDEX_COMPONENT_IDENTITY_UNAVAILABLE")
+    if opened.st_size < 0 or opened.st_size > limit:
+        raise _UnsafeIndexSnapshot("INDEX_COMPONENT_TOO_LARGE")
+    return _IndexComponentState(
+        device=int(opened.st_dev),
+        inode=int(opened.st_ino),
+        mode=int(opened.st_mode),
+        size=int(opened.st_size),
+        mtime_ns=int(opened.st_mtime_ns),
+        ctime_ns=int(opened.st_ctime_ns),
     )
+
+
+def _copy_index_component(
+    source: Path,
+    destination: Path,
+    *,
+    expected: _IndexComponentState,
+    check_sqlite_lock: bool,
+) -> None:
+    source_fd = -1
+    destination_fd = -1
+    try:
+        source_fd = os.open(
+            source,
+            os.O_RDONLY
+            | getattr(os, "O_BINARY", 0)
+            | getattr(os, "O_CLOEXEC", 0)
+            | getattr(os, "O_NONBLOCK", 0)
+            | getattr(os, "O_NOFOLLOW", 0),
+        )
+        if _state_from_fstat(os.fstat(source_fd)) != expected:
+            raise _UnsafeIndexSnapshot("INDEX_COMPONENT_CHANGED")
+        if check_sqlite_lock and not _sqlite_shared_lock_available(source_fd):
+            raise _UnsafeIndexSnapshot("INDEX_DATABASE_LOCKED")
+        destination_fd = os.open(
+            destination,
+            os.O_WRONLY
+            | os.O_CREAT
+            | os.O_EXCL
+            | getattr(os, "O_BINARY", 0)
+            | getattr(os, "O_CLOEXEC", 0)
+            | getattr(os, "O_NOFOLLOW", 0),
+            0o600,
+        )
+        os.fchmod(destination_fd, 0o600)
+        remaining = expected.size
+        while remaining:
+            chunk = os.read(source_fd, min(1024 * 1024, remaining))
+            if not chunk:
+                raise _UnsafeIndexSnapshot("INDEX_COMPONENT_SHORT_READ")
+            _write_all_fd(destination_fd, chunk)
+            remaining -= len(chunk)
+        if os.read(source_fd, 1):
+            raise _UnsafeIndexSnapshot("INDEX_COMPONENT_GREW")
+        if _state_from_fstat(os.fstat(source_fd)) != expected:
+            raise _UnsafeIndexSnapshot("INDEX_COMPONENT_CHANGED")
+        os.fsync(destination_fd)
+    finally:
+        if destination_fd >= 0:
+            os.close(destination_fd)
+        if source_fd >= 0:
+            os.close(source_fd)
+
+
+def _state_from_fstat(opened: os.stat_result) -> _IndexComponentState:
+    if not stat.S_ISREG(opened.st_mode):
+        raise _UnsafeIndexSnapshot("INDEX_COMPONENT_NOT_REGULAR")
+    return _IndexComponentState(
+        device=int(opened.st_dev),
+        inode=int(opened.st_ino),
+        mode=int(opened.st_mode),
+        size=int(opened.st_size),
+        mtime_ns=int(opened.st_mtime_ns),
+        ctime_ns=int(opened.st_ctime_ns),
+    )
+
+
+def _write_all_fd(descriptor: int, data: bytes) -> None:
+    remaining = memoryview(data)
+    while remaining:
+        written = os.write(descriptor, remaining)
+        if written <= 0:
+            raise _UnsafeIndexSnapshot("INDEX_SNAPSHOT_WRITE_FAILED")
+        remaining = remaining[written:]
+
+
+def _sqlite_shared_lock_available(descriptor: int) -> bool:
+    if os.name == "nt":
+        import msvcrt
+
+        locking = getattr(msvcrt, "locking")
+        lock_nonblocking = getattr(msvcrt, "LK_NBLCK")
+        unlock = getattr(msvcrt, "LK_UNLCK")
+        try:
+            os.lseek(descriptor, _SQLITE_SHARED_FIRST_BYTE, os.SEEK_SET)
+            locking(descriptor, lock_nonblocking, 1)
+        except OSError:
+            return False
+        finally:
+            os.lseek(descriptor, 0, os.SEEK_SET)
+        try:
+            os.lseek(descriptor, _SQLITE_SHARED_FIRST_BYTE, os.SEEK_SET)
+            locking(descriptor, unlock, 1)
+        finally:
+            os.lseek(descriptor, 0, os.SEEK_SET)
+        return True
+    if os.name != "posix":
+        return False
+    script = (
+        "import fcntl,os,sys\n"
+        "fd=int(sys.argv[1])\n"
+        "try:\n"
+        f" fcntl.lockf(fd,fcntl.LOCK_SH|fcntl.LOCK_NB,1,{_SQLITE_SHARED_FIRST_BYTE},os.SEEK_SET)\n"
+        "except OSError:\n"
+        " raise SystemExit(1)\n"
+        "fcntl.lockf(fd,fcntl.LOCK_UN,1,"
+        f"{_SQLITE_SHARED_FIRST_BYTE},os.SEEK_SET)\n"
+    )
+    completed = subprocess.run(
+        [sys.executable, "-c", script, str(descriptor)],
+        pass_fds=(descriptor,),
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        timeout=0.5,
+        check=False,
+    )
+    return completed.returncode == 0
 
 
 def _index_dirty_status(path: Path) -> str:
