@@ -157,6 +157,7 @@ def sync_pending(
             result.classification in {"audit_blocked", "conflict", "malformed"}
             for result in stats.results
         )
+    unsuccessful = unsuccessful or stats.governance_reason is not None
     if format == "json":
         payload = stats.to_summary_dict() if summary_only else stats.to_dict()
         typer.echo(json.dumps(payload, ensure_ascii=False, indent=2))

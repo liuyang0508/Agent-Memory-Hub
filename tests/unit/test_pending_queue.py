@@ -580,6 +580,91 @@ def test_apply_explicitly_selected_ready_record_only(tmp_brain: Path) -> None:
     assert unselected.exists()
 
 
+def test_apply_aborts_before_mutation_when_prepared_receipt_fails(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = enqueue_write_record(_v2_record(record_id="receipt-prepare-failure"))
+
+    def fail_append(*_args, **_kwargs):
+        raise OSError("simulated prepared receipt failure")
+
+    monkeypatch.setattr(
+        pending_module,
+        "append_pending_receipt",
+        fail_append,
+        raising=False,
+    )
+
+    result = PendingQueue().apply(record_ids=["receipt-prepare-failure"])
+
+    assert result.written == 0
+    assert result.failed == 1
+    assert result.governance_reason == "PENDING_RECEIPT_PREPARE_FAILED"
+    assert path.exists()
+    assert list((tmp_brain / "items").glob("*.md")) == []
+
+
+def test_apply_persists_prepared_and_completed_receipt(tmp_brain: Path) -> None:
+    from agent_brain.memory.governance.pending_receipts import (
+        read_pending_receipt_ledger_health,
+    )
+
+    enqueue_write_record(_v2_record(record_id="receipt-success"))
+
+    result = PendingQueue().apply(record_ids=["receipt-success"])
+    health = read_pending_receipt_ledger_health(tmp_brain)
+
+    assert result.written == 1
+    assert result.governance_reason is None
+    assert result.receipt is not None
+    assert result.receipt.state == "completed"
+    assert result.receipt.status_counts == {"written": 1}
+    assert health.status == "healthy"
+    assert health.record_count == 2
+    assert health.incomplete_count == 0
+
+
+def test_apply_reports_incomplete_receipt_when_completion_append_fails(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from agent_brain.memory.governance.pending_receipts import (
+        append_pending_receipt as real_append,
+        read_pending_receipt_ledger_health,
+    )
+
+    path = enqueue_write_record(_v2_record(record_id="receipt-completion-failure"))
+    calls = 0
+
+    def fail_second_append(brain, receipt):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise OSError("simulated completed receipt failure")
+        real_append(brain, receipt)
+
+    monkeypatch.setattr(
+        pending_module,
+        "append_pending_receipt",
+        fail_second_append,
+        raising=False,
+    )
+
+    result = PendingQueue().apply(record_ids=["receipt-completion-failure"])
+    health = read_pending_receipt_ledger_health(tmp_brain)
+
+    assert result.written == 1
+    assert result.governance_reason == "PENDING_RECEIPT_COMPLETION_FAILED"
+    assert result.receipt is not None
+    assert result.receipt.state == "incomplete"
+    assert not path.exists()
+    assert len(list((tmp_brain / "items").glob("*.md"))) == 1
+    assert health.status == "healthy"
+    assert health.record_count == 1
+    assert health.incomplete_count == 1
+
+
 def test_apply_safe_only_never_writes_review_classifications(
     tmp_brain: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -191,9 +191,60 @@ def test_cli_sync_pending_apply_summary_only_omits_per_record_results(tmp_brain)
     payload = json.loads(result.output)
     assert payload["written"] == 1
     assert payload["status_counts"] == {"written": 1}
+    assert payload["receipt"]["state"] == "completed"
     assert "results" not in payload
     assert "PRIVATE_APPLY_CLI_CANARY" not in result.output
     assert PendingQueue().depth() == 0
+
+
+def test_cli_sync_pending_completion_receipt_failure_exits_one(
+    tmp_brain,
+    monkeypatch,
+):
+    import json
+
+    from agent_brain.memory.governance.pending_receipts import (
+        append_pending_receipt as real_append,
+    )
+    from agent_brain.memory.store import pending as pending_module
+    from agent_brain.memory.store.pending import enqueue_write_record
+
+    enqueue_write_record(
+        {
+            "op": "write",
+            "record_id": "cli-completion-receipt-failure",
+            "item": {"title": "completion failure", "summary": "must exit one"},
+        }
+    )
+    calls = 0
+
+    def fail_second_append(brain, receipt):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise OSError("simulated completion receipt failure")
+        real_append(brain, receipt)
+
+    monkeypatch.setattr(pending_module, "append_pending_receipt", fail_second_append)
+
+    result = runner.invoke(
+        app,
+        [
+            "sync-pending",
+            "--apply",
+            "--record",
+            "cli-completion-receipt-failure",
+            "--summary-only",
+            "--format",
+            "json",
+        ],
+    )
+
+    assert result.exit_code == 1
+    payload = json.loads(result.output)
+    assert payload["written"] == 1
+    assert payload["governance_reason"] == "PENDING_RECEIPT_COMPLETION_FAILED"
+    assert payload["receipt"]["state"] == "incomplete"
 
 
 def test_cli_sync_pending_apply_requires_a_selection(tmp_brain):

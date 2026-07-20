@@ -66,6 +66,15 @@ from agent_brain.contracts.memory_item import (
 )
 from agent_brain.memory.store.item_markdown import parse_item_markdown
 from agent_brain.memory.store.items_store import ItemsStore
+from agent_brain.memory.governance.pending_receipts import (
+    PendingBatchReceipt,
+    PendingReceiptOutcome,
+    PendingReceiptSelection,
+    append_pending_receipt,
+    complete_pending_receipt,
+    incomplete_pending_receipt,
+    prepare_pending_receipt,
+)
 from agent_brain.memory.store.durable_fs import (
     SecureDirectory,
     lifecycle_mutation_capability,
@@ -165,6 +174,8 @@ _PUBLIC_PENDING_REASONS = frozenset(
         "PENDING_ITEM_SNAPSHOT_UNTRUSTED",
         "PENDING_QUEUE_TRUNCATED",
         "PENDING_READINESS_BUDGET_EXCEEDED",
+        "PENDING_RECEIPT_COMPLETION_FAILED",
+        "PENDING_RECEIPT_PREPARE_FAILED",
         "PENDING_RECORD_CHANGED",
         "PENDING_RECORD_DUPLICATE",
         "PENDING_RECORD_ID_CONFLICT",
@@ -760,6 +771,8 @@ class PendingApplyStats:
     failed: int = 0
     dead: int = 0
     results: list[PendingApplyResult] = dataclass_field(default_factory=list)
+    receipt: PendingBatchReceipt | None = None
+    governance_reason: str | None = None
 
     def add(self, result: PendingApplyResult) -> None:
         self.results.append(result)
@@ -783,6 +796,8 @@ class PendingApplyStats:
             "failed": self.failed,
             "dead": self.dead,
             "results": [result.to_dict() for result in self.results],
+            "receipt": self.receipt.to_dict() if self.receipt is not None else None,
+            "governance_reason": self.governance_reason,
         }
 
     def to_summary_dict(self) -> dict[str, object]:
@@ -816,6 +831,8 @@ class PendingApplyStats:
                 result.index_repair_required for result in self.results
             ),
             "warning_counts": dict(sorted(warnings.items())),
+            "receipt": self.receipt.to_dict() if self.receipt is not None else None,
+            "governance_reason": _public_pending_reason(self.governance_reason),
         }
 
 
@@ -1541,6 +1558,44 @@ class PendingQueue:
         else:
             selected = list(preview.records)
 
+        selection_mode: Literal["explicit", "safe_only"] = (
+            "explicit" if requested else "safe_only"
+        )
+        receipt_selections = [
+            _pending_receipt_selection(candidate)
+            for candidate in selected
+            if isinstance(candidate, PendingRecordPreview)
+        ]
+        try:
+            prepared_receipt = prepare_pending_receipt(
+                selection_mode=selection_mode,
+                requested_count=len(requested) if requested else len(preview.records),
+                selected=receipt_selections,
+                depth_before=preview.total,
+            )
+            append_pending_receipt(self._brain_dir(), prepared_receipt)
+        except Exception:
+            stats.governance_reason = "PENDING_RECEIPT_PREPARE_FAILED"
+            for candidate in selected:
+                if isinstance(candidate, PendingRecordPreview):
+                    stats.add(
+                        _failed_apply_result(
+                            candidate,
+                            "PENDING_RECEIPT_PREPARE_FAILED",
+                        )
+                    )
+                else:
+                    stats.add(
+                        PendingApplyResult(
+                            record_id=candidate.record_id,
+                            classification=candidate.classification,
+                            status="failed",
+                            reason="PENDING_RECEIPT_PREPARE_FAILED",
+                        )
+                    )
+            return stats
+        stats.receipt = prepared_receipt
+
         service = None
         try:
             for apply_candidate in selected:
@@ -1576,6 +1631,27 @@ class PendingQueue:
         finally:
             if service is not None:
                 service.close()
+        try:
+            completed_receipt = complete_pending_receipt(
+                prepared_receipt,
+                outcomes=[
+                    PendingReceiptOutcome(
+                        record_id=result.record_id,
+                        status=result.status,
+                        classification=result.classification,
+                        reason=result.reason,
+                        index_repair_required=result.index_repair_required,
+                        warnings=result.warnings,
+                    )
+                    for result in stats.results
+                ],
+                depth_after=self.depth(),
+            )
+            append_pending_receipt(self._brain_dir(), completed_receipt)
+            stats.receipt = completed_receipt
+        except Exception:
+            stats.receipt = incomplete_pending_receipt(prepared_receipt)
+            stats.governance_reason = "PENDING_RECEIPT_COMPLETION_FAILED"
         return stats
 
     def _apply_record(self, record: PendingRecordPreview, *, service: object) -> PendingApplyResult:
@@ -1740,6 +1816,18 @@ class PendingQueue:
             # One unexpected record never breaks the queue. Do not reflect raw
             # exception text because it can contain sensitive payload details.
             return _malformed_preview(path, "PENDING_RECORD_READ_FAILED", raw=raw)
+
+
+def _pending_receipt_selection(record: PendingRecordPreview) -> PendingReceiptSelection:
+    binding = record._record_sha256 or record.payload_sha256
+    if binding is None or re.fullmatch(r"[0-9a-f]{64}", binding) is None:
+        binding = hashlib.sha256(
+            f"unverified\0{record.record_id}\0{record.reason}".encode("utf-8")
+        ).hexdigest()
+    return PendingReceiptSelection(
+        record_id=record.record_id,
+        payload_sha256=binding,
+    )
 
 
 def _duplicate_selection_result(record_id: str) -> PendingApplyResult:
