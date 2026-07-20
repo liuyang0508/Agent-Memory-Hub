@@ -8,10 +8,17 @@ import pytest
 import threading
 
 from agent_brain.contracts.memory_item import MemoryItem, MemoryType
-from agent_brain.interfaces.cli.commands.index_maintenance import reindex_store
+from agent_brain.interfaces.cli.commands.index_maintenance import (
+    reindex_store,
+    repair_index_health,
+)
+from agent_brain.memory.recall.embedding_text import embedding_text_for_item
 from agent_brain.memory.store.items_store import ItemsStore
 from agent_brain.memory.store.pending import dirty_index_path
-from agent_brain.product.governance_readiness import build_memory_lifecycle_readiness
+from agent_brain.product.governance_readiness import (
+    build_memory_lifecycle_readiness,
+    collect_index_health_readonly,
+)
 from agent_brain.platform.embedding import HashingEmbedder
 from agent_brain.platform.indexing.index import HubIndex
 
@@ -258,3 +265,188 @@ def test_replace_supersedes_rolls_back_delete_when_insert_fails(
     assert index.get_refs(source.id) == [
         (source.id, old_target.id, "supersedes")
     ]
+
+
+def test_repair_retired_marker_without_embedder_or_index_rewrite(
+    tmp_brain_dir: Path,
+) -> None:
+    store = ItemsStore(tmp_brain_dir / "items")
+    index = HubIndex(tmp_brain_dir / "index.db", embedding_dim=_DIM)
+    retired = "mem-20260720-140010-retired"
+    dirty_index_path(tmp_brain_dir).write_text(
+        f"{retired}\n{retired}\n",
+        encoding="utf-8",
+    )
+    before = collect_index_health_readonly(tmp_brain_dir)
+    called = False
+
+    def forbidden_embedder():
+        nonlocal called
+        called = True
+        raise AssertionError("embedder must stay lazy")
+
+    result = repair_index_health(
+        store,
+        index,
+        before,
+        embedder_factory=forbidden_embedder,
+    )
+
+    assert called is False
+    assert result.upserted == 0
+    assert result.pruned == 0
+    assert result.supersedes_deleted == 0
+    assert result.supersedes_inserted == 0
+    assert result.marker_entries_cleared == 2
+    assert not dirty_index_path(tmp_brain_dir).exists()
+
+
+def test_repair_index_health_updates_only_affected_categories(
+    tmp_brain_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = ItemsStore(tmp_brain_dir / "items")
+    index = HubIndex(tmp_brain_dir / "index.db", embedding_dim=_DIM)
+    active_dirty = _item("repair-active-dirty")
+    unrelated = _item("repair-unrelated")
+    missing = _item("repair-missing")
+    orphan = _item("repair-orphan")
+    replacement = _item("repair-replacement")
+    obsolete = _item("repair-obsolete").model_copy(
+        update={"superseded_by": replacement.id}
+    )
+    for item in (active_dirty, unrelated, replacement, obsolete):
+        _write_and_index(store, index, item, write_markdown=True)
+    store.write(missing, missing.summary)
+    _write_and_index(store, index, orphan, write_markdown=False)
+    index.connection.execute("DELETE FROM refs_graph WHERE relation = 'supersedes'")
+    index.connection.commit()
+    index.add_ref(unrelated.id, replacement.id, "refines")
+    dirty_index_path(tmp_brain_dir).write_text(
+        f"{active_dirty.id}\n",
+        encoding="utf-8",
+    )
+    before = collect_index_health_readonly(tmp_brain_dir)
+    real_upsert = index.upsert
+    upsert_calls: list[str] = []
+
+    def counted_upsert(item, body, embedding):
+        upsert_calls.append(item.id)
+        real_upsert(item, body, embedding)
+
+    monkeypatch.setattr(index, "upsert", counted_upsert)
+
+    class CountingEmbedder:
+        def __init__(self) -> None:
+            self.inputs: list[str] = []
+
+        def embed(self, text: str) -> list[float]:
+            self.inputs.append(text)
+            return [0.0] * _DIM
+
+    embedder = CountingEmbedder()
+    factory_calls = 0
+
+    def embedder_factory() -> CountingEmbedder:
+        nonlocal factory_calls
+        factory_calls += 1
+        return embedder
+
+    result = repair_index_health(
+        store,
+        index,
+        before,
+        embedder_factory=embedder_factory,
+    )
+
+    assert factory_calls == 1
+    assert set(embedder.inputs) == {
+        embedding_text_for_item(active_dirty),
+        embedding_text_for_item(missing),
+    }
+    assert set(upsert_calls) == {active_dirty.id, missing.id}
+    assert unrelated.id not in upsert_calls
+    assert orphan.id not in index.all_ids()
+    assert set(index.get_refs(replacement.id)) == {
+        (replacement.id, obsolete.id, "supersedes"),
+        (unrelated.id, replacement.id, "refines"),
+    }
+    assert result.upserted == 2
+    assert result.pruned == 1
+    assert result.supersedes_inserted == 1
+    assert result.marker_entries_cleared == 1
+
+
+@pytest.mark.parametrize(
+    ("stage", "message"),
+    [
+        ("upsert", "injected upsert failure"),
+        ("delete", "injected delete failure"),
+        ("graph", "injected graph failure"),
+        ("marker", "INDEX_DIRTY_MARKER_CLEAR_FAILED"),
+    ],
+)
+def test_repair_index_health_propagates_each_stage_failure(
+    tmp_brain_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    stage: str,
+    message: str,
+) -> None:
+    import agent_brain.interfaces.cli.commands.index_maintenance as maintenance_module
+
+    store = ItemsStore(tmp_brain_dir / "items")
+    index = HubIndex(tmp_brain_dir / "index.db", embedding_dim=_DIM)
+    active = _item(f"failure-{stage}-active")
+    missing = _item(f"failure-{stage}-missing")
+    orphan = _item(f"failure-{stage}-orphan")
+    replacement = _item(f"failure-{stage}-replacement")
+    obsolete = _item(f"failure-{stage}-obsolete").model_copy(
+        update={"superseded_by": replacement.id}
+    )
+    for item in (active, replacement, obsolete):
+        _write_and_index(store, index, item, write_markdown=True)
+    store.write(missing, missing.summary)
+    _write_and_index(store, index, orphan, write_markdown=False)
+    index.connection.execute("DELETE FROM refs_graph WHERE relation = 'supersedes'")
+    index.connection.commit()
+    dirty_index_path(tmp_brain_dir).write_text(f"{active.id}\n", encoding="utf-8")
+    before = collect_index_health_readonly(tmp_brain_dir)
+
+    if stage == "upsert":
+        monkeypatch.setattr(
+            index,
+            "upsert",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(
+                OSError("injected upsert failure")
+            ),
+        )
+    elif stage == "delete":
+        monkeypatch.setattr(
+            index,
+            "delete",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(
+                OSError("injected delete failure")
+            ),
+        )
+    elif stage == "graph":
+        monkeypatch.setattr(
+            index,
+            "reconcile_supersedes",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(
+                OSError("injected graph failure")
+            ),
+        )
+    else:
+        monkeypatch.setattr(
+            maintenance_module,
+            "clear_dirty_index_marker",
+            lambda *_args, **_kwargs: False,
+        )
+
+    with pytest.raises(OSError, match=message):
+        repair_index_health(
+            store,
+            index,
+            before,
+            embedder_factory=lambda: HashingEmbedder(dim=_DIM),
+        )
