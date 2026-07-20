@@ -137,14 +137,15 @@ class ObsidianSync:
                 body = parsed.body
 
                 existing = self.items_store.items_dir / f"{item.id}.md"
-                if existing.exists() and not overwrite:
-                    report.skipped += 1
-                    continue
+                with self.items_store.locked_catalog():
+                    if existing.exists() and not overwrite:
+                        report.skipped += 1
+                        continue
 
-                if existing.exists():
-                    existing.unlink()
+                    if existing.exists():
+                        self.items_store.delete(item.id)
 
-                self.items_store.write(item, body)
+                    self.items_store.write(item, body)
                 # Index the imported item so it is immediately searchable;
                 # ItemsStore.write alone leaves the shadow index stale.
                 if self.index is not None:

@@ -1961,6 +1961,66 @@ def test_apply_rescans_catalog_after_stale_preview_and_keeps_duplicate_queued(
     assert path.exists()
 
 
+def test_cataloged_metadata_update_reclassifies_pending_duplicate_without_second_item(
+    tmp_brain: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _freeze_now(monkeypatch)
+    record = _v2_record(record_id="catalog-update-rescan")
+    path = enqueue_write_record(record)
+    existing_id = "mem-20260701-100000-catalog-update-winner"
+    _write_existing_item(
+        tmp_brain,
+        record,
+        item_id=existing_id,
+        span_hash=None,
+        project="different-project",
+    )
+    store = ItemsStore(tmp_brain / "items")
+    queue = PendingQueue()
+    assert queue.preview(limit=1).records[0].classification == "ready"
+    apply_started = threading.Event()
+    apply_finished = threading.Event()
+    outcomes: list[object] = []
+
+    def apply_pending() -> None:
+        apply_started.set()
+        outcomes.append(queue.apply(record_ids=["catalog-update-rescan"]))
+        apply_finished.set()
+
+    queued = record["item"]
+    assert isinstance(queued, dict)
+    with store.locked_catalog():
+        thread = threading.Thread(target=apply_pending, daemon=True)
+        thread.start()
+        assert apply_started.wait(timeout=5)
+        assert not apply_finished.wait(timeout=0.2)
+        store.update_frontmatter(
+            existing_id,
+            title=queued["title"],
+            summary=queued["summary"],
+            project=queued["project"],
+            tenant_id=queued["tenant_id"],
+            type=queued["type"],
+            refs={
+                "files": [],
+                "urls": [],
+                "mems": [],
+                "commits": [],
+                "resources": [],
+                "extractions": [],
+            },
+        )
+    thread.join(timeout=5)
+
+    assert not thread.is_alive()
+    result = outcomes[0]
+    assert getattr(result, "review_required") == 1
+    assert getattr(result, "results")[0].classification == "duplicate_candidate"
+    assert getattr(result, "results")[0].reason == "SAME_SCOPE_METADATA_DUPLICATE"
+    assert path.exists()
+    assert len(list(store.iter_all())) == 1
+
+
 def test_same_scope_title_summary_identity_is_duplicate_candidate(
     tmp_brain: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

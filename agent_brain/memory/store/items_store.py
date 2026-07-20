@@ -427,10 +427,11 @@ class ItemsStore:
           update_frontmatter(id, confidence=0.9)
           update_frontmatter(id, **{"retention.access_count": 5})
         """
-        if lifecycle_mutation_capability():
-            with self.locked_items([item_id]) as locked:
-                return locked.update_frontmatter(item_id, **updates)
-        return self._update_frontmatter_path(item_id, **updates)
+        with self.locked_catalog():
+            if lifecycle_mutation_capability():
+                with self.locked_items([item_id]) as locked:
+                    return locked.update_frontmatter(item_id, **updates)
+            return self._update_frontmatter_path(item_id, **updates)
 
     def _update_frontmatter_path(
         self, item_id: str, **updates: object
@@ -469,14 +470,15 @@ class ItemsStore:
         """Restore one active item from transaction rollback bytes."""
         if not is_valid_memory_item_id(item_id):
             raise ValueError("invalid memory item id")
-        if lifecycle_mutation_capability():
-            with self.locked_items([item_id]) as locked:
-                locked.restore_raw(item_id, data)
-            return
-        md_path = self.items_dir / f"{item_id}.md"
-        if not md_path.is_file():
-            raise FileNotFoundError(f"Item {item_id} not found at {md_path}")
-        _atomic_write_bytes(md_path, data)
+        with self.locked_catalog():
+            if lifecycle_mutation_capability():
+                with self.locked_items([item_id]) as locked:
+                    locked.restore_raw(item_id, data)
+                return
+            md_path = self.items_dir / f"{item_id}.md"
+            if not md_path.is_file():
+                raise FileNotFoundError(f"Item {item_id} not found at {md_path}")
+            _atomic_write_bytes(md_path, data)
 
     def link_mem(self, source_id: str, target_id: str) -> bool:
         """Add target_id to source_id's refs.mems in md frontmatter.
@@ -485,17 +487,20 @@ class ItemsStore:
         graph edges from refs.mems. Returns True if the md was modified; no-op
         (False) if the source md is missing or the link already exists.
         """
-        if lifecycle_mutation_capability():
-            with self.locked_items([source_id]) as locked:
-                return locked.link_mem(source_id, target_id)
-        md_path = self.items_dir / f"{source_id}.md"
-        if not md_path.exists():
-            return False
-        item, _ = self._read_one(md_path)
-        if target_id in item.refs.mems:
-            return False
-        self._update_frontmatter_path(source_id, refs=self._linked_refs(item, target_id))
-        return True
+        with self.locked_catalog():
+            if lifecycle_mutation_capability():
+                with self.locked_items([source_id]) as locked:
+                    return locked.link_mem(source_id, target_id)
+            md_path = self.items_dir / f"{source_id}.md"
+            if not md_path.exists():
+                return False
+            item, _ = self._read_one(md_path)
+            if target_id in item.refs.mems:
+                return False
+            self._update_frontmatter_path(
+                source_id, refs=self._linked_refs(item, target_id)
+            )
+            return True
 
     def unlink_mem(self, source_id: str, target_id: str) -> bool:
         # Strip target_id from source_id's refs.mems in the md frontmatter.
@@ -505,17 +510,54 @@ class ItemsStore:
         # Callers that remove an edge must also call this to make the unlink
         # durable. Returns True if the md was modified; no-op (False) if the
         # source md is missing or target_id is not currently linked.
-        if lifecycle_mutation_capability():
-            with self.locked_items([source_id]) as locked:
-                return locked.unlink_mem(source_id, target_id)
-        md_path = self.items_dir / f"{source_id}.md"
-        if not md_path.exists():
-            return False
-        item, _ = self._read_one(md_path)
-        if target_id not in item.refs.mems:
-            return False
-        self._update_frontmatter_path(source_id, refs=self._unlinked_refs(item, target_id))
-        return True
+        with self.locked_catalog():
+            if lifecycle_mutation_capability():
+                with self.locked_items([source_id]) as locked:
+                    return locked.unlink_mem(source_id, target_id)
+            md_path = self.items_dir / f"{source_id}.md"
+            if not md_path.exists():
+                return False
+            item, _ = self._read_one(md_path)
+            if target_id not in item.refs.mems:
+                return False
+            self._update_frontmatter_path(
+                source_id, refs=self._unlinked_refs(item, target_id)
+            )
+            return True
+
+    def delete(self, item_id: str) -> bool:
+        """Delete one active item under catalog -> item locking."""
+
+        if not is_valid_memory_item_id(item_id):
+            raise ValueError("invalid memory item id")
+        with self.locked_catalog():
+            if lifecycle_mutation_capability():
+                with self.locked_items([item_id]) as locked:
+                    return locked.delete(item_id)
+            path = self.items_dir / f"{item_id}.md"
+            try:
+                opened = os.lstat(path)
+            except FileNotFoundError:
+                return False
+            if not stat.S_ISREG(opened.st_mode):
+                raise OSError("UNSAFE_ITEM_DELETE_TARGET")
+            path.unlink()
+            try:
+                directory = os.open(
+                    self.items_dir,
+                    os.O_RDONLY
+                    | getattr(os, "O_CLOEXEC", 0)
+                    | getattr(os, "O_DIRECTORY", 0),
+                )
+                try:
+                    os.fsync(directory)
+                finally:
+                    os.close(directory)
+            except OSError:
+                if not _is_windows():
+                    raise
+                _log.warning("ITEM_DIRECTORY_FSYNC_UNAVAILABLE")
+            return True
 
     @contextmanager
     def locked_catalog(self) -> Iterator[None]:
@@ -655,26 +697,27 @@ class ItemsStore:
         canonical = sorted(set(item_ids))
         if not canonical or any(not is_valid_memory_item_id(item_id) for item_id in canonical):
             raise ValueError("invalid memory item id")
-        with SecureDirectory.open(self.items_dir.parent) as brain:
-            with brain.child("runtime", create=True) as runtime:
-                with runtime.child("locks", create=True) as locks:
-                    with locks.child("items", create=True) as lock_directory:
-                        with SecureDirectory.open(self.items_dir) as items:
-                            root = os.fstat(items.fd)
-                            tokens: list[_ItemLockToken] = []
-                            try:
-                                for item_id in canonical:
-                                    tokens.append(
-                                        self._acquire_item_lock(
-                                            lock_directory,
-                                            (root.st_dev, root.st_ino, item_id),
-                                            f"{item_id}.lock",
+        with self.locked_catalog():
+            with SecureDirectory.open(self.items_dir.parent) as brain:
+                with brain.child("runtime", create=True) as runtime:
+                    with runtime.child("locks", create=True) as locks:
+                        with locks.child("items", create=True) as lock_directory:
+                            with SecureDirectory.open(self.items_dir) as items:
+                                root = os.fstat(items.fd)
+                                tokens: list[_ItemLockToken] = []
+                                try:
+                                    for item_id in canonical:
+                                        tokens.append(
+                                            self._acquire_item_lock(
+                                                lock_directory,
+                                                (root.st_dev, root.st_ino, item_id),
+                                                f"{item_id}.lock",
+                                            )
                                         )
-                                    )
-                                yield LockedItemsView(items, frozenset(canonical))
-                            finally:
-                                for token in reversed(tokens):
-                                    self._release_item_lock(token)
+                                    yield LockedItemsView(items, frozenset(canonical))
+                                finally:
+                                    for token in reversed(tokens):
+                                        self._release_item_lock(token)
 
     @staticmethod
     def _acquire_item_lock(
@@ -834,6 +877,19 @@ class LockedItemsView:
     def restore_raw(self, item_id: str, data: bytes) -> None:
         self._require_locked(item_id)
         self._directory.atomic_write(f"{item_id}.md", data)
+
+    def delete(self, item_id: str) -> bool:
+        self._require_locked(item_id)
+        name = f"{item_id}.md"
+        try:
+            opened = self._directory.stat(name)
+        except FileNotFoundError:
+            return False
+        if not stat.S_ISREG(opened.st_mode):
+            raise OSError("UNSAFE_ITEM_DELETE_TARGET")
+        self._directory.unlink(name)
+        self._directory.fsync()
+        return True
 
     def link_mem(self, source_id: str, target_id: str) -> bool:
         prepared = self.prepare_link_mem(source_id, target_id)

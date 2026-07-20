@@ -3,8 +3,14 @@ from __future__ import annotations
 import json
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Any, cast
 
-from agent_brain.contracts.resource import ExtractionRecord, ResourceRecord
+from agent_brain.contracts.resource import (
+    ExtractionRecord,
+    ResourceRecord,
+    validate_extraction_id,
+    validate_resource_id,
+)
 
 
 class ResourceStore:
@@ -35,12 +41,14 @@ class ResourceStore:
         return path
 
     def get_resource(self, resource_id: str) -> ResourceRecord:
+        validate_resource_id(resource_id)
         path = self.resources_dir / f"{resource_id}.json"
         if not path.exists():
             raise FileNotFoundError(f"Resource {resource_id} not found")
         return ResourceRecord.model_validate(self._read_json(path))
 
     def get_extraction(self, extraction_id: str) -> ExtractionRecord:
+        validate_extraction_id(extraction_id)
         path = self.extractions_dir / f"{extraction_id}.json"
         if not path.exists():
             raise FileNotFoundError(f"Extraction {extraction_id} not found")
@@ -57,15 +65,18 @@ class ResourceStore:
                 yield record
 
     @staticmethod
-    def _write_json(path: Path, data: dict) -> None:
+    def _write_json(path: Path, data: dict[str, Any]) -> None:
         path.write_text(
             json.dumps(data, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
         )
 
     @staticmethod
-    def _read_json(path: Path) -> dict:
-        return json.loads(path.read_text(encoding="utf-8"))
+    def _read_json(path: Path) -> dict[str, Any]:
+        loaded: object = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(loaded, dict):
+            raise ValueError(f"Evidence record must be a JSON object: {path}")
+        return cast(dict[str, Any], loaded)
 
 
 __all__ = ["ResourceStore"]

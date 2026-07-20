@@ -39,13 +39,14 @@ def hub_import_impl(
             fm = rec.get("frontmatter", rec)
             body = rec.get("body", "")
             item = MemoryItem(**fm)
-            md_path = store.items_dir / f"{item.id}.md"
-            if md_path.exists():
-                if not overwrite:
-                    skipped += 1
-                    continue
-                md_path.unlink()
-            result = write_service.write(item=item, body=body)
+            with store.locked_catalog():
+                md_path = store.items_dir / f"{item.id}.md"
+                if md_path.exists():
+                    if not overwrite:
+                        skipped += 1
+                        continue
+                    store.delete(item.id)
+                result = write_service.write(item=item, body=body)
             if result.status == "blocked":
                 blocked += 1
                 continue
@@ -120,9 +121,7 @@ def hub_gc_impl(
             continue
         candidates.append({"id": item.id, "title": item.title, "type": str(item.type)})
         if not dry_run:
-            md_path = store.items_dir / f"{item.id}.md"
-            if md_path.exists():
-                md_path.unlink()
+            if store.delete(item.id):
                 try:
                     idx.delete(item.id)
                 except Exception:  # noqa: BLE001 - index eviction is best-effort

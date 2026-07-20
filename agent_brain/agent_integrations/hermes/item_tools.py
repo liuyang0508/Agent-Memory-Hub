@@ -83,10 +83,8 @@ def hub_delete_impl(
 ) -> dict[str, Any]:
     """Delete a memory item by id."""
     store, idx, _ = components()
-    md_path = store.items_dir / f"{item_id}.md"
-    if not md_path.exists():
+    if not store.delete(item_id):
         return {"error": f"item not found: {item_id}"}
-    md_path.unlink()
     idx.delete(item_id)
     return {"id": item_id, "deleted": True}
 

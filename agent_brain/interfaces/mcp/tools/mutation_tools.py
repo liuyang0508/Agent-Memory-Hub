@@ -198,9 +198,8 @@ def delete_memory(item_id: str) -> dict[str, Any]:
     """
     store, idx, _ = _components()
     md_path = _resolve_item_path(store, item_id)
-    if not md_path.exists():
+    if not store.delete(item_id):
         raise ValueError(f"item not found: {item_id}")
-    md_path.unlink()
     idx.delete(item_id)
     return {"id": item_id, "deleted_path": str(md_path)}
 

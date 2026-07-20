@@ -183,12 +183,15 @@ def delete(item_id: str = typer.Argument(..., help="Full or prefix of item ID"))
     """Delete a memory item by ID (supports ID prefix matching)."""
     store = _store_only()
     full_id = _resolve_id(store, item_id)
-    md_path = store.items_dir / f"{full_id}.md"
-    if not md_path.exists():
-        # _resolve_id now walks subdirectories (e.g. archived/); honor the real
-        # on-disk location instead of assuming the top-level path would exist.
-        md_path = next(iter(store.items_dir.rglob(f"{full_id}.md")), md_path)
-    md_path.unlink()
+    with store.locked_catalog():
+        if not store.delete(full_id):
+            # _resolve_id also walks subdirectories such as archived/. Those
+            # files are outside the active-item lock namespace, but still need
+            # the catalog lock so pending classification cannot race deletion.
+            md_path = next(iter(store.items_dir.rglob(f"{full_id}.md")), None)
+            if md_path is None:
+                raise FileNotFoundError(f"Item {full_id} not found")
+            md_path.unlink()
     _evict_from_index(full_id)
     typer.echo(f"deleted: {full_id}")
 

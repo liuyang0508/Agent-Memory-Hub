@@ -553,3 +553,42 @@ def test_windows_catalog_lock_uses_one_byte_msvcrt_contract(
         assert lock.stat().st_size == 1
 
     assert events == [(10, 1), (11, 1)]
+
+
+def test_catalog_serializes_all_item_mutation_entry_points(
+    tmp_brain_dir: Path,
+) -> None:
+    from agent_brain.memory.store.items_store import ItemsStore
+
+    store = ItemsStore(tmp_brain_dir / "items")
+    source = _fallback_create_item("mem-20260720-123006-catalog-mutations")
+    target = _fallback_create_item("mem-20260720-123007-catalog-target")
+    source_path = store.write(source, "source")
+    store.write(target, "target")
+    original = source_path.read_bytes()
+
+    def run_blocked(operation) -> None:
+        started = threading.Event()
+        finished = threading.Event()
+
+        def worker() -> None:
+            started.set()
+            operation()
+            finished.set()
+
+        with store.locked_catalog():
+            thread = threading.Thread(target=worker, daemon=True)
+            thread.start()
+            assert started.wait(timeout=5)
+            assert not finished.wait(timeout=0.2)
+        thread.join(timeout=5)
+        assert not thread.is_alive()
+        assert finished.is_set()
+
+    run_blocked(lambda: store.update_frontmatter(source.id, summary="updated"))
+    run_blocked(lambda: store.restore_raw(source.id, original))
+    run_blocked(lambda: store.link_mem(source.id, target.id))
+    run_blocked(lambda: store.unlink_mem(source.id, target.id))
+    run_blocked(lambda: store.delete(source.id))
+
+    assert not source_path.exists()

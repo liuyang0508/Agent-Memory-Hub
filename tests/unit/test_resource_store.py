@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 import re
 from datetime import datetime, timezone
+from pathlib import Path
 
 import pytest
 
@@ -40,6 +42,75 @@ def test_resource_and_extraction_ids_use_portable_ascii_slugs() -> None:
         assert re.fullmatch(r"ext-\d{8}-\d{6}-[a-z0-9-]+", extraction_id)
         assert not any(char in resource_id for char in forbidden)
         assert not any(char in extraction_id for char in forbidden)
+
+
+def test_legacy_unicode_evidence_ids_validate_and_load_without_rewrite(
+    fixtures_dir: Path,
+) -> None:
+    from agent_brain.contracts.resource import (
+        ExtractionRecord,
+        ResourceRecord,
+        validate_resource_id,
+    )
+    from agent_brain.memory.evidence.resource_store import ResourceStore
+
+    root = fixtures_dir / "legacy_evidence"
+    resource_id = "res-20250101-010203-历史.证据-abcdef12"
+    extraction_id = "ext-20250101-010204-摘要_一-12345678"
+    resource_payload = json.loads(
+        (root / "resources" / f"{resource_id}.json").read_text(encoding="utf-8")
+    )
+    extraction_payload = json.loads(
+        (root / "extractions" / f"{extraction_id}.json").read_text(encoding="utf-8")
+    )
+
+    assert ResourceRecord.model_validate(resource_payload).id == resource_id
+    assert ExtractionRecord.model_validate(extraction_payload).id == extraction_id
+    store = ResourceStore(root)
+    assert store.get_resource(resource_id).id == resource_id
+    assert store.get_extraction(extraction_id).resource_id == resource_id
+    assert (
+        validate_resource_id("res-20250101-010203-Cafe\u0301_证据.١-abcdef12")
+        == "res-20250101-010203-Cafe\u0301_证据.١-abcdef12"
+    )
+
+
+@pytest.mark.parametrize(
+    "unsafe_id",
+    [
+        "res-20250101-010203-../escape",
+        "res-20250101-010203-back\\slash",
+        "res-20250101-010203-colon:name",
+        "res-20250101-010203-star*name",
+        "res-20250101-010203-white space",
+        "res-20250101-010203-control\x00name",
+        "res-20250101-010203-..",
+        "res-20250101-010203-trailing.",
+    ],
+)
+def test_legacy_evidence_id_validator_rejects_path_and_platform_hazards(
+    unsafe_id: str,
+) -> None:
+    from agent_brain.contracts.resource import ResourceKind, ResourceRecord
+
+    with pytest.raises(ValueError):
+        ResourceRecord(
+            id=unsafe_id,
+            kind=ResourceKind.document,
+            uri="memory://unsafe",
+            title="unsafe",
+        )
+
+
+def test_resource_store_rejects_unsafe_lookup_before_path_access(tmp_path: Path) -> None:
+    from agent_brain.memory.evidence.resource_store import ResourceStore
+
+    store = ResourceStore(tmp_path / "brain")
+    outside = tmp_path / "outside.json"
+    outside.write_text("{}", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="INVALID_RESOURCE_ID"):
+        store.get_resource("../outside")
 
 
 def test_resource_id_validation_rejects_controls_without_echoing_input() -> None:

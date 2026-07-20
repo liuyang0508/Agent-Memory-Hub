@@ -153,9 +153,7 @@ def gc_memory(
             continue
         candidates.append({"id": item.id, "title": item.title, "type": str(item.type)})
         if not dry_run:
-            md_path = store.items_dir / f"{item.id}.md"
-            if md_path.exists():
-                md_path.unlink()
+            if store.delete(item.id):
                 idx.delete(item.id)
                 deleted += 1
     return {

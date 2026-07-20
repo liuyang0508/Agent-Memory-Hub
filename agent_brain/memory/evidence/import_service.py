@@ -42,12 +42,13 @@ def import_records(
             body = rec.get("body", "")
             item = MemoryItem(**fm)
             md_path = store.items_dir / f"{item.id}.md"
-            if md_path.exists():
-                if not overwrite:
-                    result.skipped += 1
-                    continue
-                md_path.unlink()
-            store.write(item, body)
+            with store.locked_catalog():
+                if md_path.exists():
+                    if not overwrite:
+                        result.skipped += 1
+                        continue
+                    store.delete(item.id)
+                store.write(item, body)
             result.imported += 1
             try:
                 index.upsert(

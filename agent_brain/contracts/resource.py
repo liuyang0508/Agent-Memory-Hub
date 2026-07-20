@@ -37,8 +37,8 @@ class ExtractionKind(str, Enum):
     segment = "segment"
 
 
-_RESOURCE_ID_PATTERN = re.compile(r"^res-\d{8}-\d{6}-[a-z0-9-]{1,200}$")
-_EXTRACTION_ID_PATTERN = re.compile(r"^ext-\d{8}-\d{6}-[a-z0-9-]{1,200}$")
+_RESOURCE_ID_PATTERN = re.compile(r"^res-\d{8}-\d{6}-(?P<tail>.{1,200})$")
+_EXTRACTION_ID_PATTERN = re.compile(r"^ext-\d{8}-\d{6}-(?P<tail>.{1,200})$")
 _SHA256_PATTERN = re.compile(r"^[a-fA-F0-9]{64}$")
 _WINDOWS_RESERVED_NAMES = frozenset(
     {"con", "prn", "aux", "nul"}
@@ -55,6 +55,35 @@ def _slug(text: str) -> str:
     if not slug or slug in _WINDOWS_RESERVED_NAMES:
         return "item"
     return slug
+
+
+def _validate_legacy_safe_id(value: str, pattern: re.Pattern[str], reason: str) -> str:
+    match = pattern.fullmatch(value)
+    if match is None:
+        raise ValueError(reason)
+    tail = match.group("tail")
+    if tail in {".", ".."} or ".." in tail or tail.endswith("."):
+        raise ValueError(reason)
+    for character in tail:
+        category = unicodedata.category(character)
+        if character in "._-" or category[0] in {"L", "M", "N"}:
+            continue
+        raise ValueError(reason)
+    return value
+
+
+def validate_resource_id(value: str) -> str:
+    """Accept generated IDs and bounded legacy Unicode IDs without rewriting."""
+
+    return _validate_legacy_safe_id(value, _RESOURCE_ID_PATTERN, "INVALID_RESOURCE_ID")
+
+
+def validate_extraction_id(value: str) -> str:
+    """Accept generated IDs and bounded legacy Unicode IDs without rewriting."""
+
+    return _validate_legacy_safe_id(
+        value, _EXTRACTION_ID_PATTERN, "INVALID_EXTRACTION_ID"
+    )
 
 
 def make_resource_id(title: str, when: datetime | None = None) -> str:
@@ -101,9 +130,7 @@ class ResourceRecord(BaseModel):
     @field_validator("id")
     @classmethod
     def _validate_id(cls, value: str) -> str:
-        if not _RESOURCE_ID_PATTERN.match(value):
-            raise ValueError("invalid resource id")
-        return value
+        return validate_resource_id(value)
 
     @field_validator("created_at")
     @classmethod
@@ -140,16 +167,12 @@ class ExtractionRecord(BaseModel):
     @field_validator("id")
     @classmethod
     def _validate_id(cls, value: str) -> str:
-        if not _EXTRACTION_ID_PATTERN.match(value):
-            raise ValueError("invalid extraction id")
-        return value
+        return validate_extraction_id(value)
 
     @field_validator("resource_id")
     @classmethod
     def _validate_resource_id(cls, value: str) -> str:
-        if not _RESOURCE_ID_PATTERN.match(value):
-            raise ValueError("invalid resource id")
-        return value
+        return validate_resource_id(value)
 
     @field_validator("created_at")
     @classmethod
@@ -182,4 +205,6 @@ __all__ = [
     "make_resource_id",
     "sha256_file",
     "sha256_text",
+    "validate_extraction_id",
+    "validate_resource_id",
 ]

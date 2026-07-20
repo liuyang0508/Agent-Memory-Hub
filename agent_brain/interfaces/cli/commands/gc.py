@@ -25,13 +25,11 @@ def gc(
             continue
         if item.created_at >= cutoff:
             continue
-        md_path = store.items_dir / f"{item.id}.md"
         if dry_run:
             typer.echo(f"  would delete: [{item.type}] {item.title} ({item.id[:12]})")
             deleted += 1
         else:
-            if md_path.exists():
-                md_path.unlink()
+            if store.delete(item.id):
                 _evict_from_index(item.id)
                 deleted += 1
     flags_dir = store.items_dir.parent / ".session-flags"

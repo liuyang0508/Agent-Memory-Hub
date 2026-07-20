@@ -1,0 +1,8 @@
+{
+  "id": "ext-20250101-010204-摘要_一-12345678",
+  "resource_id": "res-20250101-010203-历史.证据-abcdef12",
+  "kind": "text",
+  "extractor": "legacy-import",
+  "content_text": "历史证据",
+  "content_sha256": "69c32bd7ef66406bf02bc0a5e30fdfb24c1ae97875fbfbbe6a24bddc37ab9627"
+}
