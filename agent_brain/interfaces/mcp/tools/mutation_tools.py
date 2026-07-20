@@ -188,7 +188,8 @@ def delete_memory(item_id: str) -> dict[str, Any]:
     ONLY when the item is clearly broken or contains secrets that must not
     persist. For "outdated but historically useful" content, instead:
       * Write a NEW memory with the correction.
-      * Call `link_memories(new_id, old_id, relation="supersedes")`.
+      * Preview `link_memories(new_id, old_id, relation="supersedes")`, then
+        repeat with `apply=True` after review.
       * Let `evolve_memory` / `gc_memory` archive the stale one over time.
 
     DO NOT
@@ -222,8 +223,9 @@ def update_memory(
     -----------
     Small in-place corrections: typo in title, missing tag, wrong `project`,
     `confidence` bump after verification. For substantive content changes,
-    prefer `write_memory` (new item) + `link_memories(new, old, "supersedes")`
-    so the history stays auditable.
+    prefer `write_memory` (new item), preview
+    `link_memories(new, old, "supersedes")`, then repeat with `apply=True`
+    after review so the history stays auditable.
     """
     store, idx, _ = _components()
     updates = build_update_fields(

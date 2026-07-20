@@ -6,6 +6,10 @@ import pytest
 import yaml
 
 
+CHECKOUT_SHA = "11bd71901bbe5b1630ceea73d27597364c9af683"
+SETUP_PYTHON_SHA = "a26af69be951a213d495a4c3e4e4022e16d87065"
+
+
 def _assert_lifecycle_job_fail_closed(job: dict[str, object]) -> None:
     def visit(value: object) -> None:
         if isinstance(value, dict):
@@ -14,6 +18,7 @@ def _assert_lifecycle_job_fail_closed(job: dict[str, object]) -> None:
             assert "always()" not in condition.replace(" ", "").lower()
             command = str(value.get("run", ""))
             assert "||" not in command
+            assert not re.search(r"(?<!\|)\|(?!\|)", command)
             assert not re.search(r"(?m)^\s*set\s+\+e(?:\s|$)", command)
             assert not re.search(
                 r"(?m)(?:^|;)\s*(?:true|:|exit\s+0)\s*(?:;|$)", command
@@ -114,6 +119,55 @@ def test_lifecycle_governance_job_is_fail_closed_and_checks_committed_evidence()
     assert "python scripts/generate-lifecycle-governance-report.py --check" in commands
 
 
+def test_lifecycle_governance_workflow_contract_is_exact_and_least_privilege() -> None:
+    workflow = yaml.safe_load(
+        Path(".github/workflows/governance-gates.yml").read_text(encoding="utf-8")
+    )
+    trigger = workflow.get("on", workflow.get(True))
+    assert trigger == {
+        "push": {"branches": ["main"]},
+        "pull_request": {"branches": ["main"]},
+    }
+    assert workflow["permissions"] == {"contents": "read"}
+
+    job = workflow["jobs"]["lifecycle-governance"]
+    assert set(job) == {"runs-on", "steps"}
+    assert job["runs-on"] == "ubuntu-latest"
+    assert len(job["steps"]) == 5
+    checkout, setup, install, contracts, evidence = job["steps"]
+    assert checkout == {"uses": f"actions/checkout@{CHECKOUT_SHA}"}
+    assert setup == {
+        "uses": f"actions/setup-python@{SETUP_PYTHON_SHA}",
+        "with": {"python-version": "3.12"},
+    }
+    assert install == {
+        "name": "Install test runtime",
+        "run": 'pip install -e ".[dev]"',
+    }
+    assert contracts == {
+        "name": "Verify trusted lifecycle and pending contracts",
+        "env": {"MEMORY_HUB_TEST_EMBEDDING": "1"},
+        "run": (
+            "python -m pytest "
+            "tests/unit/test_supersession.py "
+            "tests/unit/test_lifecycle_candidates.py "
+            "tests/unit/test_pending_queue.py "
+            "tests/unit/test_governance_readiness.py -q"
+        ),
+    }
+    assert evidence == {
+        "name": "Verify committed lifecycle governance evidence",
+        "run": "python scripts/generate-lifecycle-governance-report.py --check",
+    }
+    for configured_job in workflow["jobs"].values():
+        for step in configured_job["steps"]:
+            uses = str(step.get("uses", ""))
+            if uses.startswith("actions/checkout@") or uses.startswith(
+                "actions/setup-python@"
+            ):
+                assert re.fullmatch(r"[^@]+@[0-9a-f]{40}", uses)
+
+
 @pytest.mark.parametrize(
     ("scope", "field", "value"),
     [
@@ -124,6 +178,7 @@ def test_lifecycle_governance_job_is_fail_closed_and_checks_committed_evidence()
         ("step", "continue-on-error", "${{ matrix.advisory }}"),
         ("step", "run", "python -m pytest tests/unit/test_supersession.py -q || true"),
         ("step", "run", "python check.py || echo ignored"),
+        ("step", "run", "python check.py | tee lifecycle.log"),
         ("step", "run", "set +e\npython -m pytest tests/unit/test_supersession.py -q"),
         ("step", "run", "python check.py; exit 0"),
         ("step", "if", "${{ always() }}"),

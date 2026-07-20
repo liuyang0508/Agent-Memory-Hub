@@ -1,6 +1,5 @@
 {
   "graph_drift": {
-    "expected_drift_count": 1,
     "id": "graph-drift",
     "index_edges": [],
     "items": [
@@ -34,8 +33,6 @@
   },
   "pending_cases": [
     {
-      "expected_classification": "ready",
-      "expected_reason": "READY",
       "id": "ready-fact",
       "kind": "ready_pending",
       "record": {
@@ -59,8 +56,6 @@
       }
     },
     {
-      "expected_classification": "stale_requires_review",
-      "expected_reason": "STALE_EPHEMERAL_MEMORY",
       "id": "stale-pending",
       "kind": "stale_pending",
       "record": {
@@ -84,8 +79,6 @@
       }
     },
     {
-      "expected_classification": "already_written",
-      "expected_reason": "STABLE_ITEM_ALREADY_WRITTEN",
       "id": "already-written",
       "kind": "already_written",
       "record": {
@@ -110,8 +103,6 @@
       "seed_existing": true
     },
     {
-      "expected_classification": "unsupported_type",
-      "expected_reason": "UNSUPPORTED_MEMORY_TYPE",
       "id": "unsupported-feedback",
       "kind": "unsupported_feedback",
       "record": {
@@ -133,8 +124,6 @@
       }
     },
     {
-      "expected_classification": "malformed",
-      "expected_reason": "MALFORMED_JSON",
       "id": "malformed-record",
       "kind": "malformed",
       "raw_line": "{synthetic-malformed-record"
@@ -143,9 +132,6 @@
   "schema_version": "amh-lifecycle-governance-evidence/v1",
   "supersession_cases": [
     {
-      "expected_candidate": "mem-20260102-000000-valid-replacement",
-      "expected_reason": "OK",
-      "expected_status": "ready",
       "id": "valid-supersession",
       "kind": "valid_supersession",
       "obsolete": {
@@ -179,8 +165,6 @@
       }
     },
     {
-      "expected_reason": "SUPERSESSION_CYCLE",
-      "expected_status": "blocked",
       "id": "cycle",
       "kind": "cycle",
       "obsolete": {
@@ -210,8 +194,6 @@
       }
     },
     {
-      "expected_reason": "TENANT_MISMATCH",
-      "expected_status": "blocked",
       "id": "cross-tenant",
       "kind": "cross_tenant",
       "obsolete": {

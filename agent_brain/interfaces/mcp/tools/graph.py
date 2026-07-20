@@ -54,6 +54,7 @@ def link_memories(
     source_id: str,
     target_id: str,
     relation: str = "refs",
+    apply: bool | None = None,
 ) -> dict[str, Any]:
     """Create a knowledge-graph link between two memory items.
 
@@ -66,7 +67,8 @@ def link_memories(
       * References, refines, or contradicts a memory you just retrieved via
         `search_memory` in the same task.
       * Belongs to a chain (episode → policy → skill, decision → artifact).
-      * Replaces an outdated memory (use relation="supersedes").
+      * Replaces an outdated memory (use relation="supersedes"; pass
+        apply=True only after reviewing the default preview).
 
     CANONICAL `relation` VALUES
     ---------------------------
@@ -91,13 +93,15 @@ def link_memories(
             "status": "blocked",
             "reason": "INVALID_ITEM_ID",
             "index_repair_required": False,
+            "dry_run": relation == "supersedes" and apply is not True,
         }
     store, idx, _ = _components()
     if relation == "supersedes":
+        should_apply = apply is True
         result = SupersessionService(_brain_dir(), store, idx).apply(
             replacement_id=source_id,
             obsolete_id=target_id,
-            apply=True,
+            apply=should_apply,
         )
         return {
             "source": source_id,
@@ -107,6 +111,7 @@ def link_memories(
             "status": result.status,
             "reason": result.reason,
             "index_repair_required": result.index_repair_required,
+            "dry_run": result.dry_run,
         }
     idx.add_ref(source_id, target_id, relation)
     try:
@@ -121,6 +126,7 @@ def link_memories(
         "status": "linked",
         "reason": "OK",
         "index_repair_required": False,
+        "dry_run": False,
     }
 
 

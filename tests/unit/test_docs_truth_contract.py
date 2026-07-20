@@ -18,6 +18,46 @@ from agent_brain.interfaces.mcp.tools.search_tools import search_memory
 
 
 ROOT = Path(__file__).resolve().parents[2]
+EXPECTED_LIFECYCLE_IMPLEMENTATION_PATHS = (
+    "agent_brain/agent_integrations/hermes/import_export_tools.py",
+    "agent_brain/agent_integrations/hermes/item_tools.py",
+    "agent_brain/contracts/resource.py",
+    "agent_brain/interfaces/cli/commands/crud.py",
+    "agent_brain/interfaces/cli/commands/gc.py",
+    "agent_brain/interfaces/cli/commands/index_maintenance.py",
+    "agent_brain/interfaces/cli/commands/maintenance.py",
+    "agent_brain/interfaces/cli/commands/review.py",
+    "agent_brain/interfaces/cli/commands/subapps.py",
+    "agent_brain/interfaces/cli/doctor_offline.py",
+    "agent_brain/interfaces/mcp/tools/graph.py",
+    "agent_brain/interfaces/mcp/tools/io.py",
+    "agent_brain/interfaces/mcp/tools/mutation_tools.py",
+    "agent_brain/memory/evidence/import_service.py",
+    "agent_brain/memory/evidence/integrations/obsidian.py",
+    "agent_brain/memory/evidence/resource_store.py",
+    "agent_brain/memory/governance/auto_governance.py",
+    "agent_brain/memory/governance/git_fd_exec.py",
+    "agent_brain/memory/governance/lifecycle_action_parsing.py",
+    "agent_brain/memory/governance/lifecycle_archive.py",
+    "agent_brain/memory/governance/lifecycle_candidates.py",
+    "agent_brain/memory/governance/lifecycle_ledger.py",
+    "agent_brain/memory/governance/lifecycle_review.py",
+    "agent_brain/memory/governance/lifecycle_snapshot.py",
+    "agent_brain/memory/governance/maintenance_plan.py",
+    "agent_brain/memory/governance/supersession.py",
+    "agent_brain/memory/store/durable_fs.py",
+    "agent_brain/memory/store/item_ids.py",
+    "agent_brain/memory/store/items_store.py",
+    "agent_brain/memory/store/pending.py",
+    "agent_brain/memory/store/write_service.py",
+    "agent_brain/platform/indexing/graph_index.py",
+    "agent_brain/platform/indexing/index.py",
+    "agent_brain/platform/indexing/index_schema.py",
+    "agent_brain/platform/indexing/index_writer.py",
+    "agent_brain/product/governance_readiness.py",
+    "web/api/routes/governance.py",
+    "scripts/generate-lifecycle-governance-report.py",
+)
 
 
 def _load_lifecycle_governance_generator():
@@ -47,15 +87,33 @@ def test_lifecycle_governance_report_is_reproducible_and_fail_closed(tmp_path):
 
     report = json.loads(report_path.read_text(encoding="utf-8"))
     assert report["schema_version"] == "amh-lifecycle-governance-readiness/v1"
-    assert report["overall_status"] == "pass"
+    assert report["synthetic_status"] == "pass"
+    assert report["release_status"] == "pending"
+    assert report["overall_status"] == "pending"
     assert report["failed_gates"] == []
     assert report["implementation_hash"].startswith("sha256:")
     assert report["fixture_hash"].startswith("sha256:")
     assert report["supersession_contract"]["status"] == "pass"
     assert report["pending_contract"]["status"] == "pass"
     assert report["surface_parity"]["status"] == "pass"
+    assert report["surface_parity"]["default_preview_zero_mutation"] is True
+    assert report["surface_parity"]["explicit_apply_mutates"] is True
     assert report["privacy"]["status"] == "pass"
     assert report["evidence_scope"]["real_brain_dry_run"] == "pending"
+    assert report["release_truth"] == {
+        "branch_protection_required_context": "pending_external_configuration",
+        "workflow_job": "configured_non_advisory",
+    }
+    assert tuple(generator.IMPLEMENTATION_PATHS) == EXPECTED_LIFECYCLE_IMPLEMENTATION_PATHS
+    manifest = report["implementation_manifest"]
+    assert tuple(row["path"] for row in manifest) == EXPECTED_LIFECYCLE_IMPLEMENTATION_PATHS
+    baseline_hash = report["implementation_hash"]
+    for index, row in enumerate(manifest):
+        changed = copy.deepcopy(manifest)
+        changed[index]["sha256"] = "sha256:" + "0" * 64
+        if changed[index]["sha256"] == row["sha256"]:
+            changed[index]["sha256"] = "sha256:" + "1" * 64
+        assert generator._implementation_hash(changed) != baseline_hash
 
     assert generator.canonical_json(generator.generate_report()) == report_path.read_text(
         encoding="utf-8"
@@ -64,7 +122,7 @@ def test_lifecycle_governance_report_is_reproducible_and_fail_closed(tmp_path):
 
     tampered_fixture = tmp_path / "fixture.json"
     fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
-    fixture["supersession_cases"][0]["expected_reason"] = "TAMPERED_REASON"
+    fixture["supersession_cases"].pop()
     tampered_fixture.write_text(
         json.dumps(fixture, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
@@ -93,6 +151,179 @@ def _write_lifecycle_fixture(path: Path, fixture: dict[str, object]) -> None:
         json.dumps(fixture, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
+
+
+@pytest.mark.parametrize(
+    ("scenario", "failed_gate"),
+    [
+        ("valid-supersession", "supersession_contract"),
+        ("cycle", "supersession_contract"),
+        ("cross-tenant", "supersession_contract"),
+        ("stale-pending", "pending_contract"),
+        ("already-written", "pending_contract"),
+        ("unsupported-feedback", "pending_contract"),
+        ("malformed-record", "pending_contract"),
+        ("graph-drift", "graph_drift_contract"),
+    ],
+)
+def test_lifecycle_fixture_cannot_launder_inputs_and_expected_results_together(
+    tmp_path: Path,
+    scenario: str,
+    failed_gate: str,
+) -> None:
+    generator = _load_lifecycle_governance_generator()
+    fixture = json.loads(_read("tests/fixtures/lifecycle_governance_evidence_v1.json"))
+    supersession = {case["id"]: case for case in fixture["supersession_cases"]}
+    pending = {case["id"]: case for case in fixture["pending_cases"]}
+    if scenario == "valid-supersession":
+        case = supersession[scenario]
+        case["replacement"]["project"] = "laundered-project"
+        case["expected_status"] = "blocked"
+        case["expected_reason"] = "PROJECT_MISMATCH"
+        case.pop("expected_candidate", None)
+    elif scenario == "cycle":
+        case = supersession[scenario]
+        case["replacement"].pop("superseded_by")
+        case["expected_status"] = "ready"
+        case["expected_reason"] = "OK"
+    elif scenario == "cross-tenant":
+        case = supersession[scenario]
+        case["replacement"]["tenant_id"] = case["obsolete"]["tenant_id"]
+        case["expected_status"] = "ready"
+        case["expected_reason"] = "OK"
+    elif scenario == "stale-pending":
+        case = pending[scenario]
+        case["record"]["item"]["type"] = "fact"
+        case["expected_classification"] = "ready"
+        case["expected_reason"] = "READY"
+    elif scenario == "already-written":
+        case = pending[scenario]
+        case["seed_existing"] = False
+        case["expected_classification"] = "ready"
+        case["expected_reason"] = "READY"
+    elif scenario == "unsupported-feedback":
+        case = pending[scenario]
+        case["record"]["item"]["type"] = "fact"
+        case["expected_classification"] = "ready"
+        case["expected_reason"] = "READY"
+    elif scenario == "malformed-record":
+        case = pending[scenario]
+        case.pop("raw_line")
+        case["record"] = copy.deepcopy(pending["ready-fact"]["record"])
+        case["expected_classification"] = "ready"
+        case["expected_reason"] = "READY"
+    else:
+        graph = fixture["graph_drift"]
+        graph["index_edges"] = [[
+            "mem-20260102-000000-drift-replacement",
+            "mem-20260101-000000-drift-obsolete",
+        ]]
+        graph["expected_drift_count"] = 0
+    path = tmp_path / f"launder-{scenario}.json"
+    _write_lifecycle_fixture(path, fixture)
+
+    report = generator.generate_report(fixture_path=path)
+
+    assert report["synthetic_status"] == "fail"
+    assert failed_gate in report["failed_gates"]
+
+
+def test_lifecycle_generator_rejects_nonfinite_and_nonobject_json(tmp_path: Path) -> None:
+    generator = _load_lifecycle_governance_generator()
+    with pytest.raises(ValueError):
+        generator.canonical_json({"value": float("nan")})
+
+    nonfinite = tmp_path / "nonfinite.json"
+    nonfinite.write_text('{"schema_version": NaN}\n', encoding="utf-8")
+    with pytest.raises(ValueError):
+        generator.generate_report(fixture_path=nonfinite)
+
+    top_level_list = tmp_path / "list.json"
+    top_level_list.write_text("[]\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="top-level object"):
+        generator.generate_report(fixture_path=top_level_list)
+
+
+def test_lifecycle_generator_nonobject_json_has_stable_exit_three(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    generator = _load_lifecycle_governance_generator()
+    fixture = tmp_path / "list.json"
+    fixture.write_text("[]\n", encoding="utf-8")
+    monkeypatch.setattr(generator, "FIXTURE_PATH", fixture)
+    monkeypatch.setattr(generator.sys, "argv", ["generate-lifecycle-governance-report.py"])
+
+    assert generator.main() == generator.EXIT_INVALID_INPUT
+
+
+def test_lifecycle_generator_detects_changed_snapshot_and_writes_atomically(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    generator = _load_lifecycle_governance_generator()
+    source = tmp_path / "source.json"
+    source.write_text("{}\n", encoding="utf-8")
+    snapshot = generator._read_stable_file(source)
+    source.write_text('{"changed": true}\n', encoding="utf-8")
+    assert generator._snapshot_unchanged(snapshot) is False
+
+    target = tmp_path / "report.json"
+    target.write_text("old\n", encoding="utf-8")
+
+    def fail_replace(*_args: object, **_kwargs: object) -> None:
+        raise OSError("synthetic replace failure")
+
+    monkeypatch.setattr(generator.os, "replace", fail_replace)
+    with pytest.raises(OSError, match="synthetic replace failure"):
+        generator._atomic_write_text(target, "new\n")
+    assert target.read_text(encoding="utf-8") == "old\n"
+    assert not list(tmp_path.glob(".amh-lifecycle-*"))
+
+
+def test_lifecycle_generator_partial_cross_file_write_is_stale_then_repairable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    generator = _load_lifecycle_governance_generator()
+    report = tmp_path / "report.json"
+    markdown = tmp_path / "report.md"
+    report.write_text("old report\n", encoding="utf-8")
+    markdown.write_text("old markdown\n", encoding="utf-8")
+    monkeypatch.setattr(generator, "REPORT_PATH", report)
+    monkeypatch.setattr(generator, "MARKDOWN_PATH", markdown)
+    monkeypatch.setattr(generator.sys, "argv", ["generate-lifecycle-governance-report.py"])
+    real_replace = generator.os.replace
+    calls = 0
+
+    def fail_second_replace(source: object, destination: object) -> None:
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise OSError("synthetic second replace failure")
+        real_replace(source, destination)
+
+    monkeypatch.setattr(generator.os, "replace", fail_second_replace)
+    assert generator.main() == generator.EXIT_INVALID_INPUT
+    assert report.read_text(encoding="utf-8") != "old report\n"
+    assert markdown.read_text(encoding="utf-8") == "old markdown\n"
+    assert not list(tmp_path.glob(".amh-lifecycle-*"))
+
+    monkeypatch.setattr(generator.os, "replace", real_replace)
+    monkeypatch.setattr(
+        generator.sys,
+        "argv",
+        ["generate-lifecycle-governance-report.py", "--check"],
+    )
+    assert generator.main() == generator.EXIT_STALE_EVIDENCE
+    monkeypatch.setattr(generator.sys, "argv", ["generate-lifecycle-governance-report.py"])
+    assert generator.main() == generator.EXIT_PASS
+    monkeypatch.setattr(
+        generator.sys,
+        "argv",
+        ["generate-lifecycle-governance-report.py", "--check"],
+    )
+    assert generator.main() == generator.EXIT_PASS
 
 
 @pytest.mark.parametrize(
@@ -253,10 +484,14 @@ def test_lifecycle_governance_public_evidence_has_bounded_truth_claims():
     public_text = "\n".join((fixture, report, readiness))
 
     assert "代码与 synthetic fixture：`PASS`" in readiness
+    assert "整体发布状态：`PENDING`" in readiness
+    assert "branch protection required context：`PENDING`" in readiness
     assert "真实 brain dry-run：`PENDING`" in readiness
     assert "真实 brain 已完成" not in readiness
     assert "sync-pending" in changelog and "默认预览" in changelog
     assert "apply-lifecycle" in changelog and "默认预览" in changelog
+    assert "required `lifecycle-governance`" not in changelog
+    assert "branch-protection required context" in changelog
     assert (
         "> 历史执行计划；当前完成状态以 "
         "`docs/evaluation/stage1-reliability-security-release-readiness.zh.md` 为准。"

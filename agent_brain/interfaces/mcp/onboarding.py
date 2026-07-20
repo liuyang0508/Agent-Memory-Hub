@@ -105,6 +105,10 @@ items you saw during the same task's `search_memory`, call:
 link_memories(source=new_id, target=related_id, relation="refs"|"supersedes"|"refines"|"contradicts"|"derives")
 ```
 
+`supersedes` is governed: the first call is preview-only. Review its structured
+result, then repeat with `apply=true` to commit. Other relations keep their
+existing immediate-link behavior.
+
 Unlinked memories are orphans — they are discoverable only by direct
 search. Linking turns the brain into a graph, which is what enables
 `graph_memory`, `evolve_memory`, and `drift_check` to reason across items.
@@ -150,8 +154,9 @@ search. Linking turns the brain into a graph, which is what enables
   without first calling `search_memory`.
 - **Never** finish producing a reusable artifact (prompt, checklist,
   recipe) without calling `write_memory`.
-- **Never** call `delete_memory` to "clean up" — write a superseding
-  item and `link_memories(new, old, "supersedes")` instead.
+- **Never** call `delete_memory` to "clean up" — write a superseding item,
+  preview `link_memories(new, old, "supersedes")`, then explicitly repeat with
+  `apply=true` after review.
 - **Never** invent new `type` values; pick the closest of the 8 above.
 - Bulk reads are forbidden; use `brief_memory` for browsing and
   `search_memory(..., verbosity="auto")` context packs for triage.

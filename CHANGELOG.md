@@ -42,18 +42,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and isolated `shadow` → `canary` → `default` rollout with a per-adapter kill
   switch. The required `adapter-governance` job rejects stale reports, private
   evidence, broken lifecycle contracts, or core-isolation regressions.
-- **Trusted lifecycle governance evidence** — the required
-  `lifecycle-governance` job replays committed synthetic supersession, pending,
+- **Trusted lifecycle governance evidence** — a non-advisory
+  `lifecycle-governance` workflow job replays committed synthetic supersession, pending,
   graph-drift, surface-parity, and privacy contracts. The content-manifest and
   fixture hashes are reproducible offline and do not claim that a real brain
-  dry-run has completed.
+  dry-run has completed. Its branch-protection required context remains pending
+  external repository configuration.
 
 ### Changed
 
 - **Breaking / next-major:** `memory sync-pending` 现在默认预览；只有显式
   `--apply`（配合 `--record` 或 `--safe-only`）才会写入或清理队列。
   `memory govern apply-lifecycle` 同样默认预览，supersede、archive、
-  keep-active、defer 与 revert-supersession 都要求显式 `--apply`。
+  keep-active、defer 与 revert-supersession 都要求显式 `--apply`。MCP
+  `link_memories(..., relation="supersedes")` 也默认预览，只有
+  `apply=true` 才提交；普通 relation 仍保持即时链接。
 
 - Realtime browser clients now use an HttpOnly session cookie; non-cookie clients
   exchange Bearer credentials for a short-lived, one-use realtime ticket instead

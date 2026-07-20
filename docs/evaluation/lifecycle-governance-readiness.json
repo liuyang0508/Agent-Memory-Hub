@@ -1,19 +1,45 @@
 {
+  "evaluation_now": "2026-07-20T12:00:00+00:00",
   "evidence_scope": {
     "code_and_synthetic_fixture": "pass",
     "real_brain_dry_run": "pending"
   },
   "failed_gates": [],
-  "fixture_hash": "sha256:db2925b8e3ceabd93cb218dde41db89554b775f1f94950f3e7d4ee05712593dd",
+  "fixture_hash": "sha256:256ea5ffe4fe78d72719755c6587dfce2c8580909108db6cc7568079b2e555df",
   "fixture_schema_version": "amh-lifecycle-governance-evidence/v1",
   "generator_version": "amh-lifecycle-governance-generator/v1",
   "graph_drift_contract": {
     "expected_drift_count": 1,
+    "input_matches_oracle": true,
     "observed_drift_count": 1,
     "status": "pass"
   },
-  "implementation_hash": "sha256:6f943b98187ca0c4208b32c023a3a32a861b24556d3ff868665467ec78f6b232",
+  "implementation_hash": "sha256:e6bb2f680df1cdfc3df91d608ab9e887d607218ea388f76d152aad0b9289ebb9",
   "implementation_manifest": [
+    {
+      "path": "agent_brain/agent_integrations/hermes/import_export_tools.py",
+      "sha256": "sha256:92d3afe08bb2d90eea29f5024e4324e437a92d736c736181ebb4e2534c69fe61"
+    },
+    {
+      "path": "agent_brain/agent_integrations/hermes/item_tools.py",
+      "sha256": "sha256:a42cff92a19dae123f41e80fc6abd1e800acc0ceed6320e0657fd7bdc6306487"
+    },
+    {
+      "path": "agent_brain/contracts/resource.py",
+      "sha256": "sha256:edc83082c22d6ad1ef4ccd18165ef003040cc8d453ae2d6af1de4c4fdfee3a43"
+    },
+    {
+      "path": "agent_brain/interfaces/cli/commands/crud.py",
+      "sha256": "sha256:1025e3efdc27f34422901d0a729e07e499c613ecb764d01e444e1d40d495b4f9"
+    },
+    {
+      "path": "agent_brain/interfaces/cli/commands/gc.py",
+      "sha256": "sha256:92fac7fc7467d2ade5758990d32832bb0c5cc0f439ead4986edc19783c263dbd"
+    },
+    {
+      "path": "agent_brain/interfaces/cli/commands/index_maintenance.py",
+      "sha256": "sha256:85a09b833066d42c757f7dc0ff7d868a6779a661cec6c1439301e5017d84ac84"
+    },
     {
       "path": "agent_brain/interfaces/cli/commands/maintenance.py",
       "sha256": "sha256:31682cf1be8f6db4bf944577e9a479761156658aeddedf381214f083d1f05281"
@@ -32,7 +58,31 @@
     },
     {
       "path": "agent_brain/interfaces/mcp/tools/graph.py",
-      "sha256": "sha256:752cf57868521c775624a5ca8e81c374b6252c13610a5dc2c5722232b5efe104"
+      "sha256": "sha256:85499f73ef425af6146808d8cf7fceefae2b8bfaf55b6db4ed3ceb125ebac1a5"
+    },
+    {
+      "path": "agent_brain/interfaces/mcp/tools/io.py",
+      "sha256": "sha256:eda61afaa78a739bb8c96d4eda01d20db7674e5d2007ff94cae53089c1b7d819"
+    },
+    {
+      "path": "agent_brain/interfaces/mcp/tools/mutation_tools.py",
+      "sha256": "sha256:280a67ffc5d0a7e51f4d08b55fd6fb80c2d9a865d00de5aad1be89b689b0c203"
+    },
+    {
+      "path": "agent_brain/memory/evidence/import_service.py",
+      "sha256": "sha256:719960cb8ccc3e54f8b639fb6b1140199da1716ff101bba7a6ac97d65403b3e0"
+    },
+    {
+      "path": "agent_brain/memory/evidence/integrations/obsidian.py",
+      "sha256": "sha256:e22880413d247c1be5da209bb9717c56be038ffaa35ede21f17e1877feedfa07"
+    },
+    {
+      "path": "agent_brain/memory/evidence/resource_store.py",
+      "sha256": "sha256:15887e12d990c51d94c7634e3a0a52c5af458fb380b39654b175f494f21b7b9b"
+    },
+    {
+      "path": "agent_brain/memory/governance/auto_governance.py",
+      "sha256": "sha256:5ab05c7f98dd23ac80248e6c18107adbd74705742fe168059c79cfb8ca92fe7d"
     },
     {
       "path": "agent_brain/memory/governance/git_fd_exec.py",
@@ -75,12 +125,20 @@
       "sha256": "sha256:26fb6242c1674673bcf93959cde0829e658527209dc1c9b86d0c2306ceff99e6"
     },
     {
+      "path": "agent_brain/memory/store/item_ids.py",
+      "sha256": "sha256:0b6eb3fc879b022b6c49f6a29b0a9aabace8f66bb5b37c507eca7b7a5ab37241"
+    },
+    {
       "path": "agent_brain/memory/store/items_store.py",
       "sha256": "sha256:58ed64604ac5a2b06a7c5df4ae6a1339eb7eb4cd1bbea619cef96dbd61ff8efd"
     },
     {
       "path": "agent_brain/memory/store/pending.py",
       "sha256": "sha256:282d45da574e67b965a8a859bbd3801a9c824e28454af5912ebb61a10cd6b8e4"
+    },
+    {
+      "path": "agent_brain/memory/store/write_service.py",
+      "sha256": "sha256:7ee2b4f26d036475a29f8c93d2c19cbf7b7d80c05035effd6aef59d8627c9cad"
     },
     {
       "path": "agent_brain/platform/indexing/graph_index.py",
@@ -108,39 +166,44 @@
     },
     {
       "path": "scripts/generate-lifecycle-governance-report.py",
-      "sha256": "sha256:f52509a85cc6d554dddb51136e52cf8d940327e3cd52c029a589acb24295faaa"
+      "sha256": "sha256:c97215e7bc2a5e55fd5071323fc80493f4c67a092942490af292f014dc759204"
     }
   ],
-  "overall_status": "pass",
+  "overall_status": "pending",
   "pending_contract": {
     "cases": [
       {
         "classification": "already_written",
         "id": "already-written",
+        "input_matches_oracle": true,
         "pass": true,
         "reason": "STABLE_ITEM_ALREADY_WRITTEN"
       },
       {
         "classification": "malformed",
         "id": "malformed-record",
+        "input_matches_oracle": true,
         "pass": true,
         "reason": "MALFORMED_JSON"
       },
       {
         "classification": "ready",
         "id": "ready-fact",
+        "input_matches_oracle": true,
         "pass": true,
         "reason": "READY"
       },
       {
         "classification": "stale_requires_review",
         "id": "stale-pending",
+        "input_matches_oracle": true,
         "pass": true,
         "reason": "STALE_EPHEMERAL_MEMORY"
       },
       {
         "classification": "unsupported_type",
         "id": "unsupported-feedback",
+        "input_matches_oracle": true,
         "pass": true,
         "reason": "UNSUPPORTED_MEMORY_TYPE"
       }
@@ -153,6 +216,11 @@
     "rules": [],
     "status": "pass"
   },
+  "release_status": "pending",
+  "release_truth": {
+    "branch_protection_required_context": "pending_external_configuration",
+    "workflow_job": "configured_non_advisory"
+  },
   "schema_version": "amh-lifecycle-governance-readiness/v1",
   "supersession_contract": {
     "cases": [
@@ -161,6 +229,7 @@
           "mem-20260102-000000-valid-replacement"
         ],
         "id": "valid-supersession",
+        "input_matches_oracle": true,
         "pass": true,
         "reason": "OK",
         "status": "ready"
@@ -168,6 +237,7 @@
       {
         "candidate_ids": [],
         "id": "cycle",
+        "input_matches_oracle": true,
         "pass": true,
         "reason": "SUPERSESSION_CYCLE",
         "status": "blocked"
@@ -175,6 +245,7 @@
       {
         "candidate_ids": [],
         "id": "cross-tenant",
+        "input_matches_oracle": true,
         "pass": true,
         "reason": "TENANT_MISMATCH",
         "status": "blocked"
@@ -190,28 +261,35 @@
       "revert-supersession",
       "supersede"
     ],
-    "cli_actions": [
-      "archive",
-      "defer",
-      "keep-active",
-      "revert-supersession",
-      "supersede"
-    ],
-    "cli_preview_default": true,
-    "core_actions": [
-      "archive",
-      "defer",
-      "keep-active",
-      "revert-supersession",
-      "supersede"
-    ],
+    "default_preview_zero_mutation": true,
+    "explicit_apply_mutates": true,
     "status": "pass",
-    "web_actions": [
-      "archive",
-      "defer",
-      "keep-active",
-      "revert-supersession",
-      "supersede"
-    ]
-  }
+    "surfaces": {
+      "cli": {
+        "apply_dry_run": false,
+        "apply_mutated": true,
+        "apply_status": "applied",
+        "preview_dry_run": true,
+        "preview_status": "ready",
+        "preview_zero_mutation": true
+      },
+      "mcp": {
+        "apply_dry_run": false,
+        "apply_mutated": true,
+        "apply_status": "applied",
+        "preview_dry_run": true,
+        "preview_status": "ready",
+        "preview_zero_mutation": true
+      },
+      "web": {
+        "apply_dry_run": false,
+        "apply_mutated": true,
+        "apply_status": "applied",
+        "preview_dry_run": true,
+        "preview_status": "ready",
+        "preview_zero_mutation": true
+      }
+    }
+  },
+  "synthetic_status": "pass"
 }

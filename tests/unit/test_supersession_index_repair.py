@@ -69,7 +69,7 @@ def test_already_applied_repairs_index_without_new_snapshot_or_ledger(
 
     monkeypatch.setattr(index, "upsert", controlled_upsert)
 
-    first = link_memories(new.id, old.id, relation="supersedes")
+    first = link_memories(new.id, old.id, relation="supersedes", apply=True)
     ledger_path = tmp_brain_dir / "runtime" / "lifecycle-actions.jsonl"
     ledger_after_first = ledger_path.read_bytes()
     snapshots_after_first = {
@@ -79,7 +79,7 @@ def test_already_applied_repairs_index_without_new_snapshot_or_ledger(
     }
     fail_sync = False
 
-    second = link_memories(new.id, old.id, relation="supersedes")
+    second = link_memories(new.id, old.id, relation="supersedes", apply=True)
 
     assert first["status"] == "applied"
     assert first["index_repair_required"] is True
@@ -112,10 +112,10 @@ def test_already_applied_keeps_repair_required_when_index_still_fails(
 
     monkeypatch.setattr(index, "upsert", fail_upsert)
 
-    first = link_memories(new.id, old.id, relation="supersedes")
+    first = link_memories(new.id, old.id, relation="supersedes", apply=True)
     ledger_path = tmp_brain_dir / "runtime" / "lifecycle-actions.jsonl"
     ledger_after_first = ledger_path.read_bytes()
-    second = link_memories(new.id, old.id, relation="supersedes")
+    second = link_memories(new.id, old.id, relation="supersedes", apply=True)
 
     assert first["status"] == "applied"
     assert first["index_repair_required"] is True

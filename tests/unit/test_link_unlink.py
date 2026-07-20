@@ -48,6 +48,14 @@ def _close_mcp_components() -> None:
     _components_cache.clear()
 
 
+def _tree_bytes(root: Path) -> dict[str, bytes]:
+    return {
+        path.relative_to(root).as_posix(): path.read_bytes()
+        for path in sorted(root.rglob("*"))
+        if path.is_file()
+    }
+
+
 @pytest.fixture(autouse=True)
 def isolate_mcp_components():
     _close_mcp_components()
@@ -264,6 +272,46 @@ class TestIndexLinkUnlink:
 
 
 class TestMcpLinkUnlink:
+    def test_generic_relation_keeps_immediate_link_behavior_when_apply_is_false(
+        self, tmp_brain_dir: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        source = _item("mcp-generic-source")
+        target = _item("mcp-generic-target")
+        idx = _seed(tmp_brain_dir, [(source, "source"), (target, "target")])
+        idx.close()
+        monkeypatch.setenv("BRAIN_DIR", str(tmp_brain_dir))
+        monkeypatch.setenv("MEMORY_HUB_TEST_EMBEDDING", "1")
+
+        result = link_memories(source.id, target.id, relation="refines", apply=False)
+
+        assert result["linked"] is True
+        assert result["status"] == "linked"
+        assert result["dry_run"] is False
+        store = ItemsStore(tmp_brain_dir / "items")
+        assert store.get(source.id)[0].refs.mems == [target.id]
+
+    def test_supersedes_defaults_to_preview_without_mutation(
+        self, tmp_brain_dir: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        old = _item("mcp-preview-old")
+        new = _item("mcp-preview-new")
+        idx = _seed(tmp_brain_dir, [(old, "old"), (new, "new")])
+        idx.close()
+        monkeypatch.setenv("BRAIN_DIR", str(tmp_brain_dir))
+        monkeypatch.setenv("MEMORY_HUB_TEST_EMBEDDING", "1")
+        _components()
+        before = _tree_bytes(tmp_brain_dir)
+
+        result = link_memories(new.id, old.id, relation="supersedes")
+
+        assert result["dry_run"] is True
+        assert result["linked"] is False
+        assert result["status"] == "ready"
+        assert _tree_bytes(tmp_brain_dir) == before
+        store = ItemsStore(tmp_brain_dir / "items")
+        assert store.get(old.id)[0].superseded_by is None
+        assert store.get(new.id)[0].refs.mems == []
+
     def test_supersedes_updates_obsolete_frontmatter(
         self, tmp_brain_dir: Path, monkeypatch: pytest.MonkeyPatch
     ):
@@ -274,10 +322,11 @@ class TestMcpLinkUnlink:
         monkeypatch.setenv("BRAIN_DIR", str(tmp_brain_dir))
         monkeypatch.setenv("MEMORY_HUB_TEST_EMBEDDING", "1")
 
-        result = link_memories(new.id, old.id, relation="supersedes")
+        result = link_memories(new.id, old.id, relation="supersedes", apply=True)
 
         store = ItemsStore(tmp_brain_dir / "items")
         assert result["linked"] is True
+        assert result["dry_run"] is False
         assert result["status"] == "applied"
         assert result["reason"] == "OK"
         assert result["index_repair_required"] is False
@@ -296,10 +345,10 @@ class TestMcpLinkUnlink:
         monkeypatch.setenv("BRAIN_DIR", str(tmp_brain_dir))
         monkeypatch.setenv("MEMORY_HUB_TEST_EMBEDDING", "1")
 
-        first = link_memories(new.id, old.id, relation="supersedes")
+        first = link_memories(new.id, old.id, relation="supersedes", apply=True)
         ledger = tmp_brain_dir / "runtime" / "lifecycle-actions.jsonl"
         ledger_after_first = ledger.read_bytes()
-        second = link_memories(new.id, old.id, relation="supersedes")
+        second = link_memories(new.id, old.id, relation="supersedes", apply=True)
 
         assert first["status"] == "applied"
         assert second["linked"] is True
@@ -326,7 +375,7 @@ class TestMcpLinkUnlink:
             lambda: False,
         )
 
-        result = link_memories(new.id, old.id, relation="supersedes")
+        result = link_memories(new.id, old.id, relation="supersedes", apply=True)
 
         assert result["linked"] is False
         assert result["status"] == "blocked"
@@ -348,7 +397,7 @@ class TestMcpLinkUnlink:
         monkeypatch.setenv("BRAIN_DIR", str(tmp_brain_dir))
         monkeypatch.setenv("MEMORY_HUB_TEST_EMBEDDING", "1")
 
-        result = link_memories(new.id, old.id, relation="supersedes")
+        result = link_memories(new.id, old.id, relation="supersedes", apply=True)
 
         assert result["linked"] is False
         assert result["status"] == "blocked"
@@ -379,7 +428,7 @@ class TestMcpLinkUnlink:
             fail_snapshot,
         )
 
-        result = link_memories(new.id, old.id, relation="supersedes")
+        result = link_memories(new.id, old.id, relation="supersedes", apply=True)
 
         assert result["linked"] is False
         assert result["status"] == "blocked"
@@ -408,7 +457,7 @@ class TestMcpLinkUnlink:
 
         monkeypatch.setattr(mcp_index, "upsert", fail_index_sync)
 
-        result = link_memories(new.id, old.id, relation="supersedes")
+        result = link_memories(new.id, old.id, relation="supersedes", apply=True)
 
         assert result["linked"] is True
         assert result["status"] == "applied"
