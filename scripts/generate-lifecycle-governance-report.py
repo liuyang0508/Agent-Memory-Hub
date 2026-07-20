@@ -78,6 +78,19 @@ IMPLEMENTATION_PATHS = (
     "web/api/routes/governance.py",
     "scripts/generate-lifecycle-governance-report.py",
 )
+REQUIRED_SUPERSESSION_CASES = {
+    "valid-supersession": "valid_supersession",
+    "cycle": "cycle",
+    "cross-tenant": "cross_tenant",
+}
+REQUIRED_PENDING_CASES = {
+    "stale-pending": "stale_pending",
+    "already-written": "already_written",
+    "unsupported-feedback": "unsupported_feedback",
+    "malformed-record": "malformed",
+}
+OPTIONAL_PENDING_CASES = {"ready-fact": "ready_pending"}
+GRAPH_DRIFT_CASE = ("graph-drift", "graph_drift")
 
 
 def canonical_json(value: object) -> str:
@@ -116,12 +129,133 @@ def _write_item(store: ItemsStore, raw: dict[str, object]) -> MemoryItem:
     return item
 
 
+def _validate_named_cases(
+    raw_cases: object,
+    *,
+    required: dict[str, str],
+    optional: dict[str, str] | None = None,
+    required_fields: tuple[str, ...],
+) -> list[str]:
+    if not isinstance(raw_cases, list):
+        return ["CASES_NOT_LIST"]
+    errors: list[str] = []
+    if not raw_cases:
+        errors.append("CASES_EMPTY")
+    allowed = {**required, **(optional or {})}
+    seen_ids: set[str] = set()
+    seen_kinds: set[str] = set()
+    for raw_case in raw_cases:
+        if not isinstance(raw_case, dict):
+            errors.append("CASE_NOT_OBJECT")
+            continue
+        case_id = raw_case.get("id")
+        kind = raw_case.get("kind")
+        if not isinstance(case_id, str) or not case_id:
+            errors.append("CASE_ID_INVALID")
+        elif case_id in seen_ids:
+            errors.append("CASE_ID_DUPLICATE")
+        else:
+            seen_ids.add(case_id)
+        if not isinstance(kind, str) or not kind:
+            errors.append("CASE_KIND_INVALID")
+        elif kind in seen_kinds:
+            errors.append("CASE_KIND_DUPLICATE")
+        else:
+            seen_kinds.add(kind)
+        if isinstance(case_id, str) and isinstance(kind, str):
+            expected_kind = allowed.get(case_id)
+            if expected_kind is None:
+                errors.append("CASE_UNKNOWN")
+            elif kind != expected_kind:
+                errors.append("CASE_KIND_MISMATCH")
+        if any(field not in raw_case for field in required_fields):
+            errors.append("CASE_FIELDS_MISSING")
+    if not set(required).issubset(seen_ids):
+        errors.append("REQUIRED_CASE_MISSING")
+    return sorted(set(errors))
+
+
+def _validate_supersession_cases(raw_cases: object) -> list[str]:
+    errors = _validate_named_cases(
+        raw_cases,
+        required=REQUIRED_SUPERSESSION_CASES,
+        required_fields=(
+            "obsolete",
+            "replacement",
+            "expected_status",
+            "expected_reason",
+        ),
+    )
+    if isinstance(raw_cases, list):
+        for case in raw_cases:
+            if not isinstance(case, dict):
+                continue
+            if not isinstance(case.get("obsolete"), dict) or not isinstance(
+                case.get("replacement"), dict
+            ):
+                errors.append("CASE_ITEM_SCHEMA_INVALID")
+            if not isinstance(case.get("expected_status"), str) or not isinstance(
+                case.get("expected_reason"), str
+            ):
+                errors.append("CASE_EXPECTATION_INVALID")
+            candidate = case.get("expected_candidate")
+            if candidate is not None and not isinstance(candidate, str):
+                errors.append("CASE_EXPECTATION_INVALID")
+    return sorted(set(errors))
+
+
+def _validate_pending_cases(raw_cases: object) -> list[str]:
+    errors = _validate_named_cases(
+        raw_cases,
+        required=REQUIRED_PENDING_CASES,
+        optional=OPTIONAL_PENDING_CASES,
+        required_fields=("expected_classification", "expected_reason"),
+    )
+    if isinstance(raw_cases, list):
+        for case in raw_cases:
+            if not isinstance(case, dict):
+                continue
+            record = case.get("record")
+            raw_line = case.get("raw_line")
+            if (isinstance(record, dict)) == (isinstance(raw_line, str)):
+                errors.append("CASE_PAYLOAD_INVALID")
+            if not isinstance(case.get("expected_classification"), str) or not isinstance(
+                case.get("expected_reason"), str
+            ):
+                errors.append("CASE_EXPECTATION_INVALID")
+            if "seed_existing" in case and not isinstance(case["seed_existing"], bool):
+                errors.append("CASE_SEED_INVALID")
+    return sorted(set(errors))
+
+
+def _validate_graph_drift_case(graph: object) -> list[str]:
+    if not isinstance(graph, dict):
+        return ["GRAPH_CASE_NOT_OBJECT"]
+    errors: list[str] = []
+    if (graph.get("id"), graph.get("kind")) != GRAPH_DRIFT_CASE:
+        errors.append("GRAPH_CASE_ID_KIND_MISMATCH")
+    items = graph.get("items")
+    edges = graph.get("index_edges")
+    expected = graph.get("expected_drift_count")
+    if not isinstance(items, list) or not items or not all(
+        isinstance(item, dict) for item in items
+    ):
+        errors.append("GRAPH_ITEMS_INVALID")
+    if not isinstance(edges, list):
+        errors.append("GRAPH_EDGES_INVALID")
+    if type(expected) is not int or expected < 0:
+        errors.append("GRAPH_EXPECTATION_INVALID")
+    return sorted(set(errors))
+
+
 def _run_supersession_contract(fixture: dict[str, object]) -> dict[str, object]:
     rows: list[dict[str, object]] = []
     passed = True
     cases = fixture.get("supersession_cases")
-    if not isinstance(cases, list):
-        return {"status": "fail", "cases": [], "reason": "INVALID_CASES"}
+    schema_errors = _validate_supersession_cases(cases)
+    if schema_errors:
+        return {"status": "fail", "cases": [], "schema_errors": schema_errors}
+    assert isinstance(cases, list)
     for case in cases:
         if not isinstance(case, dict):
             passed = False
@@ -241,8 +375,10 @@ def _tree_bytes(root: Path) -> dict[str, bytes]:
 
 def _run_pending_contract(fixture: dict[str, object]) -> dict[str, object]:
     cases = fixture.get("pending_cases")
-    if not isinstance(cases, list):
-        return {"status": "fail", "cases": [], "reason": "INVALID_CASES"}
+    schema_errors = _validate_pending_cases(cases)
+    if schema_errors:
+        return {"status": "fail", "cases": [], "schema_errors": schema_errors}
+    assert isinstance(cases, list)
     with tempfile.TemporaryDirectory(prefix="amh-pending-synthetic-") as directory:
         brain = Path(directory).resolve() / "brain"
         store = ItemsStore(brain / "items")
@@ -283,8 +419,10 @@ def _run_pending_contract(fixture: dict[str, object]) -> dict[str, object]:
 
 def _run_graph_drift_contract(fixture: dict[str, object]) -> dict[str, object]:
     graph = fixture.get("graph_drift")
-    if not isinstance(graph, dict):
-        return {"status": "fail", "reason": "INVALID_GRAPH_FIXTURE"}
+    schema_errors = _validate_graph_drift_case(graph)
+    if schema_errors:
+        return {"status": "fail", "schema_errors": schema_errors}
+    assert isinstance(graph, dict)
     with tempfile.TemporaryDirectory(prefix="amh-graph-synthetic-") as directory:
         brain = Path(directory).resolve() / "brain"
         store = ItemsStore(brain / "items")
@@ -376,6 +514,8 @@ def generate_report(
     for gate, result in contracts.items():
         if result["status"] != "pass":
             failed_gates.append(gate)
+        if result.get("schema_errors") and "fixture_schema" not in failed_gates:
+            failed_gates.append("fixture_schema")
     privacy = _privacy_contract(fixture, contracts)
     if privacy["status"] != "pass":
         failed_gates.append("privacy")

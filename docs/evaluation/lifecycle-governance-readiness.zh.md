@@ -16,8 +16,8 @@
 
 ## 可重放标识
 
-- Implementation hash：`sha256:12b6a44b70eb1df0e602e60d82d3b5e89ae1eff31d4bad3419f7f1db29d647d4`
-- Fixture hash：`sha256:e1f2c19cd2da4dee4f331e375e6b73d8e6511d530fc11cb09132513adf64b7d5`
+- Implementation hash：`sha256:6f943b98187ca0c4208b32c023a3a32a861b24556d3ff868665467ec78f6b232`
+- Fixture hash：`sha256:db2925b8e3ceabd93cb218dde41db89554b775f1f94950f3e7d4ee05712593dd`
 - Generator：`amh-lifecycle-governance-generator/v1`
 
 下一阶段必须在稳定代码上对真实 brain 先执行只读 dry-run，经人工审核后才能分批 apply。

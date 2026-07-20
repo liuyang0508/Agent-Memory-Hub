@@ -1,6 +1,30 @@
 from pathlib import Path
+import copy
+import re
 
+import pytest
 import yaml
+
+
+def _assert_lifecycle_job_fail_closed(job: dict[str, object]) -> None:
+    def visit(value: object) -> None:
+        if isinstance(value, dict):
+            assert "continue-on-error" not in value
+            condition = str(value.get("if", ""))
+            assert "always()" not in condition.replace(" ", "").lower()
+            command = str(value.get("run", ""))
+            assert "||" not in command
+            assert not re.search(r"(?m)^\s*set\s+\+e(?:\s|$)", command)
+            assert not re.search(
+                r"(?m)(?:^|;)\s*(?:true|:|exit\s+0)\s*(?:;|$)", command
+            )
+            for nested in value.values():
+                visit(nested)
+        elif isinstance(value, list):
+            for nested in value:
+                visit(nested)
+
+    visit(job)
 
 
 def test_core_ci_does_not_silence_type_failures() -> None:
@@ -82,13 +106,43 @@ def test_lifecycle_governance_job_is_fail_closed_and_checks_committed_evidence()
         str(step.get("run", "")) for step in job["steps"] if isinstance(step, dict)
     )
 
-    assert "continue-on-error" not in job
-    assert "|| true" not in commands
+    _assert_lifecycle_job_fail_closed(job)
     assert "tests/unit/test_supersession.py" in commands
     assert "tests/unit/test_lifecycle_candidates.py" in commands
     assert "tests/unit/test_pending_queue.py" in commands
     assert "tests/unit/test_governance_readiness.py" in commands
     assert "python scripts/generate-lifecycle-governance-report.py --check" in commands
+
+
+@pytest.mark.parametrize(
+    ("scope", "field", "value"),
+    [
+        ("job", "continue-on-error", True),
+        ("job", "continue-on-error", "${{ matrix.advisory }}"),
+        ("step", "continue-on-error", False),
+        ("step", "continue-on-error", True),
+        ("step", "continue-on-error", "${{ matrix.advisory }}"),
+        ("step", "run", "python -m pytest tests/unit/test_supersession.py -q || true"),
+        ("step", "run", "python check.py || echo ignored"),
+        ("step", "run", "set +e\npython -m pytest tests/unit/test_supersession.py -q"),
+        ("step", "run", "python check.py; exit 0"),
+        ("step", "if", "${{ always() }}"),
+    ],
+)
+def test_lifecycle_governance_contract_rejects_advisory_job_or_step_mutations(
+    scope: str,
+    field: str,
+    value: object,
+) -> None:
+    workflow = yaml.safe_load(
+        Path(".github/workflows/governance-gates.yml").read_text(encoding="utf-8")
+    )
+    job = copy.deepcopy(workflow["jobs"]["lifecycle-governance"])
+    target = job if scope == "job" else job["steps"][-1]
+    target[field] = value
+
+    with pytest.raises(AssertionError):
+        _assert_lifecycle_job_fail_closed(job)
 
 
 def test_distribution_workflows_explain_missing_secrets_without_becoming_core_gates() -> None:

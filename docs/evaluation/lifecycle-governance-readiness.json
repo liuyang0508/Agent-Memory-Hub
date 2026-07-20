@@ -4,7 +4,7 @@
     "real_brain_dry_run": "pending"
   },
   "failed_gates": [],
-  "fixture_hash": "sha256:e1f2c19cd2da4dee4f331e375e6b73d8e6511d530fc11cb09132513adf64b7d5",
+  "fixture_hash": "sha256:db2925b8e3ceabd93cb218dde41db89554b775f1f94950f3e7d4ee05712593dd",
   "fixture_schema_version": "amh-lifecycle-governance-evidence/v1",
   "generator_version": "amh-lifecycle-governance-generator/v1",
   "graph_drift_contract": {
@@ -12,7 +12,7 @@
     "observed_drift_count": 1,
     "status": "pass"
   },
-  "implementation_hash": "sha256:12b6a44b70eb1df0e602e60d82d3b5e89ae1eff31d4bad3419f7f1db29d647d4",
+  "implementation_hash": "sha256:6f943b98187ca0c4208b32c023a3a32a861b24556d3ff868665467ec78f6b232",
   "implementation_manifest": [
     {
       "path": "agent_brain/interfaces/cli/commands/maintenance.py",
@@ -108,7 +108,7 @@
     },
     {
       "path": "scripts/generate-lifecycle-governance-report.py",
-      "sha256": "sha256:d46fd6625c108dbf0b04e51e19563aecd94399cba75ade8aaf736351897e75bf"
+      "sha256": "sha256:f52509a85cc6d554dddb51136e52cf8d940327e3cd52c029a589acb24295faaa"
     }
   ],
   "overall_status": "pass",

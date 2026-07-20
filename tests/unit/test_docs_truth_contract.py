@@ -1,3 +1,4 @@
+import copy
 import importlib.util
 import hashlib
 import json
@@ -5,6 +6,8 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+
+import pytest
 
 from agent_brain.agent_integrations.qoder import QoderAdapter
 from agent_brain.agent_integrations.qoder_work import QoderWorkAdapter
@@ -83,6 +86,160 @@ def test_lifecycle_governance_report_is_reproducible_and_fail_closed(tmp_path):
     )
     assert completed.returncode == 0, completed.stdout + completed.stderr
     assert "lifecycle-governance: PASS" in completed.stdout
+
+
+def _write_lifecycle_fixture(path: Path, fixture: dict[str, object]) -> None:
+    path.write_text(
+        json.dumps(fixture, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+
+@pytest.mark.parametrize(
+    ("container", "case_id", "failed_gate"),
+    [
+        ("supersession_cases", "valid-supersession", "supersession_contract"),
+        ("supersession_cases", "cycle", "supersession_contract"),
+        ("supersession_cases", "cross-tenant", "supersession_contract"),
+        ("pending_cases", "stale-pending", "pending_contract"),
+        ("pending_cases", "already-written", "pending_contract"),
+        ("pending_cases", "unsupported-feedback", "pending_contract"),
+        ("pending_cases", "malformed-record", "pending_contract"),
+        ("graph_drift", "graph-drift", "graph_drift_contract"),
+    ],
+)
+def test_lifecycle_fixture_requires_every_governance_scenario(
+    tmp_path: Path,
+    container: str,
+    case_id: str,
+    failed_gate: str,
+) -> None:
+    generator = _load_lifecycle_governance_generator()
+    fixture = json.loads(
+        _read("tests/fixtures/lifecycle_governance_evidence_v1.json")
+    )
+    if container == "graph_drift":
+        fixture.pop(container)
+    else:
+        fixture[container] = [
+            case for case in fixture[container] if case.get("id") != case_id
+        ]
+    path = tmp_path / f"missing-{case_id}.json"
+    _write_lifecycle_fixture(path, fixture)
+
+    report = generator.generate_report(fixture_path=path)
+
+    assert report["overall_status"] == "fail"
+    assert failed_gate in report["failed_gates"]
+
+
+@pytest.mark.parametrize(
+    ("container", "failed_gate"),
+    [
+        ("supersession_cases", "supersession_contract"),
+        ("pending_cases", "pending_contract"),
+    ],
+)
+def test_lifecycle_fixture_rejects_empty_case_lists(
+    tmp_path: Path,
+    container: str,
+    failed_gate: str,
+) -> None:
+    generator = _load_lifecycle_governance_generator()
+    fixture = json.loads(
+        _read("tests/fixtures/lifecycle_governance_evidence_v1.json")
+    )
+    fixture[container] = []
+    path = tmp_path / f"empty-{container}.json"
+    _write_lifecycle_fixture(path, fixture)
+
+    report = generator.generate_report(fixture_path=path)
+
+    assert report["overall_status"] == "fail"
+    assert failed_gate in report["failed_gates"]
+
+
+@pytest.mark.parametrize(
+    ("container", "failed_gate"),
+    [
+        ("supersession_cases", "supersession_contract"),
+        ("pending_cases", "pending_contract"),
+    ],
+)
+def test_lifecycle_fixture_rejects_duplicate_cases(
+    tmp_path: Path,
+    container: str,
+    failed_gate: str,
+) -> None:
+    generator = _load_lifecycle_governance_generator()
+    fixture = json.loads(
+        _read("tests/fixtures/lifecycle_governance_evidence_v1.json")
+    )
+    fixture[container].append(copy.deepcopy(fixture[container][0]))
+    path = tmp_path / f"duplicate-{container}.json"
+    _write_lifecycle_fixture(path, fixture)
+
+    report = generator.generate_report(fixture_path=path)
+
+    assert report["overall_status"] == "fail"
+    assert failed_gate in report["failed_gates"]
+
+
+@pytest.mark.parametrize(
+    ("container", "case_index", "failed_gate"),
+    [
+        ("supersession_cases", 0, "supersession_contract"),
+        ("pending_cases", 0, "pending_contract"),
+        ("graph_drift", None, "graph_drift_contract"),
+    ],
+)
+def test_lifecycle_fixture_rejects_wrong_required_case_kind(
+    tmp_path: Path,
+    container: str,
+    case_index: int | None,
+    failed_gate: str,
+) -> None:
+    generator = _load_lifecycle_governance_generator()
+    fixture = json.loads(
+        _read("tests/fixtures/lifecycle_governance_evidence_v1.json")
+    )
+    target = fixture[container] if case_index is None else fixture[container][case_index]
+    target["kind"] = "wrong-kind"
+    path = tmp_path / f"wrong-kind-{container}.json"
+    _write_lifecycle_fixture(path, fixture)
+
+    report = generator.generate_report(fixture_path=path)
+
+    assert report["overall_status"] == "fail"
+    assert failed_gate in report["failed_gates"]
+
+
+@pytest.mark.parametrize(
+    ("container", "failed_gate"),
+    [
+        ("supersession_cases", "supersession_contract"),
+        ("pending_cases", "pending_contract"),
+    ],
+)
+def test_lifecycle_fixture_rejects_unknown_extra_cases(
+    tmp_path: Path,
+    container: str,
+    failed_gate: str,
+) -> None:
+    generator = _load_lifecycle_governance_generator()
+    fixture = json.loads(
+        _read("tests/fixtures/lifecycle_governance_evidence_v1.json")
+    )
+    extra = copy.deepcopy(fixture[container][0])
+    extra.update({"id": "unknown-extra-case", "kind": "unknown-extra-kind"})
+    fixture[container].append(extra)
+    path = tmp_path / f"unknown-{container}.json"
+    _write_lifecycle_fixture(path, fixture)
+
+    report = generator.generate_report(fixture_path=path)
+
+    assert report["overall_status"] == "fail"
+    assert failed_gate in report["failed_gates"]
 
 
 def test_lifecycle_governance_public_evidence_has_bounded_truth_claims():
