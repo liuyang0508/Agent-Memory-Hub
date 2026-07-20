@@ -1,6 +1,14 @@
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Collection
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class GraphReconcileResult:
+    deleted: int
+    inserted: int
 
 
 class GraphIndex:
@@ -73,5 +81,26 @@ class GraphIndex:
         ).fetchall()
         return [(r[0], r[1], r[2]) for r in rows]
 
+    def replace_supersedes(
+        self,
+        edges: Collection[tuple[str, str]],
+    ) -> GraphReconcileResult:
+        """Atomically replace only the derived supersession projection."""
 
-__all__ = ["GraphIndex"]
+        normalized = sorted(set(edges))
+        with self.connection:
+            deleted = self.connection.execute(
+                "DELETE FROM refs_graph WHERE relation = 'supersedes'"
+            ).rowcount
+            self.connection.executemany(
+                "INSERT INTO refs_graph (source_id, target_id, relation) "
+                "VALUES (?, ?, 'supersedes')",
+                normalized,
+            )
+        return GraphReconcileResult(
+            deleted=max(0, deleted),
+            inserted=len(normalized),
+        )
+
+
+__all__ = ["GraphIndex", "GraphReconcileResult"]

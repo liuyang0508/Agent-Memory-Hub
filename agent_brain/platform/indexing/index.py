@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import operator
 import sqlite3
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from pathlib import Path
 from typing import SupportsIndex, cast
 
 import sqlite_vec
 
-from agent_brain.platform.indexing.graph_index import GraphIndex
+from agent_brain.platform.indexing.graph_index import GraphIndex, GraphReconcileResult
 from agent_brain.platform.indexing.index_schema import init_index_schema, segment_cjk
 from agent_brain.platform.indexing.index_types import Hit
 from agent_brain.platform.indexing.index_writer import IndexWriter
@@ -350,6 +350,14 @@ class HubIndex:
     def get_refs(self, item_id: str) -> list[tuple[str, str, str]]:
         """Return all edges involving item_id: list of (source, target, relation)."""
         return self.graph.refs_for(item_id)
+
+    def reconcile_supersedes(
+        self,
+        edges: Collection[tuple[str, str]],
+    ) -> GraphReconcileResult:
+        """Replace the derived supersession projection without touching other edges."""
+
+        return self.graph.replace_supersedes(edges)
 
     def get_embeddings(self, item_ids: list[str]) -> dict[str, list[float]]:
         """Return {id: embedding_vector} for the given item IDs."""

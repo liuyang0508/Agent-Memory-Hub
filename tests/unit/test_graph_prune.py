@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -206,3 +207,54 @@ def test_full_reindex_does_not_clear_marker_after_incomplete_item_scan(
     assert result.indexed == 1
     assert store.last_scan.skipped_count == 1
     assert marker.read_text(encoding="utf-8") == f"{item.id}\n"
+
+
+def test_replace_supersedes_is_transactional_and_preserves_other_relations(
+    tmp_brain_dir: Path,
+) -> None:
+    index = HubIndex(tmp_brain_dir / "index.db", embedding_dim=_DIM)
+    source = _item("replace-source")
+    target = _item("replace-target")
+    stale = _item("replace-stale")
+    for item in (source, target, stale):
+        index.upsert(item, item.summary, embedding=None)
+    index.add_ref(source.id, target.id, "refines")
+    index.add_ref(stale.id, source.id, "supersedes")
+
+    result = index.reconcile_supersedes({(source.id, target.id)})
+
+    assert result.deleted == 1
+    assert result.inserted == 1
+    rows = index.connection.execute(
+        "SELECT source_id, target_id, relation FROM refs_graph ORDER BY relation"
+    ).fetchall()
+    assert rows == [
+        (source.id, target.id, "refines"),
+        (source.id, target.id, "supersedes"),
+    ]
+
+
+def test_replace_supersedes_rolls_back_delete_when_insert_fails(
+    tmp_brain_dir: Path,
+) -> None:
+    index = HubIndex(tmp_brain_dir / "index.db", embedding_dim=_DIM)
+    source = _item("rollback-source")
+    old_target = _item("rollback-old-target")
+    rejected_target = _item("rollback-rejected-target")
+    for item in (source, old_target, rejected_target):
+        index.upsert(item, item.summary, embedding=None)
+    index.add_ref(source.id, old_target.id, "supersedes")
+    index.connection.execute(
+        "CREATE TRIGGER reject_supersedes BEFORE INSERT ON refs_graph "
+        "WHEN NEW.relation = 'supersedes' AND NEW.target_id = '"
+        + rejected_target.id
+        + "' BEGIN SELECT RAISE(ABORT, 'injected'); END"
+    )
+    index.connection.commit()
+
+    with pytest.raises(sqlite3.IntegrityError, match="injected"):
+        index.reconcile_supersedes({(source.id, rejected_target.id)})
+
+    assert index.get_refs(source.id) == [
+        (source.id, old_target.id, "supersedes")
+    ]
