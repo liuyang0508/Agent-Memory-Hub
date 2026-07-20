@@ -69,12 +69,10 @@ def import_records(
 
 def _mark_dirty(item_id: str, *, brain_dir: Path | None = None) -> None:
     try:
-        from agent_brain.memory.store.pending import dirty_index_path
+        from agent_brain.memory.store.pending import append_dirty_index_marker
 
-        path = dirty_index_path(brain_dir)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("a", encoding="utf-8") as handle:
-            handle.write(item_id + "\n")
+        if brain_dir is not None:
+            append_dirty_index_marker(brain_dir, item_id)
     except Exception:
         pass
 

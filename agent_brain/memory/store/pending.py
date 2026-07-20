@@ -45,6 +45,7 @@ import threading
 import time
 import unicodedata
 import uuid
+from collections import Counter
 from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field as dataclass_field, replace
@@ -193,6 +194,8 @@ _PENDING_RECORD_LOCKS_GUARD = threading.Lock()
 _PENDING_RECORD_LOCKS: dict[str, threading.RLock] = {}
 _PENDING_QUEUE_LOCKS_GUARD = threading.Lock()
 _PENDING_QUEUE_LOCKS: dict[str, threading.RLock] = {}
+_INDEX_DIRTY_LOCKS_GUARD = threading.Lock()
+_INDEX_DIRTY_LOCKS: dict[str, threading.RLock] = {}
 _WINDOWS_RESERVED_NAMES = frozenset(
     {"con", "prn", "aux", "nul"}
     | {f"com{index}" for index in range(1, 10)}
@@ -799,6 +802,13 @@ class DirtyIndexMarker:
 
     status: Literal["clean", "repair_required", "corrupt", "unavailable"]
     item_ids: frozenset[str] = frozenset()
+    entries: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class _DirtyIndexSnapshot:
+    marker: DirtyIndexMarker
+    identity: tuple[int, int, int, int, int] | None = None
 
 
 class _PendingPreviewCommon(TypedDict):
@@ -848,6 +858,12 @@ class _DescendingName(str):
 def read_dirty_index_marker(brain: Path) -> DirtyIndexMarker:
     """Read the dirty-index marker as a bounded canonical ID set."""
 
+    return _read_dirty_index_marker_unlocked(Path(brain)).marker
+
+
+def _read_dirty_index_marker_unlocked(brain: Path) -> _DirtyIndexSnapshot:
+    """Read and parse one marker while the caller holds its file lock."""
+
     path = dirty_index_path(brain)
     descriptor: int | None = None
     try:
@@ -857,7 +873,7 @@ def read_dirty_index_marker(brain: Path) -> DirtyIndexMarker:
             or stat.S_ISLNK(opened.st_mode)
             or opened.st_size > MAX_DIRTY_INDEX_BYTES
         ):
-            return DirtyIndexMarker("corrupt")
+            return _DirtyIndexSnapshot(DirtyIndexMarker("corrupt"))
         descriptor = os.open(
             path,
             os.O_RDONLY
@@ -866,34 +882,92 @@ def read_dirty_index_marker(brain: Path) -> DirtyIndexMarker:
             | getattr(os, "O_NONBLOCK", 0)
             | getattr(os, "O_NOFOLLOW", 0),
         )
+        current = os.fstat(descriptor)
+        if not _same_file_identity(opened, current) or opened.st_size != current.st_size:
+            return _DirtyIndexSnapshot(DirtyIndexMarker("unavailable"))
         data = _read_bounded_descriptor(descriptor, MAX_DIRTY_INDEX_BYTES)
+        after = os.lstat(path)
+        if not _same_file_identity(current, after) or current.st_size != after.st_size:
+            return _DirtyIndexSnapshot(DirtyIndexMarker("unavailable"))
+        identity = _dirty_marker_identity(after)
     except FileNotFoundError:
-        return DirtyIndexMarker("clean")
+        return _DirtyIndexSnapshot(DirtyIndexMarker("clean"))
     except (OSError, _PendingReadError):
-        return DirtyIndexMarker("unavailable")
+        return _DirtyIndexSnapshot(DirtyIndexMarker("unavailable"))
     finally:
         if descriptor is not None:
             close_descriptor(descriptor)
     if not data:
-        return DirtyIndexMarker("clean")
+        return _DirtyIndexSnapshot(DirtyIndexMarker("clean"), identity)
     try:
         lines = data.decode("utf-8").splitlines()
     except UnicodeError:
-        return DirtyIndexMarker("corrupt")
+        return _DirtyIndexSnapshot(DirtyIndexMarker("corrupt"), identity)
     if (
         not lines
         or len(lines) > MAX_DIRTY_INDEX_ENTRIES
         or any(not is_valid_memory_item_id(line) for line in lines)
     ):
-        return DirtyIndexMarker("corrupt")
-    return DirtyIndexMarker("repair_required", frozenset(lines))
+        return _DirtyIndexSnapshot(DirtyIndexMarker("corrupt"), identity)
+    return _DirtyIndexSnapshot(
+        DirtyIndexMarker("repair_required", frozenset(lines), tuple(lines)),
+        identity,
+    )
+
+
+def append_dirty_index_marker(brain: Path, item_id: str) -> bool:
+    """Durably append one canonical ID under the shared marker lock."""
+
+    if not is_valid_memory_item_id(item_id):
+        return False
+    root = Path(brain).expanduser().resolve(strict=False)
+    path = dirty_index_path(root)
+    descriptor = -1
+    created = False
+    try:
+        with _locked_index_dirty(root):
+            root.mkdir(parents=True, exist_ok=True)
+            try:
+                descriptor = os.open(
+                    path,
+                    os.O_WRONLY
+                    | os.O_APPEND
+                    | os.O_CREAT
+                    | os.O_EXCL
+                    | getattr(os, "O_BINARY", 0)
+                    | getattr(os, "O_CLOEXEC", 0)
+                    | getattr(os, "O_NOFOLLOW", 0),
+                    0o600,
+                )
+                created = True
+            except FileExistsError:
+                descriptor = os.open(
+                    path,
+                    os.O_WRONLY
+                    | os.O_APPEND
+                    | getattr(os, "O_BINARY", 0)
+                    | getattr(os, "O_CLOEXEC", 0)
+                    | getattr(os, "O_NOFOLLOW", 0),
+                )
+            if not _is_safe_regular_file(os.fstat(descriptor)):
+                raise OSError("UNSAFE_INDEX_DIRTY_MARKER")
+            _write_all_descriptor(descriptor, f"{item_id}\n".encode("utf-8"))
+            os.fsync(descriptor)
+            if created:
+                _fsync_fallback_directory(root)
+    except OSError:
+        return False
+    finally:
+        if descriptor >= 0:
+            close_descriptor(descriptor)
+    return True
 
 
 def clear_dirty_index_marker(
     brain: Path,
     *,
     repaired_ids: Iterable[str] = (),
-    all_healthy: bool = False,
+    expected_entries: Iterable[str] | None = None,
 ) -> bool:
     """Remove successfully repaired IDs while retaining corrupt markers."""
 
@@ -903,28 +977,70 @@ def clear_dirty_index_marker(
     if marker.status != "repair_required":
         return False
     repaired = frozenset(str(item_id) for item_id in repaired_ids)
-    remaining = [] if all_healthy else sorted(marker.item_ids - repaired)
-    path = dirty_index_path(brain)
+    removal_counts = Counter(
+        entry
+        for entry in (
+            marker.entries if expected_entries is None else tuple(expected_entries)
+        )
+        if entry in repaired
+    )
+    root = Path(brain).expanduser().resolve(strict=False)
+    path = dirty_index_path(root)
     try:
-        if not remaining:
-            path.unlink(missing_ok=True)
-            _fsync_fallback_directory(path.parent)
-            return True
-        temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
-        payload = "".join(f"{item_id}\n" for item_id in remaining)
-        try:
-            with temporary.open("x", encoding="utf-8") as handle:
-                os.chmod(temporary, 0o600)
-                handle.write(payload)
-                handle.flush()
-                os.fsync(handle.fileno())
-            os.replace(temporary, path)
-            _fsync_fallback_directory(path.parent)
-        finally:
-            temporary.unlink(missing_ok=True)
+        with _locked_index_dirty(root):
+            current = _read_dirty_index_marker_unlocked(root)
+            if current.marker.status == "clean":
+                return True
+            if current.marker.status != "repair_required" or current.identity is None:
+                return False
+            remaining: list[str] = []
+            for entry in current.marker.entries:
+                if removal_counts[entry] > 0:
+                    removal_counts[entry] -= 1
+                else:
+                    remaining.append(entry)
+            if not remaining:
+                if _dirty_marker_identity(os.lstat(path)) != current.identity:
+                    return False
+                path.unlink()
+                _fsync_fallback_directory(path.parent)
+                return True
+            temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+            payload = "".join(f"{item_id}\n" for item_id in remaining)
+            try:
+                with temporary.open("x", encoding="utf-8") as handle:
+                    os.chmod(temporary, 0o600)
+                    handle.write(payload)
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                if _dirty_marker_identity(os.lstat(path)) != current.identity:
+                    return False
+                os.replace(temporary, path)
+                _fsync_fallback_directory(path.parent)
+            finally:
+                temporary.unlink(missing_ok=True)
     except OSError:
         return False
     return True
+
+
+def _dirty_marker_identity(opened: os.stat_result) -> tuple[int, int, int, int, int]:
+    return (
+        int(opened.st_dev),
+        int(opened.st_ino),
+        int(opened.st_size),
+        int(opened.st_mtime_ns),
+        int(opened.st_ctime_ns),
+    )
+
+
+def _write_all_descriptor(descriptor: int, payload: bytes) -> None:
+    remaining = memoryview(payload)
+    while remaining:
+        written = os.write(descriptor, remaining)
+        if written <= 0:
+            raise OSError("INDEX_DIRTY_WRITE_FAILED")
+        remaining = remaining[written:]
 
 
 class PendingQueue:
@@ -948,6 +1064,16 @@ class PendingQueue:
         """Summarize queued records without replaying or mutating them."""
         brain = self._brain_dir()
         path_snapshot = _pending_record_paths(brain / "pending")
+        return self._preview_from_snapshot(path_snapshot, limit=limit)
+
+    def _preview_from_snapshot(
+        self,
+        path_snapshot: _PendingPathSnapshot,
+        *,
+        limit: int,
+        deadline_at: float | None = None,
+    ) -> PendingPreview:
+        brain = self._brain_dir()
         bounded_limit = max(0, limit)
         scan_cap = max(0, MAX_PENDING_QUEUE_ENTRIES)
         classification_paths = path_snapshot.paths[:scan_cap]
@@ -962,14 +1088,35 @@ class PendingQueue:
                 reason=path_snapshot.reason,
             )
         existing = _scan_existing_item_metadata(brain / "items")
-        records = [
-            self._preview_record(
-                path,
-                existing_items=existing.items,
-                metadata_trusted=existing.trusted,
+        records: list[PendingRecordPreview] = []
+        for path in classification_paths:
+            if deadline_at is not None and _monotonic() > deadline_at:
+                return PendingPreview(
+                    total=path_snapshot.total,
+                    returned=0,
+                    limit=bounded_limit,
+                    truncated=path_snapshot.total > 0,
+                    records=[],
+                    scan_unavailable=True,
+                    reason="PENDING_READINESS_BUDGET_EXCEEDED",
+                )
+            records.append(
+                self._preview_record(
+                    path,
+                    existing_items=existing.items,
+                    metadata_trusted=existing.trusted,
+                )
             )
-            for path in classification_paths
-        ]
+            if deadline_at is not None and _monotonic() > deadline_at:
+                return PendingPreview(
+                    total=path_snapshot.total,
+                    returned=0,
+                    limit=bounded_limit,
+                    truncated=path_snapshot.total > 0,
+                    records=[],
+                    scan_unavailable=True,
+                    reason="PENDING_READINESS_BUDGET_EXCEEDED",
+                )
         records = _reconcile_pending_identity_collisions(records)
         record_access_failed = any(
             record.reason in _PENDING_ACCESS_FAILURE_REASONS for record in records
@@ -1030,7 +1177,21 @@ class PendingQueue:
                 reason="PENDING_READINESS_BUDGET_EXCEEDED",
             )
         started = _monotonic()
-        snapshot = _pending_record_paths(self._brain_dir() / "pending")
+        snapshot = _pending_record_paths(
+            self._brain_dir() / "pending",
+            deadline=deadline_seconds,
+            entry_cap=MAX_PENDING_QUEUE_ENTRIES,
+        )
+        if snapshot.scan_unavailable:
+            return PendingPreview(
+                total=snapshot.total,
+                returned=0,
+                limit=bounded_limit,
+                truncated=snapshot.total > 0,
+                records=[],
+                scan_unavailable=True,
+                reason=snapshot.reason,
+            )
         total_bytes = 0
         try:
             for path in snapshot.paths:
@@ -1052,7 +1213,11 @@ class PendingQueue:
                 scan_unavailable=True,
                 reason="PENDING_READINESS_BUDGET_EXCEEDED",
             )
-        preview = self.preview(limit=bounded_limit)
+        preview = self._preview_from_snapshot(
+            snapshot,
+            limit=bounded_limit,
+            deadline_at=started + deadline_seconds,
+        )
         if _monotonic() - started <= deadline_seconds:
             return preview
         return PendingPreview(
@@ -1444,6 +1609,79 @@ def _release_queue_file_lock(descriptor: int, lock_kind: str) -> None:
     import fcntl
 
     fcntl.flock(descriptor, fcntl.LOCK_UN)
+
+
+@contextmanager
+def _locked_index_dirty(brain: Path) -> Iterator[None]:
+    """Serialize marker read/append/rewrite: process lock, then runtime file lock."""
+
+    root = Path(brain).expanduser().resolve(strict=False)
+    key = str(root)
+    with _INDEX_DIRTY_LOCKS_GUARD:
+        process_lock = _INDEX_DIRTY_LOCKS.setdefault(key, threading.RLock())
+    process_lock.acquire()
+    descriptor = -1
+    lock_kind: str | None = None
+    try:
+        if secure_dir_fd_io_supported():
+            root_descriptor = _open_or_create_secure_directory(root)
+            try:
+                with SecureDirectory(root_descriptor) as directory:
+                    root_descriptor = -1
+                    with directory.child("runtime", create=True) as runtime:
+                        descriptor, created = runtime.open_or_create_file(
+                            "index-dirty.lock", os.O_RDWR
+                        )
+                        os.fchmod(descriptor, 0o600)
+                        if created:
+                            runtime.fsync()
+                        lock_kind = _acquire_queue_file_lock(descriptor)
+                        yield
+            finally:
+                if root_descriptor >= 0:
+                    close_descriptor(root_descriptor)
+        else:
+            runtime = root / "runtime"
+            _ensure_fallback_directory(runtime)
+            lock_path = runtime / "index-dirty.lock"
+            try:
+                descriptor = os.open(
+                    lock_path,
+                    os.O_RDWR
+                    | os.O_CREAT
+                    | os.O_EXCL
+                    | getattr(os, "O_BINARY", 0)
+                    | getattr(os, "O_NOFOLLOW", 0),
+                    0o600,
+                )
+                os.write(descriptor, b"\0")
+                os.fsync(descriptor)
+                _fsync_fallback_directory(runtime)
+            except FileExistsError:
+                descriptor = os.open(
+                    lock_path,
+                    os.O_RDWR
+                    | getattr(os, "O_BINARY", 0)
+                    | getattr(os, "O_NOFOLLOW", 0),
+                )
+            before = os.lstat(lock_path)
+            opened = os.fstat(descriptor)
+            if (
+                not _is_safe_regular_file(before)
+                or not _is_safe_regular_file(opened)
+                or not _same_file_identity(before, opened)
+            ):
+                raise OSError("UNSAFE_INDEX_DIRTY_LOCK")
+            lock_kind = _acquire_queue_file_lock(descriptor)
+            yield
+    finally:
+        if descriptor >= 0:
+            try:
+                if lock_kind is not None:
+                    _release_queue_file_lock(descriptor, lock_kind)
+            finally:
+                close_descriptor(descriptor)
+        process_lock.release()
 
 
 @contextmanager
@@ -2165,11 +2403,29 @@ class _PendingReadError(Exception):
         self.reason = reason
 
 
-def _pending_record_paths(directory: Path) -> _PendingPathSnapshot:
+def _pending_record_paths(
+    directory: Path,
+    *,
+    deadline: float | None = None,
+    entry_cap: int | None = None,
+) -> _PendingPathSnapshot:
     retained: list[tuple[_DescendingName, str, Path]] = []
     total = 0
     scan_failed = False
+    budget_exceeded = False
+    scanned_entries = 0
+    started = _monotonic()
     retain_limit = max(0, MAX_PENDING_QUEUE_ENTRIES) + 1
+
+    def before_next_entry() -> bool:
+        nonlocal budget_exceeded
+        if deadline is not None and _monotonic() - started > deadline:
+            budget_exceeded = True
+            return False
+        if entry_cap is not None and scanned_entries >= max(0, entry_cap):
+            budget_exceeded = True
+            return False
+        return True
 
     def consider(entry: os.DirEntry[str], *, fallback: bool) -> None:
         nonlocal scan_failed, total
@@ -2200,8 +2456,18 @@ def _pending_record_paths(directory: Path) -> _PendingPathSnapshot:
         try:
             descriptor = open_directory_path_without_symlinks(directory)
             with os.scandir(descriptor) as entries:
-                for entry in entries:
+                while True:
+                    if not before_next_entry():
+                        break
+                    try:
+                        entry = next(entries)
+                    except StopIteration:
+                        break
+                    scanned_entries += 1
                     consider(entry, fallback=False)
+                    if deadline is not None and _monotonic() - started > deadline:
+                        budget_exceeded = True
+                        break
         except FileNotFoundError:
             return _PendingPathSnapshot(paths=[], total=0)
         except OSError:
@@ -2218,8 +2484,12 @@ def _pending_record_paths(directory: Path) -> _PendingPathSnapshot:
         return _PendingPathSnapshot(
             paths=ordered,
             total=total,
-            scan_unavailable=scan_failed,
-            reason="PENDING_SCAN_UNAVAILABLE" if scan_failed else None,
+            scan_unavailable=scan_failed or budget_exceeded,
+            reason=(
+                "PENDING_READINESS_BUDGET_EXCEEDED"
+                if budget_exceeded
+                else "PENDING_SCAN_UNAVAILABLE" if scan_failed else None
+            ),
         )
 
     try:
@@ -2232,8 +2502,18 @@ def _pending_record_paths(directory: Path) -> _PendingPathSnapshot:
                 reason="PENDING_SCAN_UNAVAILABLE",
             )
         with os.scandir(directory) as entries:
-            for entry in entries:
+            while True:
+                if not before_next_entry():
+                    break
+                try:
+                    entry = next(entries)
+                except StopIteration:
+                    break
+                scanned_entries += 1
                 consider(entry, fallback=True)
+                if deadline is not None and _monotonic() - started > deadline:
+                    budget_exceeded = True
+                    break
         after = os.lstat(directory)
         if not _is_safe_directory(after) or not _same_file_identity(before, after):
             scan_failed = True
@@ -2250,8 +2530,12 @@ def _pending_record_paths(directory: Path) -> _PendingPathSnapshot:
     return _PendingPathSnapshot(
         paths=ordered,
         total=total,
-        scan_unavailable=scan_failed,
-        reason="PENDING_SCAN_UNAVAILABLE" if scan_failed else None,
+        scan_unavailable=scan_failed or budget_exceeded,
+        reason=(
+            "PENDING_READINESS_BUDGET_EXCEEDED"
+            if budget_exceeded
+            else "PENDING_SCAN_UNAVAILABLE" if scan_failed else None
+        ),
     )
 
 

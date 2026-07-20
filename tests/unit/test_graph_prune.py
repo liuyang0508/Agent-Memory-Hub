@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
+import threading
 
 from agent_brain.contracts.memory_item import MemoryItem, MemoryType
 from agent_brain.interfaces.cli.commands.index_maintenance import reindex_store
@@ -144,4 +145,64 @@ def test_failed_reindex_preserves_dirty_marker(tmp_brain_dir: Path):
         reindex_store(store, FailingIndex(), HashingEmbedder(dim=_DIM))
 
     index.close()
+    assert marker.read_text(encoding="utf-8") == f"{item.id}\n"
+
+
+def test_clear_dirty_marker_preserves_append_between_read_and_lock(
+    tmp_brain_dir: Path,
+    monkeypatch,
+):
+    import agent_brain.memory.store.pending as pending_module
+
+    item_a = _item("dirty-race-a")
+    item_b = _item("dirty-race-b")
+    item_c = _item("dirty-race-c")
+    marker = dirty_index_path(tmp_brain_dir)
+    marker.write_text(f"{item_a.id}\n{item_b.id}\n", encoding="utf-8")
+    read_complete = threading.Event()
+    allow_clear = threading.Event()
+    real_read = pending_module.read_dirty_index_marker
+
+    def paused_read(brain):
+        result = real_read(brain)
+        read_complete.set()
+        assert allow_clear.wait(timeout=2)
+        return result
+
+    monkeypatch.setattr(pending_module, "read_dirty_index_marker", paused_read)
+    outcome: list[bool] = []
+    worker = threading.Thread(
+        target=lambda: outcome.append(
+            pending_module.clear_dirty_index_marker(
+                tmp_brain_dir,
+                repaired_ids={item_a.id},
+            )
+        )
+    )
+    worker.start()
+    assert read_complete.wait(timeout=2)
+    assert pending_module.append_dirty_index_marker(tmp_brain_dir, item_c.id) is True
+    allow_clear.set()
+    worker.join(timeout=2)
+
+    assert outcome == [True]
+    assert marker.read_text(encoding="utf-8").splitlines() == [item_b.id, item_c.id]
+
+
+def test_full_reindex_does_not_clear_marker_after_incomplete_item_scan(
+    tmp_brain_dir: Path,
+):
+    store = ItemsStore(tmp_brain_dir / "items")
+    index = HubIndex(tmp_brain_dir / "index.db", embedding_dim=_DIM)
+    item = _item("dirty-incomplete-scan")
+    store.write(item, item.summary)
+    (store.items_dir / "malformed.md").write_text("not frontmatter", encoding="utf-8")
+    marker = dirty_index_path(tmp_brain_dir)
+    marker.write_text(f"{item.id}\n", encoding="utf-8")
+
+    result = reindex_store(store, index, HashingEmbedder(dim=_DIM), prune=True)
+    index.close()
+
+    assert result.indexed == 1
+    assert store.last_scan.skipped_count == 1
     assert marker.read_text(encoding="utf-8") == f"{item.id}\n"

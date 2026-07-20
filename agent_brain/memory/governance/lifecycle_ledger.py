@@ -31,6 +31,8 @@ _LEDGER_FIELDS = {
 }
 _DEFER_LEDGER_FIELDS = _LEDGER_FIELDS | {"deferred_until"}
 _GIT_OBJECT_ID = re.compile(r"(?:[0-9a-f]{40}|[0-9a-f]{64})\Z")
+MAX_LIFECYCLE_LEDGER_BYTES = 16 * 1024 * 1024
+MAX_LIFECYCLE_LEDGER_LINE_BYTES = 1024 * 1024
 _ALLOWED_RECORD_STATES = {
     ("supersede", "applied", "OK"),
     ("revert-supersession", "reverted", "OK"),
@@ -196,9 +198,23 @@ def active_lifecycle_deferrals(
     deferrals, which keeps stale items visible for review rather than hiding
     them based on untrusted state.
     """
+    deferrals, _unavailable = active_lifecycle_deferrals_readonly(
+        brain_dir,
+        now=now,
+    )
+    return deferrals
+
+
+def active_lifecycle_deferrals_readonly(
+    brain_dir: Path,
+    *,
+    now: datetime | None = None,
+) -> tuple[dict[str, datetime], bool]:
+    """Return deferrals plus an explicit fail-closed ledger availability bit."""
+
     records = _read_lifecycle_records_readonly(brain_dir)
     if records is None:
-        return {}
+        return {}, True
     current = now or datetime.now(timezone.utc)
     deferred: dict[str, datetime] = {}
     for record in records:
@@ -209,11 +225,14 @@ def active_lifecycle_deferrals(
             )
         elif record.status in {"applied", "reverted"}:
             deferred.pop(record.obsolete_id, None)
-    return {
-        item_id: deadline
-        for item_id, deadline in deferred.items()
-        if deadline > current
-    }
+    return (
+        {
+            item_id: deadline
+            for item_id, deadline in deferred.items()
+            if deadline > current
+        },
+        False,
+    )
 
 
 def _read_lifecycle_records_readonly(
@@ -226,9 +245,32 @@ def _read_lifecycle_records_readonly(
                     "lifecycle-actions.jsonl", os.O_RDONLY
                 )
                 try:
+                    opened = os.fstat(descriptor)
+                    if opened.st_size > MAX_LIFECYCLE_LEDGER_BYTES:
+                        return None
                     with os.fdopen(descriptor, "rb") as handle:
                         descriptor = -1
-                        lines = handle.read().decode("utf-8").splitlines()
+                        lines: list[str] = []
+                        total_bytes = 0
+                        while True:
+                            raw = handle.readline(MAX_LIFECYCLE_LEDGER_LINE_BYTES + 1)
+                            if not raw:
+                                break
+                            total_bytes += len(raw)
+                            if (
+                                len(raw) > MAX_LIFECYCLE_LEDGER_LINE_BYTES
+                                or total_bytes > MAX_LIFECYCLE_LEDGER_BYTES
+                            ):
+                                return None
+                            lines.append(raw.decode("utf-8").rstrip("\r\n"))
+                        after = os.fstat(handle.fileno())
+                        if (
+                            opened.st_dev != after.st_dev
+                            or opened.st_ino != after.st_ino
+                            or opened.st_size != after.st_size
+                            or opened.st_mtime_ns != after.st_mtime_ns
+                        ):
+                            return None
                 finally:
                     if descriptor >= 0:
                         os.close(descriptor)

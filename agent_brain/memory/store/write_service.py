@@ -258,12 +258,12 @@ class WriteService:
         reindex/``sync-pending`` consumes this log to repair the derived index.
         """
         try:
-            from agent_brain.memory.store.pending import dirty_index_path
+            from agent_brain.memory.store.pending import append_dirty_index_marker
 
-            p = dirty_index_path(self._brain_dir or self._store.items_dir.parent)
-            p.parent.mkdir(parents=True, exist_ok=True)
-            with p.open("a", encoding="utf-8") as fh:
-                fh.write(item_id + "\n")
+            append_dirty_index_marker(
+                self._brain_dir or self._store.items_dir.parent,
+                item_id,
+            )
         except Exception:
             pass
 

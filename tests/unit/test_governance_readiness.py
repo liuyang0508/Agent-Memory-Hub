@@ -421,8 +421,10 @@ def test_lifecycle_readiness_fails_closed_when_pending_scan_is_unavailable(
     (brain / "items").mkdir(parents=True)
     monkeypatch.setattr(
         PendingQueue,
-        "depth",
-        lambda self: (_ for _ in ()).throw(PendingEnqueueError("PENDING_SCAN_UNAVAILABLE")),
+        "preview_for_readiness",
+        lambda self, **_kwargs: (_ for _ in ()).throw(
+            PendingEnqueueError("PENDING_SCAN_UNAVAILABLE")
+        ),
     )
 
     report = build_governance_readiness_report(brain, repo_root=Path.cwd())
@@ -1074,3 +1076,169 @@ def test_lifecycle_readiness_reports_corrupt_dirty_marker(
 
     assert lane.status == "fail"
     assert lane.metrics["index_dirty_status"] == "corrupt"
+
+
+def test_lifecycle_generation_token_stops_streaming_at_deadline(
+    tmp_path,
+    monkeypatch,
+):
+    import agent_brain.product.governance_readiness as readiness_module
+
+    brain = tmp_path / "brain"
+    items = brain / "items"
+    items.mkdir(parents=True)
+    for index in range(20):
+        (items / f"entry-{index:02d}.txt").write_text("x", encoding="utf-8")
+    real_scandir = readiness_module.os.scandir
+    visited = 0
+
+    class CountingScandir:
+        def __init__(self, target):
+            self._inner = real_scandir(target)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            self._inner.close()
+
+        def __iter__(self):
+            return self
+
+        def __next__(self):
+            nonlocal visited
+            visited += 1
+            return next(self._inner)
+
+    ticks = iter((0.0, 0.0, 0.0, 3.0))
+    monkeypatch.setattr(readiness_module, "_snapshot_monotonic", lambda: next(ticks, 3.0))
+    monkeypatch.setattr(readiness_module.os, "scandir", CountingScandir)
+
+    assert readiness_module._lifecycle_generation_token(brain) is None
+    assert visited <= 3
+
+
+def test_lifecycle_readiness_fails_closed_on_oversized_ledger(
+    tmp_path,
+):
+    brain = tmp_path / "brain"
+    (brain / "items").mkdir(parents=True)
+    runtime = brain / "runtime"
+    runtime.mkdir()
+    ledger = runtime / "lifecycle-actions.jsonl"
+    with ledger.open("wb") as handle:
+        handle.truncate(16 * 1024 * 1024 + 1)
+
+    lane = build_memory_lifecycle_readiness(brain)
+
+    assert lane.status == "fail"
+    assert lane.metrics["lifecycle_ledger_unavailable"] is True
+
+
+def test_lifecycle_readiness_fails_closed_on_oversized_ledger_line(
+    tmp_path,
+):
+    brain = tmp_path / "brain"
+    (brain / "items").mkdir(parents=True)
+    runtime = brain / "runtime"
+    runtime.mkdir()
+    (runtime / "lifecycle-actions.jsonl").write_bytes(b"x" * (1024 * 1024 + 1))
+
+    lane = build_memory_lifecycle_readiness(brain)
+
+    assert lane.status == "fail"
+    assert lane.metrics["lifecycle_ledger_unavailable"] is True
+
+
+def test_graph_budget_rejects_blob_before_payload_query(
+    tmp_path,
+    monkeypatch,
+):
+    import agent_brain.product.governance_readiness as readiness_module
+
+    brain = tmp_path / "brain"
+    brain.mkdir()
+    database = brain / "index.db"
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            "CREATE TABLE refs_graph ("
+            "source_id TEXT NOT NULL, target_id TEXT NOT NULL, relation TEXT NOT NULL, "
+            "PRIMARY KEY (source_id, target_id, relation))"
+        )
+        connection.execute(
+            "INSERT INTO refs_graph VALUES (zeroblob(1048576), 'target', 'supersedes')"
+        )
+
+    real_connect = sqlite3.connect
+    payload_queries: list[str] = []
+
+    class TrackingConnection:
+        def __init__(self, path, *args, **kwargs):
+            self._inner = real_connect(path, *args, **kwargs)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            self._inner.close()
+
+        def execute(self, sql, parameters=()):
+            if sql.lstrip().startswith("SELECT source_id, target_id, relation"):
+                payload_queries.append(sql)
+            return self._inner.execute(sql, parameters)
+
+    monkeypatch.setattr(readiness_module.sqlite3, "connect", TrackingConnection)
+
+    truth = readiness_module._read_supersedes_graph_readonly(database)
+
+    assert truth.status == "unavailable"
+    assert payload_queries == []
+
+
+def test_graph_payload_rows_are_streamed_without_fetchall(
+    tmp_path,
+    monkeypatch,
+):
+    import agent_brain.product.governance_readiness as readiness_module
+
+    brain = tmp_path / "brain"
+    brain.mkdir()
+    edge = ("stream-new", "stream-old")
+    _write_supersedes_index(brain, [edge])
+    real_connect = sqlite3.connect
+
+    class PayloadCursor:
+        def __init__(self, inner):
+            self._inner = inner
+
+        def fetchall(self):
+            raise AssertionError("payload query must not fetchall")
+
+        def fetchmany(self, size=None):
+            return self._inner.fetchmany(size)
+
+        def __iter__(self):
+            return iter(self._inner)
+
+    class TrackingConnection:
+        def __init__(self, path, *args, **kwargs):
+            self._inner = real_connect(path, *args, **kwargs)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            self._inner.close()
+
+        def execute(self, sql, parameters=()):
+            cursor = self._inner.execute(sql, parameters)
+            if sql.lstrip().startswith("SELECT source_id, target_id, relation"):
+                return PayloadCursor(cursor)
+            return cursor
+
+    monkeypatch.setattr(readiness_module.sqlite3, "connect", TrackingConnection)
+
+    truth = readiness_module._read_supersedes_graph_readonly(brain / "index.db")
+
+    assert truth.status == "available"
+    assert truth.edges == frozenset({edge})

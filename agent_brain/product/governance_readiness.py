@@ -21,7 +21,9 @@ from agent_brain.contracts.memory_enums import memory_enum_value
 from agent_brain.contracts.memory_item import MemoryItem
 from agent_brain.memory.context.query_signal import diagnose_injection_query
 from agent_brain.memory.governance.auto_governance import lifecycle_review_due
-from agent_brain.memory.governance.lifecycle_ledger import active_lifecycle_deferrals
+from agent_brain.memory.governance.lifecycle_ledger import (
+    active_lifecycle_deferrals_readonly,
+)
 from agent_brain.memory.store.item_markdown import parse_item_markdown
 from agent_brain.memory.store.pending import (
     MAX_PENDING_QUEUE_ENTRIES,
@@ -345,12 +347,14 @@ _MAX_READINESS_ITEM_ENTRIES = 20_000
 _MAX_READINESS_ITEM_METADATA_BYTES = 64 * 1024 * 1024
 _MAX_READINESS_ITEM_DEPTH = 32
 _MAX_LIFECYCLE_SNAPSHOT_ENTRIES = 50_000
-_MAX_LIFECYCLE_SNAPSHOT_BYTES = 4 * 1024 * 1024 * 1024
+_MAX_LIFECYCLE_SNAPSHOT_BYTES = 1024 * 1024 * 1024
 _MAX_LIFECYCLE_SNAPSHOT_DEPTH = 32
 _MAX_LIFECYCLE_SNAPSHOT_SECONDS = 2.0
+_MAX_LIFECYCLE_LEDGER_BYTES = 16 * 1024 * 1024
 _MAX_SUPERSEDES_ROWS = 200_000
 _MAX_SUPERSEDES_ID_BYTES = 512
 _MAX_SUPERSEDES_TOTAL_BYTES = 32 * 1024 * 1024
+_snapshot_monotonic = time.monotonic
 
 
 def build_memory_lifecycle_readiness(brain_dir: Path) -> ReadinessLane:
@@ -422,7 +426,10 @@ def _memory_lifecycle_lane_once(brain_dir: Path) -> ReadinessLane:
     broken_superseded_count = sum(
         1 for item in superseded_items if item.superseded_by not in active_ids
     )
-    deferrals = active_lifecycle_deferrals(brain, now=now)
+    deferrals, lifecycle_ledger_unavailable = active_lifecycle_deferrals_readonly(
+        brain,
+        now=now,
+    )
     review_items = [
         (item, age_seconds) for item, age_seconds in stale_items if item.id not in deferrals
     ]
@@ -471,6 +478,7 @@ def _memory_lifecycle_lane_once(brain_dir: Path) -> ReadinessLane:
         "private_or_secret_count": private_or_secret_count,
         "malformed_item_count": malformed_item_count,
         "item_scan_unavailable": item_scan_unavailable,
+        "lifecycle_ledger_unavailable": lifecycle_ledger_unavailable,
         **pending_metrics,
         "supersession_graph_status": graph_truth.status,
         "supersession_drift_count": supersession_drift_count,
@@ -527,6 +535,16 @@ def _memory_lifecycle_lane_once(brain_dir: Path) -> ReadinessLane:
                 else "source tree scanned"
             ),
             count=malformed_item_count,
+        ),
+        _aggregate_check(
+            "lifecycle_ledger",
+            "lifecycle ledger",
+            status="fail" if lifecycle_ledger_unavailable else "pass",
+            detail=(
+                "scan unavailable or budget exceeded"
+                if lifecycle_ledger_unavailable
+                else "bounded source scanned"
+            ),
         ),
         _supersession_graph_check(
             graph_status=graph_truth.status,
@@ -595,14 +613,21 @@ def _lifecycle_generation_token(
 ) -> tuple[tuple[str, int, int, int, int, int], ...] | None:
     """Return a bounded metadata token for every lifecycle truth source."""
 
-    started = time.monotonic()
+    started = _snapshot_monotonic()
     states: list[tuple[str, int, int, int, int, int]] = []
     entry_count = 0
     total_bytes = 0
 
-    def add(path: Path, relative: str, *, recursive: bool, depth: int = 0) -> None:
+    def add(
+        path: Path,
+        relative: str,
+        *,
+        recursive: bool,
+        depth: int = 0,
+        file_limit: int | None = None,
+    ) -> None:
         nonlocal entry_count, total_bytes
-        if time.monotonic() - started > _MAX_LIFECYCLE_SNAPSHOT_SECONDS:
+        if _snapshot_monotonic() - started > _MAX_LIFECYCLE_SNAPSHOT_SECONDS:
             raise OSError("LIFECYCLE_SNAPSHOT_DEADLINE_EXCEEDED")
         try:
             opened = os.lstat(path)
@@ -615,6 +640,8 @@ def _lifecycle_generation_token(
         if entry_count > _MAX_LIFECYCLE_SNAPSHOT_ENTRIES:
             raise OSError("LIFECYCLE_SNAPSHOT_ENTRY_BUDGET_EXCEEDED")
         if stat.S_ISREG(opened.st_mode):
+            if file_limit is not None and opened.st_size > file_limit:
+                raise OSError("LIFECYCLE_SNAPSHOT_FILE_BUDGET_EXCEEDED")
             total_bytes += opened.st_size
             if total_bytes > _MAX_LIFECYCLE_SNAPSHOT_BYTES:
                 raise OSError("LIFECYCLE_SNAPSHOT_BYTE_BUDGET_EXCEEDED")
@@ -630,17 +657,29 @@ def _lifecycle_generation_token(
                 int(opened.st_ctime_ns),
             )
         )
+        if _snapshot_monotonic() - started > _MAX_LIFECYCLE_SNAPSHOT_SECONDS:
+            raise OSError("LIFECYCLE_SNAPSHOT_DEADLINE_EXCEEDED")
         if not recursive or not stat.S_ISDIR(opened.st_mode):
             return
         if depth >= _MAX_LIFECYCLE_SNAPSHOT_DEPTH:
             raise OSError("LIFECYCLE_SNAPSHOT_DEPTH_EXCEEDED")
         with os.scandir(path) as entries:
-            names = sorted(entry.name for entry in entries)
-        if not _same_readiness_state(opened, os.lstat(path)):
-            raise OSError("LIFECYCLE_SNAPSHOT_DIRECTORY_CHANGED")
-        for name in names:
-            child_relative = f"{relative}/{name}"
-            add(path / name, child_relative, recursive=True, depth=depth + 1)
+            while True:
+                if _snapshot_monotonic() - started > _MAX_LIFECYCLE_SNAPSHOT_SECONDS:
+                    raise OSError("LIFECYCLE_SNAPSHOT_DEADLINE_EXCEEDED")
+                try:
+                    entry = next(entries)
+                except StopIteration:
+                    break
+                if _snapshot_monotonic() - started > _MAX_LIFECYCLE_SNAPSHOT_SECONDS:
+                    raise OSError("LIFECYCLE_SNAPSHOT_DEADLINE_EXCEEDED")
+                child_relative = f"{relative}/{entry.name}"
+                add(
+                    path / entry.name,
+                    child_relative,
+                    recursive=True,
+                    depth=depth + 1,
+                )
         if not _same_readiness_state(opened, os.lstat(path)):
             raise OSError("LIFECYCLE_SNAPSHOT_DIRECTORY_CHANGED")
 
@@ -651,6 +690,7 @@ def _lifecycle_generation_token(
             brain / "runtime" / "lifecycle-actions.jsonl",
             "runtime/lifecycle-actions.jsonl",
             recursive=False,
+            file_limit=_MAX_LIFECYCLE_LEDGER_BYTES,
         )
         add(brain / ".index-dirty", ".index-dirty", recursive=False)
         for suffix in _INDEX_COMPONENT_LIMITS:
@@ -658,6 +698,7 @@ def _lifecycle_generation_token(
                 Path(f"{brain / 'index.db'}{suffix}"),
                 f"index.db{suffix}",
                 recursive=False,
+                file_limit=_INDEX_COMPONENT_LIMITS[suffix],
             )
     except OSError:
         return None
@@ -934,11 +975,6 @@ def _close_scandir_iterator(entries: Iterator[os.DirEntry[str]]) -> None:
 
 def _pending_truth_readonly(brain_dir: Path) -> dict[str, Any]:
     queue = PendingQueue(brain=brain_dir)
-    depth_failed = False
-    try:
-        queue.depth()
-    except (OSError, RuntimeError, ValueError):
-        depth_failed = True
     try:
         preview = queue.preview_for_readiness(
             limit=MAX_PENDING_QUEUE_ENTRIES,
@@ -953,8 +989,7 @@ def _pending_truth_readonly(brain_dir: Path) -> dict[str, Any]:
         counts.update(record.classification for record in preview.records)
     dead_count, dead_scan_unavailable = _count_dead_pending_readonly(brain_dir / "pending" / "dead")
     pending_scan_unavailable = (
-        depth_failed
-        or preview is None
+        preview is None
         or bool(preview.scan_unavailable if preview is not None else True)
         or dead_scan_unavailable
     )
@@ -1112,30 +1147,64 @@ def _query_supersedes_from_external_snapshot(
                 return [], False
             if not _refs_graph_schema_is_unique(connection):
                 raise _UnsafeIndexSnapshot("REFS_GRAPH_SCHEMA_UNSAFE")
-            rows = connection.execute(
+            aggregate = connection.execute(
+                "SELECT COUNT(*), "
+                "COALESCE(SUM(length(CAST(source_id AS BLOB)) + "
+                "length(CAST(target_id AS BLOB)) + length(CAST(relation AS BLOB))), 0), "
+                "COALESCE(MAX(length(CAST(source_id AS BLOB))), 0), "
+                "COALESCE(MAX(length(CAST(target_id AS BLOB))), 0), "
+                "COALESCE(MAX(length(CAST(relation AS BLOB))), 0), "
+                "COALESCE(SUM(CASE WHEN typeof(source_id) != 'text' "
+                "OR typeof(target_id) != 'text' OR typeof(relation) != 'text' "
+                "THEN 1 ELSE 0 END), 0) "
+                "FROM refs_graph WHERE relation = ?",
+                ("supersedes",),
+            ).fetchone()
+            if aggregate is None:
+                raise _UnsafeIndexSnapshot("REFS_GRAPH_AGGREGATE_UNAVAILABLE")
+            row_count, total_bytes, max_source, max_target, max_relation, bad_types = (
+                int(value) for value in aggregate
+            )
+            if row_count > _MAX_SUPERSEDES_ROWS:
+                raise _UnsafeIndexSnapshot("REFS_GRAPH_ROW_BUDGET_EXCEEDED")
+            if total_bytes > _MAX_SUPERSEDES_TOTAL_BYTES:
+                raise _UnsafeIndexSnapshot("REFS_GRAPH_BYTE_BUDGET_EXCEEDED")
+            if max(max_source, max_target, max_relation) > _MAX_SUPERSEDES_ID_BYTES:
+                raise _UnsafeIndexSnapshot("REFS_GRAPH_ID_TOO_LARGE")
+            if bad_types:
+                raise _UnsafeIndexSnapshot("REFS_GRAPH_ROW_INVALID")
+            duplicate = connection.execute(
+                "SELECT 1 FROM refs_graph WHERE relation = ? "
+                "GROUP BY source_id, target_id, relation HAVING COUNT(*) > 1 LIMIT 1",
+                ("supersedes",),
+            ).fetchone()
+            if duplicate is not None:
+                raise _UnsafeIndexSnapshot("REFS_GRAPH_DUPLICATE_ROW")
+            cursor = connection.execute(
                 "SELECT source_id, target_id, relation FROM refs_graph "
                 "WHERE relation = ? LIMIT ?",
                 ("supersedes", _MAX_SUPERSEDES_ROWS + 1),
-            ).fetchall()
-            if len(rows) > _MAX_SUPERSEDES_ROWS:
-                raise _UnsafeIndexSnapshot("REFS_GRAPH_ROW_BUDGET_EXCEEDED")
+            )
             edges: list[tuple[object, object]] = []
             seen: set[tuple[str, str, str]] = set()
-            total_bytes = 0
-            for source, target, relation in rows:
-                if not all(isinstance(value, str) for value in (source, target, relation)):
-                    raise _UnsafeIndexSnapshot("REFS_GRAPH_ROW_INVALID")
-                encoded = tuple(value.encode("utf-8") for value in (source, target, relation))
-                if any(len(value) > _MAX_SUPERSEDES_ID_BYTES for value in encoded):
-                    raise _UnsafeIndexSnapshot("REFS_GRAPH_ID_TOO_LARGE")
-                total_bytes += sum(len(value) for value in encoded)
-                if total_bytes > _MAX_SUPERSEDES_TOTAL_BYTES:
-                    raise _UnsafeIndexSnapshot("REFS_GRAPH_BYTE_BUDGET_EXCEEDED")
-                edge = (source, target, relation)
-                if edge in seen:
-                    raise _UnsafeIndexSnapshot("REFS_GRAPH_DUPLICATE_ROW")
-                seen.add(edge)
-                edges.append((source, target))
+            streamed_rows = 0
+            while True:
+                batch = cursor.fetchmany(512)
+                if not batch:
+                    break
+                for source, target, relation in batch:
+                    streamed_rows += 1
+                    if streamed_rows > _MAX_SUPERSEDES_ROWS:
+                        raise _UnsafeIndexSnapshot("REFS_GRAPH_ROW_BUDGET_EXCEEDED")
+                    if not all(
+                        isinstance(value, str) for value in (source, target, relation)
+                    ):
+                        raise _UnsafeIndexSnapshot("REFS_GRAPH_ROW_INVALID")
+                    edge = (source, target, relation)
+                    if edge in seen:
+                        raise _UnsafeIndexSnapshot("REFS_GRAPH_DUPLICATE_ROW")
+                    seen.add(edge)
+                    edges.append((source, target))
             return edges, True
 
 

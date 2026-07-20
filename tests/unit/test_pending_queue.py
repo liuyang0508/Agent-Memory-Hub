@@ -187,7 +187,7 @@ def test_pending_readiness_preview_uses_injectable_deadline_clock(
 
     enqueue_write_record(_v2_record(record_id="readiness-deadline-record"))
     ticks = iter((0.0, 2.0))
-    monkeypatch.setattr(pending_module, "_monotonic", lambda: next(ticks))
+    monkeypatch.setattr(pending_module, "_monotonic", lambda: next(ticks, 2.0))
 
     preview = PendingQueue(brain=tmp_brain).preview_for_readiness(
         limit=10,
@@ -197,6 +197,28 @@ def test_pending_readiness_preview_uses_injectable_deadline_clock(
 
     assert preview.scan_unavailable is True
     assert preview.reason == "PENDING_READINESS_BUDGET_EXCEEDED"
+
+
+def test_pending_path_scan_stops_at_injected_deadline(
+    tmp_brain,
+    monkeypatch,
+):
+    import agent_brain.memory.store.pending as pending_module
+
+    for index in range(20):
+        enqueue_write_record(_v2_record(record_id=f"deadline-path-{index:02d}"))
+    ticks = iter((0.0, 0.0, 0.0, 2.0))
+    monkeypatch.setattr(pending_module, "_monotonic", lambda: next(ticks, 2.0))
+
+    snapshot = pending_module._pending_record_paths(
+        tmp_brain / "pending",
+        deadline=1.0,
+        entry_cap=20_000,
+    )
+
+    assert snapshot.scan_unavailable is True
+    assert snapshot.reason == "PENDING_READINESS_BUDGET_EXCEEDED"
+    assert snapshot.total <= 2
 
 
 def _write_existing_item(
