@@ -212,13 +212,94 @@ def test_pending_path_scan_stops_at_injected_deadline(
 
     snapshot = pending_module._pending_record_paths(
         tmp_brain / "pending",
-        deadline=1.0,
+        deadline_at=1.0,
         entry_cap=20_000,
     )
 
     assert snapshot.scan_unavailable is True
     assert snapshot.reason == "PENDING_READINESS_BUDGET_EXCEEDED"
     assert snapshot.total <= 2
+
+
+def test_pending_record_deadline_after_open_closes_fallback_descriptor(
+    tmp_brain,
+    monkeypatch,
+) -> None:
+    import agent_brain.memory.store.pending as pending_module
+
+    path = enqueue_write_record(_v2_record(record_id="deadline-after-open"))
+    real_close = pending_module.close_descriptor
+    closed: list[int] = []
+
+    def tracked_close(descriptor: int) -> None:
+        closed.append(descriptor)
+        real_close(descriptor)
+
+    ticks = iter((0.0, 0.0, 0.0, 2.0))
+    monkeypatch.setattr(pending_module, "secure_dir_fd_io_supported", lambda: False)
+    monkeypatch.setattr(pending_module, "close_descriptor", tracked_close)
+    monkeypatch.setattr(pending_module, "_monotonic", lambda: next(ticks, 2.0))
+
+    with pytest.raises(pending_module._PendingReadError) as caught:
+        pending_module._read_pending_record_snapshot(path, deadline_at=1.0)
+
+    assert caught.value.reason == "PENDING_READINESS_BUDGET_EXCEEDED"
+    assert len(closed) == 1
+
+
+def test_metadata_deadline_after_root_open_closes_directory_descriptor(
+    tmp_brain,
+    monkeypatch,
+) -> None:
+    import agent_brain.memory.store.pending as pending_module
+
+    real_close = pending_module.close_descriptor
+    closed: list[int] = []
+
+    def tracked_close(descriptor: int) -> None:
+        closed.append(descriptor)
+        real_close(descriptor)
+
+    ticks = iter((0.0, 2.0))
+    monkeypatch.setattr(pending_module, "secure_dir_fd_io_supported", lambda: True)
+    monkeypatch.setattr(pending_module, "close_descriptor", tracked_close)
+    monkeypatch.setattr(pending_module, "_monotonic", lambda: next(ticks, 2.0))
+
+    snapshot = pending_module._scan_existing_item_metadata(
+        tmp_brain / "items",
+        deadline_at=1.0,
+    )
+
+    assert snapshot.trusted is False
+    assert snapshot.reason == "PENDING_READINESS_BUDGET_EXCEEDED"
+    assert len(closed) == 1
+
+
+def test_pending_path_scan_allows_exact_cap_and_rejects_cap_plus_one(
+    tmp_brain,
+) -> None:
+    import agent_brain.memory.store.pending as pending_module
+
+    for index in range(3):
+        enqueue_write_record(_v2_record(record_id=f"entry-cap-{index}"))
+
+    exact = pending_module._pending_record_paths(
+        tmp_brain / "pending",
+        entry_cap=3,
+    )
+
+    assert exact.scan_unavailable is False
+    assert exact.total == 3
+
+    enqueue_write_record(_v2_record(record_id="entry-cap-overflow"))
+    overflow = pending_module._pending_record_paths(
+        tmp_brain / "pending",
+        entry_cap=3,
+    )
+
+    assert overflow.scan_unavailable is True
+    assert overflow.reason == "PENDING_READINESS_BUDGET_EXCEEDED"
+    assert overflow.total == 3
 
 
 def _write_existing_item(
@@ -2406,6 +2487,51 @@ def test_legacy_item_lock_tree_does_not_consume_pending_metadata_budget(
     preview = PendingQueue().preview(limit=1).records[0]
 
     assert preview.classification == "ready"
+
+
+@pytest.mark.parametrize("secure_io", [True, False])
+def test_existing_item_scan_stops_immediately_after_absolute_deadline(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    secure_io: bool,
+) -> None:
+    for index in range(20):
+        record = _v2_record(record_id=f"metadata-deadline-{index}", project="other")
+        _write_existing_item(
+            tmp_brain,
+            record,
+            item_id=f"mem-20260701-10{index:02d}00-metadata-deadline-{index}",
+            span_hash=f"span-{index}",
+            project="other",
+        )
+    monkeypatch.setattr(pending_module, "secure_dir_fd_io_supported", lambda: secure_io)
+    reader_name = "_read_item_frontmatter" if secure_io else "_read_item_frontmatter_fallback"
+    real_reader = getattr(pending_module, reader_name)
+    visits = 0
+
+    def counted_reader(*args, **kwargs):
+        nonlocal visits
+        visits += 1
+        return real_reader(*args, **kwargs)
+
+    clock = -0.005
+
+    def slow_clock() -> float:
+        nonlocal clock
+        clock += 0.005
+        return clock
+
+    monkeypatch.setattr(pending_module, reader_name, counted_reader)
+    monkeypatch.setattr(pending_module, "_monotonic", slow_clock)
+
+    snapshot = pending_module._scan_existing_item_metadata(
+        tmp_brain / "items",
+        deadline_at=0.001,
+    )
+
+    assert snapshot.trusted is False
+    assert snapshot.reason == "PENDING_READINESS_BUDGET_EXCEEDED"
+    assert visits <= 2
 
 
 def test_malformed_existing_yaml_blocks_selected_preview_without_raising(

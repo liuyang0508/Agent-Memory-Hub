@@ -11,7 +11,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import BinaryIO, Iterator
+from typing import BinaryIO, Callable, Iterator
 
 from agent_brain.contracts.memory_item import is_valid_memory_item_id
 from agent_brain.memory.store.durable_fs import SecureDirectory
@@ -33,6 +33,7 @@ _DEFER_LEDGER_FIELDS = _LEDGER_FIELDS | {"deferred_until"}
 _GIT_OBJECT_ID = re.compile(r"(?:[0-9a-f]{40}|[0-9a-f]{64})\Z")
 MAX_LIFECYCLE_LEDGER_BYTES = 16 * 1024 * 1024
 MAX_LIFECYCLE_LEDGER_LINE_BYTES = 1024 * 1024
+MAX_LIFECYCLE_LEDGER_RECORDS = 100_000
 _ALLOWED_RECORD_STATES = {
     ("supersede", "applied", "OK"),
     ("revert-supersession", "reverted", "OK"),
@@ -212,57 +213,56 @@ def active_lifecycle_deferrals_readonly(
 ) -> tuple[dict[str, datetime], bool]:
     """Return deferrals plus an explicit fail-closed ledger availability bit."""
 
-    records = _read_lifecycle_records_readonly(brain_dir)
-    if records is None:
-        return {}, True
     current = now or datetime.now(timezone.utc)
     deferred: dict[str, datetime] = {}
-    for record in records:
+
+    def apply_record(record: LifecycleLedgerRecord) -> None:
         if record.action == "defer" and record.status == "deferred":
             assert record.deferred_until is not None
-            deferred[record.obsolete_id] = datetime.fromisoformat(
-                record.deferred_until
-            )
+            deferred[record.obsolete_id] = datetime.fromisoformat(record.deferred_until)
         elif record.status in {"applied", "reverted"}:
             deferred.pop(record.obsolete_id, None)
+
+    if not _scan_lifecycle_records_readonly(brain_dir, apply_record):
+        return {}, True
     return (
-        {
-            item_id: deadline
-            for item_id, deadline in deferred.items()
-            if deadline > current
-        },
+        {item_id: deadline for item_id, deadline in deferred.items() if deadline > current},
         False,
     )
 
 
-def _read_lifecycle_records_readonly(
+def _scan_lifecycle_records_readonly(
     brain_dir: Path,
-) -> list[LifecycleLedgerRecord] | None:
+    consume: Callable[[LifecycleLedgerRecord], None],
+) -> bool:
     try:
         with SecureDirectory.open(Path(brain_dir)) as brain:
             with brain.child("runtime") as runtime:
-                descriptor, _ = runtime.open_file(
-                    "lifecycle-actions.jsonl", os.O_RDONLY
-                )
+                descriptor, _ = runtime.open_file("lifecycle-actions.jsonl", os.O_RDONLY)
                 try:
                     opened = os.fstat(descriptor)
                     if opened.st_size > MAX_LIFECYCLE_LEDGER_BYTES:
-                        return None
+                        return False
                     with os.fdopen(descriptor, "rb") as handle:
                         descriptor = -1
-                        lines: list[str] = []
                         total_bytes = 0
+                        record_count = 0
                         while True:
                             raw = handle.readline(MAX_LIFECYCLE_LEDGER_LINE_BYTES + 1)
                             if not raw:
                                 break
                             total_bytes += len(raw)
+                            record_count += 1
                             if (
                                 len(raw) > MAX_LIFECYCLE_LEDGER_LINE_BYTES
                                 or total_bytes > MAX_LIFECYCLE_LEDGER_BYTES
+                                or record_count > MAX_LIFECYCLE_LEDGER_RECORDS
                             ):
-                                return None
-                            lines.append(raw.decode("utf-8").rstrip("\r\n"))
+                                return False
+                            record = _parse_lifecycle_record(raw.decode("utf-8").rstrip("\r\n"))
+                            if record is None:
+                                return False
+                            consume(record)
                         after = os.fstat(handle.fileno())
                         if (
                             opened.st_dev != after.st_dev
@@ -270,37 +270,35 @@ def _read_lifecycle_records_readonly(
                             or opened.st_size != after.st_size
                             or opened.st_mtime_ns != after.st_mtime_ns
                         ):
-                            return None
+                            return False
                 finally:
                     if descriptor >= 0:
                         os.close(descriptor)
     except FileNotFoundError:
-        return []
+        return True
     except (OSError, UnicodeError):
-        return None
+        return False
+    return True
 
-    records: list[LifecycleLedgerRecord] = []
-    for line in lines:
-        try:
-            data = json.loads(line)
-        except json.JSONDecodeError:
-            return None
-        if not isinstance(data, dict):
-            return None
-        if set(data) == _LEDGER_FIELDS:
-            data["deferred_until"] = None
-        elif set(data) != _DEFER_LEDGER_FIELDS:
-            return None
-        if not _valid_record_types(data):
-            return None
-        try:
-            record = LifecycleLedgerRecord(**data)
-        except TypeError:
-            return None
-        if not _valid_record(record):
-            return None
-        records.append(record)
-    return records
+
+def _parse_lifecycle_record(line: str) -> LifecycleLedgerRecord | None:
+    try:
+        data = json.loads(line)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(data, dict):
+        return None
+    if set(data) == _LEDGER_FIELDS:
+        data["deferred_until"] = None
+    elif set(data) != _DEFER_LEDGER_FIELDS:
+        return None
+    if not _valid_record_types(data):
+        return None
+    try:
+        record = LifecycleLedgerRecord(**data)
+    except TypeError:
+        return None
+    return record if _valid_record(record) else None
 
 
 @contextmanager

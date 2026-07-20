@@ -227,6 +227,43 @@ def test_reader_treats_semantically_invalid_record_as_malformed_barrier(
     assert latest_applied_supersession_record(tmp_brain_dir, NEW_ID, OLD_ID) is None
 
 
+def test_readiness_reader_parses_each_line_before_reading_the_next(
+    tmp_brain_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runtime = tmp_brain_dir / "runtime"
+    runtime.mkdir()
+    ledger = runtime / "lifecycle-actions.jsonl"
+    ledger.write_bytes(b"not-json\n" + b"x" * (ledger_module.MAX_LIFECYCLE_LEDGER_LINE_BYTES + 1))
+    real_loads = ledger_module.json.loads
+    parse_calls = 0
+
+    def counted_loads(payload):
+        nonlocal parse_calls
+        parse_calls += 1
+        return real_loads(payload)
+
+    monkeypatch.setattr(ledger_module.json, "loads", counted_loads)
+
+    deferrals, unavailable = ledger_module.active_lifecycle_deferrals_readonly(tmp_brain_dir)
+
+    assert deferrals == {}
+    assert unavailable is True
+    assert parse_calls == 1
+
+
+def test_readiness_reader_enforces_record_count_cap(
+    tmp_brain_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    append_lifecycle_record(tmp_brain_dir, _record())
+    append_lifecycle_record(tmp_brain_dir, _record())
+    monkeypatch.setattr(ledger_module, "MAX_LIFECYCLE_LEDGER_RECORDS", 1)
+
+    deferrals, unavailable = ledger_module.active_lifecycle_deferrals_readonly(tmp_brain_dir)
+
+    assert deferrals == {}
+    assert unavailable is True
+
+
 @pytest.mark.parametrize("control_error", [KeyboardInterrupt("control"), SystemExit("control")])
 def test_append_preserves_control_exception_when_byte_rollback_fails(
     tmp_brain_dir: Path, monkeypatch, control_error: BaseException

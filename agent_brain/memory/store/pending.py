@@ -836,6 +836,7 @@ class _PendingPreviewCommon(TypedDict):
 class _ItemMetadataSnapshot:
     items: dict[str, MemoryItem]
     trusted: bool
+    reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -1087,7 +1088,20 @@ class PendingQueue:
                 scan_unavailable=path_snapshot.scan_unavailable,
                 reason=path_snapshot.reason,
             )
-        existing = _scan_existing_item_metadata(brain / "items")
+        existing = _scan_existing_item_metadata(
+            brain / "items",
+            deadline_at=deadline_at,
+        )
+        if existing.reason == "PENDING_READINESS_BUDGET_EXCEEDED":
+            return PendingPreview(
+                total=path_snapshot.total,
+                returned=0,
+                limit=bounded_limit,
+                truncated=path_snapshot.total > 0,
+                records=[],
+                scan_unavailable=True,
+                reason=existing.reason,
+            )
         records: list[PendingRecordPreview] = []
         for path in classification_paths:
             if deadline_at is not None and _monotonic() > deadline_at:
@@ -1105,8 +1119,19 @@ class PendingQueue:
                     path,
                     existing_items=existing.items,
                     metadata_trusted=existing.trusted,
+                    deadline_at=deadline_at,
                 )
             )
+            if records[-1].reason == "PENDING_READINESS_BUDGET_EXCEEDED":
+                return PendingPreview(
+                    total=path_snapshot.total,
+                    returned=0,
+                    limit=bounded_limit,
+                    truncated=path_snapshot.total > 0,
+                    records=[],
+                    scan_unavailable=True,
+                    reason="PENDING_READINESS_BUDGET_EXCEEDED",
+                )
             if deadline_at is not None and _monotonic() > deadline_at:
                 return PendingPreview(
                     total=path_snapshot.total,
@@ -1177,9 +1202,10 @@ class PendingQueue:
                 reason="PENDING_READINESS_BUDGET_EXCEEDED",
             )
         started = _monotonic()
+        deadline_at = started + deadline_seconds
         snapshot = _pending_record_paths(
             self._brain_dir() / "pending",
-            deadline=deadline_seconds,
+            deadline_at=deadline_at,
             entry_cap=MAX_PENDING_QUEUE_ENTRIES,
         )
         if snapshot.scan_unavailable:
@@ -1195,15 +1221,15 @@ class PendingQueue:
         total_bytes = 0
         try:
             for path in snapshot.paths:
-                if _monotonic() - started > deadline_seconds:
-                    raise TimeoutError
+                _require_readiness_deadline(deadline_at)
                 opened = os.lstat(path)
+                _require_readiness_deadline(deadline_at)
                 if not _is_safe_regular_file(opened):
                     raise OSError("pending record is not regular")
                 total_bytes += opened.st_size
                 if total_bytes > max_total_bytes:
                     raise OverflowError
-        except (OSError, OverflowError, TimeoutError):
+        except (OSError, OverflowError, _PendingReadError):
             return PendingPreview(
                 total=snapshot.total,
                 returned=0,
@@ -1216,7 +1242,7 @@ class PendingQueue:
         preview = self._preview_from_snapshot(
             snapshot,
             limit=bounded_limit,
-            deadline_at=started + deadline_seconds,
+            deadline_at=deadline_at,
         )
         if _monotonic() - started <= deadline_seconds:
             return preview
@@ -1508,10 +1534,14 @@ class PendingQueue:
         *,
         existing_items: dict[str, MemoryItem],
         metadata_trusted: bool,
+        deadline_at: float | None = None,
     ) -> PendingRecordPreview:
         raw: bytes | None = None
         try:
-            raw, identity = _read_pending_record_snapshot(path)
+            raw, identity = _read_pending_record_snapshot(
+                path,
+                deadline_at=deadline_at,
+            )
             line = raw.decode("utf-8").strip().splitlines()[0]
             rec = json.loads(line, parse_constant=_reject_json_constant)
             if not isinstance(rec, dict):
@@ -2403,10 +2433,15 @@ class _PendingReadError(Exception):
         self.reason = reason
 
 
+def _require_readiness_deadline(deadline_at: float | None) -> None:
+    if deadline_at is not None and _monotonic() > deadline_at:
+        raise _PendingReadError("PENDING_READINESS_BUDGET_EXCEEDED")
+
+
 def _pending_record_paths(
     directory: Path,
     *,
-    deadline: float | None = None,
+    deadline_at: float | None = None,
     entry_cap: int | None = None,
 ) -> _PendingPathSnapshot:
     retained: list[tuple[_DescendingName, str, Path]] = []
@@ -2414,18 +2449,7 @@ def _pending_record_paths(
     scan_failed = False
     budget_exceeded = False
     scanned_entries = 0
-    started = _monotonic()
     retain_limit = max(0, MAX_PENDING_QUEUE_ENTRIES) + 1
-
-    def before_next_entry() -> bool:
-        nonlocal budget_exceeded
-        if deadline is not None and _monotonic() - started > deadline:
-            budget_exceeded = True
-            return False
-        if entry_cap is not None and scanned_entries >= max(0, entry_cap):
-            budget_exceeded = True
-            return False
-        return True
 
     def consider(entry: os.DirEntry[str], *, fallback: bool) -> None:
         nonlocal scan_failed, total
@@ -2433,14 +2457,24 @@ def _pending_record_paths(
             if not entry.name.endswith(".jsonl"):
                 return
             if fallback:
+                _require_readiness_deadline(deadline_at)
                 opened = os.lstat(directory / entry.name)
+                _require_readiness_deadline(deadline_at)
                 if _is_reparse_point(opened):
                     scan_failed = True
                     return
                 if not stat.S_ISREG(opened.st_mode):
                     return
-            elif entry.is_symlink() or not entry.is_file(follow_symlinks=False):
-                return
+            else:
+                _require_readiness_deadline(deadline_at)
+                is_symlink = entry.is_symlink()
+                _require_readiness_deadline(deadline_at)
+                if is_symlink:
+                    return
+                is_file = entry.is_file(follow_symlinks=False)
+                _require_readiness_deadline(deadline_at)
+                if not is_file:
+                    return
         except OSError:
             scan_failed = True
             return
@@ -2454,22 +2488,28 @@ def _pending_record_paths(
     if secure_dir_fd_io_supported():
         descriptor: int | None = None
         try:
+            _require_readiness_deadline(deadline_at)
             descriptor = open_directory_path_without_symlinks(directory)
+            _require_readiness_deadline(deadline_at)
             with os.scandir(descriptor) as entries:
+                _require_readiness_deadline(deadline_at)
                 while True:
-                    if not before_next_entry():
-                        break
+                    _require_readiness_deadline(deadline_at)
                     try:
                         entry = next(entries)
                     except StopIteration:
                         break
-                    scanned_entries += 1
-                    consider(entry, fallback=False)
-                    if deadline is not None and _monotonic() - started > deadline:
+                    _require_readiness_deadline(deadline_at)
+                    if entry_cap is not None and scanned_entries >= max(0, entry_cap):
                         budget_exceeded = True
                         break
+                    scanned_entries += 1
+                    consider(entry, fallback=False)
+                    _require_readiness_deadline(deadline_at)
         except FileNotFoundError:
             return _PendingPathSnapshot(paths=[], total=0)
+        except _PendingReadError:
+            budget_exceeded = True
         except OSError:
             return _PendingPathSnapshot(
                 paths=[],
@@ -2488,12 +2528,16 @@ def _pending_record_paths(
             reason=(
                 "PENDING_READINESS_BUDGET_EXCEEDED"
                 if budget_exceeded
-                else "PENDING_SCAN_UNAVAILABLE" if scan_failed else None
+                else "PENDING_SCAN_UNAVAILABLE"
+                if scan_failed
+                else None
             ),
         )
 
     try:
+        _require_readiness_deadline(deadline_at)
         before = os.lstat(directory)
+        _require_readiness_deadline(deadline_at)
         if not _is_safe_directory(before):
             return _PendingPathSnapshot(
                 paths=[],
@@ -2502,23 +2546,30 @@ def _pending_record_paths(
                 reason="PENDING_SCAN_UNAVAILABLE",
             )
         with os.scandir(directory) as entries:
+            _require_readiness_deadline(deadline_at)
             while True:
-                if not before_next_entry():
-                    break
+                _require_readiness_deadline(deadline_at)
                 try:
                     entry = next(entries)
                 except StopIteration:
                     break
-                scanned_entries += 1
-                consider(entry, fallback=True)
-                if deadline is not None and _monotonic() - started > deadline:
+                _require_readiness_deadline(deadline_at)
+                if entry_cap is not None and scanned_entries >= max(0, entry_cap):
                     budget_exceeded = True
                     break
-        after = os.lstat(directory)
-        if not _is_safe_directory(after) or not _same_file_identity(before, after):
-            scan_failed = True
+                scanned_entries += 1
+                consider(entry, fallback=True)
+                _require_readiness_deadline(deadline_at)
+        if not budget_exceeded:
+            _require_readiness_deadline(deadline_at)
+            after = os.lstat(directory)
+            _require_readiness_deadline(deadline_at)
+            if not _is_safe_directory(after) or not _same_file_identity(before, after):
+                scan_failed = True
     except FileNotFoundError:
         return _PendingPathSnapshot(paths=[], total=0)
+    except _PendingReadError:
+        budget_exceeded = True
     except OSError:
         return _PendingPathSnapshot(
             paths=[],
@@ -2534,33 +2585,51 @@ def _pending_record_paths(
         reason=(
             "PENDING_READINESS_BUDGET_EXCEEDED"
             if budget_exceeded
-            else "PENDING_SCAN_UNAVAILABLE" if scan_failed else None
+            else "PENDING_SCAN_UNAVAILABLE"
+            if scan_failed
+            else None
         ),
     )
 
 
-def _read_pending_record_snapshot(path: Path) -> tuple[bytes, tuple[int, int]]:
+def _read_pending_record_snapshot(
+    path: Path,
+    *,
+    deadline_at: float | None = None,
+) -> tuple[bytes, tuple[int, int]]:
     """Read a bounded record and bind it to a reliable non-zero file identity."""
 
     if secure_dir_fd_io_supported():
         directory_descriptor: int | None = None
         descriptor: int | None = None
         try:
+            _require_readiness_deadline(deadline_at)
             directory_descriptor = open_directory_path_without_symlinks(path.parent)
+            _require_readiness_deadline(deadline_at)
             descriptor = open_regular_file_at(directory_descriptor, path.name)
+            _require_readiness_deadline(deadline_at)
             opened = os.fstat(descriptor)
+            _require_readiness_deadline(deadline_at)
             identity = (
                 int(getattr(opened, "st_dev", 0) or 0),
                 int(getattr(opened, "st_ino", 0) or 0),
             )
             if not all(identity):
                 raise _PendingReadError("PENDING_RECORD_CHANGED")
-            raw = _read_bounded_descriptor(descriptor, MAX_PENDING_RECORD_BYTES)
+            raw = _read_bounded_descriptor(
+                descriptor,
+                MAX_PENDING_RECORD_BYTES,
+                deadline_at=deadline_at,
+            )
+            _require_readiness_deadline(deadline_at)
             after = os.fstat(descriptor)
+            _require_readiness_deadline(deadline_at)
             if not _same_file_identity(opened, after):
                 raise _PendingReadError("PENDING_RECORD_CHANGED")
             return raw, identity
         except FileNotFoundError:
+            raise
+        except _PendingReadError:
             raise
         except OSError as exc:
             raise _PendingReadError("PENDING_RECORD_READ_FAILED") from exc
@@ -2571,7 +2640,9 @@ def _read_pending_record_snapshot(path: Path) -> tuple[bytes, tuple[int, int]]:
                 close_descriptor(directory_descriptor)
 
     try:
+        _require_readiness_deadline(deadline_at)
         before = os.lstat(path)
+        _require_readiness_deadline(deadline_at)
         if not _is_safe_regular_file(before):
             raise _PendingReadError("PENDING_RECORD_NOT_REGULAR")
         flags = (
@@ -2581,9 +2652,12 @@ def _read_pending_record_snapshot(path: Path) -> tuple[bytes, tuple[int, int]]:
             | getattr(os, "O_NONBLOCK", 0)
             | getattr(os, "O_NOFOLLOW", 0)
         )
+        _require_readiness_deadline(deadline_at)
         descriptor = os.open(path, flags)
         try:
+            _require_readiness_deadline(deadline_at)
             opened = os.fstat(descriptor)
+            _require_readiness_deadline(deadline_at)
             if not _is_safe_regular_file(opened) or not _same_file_identity(before, opened):
                 raise _PendingReadError("PENDING_RECORD_CHANGED")
             identity = (
@@ -2592,7 +2666,11 @@ def _read_pending_record_snapshot(path: Path) -> tuple[bytes, tuple[int, int]]:
             )
             if not all(identity):
                 raise _PendingReadError("PENDING_RECORD_CHANGED")
-            raw = _read_bounded_descriptor(descriptor, MAX_PENDING_RECORD_BYTES)
+            raw = _read_bounded_descriptor(
+                descriptor,
+                MAX_PENDING_RECORD_BYTES,
+                deadline_at=deadline_at,
+            )
             return raw, identity
         finally:
             close_descriptor(descriptor)
@@ -2608,8 +2686,15 @@ def _read_pending_record(path: Path) -> bytes:
     return _read_pending_record_snapshot(path)[0]
 
 
-def _read_bounded_descriptor(descriptor: int, limit: int) -> bytes:
+def _read_bounded_descriptor(
+    descriptor: int,
+    limit: int,
+    *,
+    deadline_at: float | None = None,
+) -> bytes:
+    _require_readiness_deadline(deadline_at)
     before = os.fstat(descriptor)
+    _require_readiness_deadline(deadline_at)
     if not _is_safe_regular_file(before):
         raise _PendingReadError("PENDING_RECORD_NOT_REGULAR")
     if before.st_size > limit:
@@ -2617,13 +2702,17 @@ def _read_bounded_descriptor(descriptor: int, limit: int) -> bytes:
     chunks: list[bytes] = []
     remaining = limit + 1
     while remaining > 0:
+        _require_readiness_deadline(deadline_at)
         chunk = os.read(descriptor, min(65536, remaining))
+        _require_readiness_deadline(deadline_at)
         if not chunk:
             break
         chunks.append(chunk)
         remaining -= len(chunk)
     data = b"".join(chunks)
+    _require_readiness_deadline(deadline_at)
     after = os.fstat(descriptor)
+    _require_readiness_deadline(deadline_at)
     if len(data) > limit:
         raise _PendingReadError("PENDING_RECORD_TOO_LARGE")
     if (
@@ -2637,29 +2726,54 @@ def _read_bounded_descriptor(descriptor: int, limit: int) -> bytes:
     return data
 
 
-def _scan_existing_item_metadata(items_dir: Path) -> _ItemMetadataSnapshot:
+def _scan_existing_item_metadata(
+    items_dir: Path,
+    *,
+    deadline_at: float | None = None,
+) -> _ItemMetadataSnapshot:
     """Read bounded item frontmatter only; never load Markdown bodies."""
 
     if not secure_dir_fd_io_supported():
-        return _scan_existing_item_metadata_fallback(items_dir)
+        return _scan_existing_item_metadata_fallback(
+            items_dir,
+            deadline_at=deadline_at,
+        )
     root: int | None = None
     stack: list[tuple[int, Iterator[os.DirEntry[str]], int]] = []
     items: dict[str, MemoryItem] = {}
     entry_count = 0
     bytes_read = 0
     try:
+        _require_readiness_deadline(deadline_at)
         root = open_directory_path_without_symlinks(items_dir)
-        stack.append((root, os.scandir(root), 0))
+        _require_readiness_deadline(deadline_at)
+        root_entries = os.scandir(root)
+        try:
+            _require_readiness_deadline(deadline_at)
+        except BaseException:
+            root_entries.close()
+            raise
+        stack.append((root, root_entries, 0))
         root = None
     except FileNotFoundError:
+        if root is not None:
+            close_descriptor(root)
         return _ItemMetadataSnapshot(items={}, trusted=True)
     except OSError:
+        if root is not None:
+            close_descriptor(root)
         return _ItemMetadataSnapshot(items={}, trusted=False)
+    except _PendingReadError as exc:
+        if root is not None:
+            close_descriptor(root)
+        return _ItemMetadataSnapshot(items={}, trusted=False, reason=exc.reason)
     try:
         while stack:
             directory, entries, depth = stack[-1]
             try:
+                _require_readiness_deadline(deadline_at)
                 entry = next(entries)
+                _require_readiness_deadline(deadline_at)
             except StopIteration:
                 _close_item_scan_frame(stack.pop())
                 continue
@@ -2671,22 +2785,40 @@ def _scan_existing_item_metadata(items_dir: Path) -> _ItemMetadataSnapshot:
             if entry_count > MAX_ITEM_METADATA_ENTRIES:
                 return _ItemMetadataSnapshot(items={}, trusted=False)
             try:
-                if entry.is_symlink():
+                _require_readiness_deadline(deadline_at)
+                is_symlink = entry.is_symlink()
+                _require_readiness_deadline(deadline_at)
+                if is_symlink:
                     continue
-                if entry.is_dir(follow_symlinks=False):
+                is_directory = entry.is_dir(follow_symlinks=False)
+                _require_readiness_deadline(deadline_at)
+                if is_directory:
                     if depth >= MAX_ITEM_DIRECTORY_DEPTH:
                         return _ItemMetadataSnapshot(items={}, trusted=False)
+                    _require_readiness_deadline(deadline_at)
                     child = open_child_directory(directory, entry.name)
+                    _require_readiness_deadline(deadline_at)
                     try:
                         child_entries = os.scandir(child)
+                        try:
+                            _require_readiness_deadline(deadline_at)
+                        except BaseException:
+                            child_entries.close()
+                            raise
                     except BaseException:
                         close_descriptor(child)
                         raise
                     stack.append((child, child_entries, depth + 1))
                     continue
-                if not entry.is_file(follow_symlinks=False) or not entry.name.endswith(".md"):
+                is_file = entry.is_file(follow_symlinks=False)
+                _require_readiness_deadline(deadline_at)
+                if not is_file or not entry.name.endswith(".md"):
                     continue
-                item, consumed = _read_item_frontmatter(directory, entry.name)
+                item, consumed = _read_item_frontmatter(
+                    directory,
+                    entry.name,
+                    deadline_at=deadline_at,
+                )
                 bytes_read += consumed
                 if bytes_read > MAX_ITEM_METADATA_BYTES:
                     return _ItemMetadataSnapshot(items={}, trusted=False)
@@ -2700,6 +2832,8 @@ def _scan_existing_item_metadata(items_dir: Path) -> _ItemMetadataSnapshot:
             except OSError:
                 return _ItemMetadataSnapshot(items={}, trusted=False)
         return _ItemMetadataSnapshot(items=items, trusted=True)
+    except _PendingReadError as exc:
+        return _ItemMetadataSnapshot(items={}, trusted=False, reason=exc.reason)
     finally:
         if root is not None:
             close_descriptor(root)
@@ -2707,23 +2841,35 @@ def _scan_existing_item_metadata(items_dir: Path) -> _ItemMetadataSnapshot:
             _close_item_scan_frame(stack.pop())
 
 
-def _verify_fallback_directory_chain(path: Path) -> os.stat_result:
+def _verify_fallback_directory_chain(
+    path: Path,
+    *,
+    deadline_at: float | None = None,
+) -> os.stat_result:
     absolute = Path(os.path.abspath(os.fspath(path)))
     current = Path(absolute.anchor)
+    _require_readiness_deadline(deadline_at)
     opened = os.lstat(current)
+    _require_readiness_deadline(deadline_at)
     if not _is_safe_directory(opened):
         raise OSError("trusted path anchor is not a directory")
     for component in absolute.parts[1:]:
         if component in {"", ".", ".."}:
             raise OSError("invalid trusted directory component")
         current /= component
+        _require_readiness_deadline(deadline_at)
         opened = os.lstat(current)
+        _require_readiness_deadline(deadline_at)
         if not _is_safe_directory(opened):
             raise OSError("trusted path component is not a directory")
     return opened
 
 
-def _scan_existing_item_metadata_fallback(items_dir: Path) -> _ItemMetadataSnapshot:
+def _scan_existing_item_metadata_fallback(
+    items_dir: Path,
+    *,
+    deadline_at: float | None = None,
+) -> _ItemMetadataSnapshot:
     """Windows-compatible lstat/open/fstat frontmatter-only traversal."""
 
     items: dict[str, MemoryItem] = {}
@@ -2731,24 +2877,40 @@ def _scan_existing_item_metadata_fallback(items_dir: Path) -> _ItemMetadataSnaps
     bytes_read = 0
     stack: list[tuple[Path, Iterator[os.DirEntry[str]], int, os.stat_result]] = []
     try:
-        root_identity = _verify_fallback_directory_chain(items_dir)
-        stack.append((items_dir, os.scandir(items_dir), 0, root_identity))
+        root_identity = _verify_fallback_directory_chain(
+            items_dir,
+            deadline_at=deadline_at,
+        )
+        _require_readiness_deadline(deadline_at)
+        root_entries = os.scandir(items_dir)
+        try:
+            _require_readiness_deadline(deadline_at)
+        except BaseException:
+            root_entries.close()
+            raise
+        stack.append((items_dir, root_entries, 0, root_identity))
     except FileNotFoundError:
         return _ItemMetadataSnapshot(items={}, trusted=True)
     except OSError:
         return _ItemMetadataSnapshot(items={}, trusted=False)
+    except _PendingReadError as exc:
+        return _ItemMetadataSnapshot(items={}, trusted=False, reason=exc.reason)
     try:
         while stack:
             directory, entries, depth, identity = stack[-1]
             try:
+                _require_readiness_deadline(deadline_at)
                 entry = next(entries)
+                _require_readiness_deadline(deadline_at)
             except StopIteration:
                 close = getattr(entries, "close", None)
                 if callable(close):
                     close()
                 stack.pop()
                 try:
+                    _require_readiness_deadline(deadline_at)
                     current_identity = os.lstat(directory)
+                    _require_readiness_deadline(deadline_at)
                     if not _is_safe_directory(current_identity) or not _same_file_identity(
                         identity, current_identity
                     ):
@@ -2767,7 +2929,9 @@ def _scan_existing_item_metadata_fallback(items_dir: Path) -> _ItemMetadataSnaps
             try:
                 # DirEntry identity can be zero on Windows. Use an explicit
                 # path lstat as the pre-open identity for every nested entry.
+                _require_readiness_deadline(deadline_at)
                 opened = os.lstat(path)
+                _require_readiness_deadline(deadline_at)
                 if _is_reparse_point(opened):
                     return _ItemMetadataSnapshot(items={}, trusted=False)
                 if stat.S_ISLNK(opened.st_mode):
@@ -2775,11 +2939,21 @@ def _scan_existing_item_metadata_fallback(items_dir: Path) -> _ItemMetadataSnaps
                 if stat.S_ISDIR(opened.st_mode):
                     if depth >= MAX_ITEM_DIRECTORY_DEPTH:
                         return _ItemMetadataSnapshot(items={}, trusted=False)
-                    stack.append((path, os.scandir(path), depth + 1, opened))
+                    _require_readiness_deadline(deadline_at)
+                    child_entries = os.scandir(path)
+                    try:
+                        _require_readiness_deadline(deadline_at)
+                    except BaseException:
+                        child_entries.close()
+                        raise
+                    stack.append((path, child_entries, depth + 1, opened))
                     continue
                 if not stat.S_ISREG(opened.st_mode) or not entry.name.endswith(".md"):
                     continue
-                item, consumed = _read_item_frontmatter_fallback(path)
+                item, consumed = _read_item_frontmatter_fallback(
+                    path,
+                    deadline_at=deadline_at,
+                )
                 bytes_read += consumed
                 if bytes_read > MAX_ITEM_METADATA_BYTES or item is None:
                     return _ItemMetadataSnapshot(items={}, trusted=False)
@@ -2789,19 +2963,27 @@ def _scan_existing_item_metadata_fallback(items_dir: Path) -> _ItemMetadataSnaps
             except OSError:
                 return _ItemMetadataSnapshot(items={}, trusted=False)
         return _ItemMetadataSnapshot(items=items, trusted=True)
+    except _PendingReadError as exc:
+        return _ItemMetadataSnapshot(items={}, trusted=False, reason=exc.reason)
     finally:
         while stack:
-            _directory, entries, _depth, _identity = stack.pop()
-            close = getattr(entries, "close", None)
+            _directory, frame_entries, _depth, _identity = stack.pop()
+            close = getattr(frame_entries, "close", None)
             if callable(close):
                 close()
 
 
-def _read_item_frontmatter_fallback(path: Path) -> tuple[MemoryItem | None, int]:
+def _read_item_frontmatter_fallback(
+    path: Path,
+    *,
+    deadline_at: float | None = None,
+) -> tuple[MemoryItem | None, int]:
     consumed = 0
     descriptor: int | None = None
     try:
+        _require_readiness_deadline(deadline_at)
         before = os.lstat(path)
+        _require_readiness_deadline(deadline_at)
         if not _is_safe_regular_file(before):
             return None, consumed
         flags = (
@@ -2811,14 +2993,19 @@ def _read_item_frontmatter_fallback(path: Path) -> tuple[MemoryItem | None, int]
             | getattr(os, "O_NONBLOCK", 0)
             | getattr(os, "O_NOFOLLOW", 0)
         )
+        _require_readiness_deadline(deadline_at)
         descriptor = os.open(path, flags)
+        _require_readiness_deadline(deadline_at)
         opened = os.fstat(descriptor)
+        _require_readiness_deadline(deadline_at)
         if not _is_safe_regular_file(opened) or not _same_file_identity(before, opened):
             return None, consumed
         handle = cast(BinaryIO, os.fdopen(descriptor, "rb", buffering=0))
         descriptor = None
         with handle:
+            _require_readiness_deadline(deadline_at)
             opening = handle.readline(MAX_ITEM_FRONTMATTER_BYTES + 1)
+            _require_readiness_deadline(deadline_at)
             consumed += len(opening)
             normalized_opening = opening.rstrip(b"\r\n")
             if normalized_opening.startswith(b"\xef\xbb\xbf"):
@@ -2827,14 +3014,18 @@ def _read_item_frontmatter_fallback(path: Path) -> tuple[MemoryItem | None, int]
                 return None, consumed
             lines: list[bytes] = []
             while consumed <= MAX_ITEM_FRONTMATTER_BYTES:
+                _require_readiness_deadline(deadline_at)
                 line = handle.readline(MAX_ITEM_FRONTMATTER_BYTES - consumed + 1)
+                _require_readiness_deadline(deadline_at)
                 consumed += len(line)
                 if consumed > MAX_ITEM_FRONTMATTER_BYTES or not line:
                     return None, consumed
                 if line.rstrip(b"\r\n") == b"---":
                     frontmatter = b"---\n" + b"".join(lines) + b"---\n"
                     item, _body = parse_item_markdown(frontmatter.decode("utf-8"))
+                    _require_readiness_deadline(deadline_at)
                     after = os.fstat(handle.fileno())
+                    _require_readiness_deadline(deadline_at)
                     if (
                         opened.st_size != after.st_size
                         or opened.st_mtime_ns != after.st_mtime_ns
@@ -2854,6 +3045,8 @@ def _read_item_frontmatter_fallback(path: Path) -> tuple[MemoryItem | None, int]
         yaml.YAMLError,
     ):
         return None, consumed
+    except _PendingReadError:
+        raise
     finally:
         if descriptor is not None:
             close_descriptor(descriptor)
@@ -2871,13 +3064,22 @@ def _close_item_scan_frame(frame: tuple[int, Iterator[os.DirEntry[str]], int]) -
 
 
 def _read_item_frontmatter(
-    directory_descriptor: int, filename: str
+    directory_descriptor: int,
+    filename: str,
+    *,
+    deadline_at: float | None = None,
 ) -> tuple[MemoryItem | None, int]:
     consumed = 0
     lines: list[bytes] = []
     try:
-        with _open_regular_binary(directory_descriptor, filename) as handle:
+        with _open_regular_binary(
+            directory_descriptor,
+            filename,
+            deadline_at=deadline_at,
+        ) as handle:
+            _require_readiness_deadline(deadline_at)
             opening = handle.readline(MAX_ITEM_FRONTMATTER_BYTES + 1)
+            _require_readiness_deadline(deadline_at)
             consumed += len(opening)
             normalized_opening = opening.rstrip(b"\r\n")
             if normalized_opening.startswith(b"\xef\xbb\xbf"):
@@ -2885,7 +3087,9 @@ def _read_item_frontmatter(
             if normalized_opening != b"---":
                 return None, consumed
             while consumed <= MAX_ITEM_FRONTMATTER_BYTES:
+                _require_readiness_deadline(deadline_at)
                 line = handle.readline(MAX_ITEM_FRONTMATTER_BYTES - consumed + 1)
+                _require_readiness_deadline(deadline_at)
                 consumed += len(line)
                 if consumed > MAX_ITEM_FRONTMATTER_BYTES or not line:
                     return None, consumed
@@ -2904,13 +3108,23 @@ def _read_item_frontmatter(
         yaml.YAMLError,
     ):
         return None, consumed
+    except _PendingReadError:
+        raise
     return None, consumed
 
 
 @contextmanager
-def _open_regular_binary(directory_descriptor: int, filename: str) -> Iterator[BinaryIO]:
-    descriptor: int | None = open_regular_file_at(directory_descriptor, filename)
+def _open_regular_binary(
+    directory_descriptor: int,
+    filename: str,
+    *,
+    deadline_at: float | None = None,
+) -> Iterator[BinaryIO]:
+    descriptor: int | None = None
     try:
+        _require_readiness_deadline(deadline_at)
+        descriptor = open_regular_file_at(directory_descriptor, filename)
+        _require_readiness_deadline(deadline_at)
         assert descriptor is not None
         handle = cast(BinaryIO, os.fdopen(descriptor, "rb", buffering=0))
         descriptor = None
