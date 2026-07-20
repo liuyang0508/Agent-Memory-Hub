@@ -5,6 +5,7 @@ These tests pin the central invariant of the brain pool: the markdown append
 are best-effort — their failure degrades the result but never blocks the write —
 and the audit gate fail-closes on critical/high findings unless explicitly waived.
 """
+
 import logging
 import json
 from datetime import datetime, timezone
@@ -27,9 +28,11 @@ def test_write_result_type_is_split_and_reexported():
 
 def _item(title="hello world", type=MemoryType.fact):
     from agent_brain.memory.store.items_store import make_item_id
+
     now = datetime.now(timezone.utc).astimezone()
-    return MemoryItem(id=make_item_id(title, when=now), type=type,
-                      created_at=now, title=title, summary="s")
+    return MemoryItem(
+        id=make_item_id(title, when=now), type=type, created_at=now, title=title, summary="s"
+    )
 
 
 def test_write_succeeds_when_md_append_succeeds(tmp_brain):
@@ -45,10 +48,11 @@ def test_write_succeeds_when_md_append_succeeds(tmp_brain):
 def test_write_still_written_when_indexing_fails(tmp_brain, monkeypatch):
     svc = WriteService.for_brain(tmp_brain)
     # Force the index/embedder layer to explode:
-    monkeypatch.setattr(svc, "_index_item",
-                        lambda *a, **k: (_ for _ in ()).throw(RuntimeError("embedder offline")))
+    monkeypatch.setattr(
+        svc, "_index_item", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("embedder offline"))
+    )
     res = svc.write(item=_item(), body="b", allow_unsafe=True)
-    assert res.status == "written"      # md append is the only verdict
+    assert res.status == "written"  # md append is the only verdict
     assert res.indexed is False
     assert "index" in res.degraded
 
@@ -93,6 +97,29 @@ def test_reconcile_existing_marks_index_dirty_without_losing_written_verdict(
     assert item.id in (tmp_brain / ".index-dirty").read_text(encoding="utf-8")
 
 
+def test_write_service_dirty_marker_uses_explicit_brain_not_environment(
+    tmp_path,
+    monkeypatch,
+):
+    requested = tmp_path / "requested"
+    environment = tmp_path / "environment"
+    monkeypatch.setenv("BRAIN_DIR", str(environment))
+    store = ItemsStore(requested / "items")
+    svc = WriteService(
+        store,
+        index=None,
+        embedder=None,
+        brain_dir=requested,
+    )
+    item = _item(title="explicit dirty marker brain")
+
+    result = svc.write(item=item, body="body", allow_unsafe=True)
+
+    assert result.degraded == ["index"]
+    assert item.id in (requested / ".index-dirty").read_text(encoding="utf-8")
+    assert not (environment / ".index-dirty").exists()
+
+
 def test_audit_gate_blocks_critical(tmp_brain):
     svc = WriteService.for_brain(tmp_brain)
     # An item whose text trips a critical audit rule (a private key marker).
@@ -122,7 +149,10 @@ def test_structured_memory_quality_warnings_do_not_block_write(tmp_brain):
     res = svc.write(item=item, body="We picked SSE.", allow_unsafe=True)
 
     assert res.status == "written"
-    assert "decision body missing required sections: **决策**, **理由**, **改回去的代价**" in res.warnings
+    assert (
+        "decision body missing required sections: **决策**, **理由**, **改回去的代价**"
+        in res.warnings
+    )
     assert "decision item has no source refs" not in res.warnings
 
 
@@ -164,7 +194,10 @@ def test_evidence_quality_warnings_do_not_block_write(tmp_brain):
 
     assert res.status == "written"
     assert "fact item has no source refs" in res.warnings
-    assert "body contains multimodal placeholder without resource/extraction refs: [Image #1]" in res.warnings
+    assert (
+        "body contains multimodal placeholder without resource/extraction refs: [Image #1]"
+        in res.warnings
+    )
 
 
 def test_write_marks_unbounded_harvested_memory_as_review_candidate(tmp_brain):
@@ -173,14 +206,18 @@ def test_write_marks_unbounded_harvested_memory_as_review_candidate(tmp_brain):
         update={"source": Source(kind="harvested", extractor="mechanical")}
     )
 
-    res = svc.write(item=item, body="User said the browser issue might be fixed.", allow_unsafe=True)
+    res = svc.write(
+        item=item, body="User said the browser issue might be fixed.", allow_unsafe=True
+    )
 
     stored, _body = svc._store.get(item.id)
     assert res.status == "written"
     assert "needs-review" in stored.tags
     assert "unverified-boundary" in stored.tags
     assert stored.confidence <= 0.35
-    assert "memory item lacks explicit validity/source boundary; marked needs-review" in res.warnings
+    assert (
+        "memory item lacks explicit validity/source boundary; marked needs-review" in res.warnings
+    )
 
 
 def test_write_keeps_sourced_harvested_memory_in_normal_pool(tmp_brain):

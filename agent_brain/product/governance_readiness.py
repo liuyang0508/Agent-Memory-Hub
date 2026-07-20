@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import Counter
+from collections.abc import Iterator
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 import json
@@ -13,17 +14,26 @@ import stat
 import subprocess
 import sys
 import tempfile
-from typing import Any
+import time
+from typing import Any, BinaryIO
 
 from agent_brain.contracts.memory_enums import memory_enum_value
 from agent_brain.contracts.memory_item import MemoryItem
 from agent_brain.memory.context.query_signal import diagnose_injection_query
 from agent_brain.memory.governance.auto_governance import lifecycle_review_due
 from agent_brain.memory.governance.lifecycle_ledger import active_lifecycle_deferrals
-from agent_brain.memory.store.items_store import ItemsStore
+from agent_brain.memory.store.item_markdown import parse_item_markdown
 from agent_brain.memory.store.pending import (
     MAX_PENDING_QUEUE_ENTRIES,
     PendingQueue,
+    read_dirty_index_marker,
+)
+from agent_brain.platform.secure_io import (
+    close_descriptor,
+    open_child_directory,
+    open_directory_path_without_symlinks,
+    open_regular_file_at,
+    secure_dir_fd_io_supported,
 )
 
 
@@ -107,9 +117,7 @@ def build_governance_readiness_report(
         _query_signal_lane(brain_dir),
         _memory_lifecycle_lane(brain_dir),
     ]
-    next_actions = _unique(
-        action for lane in lanes for action in lane.next_actions
-    )
+    next_actions = _unique(action for lane in lanes for action in lane.next_actions)
     return GovernanceReadinessReport(
         generated_at=datetime.now(timezone.utc).isoformat(),
         overall_status=_worst_status(lane.status for lane in lanes),
@@ -127,14 +135,16 @@ def render_governance_readiness_markdown(report: GovernanceReadinessReport) -> s
         "",
     ]
     for lane in report.lanes:
-        lines.extend([
-            f"## {lane.title}",
-            "",
-            f"**Status**: `{lane.status}`",
-            "",
-            "| Check | Status | Detail |",
-            "|---|---|---|",
-        ])
+        lines.extend(
+            [
+                f"## {lane.title}",
+                "",
+                f"**Status**: `{lane.status}`",
+                "",
+                "| Check | Status | Detail |",
+                "|---|---|---|",
+            ]
+        )
         for check in lane.checks:
             lines.append(f"| {check.title} | `{check.status}` | {check.detail} |")
         if lane.metrics:
@@ -189,9 +199,7 @@ def _release_lane(repo_root: Path) -> ReadinessLane:
         status=_worst_status(check.status for check in checks),
         metrics={
             "checked_files": len(local_files),
-            "missing_or_warn_files": sum(
-                1 for path in local_files.values() if not path.exists()
-            ),
+            "missing_or_warn_files": sum(1 for path in local_files.values() if not path.exists()),
         },
         checks=checks,
         next_actions=next_actions,
@@ -216,7 +224,8 @@ def _query_signal_lane(brain_dir: Path) -> ReadinessLane:
         lower_terms = tuple(term.lower() for term in terms)
         expected_terms = tuple(str(term).lower() for term in case.get("expected_terms", ()))
         missing_terms = [
-            term for term in expected_terms
+            term
+            for term in expected_terms
             if not any(term in candidate or candidate in term for candidate in lower_terms)
         ]
         if diagnostic.injectable:
@@ -225,9 +234,8 @@ def _query_signal_lane(brain_dir: Path) -> ReadinessLane:
             blocked += 1
         expected_injectable = bool(case["expected_injectable"])
         expected_reason = case.get("expected_reason")
-        reason_mismatch = (
-            expected_reason is not None
-            and str(diagnostic.reason) != str(expected_reason)
+        reason_mismatch = expected_reason is not None and str(diagnostic.reason) != str(
+            expected_reason
         )
         is_under_extracted = (
             diagnostic.injectable != expected_injectable
@@ -238,24 +246,26 @@ def _query_signal_lane(brain_dir: Path) -> ReadinessLane:
         if is_under_extracted:
             under_extracted += 1
         status = "warn" if is_under_extracted else "pass"
-        checks.append(ReadinessCheck(
-            id=str(case["id"]),
-            status=status,
-            title=str(case["id"]).replace("_", " "),
-            detail=(
-                f"category={category}, "
-                f"decision={diagnostic.decision}, "
-                f"terms={list(terms)}, missing={missing_terms}, "
-                f"reason={diagnostic.reason}"
-            ),
-            evidence={
-                **diagnostic.to_dict(),
-                "category": category,
-                "expected_injectable": expected_injectable,
-                "expected_reason": expected_reason,
-                "reason_mismatch": reason_mismatch,
-            },
-        ))
+        checks.append(
+            ReadinessCheck(
+                id=str(case["id"]),
+                status=status,
+                title=str(case["id"]).replace("_", " "),
+                detail=(
+                    f"category={category}, "
+                    f"decision={diagnostic.decision}, "
+                    f"terms={list(terms)}, missing={missing_terms}, "
+                    f"reason={diagnostic.reason}"
+                ),
+                evidence={
+                    **diagnostic.to_dict(),
+                    "category": category,
+                    "expected_injectable": expected_injectable,
+                    "expected_reason": expected_reason,
+                    "reason_mismatch": reason_mismatch,
+                },
+            )
+        )
     return ReadinessLane(
         id="query_signal",
         title="长任务召回入口",
@@ -286,16 +296,20 @@ _PENDING_CLASSIFICATIONS = (
     "malformed",
     "audit_blocked",
 )
-_PENDING_REVIEW_CLASSIFICATIONS = frozenset({
-    "stale_requires_review",
-    "duplicate_candidate",
-    "unsupported_type",
-})
-_PENDING_BLOCKER_CLASSIFICATIONS = frozenset({
-    "conflict",
-    "malformed",
-    "audit_blocked",
-})
+_PENDING_REVIEW_CLASSIFICATIONS = frozenset(
+    {
+        "stale_requires_review",
+        "duplicate_candidate",
+        "unsupported_type",
+    }
+)
+_PENDING_BLOCKER_CLASSIFICATIONS = frozenset(
+    {
+        "conflict",
+        "malformed",
+        "audit_blocked",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -324,8 +338,19 @@ _INDEX_COMPONENT_LIMITS = {
     "-shm": 64 * 1024 * 1024,
     "-journal": 512 * 1024 * 1024,
 }
-_MAX_INDEX_SNAPSHOT_BYTES = 2 * 1024 * 1024 * 1024
+_MAX_INDEX_SNAPSHOT_BYTES = 512 * 1024 * 1024
 _SQLITE_SHARED_FIRST_BYTE = 0x40000002
+_MAX_READINESS_ITEM_FRONTMATTER_BYTES = 64 * 1024
+_MAX_READINESS_ITEM_ENTRIES = 20_000
+_MAX_READINESS_ITEM_METADATA_BYTES = 64 * 1024 * 1024
+_MAX_READINESS_ITEM_DEPTH = 32
+_MAX_LIFECYCLE_SNAPSHOT_ENTRIES = 50_000
+_MAX_LIFECYCLE_SNAPSHOT_BYTES = 4 * 1024 * 1024 * 1024
+_MAX_LIFECYCLE_SNAPSHOT_DEPTH = 32
+_MAX_LIFECYCLE_SNAPSHOT_SECONDS = 2.0
+_MAX_SUPERSEDES_ROWS = 200_000
+_MAX_SUPERSEDES_ID_BYTES = 512
+_MAX_SUPERSEDES_TOTAL_BYTES = 32 * 1024 * 1024
 
 
 def build_memory_lifecycle_readiness(brain_dir: Path) -> ReadinessLane:
@@ -335,13 +360,29 @@ def build_memory_lifecycle_readiness(brain_dir: Path) -> ReadinessLane:
 
 def _memory_lifecycle_lane(brain_dir: Path) -> ReadinessLane:
     brain = Path(brain_dir)
+    last_lane: ReadinessLane | None = None
+    for _attempt in range(2):
+        before = _lifecycle_generation_token(brain)
+        last_lane = _memory_lifecycle_lane_once(brain)
+        after = _lifecycle_generation_token(brain)
+        if before is not None and before == after:
+            return _with_snapshot_consistency(last_lane, unstable=False)
+        if before is None or after is None:
+            break
+    assert last_lane is not None
+    return _with_snapshot_consistency(last_lane, unstable=True)
+
+
+def _memory_lifecycle_lane_once(brain_dir: Path) -> ReadinessLane:
+    brain = Path(brain_dir)
     now = datetime.now(timezone.utc)
-    items, archived_count, malformed_item_count, item_scan_unavailable = (
-        _read_items_readonly(brain / "items")
+    items, archived_count, malformed_item_count, item_scan_unavailable = _read_items_readonly(
+        brain / "items"
     )
     active_ids = {item.id for item in items}
     by_type: dict[str, int] = {}
     stale_items: list[tuple[MemoryItem, int]] = []
+    legacy_stale_signal_count = 0
     low_confidence_count = 0
     untagged_count = 0
     raw_count = 0
@@ -349,6 +390,11 @@ def _memory_lifecycle_lane(brain_dir: Path) -> ReadinessLane:
     for item in items:
         item_type = str(memory_enum_value(item.type))
         by_type[item_type] = by_type.get(item_type, 0) + 1
+        try:
+            if item_type in {"signal", "handoff"} and (now - item.created_at).days > 30:
+                legacy_stale_signal_count += 1
+        except (OverflowError, TypeError, ValueError):
+            item_scan_unavailable = True
         try:
             if lifecycle_review_due(item, now=now):
                 observed_at = item.validity.observed_at or item.created_at
@@ -374,15 +420,11 @@ def _memory_lifecycle_lane(brain_dir: Path) -> ReadinessLane:
     superseded_items = [item for item in items if item.superseded_by]
     active_count = len(items) - len(superseded_items)
     broken_superseded_count = sum(
-        1
-        for item in superseded_items
-        if item.superseded_by not in active_ids
+        1 for item in superseded_items if item.superseded_by not in active_ids
     )
     deferrals = active_lifecycle_deferrals(brain, now=now)
     review_items = [
-        (item, age_seconds)
-        for item, age_seconds in stale_items
-        if item.id not in deferrals
+        (item, age_seconds) for item, age_seconds in stale_items if item.id not in deferrals
     ]
 
     pending_metrics = _pending_truth_readonly(brain)
@@ -404,7 +446,7 @@ def _memory_lifecycle_lane(brain_dir: Path) -> ReadinessLane:
     else:
         supersession_drift_count = None
 
-    index_dirty_status = _index_dirty_status(brain / ".index-dirty")
+    index_dirty_status = read_dirty_index_marker(brain).status
     index_repair_required = (
         graph_truth.status != "available"
         or bool(supersession_drift_count)
@@ -415,8 +457,7 @@ def _memory_lifecycle_lane(brain_dir: Path) -> ReadinessLane:
         "by_type": dict(sorted(by_type.items())),
         "active_count": active_count,
         "stale_count": len(stale_items),
-        # Backward-compatible alias retained for existing report consumers.
-        "stale_signal_count": len(stale_items),
+        "stale_signal_count": legacy_stale_signal_count,
         "superseded_count": len(superseded_items),
         "archived_count": archived_count,
         "broken_superseded_count": broken_superseded_count,
@@ -437,6 +478,12 @@ def _memory_lifecycle_lane(brain_dir: Path) -> ReadinessLane:
         "index_repair_required": index_repair_required,
     }
     checks = [
+        _threshold_check(
+            "stale_signal_count",
+            "stale signal / handoff",
+            legacy_stale_signal_count,
+            "memory govern plan --category lifecycle",
+        ),
         _threshold_check(
             "review_queue_count",
             "lifecycle review backlog",
@@ -473,11 +520,7 @@ def _memory_lifecycle_lane(brain_dir: Path) -> ReadinessLane:
         _aggregate_check(
             "item_scan",
             "memory item scan",
-            status=(
-                "fail"
-                if item_scan_unavailable or malformed_item_count
-                else "pass"
-            ),
+            status=("fail" if item_scan_unavailable or malformed_item_count else "pass"),
             detail=(
                 "scan unavailable or malformed item(s) present"
                 if item_scan_unavailable or malformed_item_count
@@ -495,7 +538,7 @@ def _memory_lifecycle_lane(brain_dir: Path) -> ReadinessLane:
             status=(
                 "pass"
                 if index_dirty_status == "clean"
-                else "fail" if index_dirty_status == "unavailable" else "warn"
+                else ("fail" if index_dirty_status in {"unavailable", "corrupt"} else "warn")
             ),
             detail=f"index dirty status={index_dirty_status}",
         ),
@@ -503,9 +546,7 @@ def _memory_lifecycle_lane(brain_dir: Path) -> ReadinessLane:
     status = _worst_status(check.status for check in checks)
     next_actions: list[str] = []
     if review_items or broken_superseded_count or supersession_drift_count:
-        next_actions.append(
-            "memory govern plan --category lifecycle --format markdown"
-        )
+        next_actions.append("memory govern plan --category lifecycle --format markdown")
     if (
         pending_metrics["pending_total"]
         or pending_metrics["pending_dead_count"]
@@ -514,6 +555,8 @@ def _memory_lifecycle_lane(brain_dir: Path) -> ReadinessLane:
         next_actions.append("memory sync-pending --format json")
     if index_repair_required:
         next_actions.append("memory verify")
+        if index_dirty_status == "repair_required":
+            next_actions.append("memory verify --repair")
     return ReadinessLane(
         id="memory_lifecycle",
         title="记忆生命周期",
@@ -524,59 +567,398 @@ def _memory_lifecycle_lane(brain_dir: Path) -> ReadinessLane:
     )
 
 
+def _with_snapshot_consistency(
+    lane: ReadinessLane,
+    *,
+    unstable: bool,
+) -> ReadinessLane:
+    check = ReadinessCheck(
+        "snapshot_consistency",
+        "fail" if unstable else "pass",
+        "lifecycle snapshot consistency",
+        "source generation changed during scan" if unstable else "stable generation",
+    )
+    checks = [*lane.checks, check]
+    metrics = {**lane.metrics, "snapshot_unstable": unstable}
+    return ReadinessLane(
+        id=lane.id,
+        title=lane.title,
+        status=_worst_status(row.status for row in checks),
+        metrics=metrics,
+        checks=checks,
+        next_actions=lane.next_actions,
+    )
+
+
+def _lifecycle_generation_token(
+    brain: Path,
+) -> tuple[tuple[str, int, int, int, int, int], ...] | None:
+    """Return a bounded metadata token for every lifecycle truth source."""
+
+    started = time.monotonic()
+    states: list[tuple[str, int, int, int, int, int]] = []
+    entry_count = 0
+    total_bytes = 0
+
+    def add(path: Path, relative: str, *, recursive: bool, depth: int = 0) -> None:
+        nonlocal entry_count, total_bytes
+        if time.monotonic() - started > _MAX_LIFECYCLE_SNAPSHOT_SECONDS:
+            raise OSError("LIFECYCLE_SNAPSHOT_DEADLINE_EXCEEDED")
+        try:
+            opened = os.lstat(path)
+        except FileNotFoundError:
+            states.append((relative, -1, -1, -1, -1, -1))
+            return
+        if stat.S_ISLNK(opened.st_mode):
+            raise OSError("LIFECYCLE_SNAPSHOT_SYMLINK")
+        entry_count += 1
+        if entry_count > _MAX_LIFECYCLE_SNAPSHOT_ENTRIES:
+            raise OSError("LIFECYCLE_SNAPSHOT_ENTRY_BUDGET_EXCEEDED")
+        if stat.S_ISREG(opened.st_mode):
+            total_bytes += opened.st_size
+            if total_bytes > _MAX_LIFECYCLE_SNAPSHOT_BYTES:
+                raise OSError("LIFECYCLE_SNAPSHOT_BYTE_BUDGET_EXCEEDED")
+        elif not stat.S_ISDIR(opened.st_mode):
+            raise OSError("LIFECYCLE_SNAPSHOT_UNSAFE_ENTRY")
+        states.append(
+            (
+                relative,
+                int(opened.st_dev),
+                int(opened.st_ino),
+                int(opened.st_size),
+                int(opened.st_mtime_ns),
+                int(opened.st_ctime_ns),
+            )
+        )
+        if not recursive or not stat.S_ISDIR(opened.st_mode):
+            return
+        if depth >= _MAX_LIFECYCLE_SNAPSHOT_DEPTH:
+            raise OSError("LIFECYCLE_SNAPSHOT_DEPTH_EXCEEDED")
+        with os.scandir(path) as entries:
+            names = sorted(entry.name for entry in entries)
+        if not _same_readiness_state(opened, os.lstat(path)):
+            raise OSError("LIFECYCLE_SNAPSHOT_DIRECTORY_CHANGED")
+        for name in names:
+            child_relative = f"{relative}/{name}"
+            add(path / name, child_relative, recursive=True, depth=depth + 1)
+        if not _same_readiness_state(opened, os.lstat(path)):
+            raise OSError("LIFECYCLE_SNAPSHOT_DIRECTORY_CHANGED")
+
+    try:
+        add(brain / "items", "items", recursive=True)
+        add(brain / "pending", "pending", recursive=True)
+        add(
+            brain / "runtime" / "lifecycle-actions.jsonl",
+            "runtime/lifecycle-actions.jsonl",
+            recursive=False,
+        )
+        add(brain / ".index-dirty", ".index-dirty", recursive=False)
+        for suffix in _INDEX_COMPONENT_LIMITS:
+            add(
+                Path(f"{brain / 'index.db'}{suffix}"),
+                f"index.db{suffix}",
+                recursive=False,
+            )
+    except OSError:
+        return None
+    return tuple(sorted(states))
+
+
 def _read_items_readonly(
     items_dir: Path,
 ) -> tuple[list[MemoryItem], int, int, bool]:
+    if not secure_dir_fd_io_supported():
+        return _read_items_readonly_fallback(items_dir)
+    root: int | None = None
+    stack: list[tuple[int, Iterator[os.DirEntry[str]], int, bool]] = []
+    active_items: list[MemoryItem] = []
+    archived_count = 0
+    malformed_count = 0
+    entry_count = 0
+    bytes_read = 0
+    seen_ids: set[str] = set()
     try:
-        opened = os.lstat(items_dir)
+        root = open_directory_path_without_symlinks(items_dir)
+        stack.append((root, os.scandir(root), 0, False))
+        root = None
     except FileNotFoundError:
         return [], 0, 0, False
     except OSError:
         return [], 0, 0, True
-    if not os.path.isdir(items_dir) or os.path.islink(items_dir):
-        return [], 0, 0, True
-    if not opened.st_ino or not opened.st_dev:
-        return [], 0, 0, True
+    try:
+        while stack:
+            directory, entries, depth, archived = stack[-1]
+            try:
+                entry = next(entries)
+            except StopIteration:
+                _close_readiness_scan_frame(stack.pop())
+                continue
+            except OSError:
+                return active_items, archived_count, malformed_count, True
+            if depth == 0 and entry.name == ".amh-item-locks":
+                continue
+            entry_count += 1
+            if entry_count > _MAX_READINESS_ITEM_ENTRIES:
+                return active_items, archived_count, malformed_count, True
+            try:
+                if entry.is_symlink():
+                    return active_items, archived_count, malformed_count, True
+                if entry.is_dir(follow_symlinks=False):
+                    if depth >= _MAX_READINESS_ITEM_DEPTH:
+                        return active_items, archived_count, malformed_count, True
+                    child = open_child_directory(directory, entry.name)
+                    try:
+                        child_entries = os.scandir(child)
+                    except BaseException:
+                        close_descriptor(child)
+                        raise
+                    stack.append(
+                        (
+                            child,
+                            child_entries,
+                            depth + 1,
+                            archived or entry.name == "archived",
+                        )
+                    )
+                    continue
+                if not entry.is_file(follow_symlinks=False) or not entry.name.endswith(".md"):
+                    continue
+                item, consumed = _read_readiness_frontmatter(directory, entry.name)
+                bytes_read += consumed
+                if bytes_read > _MAX_READINESS_ITEM_METADATA_BYTES:
+                    return active_items, archived_count, malformed_count, True
+                if item is None or Path(entry.name).stem != item.id:
+                    malformed_count += 1
+                    continue
+                if item.id in seen_ids:
+                    return active_items, archived_count, malformed_count, True
+                seen_ids.add(item.id)
+                if archived:
+                    archived_count += 1
+                else:
+                    active_items.append(item)
+            except OSError:
+                return active_items, archived_count, malformed_count, True
+        return active_items, archived_count, malformed_count, False
+    finally:
+        if root is not None:
+            close_descriptor(root)
+        while stack:
+            _close_readiness_scan_frame(stack.pop())
 
-    store = ItemsStore(items_dir)
-    active_items = [item for item, _body in store.iter_all()]
-    active_skipped = store.last_scan.skipped_count
-    all_items = [item for item, _body in store.iter_all(include_archived=True)]
-    all_skipped = store.last_scan.skipped_count
+
+def _read_items_readonly_fallback(
+    items_dir: Path,
+) -> tuple[list[MemoryItem], int, int, bool]:
+    active_items: list[MemoryItem] = []
+    archived_count = 0
+    malformed_count = 0
+    seen_ids: set[str] = set()
+    entry_count = 0
+    bytes_read = 0
+    stack: list[tuple[Path, Iterator[os.DirEntry[str]], int, bool, os.stat_result]] = []
+    try:
+        root_state = os.lstat(items_dir)
+        if not stat.S_ISDIR(root_state.st_mode) or stat.S_ISLNK(root_state.st_mode):
+            return [], 0, 0, True
+        stack.append((items_dir, os.scandir(items_dir), 0, False, root_state))
+    except FileNotFoundError:
+        return [], 0, 0, False
+    except OSError:
+        return [], 0, 0, True
+    try:
+        while stack:
+            directory, entries, depth, archived, identity = stack[-1]
+            try:
+                entry = next(entries)
+            except StopIteration:
+                _close_scandir_iterator(entries)
+                stack.pop()
+                try:
+                    if not _same_readiness_state(identity, os.lstat(directory)):
+                        return active_items, archived_count, malformed_count, True
+                except OSError:
+                    return active_items, archived_count, malformed_count, True
+                continue
+            if depth == 0 and entry.name == ".amh-item-locks":
+                continue
+            entry_count += 1
+            if entry_count > _MAX_READINESS_ITEM_ENTRIES:
+                return active_items, archived_count, malformed_count, True
+            path = directory / entry.name
+            try:
+                opened = os.lstat(path)
+                if stat.S_ISLNK(opened.st_mode):
+                    return active_items, archived_count, malformed_count, True
+                if stat.S_ISDIR(opened.st_mode):
+                    if depth >= _MAX_READINESS_ITEM_DEPTH:
+                        return active_items, archived_count, malformed_count, True
+                    stack.append(
+                        (
+                            path,
+                            os.scandir(path),
+                            depth + 1,
+                            archived or entry.name == "archived",
+                            opened,
+                        )
+                    )
+                    continue
+                if not stat.S_ISREG(opened.st_mode) or not entry.name.endswith(".md"):
+                    continue
+                item, consumed = _read_readiness_frontmatter_path(path, opened)
+                bytes_read += consumed
+                if bytes_read > _MAX_READINESS_ITEM_METADATA_BYTES:
+                    return active_items, archived_count, malformed_count, True
+                if item is None or path.stem != item.id:
+                    malformed_count += 1
+                    continue
+                if item.id in seen_ids:
+                    return active_items, archived_count, malformed_count, True
+                seen_ids.add(item.id)
+                if archived:
+                    archived_count += 1
+                else:
+                    active_items.append(item)
+            except OSError:
+                return active_items, archived_count, malformed_count, True
+        return active_items, archived_count, malformed_count, False
+    finally:
+        while stack:
+            _directory, entries, _depth, _archived, _identity = stack.pop()
+            _close_scandir_iterator(entries)
+
+
+def _read_readiness_frontmatter(
+    directory_descriptor: int,
+    filename: str,
+) -> tuple[MemoryItem | None, int]:
+    descriptor: int | None = None
+    try:
+        descriptor = open_regular_file_at(directory_descriptor, filename)
+        opened = os.fstat(descriptor)
+        with os.fdopen(descriptor, "rb", buffering=0) as handle:
+            descriptor = None
+            item, consumed = _parse_bounded_frontmatter(handle)
+            if not _same_readiness_state(opened, os.fstat(handle.fileno())):
+                return None, consumed
+            return item, consumed
+    except (OSError, UnicodeError, ValueError, TypeError, OverflowError):
+        return None, 0
+    finally:
+        if descriptor is not None:
+            close_descriptor(descriptor)
+
+
+def _read_readiness_frontmatter_path(
+    path: Path,
+    expected: os.stat_result,
+) -> tuple[MemoryItem | None, int]:
+    descriptor: int | None = None
+    try:
+        descriptor = os.open(
+            path,
+            os.O_RDONLY
+            | getattr(os, "O_BINARY", 0)
+            | getattr(os, "O_CLOEXEC", 0)
+            | getattr(os, "O_NONBLOCK", 0)
+            | getattr(os, "O_NOFOLLOW", 0),
+        )
+        opened = os.fstat(descriptor)
+        if not _same_readiness_state(expected, opened):
+            return None, 0
+        with os.fdopen(descriptor, "rb", buffering=0) as handle:
+            descriptor = None
+            item, consumed = _parse_bounded_frontmatter(handle)
+            if not _same_readiness_state(opened, os.fstat(handle.fileno())):
+                return None, consumed
+            return item, consumed
+    except (OSError, UnicodeError, ValueError, TypeError, OverflowError):
+        return None, 0
+    finally:
+        if descriptor is not None:
+            close_descriptor(descriptor)
+
+
+def _parse_bounded_frontmatter(handle: BinaryIO) -> tuple[MemoryItem | None, int]:
+    consumed = 0
+    opening = handle.readline(_MAX_READINESS_ITEM_FRONTMATTER_BYTES + 1)
+    consumed += len(opening)
+    normalized = opening.rstrip(b"\r\n")
+    if normalized.startswith(b"\xef\xbb\xbf"):
+        normalized = normalized[3:]
+    if normalized != b"---":
+        return None, consumed
+    lines: list[bytes] = []
+    while consumed <= _MAX_READINESS_ITEM_FRONTMATTER_BYTES:
+        line = handle.readline(_MAX_READINESS_ITEM_FRONTMATTER_BYTES - consumed + 1)
+        consumed += len(line)
+        if consumed > _MAX_READINESS_ITEM_FRONTMATTER_BYTES or not line:
+            return None, consumed
+        if line.rstrip(b"\r\n") == b"---":
+            frontmatter = b"---\n" + b"".join(lines) + b"---\n"
+            try:
+                item, _body = parse_item_markdown(frontmatter.decode("utf-8"))
+            except Exception:  # noqa: BLE001 - malformed frontmatter is counted
+                return None, consumed
+            return item, consumed
+        lines.append(line)
+    return None, consumed
+
+
+def _close_readiness_scan_frame(
+    frame: tuple[int, Iterator[os.DirEntry[str]], int, bool],
+) -> None:
+    descriptor, entries, _depth, _archived = frame
+    try:
+        _close_scandir_iterator(entries)
+    finally:
+        close_descriptor(descriptor)
+
+
+def _same_readiness_state(left: os.stat_result, right: os.stat_result) -> bool:
     return (
-        active_items,
-        max(0, len(all_items) - len(active_items)),
-        max(active_skipped, all_skipped),
-        False,
+        stat.S_IFMT(left.st_mode) == stat.S_IFMT(right.st_mode)
+        and left.st_dev == right.st_dev
+        and left.st_ino == right.st_ino
+        and left.st_size == right.st_size
+        and left.st_mtime_ns == right.st_mtime_ns
+        and left.st_ctime_ns == right.st_ctime_ns
     )
+
+
+def _close_scandir_iterator(entries: Iterator[os.DirEntry[str]]) -> None:
+    close = getattr(entries, "close", None)
+    if callable(close):
+        close()
 
 
 def _pending_truth_readonly(brain_dir: Path) -> dict[str, Any]:
     queue = PendingQueue(brain=brain_dir)
     depth_failed = False
     try:
-        depth = queue.depth()
+        queue.depth()
     except (OSError, RuntimeError, ValueError):
-        depth = 0
         depth_failed = True
     try:
-        preview = queue.preview(limit=min(depth, MAX_PENDING_QUEUE_ENTRIES))
+        preview = queue.preview_for_readiness(
+            limit=MAX_PENDING_QUEUE_ENTRIES,
+            max_total_bytes=16 * 1024 * 1024,
+            deadline_seconds=1.0,
+        )
     except (OSError, RuntimeError, ValueError):
         preview = None
 
     counts = Counter({name: 0 for name in _PENDING_CLASSIFICATIONS})
     if preview is not None:
         counts.update(record.classification for record in preview.records)
-    dead_count, dead_scan_unavailable = _count_dead_pending_readonly(
-        brain_dir / "pending" / "dead"
-    )
+    dead_count, dead_scan_unavailable = _count_dead_pending_readonly(brain_dir / "pending" / "dead")
     pending_scan_unavailable = (
         depth_failed
         or preview is None
         or bool(preview.scan_unavailable if preview is not None else True)
         or dead_scan_unavailable
     )
-    total = preview.total if preview is not None else depth
+    total = preview.total if preview is not None else 0
     returned = preview.returned if preview is not None else 0
     truncated = bool(preview.truncated if preview is not None else total)
     oldest = max(
@@ -600,14 +982,14 @@ def _pending_truth_readonly(brain_dir: Path) -> dict[str, Any]:
             "ready": counts["ready"] + counts["already_written"],
             "review": sum(counts[name] for name in _PENDING_REVIEW_CLASSIFICATIONS),
             "blocker": (
-                sum(counts[name] for name in _PENDING_BLOCKER_CLASSIFICATIONS)
-                + dead_count
+                sum(counts[name] for name in _PENDING_BLOCKER_CLASSIFICATIONS) + dead_count
             ),
         },
     }
 
 
 def _count_dead_pending_readonly(dead_dir: Path) -> tuple[int, bool]:
+    started = time.monotonic()
     try:
         opened = os.lstat(dead_dir)
     except FileNotFoundError:
@@ -619,10 +1001,17 @@ def _count_dead_pending_readonly(dead_dir: Path) -> tuple[int, bool]:
     if not opened.st_ino or not opened.st_dev:
         return 0, True
     count = 0
+    scanned_entries = 0
     try:
         with os.scandir(dead_dir) as entries:
             for entry in entries:
                 try:
+                    scanned_entries += 1
+                    if (
+                        scanned_entries > MAX_PENDING_QUEUE_ENTRIES
+                        or time.monotonic() - started > 1.0
+                    ):
+                        return count, True
                     if entry.is_symlink():
                         return count, True
                     if not entry.name.endswith(".jsonl"):
@@ -668,10 +1057,7 @@ def _query_supersedes_from_external_snapshot(
     *,
     primary: _IndexComponentState,
 ) -> tuple[list[tuple[object, object]], bool]:
-    source_paths = {
-        suffix: Path(f"{db_path}{suffix}")
-        for suffix in _INDEX_COMPONENT_LIMITS
-    }
+    source_paths = {suffix: Path(f"{db_path}{suffix}") for suffix in _INDEX_COMPONENT_LIMITS}
     states: dict[str, _IndexComponentState | None] = {"": primary}
     for suffix in _INDEX_COMPONENT_LIMITS:
         if not suffix:
@@ -720,16 +1106,59 @@ def _query_supersedes_from_external_snapshot(
             connection.execute("PRAGMA busy_timeout=100")
             connection.execute("PRAGMA query_only=ON")
             table = connection.execute(
-                "SELECT 1 FROM sqlite_master "
-                "WHERE type = 'table' AND name = 'refs_graph'"
+                "SELECT 1 FROM sqlite_master " "WHERE type = 'table' AND name = 'refs_graph'"
             ).fetchone()
             if table is None:
                 return [], False
+            if not _refs_graph_schema_is_unique(connection):
+                raise _UnsafeIndexSnapshot("REFS_GRAPH_SCHEMA_UNSAFE")
             rows = connection.execute(
-                "SELECT source_id, target_id FROM refs_graph WHERE relation = ?",
-                ("supersedes",),
+                "SELECT source_id, target_id, relation FROM refs_graph "
+                "WHERE relation = ? LIMIT ?",
+                ("supersedes", _MAX_SUPERSEDES_ROWS + 1),
             ).fetchall()
-            return rows, True
+            if len(rows) > _MAX_SUPERSEDES_ROWS:
+                raise _UnsafeIndexSnapshot("REFS_GRAPH_ROW_BUDGET_EXCEEDED")
+            edges: list[tuple[object, object]] = []
+            seen: set[tuple[str, str, str]] = set()
+            total_bytes = 0
+            for source, target, relation in rows:
+                if not all(isinstance(value, str) for value in (source, target, relation)):
+                    raise _UnsafeIndexSnapshot("REFS_GRAPH_ROW_INVALID")
+                encoded = tuple(value.encode("utf-8") for value in (source, target, relation))
+                if any(len(value) > _MAX_SUPERSEDES_ID_BYTES for value in encoded):
+                    raise _UnsafeIndexSnapshot("REFS_GRAPH_ID_TOO_LARGE")
+                total_bytes += sum(len(value) for value in encoded)
+                if total_bytes > _MAX_SUPERSEDES_TOTAL_BYTES:
+                    raise _UnsafeIndexSnapshot("REFS_GRAPH_BYTE_BUDGET_EXCEEDED")
+                edge = (source, target, relation)
+                if edge in seen:
+                    raise _UnsafeIndexSnapshot("REFS_GRAPH_DUPLICATE_ROW")
+                seen.add(edge)
+                edges.append((source, target))
+            return edges, True
+
+
+def _refs_graph_schema_is_unique(connection: sqlite3.Connection) -> bool:
+    required = {"source_id", "target_id", "relation"}
+    table_info = connection.execute("PRAGMA table_info(refs_graph)").fetchall()
+    columns = {str(row[1]) for row in table_info}
+    if not required.issubset(columns):
+        return False
+    primary_key = {str(row[1]) for row in table_info if isinstance(row[5], int) and row[5] > 0}
+    if primary_key == required:
+        return True
+    for row in connection.execute("PRAGMA index_list(refs_graph)").fetchall():
+        if not bool(row[2]) or (len(row) > 4 and bool(row[4])):
+            continue
+        index_name = str(row[1]).replace('"', '""')
+        indexed_columns = {
+            str(index_row[2])
+            for index_row in connection.execute(f'PRAGMA index_info("{index_name}")').fetchall()
+        }
+        if indexed_columns == required:
+            return True
+    return False
 
 
 def _index_component_state(path: Path, *, limit: int) -> _IndexComponentState:
@@ -866,18 +1295,6 @@ def _sqlite_shared_lock_available(descriptor: int) -> bool:
         check=False,
     )
     return completed.returncode == 0
-
-
-def _index_dirty_status(path: Path) -> str:
-    try:
-        opened = os.lstat(path)
-    except FileNotFoundError:
-        return "clean"
-    except OSError:
-        return "unavailable"
-    if not os.path.isfile(path) or os.path.islink(path):
-        return "unavailable"
-    return "repair_required" if opened.st_size else "clean"
 
 
 def _age_seconds(now: datetime, observed_at: datetime) -> int | None:

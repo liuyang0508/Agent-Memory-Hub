@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from agent_brain.memory.recall.embedding_text import embedding_text_for_item
+from agent_brain.memory.store.pending import clear_dirty_index_marker
 
 
 @dataclass(frozen=True)
@@ -33,6 +34,9 @@ def reindex_store(store: Any, idx: Any, embedder: Any, *, prune: bool = False) -
     pruned = 0
     if prune:
         pruned = idx.prune(md_ids)
+    items_dir = getattr(store, "items_dir", None)
+    if items_dir is not None:
+        clear_dirty_index_marker(items_dir.parent, all_healthy=True)
     return ReindexResult(indexed=indexed, pruned=pruned)
 
 
@@ -57,6 +61,14 @@ def repair_index_drift(store: Any, idx: Any, embedder: Any, drift: IndexDrift) -
     for ghost_id in drift.orphan_in_index:
         idx.delete(ghost_id)
         pruned += 1
+    items_dir = getattr(store, "items_dir", None)
+    if items_dir is not None:
+        remaining = inspect_index_drift(store, idx)
+        clear_dirty_index_marker(
+            items_dir.parent,
+            repaired_ids=drift.md_ids,
+            all_healthy=(not remaining.missing_in_index and not remaining.orphan_in_index),
+        )
     return ReindexResult(indexed=repaired, pruned=pruned)
 
 

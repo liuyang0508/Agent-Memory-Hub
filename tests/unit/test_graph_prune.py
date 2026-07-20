@@ -8,6 +8,8 @@ import pytest
 from agent_brain.contracts.memory_item import MemoryItem, MemoryType
 from agent_brain.interfaces.cli.commands.index_maintenance import reindex_store
 from agent_brain.memory.store.items_store import ItemsStore
+from agent_brain.memory.store.pending import dirty_index_path
+from agent_brain.product.governance_readiness import build_memory_lifecycle_readiness
 from agent_brain.platform.embedding import HashingEmbedder
 from agent_brain.platform.indexing.index import HubIndex
 
@@ -102,3 +104,44 @@ def test_prune_rolls_back_items_and_graph_on_failure(
         (ghost_a.id, active.id, "custom-a"),
         (ghost_b.id, active.id, "custom-b"),
     ]
+
+
+def test_successful_full_reindex_clears_dirty_marker_and_readiness_warning(
+    tmp_brain_dir: Path,
+):
+    store = ItemsStore(tmp_brain_dir / "items")
+    index = HubIndex(tmp_brain_dir / "index.db", embedding_dim=_DIM)
+    item = _item("dirty-close")
+    store.write(item, item.summary)
+    marker = dirty_index_path(tmp_brain_dir)
+    marker.write_text(
+        f"{item.id}\nmem-20260720-120004-deleted-dirty-item\n",
+        encoding="utf-8",
+    )
+
+    result = reindex_store(store, index, HashingEmbedder(dim=_DIM), prune=True)
+    index.close()
+
+    assert result.indexed == 1
+    assert not marker.exists() or marker.read_text(encoding="utf-8") == ""
+    lane = build_memory_lifecycle_readiness(tmp_brain_dir)
+    assert lane.metrics["index_dirty_status"] == "clean"
+
+
+def test_failed_reindex_preserves_dirty_marker(tmp_brain_dir: Path):
+    store = ItemsStore(tmp_brain_dir / "items")
+    index = HubIndex(tmp_brain_dir / "index.db", embedding_dim=_DIM)
+    item = _item("dirty-failure")
+    store.write(item, item.summary)
+    marker = dirty_index_path(tmp_brain_dir)
+    marker.write_text(f"{item.id}\n", encoding="utf-8")
+
+    class FailingIndex:
+        def upsert(self, *_args, **_kwargs):
+            raise OSError("injected reindex failure")
+
+    with pytest.raises(OSError, match="injected reindex failure"):
+        reindex_store(store, FailingIndex(), HashingEmbedder(dim=_DIM))
+
+    index.close()
+    assert marker.read_text(encoding="utf-8") == f"{item.id}\n"

@@ -42,6 +42,7 @@ import re
 import secrets
 import stat
 import threading
+import time
 import unicodedata
 import uuid
 from collections.abc import Callable, Iterable, Iterator
@@ -55,7 +56,13 @@ import yaml
 from pydantic import ValidationError
 
 from agent_brain.contracts.memory_enums import MemoryType
-from agent_brain.contracts.memory_item import MemoryItem, Refs, Source, Validity
+from agent_brain.contracts.memory_item import (
+    MemoryItem,
+    Refs,
+    Source,
+    Validity,
+    is_valid_memory_item_id,
+)
 from agent_brain.memory.store.item_markdown import parse_item_markdown
 from agent_brain.memory.store.items_store import ItemsStore
 from agent_brain.memory.store.durable_fs import (
@@ -88,22 +95,26 @@ def pending_dir() -> Path:
     return brain_dir() / "pending"
 
 
-def dirty_index_path() -> Path:
+def dirty_index_path(brain: Path | None = None) -> Path:
     """Append-only log of item ids whose md landed but whose index row is stale.
 
     ``WriteService`` appends here when the best-effort index upsert fails so a
     later reindex/``sync-pending`` can repair the derived index.
     """
-    return brain_dir() / ".index-dirty"
+    root = Path(brain).expanduser().resolve(strict=False) if brain is not None else brain_dir()
+    return root / ".index-dirty"
 
 
 MAX_PENDING_RECORD_BYTES = 1024 * 1024
 MAX_PENDING_QUEUE_ENTRIES = 20_000
+MAX_DIRTY_INDEX_BYTES = 4 * 1024 * 1024
+MAX_DIRTY_INDEX_ENTRIES = 20_000
 MAX_ITEM_FRONTMATTER_BYTES = 64 * 1024
 MAX_ITEM_METADATA_ENTRIES = 20_000
 MAX_ITEM_METADATA_BYTES = 64 * 1024 * 1024
 MAX_ITEM_DIRECTORY_DEPTH = 32
 STALE_EPHEMERAL_SECONDS = 30 * 24 * 60 * 60
+_monotonic = time.monotonic
 
 PendingClassification = Literal[
     "ready",
@@ -568,9 +579,9 @@ def _pending_item_id(title: str, original_created_at: datetime, record_id: str) 
     """Stable item identity shared by preview classification and replay."""
 
     utc_created_at = original_created_at.astimezone(timezone.utc)
-    normalized = unicodedata.normalize("NFKD", title.casefold()).encode(
-        "ascii", "ignore"
-    ).decode("ascii")
+    normalized = (
+        unicodedata.normalize("NFKD", title.casefold()).encode("ascii", "ignore").decode("ascii")
+    )
     slug = re.sub(r"[^a-z0-9]+", "-", normalized).strip("-")[:30].rstrip("-")
     if not slug or slug in _WINDOWS_RESERVED_NAMES:
         slug = "pending"
@@ -782,6 +793,14 @@ class PendingPreview:
         }
 
 
+@dataclass(frozen=True)
+class DirtyIndexMarker:
+    """Bounded parse result for the derived-index repair marker."""
+
+    status: Literal["clean", "repair_required", "corrupt", "unavailable"]
+    item_ids: frozenset[str] = frozenset()
+
+
 class _PendingPreviewCommon(TypedDict):
     path: str
     record_id: str
@@ -826,15 +845,93 @@ class _DescendingName(str):
         return str.__gt__(self, other)
 
 
+def read_dirty_index_marker(brain: Path) -> DirtyIndexMarker:
+    """Read the dirty-index marker as a bounded canonical ID set."""
+
+    path = dirty_index_path(brain)
+    descriptor: int | None = None
+    try:
+        opened = os.lstat(path)
+        if (
+            not stat.S_ISREG(opened.st_mode)
+            or stat.S_ISLNK(opened.st_mode)
+            or opened.st_size > MAX_DIRTY_INDEX_BYTES
+        ):
+            return DirtyIndexMarker("corrupt")
+        descriptor = os.open(
+            path,
+            os.O_RDONLY
+            | getattr(os, "O_BINARY", 0)
+            | getattr(os, "O_CLOEXEC", 0)
+            | getattr(os, "O_NONBLOCK", 0)
+            | getattr(os, "O_NOFOLLOW", 0),
+        )
+        data = _read_bounded_descriptor(descriptor, MAX_DIRTY_INDEX_BYTES)
+    except FileNotFoundError:
+        return DirtyIndexMarker("clean")
+    except (OSError, _PendingReadError):
+        return DirtyIndexMarker("unavailable")
+    finally:
+        if descriptor is not None:
+            close_descriptor(descriptor)
+    if not data:
+        return DirtyIndexMarker("clean")
+    try:
+        lines = data.decode("utf-8").splitlines()
+    except UnicodeError:
+        return DirtyIndexMarker("corrupt")
+    if (
+        not lines
+        or len(lines) > MAX_DIRTY_INDEX_ENTRIES
+        or any(not is_valid_memory_item_id(line) for line in lines)
+    ):
+        return DirtyIndexMarker("corrupt")
+    return DirtyIndexMarker("repair_required", frozenset(lines))
+
+
+def clear_dirty_index_marker(
+    brain: Path,
+    *,
+    repaired_ids: Iterable[str] = (),
+    all_healthy: bool = False,
+) -> bool:
+    """Remove successfully repaired IDs while retaining corrupt markers."""
+
+    marker = read_dirty_index_marker(brain)
+    if marker.status == "clean":
+        return True
+    if marker.status != "repair_required":
+        return False
+    repaired = frozenset(str(item_id) for item_id in repaired_ids)
+    remaining = [] if all_healthy else sorted(marker.item_ids - repaired)
+    path = dirty_index_path(brain)
+    try:
+        if not remaining:
+            path.unlink(missing_ok=True)
+            _fsync_fallback_directory(path.parent)
+            return True
+        temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+        payload = "".join(f"{item_id}\n" for item_id in remaining)
+        try:
+            with temporary.open("x", encoding="utf-8") as handle:
+                os.chmod(temporary, 0o600)
+                handle.write(payload)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary, path)
+            _fsync_fallback_directory(path.parent)
+        finally:
+            temporary.unlink(missing_ok=True)
+    except OSError:
+        return False
+    return True
+
+
 class PendingQueue:
     """Durable buffer of pending writes, drained through ``WriteService``."""
 
     def __init__(self, *, brain: Path | None = None) -> None:
-        self._brain = (
-            Path(brain).expanduser().resolve(strict=False)
-            if brain is not None
-            else None
-        )
+        self._brain = Path(brain).expanduser().resolve(strict=False) if brain is not None else None
 
     def _brain_dir(self) -> Path:
         return self._brain if self._brain is not None else brain_dir()
@@ -910,6 +1007,62 @@ class PendingQueue:
             records=displayed,
             scan_unavailable=scan_unavailable,
             reason=preview_reason,
+        )
+
+    def preview_for_readiness(
+        self,
+        *,
+        limit: int = 20,
+        max_total_bytes: int = 16 * 1024 * 1024,
+        deadline_seconds: float = 1.0,
+    ) -> PendingPreview:
+        """Preview with explicit byte and wall-clock budgets for readiness."""
+
+        bounded_limit = max(0, limit)
+        if max_total_bytes < 0 or deadline_seconds <= 0:
+            return PendingPreview(
+                total=0,
+                returned=0,
+                limit=bounded_limit,
+                truncated=False,
+                records=[],
+                scan_unavailable=True,
+                reason="PENDING_READINESS_BUDGET_EXCEEDED",
+            )
+        started = _monotonic()
+        snapshot = _pending_record_paths(self._brain_dir() / "pending")
+        total_bytes = 0
+        try:
+            for path in snapshot.paths:
+                if _monotonic() - started > deadline_seconds:
+                    raise TimeoutError
+                opened = os.lstat(path)
+                if not _is_safe_regular_file(opened):
+                    raise OSError("pending record is not regular")
+                total_bytes += opened.st_size
+                if total_bytes > max_total_bytes:
+                    raise OverflowError
+        except (OSError, OverflowError, TimeoutError):
+            return PendingPreview(
+                total=snapshot.total,
+                returned=0,
+                limit=bounded_limit,
+                truncated=snapshot.total > 0,
+                records=[],
+                scan_unavailable=True,
+                reason="PENDING_READINESS_BUDGET_EXCEEDED",
+            )
+        preview = self.preview(limit=bounded_limit)
+        if _monotonic() - started <= deadline_seconds:
+            return preview
+        return PendingPreview(
+            total=preview.total,
+            returned=0,
+            limit=bounded_limit,
+            truncated=preview.total > 0,
+            records=[],
+            scan_unavailable=True,
+            reason="PENDING_READINESS_BUDGET_EXCEEDED",
         )
 
     def replay(
@@ -1088,9 +1241,7 @@ class PendingQueue:
                 if raw is not None and hashlib.sha256(raw).hexdigest() != expected_hash:
                     return _failed_apply_result(record, "PENDING_RECORD_CHANGED")
 
-                write_input = (
-                    _pending_write_input(path, raw, record) if raw is not None else None
-                )
+                write_input = _pending_write_input(path, raw, record) if raw is not None else None
                 pending_item = write_input[0] if write_input is not None else None
                 if raw is not None and (pending_item is None or write_input is None):
                     return _failed_apply_result(record, "PENDING_RECORD_CHANGED")
@@ -1103,9 +1254,8 @@ class PendingQueue:
                         existing = None
                     if existing is not None:
                         if (
-                            (pending_item is None or _same_scope(existing, pending_item))
-                            and existing.source.span_hash == record.payload_sha256
-                        ):
+                            pending_item is None or _same_scope(existing, pending_item)
+                        ) and existing.source.span_hash == record.payload_sha256:
                             reconcile = getattr(service, "reconcile_existing")
                             reconciliation = reconcile(item=existing, body=existing_body)
                             if "source-ledger" in reconciliation.degraded:
@@ -1346,9 +1496,7 @@ def _locked_pending_queue(brain: Path) -> Iterator[None]:
             except FileExistsError:
                 descriptor = os.open(
                     lock_path,
-                    os.O_RDWR
-                    | getattr(os, "O_BINARY", 0)
-                    | getattr(os, "O_NOFOLLOW", 0),
+                    os.O_RDWR | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0),
                 )
             path_identity = os.lstat(lock_path)
             opened_identity = os.fstat(descriptor)
@@ -1410,9 +1558,7 @@ def _unlink_pending_record(
     """Unlink only the exact no-follow record verified by content and identity."""
 
     with SecureDirectory.open(path.parent) as directory:
-        descriptor, _created = directory.open_file(
-            path.name, os.O_RDONLY | os.O_NONBLOCK
-        )
+        descriptor, _created = directory.open_file(path.name, os.O_RDONLY | os.O_NONBLOCK)
         try:
             opened = os.fstat(descriptor)
             raw = _read_bounded_descriptor(descriptor, MAX_PENDING_RECORD_BYTES)

@@ -260,7 +260,7 @@ class WriteService:
         try:
             from agent_brain.memory.store.pending import dirty_index_path
 
-            p = dirty_index_path()
+            p = dirty_index_path(self._brain_dir or self._store.items_dir.parent)
             p.parent.mkdir(parents=True, exist_ok=True)
             with p.open("a", encoding="utf-8") as fh:
                 fh.write(item_id + "\n")

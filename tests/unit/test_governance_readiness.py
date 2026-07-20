@@ -29,11 +29,11 @@ def _write_supersedes_index(brain: Path, edges: list[tuple[str, str]]) -> None:
         connection.execute(
             "CREATE TABLE refs_graph ("
             "source_id TEXT NOT NULL, target_id TEXT NOT NULL, "
-            "relation TEXT NOT NULL DEFAULT 'refs')"
+            "relation TEXT NOT NULL DEFAULT 'refs', "
+            "PRIMARY KEY (source_id, target_id, relation))"
         )
         connection.executemany(
-            "INSERT INTO refs_graph(source_id, target_id, relation) "
-            "VALUES (?, ?, 'supersedes')",
+            "INSERT INTO refs_graph(source_id, target_id, relation) " "VALUES (?, ?, 'supersedes')",
             edges,
         )
 
@@ -71,7 +71,8 @@ def _open_wal_index_without_shm(
     connection.execute("PRAGMA wal_autocheckpoint=0")
     connection.execute(
         "CREATE TABLE refs_graph ("
-        "source_id TEXT NOT NULL, target_id TEXT NOT NULL, relation TEXT NOT NULL)"
+        "source_id TEXT NOT NULL, target_id TEXT NOT NULL, relation TEXT NOT NULL, "
+        "PRIMARY KEY (source_id, target_id, relation))"
     )
     connection.commit()
     connection.execute("PRAGMA wal_checkpoint(TRUNCATE)")
@@ -97,11 +98,10 @@ def _create_hot_rollback_journal(
         connection.execute("PRAGMA journal_mode=DELETE")
         connection.execute(
             "CREATE TABLE refs_graph ("
-            "source_id TEXT NOT NULL, target_id TEXT NOT NULL, relation TEXT NOT NULL)"
+            "source_id TEXT NOT NULL, target_id TEXT NOT NULL, relation TEXT NOT NULL, "
+            "PRIMARY KEY (source_id, target_id, relation))"
         )
-        connection.execute(
-            "CREATE TABLE spill (sequence INTEGER PRIMARY KEY, payload BLOB)"
-        )
+        connection.execute("CREATE TABLE spill (sequence INTEGER PRIMARY KEY, payload BLOB)")
         connection.execute(
             "INSERT INTO refs_graph VALUES (?, ?, 'supersedes')",
             committed_edge,
@@ -258,22 +258,24 @@ def test_lifecycle_readiness_reports_pending_and_broken_supersession(
     )
     store.write(broken, "broken body")
     old_time = datetime.now(timezone.utc) - timedelta(days=8)
-    enqueue_write_record({
-        "v": 2,
-        "op": "write",
-        "origin": "hook",
-        "record_id": "pending-readiness-0001",
-        "enqueued_at": old_time.isoformat(),
-        "original_created_at": old_time.isoformat(),
-        "item": {
-            "type": "fact",
-            "title": "pending readiness fact",
-            "summary": "pending readiness summary",
-            "body": "pending readiness body",
-            "tags": ["pending"],
-            "sensitivity": "internal",
-        },
-    })
+    enqueue_write_record(
+        {
+            "v": 2,
+            "op": "write",
+            "origin": "hook",
+            "record_id": "pending-readiness-0001",
+            "enqueued_at": old_time.isoformat(),
+            "original_created_at": old_time.isoformat(),
+            "item": {
+                "type": "fact",
+                "title": "pending readiness fact",
+                "summary": "pending readiness summary",
+                "body": "pending readiness body",
+                "tags": ["pending"],
+                "sensitivity": "internal",
+            },
+        }
+    )
 
     result = runner.invoke(app, ["govern", "readiness", "--format", "json"])
 
@@ -326,8 +328,7 @@ def test_lifecycle_readiness_fails_on_graph_only_supersession_drift(
 
     assert result.exit_code == 0, result.output
     lane = next(
-        row for row in json.loads(result.output)["lanes"]
-        if row["id"] == "memory_lifecycle"
+        row for row in json.loads(result.output)["lanes"] if row["id"] == "memory_lifecycle"
     )
     assert lane["status"] == "fail"
     assert lane["metrics"]["supersession_graph_status"] == "available"
@@ -364,7 +365,8 @@ def test_lifecycle_readiness_fails_on_frontmatter_only_drift_and_ignores_custom_
     with sqlite3.connect(brain / "index.db") as connection:
         connection.execute(
             "CREATE TABLE refs_graph ("
-            "source_id TEXT NOT NULL, target_id TEXT NOT NULL, relation TEXT NOT NULL)"
+            "source_id TEXT NOT NULL, target_id TEXT NOT NULL, relation TEXT NOT NULL, "
+            "PRIMARY KEY (source_id, target_id, relation))"
         )
         connection.execute(
             "INSERT INTO refs_graph VALUES (?, ?, 'custom')",
@@ -420,9 +422,7 @@ def test_lifecycle_readiness_fails_closed_when_pending_scan_is_unavailable(
     monkeypatch.setattr(
         PendingQueue,
         "depth",
-        lambda self: (_ for _ in ()).throw(
-            PendingEnqueueError("PENDING_SCAN_UNAVAILABLE")
-        ),
+        lambda self: (_ for _ in ()).throw(PendingEnqueueError("PENDING_SCAN_UNAVAILABLE")),
     )
 
     report = build_governance_readiness_report(brain, repo_root=Path.cwd())
@@ -449,21 +449,23 @@ def test_lifecycle_readiness_never_leaks_private_item_or_pending_content(
         sensitivity="private",
     )
     store.write(private, "PRIVATE_BODY_CANARY")
-    enqueue_write_record({
-        "v": 2,
-        "op": "write",
-        "origin": "hook",
-        "record_id": "private-pending-record",
-        "enqueued_at": datetime.now(timezone.utc).isoformat(),
-        "original_created_at": datetime.now(timezone.utc).isoformat(),
-        "item": {
-            "type": "fact",
-            "title": "PENDING_TITLE_CANARY",
-            "summary": "PENDING_SUMMARY_CANARY",
-            "body": "PENDING_BODY_CANARY",
-            "sensitivity": "private",
-        },
-    })
+    enqueue_write_record(
+        {
+            "v": 2,
+            "op": "write",
+            "origin": "hook",
+            "record_id": "private-pending-record",
+            "enqueued_at": datetime.now(timezone.utc).isoformat(),
+            "original_created_at": datetime.now(timezone.utc).isoformat(),
+            "item": {
+                "type": "fact",
+                "title": "PENDING_TITLE_CANARY",
+                "summary": "PENDING_SUMMARY_CANARY",
+                "body": "PENDING_BODY_CANARY",
+                "sensitivity": "private",
+            },
+        }
+    )
 
     report = build_governance_readiness_report(brain, repo_root=Path.cwd())
     lane = next(row for row in report.lanes if row.id == "memory_lifecycle")
@@ -602,7 +604,8 @@ def test_lifecycle_readiness_ignores_dangling_and_non_supersedes_graph_edges(
     with sqlite3.connect(brain / "index.db") as connection:
         connection.execute(
             "CREATE TABLE refs_graph ("
-            "source_id TEXT NOT NULL, target_id TEXT NOT NULL, relation TEXT NOT NULL)"
+            "source_id TEXT NOT NULL, target_id TEXT NOT NULL, relation TEXT NOT NULL, "
+            "PRIMARY KEY (source_id, target_id, relation))"
         )
         connection.executemany(
             "INSERT INTO refs_graph VALUES (?, ?, ?)",
@@ -671,20 +674,22 @@ def test_lifecycle_readiness_pending_utc_age_warns_after_24_hours(
     monkeypatch.setenv("BRAIN_DIR", str(brain))
     (brain / "items").mkdir(parents=True)
     observed = datetime.now(timezone(timedelta(hours=8))) - timedelta(hours=25)
-    enqueue_write_record({
-        "v": 2,
-        "op": "write",
-        "origin": "hook",
-        "record_id": "pending-utc-warning",
-        "enqueued_at": observed.isoformat(),
-        "original_created_at": observed.isoformat(),
-        "item": {
-            "type": "fact",
-            "title": "utc warning",
-            "summary": "utc warning summary",
-            "body": "utc warning body",
-        },
-    })
+    enqueue_write_record(
+        {
+            "v": 2,
+            "op": "write",
+            "origin": "hook",
+            "record_id": "pending-utc-warning",
+            "enqueued_at": observed.isoformat(),
+            "original_created_at": observed.isoformat(),
+            "item": {
+                "type": "fact",
+                "title": "utc warning",
+                "summary": "utc warning summary",
+                "body": "utc warning body",
+            },
+        }
+    )
 
     lane = build_memory_lifecycle_readiness(brain)
 
@@ -721,20 +726,22 @@ def test_lifecycle_readiness_reads_pending_from_explicit_brain_not_environment(
     other_brain = tmp_path / "other-brain"
     monkeypatch.setenv("BRAIN_DIR", str(requested_brain))
     (requested_brain / "items").mkdir(parents=True)
-    enqueue_write_record({
-        "v": 2,
-        "op": "write",
-        "origin": "hook",
-        "record_id": "explicit-brain-pending",
-        "enqueued_at": datetime.now(timezone.utc).isoformat(),
-        "original_created_at": datetime.now(timezone.utc).isoformat(),
-        "item": {
-            "type": "fact",
-            "title": "explicit brain item",
-            "summary": "explicit brain summary",
-            "body": "explicit brain body",
-        },
-    })
+    enqueue_write_record(
+        {
+            "v": 2,
+            "op": "write",
+            "origin": "hook",
+            "record_id": "explicit-brain-pending",
+            "enqueued_at": datetime.now(timezone.utc).isoformat(),
+            "original_created_at": datetime.now(timezone.utc).isoformat(),
+            "item": {
+                "type": "fact",
+                "title": "explicit brain item",
+                "summary": "explicit brain summary",
+                "body": "explicit brain body",
+            },
+        }
+    )
     monkeypatch.setenv("BRAIN_DIR", str(other_brain))
 
     lane = build_memory_lifecycle_readiness(requested_brain)
@@ -898,3 +905,172 @@ def test_lifecycle_readiness_rejects_journal_changed_during_snapshot(
     truth = readiness_module._read_supersedes_graph_readonly(brain / "index.db")
 
     assert truth.status == "unavailable"
+
+
+def test_lifecycle_readiness_rejects_duplicate_item_id_across_active_and_archive(
+    tmp_path,
+    monkeypatch,
+):
+    brain = tmp_path / "brain"
+    monkeypatch.setenv("BRAIN_DIR", str(brain))
+    store = ItemsStore(brain / "items")
+    item_id = "mem-20260720-120000-duplicate-tree-id"
+    _write_item(
+        store,
+        item_id,
+        item_type=MemoryType.fact,
+        days_old=1,
+        confidence=0.9,
+        tags=["duplicate"],
+        title="duplicate tree id",
+    )
+    archived = store.items_dir / "archived"
+    archived.mkdir()
+    source = store.items_dir / f"{item_id}.md"
+    (archived / source.name).write_bytes(source.read_bytes())
+
+    lane = build_memory_lifecycle_readiness(brain)
+
+    assert lane.status == "fail"
+    assert lane.metrics["item_scan_unavailable"] is True
+
+
+def test_lifecycle_readiness_retries_concurrent_archive_as_one_generation(
+    tmp_path,
+    monkeypatch,
+):
+    import agent_brain.product.governance_readiness as readiness_module
+
+    brain = tmp_path / "brain"
+    monkeypatch.setenv("BRAIN_DIR", str(brain))
+    store = ItemsStore(brain / "items")
+    item_id = "mem-20260720-120001-concurrent-archive"
+    _write_item(
+        store,
+        item_id,
+        item_type=MemoryType.fact,
+        days_old=1,
+        confidence=0.9,
+        tags=["archive"],
+        title="concurrent archive",
+    )
+    real_scan = readiness_module._read_items_readonly
+    moved = False
+
+    def scan_then_archive(items_dir):
+        nonlocal moved
+        result = real_scan(items_dir)
+        if not moved:
+            moved = True
+            archived = items_dir / "archived"
+            archived.mkdir()
+            source = items_dir / f"{item_id}.md"
+            source.replace(archived / source.name)
+        return result
+
+    monkeypatch.setattr(readiness_module, "_read_items_readonly", scan_then_archive)
+
+    lane = build_memory_lifecycle_readiness(brain)
+
+    assert lane.metrics["snapshot_unstable"] is False
+    assert lane.metrics["active_count"] == 0
+    assert lane.metrics["archived_count"] == 1
+
+
+def test_lifecycle_readiness_fails_after_repeated_generation_changes(
+    tmp_path,
+    monkeypatch,
+):
+    import agent_brain.product.governance_readiness as readiness_module
+
+    brain = tmp_path / "brain"
+    monkeypatch.setenv("BRAIN_DIR", str(brain))
+    store = ItemsStore(brain / "items")
+    item_id = "mem-20260720-120002-unstable-generation"
+    _write_item(
+        store,
+        item_id,
+        item_type=MemoryType.fact,
+        days_old=1,
+        confidence=0.9,
+        tags=["unstable"],
+        title="unstable generation",
+    )
+    source = store.items_dir / f"{item_id}.md"
+    real_scan = readiness_module._read_items_readonly
+
+    def scan_then_touch(items_dir):
+        result = real_scan(items_dir)
+        source.touch()
+        return result
+
+    monkeypatch.setattr(readiness_module, "_read_items_readonly", scan_then_touch)
+
+    lane = build_memory_lifecycle_readiness(brain)
+
+    assert lane.status == "fail"
+    assert lane.metrics["snapshot_unstable"] is True
+
+
+def test_lifecycle_readiness_preserves_legacy_stale_signal_check_schema(
+    tmp_path,
+    monkeypatch,
+):
+    brain = tmp_path / "brain"
+    monkeypatch.setenv("BRAIN_DIR", str(brain))
+    store = ItemsStore(brain / "items")
+    _write_item(
+        store,
+        "mem-20260720-120003-legacy-stale-check",
+        item_type=MemoryType.signal,
+        days_old=40,
+        confidence=0.9,
+        tags=["legacy"],
+        title="legacy stale check",
+    )
+
+    lane = build_memory_lifecycle_readiness(brain)
+    checks = {check.id: check for check in lane.checks}
+
+    assert lane.metrics["stale_signal_count"] == 1
+    assert checks["stale_signal_count"].status == "warn"
+    assert checks["stale_signal_count"].evidence["count"] == 1
+    assert checks["review_queue_count"].status == "warn"
+
+
+def test_lifecycle_readiness_rejects_duplicate_or_non_unique_graph_schema(
+    tmp_path,
+):
+    import agent_brain.product.governance_readiness as readiness_module
+
+    brain = tmp_path / "brain"
+    brain.mkdir()
+    database = brain / "index.db"
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            "CREATE TABLE refs_graph ("
+            "source_id TEXT NOT NULL, target_id TEXT NOT NULL, relation TEXT NOT NULL)"
+        )
+        connection.executemany(
+            "INSERT INTO refs_graph VALUES (?, ?, 'supersedes')",
+            [("duplicate-new", "duplicate-old")] * 2,
+        )
+
+    truth = readiness_module._read_supersedes_graph_readonly(database)
+
+    assert truth.status == "unavailable"
+
+
+def test_lifecycle_readiness_reports_corrupt_dirty_marker(
+    tmp_path,
+    monkeypatch,
+):
+    brain = tmp_path / "brain"
+    monkeypatch.setenv("BRAIN_DIR", str(brain))
+    (brain / "items").mkdir(parents=True)
+    (brain / ".index-dirty").write_text("not-a-memory-id\n", encoding="utf-8")
+
+    lane = build_memory_lifecycle_readiness(brain)
+
+    assert lane.status == "fail"
+    assert lane.metrics["index_dirty_status"] == "corrupt"

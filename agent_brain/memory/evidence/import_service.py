@@ -57,7 +57,10 @@ def import_records(
                     embedding=embedder.embed(embedding_text_for_item(item)),
                 )
             except Exception as exc:  # noqa: BLE001 - import still landed in md
-                _mark_dirty(item.id, brain_dir=brain_dir)
+                _mark_dirty(
+                    item.id,
+                    brain_dir=brain_dir or store.items_dir.parent,
+                )
                 result.errors.append(f"{item.id}: index failed: {exc}")
         except Exception as exc:  # noqa: BLE001 - keep importing later records
             result.errors.append(str(exc))
@@ -66,12 +69,9 @@ def import_records(
 
 def _mark_dirty(item_id: str, *, brain_dir: Path | None = None) -> None:
     try:
-        if brain_dir is None:
-            from agent_brain.memory.store.pending import dirty_index_path
+        from agent_brain.memory.store.pending import dirty_index_path
 
-            path = dirty_index_path()
-        else:
-            path = brain_dir / ".index-dirty"
+        path = dirty_index_path(brain_dir)
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("a", encoding="utf-8") as handle:
             handle.write(item_id + "\n")

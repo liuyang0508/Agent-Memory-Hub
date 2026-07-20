@@ -164,6 +164,41 @@ def _freeze_now(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("agent_brain.memory.store.pending._utc_now", lambda: NOW, raising=False)
 
 
+def test_pending_readiness_preview_fails_closed_on_total_byte_budget(
+    tmp_brain,
+):
+    enqueue_write_record(_v2_record(record_id="readiness-budget-record"))
+
+    preview = PendingQueue(brain=tmp_brain).preview_for_readiness(
+        limit=10,
+        max_total_bytes=8,
+        deadline_seconds=1.0,
+    )
+
+    assert preview.scan_unavailable is True
+    assert preview.reason == "PENDING_READINESS_BUDGET_EXCEEDED"
+
+
+def test_pending_readiness_preview_uses_injectable_deadline_clock(
+    tmp_brain,
+    monkeypatch,
+):
+    import agent_brain.memory.store.pending as pending_module
+
+    enqueue_write_record(_v2_record(record_id="readiness-deadline-record"))
+    ticks = iter((0.0, 2.0))
+    monkeypatch.setattr(pending_module, "_monotonic", lambda: next(ticks))
+
+    preview = PendingQueue(brain=tmp_brain).preview_for_readiness(
+        limit=10,
+        max_total_bytes=1024 * 1024,
+        deadline_seconds=1.0,
+    )
+
+    assert preview.scan_unavailable is True
+    assert preview.reason == "PENDING_READINESS_BUDGET_EXCEEDED"
+
+
 def _write_existing_item(
     tmp_brain: Path,
     record: dict[str, object],
@@ -256,7 +291,7 @@ def test_apply_preserves_original_created_at_and_pending_source(
     [
         ("Café Memory", "cafe-memory"),
         ("CON", "pending"),
-        ("<>:\"/\\|?*\x00 中文", "pending"),
+        ('<>:"/\\|?*\x00 中文', "pending"),
     ],
 )
 def test_pending_item_id_uses_portable_ascii_slug(title: str, expected_slug: str) -> None:
@@ -505,9 +540,7 @@ def test_unlink_directory_fsync_failure_keeps_written_result_with_fixed_warning(
             raise OSError("sensitive mount detail")
         real_fsync(directory)  # type: ignore[arg-type]
 
-    monkeypatch.setattr(
-        pending_module.SecureDirectory, "fsync", fail_post_unlink_pending_fsync
-    )
+    monkeypatch.setattr(pending_module.SecureDirectory, "fsync", fail_post_unlink_pending_fsync)
 
     result = PendingQueue().apply(record_ids=["unlink-fsync-record"])
 
@@ -705,9 +738,7 @@ def test_apply_reports_platform_unsupported_before_any_mutation(
     tmp_brain: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     path = enqueue_write_record(_v2_record(record_id="unsupported-platform-record"))
-    monkeypatch.setattr(
-        pending_module, "lifecycle_mutation_capability", lambda: False
-    )
+    monkeypatch.setattr(pending_module, "lifecycle_mutation_capability", lambda: False)
 
     result = PendingQueue().apply(record_ids=["unsupported-platform-record"])
 
