@@ -829,9 +829,19 @@ class _DescendingName(str):
 class PendingQueue:
     """Durable buffer of pending writes, drained through ``WriteService``."""
 
+    def __init__(self, *, brain: Path | None = None) -> None:
+        self._brain = (
+            Path(brain).expanduser().resolve(strict=False)
+            if brain is not None
+            else None
+        )
+
+    def _brain_dir(self) -> Path:
+        return self._brain if self._brain is not None else brain_dir()
+
     def depth(self) -> int:
         """Number of records still buffered (excludes the dead/ sub-dir)."""
-        brain = brain_dir()
+        brain = self._brain_dir()
         snapshot = _pending_record_paths(brain / "pending")
         if snapshot.scan_unavailable:
             raise PendingEnqueueError(snapshot.reason or "PENDING_SCAN_UNAVAILABLE")
@@ -839,7 +849,7 @@ class PendingQueue:
 
     def preview(self, *, limit: int = 20) -> PendingPreview:
         """Summarize queued records without replaying or mutating them."""
-        brain = brain_dir()
+        brain = self._brain_dir()
         path_snapshot = _pending_record_paths(brain / "pending")
         bounded_limit = max(0, limit)
         scan_cap = max(0, MAX_PENDING_QUEUE_ENTRIES)
@@ -936,7 +946,7 @@ class PendingQueue:
                 )
             return stats
 
-        with _locked_pending_queue(brain_dir()):
+        with _locked_pending_queue(self._brain_dir()):
             return self._apply_locked(requested=requested, safe_only=safe_only)
 
     def _apply_locked(
@@ -947,7 +957,7 @@ class PendingQueue:
     ) -> PendingApplyStats:
         """Acquire queue -> catalog before any fresh classification or mutation."""
 
-        store = ItemsStore(brain_dir() / "items")
+        store = ItemsStore(self._brain_dir() / "items")
         with store.locked_catalog():
             return self._apply_catalog_locked(requested=requested, safe_only=safe_only)
 
@@ -1042,7 +1052,7 @@ class PendingQueue:
                     from agent_brain.memory.store.write_service import WriteService
 
                     try:
-                        service = WriteService.for_brain(brain_dir())
+                        service = WriteService.for_brain(self._brain_dir())
                     except Exception:
                         stats.add(
                             _failed_apply_result(
@@ -1085,7 +1095,7 @@ class PendingQueue:
                 if raw is not None and (pending_item is None or write_input is None):
                     return _failed_apply_result(record, "PENDING_RECORD_CHANGED")
 
-                store = ItemsStore(brain_dir() / "items")
+                store = ItemsStore(self._brain_dir() / "items")
                 with store.locked_items([item_id]) as locked:
                     try:
                         existing, existing_body = locked.get(item_id)

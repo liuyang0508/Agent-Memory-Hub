@@ -350,6 +350,92 @@ def test_doctor_pending_next_action_is_preview_only(tmp_brain, monkeypatch):
     assert "--apply" not in output
 
 
+def test_doctor_pending_row_reports_ready_review_blocker_and_oldest(
+    tmp_brain,
+    monkeypatch,
+):
+    from datetime import datetime, timedelta, timezone
+
+    from typer.testing import CliRunner
+
+    from agent_brain.interfaces.cli import app
+    from agent_brain.memory.store.pending import enqueue_write_record
+
+    _create_ready_index(tmp_brain)
+    now = datetime.now(timezone.utc)
+    enqueue_write_record({
+        "v": 2,
+        "op": "write",
+        "origin": "hook",
+        "record_id": "doctor-ready-record",
+        "enqueued_at": now.isoformat(),
+        "original_created_at": now.isoformat(),
+        "item": {
+            "type": "fact",
+            "title": "ready doctor item",
+            "summary": "ready doctor summary",
+            "body": "ready doctor body",
+        },
+    })
+    stale_time = now - timedelta(days=40)
+    enqueue_write_record({
+        "v": 2,
+        "op": "write",
+        "origin": "hook",
+        "record_id": "doctor-review-record",
+        "enqueued_at": stale_time.isoformat(),
+        "original_created_at": stale_time.isoformat(),
+        "item": {
+            "type": "signal",
+            "title": "review doctor item",
+            "summary": "review doctor summary",
+            "body": "review doctor body",
+        },
+    })
+    (tmp_brain / "pending" / "broken.jsonl").write_text(
+        "{not-json\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("COLUMNS", "260")
+
+    result = CliRunner().invoke(app, ["doctor", "--offline"])
+
+    assert result.exit_code in {0, 1}, result.output
+    output = " ".join(result.stdout.split())
+    assert "ready=1" in output
+    assert "review=1" in output
+    assert "blocker=1" in output
+    assert "oldest=" in output
+    assert "memory sync-pending --format json" in output
+    assert "--apply" not in output
+
+
+def test_doctor_keeps_semantic_not_fast_ready_visible_when_lifecycle_passes(
+    tmp_brain,
+    monkeypatch,
+):
+    from typer.testing import CliRunner
+
+    import agent_brain.platform.doctor as doctor
+    from agent_brain.interfaces.cli import app
+
+    _create_ready_index(tmp_brain)
+    monkeypatch.setattr(
+        doctor,
+        "_probe_semantic_provider_status",
+        lambda: "not_fast_ready",
+    )
+    monkeypatch.setenv("COLUMNS", "260")
+
+    result = CliRunner().invoke(app, ["doctor", "--offline"])
+
+    assert result.exit_code in {0, 1}, result.output
+    output = " ".join(result.stdout.split())
+    assert "semantic provider" in output
+    assert "not_fast_ready" in output
+    assert "lifecycle / pending governance" in output
+
+
 def test_doctor_gateway_probe_fails_closed_on_real_import_exception(
     tmp_brain,
     monkeypatch,

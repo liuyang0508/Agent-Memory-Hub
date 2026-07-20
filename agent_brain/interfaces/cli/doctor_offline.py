@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import Any
 
 from rich.table import Table
 
@@ -12,7 +13,7 @@ def _brain_dir() -> Path:
 
 
 def doctor_offline(
-    console,
+    console: Any,
     verbose: bool = False,
     repair_malformed: bool = False,
     restore_malformed: str | None = None,
@@ -20,9 +21,13 @@ def doctor_offline(
 ) -> None:
     """Report which capabilities work offline right now (no network calls)."""
     from agent_brain.platform.doctor import run_doctor
+    from agent_brain.product.governance_readiness import (
+        build_memory_lifecycle_readiness,
+    )
     import shutil as _sh
 
     rep = run_doctor(offline=True)
+    lifecycle = build_memory_lifecycle_readiness(_brain_dir())
 
     rows: list[tuple[str, str, str]] = []
     rows.append((
@@ -58,16 +63,38 @@ def doctor_offline(
     rows.append(("git snapshots (history)", "local git", "available" if _sh.which("git") else "unavailable (git not found)"))
     rows.append(("citation-rot URL probe", "network, opt-in (--check-urls)", "opt-in (off by default)"))
 
-    pending_depth = rep.checks["pending.depth"]
-    pending_dead = rep.checks["pending.dead"]
-    if pending_depth or pending_dead:
-        rows.append((
-            "pending writes (durable buffer)",
-            f"{pending_depth} buffered, {pending_dead} dead",
-            "degraded -> preview: memory sync-pending --format json",
-        ))
+    lifecycle_metrics = lifecycle.metrics
+    pending_groups = lifecycle_metrics["pending_groups"]
+    oldest_age = lifecycle_metrics["pending_oldest_age_seconds"]
+    oldest_text = _format_age(oldest_age)
+    pending_requires_attention = bool(
+        lifecycle_metrics["pending_total"]
+        or lifecycle_metrics["pending_dead_count"]
+        or lifecycle_metrics["pending_scan_unavailable"]
+        or lifecycle_metrics["pending_truncated"]
+    )
+    if pending_requires_attention:
+        preview_command = "memory sync-pending --format json"
+    elif lifecycle_metrics["review_queue_count"]:
+        preview_command = "memory govern plan --category lifecycle --format markdown"
     else:
-        rows.append(("pending writes (durable buffer)", "none buffered", "available"))
+        preview_command = "memory verify"
+    if lifecycle.status == "fail":
+        lifecycle_status = f"blocked -> preview: {preview_command}"
+    elif lifecycle.status == "warn" or pending_requires_attention:
+        lifecycle_status = f"review required -> preview: {preview_command}"
+    else:
+        lifecycle_status = "available"
+    rows.append((
+        "lifecycle / pending governance",
+        (
+            f"ready={pending_groups['ready']}, "
+            f"review={pending_groups['review']}, "
+            f"blocker={pending_groups['blocker']}, "
+            f"oldest={oldest_text}"
+        ),
+        lifecycle_status,
+    ))
     skipped_items = rep.checks.get("core.items.skipped", 0)
     if skipped_items:
         rows.append((
@@ -90,6 +117,7 @@ def doctor_offline(
                 "yellow"
                 if (
                     "degraded" in status
+                    or "review required" in status
                     or "opt-in" in status
                     or status in {"rollback", "not_fast_ready"}
                 )
@@ -164,10 +192,26 @@ def doctor_offline(
                 f"[bold]dry-run: {restore.found} archived malformed "
                 f"{'item' if restore.found == 1 else 'items'} checked[/bold]"
             )
-    console.print(f"\n[bold]overall: {rep.overall}[/bold]")
+    displayed_overall = rep.overall
+    if lifecycle.status != "pass" and displayed_overall == "OK":
+        displayed_overall = "DEGRADED"
+    console.print(f"\n[bold]overall: {displayed_overall}[/bold]")
     console.print(
         "[dim]Core read/write stays offline; routed generation, semantic readiness, lexical fallback, and Gateway health degrade independently.[/dim]"
     )
+
+
+def _format_age(age_seconds: object) -> str:
+    if not isinstance(age_seconds, int) or age_seconds < 0:
+        return "none"
+    days, remainder = divmod(age_seconds, 86400)
+    hours = remainder // 3600
+    if days:
+        return f"{days}d {hours}h"
+    minutes = remainder // 60
+    if hours:
+        return f"{hours}h {minutes % 60}m"
+    return f"{minutes}m"
 
 
 __all__ = ["doctor_offline"]
