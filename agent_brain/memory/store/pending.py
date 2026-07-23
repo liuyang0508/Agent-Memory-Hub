@@ -212,6 +212,7 @@ _PUBLIC_PENDING_REASONS = frozenset(
         "PENDING_UNLINK_FAILED",
         "PENDING_WRITE_SERVICE_UNAVAILABLE",
         "PENDING_WRITE_SERVICE_CLOSE_FAILED",
+        "PENDING_WRITE_EVIDENCE_INVALID",
         "PLATFORM_UNSUPPORTED",
         "READY",
         "RECORD_ID_NOT_FOUND",
@@ -1712,8 +1713,21 @@ class PendingQueue:
             return stats
 
         if apply:
+            _preview, preflight_ready = self._plan_resolutions(
+                valid,
+                result_slots,
+            )
+            if not preflight_ready:
+                stats.results = [
+                    result for result in result_slots if result is not None
+                ]
+                return stats
+            mutation_valid = [
+                (request_index, selection.action)
+                for request_index, selection in preflight_ready
+            ]
             if not lifecycle_mutation_capability():
-                for request_index, action in valid:
+                for request_index, action in mutation_valid:
                     result_slots[request_index] = _resolution_result(
                         action,
                         status="failed",
@@ -1727,7 +1741,7 @@ class PendingQueue:
                 store = ItemsStore(self._brain_dir() / "items")
                 with store.locked_catalog():
                     return self._apply_resolutions_locked(
-                        valid=valid,
+                        valid=mutation_valid,
                         result_slots=result_slots,
                         requested_count=len(requested),
                         store=store,
@@ -2886,6 +2900,11 @@ def _preview_recovery_resolution(
     existing_items: Mapping[str, MemoryItem],
     store: ItemsStore,
 ) -> tuple[_PendingResolutionSelection | None, PendingResolutionResult] | None:
+    if (
+        preview._stable_item_id is None
+        or preview._stable_item_id not in existing_items
+    ):
+        return None
     intent, reason, item_id = _resolution_intent(action, preview, raw)
     if item_id is None or item_id not in existing_items:
         return None
@@ -2923,6 +2942,10 @@ def _resolution_intent(
     preview: PendingRecordPreview,
     raw: bytes,
 ) -> tuple[_PendingResolutionIntent | None, str | None, str | None]:
+    from agent_brain.memory.store.write_service import (
+        _write_evidence_boundary_valid,
+    )
+
     if action.action == "approve_audit":
         rebuilt = _pending_write_input(Path(preview.path), raw, preview)
         if rebuilt is None:
@@ -2930,6 +2953,8 @@ def _resolution_intent(
         item, body, _allow_unsafe = rebuilt
         if str(item.sensitivity) not in {"public", "internal"}:
             return None, "PENDING_AUDIT_APPROVAL_REQUIRED", item.id
+        if not _write_evidence_boundary_valid(item, body):
+            return None, "PENDING_WRITE_EVIDENCE_INVALID", item.id
         try:
             report = _audit_report("\n".join((item.title, item.summary, body)))
         except Exception:
@@ -2956,6 +2981,8 @@ def _resolution_intent(
     if converted is None:
         return None, "PENDING_CONVERSION_INVALID", preview._stable_item_id
     item, body = converted
+    if not _write_evidence_boundary_valid(item, body):
+        return None, "PENDING_WRITE_EVIDENCE_INVALID", item.id
     try:
         conversion_report = _audit_report(
             "\n".join((item.title, item.summary, body))

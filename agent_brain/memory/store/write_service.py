@@ -84,6 +84,8 @@ _MAX_WRITE_EVIDENCE_SYMLINK_BYTES = 4096
 _GENERATED_EVIDENCE_CLOCK_SKEW_SECONDS = 5
 _MAX_LEGACY_EVIDENCE_OFFSET_SECONDS = 14 * 60 * 60
 _LEGACY_EVIDENCE_OFFSET_GRANULARITY_SECONDS = 15 * 60
+_EVIDENCE_TIMESTAMP_BASIS = "utc-v1"
+_UTC_V1_ID_PREFIX = f"{_EVIDENCE_TIMESTAMP_BASIS}-"
 _GENERATED_EVIDENCE_ID_RE = re.compile(
     r"^(?P<prefix>res|ext)-(?P<date>\d{8})-(?P<time>\d{6})-"
 )
@@ -567,6 +569,14 @@ def _prepare_write_evidence(
     return tuple(evidence)
 
 
+def _write_evidence_boundary_valid(item: MemoryItem, body: str) -> bool:
+    try:
+        _prepare_write_evidence(item, body)
+    except _WriteEvidenceBoundaryError:
+        return False
+    return True
+
+
 def _write_input_spec(item: MemoryItem, body: str) -> _WriteEvidenceSpec:
     content = body if body.strip() else f"{item.title}\n{item.summary}"
     resource = ResourceRecord(
@@ -586,6 +596,7 @@ def _write_input_spec(item: MemoryItem, body: str) -> _WriteEvidenceSpec:
             "memory_item_id": item.id,
             "source_kind": getattr(item.source, "kind", None),
             "evidence_role": "write_input",
+            "timestamp_basis": _EVIDENCE_TIMESTAMP_BASIS,
         },
     )
     extraction = ExtractionRecord(
@@ -599,7 +610,11 @@ def _write_input_spec(item: MemoryItem, body: str) -> _WriteEvidenceSpec:
         source_locator=f"memory://items/{item.id}/body",
         confidence=item.confidence,
         created_at=item.created_at,
-        metadata={"memory_item_id": item.id, "evidence_role": "write_input"},
+        metadata={
+            "memory_item_id": item.id,
+            "evidence_role": "write_input",
+            "timestamp_basis": _EVIDENCE_TIMESTAMP_BASIS,
+        },
     )
     return _WriteEvidenceSpec(
         id_title=f"{item.title} write input",
@@ -632,6 +647,7 @@ def _file_ref_spec(
             "memory_item_id": item.id,
             "ref_file": file.ref_file,
             "evidence_role": "ref_file",
+            "timestamp_basis": _EVIDENCE_TIMESTAMP_BASIS,
         },
     )
     extraction = (
@@ -646,7 +662,11 @@ def _file_ref_spec(
             created_at=item.created_at,
             source_locator=_file_uri(file.path),
             confidence=item.confidence,
-            metadata={"memory_item_id": item.id, "ref_file": file.ref_file},
+            metadata={
+                "memory_item_id": item.id,
+                "ref_file": file.ref_file,
+                "timestamp_basis": _EVIDENCE_TIMESTAMP_BASIS,
+            },
         )
         if file.text is not None
         else None
@@ -665,7 +685,10 @@ def _materialize_evidence_spec(
     created_at = datetime.now(timezone.utc)
     resource = spec.resource.model_copy(
         update={
-            "id": make_resource_id(spec.id_title, when=created_at),
+            "id": make_resource_id(
+                f"{_EVIDENCE_TIMESTAMP_BASIS} {spec.id_title}",
+                when=created_at,
+            ),
             "created_at": created_at,
         }
     )
@@ -674,7 +697,10 @@ def _materialize_evidence_spec(
         return resource.id, None
     extraction = spec.extraction.model_copy(
         update={
-            "id": make_extraction_id(spec.id_title, when=created_at),
+            "id": make_extraction_id(
+                f"{_EVIDENCE_TIMESTAMP_BASIS} {spec.id_title}",
+                when=created_at,
+            ),
             "resource_id": resource.id,
             "created_at": created_at,
         }
@@ -809,13 +835,13 @@ def _matches_existing_write(
                 return False
 
     last_created_at: datetime | None = None
-    generated_offset: int | None = None
+    generated_timestamp: tuple[str, int] | None = None
     extraction_index = 0
     for spec, resource_id in zip(specs, generated_resource_ids, strict=True):
         resource = resources.get(resource_id)
         if resource is None:
             return False
-        resource_offset = _generated_evidence_offset(
+        resource_timestamp = _generated_evidence_timestamp(
             resource,
             spec.resource,
             prefix="res",
@@ -823,10 +849,10 @@ def _matches_existing_write(
             now=now,
         )
         if (
-            resource_offset is None
+            resource_timestamp is None
             or (
-                generated_offset is not None
-                and resource_offset != generated_offset
+                generated_timestamp is not None
+                and resource_timestamp != generated_timestamp
             )
             or (
                 last_created_at is not None
@@ -834,7 +860,7 @@ def _matches_existing_write(
             )
         ):
             return False
-        generated_offset = resource_offset
+        generated_timestamp = resource_timestamp
         last_created_at = resource.created_at
         if spec.extraction is None:
             continue
@@ -843,7 +869,7 @@ def _matches_existing_write(
         extraction = extractions.get(extraction_id)
         if extraction is None:
             return False
-        extraction_offset = _generated_evidence_offset(
+        extraction_timestamp = _generated_evidence_timestamp(
             extraction,
             spec.extraction,
             prefix="ext",
@@ -853,12 +879,12 @@ def _matches_existing_write(
         )
         if (
             extraction.resource_id != resource.id
-            or extraction_offset is None
-            or extraction_offset != generated_offset
+            or extraction_timestamp is None
+            or extraction_timestamp != generated_timestamp
             or extraction.created_at < resource.created_at
         ):
             return False
-        generated_offset = extraction_offset
+        generated_timestamp = extraction_timestamp
         last_created_at = extraction.created_at
 
     expected = expected.model_copy(
@@ -874,7 +900,7 @@ def _matches_existing_write(
     return existing == expected
 
 
-def _generated_evidence_offset(
+def _generated_evidence_timestamp(
     actual: ResourceRecord | ExtractionRecord,
     expected: ResourceRecord | ExtractionRecord,
     *,
@@ -882,7 +908,7 @@ def _generated_evidence_offset(
     exclude: set[str] | None = None,
     item_created_at: datetime,
     now: datetime,
-) -> int | None:
+) -> tuple[str, int] | None:
     match = _GENERATED_EVIDENCE_ID_RE.match(actual.id)
     if match is None or match.group("prefix") != prefix:
         return None
@@ -900,27 +926,53 @@ def _generated_evidence_offset(
     )
     created_wall_utc = created_utc.replace(tzinfo=None)
     raw_offset = (id_local - created_wall_utc).total_seconds()
-    offset = round(
-        raw_offset / _LEGACY_EVIDENCE_OFFSET_GRANULARITY_SECONDS
-    ) * _LEGACY_EVIDENCE_OFFSET_GRANULARITY_SECONDS
     ignored = {"id", "created_at", *(exclude or set())}
+    actual_data = actual.model_dump(
+        mode="json",
+        exclude_none=False,
+        exclude=ignored,
+    )
+    expected_data = expected.model_dump(
+        mode="json",
+        exclude_none=False,
+        exclude=ignored,
+    )
+    id_is_utc_v1 = actual.id[match.end() :].startswith(_UTC_V1_ID_PREFIX)
+    marker_present = "timestamp_basis" in actual.metadata
+    if id_is_utc_v1:
+        if (
+            not marker_present
+            or actual.metadata.get("timestamp_basis")
+            != _EVIDENCE_TIMESTAMP_BASIS
+            or abs(raw_offset) > _GENERATED_EVIDENCE_CLOCK_SKEW_SECONDS
+        ):
+            return None
+        timestamp = (_EVIDENCE_TIMESTAMP_BASIS, 0)
+    else:
+        if marker_present:
+            return None
+        offset = round(
+            raw_offset / _LEGACY_EVIDENCE_OFFSET_GRANULARITY_SECONDS
+        ) * _LEGACY_EVIDENCE_OFFSET_GRANULARITY_SECONDS
+        if (
+            abs(offset) > _MAX_LEGACY_EVIDENCE_OFFSET_SECONDS
+            or abs(raw_offset - offset) > _GENERATED_EVIDENCE_CLOCK_SKEW_SECONDS
+        ):
+            return None
+        expected_metadata = dict(expected_data["metadata"])
+        if (
+            expected_metadata.pop("timestamp_basis", None)
+            != _EVIDENCE_TIMESTAMP_BASIS
+        ):
+            return None
+        expected_data["metadata"] = expected_metadata
+        timestamp = ("legacy", offset)
     if (
         not lower <= created_utc <= upper
-        or abs(offset) > _MAX_LEGACY_EVIDENCE_OFFSET_SECONDS
-        or abs(raw_offset - offset) > _GENERATED_EVIDENCE_CLOCK_SKEW_SECONDS
-        or actual.model_dump(
-            mode="json",
-            exclude_none=False,
-            exclude=ignored,
-        )
-        != expected.model_dump(
-            mode="json",
-            exclude_none=False,
-            exclude=ignored,
-        )
+        or actual_data != expected_data
     ):
         return None
-    return offset
+    return timestamp
 
 
 def _should_capture_write_input(body: str) -> bool:

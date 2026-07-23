@@ -293,6 +293,7 @@ def _rewrite_generated_evidence_wall_time(
     body: str,
     *,
     offset: timedelta,
+    extraction_offset: timedelta | None = None,
 ) -> None:
     old_resource_id = stored.refs.resources[0]
     old_extraction_id = stored.refs.extractions[0]
@@ -301,21 +302,27 @@ def _rewrite_generated_evidence_wall_time(
     resource = json.loads(resource_path.read_text(encoding="utf-8"))
     extraction = json.loads(extraction_path.read_text(encoding="utf-8"))
     created_at = datetime.fromisoformat(resource["created_at"]).astimezone(timezone.utc)
-    wall_time = created_at + offset
-    stamp = f"{wall_time:%Y%m%d-%H%M%S}"
-    new_resource_id = re.sub(
-        r"^res-\d{8}-\d{6}-",
-        f"res-{stamp}-",
+    resource_stamp = f"{created_at + offset:%Y%m%d-%H%M%S}"
+    extraction_stamp = (
+        f"{created_at + (extraction_offset or offset):%Y%m%d-%H%M%S}"
+    )
+    resource_tail = re.sub(
+        r"^res-\d{8}-\d{6}-(?:utc-v1-)?",
+        "",
         old_resource_id,
     )
-    new_extraction_id = re.sub(
-        r"^ext-\d{8}-\d{6}-",
-        f"ext-{stamp}-",
+    extraction_tail = re.sub(
+        r"^ext-\d{8}-\d{6}-(?:utc-v1-)?",
+        "",
         old_extraction_id,
     )
+    new_resource_id = f"res-{resource_stamp}-{resource_tail}"
+    new_extraction_id = f"ext-{extraction_stamp}-{extraction_tail}"
     resource["id"] = new_resource_id
     extraction["id"] = new_extraction_id
     extraction["resource_id"] = new_resource_id
+    resource["metadata"].pop("timestamp_basis", None)
+    extraction["metadata"].pop("timestamp_basis", None)
     (tmp_brain / "resources" / f"{new_resource_id}.json").write_text(
         json.dumps(resource),
         encoding="utf-8",
@@ -682,7 +689,11 @@ def _tree_snapshot(root: Path) -> list[tuple[str, bytes | None]]:
     return [
         (
             path.relative_to(root).as_posix(),
-            None if path.is_dir() else path.read_bytes(),
+            (
+                os.fsencode(os.readlink(path))
+                if path.is_symlink()
+                else None if path.is_dir() else path.read_bytes()
+            ),
         )
         for path in sorted(root.rglob("*"))
     ]
@@ -3711,10 +3722,15 @@ def test_resolution_apply_blocks_fresh_record_drift(
     real_read = pending_module._read_pending_record_snapshot
     reads = 0
 
-    def drift_third_read(*args, **kwargs):
+    def drift_fifth_read(*args, **kwargs):
         nonlocal reads
         reads += 1
-        if reads == 3:
+        if reads == 5:
+            assert (
+                path.parent
+                / ".amh-record-locks"
+                / pending_module.pending_record_lock_name(path.name)
+            ).exists()
             if drift == "missing":
                 raise FileNotFoundError
             raw, identity = real_read(*args, **kwargs)
@@ -3726,7 +3742,7 @@ def test_resolution_apply_blocks_fresh_record_drift(
     monkeypatch.setattr(
         pending_module,
         "_read_pending_record_snapshot",
-        drift_third_read,
+        drift_fifth_read,
     )
 
     stats = PendingQueue().resolve(
@@ -3773,6 +3789,16 @@ def test_resolution_apply_blocks_changed_audit_findings(
                 passed=False,
                 findings=[
                     SimpleNamespace(
+                        rule_id="NET-001",
+                        severity="high",
+                        category="network",
+                    )
+                ],
+            ),
+            SimpleNamespace(
+                passed=False,
+                findings=[
+                    SimpleNamespace(
                         rule_id="CODE-001",
                         severity="high",
                         category="code",
@@ -3792,6 +3818,8 @@ def test_resolution_apply_blocks_changed_audit_findings(
     assert stats.results[0].reason == "PENDING_AUDIT_FINDINGS_CHANGED"
     assert path.exists()
     assert list((tmp_brain / "items").glob("*.md")) == []
+    assert stats.receipt is not None
+    assert stats.receipt.status_counts == {"blocked": 1}
 
 
 def test_resolution_apply_blocks_when_audit_now_passes(
@@ -3805,6 +3833,16 @@ def test_resolution_apply_blocks_when_audit_now_passes(
     path = enqueue_write_record(record)
     reports = iter(
         (
+            SimpleNamespace(
+                passed=False,
+                findings=[
+                    SimpleNamespace(
+                        rule_id="NET-001",
+                        severity="high",
+                        category="network",
+                    )
+                ],
+            ),
             SimpleNamespace(
                 passed=False,
                 findings=[
@@ -3834,6 +3872,8 @@ def test_resolution_apply_blocks_when_audit_now_passes(
     assert stats.results[0].reason == "PENDING_RESOLUTION_CHANGED"
     assert path.exists()
     assert list((tmp_brain / "items").glob("*.md")) == []
+    assert stats.receipt is not None
+    assert stats.receipt.status_counts == {"blocked": 1}
 
 
 def test_resolution_apply_never_bypasses_secret_finding(
@@ -3887,7 +3927,7 @@ def test_resolution_apply_blocks_duplicate_target_digest_drift(
         span_hash="different-payload",
     )
     path = enqueue_write_record(record)
-    digests = iter(("a" * 64, "b" * 64))
+    digests = iter(("a" * 64, "a" * 64, "b" * 64))
     monkeypatch.setattr(
         pending_module,
         "_domain_digest",
@@ -3909,6 +3949,8 @@ def test_resolution_apply_blocks_duplicate_target_digest_drift(
     assert stats.results[0].reason == "PENDING_DUPLICATE_TARGET_MISMATCH"
     assert path.exists()
     assert len(list((tmp_brain / "items").glob("*.md"))) == 1
+    assert stats.receipt is not None
+    assert stats.receipt.status_counts == {"blocked": 1}
 
 
 def test_resolution_apply_index_degraded_is_applied_and_clears_pending(
@@ -4531,15 +4573,18 @@ def test_resolution_retry_rejects_broken_symlink_that_gains_regular_target(
         refs={"files": [str(ref_file)]},
     )
     target.write_text("target created after first write", encoding="utf-8")
+    before = _tree_snapshot(tmp_brain)
 
     preview = PendingQueue().resolve([action])
     applied = PendingQueue().resolve([action], apply=True)
 
     assert preview.results[0].status == "blocked"
-    assert preview.results[0].reason == "PENDING_RESOLUTION_CHANGED"
+    assert preview.results[0].reason == "PENDING_WRITE_EVIDENCE_INVALID"
     assert applied.results[0].status == "blocked"
-    assert applied.results[0].reason == "PENDING_RESOLUTION_CHANGED"
+    assert applied.results[0].reason == "PENDING_WRITE_EVIDENCE_INVALID"
+    assert applied.receipt is None
     assert path.exists()
+    assert _tree_snapshot(tmp_brain) == before
 
 
 def test_resolution_retry_keeps_regular_file_symlink_fail_closed(
@@ -4554,13 +4599,16 @@ def test_resolution_retry_keeps_regular_file_symlink_fail_closed(
         record_id="resolution-recovery-regular-file-symlink",
         refs={"files": [str(ref_file)]},
     )
+    before = _tree_snapshot(tmp_brain)
 
     applied = PendingQueue().resolve([action], apply=True)
 
-    assert applied.results[0].status == "failed"
-    assert applied.results[0].reason == "PENDING_APPLY_FAILED"
+    assert applied.results[0].status == "blocked"
+    assert applied.results[0].reason == "PENDING_WRITE_EVIDENCE_INVALID"
+    assert applied.receipt is None
     assert path.exists()
     assert not list((tmp_brain / "items").glob("*.md"))
+    assert _tree_snapshot(tmp_brain) == before
 
 
 def test_resolution_retry_keeps_symlink_loop_fail_closed(
@@ -4573,13 +4621,16 @@ def test_resolution_retry_keeps_symlink_loop_fail_closed(
         record_id="resolution-recovery-symlink-loop",
         refs={"files": [str(ref_file)]},
     )
+    before = _tree_snapshot(tmp_brain)
 
     applied = PendingQueue().resolve([action], apply=True)
 
-    assert applied.results[0].status == "failed"
-    assert applied.results[0].reason == "PENDING_APPLY_FAILED"
+    assert applied.results[0].status == "blocked"
+    assert applied.results[0].reason == "PENDING_WRITE_EVIDENCE_INVALID"
+    assert applied.receipt is None
     assert path.exists()
     assert not list((tmp_brain / "items").glob("*.md"))
+    assert _tree_snapshot(tmp_brain) == before
 
 
 def test_resolution_retry_rejects_skipped_ref_that_becomes_a_file(
@@ -4638,9 +4689,11 @@ def test_resolution_retry_preserves_mixed_readable_and_skipped_file_order(
     assert not path.exists()
 
 
+@pytest.mark.parametrize("action_name", ["approve_audit", "convert_type"])
 @pytest.mark.parametrize("case", ["count", "size"])
-def test_resolution_apply_keeps_pending_when_evidence_cap_is_exceeded(
+def test_resolution_planning_blocks_evidence_cap_without_any_mutation(
     tmp_brain: Path,
+    action_name: str,
     case: str,
 ) -> None:
     if case == "count":
@@ -4656,15 +4709,112 @@ def test_resolution_apply_keeps_pending_when_evidence_cap_is_exceeded(
             handle.truncate(64 * 1024 * 1024 + 1)
         refs = {"files": [str(oversized)]}
     path, action = _enqueue_resolution_apply_case(
-        "approve_audit",
-        f"resolution-evidence-cap-{case}",
+        action_name,
+        f"resolution-evidence-cap-{action_name}-{case}",
+        refs=refs,
+    )
+    before = _tree_snapshot(tmp_brain)
+
+    dry = PendingQueue().resolve([action])
+    applied = PendingQueue().resolve([action], apply=True)
+
+    assert dry.results[0].status == "blocked"
+    assert dry.results[0].reason == "PENDING_WRITE_EVIDENCE_INVALID"
+    assert applied.results[0].status == "blocked"
+    assert applied.results[0].reason == "PENDING_WRITE_EVIDENCE_INVALID"
+    assert path.exists()
+    assert dry.receipt is None
+    assert applied.receipt is None
+    assert _tree_snapshot(tmp_brain) == before
+    assert not list((tmp_brain / "items").glob("*.md"))
+    assert not list((tmp_brain / "resources").glob("*.json"))
+    assert not list((tmp_brain / "extractions").glob("*.json"))
+
+
+@pytest.mark.parametrize(
+    ("case", "action_name"),
+    [
+        ("count", "approve_audit"),
+        ("size", "convert_type"),
+    ],
+)
+def test_resolution_planning_accepts_exact_evidence_cap(
+    tmp_brain: Path,
+    case: str,
+    action_name: str,
+) -> None:
+    if case == "count":
+        refs = {
+            "files": [
+                str(tmp_brain / f"exact-missing-{index}.txt")
+                for index in range(64)
+            ]
+        }
+    else:
+        exact = tmp_brain / "pending-exact-64mib.bin"
+        with exact.open("wb") as handle:
+            handle.truncate(64 * 1024 * 1024)
+        refs = {"files": [str(exact)]}
+    path, action = _enqueue_resolution_apply_case(
+        action_name,
+        f"resolution-exact-cap-{case}",
         refs=refs,
     )
 
-    result = PendingQueue().resolve([action], apply=True)
+    dry = PendingQueue().resolve([action])
+    applied = PendingQueue().resolve([action], apply=True)
 
-    assert result.results[0].status == "failed"
-    assert result.results[0].reason == "PENDING_APPLY_FAILED"
+    assert dry.results[0].status == "ready"
+    assert dry.results[0].reason == "PENDING_RESOLUTION_READY"
+    assert applied.results[0].status == "applied"
+    assert applied.results[0].reason == "PENDING_RESOLUTION_APPLIED"
+    assert not path.exists()
+
+
+def test_resolution_apply_rechecks_evidence_boundary_under_record_lock(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from agent_brain.memory.store import write_service as write_service_module
+
+    ref_file = tmp_brain / "grows-before-locked-apply.txt"
+    ref_file.write_bytes(b"x" * 64)
+    path, action = _enqueue_resolution_apply_case(
+        "approve_audit",
+        "resolution-evidence-growth",
+        refs={"files": [str(ref_file)]},
+    )
+    monkeypatch.setattr(write_service_module, "_MAX_WRITE_EVIDENCE_FILE_BYTES", 64)
+    real_boundary = write_service_module._write_evidence_boundary_valid
+    calls = 0
+
+    def grow_after_locked_plan(item: MemoryItem, body: str) -> bool:
+        nonlocal calls
+        calls += 1
+        lock_path = (
+            path.parent
+            / ".amh-record-locks"
+            / pending_module.pending_record_lock_name(path.name)
+        )
+        if calls == 3:
+            assert lock_path.exists()
+        valid = real_boundary(item, body)
+        if calls == 2:
+            ref_file.write_bytes(b"x" * 65)
+        return valid
+
+    monkeypatch.setattr(
+        write_service_module,
+        "_write_evidence_boundary_valid",
+        grow_after_locked_plan,
+    )
+
+    applied = PendingQueue().resolve([action], apply=True)
+
+    assert calls == 3
+    assert applied.results[0].status == "blocked"
+    assert applied.results[0].reason == "PENDING_WRITE_EVIDENCE_INVALID"
+    assert applied.receipt is not None
     assert path.exists()
     assert not list((tmp_brain / "items").glob("*.md"))
     assert not list((tmp_brain / "resources").glob("*.json"))
@@ -4752,6 +4902,107 @@ def test_resolution_retry_rejects_invalid_legacy_timezone_offset(
     assert applied.results[0].status == "blocked"
     assert applied.results[0].reason == "PENDING_RESOLUTION_CHANGED"
     assert path.exists()
+
+
+def test_resolution_retry_rejects_inconsistent_legacy_timezone_offset(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path, action, stored_path, stored, body = _begin_resolution_recovery_case(
+        tmp_brain,
+        monkeypatch,
+        record_id="resolution-recovery-inconsistent-legacy-timezone",
+    )
+    _rewrite_generated_evidence_wall_time(
+        tmp_brain,
+        stored_path,
+        stored,
+        body,
+        offset=timedelta(hours=8),
+        extraction_offset=timedelta(hours=9),
+    )
+
+    _assert_resolution_recovery_blocked(path, action)
+
+
+@pytest.mark.parametrize("hours", [-8, 8])
+def test_resolution_retry_rejects_shifted_utc_v1_created_at(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    hours: int,
+) -> None:
+    path, action, _stored_path, stored, _body = _begin_resolution_recovery_case(
+        tmp_brain,
+        monkeypatch,
+        record_id=f"resolution-recovery-shifted-utc-v1-{hours}",
+    )
+    for collection, sidecar_id in (
+        ("resources", stored.refs.resources[0]),
+        ("extractions", stored.refs.extractions[0]),
+    ):
+        sidecar_path = tmp_brain / collection / f"{sidecar_id}.json"
+        payload = json.loads(sidecar_path.read_text(encoding="utf-8"))
+        payload["created_at"] = (
+            datetime.fromisoformat(payload["created_at"]) + timedelta(hours=hours)
+        ).isoformat()
+        sidecar_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    _assert_resolution_recovery_blocked(path, action)
+
+
+@pytest.mark.parametrize(
+    "tamper",
+    ["missing_metadata", "mismatched_metadata", "missing_id_marker"],
+)
+def test_resolution_retry_requires_matching_utc_v1_markers(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tamper: str,
+) -> None:
+    path, action, stored_path, stored, body = _begin_resolution_recovery_case(
+        tmp_brain,
+        monkeypatch,
+        record_id=f"resolution-recovery-utc-v1-marker-{tamper}",
+    )
+    resource_id = stored.refs.resources[0]
+    extraction_id = stored.refs.extractions[0]
+    resource_path = tmp_brain / "resources" / f"{resource_id}.json"
+    extraction_path = tmp_brain / "extractions" / f"{extraction_id}.json"
+    resource = json.loads(resource_path.read_text(encoding="utf-8"))
+    extraction = json.loads(extraction_path.read_text(encoding="utf-8"))
+    if tamper == "missing_metadata":
+        resource["metadata"].pop("timestamp_basis", None)
+        extraction["metadata"].pop("timestamp_basis", None)
+    elif tamper == "mismatched_metadata":
+        extraction["metadata"]["timestamp_basis"] = "local-v0"
+    else:
+        new_resource_id = resource_id.replace("-utc-v1-", "-", 1)
+        new_extraction_id = extraction_id.replace("-utc-v1-", "-", 1)
+        resource["id"] = new_resource_id
+        extraction["id"] = new_extraction_id
+        extraction["resource_id"] = new_resource_id
+        resource_path.unlink()
+        extraction_path.unlink()
+        resource_path = tmp_brain / "resources" / f"{new_resource_id}.json"
+        extraction_path = tmp_brain / "extractions" / f"{new_extraction_id}.json"
+        stored = stored.model_copy(
+            update={
+                "refs": stored.refs.model_copy(
+                    update={
+                        "resources": [new_resource_id],
+                        "extractions": [new_extraction_id],
+                    }
+                )
+            }
+        )
+        stored_path.write_text(
+            render_item_markdown(stored, body),
+            encoding="utf-8",
+        )
+    resource_path.write_text(json.dumps(resource), encoding="utf-8")
+    extraction_path.write_text(json.dumps(extraction), encoding="utf-8")
+
+    _assert_resolution_recovery_blocked(path, action)
 
 
 @pytest.mark.parametrize("batch_order", ["alone", "before_audit", "after_audit"])
