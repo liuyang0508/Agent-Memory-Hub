@@ -34,24 +34,21 @@ _LIFECYCLE_STALE_DAYS = {
 
 
 class _MemoryItemSnapshot(Mapping[str, MemoryItem]):
-    """Caller-isolated item values backed by immutable serialized snapshots."""
+    """Caller-isolated item values backed by private deep-copy baselines."""
 
     def __init__(self, items: Mapping[str, MemoryItem]) -> None:
-        self._payloads = MappingProxyType(
-            {
-                item_id: item.model_dump_json().encode("utf-8")
-                for item_id, item in items.items()
-            }
+        self._items = MappingProxyType(
+            {item_id: item.model_copy(deep=True) for item_id, item in items.items()}
         )
 
     def __getitem__(self, item_id: str) -> MemoryItem:
-        return MemoryItem.model_validate_json(self._payloads[item_id])
+        return self._items[item_id].model_copy(deep=True)
 
     def __iter__(self) -> Iterator[str]:
-        return iter(self._payloads)
+        return iter(self._items)
 
     def __len__(self) -> int:
-        return len(self._payloads)
+        return len(self._items)
 
 
 def lifecycle_review_due(item: MemoryItem, *, now: datetime) -> bool:

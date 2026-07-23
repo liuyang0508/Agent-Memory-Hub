@@ -27,12 +27,25 @@ _HAS_SECURE_DIR_FD_IO = (
     and os.open in getattr(os, "supports_dir_fd", set())
     and os.scandir in getattr(os, "supports_fd", set())
 )
+_HAS_SECURE_DIR_FD_MUTATION = (
+    _HAS_SECURE_DIR_FD_IO
+    and all(
+        function in getattr(os, "supports_dir_fd", set())
+        for function in (os.mkdir, os.link, os.stat, os.unlink)
+    )
+)
 
 
 def secure_dir_fd_io_supported() -> bool:
     """Return whether descriptor-relative no-follow reads are available."""
 
     return _HAS_SECURE_DIR_FD_IO
+
+
+def secure_dir_fd_mutation_supported() -> bool:
+    """Return whether descriptor-relative no-follow durable creates are available."""
+
+    return _HAS_SECURE_DIR_FD_MUTATION
 
 
 def open_directory_path_without_symlinks(path: Path) -> int:
@@ -48,6 +61,7 @@ def open_directory_path_without_symlinks(path: Path) -> int:
     descriptor: int | None = os.open(os.sep, _DIRECTORY_OPEN_FLAGS)
     try:
         for component in parts[1:]:
+            assert descriptor is not None
             if component in {"", ".", ".."}:
                 raise OSError("invalid secure directory path component")
             child = os.open(
@@ -57,6 +71,48 @@ def open_directory_path_without_symlinks(path: Path) -> int:
             )
             close_descriptor(descriptor)
             descriptor = child
+        assert descriptor is not None
+        opened = descriptor
+        descriptor = None
+        return opened
+    finally:
+        if descriptor is not None:
+            close_descriptor(descriptor)
+
+
+def open_or_create_directory_path_without_symlinks(
+    path: Path,
+    *,
+    mode: int = 0o700,
+) -> int:
+    """Open a directory tree, creating missing components relative to trusted fds."""
+
+    if not _HAS_SECURE_DIR_FD_MUTATION:
+        raise OSError("secure directory descriptor mutation is unavailable")
+    absolute = Path(os.path.abspath(os.fspath(path)))
+    parts = absolute.parts
+    if not parts or parts[0] != os.sep:
+        raise OSError("secure directory path must be a POSIX absolute path")
+
+    descriptor: int | None = os.open(os.sep, _DIRECTORY_OPEN_FLAGS)
+    try:
+        for component in parts[1:]:
+            assert descriptor is not None
+            if component in {"", ".", ".."}:
+                raise OSError("invalid secure directory path component")
+            created = False
+            try:
+                child = os.open(component, _DIRECTORY_OPEN_FLAGS, dir_fd=descriptor)
+            except FileNotFoundError:
+                os.mkdir(component, mode, dir_fd=descriptor)
+                os.fsync(descriptor)
+                child = os.open(component, _DIRECTORY_OPEN_FLAGS, dir_fd=descriptor)
+                created = True
+            if created:
+                os.fchmod(child, mode)
+            close_descriptor(descriptor)
+            descriptor = child
+        assert descriptor is not None
         opened = descriptor
         descriptor = None
         return opened
@@ -123,6 +179,8 @@ __all__ = [
     "close_descriptor",
     "open_child_directory",
     "open_directory_path_without_symlinks",
+    "open_or_create_directory_path_without_symlinks",
     "open_regular_file_at",
     "secure_dir_fd_io_supported",
+    "secure_dir_fd_mutation_supported",
 ]

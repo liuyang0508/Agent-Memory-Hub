@@ -249,14 +249,8 @@ preview 与 apply 都必须证明：
 满足后，在 per-record lock 内删除**精确的 pending 文件**并 fsync pending 目录；不改现有 item，
 不新增 item。任何证明失败均保留 pending。
 
-本轮已确认四组映射：
-
-| pending record | existing item |
-|---|---|
-| `pending-28d733a858f2340b184cb900` | `mem-20260612-014228-鹿鸣全国-readiness-与未就绪省份推荐保护-048200c3` |
-| `pending-343b56293873a9628de7f150` | `mem-20260622-104510-wukong-linux-realtime-render-f-173efca3` |
-| `pending-db9af98358b88228e0d5c693` | `mem-20260622-175004-wukong-linux-dws-command-and-i-0d849da6` |
-| `pending-ca11b9a3ea8c4e5b36e7a0f2` | `mem-20260623-124103-wukong-linux-dws-ipv4-fallback-77f38211` |
+真实 pending 与 existing item 映射仅保存在 mode-0600 的本地 manifest，
+不得写入仓库、公开 receipt、日志或文档。
 
 ### 7.4 `convert_type`
 

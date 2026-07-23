@@ -624,6 +624,7 @@ def _valid_receipt(receipt: object) -> bool:
         or _HEX_32.fullmatch(receipt.batch_id) is None
         or _HEX_64.fullmatch(receipt.batch_digest) is None
         or receipt.selection_mode not in {"explicit", "safe_only", "resolution"}
+        or receipt.selected_count > receipt.requested_count
         or any(
             type(value) is not int or value < 0
             for value in (
@@ -651,7 +652,6 @@ def _valid_receipt(receipt: object) -> bool:
     if receipt.selection_mode == "resolution":
         if (
             receipt.selected_count == 0
-            or receipt.selected_count > receipt.requested_count
             or not receipt.action_counts
             or "apply" in receipt.action_counts
             or any(value == 0 for value in receipt.action_counts.values())
@@ -671,11 +671,16 @@ def _valid_receipt(receipt: object) -> bool:
             and receipt.completed_at is None
             and receipt.result_digest is None
         )
-    if receipt.selection_mode == "resolution" and (
-        sum(receipt.status_counts.values()) != receipt.selected_count
-        or sum(receipt.classification_counts.values()) != receipt.selected_count
-        or sum(receipt.reason_counts.values()) != receipt.selected_count
-        or receipt.index_repair_required_count > receipt.selected_count
+    expected_outcomes = (
+        receipt.selected_count
+        if receipt.selection_mode == "resolution"
+        else receipt.requested_count
+    )
+    if (
+        sum(receipt.status_counts.values()) != expected_outcomes
+        or sum(receipt.classification_counts.values()) != expected_outcomes
+        or sum(receipt.reason_counts.values()) != expected_outcomes
+        or receipt.index_repair_required_count > expected_outcomes
     ):
         return False
     return (

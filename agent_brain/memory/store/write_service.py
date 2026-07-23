@@ -37,6 +37,7 @@ from agent_brain.memory.recall.embedding_text import embedding_text_for_item
 from agent_brain.memory.evidence.resource_store import ResourceStore
 from agent_brain.memory.store.field_enrichment import enrich_memory_item
 from agent_brain.memory.store.items_store import ItemsStore
+from agent_brain.memory.store.durable_fs import SecureDirectory
 from agent_brain.memory.store.quality import quality_warnings_for
 from agent_brain.memory.store.write_types import WriteResult
 from agent_brain.platform.embedding import Embedder
@@ -59,9 +60,11 @@ from agent_brain.platform.secure_io import (
     open_directory_path_without_symlinks,
     open_regular_file_at,
     secure_dir_fd_io_supported,
+    secure_dir_fd_mutation_supported,
 )
 
 logger = logging.getLogger(__name__)
+_STRICT_SECURE_MUTATION = os.name == "posix"
 
 # Severities that fail-close the write gate. Medium/low are advisory and do not
 # block (mirrors AuditReport.passed, which is False only on critical/high).
@@ -727,7 +730,6 @@ def _write_source_record(
     body: str,
 ) -> Path:
     path = Path(brain_dir) / "sources" / "writes" / f"{item.id}.json"
-    path.parent.mkdir(parents=True, exist_ok=True)
     refs = item.refs.model_dump(mode="json")
     record = {
         "v": 1,
@@ -751,11 +753,77 @@ def _write_source_record(
         "body_sha256": sha256_text(body),
         "body_size_bytes": len(body.encode("utf-8")),
     }
-    path.write_text(
-        json.dumps(record, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
+    payload = (
+        json.dumps(record, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+    ).encode("utf-8")
+    if secure_dir_fd_mutation_supported():
+        root_descriptor = open_directory_path_without_symlinks(Path(brain_dir))
+        with SecureDirectory(root_descriptor) as brain:
+            with brain.child("sources", create=True) as sources:
+                with sources.child("writes", create=True) as writes:
+                    try:
+                        writes.atomic_create(path.name, payload)
+                    except FileExistsError:
+                        descriptor = open_regular_file_at(writes.fd, path.name)
+                        try:
+                            with os.fdopen(descriptor, "rb", buffering=0) as handle:
+                                descriptor = -1
+                                existing = handle.read()
+                        finally:
+                            if descriptor >= 0:
+                                close_descriptor(descriptor)
+                        relation = (
+                            "match"
+                            if existing == payload
+                            else _source_record_relation(existing, record, body)
+                        )
+                        if relation == "repair":
+                            writes.atomic_write(path.name, payload)
+                        elif relation != "match":
+                            raise FileExistsError("SOURCE_RECORD_IDENTITY_CONFLICT")
+        return path
+    if _STRICT_SECURE_MUTATION:
+        raise OSError("SECURE_SOURCE_LEDGER_UNAVAILABLE")
+    logger.warning("SOURCE_LEDGER_SECURE_IO_UNAVAILABLE")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.exists():
+        if path.read_bytes() == payload:
+            return path
+        raise FileExistsError("SOURCE_RECORD_IDENTITY_CONFLICT")
+    path.write_bytes(payload)
     return path
+
+
+def _source_record_relation(
+    existing: bytes,
+    expected: dict[str, object],
+    body: str,
+) -> str:
+    try:
+        decoded = json.loads(existing.decode("utf-8"))
+    except (UnicodeError, json.JSONDecodeError):
+        return "conflict"
+    if not isinstance(decoded, dict):
+        return "conflict"
+    body_fields = ("body_sha256", "body_size_bytes")
+    body_candidates = {body}
+    if body.endswith("\n"):
+        body_candidates.add(body[:-1])
+    if (
+        decoded.get("body_sha256"),
+        decoded.get("body_size_bytes"),
+    ) not in {
+        (sha256_text(candidate), len(candidate.encode("utf-8")))
+        for candidate in body_candidates
+    }:
+        return "conflict"
+    if any(
+        decoded.get(key) != value
+        for key, value in expected.items()
+        if key not in {*body_fields, "refs"}
+    ):
+        return "conflict"
+    return "match" if decoded.get("refs") == expected.get("refs") else "repair"
 
 
 def _matches_existing_write(

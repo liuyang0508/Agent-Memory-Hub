@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import logging
+import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -352,6 +354,58 @@ def test_resource_store_round_trips_resource_and_extraction(tmp_path) -> None:
     assert [e.id for e in store.iter_extractions(resource_id=resource.id)] == [extraction.id]
 
 
+def test_resource_store_unsupported_platform_fallback_is_explicit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    from agent_brain.contracts.resource import (
+        ResourceKind,
+        ResourceRecord,
+        make_resource_id,
+    )
+    from agent_brain.memory.evidence import resource_store as resource_store_module
+
+    monkeypatch.setattr(
+        resource_store_module,
+        "secure_dir_fd_mutation_supported",
+        lambda: False,
+    )
+    monkeypatch.setattr(resource_store_module, "_STRICT_SECURE_MUTATION", False)
+    resource = ResourceRecord(
+        id=make_resource_id("fallback"),
+        kind=ResourceKind.document,
+        uri="memory://fallback",
+        title="fallback",
+    )
+
+    with caplog.at_level(
+        logging.WARNING,
+        logger="agent_brain.memory.evidence.resource_store",
+    ):
+        store = resource_store_module.ResourceStore(tmp_path / "brain")
+        store.write_resource(resource)
+
+    assert store.get_resource(resource.id) == resource
+    assert "RESOURCE_STORE_SECURE_IO_UNAVAILABLE" in caplog.text
+
+
+def test_resource_store_posix_without_secure_mutation_fails_closed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from agent_brain.memory.evidence import resource_store as resource_store_module
+
+    monkeypatch.setattr(
+        resource_store_module,
+        "secure_dir_fd_mutation_supported",
+        lambda: False,
+    )
+
+    with pytest.raises(OSError, match="SECURE_RESOURCE_STORE_UNAVAILABLE"):
+        resource_store_module.ResourceStore(tmp_path / "brain")
+
+
 def test_resource_store_rejects_duplicate_ids(tmp_path) -> None:
     from agent_brain.memory.evidence.resource_store import ResourceStore
     from agent_brain.contracts.resource import ResourceKind, ResourceRecord, make_resource_id
@@ -369,6 +423,219 @@ def test_resource_store_rejects_duplicate_ids(tmp_path) -> None:
 
     with pytest.raises(FileExistsError):
         store.write_resource(resource)
+
+
+@pytest.mark.parametrize("directory_name", ["resources", "extractions"])
+def test_resource_store_rejects_symlinked_storage_directory_without_external_write(
+    tmp_path: Path,
+    directory_name: str,
+) -> None:
+    from agent_brain.contracts.resource import (
+        ExtractionKind,
+        ExtractionRecord,
+        ResourceKind,
+        ResourceRecord,
+        make_extraction_id,
+        make_resource_id,
+        sha256_text,
+    )
+    from agent_brain.memory.evidence.resource_store import ResourceStore
+
+    brain = tmp_path / "brain"
+    outside = tmp_path / "outside"
+    brain.mkdir()
+    outside.mkdir()
+    (brain / directory_name).symlink_to(outside, target_is_directory=True)
+    other = "extractions" if directory_name == "resources" else "resources"
+    (brain / other).mkdir()
+    resource = ResourceRecord(
+        id=make_resource_id(f"{directory_name} escape"),
+        kind=ResourceKind.document,
+        uri="memory://escape",
+        title="escape",
+    )
+    extraction = ExtractionRecord(
+        id=make_extraction_id(f"{directory_name} escape"),
+        resource_id=resource.id,
+        kind=ExtractionKind.text,
+        extractor="test",
+        content_text="outside canary",
+        content_sha256=sha256_text("outside canary"),
+    )
+
+    with pytest.raises(OSError):
+        store = ResourceStore(brain)
+        store.write_resource(resource)
+        store.write_extraction(extraction)
+
+    assert list(outside.iterdir()) == []
+
+
+def test_resource_store_rejects_symlinked_root_ancestor_without_external_creation(
+    tmp_path: Path,
+) -> None:
+    from agent_brain.memory.evidence.resource_store import ResourceStore
+
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    alias = tmp_path / "alias"
+    alias.symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(OSError):
+        ResourceStore(alias / "brain")
+
+    assert not (outside / "brain").exists()
+
+
+def test_resource_store_rejects_broken_target_symlink_without_external_write(
+    tmp_path: Path,
+) -> None:
+    from agent_brain.contracts.resource import (
+        ResourceKind,
+        ResourceRecord,
+        make_resource_id,
+    )
+    from agent_brain.memory.evidence.resource_store import ResourceStore
+
+    store = ResourceStore(tmp_path / "brain")
+    outside = tmp_path / "outside.json"
+    resource = ResourceRecord(
+        id=make_resource_id("broken target escape"),
+        kind=ResourceKind.document,
+        uri="memory://escape",
+        title="escape",
+    )
+    (store.resources_dir / f"{resource.id}.json").symlink_to(outside)
+
+    with pytest.raises(OSError):
+        store.write_resource(resource)
+
+    assert not outside.exists()
+
+
+def test_resource_store_create_race_cannot_replace_target_with_symlink(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from agent_brain.contracts.resource import (
+        ResourceKind,
+        ResourceRecord,
+        make_resource_id,
+    )
+    from agent_brain.memory.evidence.resource_store import ResourceStore
+    from agent_brain.memory.store.durable_fs import SecureDirectory
+
+    store = ResourceStore(tmp_path / "brain")
+    outside = tmp_path / "outside.json"
+    resource = ResourceRecord(
+        id=make_resource_id("create race"),
+        kind=ResourceKind.document,
+        uri="memory://race",
+        title="race",
+    )
+    real_create = SecureDirectory.atomic_create
+
+    def swap_then_create(
+        directory: SecureDirectory,
+        name: str,
+        data: bytes,
+        *,
+        mode: int = 0o600,
+    ) -> None:
+        (store.resources_dir / name).symlink_to(outside)
+        real_create(directory, name, data, mode=mode)
+
+    monkeypatch.setattr(SecureDirectory, "atomic_create", swap_then_create)
+
+    with pytest.raises(OSError):
+        store.write_resource(resource)
+
+    assert not outside.exists()
+
+
+def test_resource_store_get_and_iter_do_not_follow_record_symlinks(
+    tmp_path: Path,
+) -> None:
+    from agent_brain.contracts.resource import (
+        ResourceKind,
+        ResourceRecord,
+        make_resource_id,
+    )
+    from agent_brain.memory.evidence.resource_store import ResourceStore
+
+    store = ResourceStore(tmp_path / "brain")
+    resource = ResourceRecord(
+        id=make_resource_id("outside record"),
+        kind=ResourceKind.document,
+        uri="memory://outside",
+        title="outside",
+    )
+    outside = tmp_path / "outside.json"
+    outside.write_text(
+        json.dumps(resource.model_dump(mode="json"), sort_keys=True),
+        encoding="utf-8",
+    )
+    (store.resources_dir / f"{resource.id}.json").symlink_to(outside)
+
+    with pytest.raises(OSError):
+        store.get_resource(resource.id)
+    assert list(store.iter_resources()) == []
+    assert store.last_scan.skipped_count == 1
+
+
+def test_resource_store_get_and_iter_reject_fifo_without_blocking(
+    tmp_path: Path,
+) -> None:
+    from agent_brain.contracts.resource import make_resource_id
+    from agent_brain.memory.evidence.resource_store import ResourceStore
+
+    store = ResourceStore(tmp_path / "brain")
+    resource_id = make_resource_id("fifo record")
+    fifo = store.resources_dir / f"{resource_id}.json"
+    os.mkfifo(fifo)
+
+    with pytest.raises(OSError):
+        store.get_resource(resource_id)
+    assert list(store.iter_resources()) == []
+    assert store.last_scan.skipped_count == 1
+
+
+def test_resource_store_secure_read_preserves_large_record_semantics(
+    tmp_path: Path,
+) -> None:
+    from agent_brain.contracts.resource import (
+        ExtractionKind,
+        ExtractionRecord,
+        ResourceKind,
+        ResourceRecord,
+        make_extraction_id,
+        make_resource_id,
+        sha256_text,
+    )
+    from agent_brain.memory.evidence.resource_store import ResourceStore
+
+    store = ResourceStore(tmp_path / "brain")
+    resource = ResourceRecord(
+        id=make_resource_id("large extraction"),
+        kind=ResourceKind.document,
+        uri="memory://large",
+        title="large",
+    )
+    text = "x" * (300 * 1024)
+    extraction = ExtractionRecord(
+        id=make_extraction_id("large extraction"),
+        resource_id=resource.id,
+        kind=ExtractionKind.text,
+        extractor="test",
+        content_text=text,
+        content_sha256=sha256_text(text),
+    )
+
+    store.write_resource(resource)
+    store.write_extraction(extraction)
+
+    assert store.get_extraction(extraction.id).content_text == text
+    assert [record.id for record in store.iter_extractions()] == [extraction.id]
 
 
 def test_resource_store_rejects_orphan_extraction(tmp_path) -> None:

@@ -89,6 +89,59 @@ def test_reconcile_existing_repairs_source_ledger_and_index(tmp_brain):
     assert json.loads(source.read_text(encoding="utf-8"))["body_sha256"]
 
 
+def test_source_ledger_unsupported_platform_fallback_is_explicit(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    from agent_brain.memory.store import write_service as write_service_module
+
+    item = _item(title="source fallback")
+    item_path = tmp_brain / "items" / f"{item.id}.md"
+    monkeypatch.setattr(
+        write_service_module,
+        "secure_dir_fd_mutation_supported",
+        lambda: False,
+    )
+    monkeypatch.setattr(write_service_module, "_STRICT_SECURE_MUTATION", False)
+
+    with caplog.at_level(
+        logging.WARNING,
+        logger="agent_brain.memory.store.write_service",
+    ):
+        path = write_service_module._write_source_record(  # noqa: SLF001
+            brain_dir=tmp_brain,
+            item=item,
+            item_path=item_path,
+            body="body",
+        )
+
+    assert path.is_file()
+    assert "SOURCE_LEDGER_SECURE_IO_UNAVAILABLE" in caplog.text
+
+
+def test_source_ledger_posix_without_secure_mutation_fails_closed(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from agent_brain.memory.store import write_service as write_service_module
+
+    item = _item(title="source strict")
+    monkeypatch.setattr(
+        write_service_module,
+        "secure_dir_fd_mutation_supported",
+        lambda: False,
+    )
+
+    with pytest.raises(OSError, match="SECURE_SOURCE_LEDGER_UNAVAILABLE"):
+        write_service_module._write_source_record(  # noqa: SLF001
+            brain_dir=tmp_brain,
+            item=item,
+            item_path=tmp_brain / "items" / f"{item.id}.md",
+            body="body",
+        )
+
+
 def test_reconcile_existing_marks_index_dirty_without_losing_written_verdict(
     tmp_brain, monkeypatch
 ):
@@ -206,6 +259,116 @@ def test_write_service_attaches_write_input_evidence_sidecar(tmp_brain):
     assert data["refs"]["resources"] == [resource_id]
     assert data["refs"]["extractions"] == [extraction_id]
     assert "fact item has no source refs" not in res.warnings
+
+
+@pytest.mark.parametrize("directory_name", ["resources", "extractions"])
+def test_write_evidence_symlinked_sidecar_directory_fails_before_item_write(
+    tmp_brain: Path,
+    directory_name: str,
+) -> None:
+    outside = tmp_brain.parent / f"outside-{directory_name}"
+    outside.mkdir()
+    path = tmp_brain / directory_name
+    path.symlink_to(outside, target_is_directory=True)
+    svc = WriteService.for_brain(tmp_brain)
+    item = _item(title=f"reject {directory_name} escape", type=MemoryType.fact)
+
+    with pytest.raises(OSError):
+        svc.write(item=item, body="bounded evidence body", allow_unsafe=True)
+
+    assert not list((tmp_brain / "items").glob("*.md"))
+    assert list(outside.iterdir()) == []
+
+
+@pytest.mark.parametrize("symlink_component", ["sources", "writes"])
+def test_source_ledger_symlink_escape_degrades_without_external_write(
+    tmp_brain: Path,
+    symlink_component: str,
+) -> None:
+    outside = tmp_brain.parent / f"outside-{symlink_component}"
+    outside.mkdir()
+    sources = tmp_brain / "sources"
+    if symlink_component == "sources":
+        sources.symlink_to(outside, target_is_directory=True)
+    else:
+        sources.mkdir()
+        (sources / "writes").symlink_to(outside, target_is_directory=True)
+    svc = WriteService.for_brain(tmp_brain)
+    item = _item(title=f"source ledger {symlink_component} escape")
+
+    result = svc.write(item=item, body="body", allow_unsafe=True)
+
+    assert result.status == "written"
+    assert result.degraded == ["source-ledger"]
+    assert "SOURCE_LEDGER_REPAIR_REQUIRED" in result.warnings
+    assert list(outside.iterdir()) == []
+
+
+def test_source_ledger_broken_target_symlink_degrades_without_external_write(
+    tmp_brain: Path,
+) -> None:
+    writes = tmp_brain / "sources" / "writes"
+    writes.mkdir(parents=True)
+    item = _item(title="source ledger target escape")
+    outside = tmp_brain.parent / "outside-source-record.json"
+    (writes / f"{item.id}.json").symlink_to(outside)
+    svc = WriteService.for_brain(tmp_brain)
+
+    result = svc.write(item=item, body="body", allow_unsafe=True)
+
+    assert result.status == "written"
+    assert result.degraded == ["source-ledger"]
+    assert "SOURCE_LEDGER_REPAIR_REQUIRED" in result.warnings
+    assert not outside.exists()
+
+
+def test_source_ledger_existing_identity_conflict_degrades_without_overwrite(
+    tmp_brain: Path,
+) -> None:
+    writes = tmp_brain / "sources" / "writes"
+    writes.mkdir(parents=True)
+    item = _item(title="source ledger identity conflict")
+    source = writes / f"{item.id}.json"
+    source.write_bytes(b"existing-private-record")
+    svc = WriteService.for_brain(tmp_brain)
+
+    result = svc.write(item=item, body="body", allow_unsafe=True)
+
+    assert result.status == "written"
+    assert result.degraded == ["source-ledger"]
+    assert source.read_bytes() == b"existing-private-record"
+
+
+def test_source_ledger_create_race_degrades_without_external_write(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from agent_brain.memory.store.durable_fs import SecureDirectory
+
+    item = _item(title="source ledger create race")
+    outside = tmp_brain.parent / "outside-source-race.json"
+    svc = WriteService.for_brain(tmp_brain)
+    real_create = SecureDirectory.atomic_create
+
+    def swap_source_then_create(
+        directory: SecureDirectory,
+        name: str,
+        data: bytes,
+        *,
+        mode: int = 0o600,
+    ) -> None:
+        if name == f"{item.id}.json":
+            (tmp_brain / "sources" / "writes" / name).symlink_to(outside)
+        real_create(directory, name, data, mode=mode)
+
+    monkeypatch.setattr(SecureDirectory, "atomic_create", swap_source_then_create)
+
+    result = svc.write(item=item, body="body", allow_unsafe=True)
+
+    assert result.status == "written"
+    assert result.degraded == ["source-ledger"]
+    assert "SOURCE_LEDGER_REPAIR_REQUIRED" in result.warnings
+    assert not outside.exists()
 
 
 @pytest.mark.parametrize(

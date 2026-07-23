@@ -59,6 +59,26 @@ EXPECTED_LIFECYCLE_IMPLEMENTATION_PATHS = (
     "web/api/routes/governance.py",
     "scripts/generate-lifecycle-governance-report.py",
 )
+_PRIVATE_PENDING_MAPPING_IDS = (
+    "pending-28d733a858f2340b184cb900",
+    "pending-343b56293873a9628de7f150",
+    "pending-db9af98358b88228e0d5c693",
+    "pending-ca11b9a3ea8c4e5b36e7a0f2",
+    "mem-20260612-014228-鹿鸣全国-readiness-与未就绪省份推荐保护-048200c3",
+    "mem-20260622-104510-wukong-linux-realtime-render-f-173efca3",
+    "mem-20260622-175004-wukong-linux-dws-command-and-i-0d849da6",
+    "mem-20260623-124103-wukong-linux-dws-ipv4-fallback-77f38211",
+)
+
+
+def test_committed_docs_do_not_contain_private_pending_resolution_mappings() -> None:
+    docs = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in sorted((ROOT / "docs").rglob("*"))
+        if path.is_file() and path.suffix in {".md", ".json"}
+    )
+
+    assert all(private_id not in docs for private_id in _PRIVATE_PENDING_MAPPING_IDS)
 
 
 def _load_lifecycle_governance_generator():

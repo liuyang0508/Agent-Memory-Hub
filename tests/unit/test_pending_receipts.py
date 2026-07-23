@@ -308,7 +308,15 @@ def test_pending_resolution_result_digest_binds_outcome_order():
 def test_pending_receipt_completion_includes_bounded_batch_warnings():
     completed = receipts_module.complete_pending_receipt(
         _prepared(),
-        outcomes=[],
+        outcomes=[
+            receipts_module.PendingReceiptOutcome(
+                record_id="PRIVATE_RECORD_ID_CANARY",
+                status="written",
+                classification="ready",
+                reason="WRITTEN",
+                index_repair_required=False,
+            )
+        ],
         depth_after=3,
         completed_at=COMPLETED_AT,
         batch_warnings=("PENDING_LOCK_GC_TRUNCATED",),
@@ -401,6 +409,79 @@ def test_pending_resolution_prepare_rejects_more_selected_than_requested(
             selected=selected,
             depth_before=selected_count,
         )
+
+
+@pytest.mark.parametrize("selection_mode", ["explicit", "safe_only"])
+def test_legacy_mode_prepare_rejects_more_selected_than_requested(selection_mode):
+    with pytest.raises(TypeError, match="INVALID_PENDING_BATCH_RECEIPT"):
+        receipts_module.prepare_pending_receipt(
+            selection_mode=selection_mode,
+            requested_count=0,
+            selected=[
+                receipts_module.PendingReceiptSelection(
+                    record_id="pending-one",
+                    payload_sha256="a" * 64,
+                )
+            ],
+            depth_before=1,
+        )
+
+
+@pytest.mark.parametrize("selection_mode", ["explicit", "safe_only"])
+def test_legacy_mode_completion_requires_one_outcome_per_request(selection_mode):
+    prepared = receipts_module.prepare_pending_receipt(
+        selection_mode=selection_mode,
+        requested_count=2,
+        selected=[
+            receipts_module.PendingReceiptSelection(
+                record_id="pending-one",
+                payload_sha256="a" * 64,
+            )
+        ],
+        depth_before=1,
+    )
+
+    with pytest.raises(TypeError, match="INVALID_PENDING_BATCH_RECEIPT"):
+        receipts_module.complete_pending_receipt(
+            prepared,
+            outcomes=[
+                receipts_module.PendingReceiptOutcome(
+                    record_id="pending-one",
+                    status="written",
+                    classification="ready",
+                    reason="WRITTEN",
+                    index_repair_required=False,
+                )
+            ],
+            depth_after=0,
+            completed_at=COMPLETED_AT,
+        )
+
+
+def test_legacy_mode_parser_and_ledger_reject_impossible_aggregate_counts(tmp_brain):
+    payload = _completed().to_dict()
+    payload["requested_count"] = 2
+    encoded = (
+        json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n"
+    ).encode()
+
+    assert receipts_module._parse_receipt(encoded) is None  # noqa: SLF001
+    runtime = tmp_brain / "runtime"
+    runtime.mkdir(parents=True)
+    ledger = runtime / "pending-apply-receipts.jsonl"
+    ledger.write_bytes(encoded)
+    os.chmod(ledger, 0o600)
+    assert receipts_module.read_pending_receipt_ledger_health(tmp_brain).status == (
+        "corrupt"
+    )
+
+
+def test_completed_receipt_rejects_index_repair_count_above_outcome_count():
+    completed = _completed()
+
+    assert receipts_module._valid_receipt(  # noqa: SLF001
+        replace(completed, index_repair_required_count=2)
+    ) is False
 
 
 @pytest.mark.parametrize("state", ["prepared", "completed", "incomplete"])

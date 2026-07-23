@@ -3,6 +3,8 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import pytest
+
 from agent_brain.contracts.conversation import (
     ConversationMessageRecord,
     ConversationRetention,
@@ -43,6 +45,29 @@ def _expired_signal() -> MemoryItem:
         confidence=0.4,
         tags=["signal"],
     )
+
+
+def test_auto_governance_item_snapshot_preserves_excluded_schema_and_nested_isolation() -> None:
+    from agent_brain.memory.governance.auto_governance import AutoGovernanceReport
+
+    item = _matureable_item().model_copy(
+        update={"schema_version": "99"},
+        deep=True,
+    )
+    report = AutoGovernanceReport(
+        scanned_items=1,
+        actions=[],
+        items_by_id={item.id: item},
+    )
+    item.refs.files.append("caller-mutation.md")
+    first = report.items_by_id[item.id]
+    first.refs.files.append("returned-mutation.md")
+    second = report.items_by_id[item.id]
+
+    assert second.schema_version == "99"
+    assert second.refs.files == ["docs/architecture.md"]
+    with pytest.raises(TypeError):
+        report.items_by_id[item.id] = item  # type: ignore[index]
 
 
 def test_auto_governance_preview_rewrites_long_summary_without_mutating(
