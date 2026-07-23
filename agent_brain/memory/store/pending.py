@@ -65,6 +65,15 @@ from agent_brain.contracts.memory_item import (
     Validity,
     is_valid_memory_item_id,
 )
+from agent_brain.contracts.resource import (
+    ExtractionKind,
+    ExtractionRecord,
+    ResourceKind,
+    ResourceRecord,
+    sha256_text,
+    validate_extraction_id,
+    validate_resource_id,
+)
 from agent_brain.memory.store.item_markdown import parse_item_markdown
 from agent_brain.memory.store.items_store import ItemsStore
 from agent_brain.memory.governance.pending_receipts import (
@@ -2111,7 +2120,12 @@ class PendingQueue:
                     status="blocked",
                     reason="PENDING_RESOLUTION_CHANGED",
                 )
-            if not _matches_resolution_existing(intent, existing, existing_body):
+            if not _matches_resolution_existing(
+                intent,
+                existing,
+                existing_body,
+                brain=store.items_dir.parent,
+            ):
                 return _resolution_result(
                     action,
                     preview=preview,
@@ -2879,7 +2893,12 @@ def _preview_recovery_resolution(
         existing, existing_body = store.get_nofollow(item_id)
     except (FileNotFoundError, OSError, UnicodeError, ValueError):
         return _resolution_blocked(action, preview, "PENDING_RESOLUTION_CHANGED")
-    if not _matches_resolution_existing(intent, existing, existing_body):
+    if not _matches_resolution_existing(
+        intent,
+        existing,
+        existing_body,
+        brain=store.items_dir.parent,
+    ):
         return _resolution_blocked(action, preview, "PENDING_RESOLUTION_CHANGED")
     return (
         _PendingResolutionSelection(
@@ -2951,6 +2970,8 @@ def _matches_resolution_existing(
     intent: _PendingResolutionIntent,
     existing: MemoryItem,
     existing_body: str,
+    *,
+    brain: Path,
 ) -> bool:
     if (
         not _same_scope(intent.item, existing)
@@ -2958,29 +2979,98 @@ def _matches_resolution_existing(
     ):
         return False
     from agent_brain.memory.store.field_enrichment import enrich_memory_item
-    from agent_brain.memory.store.write_service import _mark_boundary_review_candidate
+    from agent_brain.memory.store.write_service import (
+        _mark_boundary_review_candidate,
+        _should_capture_write_input,
+    )
 
     expected, _warning = _mark_boundary_review_candidate(intent.item)
     expected = enrich_memory_item(expected)
-    expected_data = expected.model_dump(mode="json", exclude_none=False)
-    existing_data = existing.model_dump(mode="json", exclude_none=False)
-    expected_refs = cast(dict[str, object], expected_data["refs"])
-    existing_refs = cast(dict[str, object], existing_data["refs"])
-    for field in ("files", "urls", "mems", "commits"):
-        if expected_refs[field] != existing_refs[field]:
+    captures_write_input = _should_capture_write_input(intent.body)
+    if expected.refs.resources or expected.refs.extractions:
+        if existing.refs != expected.refs:
             return False
-    for field in ("resources", "extractions"):
-        wanted = cast(list[str], expected_refs[field])
-        stored = cast(list[str], existing_refs[field])
-        if wanted:
-            if stored != wanted:
-                return False
-        elif len(stored) > 1:
+    elif existing.refs.resources or existing.refs.extractions:
+        if (
+            not captures_write_input
+            or len(existing.refs.resources) != 1
+            or len(existing.refs.extractions) != 1
+            or not _matches_resolution_write_input_evidence(
+                brain,
+                expected,
+                intent.body,
+                resource_id=existing.refs.resources[0],
+                extraction_id=existing.refs.extractions[0],
+            )
+        ):
             return False
-    if bool(existing_refs["resources"]) != bool(existing_refs["extractions"]):
+        expected = expected.model_copy(
+            update={
+                "refs": expected.refs.model_copy(
+                    update={
+                        "resources": existing.refs.resources,
+                        "extractions": existing.refs.extractions,
+                    }
+                )
+            }
+        )
+    elif captures_write_input:
         return False
-    existing_data["refs"] = expected_refs
-    return existing_data == expected_data
+    return existing == expected
+
+
+def _matches_resolution_write_input_evidence(
+    brain: Path,
+    item: MemoryItem,
+    body: str,
+    *,
+    resource_id: str,
+    extraction_id: str,
+) -> bool:
+    try:
+        validate_resource_id(resource_id)
+        validate_extraction_id(extraction_id)
+        resource = ResourceRecord.model_validate_json(
+            _read_pending_record(brain / "resources" / f"{resource_id}.json")
+        )
+        extraction = ExtractionRecord.model_validate_json(
+            _read_pending_record(brain / "extractions" / f"{extraction_id}.json")
+        )
+    except (FileNotFoundError, OSError, UnicodeError, ValueError, _PendingReadError):
+        return False
+
+    content = body if body.strip() else f"{item.title}\n{item.summary}"
+    content_sha256 = sha256_text(content)
+    return (
+        resource.id == resource_id
+        and resource.kind == ResourceKind.document
+        and resource.uri == f"memory://items/{item.id}/write-input"
+        and resource.title == f"Write input for {item.title}"
+        and resource.mime_type == "text/markdown"
+        and resource.sha256 == content_sha256
+        and resource.size_bytes == len(content.encode("utf-8"))
+        and resource.project == item.project
+        and resource.tenant_id == item.tenant_id
+        and resource.tags == item.tags
+        and str(resource.sensitivity) == str(item.sensitivity)
+        and resource.metadata
+        == {
+            "memory_item_id": item.id,
+            "source_kind": item.source.kind,
+            "evidence_role": "write_input",
+        }
+        and extraction.id == extraction_id
+        and extraction.resource_id == resource_id
+        and extraction.kind == ExtractionKind.text
+        and extraction.extractor == "amh.write-service.write-input"
+        and extraction.extractor_version == "1"
+        and extraction.content_text == content
+        and extraction.content_sha256 == content_sha256
+        and extraction.source_locator == f"memory://items/{item.id}/body"
+        and extraction.confidence == item.confidence
+        and extraction.metadata
+        == {"memory_item_id": item.id, "evidence_role": "write_input"}
+    )
 
 
 def _matches_duplicate_target(

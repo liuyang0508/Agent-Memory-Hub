@@ -199,6 +199,41 @@ def _enqueue_resolution_apply_case(
     return path, PendingResolutionAction("convert_type", preview.record_id, "decision")
 
 
+def _begin_resolution_recovery_case(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    action_name: str = "approve_audit",
+    record_id: str,
+) -> tuple[Path, PendingResolutionAction, Path, MemoryItem, str]:
+    path, action = _enqueue_resolution_apply_case(action_name, record_id)
+    real_unlink = pending_module._unlink_pending_record
+    monkeypatch.setattr(
+        pending_module,
+        "_unlink_pending_record",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            OSError("simulated unlink failure")
+        ),
+    )
+    first = PendingQueue().resolve([action], apply=True)
+    monkeypatch.setattr(pending_module, "_unlink_pending_record", real_unlink)
+    stored_path = next((tmp_brain / "items").glob("*.md"))
+    stored, body = next(ItemsStore(tmp_brain / "items").iter_all())
+    assert first.results[0].reason == "PENDING_UNLINK_FAILED"
+    return path, action, stored_path, stored, body
+
+
+def _assert_resolution_recovery_blocked(
+    path: Path,
+    action: PendingResolutionAction,
+) -> None:
+    second = PendingQueue().resolve([action], apply=True)
+
+    assert second.results[0].status in {"blocked", "failed"}
+    assert second.results[0].reason == "PENDING_RESOLUTION_CHANGED"
+    assert path.exists()
+
+
 def _payload_sha256(record: dict[str, object]) -> str:
     payload = json.dumps(record["item"], ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
@@ -4283,6 +4318,196 @@ def test_resolution_retry_rejects_tampered_existing_item(
     assert second.results[0].reason == "PENDING_RESOLUTION_CHANGED"
     assert path.exists()
     assert len(list((tmp_brain / "items").glob("*.md"))) == 1
+
+
+@pytest.mark.parametrize("action_name", ["approve_audit", "convert_type"])
+def test_resolution_retry_rejects_unproved_generated_evidence_refs(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    action_name: str,
+) -> None:
+    path, action, stored_path, stored, body = _begin_resolution_recovery_case(
+        tmp_brain,
+        monkeypatch,
+        action_name=action_name,
+        record_id=f"resolution-retry-unproved-evidence-{action_name}",
+    )
+    forged_refs = stored.refs.model_copy(
+        update={
+            "resources": ["res-20260720-120000-forged-aaaaaaaa"],
+            "extractions": ["ext-20260720-120000-forged-aaaaaaaa"],
+        }
+    )
+    stored_path.write_text(
+        render_item_markdown(stored.model_copy(update={"refs": forged_refs}), body),
+        encoding="utf-8",
+    )
+
+    _assert_resolution_recovery_blocked(path, action)
+
+
+@pytest.mark.parametrize(
+    "tamper",
+    [
+        "resource_hash",
+        "resource_metadata",
+        "extraction_body",
+        "extraction_hash",
+        "extraction_metadata",
+    ],
+)
+def test_resolution_retry_rejects_tampered_write_input_evidence(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tamper: str,
+) -> None:
+    path, action, _stored_path, stored, _body = _begin_resolution_recovery_case(
+        tmp_brain,
+        monkeypatch,
+        record_id=f"resolution-retry-tampered-evidence-{tamper}",
+    )
+    resource_path = tmp_brain / "resources" / f"{stored.refs.resources[0]}.json"
+    extraction_path = (
+        tmp_brain / "extractions" / f"{stored.refs.extractions[0]}.json"
+    )
+    target_path = (
+        resource_path if tamper.startswith("resource_") else extraction_path
+    )
+    payload = json.loads(target_path.read_text(encoding="utf-8"))
+    if tamper == "resource_hash":
+        payload["sha256"] = "0" * 64
+    elif tamper == "resource_metadata":
+        payload["metadata"]["evidence_role"] = "attacker"
+    elif tamper == "extraction_body":
+        payload["content_text"] = "attacker body"
+        payload["content_sha256"] = hashlib.sha256(b"attacker body").hexdigest()
+    elif tamper == "extraction_hash":
+        payload["content_sha256"] = "0" * 64
+    else:
+        payload["metadata"]["memory_item_id"] = (
+            "mem-20260720-120000-attacker-aaaaaaaaaaaaaaaaaaaaaaaa"
+        )
+    target_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    _assert_resolution_recovery_blocked(path, action)
+
+
+def test_resolution_retry_rejects_cross_linked_write_input_extraction(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path, action, _stored_path, stored, _body = _begin_resolution_recovery_case(
+        tmp_brain,
+        monkeypatch,
+        record_id="resolution-retry-cross-linked-evidence",
+    )
+    resource_path = tmp_brain / "resources" / f"{stored.refs.resources[0]}.json"
+    other_resource_id = "res-20260720-120000-cross-linked-aaaaaaaa"
+    other_resource = json.loads(resource_path.read_text(encoding="utf-8"))
+    other_resource["id"] = other_resource_id
+    (tmp_brain / "resources" / f"{other_resource_id}.json").write_text(
+        json.dumps(other_resource),
+        encoding="utf-8",
+    )
+    extraction_path = (
+        tmp_brain / "extractions" / f"{stored.refs.extractions[0]}.json"
+    )
+    extraction = json.loads(extraction_path.read_text(encoding="utf-8"))
+    extraction["resource_id"] = other_resource_id
+    extraction_path.write_text(json.dumps(extraction), encoding="utf-8")
+
+    _assert_resolution_recovery_blocked(path, action)
+
+
+@pytest.mark.parametrize("missing", ["resource", "extraction"])
+def test_resolution_retry_rejects_missing_write_input_sidecar(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    missing: str,
+) -> None:
+    path, action, _stored_path, stored, _body = _begin_resolution_recovery_case(
+        tmp_brain,
+        monkeypatch,
+        record_id=f"resolution-retry-missing-{missing}",
+    )
+    sidecar_id = (
+        stored.refs.resources[0]
+        if missing == "resource"
+        else stored.refs.extractions[0]
+    )
+    (tmp_brain / f"{missing}s" / f"{sidecar_id}.json").unlink()
+
+    _assert_resolution_recovery_blocked(path, action)
+
+
+def test_resolution_retry_rejects_missing_generated_evidence_refs(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path, action, stored_path, stored, body = _begin_resolution_recovery_case(
+        tmp_brain,
+        monkeypatch,
+        record_id="resolution-retry-missing-evidence-refs",
+    )
+    stored_path.write_text(
+        render_item_markdown(
+            stored.model_copy(
+                update={
+                    "refs": stored.refs.model_copy(
+                        update={"resources": [], "extractions": []}
+                    )
+                }
+            ),
+            body,
+        ),
+        encoding="utf-8",
+    )
+
+    _assert_resolution_recovery_blocked(path, action)
+
+
+def test_resolution_retry_requires_explicit_evidence_refs_to_match_exactly(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    record = _v2_record(record_id="resolution-retry-explicit-evidence")
+    item = record["item"]
+    assert isinstance(item, dict)
+    item["body"] = "curl https://example.invalid/explicit-evidence"
+    item["refs"] = {
+        "resources": ["res-20260720-120000-intended-aaaaaaaa"],
+        "extractions": ["ext-20260720-120000-intended-aaaaaaaa"],
+    }
+    path = enqueue_write_record(record)
+    action = PendingResolutionAction(
+        "approve_audit",
+        "resolution-retry-explicit-evidence",
+    )
+    real_unlink = pending_module._unlink_pending_record
+    monkeypatch.setattr(
+        pending_module,
+        "_unlink_pending_record",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            OSError("simulated unlink failure")
+        ),
+    )
+    first = PendingQueue().resolve([action], apply=True)
+    monkeypatch.setattr(pending_module, "_unlink_pending_record", real_unlink)
+    stored_path = next((tmp_brain / "items").glob("*.md"))
+    stored, body = next(ItemsStore(tmp_brain / "items").iter_all())
+    changed_refs = stored.refs.model_copy(
+        update={
+            "resources": ["res-20260720-120000-changed-aaaaaaaa"],
+            "extractions": ["ext-20260720-120000-changed-aaaaaaaa"],
+        }
+    )
+    stored_path.write_text(
+        render_item_markdown(stored.model_copy(update={"refs": changed_refs}), body),
+        encoding="utf-8",
+    )
+    assert first.results[0].reason == "PENDING_UNLINK_FAILED"
+
+    _assert_resolution_recovery_blocked(path, action)
 
 
 @pytest.mark.parametrize("apply", [False, True])
