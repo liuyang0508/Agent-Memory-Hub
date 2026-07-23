@@ -711,6 +711,158 @@ def test_cli_sync_pending_resolution_apply_requires_completed_receipt(
     assert payload["receipt"] is None
 
 
+@pytest.mark.parametrize(
+    ("results", "dry_run"),
+    [
+        ([], True),
+        (
+            [
+                {
+                    "action": "convert_type",
+                    "record_id": "manifest-record",
+                    "target": "decision",
+                }
+            ],
+            True,
+        ),
+        (
+            [
+                {
+                    "action": "approve_audit",
+                    "record_id": "wrong-record",
+                    "target": None,
+                }
+            ],
+            True,
+        ),
+        (
+            [
+                {
+                    "action": "approve_audit",
+                    "record_id": "manifest-record",
+                    "target": "unexpected",
+                }
+            ],
+            True,
+        ),
+        (
+            [
+                {
+                    "action": "approve_audit",
+                    "record_id": "manifest-record",
+                    "target": ["unhashable"],
+                }
+            ],
+            True,
+        ),
+        (
+            [
+                {
+                    "action": "approve_audit",
+                    "record_id": "manifest-record",
+                    "target": None,
+                },
+                {
+                    "action": "approve_audit",
+                    "record_id": "manifest-record",
+                    "target": None,
+                },
+            ],
+            True,
+        ),
+        (
+            [
+                {
+                    "action": "approve_audit",
+                    "record_id": "manifest-record",
+                    "target": None,
+                }
+            ],
+            False,
+        ),
+    ],
+)
+def test_cli_sync_pending_resolution_preview_requires_exact_manifest_coverage(
+    tmp_brain,
+    monkeypatch,
+    results,
+    dry_run,
+):
+    import json
+
+    from agent_brain.memory.store.pending import (
+        PendingQueue,
+        PendingResolutionResult,
+        PendingResolutionStats,
+    )
+
+    resolution_results = [
+        PendingResolutionResult(
+            status="ready",
+            reason="PENDING_RESOLUTION_READY",
+            classification="audit_blocked",
+            **row,
+        )
+        for row in results
+    ]
+    monkeypatch.setattr(
+        PendingQueue,
+        "resolve",
+        lambda *_args, **_kwargs: PendingResolutionStats(
+            dry_run=dry_run,
+            results=resolution_results,
+        ),
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "sync-pending",
+            "--approve-audit",
+            "manifest-record",
+            "--format",
+            "json",
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert isinstance(result.exception, SystemExit)
+    assert json.loads(result.output)["dry_run"] is dry_run
+
+
+def test_cli_sync_pending_identical_resolution_requests_are_idempotent(
+    tmp_brain,
+):
+    import json
+
+    from agent_brain.memory.store.pending import enqueue_write_record
+
+    enqueue_write_record(
+        _cli_pending_record(
+            "duplicate-request",
+            body="curl https://example.invalid/duplicate-request",
+        )
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "sync-pending",
+            "--approve-audit",
+            "duplicate-request",
+            "--approve-audit",
+            "duplicate-request",
+            "--format",
+            "json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert len(payload["results"]) == 1
+    assert payload["results"][0]["status"] == "ready"
+
+
 def test_cli_sync_pending_resolution_preview_failure_exits_one(tmp_brain):
     import json
 

@@ -201,6 +201,20 @@ def _emit_repair_report(
     _emit_verify_report(after, format="text")
 
 
+def _pending_resolution_key(
+    action: object,
+    record_id: object,
+    target: object,
+) -> tuple[str, str, str, str] | None:
+    if type(action) is not str or type(record_id) is not str:
+        return None
+    if target is None:
+        return action, record_id, "none", ""
+    if type(target) is not str:
+        return None
+    return action, record_id, "string", target
+
+
 @app.command("sync-pending")
 def sync_pending(
     apply: bool = typer.Option(
@@ -310,7 +324,7 @@ def sync_pending(
     queue = PendingQueue()
     effective_apply = apply and not dry_run
 
-    if resolution_actions or (gc_orphan_locks and selection_groups == 0):
+    if resolution_actions or gc_orphan_locks:
         if resolution_actions:
             resolution_stats = queue.resolve(
                 resolution_actions,
@@ -362,6 +376,35 @@ def sync_pending(
             )
         unsuccessful = resolution_stats.governance_reason is not None
         if resolution_actions:
+            expected_keys: set[tuple[str, str, str, str]] = set()
+            coverage_valid = True
+            for resolution_action in resolution_actions:
+                expected_key = _pending_resolution_key(
+                    resolution_action.action,
+                    resolution_action.record_id,
+                    resolution_action.target,
+                )
+                if expected_key is None:
+                    coverage_valid = False
+                    continue
+                expected_keys.add(expected_key)
+            result_keys: set[tuple[str, str, str, str]] = set()
+            for resolution_result in resolution_stats.results:
+                result_key = _pending_resolution_key(
+                    resolution_result.action,
+                    resolution_result.record_id,
+                    resolution_result.target,
+                )
+                if result_key is None or result_key in result_keys:
+                    coverage_valid = False
+                    continue
+                result_keys.add(result_key)
+            coverage_valid = (
+                coverage_valid
+                and result_keys == expected_keys
+                and resolution_stats.dry_run is (not effective_apply)
+            )
+            unsuccessful = unsuccessful or not coverage_valid
             expected_status = "applied" if effective_apply else "ready"
             unsuccessful = unsuccessful or any(
                 resolution_result.status != expected_status
@@ -384,15 +427,8 @@ def sync_pending(
 
     if not effective_apply:
         preview = queue.preview(limit=limit)
-        lock_report = (
-            queue.collect_orphan_locks(apply=False)
-            if gc_orphan_locks
-            else None
-        )
         if summary_only:
             summary = preview.to_summary_dict()
-            if lock_report is not None:
-                summary["lock_gc"] = lock_report.to_dict()
             if format == "json":
                 typer.echo(json.dumps(summary, ensure_ascii=False, indent=2))
             else:
@@ -407,8 +443,6 @@ def sync_pending(
                 typer.echo("(summary-only preview — no pending records applied)")
         elif format == "json":
             payload = preview.to_dict()
-            if lock_report is not None:
-                payload["lock_gc"] = lock_report.to_dict()
             typer.echo(json.dumps(payload, ensure_ascii=False, indent=2))
         else:
             typer.echo(
@@ -424,12 +458,6 @@ def sync_pending(
                     f"{record.title or '(untitled)'} attempt={record.attempt}"
                 )
             typer.echo("(preview — no pending records applied)")
-        if lock_report is not None and (
-            lock_report.unsafe > 0
-            or lock_report.truncated
-            or lock_report.reason is not None
-        ):
-            raise typer.Exit(1)
         return
 
     if not record_ids and not safe_only:
