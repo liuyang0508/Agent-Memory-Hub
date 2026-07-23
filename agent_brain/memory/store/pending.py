@@ -3010,32 +3010,40 @@ def _matches_resolution_existing(
     ):
         return False
     files: list[_WriteEvidenceFile] = []
-    try:
-        for ref_file in intent.item.refs.files:
-            path = Path(ref_file).expanduser()
+    for ref_file in intent.item.refs.files:
+        path = Path(ref_file).expanduser()
+        try:
             content = _read_pending_record(
                 path,
                 limit=_MAX_WRITE_EVIDENCE_FILE_BYTES,
             )
-            try:
-                text = (
-                    content.decode("utf-8")
-                    if len(content) <= _TEXT_EXTRACTION_MAX_BYTES
-                    else None
-                )
-            except UnicodeDecodeError:
-                text = None
-            files.append(
-                _WriteEvidenceFile(
-                    ref_file=ref_file,
-                    path=path,
-                    sha256=hashlib.sha256(content).hexdigest(),
-                    size_bytes=len(content),
-                    text=text,
-                )
+        except FileNotFoundError:
+            files.append(_WriteEvidenceFile(ref_file=ref_file, path=path))
+            continue
+        except _PendingReadError as exc:
+            if exc.reason != "PENDING_RECORD_NOT_REGULAR":
+                return False
+            files.append(_WriteEvidenceFile(ref_file=ref_file, path=path))
+            continue
+        except OSError:
+            return False
+        try:
+            text = (
+                content.decode("utf-8")
+                if len(content) <= _TEXT_EXTRACTION_MAX_BYTES
+                else None
             )
-    except (FileNotFoundError, OSError, _PendingReadError):
-        return False
+        except UnicodeDecodeError:
+            text = None
+        files.append(
+            _WriteEvidenceFile(
+                ref_file=ref_file,
+                path=path,
+                sha256=hashlib.sha256(content).hexdigest(),
+                size_bytes=len(content),
+                text=text,
+            )
+        )
 
     resources: dict[str, ResourceRecord] = {}
     for resource_id in existing.refs.resources:
@@ -4298,6 +4306,15 @@ def _read_pending_record_snapshot(
             _require_readiness_deadline(deadline_at)
             directory_descriptor = open_directory_path_without_symlinks(path.parent)
             _require_readiness_deadline(deadline_at)
+            before = os.stat(
+                path.name,
+                dir_fd=directory_descriptor,
+                follow_symlinks=False,
+            )
+            if stat.S_ISLNK(before.st_mode):
+                raise _PendingReadError("PENDING_RECORD_CHANGED")
+            if not _is_safe_regular_file(before):
+                raise _PendingReadError("PENDING_RECORD_NOT_REGULAR")
             descriptor = open_regular_file_at(directory_descriptor, path.name)
             _require_readiness_deadline(deadline_at)
             opened = os.fstat(descriptor)
@@ -4335,6 +4352,8 @@ def _read_pending_record_snapshot(
         _require_readiness_deadline(deadline_at)
         before = os.lstat(path)
         _require_readiness_deadline(deadline_at)
+        if stat.S_ISLNK(before.st_mode):
+            raise _PendingReadError("PENDING_RECORD_CHANGED")
         if not _is_safe_regular_file(before):
             raise _PendingReadError("PENDING_RECORD_NOT_REGULAR")
         flags = (

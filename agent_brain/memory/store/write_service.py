@@ -80,9 +80,9 @@ _GENERATED_EVIDENCE_ID_RE = re.compile(
 class _WriteEvidenceFile:
     ref_file: str
     path: Path
-    sha256: str
-    size_bytes: int
-    text: str | None
+    sha256: str | None = None
+    size_bytes: int | None = None
+    text: str | None = None
 
 
 @dataclass(frozen=True)
@@ -309,25 +309,18 @@ class WriteService:
         resources = list(refs.get("resources") or [])
         extractions = list(refs.get("extractions") or [])
 
-        for ref_file in refs.get("files") or []:
-            resource_id, extraction_id = _write_file_ref_sidecar(
-                resource_store=resource_store,
-                item=item,
-                ref_file=ref_file,
-            )
-            if resource_id:
-                resources.append(resource_id)
-            if extraction_id:
-                extractions.append(extraction_id)
-
-        if not extractions and _should_capture_write_input(body):
-            resource_id, extraction_id = _write_input_sidecar(
-                resource_store=resource_store,
-                item=item,
-                body=body,
+        files = [
+            _snapshot_write_evidence_file(ref_file)
+            for ref_file in refs.get("files") or []
+        ]
+        for spec in _prepare_evidence_plan(item, body, files):
+            resource_id, extraction_id = _materialize_evidence_spec(
+                resource_store,
+                spec,
             )
             resources.append(resource_id)
-            extractions.append(extraction_id)
+            if extraction_id:
+                extractions.append(extraction_id)
 
         if resources == item.refs.resources and extractions == item.refs.extractions:
             return item
@@ -395,7 +388,11 @@ def _prepare_evidence_plan(
     body: str,
     files: Sequence[_WriteEvidenceFile],
 ) -> tuple[_WriteEvidenceSpec, ...]:
-    evidence = [_file_ref_spec(item, file) for file in files]
+    evidence = [
+        _file_ref_spec(item, file)
+        for file in files
+        if file.sha256 is not None and file.size_bytes is not None
+    ]
     extraction_count = len(item.refs.extractions) + sum(
         spec.extraction is not None for spec in evidence
     )
@@ -449,6 +446,8 @@ def _file_ref_spec(
     item: MemoryItem,
     file: _WriteEvidenceFile,
 ) -> _WriteEvidenceSpec:
+    if file.sha256 is None or file.size_bytes is None:
+        raise ValueError("skipped file has no evidence spec")
     mime_type, _encoding = mimetypes.guess_type(str(file.path))
     resource = ResourceRecord(
         id="res-19700101-000000-file-ref-template",
@@ -517,20 +516,6 @@ def _materialize_evidence_spec(
     return resource.id, extraction.id
 
 
-def _write_input_sidecar(
-    *,
-    resource_store: ResourceStore,
-    item: MemoryItem,
-    body: str,
-) -> tuple[str, str]:
-    resource_id, extraction_id = _materialize_evidence_spec(
-        resource_store,
-        _write_input_spec(item, body),
-    )
-    assert extraction_id is not None
-    return resource_id, extraction_id
-
-
 def _write_source_record(
     *,
     brain_dir: Path,
@@ -570,28 +555,17 @@ def _write_source_record(
     return path
 
 
-def _write_file_ref_sidecar(
-    *,
-    resource_store: ResourceStore,
-    item: MemoryItem,
-    ref_file: str,
-) -> tuple[str | None, str | None]:
+def _snapshot_write_evidence_file(ref_file: str) -> _WriteEvidenceFile:
     path = Path(ref_file).expanduser()
     if not path.exists() or not path.is_file():
-        return None, None
+        return _WriteEvidenceFile(ref_file=ref_file, path=path)
     opened = path.stat()
-    return _materialize_evidence_spec(
-        resource_store,
-        _file_ref_spec(
-            item,
-            _WriteEvidenceFile(
-                ref_file=ref_file,
-                path=path,
-                sha256=sha256_file(path),
-                size_bytes=opened.st_size,
-                text=_read_text_file(path),
-            ),
-        ),
+    return _WriteEvidenceFile(
+        ref_file=ref_file,
+        path=path,
+        sha256=sha256_file(path),
+        size_bytes=opened.st_size,
+        text=_read_text_file(path),
     )
 
 

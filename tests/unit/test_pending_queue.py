@@ -249,6 +249,8 @@ def _resolution_evidence_refs(
     tmp_brain: Path,
     case: str,
 ) -> tuple[dict[str, object], tuple[int, int]]:
+    if case == "missing":
+        return {"files": [str(tmp_brain / "never-created.txt")]}, (1, 1)
     if case == "text":
         path = tmp_brain / "recovery-text.txt"
         path.write_text("text evidence", encoding="utf-8")
@@ -4273,7 +4275,7 @@ def test_resolution_retry_recovers_text_file_evidence(
 
 @pytest.mark.parametrize(
     "evidence_case",
-    ["text", "binary", "large", "multiple", "explicit_generated"],
+    ["missing", "text", "binary", "large", "multiple", "explicit_generated"],
 )
 @pytest.mark.parametrize("failure_mode", ["unlink", "source_ledger"])
 def test_resolution_retry_recovers_complete_write_evidence_transformation(
@@ -4327,14 +4329,96 @@ def test_resolution_retry_recovers_complete_write_evidence_transformation(
 
     first = PendingQueue().resolve([action], apply=True)
     stored, _body = next(ItemsStore(tmp_brain / "items").iter_all())
+    preview = PendingQueue().resolve([action])
     second = PendingQueue().resolve([action], apply=True)
 
     assert first.results[0].reason == first_reason
     assert (len(stored.refs.resources), len(stored.refs.extractions)) == (
         expected_counts
     )
+    assert preview.results[0].status == "ready"
+    assert preview.results[0].reason == "PENDING_RESOLUTION_READY"
     assert second.results[0].status == "applied"
     assert second.results[0].reason == "PENDING_RESOLUTION_APPLIED"
+    assert not path.exists()
+
+
+def test_resolution_retry_recovers_file_ref_directory_skipped_by_writer(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    directory = tmp_brain / "ref-directory"
+    directory.mkdir()
+    path, action, _stored_path, stored, _body = _begin_resolution_recovery_case(
+        tmp_brain,
+        monkeypatch,
+        record_id="resolution-recovery-skipped-directory",
+        refs={"files": [str(directory)]},
+    )
+
+    preview = PendingQueue().resolve([action])
+    applied = PendingQueue().resolve([action], apply=True)
+
+    assert len(stored.refs.resources) == 1
+    assert len(stored.refs.extractions) == 1
+    assert preview.results[0].status == "ready"
+    assert applied.results[0].status == "applied"
+    assert not path.exists()
+
+
+def test_resolution_retry_rejects_skipped_ref_that_becomes_a_file(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ref_file = tmp_brain / "created-after-write.txt"
+    path, action, _stored_path, _stored, _body = _begin_resolution_recovery_case(
+        tmp_brain,
+        monkeypatch,
+        record_id="resolution-recovery-skipped-then-created",
+        refs={"files": [str(ref_file)]},
+    )
+    ref_file.write_text("new evidence changes the write plan", encoding="utf-8")
+
+    preview = PendingQueue().resolve([action])
+    applied = PendingQueue().resolve([action], apply=True)
+
+    assert preview.results[0].status == "blocked"
+    assert preview.results[0].reason == "PENDING_RESOLUTION_CHANGED"
+    assert applied.results[0].status == "blocked"
+    assert applied.results[0].reason == "PENDING_RESOLUTION_CHANGED"
+    assert path.exists()
+
+
+def test_resolution_retry_preserves_mixed_readable_and_skipped_file_order(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    first = tmp_brain / "mixed-first.txt"
+    missing = tmp_brain / "mixed-missing.txt"
+    second = tmp_brain / "mixed-second.txt"
+    first.write_text("first", encoding="utf-8")
+    second.write_text("second", encoding="utf-8")
+    path, action, _stored_path, stored, _body = _begin_resolution_recovery_case(
+        tmp_brain,
+        monkeypatch,
+        record_id="resolution-recovery-mixed-files",
+        refs={"files": [str(first), str(missing), str(second)]},
+    )
+    generated_ref_files = [
+        json.loads(
+            (tmp_brain / "resources" / f"{resource_id}.json").read_text(
+                encoding="utf-8"
+            )
+        )["metadata"]["ref_file"]
+        for resource_id in stored.refs.resources
+    ]
+
+    preview = PendingQueue().resolve([action])
+    applied = PendingQueue().resolve([action], apply=True)
+
+    assert generated_ref_files == [str(first), str(second)]
+    assert preview.results[0].status == "ready"
+    assert applied.results[0].status == "applied"
     assert not path.exists()
 
 
