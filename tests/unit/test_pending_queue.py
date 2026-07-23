@@ -249,6 +249,10 @@ def _resolution_evidence_refs(
     tmp_brain: Path,
     case: str,
 ) -> tuple[dict[str, object], tuple[int, int]]:
+    if case == "broken_symlink":
+        path = tmp_brain / "broken-at-first.txt"
+        path.symlink_to(tmp_brain / "missing-target.txt")
+        return {"files": [str(path)]}, (1, 1)
     if case == "missing":
         return {"files": [str(tmp_brain / "never-created.txt")]}, (1, 1)
     if case == "text":
@@ -4275,7 +4279,15 @@ def test_resolution_retry_recovers_text_file_evidence(
 
 @pytest.mark.parametrize(
     "evidence_case",
-    ["missing", "text", "binary", "large", "multiple", "explicit_generated"],
+    [
+        "broken_symlink",
+        "missing",
+        "text",
+        "binary",
+        "large",
+        "multiple",
+        "explicit_generated",
+    ],
 )
 @pytest.mark.parametrize("failure_mode", ["unlink", "source_ledger"])
 def test_resolution_retry_recovers_complete_write_evidence_transformation(
@@ -4364,6 +4376,138 @@ def test_resolution_retry_recovers_file_ref_directory_skipped_by_writer(
     assert preview.results[0].status == "ready"
     assert applied.results[0].status == "applied"
     assert not path.exists()
+
+
+def test_resolution_retry_recovers_directory_symlink_skipped_by_writer(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    directory = tmp_brain / "symlinked-directory-target"
+    directory.mkdir()
+    ref_file = tmp_brain / "directory-link"
+    ref_file.symlink_to(directory, target_is_directory=True)
+    path, action, _stored_path, stored, _body = _begin_resolution_recovery_case(
+        tmp_brain,
+        monkeypatch,
+        record_id="resolution-recovery-skipped-directory-symlink",
+        refs={"files": [str(ref_file)]},
+    )
+
+    preview = PendingQueue().resolve([action])
+    applied = PendingQueue().resolve([action], apply=True)
+
+    assert len(stored.refs.resources) == 1
+    assert len(stored.refs.extractions) == 1
+    assert preview.results[0].status == "ready"
+    assert applied.results[0].status == "applied"
+    assert not path.exists()
+
+
+@pytest.mark.parametrize("replacement", ["broken_symlink", "directory_symlink"])
+def test_resolution_retry_rejects_file_replaced_by_skipped_symlink(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    replacement: str,
+) -> None:
+    ref_file = tmp_brain / f"file-to-{replacement}.txt"
+    ref_file.write_text("captured before replacement", encoding="utf-8")
+    path, action, _stored_path, _stored, _body = _begin_resolution_recovery_case(
+        tmp_brain,
+        monkeypatch,
+        record_id=f"resolution-recovery-file-to-{replacement}",
+        refs={"files": [str(ref_file)]},
+    )
+    ref_file.unlink()
+    if replacement == "broken_symlink":
+        ref_file.symlink_to(tmp_brain / "missing-after-write.txt")
+    else:
+        directory = tmp_brain / "directory-after-write"
+        directory.mkdir()
+        ref_file.symlink_to(directory, target_is_directory=True)
+
+    preview = PendingQueue().resolve([action])
+    applied = PendingQueue().resolve([action], apply=True)
+
+    assert preview.results[0].status == "blocked"
+    assert preview.results[0].reason == "PENDING_RESOLUTION_CHANGED"
+    assert applied.results[0].status == "blocked"
+    assert applied.results[0].reason == "PENDING_RESOLUTION_CHANGED"
+    assert path.exists()
+
+
+def test_resolution_retry_rejects_broken_symlink_that_gains_regular_target(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    target = tmp_brain / "created-symlink-target.txt"
+    ref_file = tmp_brain / "broken-then-regular-link.txt"
+    ref_file.symlink_to(target)
+    path, action, _stored_path, _stored, _body = _begin_resolution_recovery_case(
+        tmp_brain,
+        monkeypatch,
+        record_id="resolution-recovery-broken-to-regular",
+        refs={"files": [str(ref_file)]},
+    )
+    target.write_text("target created after first write", encoding="utf-8")
+
+    preview = PendingQueue().resolve([action])
+    applied = PendingQueue().resolve([action], apply=True)
+
+    assert preview.results[0].status == "blocked"
+    assert preview.results[0].reason == "PENDING_RESOLUTION_CHANGED"
+    assert applied.results[0].status == "blocked"
+    assert applied.results[0].reason == "PENDING_RESOLUTION_CHANGED"
+    assert path.exists()
+
+
+def test_resolution_retry_keeps_regular_file_symlink_fail_closed(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    target = tmp_brain / "regular-symlink-target.txt"
+    target.write_text("writer follows this target", encoding="utf-8")
+    ref_file = tmp_brain / "regular-file-link.txt"
+    ref_file.symlink_to(target)
+    path, action, _stored_path, stored, _body = _begin_resolution_recovery_case(
+        tmp_brain,
+        monkeypatch,
+        record_id="resolution-recovery-regular-file-symlink",
+        refs={"files": [str(ref_file)]},
+    )
+
+    preview = PendingQueue().resolve([action])
+    applied = PendingQueue().resolve([action], apply=True)
+
+    assert len(stored.refs.resources) == 1
+    assert len(stored.refs.extractions) == 1
+    assert preview.results[0].status == "blocked"
+    assert preview.results[0].reason == "PENDING_RESOLUTION_CHANGED"
+    assert applied.results[0].status == "blocked"
+    assert applied.results[0].reason == "PENDING_RESOLUTION_CHANGED"
+    assert path.exists()
+
+
+def test_resolution_retry_keeps_symlink_loop_fail_closed(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ref_file = tmp_brain / "self-loop-link.txt"
+    ref_file.symlink_to(ref_file)
+    path, action, _stored_path, _stored, _body = _begin_resolution_recovery_case(
+        tmp_brain,
+        monkeypatch,
+        record_id="resolution-recovery-symlink-loop",
+        refs={"files": [str(ref_file)]},
+    )
+
+    preview = PendingQueue().resolve([action])
+    applied = PendingQueue().resolve([action], apply=True)
+
+    assert preview.results[0].status == "blocked"
+    assert preview.results[0].reason == "PENDING_RESOLUTION_CHANGED"
+    assert applied.results[0].status == "blocked"
+    assert applied.results[0].reason == "PENDING_RESOLUTION_CHANGED"
+    assert path.exists()
 
 
 def test_resolution_retry_rejects_skipped_ref_that_becomes_a_file(

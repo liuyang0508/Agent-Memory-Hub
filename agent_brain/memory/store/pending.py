@@ -136,6 +136,7 @@ MAX_ITEM_FRONTMATTER_BYTES = 64 * 1024
 MAX_ITEM_METADATA_ENTRIES = 20_000
 MAX_ITEM_METADATA_BYTES = 64 * 1024 * 1024
 MAX_ITEM_DIRECTORY_DEPTH = 32
+_MAX_RESOLUTION_SYMLINK_TARGET_BYTES = 4096
 STALE_EPHEMERAL_SECONDS = 30 * 24 * 60 * 60
 _monotonic = time.monotonic
 
@@ -3021,7 +3022,10 @@ def _matches_resolution_existing(
             files.append(_WriteEvidenceFile(ref_file=ref_file, path=path))
             continue
         except _PendingReadError as exc:
-            if exc.reason != "PENDING_RECORD_NOT_REGULAR":
+            if exc.reason != "PENDING_RECORD_NOT_REGULAR" and (
+                exc.reason != "PENDING_RECORD_CHANGED"
+                or _symlink_ref_state(path) != "skipped"
+            ):
                 return False
             files.append(_WriteEvidenceFile(ref_file=ref_file, path=path))
             continue
@@ -3079,6 +3083,36 @@ def _matches_resolution_existing(
         extractions=extractions,
         now=_utc_now(),
     )
+
+
+def _symlink_ref_state(path: Path) -> Literal["skipped", "regular", "unsafe"]:
+    """Classify one link without reading or following its final target."""
+
+    try:
+        before = os.lstat(path)
+        if not stat.S_ISLNK(before.st_mode):
+            return "unsafe"
+        target = os.readlink(path)
+        if not target or len(os.fsencode(target)) > _MAX_RESOLUTION_SYMLINK_TARGET_BYTES:
+            return "unsafe"
+
+        target_path = Path(target)
+        if not target_path.is_absolute():
+            target_path = path.parent / target_path
+        try:
+            target_stat = os.lstat(target_path)
+        except FileNotFoundError:
+            state: Literal["skipped", "regular"] = "skipped"
+        else:
+            if stat.S_ISLNK(target_stat.st_mode):
+                return "unsafe"
+            state = "regular" if _is_safe_regular_file(target_stat) else "skipped"
+        after = os.lstat(path)
+        if not stat.S_ISLNK(after.st_mode) or not _same_file_identity(before, after):
+            return "unsafe"
+        return state
+    except (OSError, UnicodeError, ValueError):
+        return "unsafe"
 
 
 def _matches_duplicate_target(
