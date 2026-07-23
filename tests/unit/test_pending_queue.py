@@ -37,6 +37,20 @@ class UnhashableStr(str):
     __hash__ = None  # type: ignore[assignment]
 
 
+class _GuardedInfiniteActions:
+    def __init__(self) -> None:
+        self.reads = 0
+
+    def __iter__(self) -> _GuardedInfiniteActions:
+        return self
+
+    def __next__(self) -> object:
+        self.reads += 1
+        if self.reads > 4:
+            raise AssertionError("resolution request was not bounded")
+        return object()
+
+
 class _StatProxy:
     def __init__(self, original: os.stat_result, **overrides: object) -> None:
         self._original = original
@@ -2974,6 +2988,7 @@ def test_resolution_preview_validates_all_supported_actions_without_mutation(
         "duplicate_candidate",
         "unsupported_type",
     ]
+    assert all(result.item_id is not None for result in stats.results)
     assert stats.receipt is None
     assert stats.lock_gc_report is None
     assert _tree_snapshot(tmp_brain) == before
@@ -3027,7 +3042,14 @@ def test_resolution_audit_approval_never_bypasses_secret_findings(
     record = _v2_record(record_id="resolution-secret-finding")
     item = record["item"]
     assert isinstance(item, dict)
-    item["body"] = 'api_key = "abcdefghijklmnopqrstuvwxyz123456"'
+    item["body"] = (
+        "api_"
+        + 'key = "'
+        + "abcdefghijklm"
+        + "nopqrstuvwxyz"
+        + "123456"
+        + '"'
+    )
     enqueue_write_record(record)
 
     result = PendingQueue().resolve(
@@ -3406,3 +3428,241 @@ def test_resolution_rejects_identity_drift_with_original_hash(
 
     assert result.status == "blocked"
     assert result.reason == "PENDING_RESOLUTION_CHANGED"
+
+
+def test_resolution_rejects_oversized_requests_before_scanning(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(pending_module, "MAX_PENDING_QUEUE_ENTRIES", 2)
+    monkeypatch.setattr(
+        pending_module,
+        "_pending_record_paths",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("must not scan")),
+    )
+    monkeypatch.setattr(
+        pending_module,
+        "_scan_existing_item_metadata",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("must not scan")),
+    )
+    reads = 0
+
+    def oversized():
+        nonlocal reads
+        for index in range(3):
+            reads += 1
+            yield PendingResolutionAction("approve_audit", f"resolution-large-{index}")
+
+    stats = PendingQueue().resolve(oversized())
+
+    assert reads == 3
+    assert stats.governance_reason == "PENDING_RESOLUTION_REQUEST_TOO_LARGE"
+    assert len(stats.results) == 2
+    assert {result.status for result in stats.results} == {"blocked"}
+    assert {result.reason for result in stats.results} == {
+        "PENDING_RESOLUTION_REQUEST_TOO_LARGE"
+    }
+
+
+def test_resolution_bounds_infinite_invalid_generator_before_scanning(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(pending_module, "MAX_PENDING_QUEUE_ENTRIES", 2)
+    monkeypatch.setattr(
+        pending_module,
+        "_pending_record_paths",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("must not scan")),
+    )
+    monkeypatch.setattr(
+        pending_module,
+        "_scan_existing_item_metadata",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("must not scan")),
+    )
+    actions = _GuardedInfiniteActions()
+
+    stats = PendingQueue().resolve(actions)  # type: ignore[arg-type]
+
+    assert actions.reads == 3
+    assert stats.governance_reason == "PENDING_RESOLUTION_REQUEST_TOO_LARGE"
+    assert len(stats.results) == 2
+    assert {result.reason for result in stats.results} == {
+        "PENDING_RESOLUTION_REQUEST_TOO_LARGE"
+    }
+
+
+def test_resolution_invalid_only_request_returns_without_scanning(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        pending_module,
+        "_pending_record_paths",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("must not scan")),
+    )
+    monkeypatch.setattr(
+        pending_module,
+        "_scan_existing_item_metadata",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("must not scan")),
+    )
+
+    stats = PendingQueue().resolve(  # type: ignore[arg-type]
+        [
+            object(),
+            PendingResolutionAction("PRIVATE_TITLE_CANARY", "resolution-invalid"),  # type: ignore[arg-type]
+        ]
+    )
+
+    assert len(stats.results) == 2
+    assert {result.reason for result in stats.results} == {
+        "PENDING_RESOLUTION_NOT_APPLICABLE"
+    }
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        pytest.param(UnhashableStr("ready"), id="unhashable-str-subclass"),
+        pytest.param("PRIVATE_MODEL_CANARY", id="unknown-canary"),
+    ],
+)
+def test_resolution_public_model_closes_all_counted_fields(value: object) -> None:
+    result = pending_module.PendingResolutionResult(
+        action="approve_audit",
+        record_id="resolution-adversarial-model",
+        classification=value,  # type: ignore[arg-type]
+        status=value,  # type: ignore[arg-type]
+        reason=value,  # type: ignore[arg-type]
+    )
+    stats = pending_module.PendingResolutionStats(
+        dry_run=True,
+        results=[result],
+        governance_reason=value,  # type: ignore[arg-type]
+    )
+
+    payload = {"result": result.to_dict(), "summary": stats.to_summary_dict()}
+    encoded = json.dumps(payload, sort_keys=True)
+
+    assert result.status == "unknown"
+    assert result.classification == "unknown"
+    assert result.reason == "UNKNOWN_PENDING_REASON"
+    assert stats.governance_reason == "UNKNOWN_PENDING_REASON"
+    assert payload["summary"]["status_counts"] == {"unknown": 1}  # type: ignore[index]
+    assert payload["summary"]["classification_counts"] == {"unknown": 1}  # type: ignore[index]
+    assert payload["summary"]["reason_counts"] == {"UNKNOWN_PENDING_REASON": 1}  # type: ignore[index]
+    assert str(value) not in encoded
+
+
+@pytest.mark.parametrize("sensitivity", ["private", "secret"])
+@pytest.mark.parametrize("action_name", ["accept_duplicate", "convert_type"])
+def test_resolution_redacts_sensitive_item_ids(
+    tmp_brain: Path,
+    sensitivity: str,
+    action_name: str,
+) -> None:
+    if action_name == "accept_duplicate":
+        record = _v2_record(record_id=f"resolution-redact-{sensitivity}")
+        item = record["item"]
+        assert isinstance(item, dict)
+        item["title"] = "PRIVATE_DUPLICATE_TITLE_CANARY"
+        item["summary"] = "private duplicate summary canary"
+        item["sensitivity"] = sensitivity
+        target_id = f"mem-20260701-100000-redaction-target-{sensitivity}"
+        _write_existing_item(
+            tmp_brain,
+            record,
+            item_id=target_id,
+            span_hash="different-payload",
+        )
+        enqueue_write_record(record)
+        preview = PendingQueue().preview(limit=1).records[0]
+        action = PendingResolutionAction(
+            "accept_duplicate",
+            preview.record_id,
+            target_id,
+        )
+        slug_canary = "private-duplicate-title-canary"
+    else:
+        record = _legacy_feedback_record()
+        item = record["item"]
+        assert isinstance(item, dict)
+        item["title"] = "PRIVATE_CONVERSION_TITLE_CANARY"
+        item["summary"] = "private conversion summary canary"
+        item["sensitivity"] = sensitivity
+        enqueue_write_record(record)
+        preview = PendingQueue().preview(limit=1).records[0]
+        action = PendingResolutionAction("convert_type", preview.record_id, "decision")
+        slug_canary = "private-conversion-title-canary"
+
+    stats = PendingQueue().resolve([action])
+    result = stats.results[0]
+    encoded = json.dumps(
+        {
+            "preview": preview.to_dict(),
+            "result": result.to_dict(),
+            "summary": stats.to_summary_dict(),
+        },
+        sort_keys=True,
+    ).lower()
+
+    assert result.status == "ready"
+    assert result.item_id is None
+    assert slug_canary not in encoded
+
+
+@pytest.mark.parametrize("drift", ["deleted", "content", "scope"])
+def test_resolution_duplicate_revalidates_target_snapshot(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    drift: str,
+) -> None:
+    record = _v2_record(record_id=f"resolution-target-drift-{drift}")
+    target_id = f"mem-20260701-100000-resolution-target-drift-{drift}"
+    _write_existing_item(
+        tmp_brain,
+        record,
+        item_id=target_id,
+        span_hash="different-payload",
+    )
+    pending_path = enqueue_write_record(record)
+    pending_bytes = pending_path.read_bytes()
+    target_path = tmp_brain / "items" / f"{target_id}.md"
+    target_item, target_body = ItemsStore(tmp_brain / "items").get_nofollow(target_id)
+    real_scan = pending_module._scan_existing_item_metadata
+    scans = 0
+
+    def drift_before_second_scan(*args, **kwargs):
+        nonlocal scans
+        scans += 1
+        if scans == 2:
+            if drift == "deleted":
+                target_path.unlink()
+            else:
+                update = (
+                    {"summary": "target content drifted"}
+                    if drift == "content"
+                    else {"project": "other-scope"}
+                )
+                target_path.write_text(
+                    render_item_markdown(
+                        target_item.model_copy(update=update),
+                        target_body,
+                    ),
+                    encoding="utf-8",
+                )
+        return real_scan(*args, **kwargs)
+
+    monkeypatch.setattr(
+        pending_module,
+        "_scan_existing_item_metadata",
+        drift_before_second_scan,
+    )
+
+    result = PendingQueue().resolve(
+        [PendingResolutionAction("accept_duplicate", str(record["record_id"]), target_id)]
+    ).results[0]
+
+    assert scans == 2
+    assert result.status == "blocked"
+    assert result.reason == "PENDING_RESOLUTION_CHANGED"
+    assert pending_path.read_bytes() == pending_bytes
