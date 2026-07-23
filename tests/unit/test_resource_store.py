@@ -4,6 +4,8 @@ import json
 import logging
 import os
 import re
+import sys
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -352,6 +354,33 @@ def test_resource_store_round_trips_resource_and_extraction(tmp_path) -> None:
     assert store.get_extraction(extraction.id) == extraction
     assert [r.id for r in store.iter_resources()] == [resource.id]
     assert [e.id for e in store.iter_extractions(resource_id=resource.id)] == [extraction.id]
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="macOS system alias")
+@pytest.mark.parametrize("temp_root", [None, "/tmp"])
+def test_resource_store_accepts_trusted_macos_root_aliases(temp_root: str | None) -> None:
+    from agent_brain.contracts.resource import (
+        ResourceKind,
+        ResourceRecord,
+        make_resource_id,
+    )
+    from agent_brain.memory.evidence.resource_store import ResourceStore
+
+    if temp_root is not None and not Path(temp_root).is_symlink():
+        pytest.skip(f"{temp_root} is not a system symlink")
+    with tempfile.TemporaryDirectory(dir=temp_root) as temporary:
+        assert str(temporary).startswith("/var/" if temp_root is None else "/tmp/")
+        store = ResourceStore(Path(temporary) / "brain")
+        resource = ResourceRecord(
+            id=make_resource_id("macOS root alias"),
+            kind=ResourceKind.document,
+            uri="memory://macos-alias",
+            title="macOS root alias",
+        )
+
+        store.write_resource(resource)
+
+        assert store.get_resource(resource.id) == resource
 
 
 def test_resource_store_unsupported_platform_fallback_is_explicit(

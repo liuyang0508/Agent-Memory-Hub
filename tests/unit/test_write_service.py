@@ -9,6 +9,8 @@ and the audit gate fail-closes on critical/high findings unless explicitly waive
 import logging
 import json
 import os
+import sys
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -259,6 +261,28 @@ def test_write_service_attaches_write_input_evidence_sidecar(tmp_brain):
     assert data["refs"]["resources"] == [resource_id]
     assert data["refs"]["extractions"] == [extraction_id]
     assert "fact item has no source refs" not in res.warnings
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="macOS system alias")
+@pytest.mark.parametrize("temp_root", [None, "/tmp"])
+def test_write_service_accepts_trusted_macos_root_aliases(
+    temp_root: str | None,
+) -> None:
+    if temp_root is not None and not Path(temp_root).is_symlink():
+        pytest.skip(f"{temp_root} is not a system symlink")
+    with tempfile.TemporaryDirectory(dir=temp_root) as temporary:
+        assert str(temporary).startswith("/var/" if temp_root is None else "/tmp/")
+        brain = Path(temporary) / "brain"
+        svc = WriteService.for_brain(brain)
+        item = _item(title="write through macOS root alias")
+
+        result = svc.write(item=item, body="body", allow_unsafe=True)
+
+        stored, _body = svc._store.get(item.id)
+        assert result.status == "written"
+        assert stored.refs.resources
+        assert stored.refs.extractions
+        assert (brain / "sources" / "writes" / f"{item.id}.json").is_file()
 
 
 @pytest.mark.parametrize("directory_name", ["resources", "extractions"])

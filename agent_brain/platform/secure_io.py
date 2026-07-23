@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import stat
+import sys
 from pathlib import Path
 
 
@@ -34,6 +35,10 @@ _HAS_SECURE_DIR_FD_MUTATION = (
         for function in (os.mkdir, os.link, os.stat, os.unlink)
     )
 )
+_MACOS_ROOT_ALIASES = {
+    "tmp": "private/tmp",
+    "var": "private/var",
+}
 
 
 def secure_dir_fd_io_supported() -> bool:
@@ -53,7 +58,9 @@ def open_directory_path_without_symlinks(path: Path) -> int:
 
     if not _HAS_SECURE_DIR_FD_IO:
         raise OSError("secure directory descriptor IO is unavailable")
-    absolute = Path(os.path.abspath(os.fspath(path)))
+    absolute = _trusted_macos_root_alias(
+        Path(os.path.abspath(os.fspath(path)))
+    )
     parts = absolute.parts
     if not parts or parts[0] != os.sep:
         raise OSError("secure directory path must be a POSIX absolute path")
@@ -89,7 +96,9 @@ def open_or_create_directory_path_without_symlinks(
 
     if not _HAS_SECURE_DIR_FD_MUTATION:
         raise OSError("secure directory descriptor mutation is unavailable")
-    absolute = Path(os.path.abspath(os.fspath(path)))
+    absolute = _trusted_macos_root_alias(
+        Path(os.path.abspath(os.fspath(path)))
+    )
     parts = absolute.parts
     if not parts or parts[0] != os.sep:
         raise OSError("secure directory path must be a POSIX absolute path")
@@ -173,6 +182,24 @@ def _validate_child_name(name: str) -> None:
         or any(separator in name for separator in separators)
     ):
         raise OSError("invalid secure child name")
+
+
+def _trusted_macos_root_alias(path: Path) -> Path:
+    """Normalize only Apple's verified root-level /var and /tmp aliases."""
+
+    parts = path.parts
+    if sys.platform != "darwin" or len(parts) < 2 or parts[0] != os.sep:
+        return path
+    target = _MACOS_ROOT_ALIASES.get(parts[1])
+    if target is None:
+        return path
+    try:
+        actual = os.readlink(os.path.join(os.sep, parts[1]))
+    except OSError:
+        return path
+    if actual not in {target, f"{os.sep}{target}"}:
+        return path
+    return Path(os.sep, *target.split(os.sep), *parts[2:])
 
 
 __all__ = [

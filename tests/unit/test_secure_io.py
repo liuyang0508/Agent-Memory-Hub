@@ -9,6 +9,32 @@ from pathlib import Path
 
 import pytest
 
+from agent_brain.platform import secure_io
+
+
+def test_trusted_macos_root_alias_is_disabled_off_macos(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(secure_io.sys, "platform", "linux")
+
+    def fail_if_called(_path: str) -> str:
+        raise AssertionError("non-macOS paths must not inspect root aliases")
+
+    monkeypatch.setattr(secure_io.os, "readlink", fail_if_called)
+
+    path = Path("/var/example")
+    assert secure_io._trusted_macos_root_alias(path) == path
+
+
+def test_trusted_macos_root_alias_rejects_unverified_target(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(secure_io.sys, "platform", "darwin")
+    monkeypatch.setattr(secure_io.os, "readlink", lambda _path: "attacker")
+
+    path = Path("/var/example")
+    assert secure_io._trusted_macos_root_alias(path) == path
+
 
 @pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="FIFO requires POSIX")
 def test_open_regular_file_at_rejects_fifo_without_blocking(tmp_path: Path) -> None:
