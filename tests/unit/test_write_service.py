@@ -122,6 +122,66 @@ def test_source_ledger_unsupported_platform_fallback_is_explicit(
     assert "SOURCE_LEDGER_SECURE_IO_UNAVAILABLE" in caplog.text
 
 
+@pytest.mark.parametrize("symlink_component", ["sources", "writes"])
+def test_source_ledger_fallback_symlink_escape_degrades_without_external_write(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    symlink_component: str,
+) -> None:
+    from agent_brain.memory.store import write_service as write_service_module
+
+    outside = tmp_brain.parent / f"fallback-outside-{symlink_component}"
+    outside.mkdir()
+    sources = tmp_brain / "sources"
+    if symlink_component == "sources":
+        sources.symlink_to(outside, target_is_directory=True)
+    else:
+        sources.mkdir()
+        (sources / "writes").symlink_to(outside, target_is_directory=True)
+    monkeypatch.setattr(
+        write_service_module,
+        "secure_dir_fd_mutation_supported",
+        lambda: False,
+    )
+    monkeypatch.setattr(write_service_module, "_STRICT_SECURE_MUTATION", False)
+    svc = WriteService.for_brain(tmp_brain)
+    item = _item(title=f"fallback source {symlink_component} escape")
+
+    result = svc.write(item=item, body="body", allow_unsafe=True)
+
+    assert result.status == "written"
+    assert result.degraded == ["source-ledger"]
+    assert "SOURCE_LEDGER_REPAIR_REQUIRED" in result.warnings
+    assert list(outside.iterdir()) == []
+
+
+def test_source_ledger_fallback_broken_target_degrades_without_external_write(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from agent_brain.memory.store import write_service as write_service_module
+
+    item = _item(title="fallback source broken target")
+    writes = tmp_brain / "sources" / "writes"
+    writes.mkdir(parents=True)
+    outside = tmp_brain.parent / "fallback-outside-source.json"
+    (writes / f"{item.id}.json").symlink_to(outside)
+    monkeypatch.setattr(
+        write_service_module,
+        "secure_dir_fd_mutation_supported",
+        lambda: False,
+    )
+    monkeypatch.setattr(write_service_module, "_STRICT_SECURE_MUTATION", False)
+    svc = WriteService.for_brain(tmp_brain)
+
+    result = svc.write(item=item, body="body", allow_unsafe=True)
+
+    assert result.status == "written"
+    assert result.degraded == ["source-ledger"]
+    assert "SOURCE_LEDGER_REPAIR_REQUIRED" in result.warnings
+    assert not outside.exists()
+
+
 def test_source_ledger_posix_without_secure_mutation_fails_closed(
     tmp_brain: Path,
     monkeypatch: pytest.MonkeyPatch,

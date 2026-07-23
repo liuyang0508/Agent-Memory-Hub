@@ -56,6 +56,7 @@ from agent_brain.contracts.resource import (
 )
 from agent_brain.platform.bounded_json import open_bounded_json_directory
 from agent_brain.platform.secure_io import (
+    HardenedFallbackDirectory,
     close_descriptor,
     open_directory_path_without_symlinks,
     open_regular_file_at,
@@ -785,12 +786,17 @@ def _write_source_record(
     if _STRICT_SECURE_MUTATION:
         raise OSError("SECURE_SOURCE_LEDGER_UNAVAILABLE")
     logger.warning("SOURCE_LEDGER_SECURE_IO_UNAVAILABLE")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    if path.exists():
-        if path.read_bytes() == payload:
+    fallback_brain = HardenedFallbackDirectory.open_or_create(Path(brain_dir))
+    fallback_writes = fallback_brain.child("sources", create=True).child(
+        "writes",
+        create=True,
+    )
+    try:
+        fallback_writes.exclusive_create(path.name, payload)
+    except FileExistsError:
+        if fallback_writes.read_regular(path.name) == payload:
             return path
         raise FileExistsError("SOURCE_RECORD_IDENTITY_CONFLICT")
-    path.write_bytes(payload)
     return path
 
 

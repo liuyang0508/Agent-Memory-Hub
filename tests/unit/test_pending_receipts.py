@@ -521,6 +521,42 @@ def test_pending_resolution_parser_and_ledger_reject_impossible_counts(tmp_brain
     )
 
 
+@pytest.mark.parametrize(
+    ("field_name", "value"),
+    [
+        ("requested_count", "1"),
+        ("requested_count", None),
+        ("selected_count", "1"),
+        ("selected_count", None),
+    ],
+)
+def test_pending_receipt_malformed_count_types_fail_closed(
+    tmp_brain,
+    field_name,
+    value,
+):
+    malformed = replace(_prepared(), **{field_name: value})
+
+    assert receipts_module._valid_receipt(malformed) is False  # noqa: SLF001
+
+    payload = _prepared().to_dict()
+    payload[field_name] = value
+    encoded = (
+        json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n"
+    ).encode()
+    assert receipts_module._parse_receipt(encoded) is None  # noqa: SLF001
+
+    runtime = tmp_brain / "runtime"
+    runtime.mkdir(parents=True)
+    ledger = runtime / "pending-apply-receipts.jsonl"
+    ledger.write_bytes(encoded)
+    os.chmod(ledger, 0o600)
+
+    assert receipts_module.read_pending_receipt_ledger_health(tmp_brain).status == (
+        "corrupt"
+    )
+
+
 def test_pending_receipt_ledger_is_durable_private_and_reports_incomplete(tmp_brain):
     prepared = _prepared()
     receipts_module.append_pending_receipt(tmp_brain, prepared)

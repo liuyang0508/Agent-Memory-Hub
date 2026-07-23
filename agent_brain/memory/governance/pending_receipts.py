@@ -619,21 +619,20 @@ def _valid_receipt(receipt: object) -> bool:
     if type(receipt) is not PendingBatchReceipt:
         return False
     assert isinstance(receipt, PendingBatchReceipt)
+    counts = (
+        receipt.requested_count,
+        receipt.selected_count,
+        receipt.depth_before,
+        receipt.index_repair_required_count,
+    )
+    if any(type(value) is not int or value < 0 for value in counts):
+        return False
     if (
         receipt.schema_version != 1
         or _HEX_32.fullmatch(receipt.batch_id) is None
         or _HEX_64.fullmatch(receipt.batch_digest) is None
         or receipt.selection_mode not in {"explicit", "safe_only", "resolution"}
         or receipt.selected_count > receipt.requested_count
-        or any(
-            type(value) is not int or value < 0
-            for value in (
-                receipt.requested_count,
-                receipt.selected_count,
-                receipt.depth_before,
-                receipt.index_repair_required_count,
-            )
-        )
         or (receipt.depth_after is not None and (type(receipt.depth_after) is not int or receipt.depth_after < 0))
         or not _valid_timestamp(receipt.prepared_at)
         or receipt.state not in {"prepared", "completed", "incomplete"}

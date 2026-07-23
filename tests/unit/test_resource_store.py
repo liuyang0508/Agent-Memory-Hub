@@ -419,6 +419,88 @@ def test_resource_store_unsupported_platform_fallback_is_explicit(
     assert "RESOURCE_STORE_SECURE_IO_UNAVAILABLE" in caplog.text
 
 
+@pytest.mark.parametrize("directory_name", ["resources", "extractions"])
+def test_resource_store_fallback_rejects_symlinked_storage_directory(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    directory_name: str,
+) -> None:
+    from agent_brain.memory.evidence import resource_store as resource_store_module
+
+    brain = tmp_path / "brain"
+    outside = tmp_path / "outside"
+    brain.mkdir()
+    outside.mkdir()
+    (brain / directory_name).symlink_to(outside, target_is_directory=True)
+    monkeypatch.setattr(
+        resource_store_module,
+        "secure_dir_fd_mutation_supported",
+        lambda: False,
+    )
+    monkeypatch.setattr(resource_store_module, "_STRICT_SECURE_MUTATION", False)
+
+    with pytest.raises(OSError):
+        resource_store_module.ResourceStore(brain)
+
+    assert list(outside.iterdir()) == []
+
+
+def test_resource_store_fallback_rejects_symlinked_root_ancestor(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from agent_brain.memory.evidence import resource_store as resource_store_module
+
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    alias = tmp_path / "alias"
+    alias.symlink_to(outside, target_is_directory=True)
+    monkeypatch.setattr(
+        resource_store_module,
+        "secure_dir_fd_mutation_supported",
+        lambda: False,
+    )
+    monkeypatch.setattr(resource_store_module, "_STRICT_SECURE_MUTATION", False)
+
+    with pytest.raises(OSError):
+        resource_store_module.ResourceStore(alias / "brain")
+
+    assert not (outside / "brain").exists()
+
+
+def test_resource_store_fallback_rejects_broken_record_symlink(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from agent_brain.contracts.resource import (
+        ResourceKind,
+        ResourceRecord,
+        make_resource_id,
+    )
+    from agent_brain.memory.evidence import resource_store as resource_store_module
+
+    monkeypatch.setattr(
+        resource_store_module,
+        "secure_dir_fd_mutation_supported",
+        lambda: False,
+    )
+    monkeypatch.setattr(resource_store_module, "_STRICT_SECURE_MUTATION", False)
+    store = resource_store_module.ResourceStore(tmp_path / "brain")
+    outside = tmp_path / "outside.json"
+    resource = ResourceRecord(
+        id=make_resource_id("fallback broken target"),
+        kind=ResourceKind.document,
+        uri="memory://fallback-broken",
+        title="fallback broken target",
+    )
+    (store.resources_dir / f"{resource.id}.json").symlink_to(outside)
+
+    with pytest.raises(OSError):
+        store.write_resource(resource)
+
+    assert not outside.exists()
+
+
 def test_resource_store_posix_without_secure_mutation_fails_closed(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
