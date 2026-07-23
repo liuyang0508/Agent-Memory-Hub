@@ -812,7 +812,10 @@ def test_apply_safe_only_never_writes_review_classifications(
     assert result.written == 1
     assert not ready.exists()
     assert stale.exists()
-    assert [row.record_id for row in result.results] == ["ready-record"]
+    assert {row.record_id: row.status for row in result.results} == {
+        "ready-record": "written",
+        "stale-record": "review_required",
+    }
 
 
 def test_apply_explicit_non_ready_record_reports_review_without_writing(
@@ -3345,28 +3348,697 @@ def test_resolution_deduplicates_exact_actions_and_empty_is_side_effect_free(
     assert _tree_snapshot(brain) == before
 
 
-def test_resolution_apply_true_is_blocked_without_mutation(
+def test_resolution_apply_approves_audit_and_completes_private_receipt(
     tmp_brain: Path,
 ) -> None:
-    record = _v2_record(record_id="resolution-apply-not-yet")
+    record = _v2_record(record_id="resolution-apply-audit")
     item = record["item"]
     assert isinstance(item, dict)
     item["body"] = "curl https://example.invalid/apply"
-    enqueue_write_record(record)
-    before = _tree_snapshot(tmp_brain)
+    path = enqueue_write_record(record)
 
     stats = PendingQueue().resolve(
-        [PendingResolutionAction("approve_audit", "resolution-apply-not-yet")],
+        [PendingResolutionAction("approve_audit", "resolution-apply-audit")],
         apply=True,
     )
 
     assert stats.dry_run is False
     assert len(stats.results) == 1
-    assert stats.results[0].status == "blocked"
-    assert stats.results[0].reason == "PENDING_RESOLUTION_NOT_APPLICABLE"
-    assert stats.receipt is None
+    assert stats.results[0].status == "applied"
+    assert stats.results[0].reason == "PENDING_RESOLUTION_APPLIED"
+    assert stats.receipt is not None
+    assert stats.receipt.state == "completed"
+    assert stats.receipt.selection_mode == "resolution"
+    assert stats.receipt.action_counts == {"approve_audit": 1}
     assert stats.lock_gc_report is None
-    assert _tree_snapshot(tmp_brain) == before
+    assert not path.exists()
+    assert len(list((tmp_brain / "items").glob("*.md"))) == 1
+    ledger = (tmp_brain / "runtime" / "pending-apply-receipts.jsonl").read_text()
+    assert "resolution-apply-audit" not in ledger
+
+
+def test_resolution_apply_accepts_exact_duplicate_without_creating_item(
+    tmp_brain: Path,
+) -> None:
+    record = _v2_record(record_id="resolution-apply-duplicate")
+    target_id = "mem-20260701-100000-resolution-apply-target"
+    _write_existing_item(
+        tmp_brain,
+        record,
+        item_id=target_id,
+        span_hash="different-payload",
+    )
+    path = enqueue_write_record(record)
+
+    stats = PendingQueue().resolve(
+        [
+            PendingResolutionAction(
+                "accept_duplicate",
+                "resolution-apply-duplicate",
+                target_id,
+            )
+        ],
+        apply=True,
+    )
+
+    assert stats.results[0].status == "applied"
+    assert stats.results[0].reason == "PENDING_RESOLUTION_APPLIED"
+    assert not path.exists()
+    assert len(list((tmp_brain / "items").glob("*.md"))) == 1
+    assert stats.receipt is not None
+    assert stats.receipt.action_counts == {"accept_duplicate": 1}
+
+
+def test_resolution_apply_converts_feedback_with_fixed_decision_body(
+    tmp_brain: Path,
+) -> None:
+    path = enqueue_write_record(_legacy_feedback_record())
+    preview = PendingQueue().preview(limit=1).records[0]
+
+    stats = PendingQueue().resolve(
+        [PendingResolutionAction("convert_type", preview.record_id, "decision")],
+        apply=True,
+    )
+
+    assert stats.results[0].status == "applied"
+    assert not path.exists()
+    stored, body = next(ItemsStore(tmp_brain / "items").iter_all())
+    assert str(stored.type) == "decision"
+    assert body.rstrip() == (
+        "**决策**\n\nlegacy feedback body\n\n"
+        "**理由**\n\n"
+        "该内容来自旧版 feedback 中已确认的长期约束，迁移为 decision 后才能进入统一记忆模型。\n\n"
+        "**改回去的代价**\n\n"
+        "恢复为不受支持的 feedback 会让该约束再次滞留在 pending，无法被正常维护和召回。"
+    )
+    assert stats.receipt is not None
+    assert stats.receipt.action_counts == {"convert_type": 1}
+
+
+def test_resolution_apply_prepared_receipt_failure_has_zero_mutations(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    record = _v2_record(record_id="resolution-receipt-prepare")
+    item = record["item"]
+    assert isinstance(item, dict)
+    item["body"] = "curl https://example.invalid/receipt"
+    path = enqueue_write_record(record)
+    pending_before = path.read_bytes()
+
+    monkeypatch.setattr(
+        pending_module,
+        "append_pending_receipt",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("receipt failed")),
+    )
+
+    stats = PendingQueue().resolve(
+        [PendingResolutionAction("approve_audit", "resolution-receipt-prepare")],
+        apply=True,
+    )
+
+    assert stats.governance_reason == "PENDING_RECEIPT_PREPARE_FAILED"
+    assert [result.status for result in stats.results] == ["failed"]
+    assert [result.reason for result in stats.results] == [
+        "PENDING_RECEIPT_PREPARE_FAILED"
+    ]
+    assert path.exists()
+    assert path.read_bytes() == pending_before
+    assert list((tmp_brain / "items").glob("*.md")) == []
+
+
+def test_resolution_apply_completion_failure_reports_incomplete_receipt(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from agent_brain.memory.governance.pending_receipts import (
+        append_pending_receipt as real_append,
+        read_pending_receipt_ledger_health,
+    )
+
+    record = _v2_record(record_id="resolution-receipt-completion")
+    item = record["item"]
+    assert isinstance(item, dict)
+    item["body"] = "curl https://example.invalid/completion"
+    path = enqueue_write_record(record)
+    calls = 0
+
+    def fail_second_append(brain: Path, receipt: object) -> None:
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise OSError("completion failed")
+        real_append(brain, receipt)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(pending_module, "append_pending_receipt", fail_second_append)
+
+    stats = PendingQueue().resolve(
+        [PendingResolutionAction("approve_audit", "resolution-receipt-completion")],
+        apply=True,
+    )
+
+    assert stats.results[0].status == "applied"
+    assert stats.governance_reason == "PENDING_RECEIPT_COMPLETION_FAILED"
+    assert stats.receipt is not None
+    assert stats.receipt.state == "incomplete"
+    assert not path.exists()
+    health = read_pending_receipt_ledger_health(tmp_brain)
+    assert health.status == "healthy"
+    assert health.incomplete_count == 1
+
+
+@pytest.mark.parametrize("drift", ["missing", "hash", "identity"])
+def test_resolution_apply_blocks_fresh_record_drift(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    drift: str,
+) -> None:
+    record = _v2_record(record_id=f"resolution-apply-drift-{drift}")
+    item = record["item"]
+    assert isinstance(item, dict)
+    item["body"] = "curl https://example.invalid/drift"
+    path = enqueue_write_record(record)
+    original = path.read_bytes()
+    real_read = pending_module._read_pending_record_snapshot
+    reads = 0
+
+    def drift_third_read(*args, **kwargs):
+        nonlocal reads
+        reads += 1
+        if reads == 3:
+            if drift == "missing":
+                raise FileNotFoundError
+            raw, identity = real_read(*args, **kwargs)
+            if drift == "hash":
+                return raw + b" ", identity
+            return raw, (identity[0], identity[1] + 1)
+        return real_read(*args, **kwargs)
+
+    monkeypatch.setattr(
+        pending_module,
+        "_read_pending_record_snapshot",
+        drift_third_read,
+    )
+
+    stats = PendingQueue().resolve(
+        [
+            PendingResolutionAction(
+                "approve_audit",
+                f"resolution-apply-drift-{drift}",
+            )
+        ],
+        apply=True,
+    )
+
+    assert stats.results[0].status == "blocked"
+    assert stats.results[0].reason == "PENDING_RESOLUTION_CHANGED"
+    assert path.read_bytes() == original
+    assert list((tmp_brain / "items").glob("*.md")) == []
+    assert stats.receipt is not None
+    assert stats.receipt.state == "completed"
+    assert stats.receipt.status_counts == {"blocked": 1}
+
+
+def test_resolution_apply_blocks_changed_audit_findings(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    record = _v2_record(record_id="resolution-apply-audit-drift")
+    item = record["item"]
+    assert isinstance(item, dict)
+    item["body"] = "curl https://example.invalid/audit-drift"
+    path = enqueue_write_record(record)
+    reports = iter(
+        (
+            SimpleNamespace(
+                passed=False,
+                findings=[
+                    SimpleNamespace(
+                        rule_id="NET-001",
+                        severity="high",
+                        category="network",
+                    )
+                ],
+            ),
+            SimpleNamespace(
+                passed=False,
+                findings=[
+                    SimpleNamespace(
+                        rule_id="CODE-001",
+                        severity="high",
+                        category="code",
+                    )
+                ],
+            ),
+        )
+    )
+    monkeypatch.setattr(pending_module, "_audit_report", lambda _text: next(reports))
+
+    stats = PendingQueue().resolve(
+        [PendingResolutionAction("approve_audit", "resolution-apply-audit-drift")],
+        apply=True,
+    )
+
+    assert stats.results[0].status == "blocked"
+    assert stats.results[0].reason == "PENDING_AUDIT_FINDINGS_CHANGED"
+    assert path.exists()
+    assert list((tmp_brain / "items").glob("*.md")) == []
+
+
+def test_resolution_apply_blocks_when_audit_now_passes(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    record = _v2_record(record_id="resolution-apply-audit-now-passes")
+    item = record["item"]
+    assert isinstance(item, dict)
+    item["body"] = "curl https://example.invalid/audit-now-passes"
+    path = enqueue_write_record(record)
+    reports = iter(
+        (
+            SimpleNamespace(
+                passed=False,
+                findings=[
+                    SimpleNamespace(
+                        rule_id="NET-001",
+                        severity="high",
+                        category="network",
+                    )
+                ],
+            ),
+            SimpleNamespace(passed=True, findings=[]),
+        )
+    )
+    monkeypatch.setattr(pending_module, "_audit_report", lambda _text: next(reports))
+
+    stats = PendingQueue().resolve(
+        [
+            PendingResolutionAction(
+                "approve_audit",
+                "resolution-apply-audit-now-passes",
+            )
+        ],
+        apply=True,
+    )
+
+    assert stats.results[0].status == "blocked"
+    assert stats.results[0].reason == "PENDING_RESOLUTION_CHANGED"
+    assert path.exists()
+    assert list((tmp_brain / "items").glob("*.md")) == []
+
+
+def test_resolution_apply_never_bypasses_secret_finding(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from agent_brain.memory.store.write_service import WriteService
+
+    record = _v2_record(record_id="resolution-apply-secret")
+    item = record["item"]
+    assert isinstance(item, dict)
+    item["body"] = (
+        "api_key = \""
+        + "abcdefghijklm"
+        + "nopqrstuvwxyz"
+        + "123456"
+        + '"'
+    )
+    path = enqueue_write_record(record)
+    monkeypatch.setattr(
+        WriteService,
+        "for_brain",
+        classmethod(
+            lambda cls, *_args: (_ for _ in ()).throw(
+                AssertionError("secret finding must never reach WriteService")
+            )
+        ),
+    )
+
+    stats = PendingQueue().resolve(
+        [PendingResolutionAction("approve_audit", "resolution-apply-secret")],
+        apply=True,
+    )
+
+    assert stats.results[0].status == "blocked"
+    assert stats.results[0].reason == "PENDING_AUDIT_SECRET_BLOCKED"
+    assert path.exists()
+    assert stats.receipt is None
+
+
+def test_resolution_apply_blocks_duplicate_target_digest_drift(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    record = _v2_record(record_id="resolution-apply-target-drift")
+    target_id = "mem-20260701-100000-resolution-apply-target-drift"
+    _write_existing_item(
+        tmp_brain,
+        record,
+        item_id=target_id,
+        span_hash="different-payload",
+    )
+    path = enqueue_write_record(record)
+    digests = iter(("a" * 64, "b" * 64))
+    monkeypatch.setattr(
+        pending_module,
+        "_domain_digest",
+        lambda _domain, _value: next(digests),
+    )
+
+    stats = PendingQueue().resolve(
+        [
+            PendingResolutionAction(
+                "accept_duplicate",
+                "resolution-apply-target-drift",
+                target_id,
+            )
+        ],
+        apply=True,
+    )
+
+    assert stats.results[0].status == "blocked"
+    assert stats.results[0].reason == "PENDING_DUPLICATE_TARGET_MISMATCH"
+    assert path.exists()
+    assert len(list((tmp_brain / "items").glob("*.md"))) == 1
+
+
+def test_resolution_apply_index_degraded_is_applied_and_clears_pending(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from agent_brain.memory.store.write_service import WriteService
+
+    record = _v2_record(record_id="resolution-apply-index-degraded")
+    item = record["item"]
+    assert isinstance(item, dict)
+    item["body"] = "curl https://example.invalid/index-degraded"
+    path = enqueue_write_record(record)
+
+    class _FailingIndex:
+        def upsert(self, *_args: object, **_kwargs: object) -> None:
+            raise OSError("index unavailable")
+
+    service = WriteService(
+        ItemsStore(tmp_brain / "items"),
+        index=_FailingIndex(),  # type: ignore[arg-type]
+        embedder=HashingEmbedder(),
+        brain_dir=tmp_brain,
+    )
+    monkeypatch.setattr(
+        WriteService,
+        "for_brain",
+        classmethod(lambda cls, *_args: service),
+    )
+
+    stats = PendingQueue().resolve(
+        [
+            PendingResolutionAction(
+                "approve_audit",
+                "resolution-apply-index-degraded",
+            )
+        ],
+        apply=True,
+    )
+
+    assert stats.results[0].status == "applied"
+    assert stats.results[0].index_repair_required is True
+    assert not path.exists()
+    assert stats.receipt is not None
+    assert stats.receipt.index_repair_required_count == 1
+
+
+def test_resolution_apply_source_ledger_degraded_preserves_pending(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from agent_brain.memory.store import write_service as write_service_module
+
+    record = _v2_record(record_id="resolution-apply-source-degraded")
+    item = record["item"]
+    assert isinstance(item, dict)
+    item["body"] = "curl https://example.invalid/source-degraded"
+    path = enqueue_write_record(record)
+    monkeypatch.setattr(
+        write_service_module,
+        "_write_source_record",
+        lambda **_kwargs: (_ for _ in ()).throw(OSError("source unavailable")),
+    )
+
+    stats = PendingQueue().resolve(
+        [
+            PendingResolutionAction(
+                "approve_audit",
+                "resolution-apply-source-degraded",
+            )
+        ],
+        apply=True,
+    )
+
+    assert stats.results[0].status == "failed"
+    assert stats.results[0].reason == "SOURCE_LEDGER_REPAIR_REQUIRED"
+    assert path.exists()
+    assert len(list((tmp_brain / "items").glob("*.md"))) == 1
+    assert stats.receipt is not None
+    assert stats.receipt.reason_counts == {"SOURCE_LEDGER_REPAIR_REQUIRED": 1}
+
+
+def test_resolution_apply_partial_failure_has_complete_ordered_outcomes(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from agent_brain.memory.store.write_service import WriteService
+
+    first = _v2_record(record_id="resolution-apply-partial-fail")
+    second = _v2_record(record_id="resolution-apply-partial-success")
+    for record, suffix in ((first, "fail"), (second, "success")):
+        item = record["item"]
+        assert isinstance(item, dict)
+        item["title"] = f"partial {suffix}"
+        item["summary"] = f"partial {suffix} summary"
+        item["body"] = f"curl https://example.invalid/{suffix}"
+        enqueue_write_record(record)
+    failing_id = _stable_item_id(first)
+    real_write = WriteService.write
+
+    def fail_first(self: WriteService, *, item: MemoryItem, **kwargs: object):
+        if item.id == failing_id:
+            raise OSError("one write failed")
+        return real_write(self, item=item, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(WriteService, "write", fail_first)
+
+    stats = PendingQueue().resolve(
+        [
+            PendingResolutionAction(
+                "approve_audit",
+                "resolution-apply-partial-fail",
+            ),
+            PendingResolutionAction(
+                "approve_audit",
+                "resolution-apply-partial-success",
+            ),
+        ],
+        apply=True,
+    )
+
+    assert [result.record_id for result in stats.results] == [
+        "resolution-apply-partial-fail",
+        "resolution-apply-partial-success",
+    ]
+    assert [result.status for result in stats.results] == ["failed", "applied"]
+    assert stats.receipt is not None
+    assert stats.receipt.state == "completed"
+    assert stats.receipt.status_counts == {"applied": 1, "failed": 1}
+    assert sum(stats.receipt.status_counts.values()) == stats.receipt.selected_count
+
+
+def test_resolution_receipt_target_digest_uses_closed_raw_target_domain(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from agent_brain.memory.governance import pending_receipts as receipts_module
+
+    record = _v2_record(record_id="resolution-receipt-target-digest")
+    target_id = "mem-20260701-100000-resolution-receipt-target"
+    _write_existing_item(
+        tmp_brain,
+        record,
+        item_id=target_id,
+        span_hash="different-payload",
+    )
+    enqueue_write_record(record)
+    captured: list[object] = []
+    real_prepare = receipts_module.prepare_pending_receipt
+
+    def capture_prepare(**kwargs):
+        selected = tuple(kwargs["selected"])
+        captured.extend(selected)
+        return real_prepare(**{**kwargs, "selected": selected})
+
+    monkeypatch.setattr(pending_module, "prepare_pending_receipt", capture_prepare)
+
+    stats = PendingQueue().resolve(
+        [
+            PendingResolutionAction(
+                "accept_duplicate",
+                "resolution-receipt-target-digest",
+                target_id,
+            )
+        ],
+        apply=True,
+    )
+
+    assert stats.results[0].status == "applied"
+    assert len(captured) == 1
+    expected = hashlib.sha256(
+        b"amh.pending.resolution.target.v1\0" + target_id.encode()
+    ).hexdigest()
+    assert captured[0].target_digest == expected  # type: ignore[union-attr]
+    ledger = (tmp_brain / "runtime" / "pending-apply-receipts.jsonl").read_text()
+    assert target_id not in ledger
+    assert expected not in ledger
+
+
+def test_resolution_apply_detects_record_replacement_after_prepared_receipt(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from agent_brain.memory.store.write_service import WriteService
+
+    record = _v2_record(record_id="resolution-record-replacement")
+    item = record["item"]
+    assert isinstance(item, dict)
+    item["body"] = "curl https://example.invalid/replacement"
+    path = enqueue_write_record(record)
+    original = path.read_bytes()
+    service = WriteService.for_brain(tmp_brain)
+
+    def replace_before_apply(_cls, *_args):
+        replacement = path.with_suffix(".replacement")
+        replacement.write_bytes(original)
+        os.chmod(replacement, 0o600)
+        os.replace(replacement, path)
+        return service
+
+    monkeypatch.setattr(
+        WriteService,
+        "for_brain",
+        classmethod(replace_before_apply),
+    )
+
+    stats = PendingQueue().resolve(
+        [
+            PendingResolutionAction(
+                "approve_audit",
+                "resolution-record-replacement",
+            )
+        ],
+        apply=True,
+    )
+
+    assert stats.results[0].status == "blocked"
+    assert stats.results[0].reason == "PENDING_RESOLUTION_CHANGED"
+    assert path.read_bytes() == original
+    assert list((tmp_brain / "items").glob("*.md")) == []
+    assert stats.receipt is not None
+    assert stats.receipt.status_counts == {"blocked": 1}
+
+
+def test_pending_resolution_real_distribution_smoke(
+    tmp_brain: Path,
+) -> None:
+    actions: list[PendingResolutionAction] = []
+    for index in range(21):
+        record_id = f"resolution-distribution-audit-{index:02d}"
+        record = _v2_record(record_id=record_id)
+        item = record["item"]
+        assert isinstance(item, dict)
+        item["title"] = f"distribution audit {index}"
+        item["summary"] = f"distribution audit summary {index}"
+        item["body"] = f"curl https://example.invalid/distribution-{index}"
+        enqueue_write_record(record)
+        actions.append(PendingResolutionAction("approve_audit", record_id))
+
+    duplicate = _v2_record(record_id="resolution-distribution-duplicate-00")
+    duplicate_item = duplicate["item"]
+    assert isinstance(duplicate_item, dict)
+    duplicate_item["title"] = "distribution exact duplicate"
+    duplicate_item["summary"] = "distribution exact duplicate summary"
+    target_id = "mem-20260701-100000-resolution-distribution-target"
+    _write_existing_item(
+        tmp_brain,
+        duplicate,
+        item_id=target_id,
+        span_hash="different-payload",
+    )
+    for index in range(4):
+        record = _v2_record(
+            record_id=f"resolution-distribution-duplicate-{index:02d}"
+        )
+        item = record["item"]
+        assert isinstance(item, dict)
+        item["title"] = duplicate_item["title"]
+        item["summary"] = duplicate_item["summary"]
+        enqueue_write_record(record)
+        actions.append(
+            PendingResolutionAction(
+                "accept_duplicate",
+                str(record["record_id"]),
+                target_id,
+            )
+        )
+
+    for index in range(3):
+        record = _legacy_feedback_record()
+        item = record["item"]
+        assert isinstance(item, dict)
+        item["title"] = f"distribution feedback {index}"
+        item["summary"] = f"distribution feedback summary {index}"
+        item["body"] = f"distribution feedback body {index}"
+        enqueue_write_record(record)
+    conversions = [
+        record
+        for record in PendingQueue().preview(limit=100).records
+        if record.classification == "unsupported_type"
+    ]
+    assert len(conversions) == 3
+    actions.extend(
+        PendingResolutionAction("convert_type", record.record_id, "decision")
+        for record in conversions
+    )
+
+    locks = tmp_brain / "pending" / ".amh-record-locks"
+    locks.mkdir()
+    for index in range(17):
+        lock = locks / pending_module.pending_record_lock_name(
+            f"orphan-{index:02d}.jsonl"
+        )
+        lock.write_bytes(b"")
+        os.chmod(lock, 0o600)
+
+    preview = PendingQueue().resolve(actions)
+    assert len(preview.results) == 28
+    assert {result.status for result in preview.results} == {"ready"}
+    assert PendingQueue().depth() == 28
+
+    stats = PendingQueue().resolve(
+        actions,
+        apply=True,
+        gc_orphan_locks=True,
+    )
+
+    assert len(stats.results) == 28
+    assert {result.status for result in stats.results} == {"applied"}
+    assert PendingQueue().depth() == 0
+    assert len(list((tmp_brain / "items").glob("*.md"))) == 25
+    assert stats.lock_gc_report is not None
+    assert stats.lock_gc_report.total == 45
+    assert stats.lock_gc_report.orphan == 45
+    assert stats.lock_gc_report.deleted == 45
+    assert stats.receipt is not None
+    assert stats.receipt.state == "completed"
+    assert stats.receipt.selected_count == 28
+    assert stats.receipt.status_counts == {"applied": 28}
 
 
 def test_resolution_invalid_action_shapes_fail_closed_and_summarize_safely(
