@@ -66,11 +66,8 @@ from agent_brain.contracts.memory_item import (
     is_valid_memory_item_id,
 )
 from agent_brain.contracts.resource import (
-    ExtractionKind,
     ExtractionRecord,
-    ResourceKind,
     ResourceRecord,
-    sha256_text,
     validate_extraction_id,
     validate_resource_id,
 )
@@ -1807,6 +1804,8 @@ class PendingQueue:
         for record in preview.records:
             by_id.setdefault(record.record_id, []).append(record)
         ready: list[tuple[int, _PendingResolutionSelection]] = []
+        planner_store = recovery_store
+        items_dir = self._brain_dir() / "items"
         for request_index, action in valid:
             matches = by_id.get(action.record_id, [])
             if not matches:
@@ -1823,11 +1822,20 @@ class PendingQueue:
                     reason="PENDING_RECORD_ID_CONFLICT",
                 )
             else:
+                stable_item_id = matches[0]._stable_item_id
+                if (
+                    planner_store is None
+                    and action.action in {"approve_audit", "convert_type"}
+                    and stable_item_id is not None
+                    and stable_item_id in catalog.items
+                    and items_dir.is_dir()
+                ):
+                    planner_store = ItemsStore(items_dir)
                 selection, result = self._validate_resolution(
                     action,
                     matches[0],
                     catalog.items,
-                    recovery_store=recovery_store,
+                    recovery_store=planner_store,
                 )
                 result_slots[request_index] = result
                 if selection is not None:
@@ -1883,7 +1891,11 @@ class PendingQueue:
         close_warning: str | None = None
         try:
             for request_index, selection in ready:
-                if selection.action.action != "accept_duplicate" and service is None:
+                requires_service = selection.action.action in {
+                    "approve_audit",
+                    "convert_type",
+                }
+                if requires_service and service is None:
                     from agent_brain.memory.store.write_service import WriteService
 
                     try:
@@ -1899,7 +1911,7 @@ class PendingQueue:
                 result_slots[request_index] = self._apply_resolution(
                     selection,
                     store=store,
-                    service=service,
+                    service=service if requires_service else None,
                 )
         finally:
             if service is not None:
@@ -2935,6 +2947,12 @@ def _resolution_intent(
         digest = _audit_findings_digest(report)
         return _PendingResolutionIntent(item, body, audit_digest=digest), None, item.id
 
+    if action.action != "convert_type":
+        return (
+            None,
+            "PENDING_RESOLUTION_NOT_APPLICABLE",
+            preview._stable_item_id,
+        )
     parsed = _pending_record_payload(Path(preview.path), raw, preview)
     if parsed is None:
         return None, "PENDING_CONVERSION_INVALID", preview._stable_item_id
@@ -2973,103 +2991,85 @@ def _matches_resolution_existing(
     *,
     brain: Path,
 ) -> bool:
-    if (
-        not _same_scope(intent.item, existing)
-        or intent.body.rstrip() != existing_body.rstrip()
-    ):
+    if not _same_scope(intent.item, existing):
         return False
-    from agent_brain.memory.store.field_enrichment import enrich_memory_item
     from agent_brain.memory.store.write_service import (
-        _mark_boundary_review_candidate,
-        _should_capture_write_input,
+        _MAX_WRITE_EVIDENCE_FILES,
+        _MAX_WRITE_EVIDENCE_FILE_BYTES,
+        _MAX_WRITE_EVIDENCE_RECORD_BYTES,
+        _MAX_WRITE_EVIDENCE_REFS,
+        _TEXT_EXTRACTION_MAX_BYTES,
+        _WriteEvidenceFile,
+        _matches_existing_write,
     )
 
-    expected, _warning = _mark_boundary_review_candidate(intent.item)
-    expected = enrich_memory_item(expected)
-    captures_write_input = _should_capture_write_input(intent.body)
-    if expected.refs.resources or expected.refs.extractions:
-        if existing.refs != expected.refs:
-            return False
-    elif existing.refs.resources or existing.refs.extractions:
-        if (
-            not captures_write_input
-            or len(existing.refs.resources) != 1
-            or len(existing.refs.extractions) != 1
-            or not _matches_resolution_write_input_evidence(
-                brain,
-                expected,
-                intent.body,
-                resource_id=existing.refs.resources[0],
-                extraction_id=existing.refs.extractions[0],
-            )
-        ):
-            return False
-        expected = expected.model_copy(
-            update={
-                "refs": expected.refs.model_copy(
-                    update={
-                        "resources": existing.refs.resources,
-                        "extractions": existing.refs.extractions,
-                    }
-                )
-            }
-        )
-    elif captures_write_input:
+    if (
+        len(intent.item.refs.files) > _MAX_WRITE_EVIDENCE_FILES
+        or len(existing.refs.resources) > _MAX_WRITE_EVIDENCE_REFS
+        or len(existing.refs.extractions) > _MAX_WRITE_EVIDENCE_REFS
+    ):
         return False
-    return existing == expected
-
-
-def _matches_resolution_write_input_evidence(
-    brain: Path,
-    item: MemoryItem,
-    body: str,
-    *,
-    resource_id: str,
-    extraction_id: str,
-) -> bool:
+    files: list[_WriteEvidenceFile] = []
     try:
-        validate_resource_id(resource_id)
-        validate_extraction_id(extraction_id)
-        resource = ResourceRecord.model_validate_json(
-            _read_pending_record(brain / "resources" / f"{resource_id}.json")
-        )
-        extraction = ExtractionRecord.model_validate_json(
-            _read_pending_record(brain / "extractions" / f"{extraction_id}.json")
-        )
-    except (FileNotFoundError, OSError, UnicodeError, ValueError, _PendingReadError):
+        for ref_file in intent.item.refs.files:
+            path = Path(ref_file).expanduser()
+            content = _read_pending_record(
+                path,
+                limit=_MAX_WRITE_EVIDENCE_FILE_BYTES,
+            )
+            try:
+                text = (
+                    content.decode("utf-8")
+                    if len(content) <= _TEXT_EXTRACTION_MAX_BYTES
+                    else None
+                )
+            except UnicodeDecodeError:
+                text = None
+            files.append(
+                _WriteEvidenceFile(
+                    ref_file=ref_file,
+                    path=path,
+                    sha256=hashlib.sha256(content).hexdigest(),
+                    size_bytes=len(content),
+                    text=text,
+                )
+            )
+    except (FileNotFoundError, OSError, _PendingReadError):
         return False
 
-    content = body if body.strip() else f"{item.title}\n{item.summary}"
-    content_sha256 = sha256_text(content)
-    return (
-        resource.id == resource_id
-        and resource.kind == ResourceKind.document
-        and resource.uri == f"memory://items/{item.id}/write-input"
-        and resource.title == f"Write input for {item.title}"
-        and resource.mime_type == "text/markdown"
-        and resource.sha256 == content_sha256
-        and resource.size_bytes == len(content.encode("utf-8"))
-        and resource.project == item.project
-        and resource.tenant_id == item.tenant_id
-        and resource.tags == item.tags
-        and str(resource.sensitivity) == str(item.sensitivity)
-        and resource.metadata
-        == {
-            "memory_item_id": item.id,
-            "source_kind": item.source.kind,
-            "evidence_role": "write_input",
-        }
-        and extraction.id == extraction_id
-        and extraction.resource_id == resource_id
-        and extraction.kind == ExtractionKind.text
-        and extraction.extractor == "amh.write-service.write-input"
-        and extraction.extractor_version == "1"
-        and extraction.content_text == content
-        and extraction.content_sha256 == content_sha256
-        and extraction.source_locator == f"memory://items/{item.id}/body"
-        and extraction.confidence == item.confidence
-        and extraction.metadata
-        == {"memory_item_id": item.id, "evidence_role": "write_input"}
+    resources: dict[str, ResourceRecord] = {}
+    for resource_id in existing.refs.resources:
+        try:
+            validate_resource_id(resource_id)
+            resources[resource_id] = ResourceRecord.model_validate_json(
+                _read_pending_record(
+                    brain / "resources" / f"{resource_id}.json",
+                    limit=_MAX_WRITE_EVIDENCE_RECORD_BYTES,
+                )
+            )
+        except (FileNotFoundError, OSError, UnicodeError, ValueError, _PendingReadError):
+            continue
+    extractions: dict[str, ExtractionRecord] = {}
+    for extraction_id in existing.refs.extractions:
+        try:
+            validate_extraction_id(extraction_id)
+            extractions[extraction_id] = ExtractionRecord.model_validate_json(
+                _read_pending_record(
+                    brain / "extractions" / f"{extraction_id}.json",
+                    limit=_MAX_WRITE_EVIDENCE_RECORD_BYTES,
+                )
+            )
+        except (FileNotFoundError, OSError, UnicodeError, ValueError, _PendingReadError):
+            continue
+    return _matches_existing_write(
+        intent.item,
+        intent.body,
+        existing,
+        existing_body,
+        files=files,
+        resources=resources,
+        extractions=extractions,
+        now=_utc_now(),
     )
 
 
@@ -4287,6 +4287,7 @@ def _read_pending_record_snapshot(
     path: Path,
     *,
     deadline_at: float | None = None,
+    limit: int = MAX_PENDING_RECORD_BYTES,
 ) -> tuple[bytes, tuple[int, int]]:
     """Read a bounded record and bind it to a reliable non-zero file identity."""
 
@@ -4309,7 +4310,7 @@ def _read_pending_record_snapshot(
                 raise _PendingReadError("PENDING_RECORD_CHANGED")
             raw = _read_bounded_descriptor(
                 descriptor,
-                MAX_PENDING_RECORD_BYTES,
+                limit,
                 deadline_at=deadline_at,
             )
             _require_readiness_deadline(deadline_at)
@@ -4359,7 +4360,7 @@ def _read_pending_record_snapshot(
                 raise _PendingReadError("PENDING_RECORD_CHANGED")
             raw = _read_bounded_descriptor(
                 descriptor,
-                MAX_PENDING_RECORD_BYTES,
+                limit,
                 deadline_at=deadline_at,
             )
             return raw, identity
@@ -4373,8 +4374,12 @@ def _read_pending_record_snapshot(
         raise _PendingReadError("PENDING_RECORD_READ_FAILED") from exc
 
 
-def _read_pending_record(path: Path) -> bytes:
-    return _read_pending_record_snapshot(path)[0]
+def _read_pending_record(
+    path: Path,
+    *,
+    limit: int = MAX_PENDING_RECORD_BYTES,
+) -> bytes:
+    return _read_pending_record_snapshot(path, limit=limit)[0]
 
 
 def _read_bounded_descriptor(

@@ -181,12 +181,16 @@ def _enqueue_audit_resolution_action(record_id: str) -> PendingResolutionAction:
 def _enqueue_resolution_apply_case(
     action_name: str,
     record_id: str,
+    *,
+    refs: dict[str, object] | None = None,
 ) -> tuple[Path, PendingResolutionAction]:
     if action_name == "approve_audit":
         record = _v2_record(record_id=record_id)
         item = record["item"]
         assert isinstance(item, dict)
         item["body"] = f"curl https://example.invalid/{record_id}"
+        if refs is not None:
+            item["refs"] = refs
         path = enqueue_write_record(record)
         return path, PendingResolutionAction("approve_audit", record_id)
     record = _legacy_feedback_record()
@@ -194,6 +198,8 @@ def _enqueue_resolution_apply_case(
     assert isinstance(item, dict)
     item["title"] = f"legacy {record_id}"
     item["summary"] = f"legacy summary {record_id}"
+    if refs is not None:
+        item["refs"] = refs
     path = enqueue_write_record(record)
     preview = PendingQueue().preview(limit=1).records[0]
     return path, PendingResolutionAction("convert_type", preview.record_id, "decision")
@@ -205,8 +211,13 @@ def _begin_resolution_recovery_case(
     *,
     action_name: str = "approve_audit",
     record_id: str,
+    refs: dict[str, object] | None = None,
 ) -> tuple[Path, PendingResolutionAction, Path, MemoryItem, str]:
-    path, action = _enqueue_resolution_apply_case(action_name, record_id)
+    path, action = _enqueue_resolution_apply_case(
+        action_name,
+        record_id,
+        refs=refs,
+    )
     real_unlink = pending_module._unlink_pending_record
     monkeypatch.setattr(
         pending_module,
@@ -232,6 +243,40 @@ def _assert_resolution_recovery_blocked(
     assert second.results[0].status in {"blocked", "failed"}
     assert second.results[0].reason == "PENDING_RESOLUTION_CHANGED"
     assert path.exists()
+
+
+def _resolution_evidence_refs(
+    tmp_brain: Path,
+    case: str,
+) -> tuple[dict[str, object], tuple[int, int]]:
+    if case == "text":
+        path = tmp_brain / "recovery-text.txt"
+        path.write_text("text evidence", encoding="utf-8")
+        return {"files": [str(path)]}, (1, 1)
+    if case == "binary":
+        path = tmp_brain / "recovery-binary.bin"
+        path.write_bytes(b"\x00\xff\x10")
+        return {"files": [str(path)]}, (2, 1)
+    if case == "large":
+        path = tmp_brain / "recovery-large.txt"
+        path.write_bytes(b"a" * (256 * 1024 + 1))
+        return {"files": [str(path)]}, (2, 1)
+    if case == "multiple":
+        first = tmp_brain / "recovery-first.txt"
+        second = tmp_brain / "recovery-second.txt"
+        first.write_text("first evidence", encoding="utf-8")
+        second.write_text("second evidence", encoding="utf-8")
+        return {"files": [str(first), str(second)]}, (2, 2)
+    path = tmp_brain / "recovery-explicit.txt"
+    path.write_text("generated beside explicit", encoding="utf-8")
+    return (
+        {
+            "files": [str(path)],
+            "resources": ["res-20260720-120000-explicit-aaaaaaaa"],
+            "extractions": ["ext-20260720-120000-explicit-aaaaaaaa"],
+        },
+        (2, 2),
+    )
 
 
 def _payload_sha256(record: dict[str, object]) -> str:
@@ -4146,6 +4191,198 @@ def test_resolution_retry_reconciles_after_unlink_failure_without_rewriting_item
 
 
 @pytest.mark.parametrize("action_name", ["approve_audit", "convert_type"])
+def test_resolution_recovery_preview_matches_later_apply_without_mutation(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    action_name: str,
+) -> None:
+    path, action, _stored_path, _stored, _body = _begin_resolution_recovery_case(
+        tmp_brain,
+        monkeypatch,
+        action_name=action_name,
+        record_id=f"resolution-recovery-preview-{action_name}",
+    )
+    before = _tree_snapshot(tmp_brain)
+
+    preview = PendingQueue().resolve([action])
+
+    assert preview.dry_run is True
+    assert preview.results[0].status == "ready"
+    assert preview.results[0].reason == "PENDING_RESOLUTION_READY"
+    assert preview.receipt is None
+    assert preview.lock_gc_report is None
+    assert _tree_snapshot(tmp_brain) == before
+
+    applied = PendingQueue().resolve([action], apply=True)
+
+    assert applied.results[0].status == "applied"
+    assert applied.results[0].reason == "PENDING_RESOLUTION_APPLIED"
+    assert not path.exists()
+
+
+def test_resolution_recovery_preview_rejects_tampered_evidence_without_mutation(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path, action, _stored_path, stored, _body = _begin_resolution_recovery_case(
+        tmp_brain,
+        monkeypatch,
+        record_id="resolution-recovery-preview-tampered",
+    )
+    extraction_path = (
+        tmp_brain / "extractions" / f"{stored.refs.extractions[0]}.json"
+    )
+    extraction = json.loads(extraction_path.read_text(encoding="utf-8"))
+    extraction["content_text"] = "tampered preview evidence"
+    extraction["content_sha256"] = hashlib.sha256(
+        b"tampered preview evidence"
+    ).hexdigest()
+    extraction_path.write_text(json.dumps(extraction), encoding="utf-8")
+    before = _tree_snapshot(tmp_brain)
+
+    preview = PendingQueue().resolve([action])
+
+    assert preview.results[0].status == "blocked"
+    assert preview.results[0].reason == "PENDING_RESOLUTION_CHANGED"
+    assert path.exists()
+    assert _tree_snapshot(tmp_brain) == before
+
+
+def test_resolution_retry_recovers_text_file_evidence(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ref_file = tmp_brain / "evidence.txt"
+    ref_file.write_text("trusted text evidence", encoding="utf-8")
+    path, action, _stored_path, stored, _body = _begin_resolution_recovery_case(
+        tmp_brain,
+        monkeypatch,
+        record_id="resolution-recovery-text-file",
+        refs={"files": [str(ref_file)]},
+    )
+    assert len(stored.refs.resources) == 1
+    assert len(stored.refs.extractions) == 1
+
+    preview = PendingQueue().resolve([action])
+    applied = PendingQueue().resolve([action], apply=True)
+
+    assert preview.results[0].status == "ready"
+    assert applied.results[0].status == "applied"
+    assert not path.exists()
+
+
+@pytest.mark.parametrize(
+    "evidence_case",
+    ["text", "binary", "large", "multiple", "explicit_generated"],
+)
+@pytest.mark.parametrize("failure_mode", ["unlink", "source_ledger"])
+def test_resolution_retry_recovers_complete_write_evidence_transformation(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    evidence_case: str,
+    failure_mode: str,
+) -> None:
+    from agent_brain.memory.store import write_service as write_service_module
+
+    refs, expected_counts = _resolution_evidence_refs(tmp_brain, evidence_case)
+    path, action = _enqueue_resolution_apply_case(
+        "approve_audit",
+        f"resolution-recovery-{failure_mode}-{evidence_case}",
+        refs=refs,
+    )
+    if failure_mode == "unlink":
+        real_unlink = pending_module._unlink_pending_record
+        calls = 0
+
+        def fail_first_unlink(*args, **kwargs):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise OSError("simulated unlink failure")
+            return real_unlink(*args, **kwargs)
+
+        monkeypatch.setattr(
+            pending_module,
+            "_unlink_pending_record",
+            fail_first_unlink,
+        )
+        first_reason = "PENDING_UNLINK_FAILED"
+    else:
+        real_write_source = write_service_module._write_source_record
+        calls = 0
+
+        def fail_first_source(**kwargs):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise OSError("simulated source ledger failure")
+            return real_write_source(**kwargs)
+
+        monkeypatch.setattr(
+            write_service_module,
+            "_write_source_record",
+            fail_first_source,
+        )
+        first_reason = "SOURCE_LEDGER_REPAIR_REQUIRED"
+
+    first = PendingQueue().resolve([action], apply=True)
+    stored, _body = next(ItemsStore(tmp_brain / "items").iter_all())
+    second = PendingQueue().resolve([action], apply=True)
+
+    assert first.results[0].reason == first_reason
+    assert (len(stored.refs.resources), len(stored.refs.extractions)) == (
+        expected_counts
+    )
+    assert second.results[0].status == "applied"
+    assert second.results[0].reason == "PENDING_RESOLUTION_APPLIED"
+    assert not path.exists()
+
+
+@pytest.mark.parametrize("batch_order", ["alone", "before_audit", "after_audit"])
+def test_recoverable_feedback_never_uses_accept_duplicate_resolution(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    batch_order: str,
+) -> None:
+    path, conversion, _stored_path, stored, _body = (
+        _begin_resolution_recovery_case(
+            tmp_brain,
+            monkeypatch,
+            action_name="convert_type",
+            record_id=f"wrong-action-recovery-{batch_order}",
+        )
+    )
+    wrong_action = PendingResolutionAction(
+        "accept_duplicate",
+        conversion.record_id,
+        stored.id,
+    )
+    actions = [wrong_action]
+    if batch_order != "alone":
+        _audit_path, audit_action = _enqueue_resolution_apply_case(
+            "approve_audit",
+            f"wrong-action-neighbor-{batch_order}",
+        )
+        actions = (
+            [wrong_action, audit_action]
+            if batch_order == "before_audit"
+            else [audit_action, wrong_action]
+        )
+
+    preview = PendingQueue().resolve([wrong_action])
+    applied = PendingQueue().resolve(actions, apply=True)
+    wrong_result = next(
+        result for result in applied.results if result.action == "accept_duplicate"
+    )
+
+    assert preview.results[0].status == "blocked"
+    assert preview.results[0].reason == "PENDING_RESOLUTION_NOT_APPLICABLE"
+    assert wrong_result.status == "blocked"
+    assert wrong_result.reason == "PENDING_RESOLUTION_NOT_APPLICABLE"
+    assert path.exists()
+
+
+@pytest.mark.parametrize("action_name", ["approve_audit", "convert_type"])
 def test_resolution_retry_repairs_source_ledger_then_unlinks(
     tmp_brain: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -4462,6 +4699,93 @@ def test_resolution_retry_rejects_missing_generated_evidence_refs(
         ),
         encoding="utf-8",
     )
+
+    _assert_resolution_recovery_blocked(path, action)
+
+
+@pytest.mark.parametrize("change", ["missing", "changed"])
+def test_resolution_retry_rejects_missing_or_changed_ref_file(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    change: str,
+) -> None:
+    ref_file = tmp_brain / f"recovery-ref-{change}.txt"
+    ref_file.write_text("original referenced evidence", encoding="utf-8")
+    path, action, _stored_path, _stored, _body = _begin_resolution_recovery_case(
+        tmp_brain,
+        monkeypatch,
+        record_id=f"resolution-retry-ref-file-{change}",
+        refs={"files": [str(ref_file)]},
+    )
+    if change == "missing":
+        ref_file.unlink()
+    else:
+        ref_file.write_text("changed referenced evidence", encoding="utf-8")
+
+    preview = PendingQueue().resolve([action])
+    applied = PendingQueue().resolve([action], apply=True)
+
+    assert preview.results[0].status == "blocked"
+    assert preview.results[0].reason == "PENDING_RESOLUTION_CHANGED"
+    assert applied.results[0].status == "blocked"
+    assert applied.results[0].reason == "PENDING_RESOLUTION_CHANGED"
+    assert path.exists()
+
+
+@pytest.mark.parametrize(
+    ("record_kind", "created_at"),
+    [
+        ("resource", "1999-01-01T00:00:00+00:00"),
+        ("resource", "2099-01-01T00:00:00+00:00"),
+        ("extraction", "1999-01-01T00:00:00+00:00"),
+        ("extraction", "2099-01-01T00:00:00+00:00"),
+    ],
+)
+def test_resolution_retry_rejects_tampered_evidence_created_at(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    record_kind: str,
+    created_at: str,
+) -> None:
+    path, action, _stored_path, stored, _body = _begin_resolution_recovery_case(
+        tmp_brain,
+        monkeypatch,
+        record_id=f"resolution-retry-created-at-{record_kind}-{created_at[:4]}",
+    )
+    sidecar_id = (
+        stored.refs.resources[0]
+        if record_kind == "resource"
+        else stored.refs.extractions[0]
+    )
+    sidecar_path = tmp_brain / f"{record_kind}s" / f"{sidecar_id}.json"
+    payload = json.loads(sidecar_path.read_text(encoding="utf-8"))
+    payload["created_at"] = created_at
+    sidecar_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    _assert_resolution_recovery_blocked(path, action)
+
+
+def test_resolution_retry_rejects_out_of_order_evidence_created_at(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path, action, _stored_path, stored, _body = _begin_resolution_recovery_case(
+        tmp_brain,
+        monkeypatch,
+        record_id="resolution-retry-created-at-out-of-order",
+    )
+    resource_path = tmp_brain / "resources" / f"{stored.refs.resources[0]}.json"
+    extraction_path = (
+        tmp_brain / "extractions" / f"{stored.refs.extractions[0]}.json"
+    )
+    resource = json.loads(resource_path.read_text(encoding="utf-8"))
+    extraction = json.loads(extraction_path.read_text(encoding="utf-8"))
+    resource["created_at"], extraction["created_at"] = (
+        extraction["created_at"],
+        resource["created_at"],
+    )
+    resource_path.write_text(json.dumps(resource), encoding="utf-8")
+    extraction_path.write_text(json.dumps(extraction), encoding="utf-8")
 
     _assert_resolution_recovery_blocked(path, action)
 

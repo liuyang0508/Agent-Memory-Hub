@@ -24,7 +24,9 @@ import json
 import logging
 import mimetypes
 import os
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import re
 
@@ -64,6 +66,30 @@ _MULTIMODAL_PLACEHOLDER_RE = re.compile(
     re.IGNORECASE,
 )
 _TEXT_EXTRACTION_MAX_BYTES = 256 * 1024
+_MAX_WRITE_EVIDENCE_FILES = 64
+_MAX_WRITE_EVIDENCE_REFS = 256
+_MAX_WRITE_EVIDENCE_FILE_BYTES = 64 * 1024 * 1024
+_MAX_WRITE_EVIDENCE_RECORD_BYTES = 2 * 1024 * 1024
+_GENERATED_EVIDENCE_CLOCK_SKEW_SECONDS = 5
+_GENERATED_EVIDENCE_ID_RE = re.compile(
+    r"^(?P<prefix>res|ext)-(?P<date>\d{8})-(?P<time>\d{6})-"
+)
+
+
+@dataclass(frozen=True)
+class _WriteEvidenceFile:
+    ref_file: str
+    path: Path
+    sha256: str
+    size_bytes: int
+    text: str | None
+
+
+@dataclass(frozen=True)
+class _WriteEvidenceSpec:
+    id_title: str
+    resource: ResourceRecord
+    extraction: ExtractionRecord | None = None
 
 
 def _brain_dir() -> Path:
@@ -364,15 +390,24 @@ def _with_overview(item: MemoryItem, overview: str) -> MemoryItem:
     return MemoryItem.model_validate(data)
 
 
-def _write_input_sidecar(
-    *,
-    resource_store: ResourceStore,
+def _prepare_evidence_plan(
     item: MemoryItem,
     body: str,
-) -> tuple[str, str]:
+    files: Sequence[_WriteEvidenceFile],
+) -> tuple[_WriteEvidenceSpec, ...]:
+    evidence = [_file_ref_spec(item, file) for file in files]
+    extraction_count = len(item.refs.extractions) + sum(
+        spec.extraction is not None for spec in evidence
+    )
+    if extraction_count == 0 and _should_capture_write_input(body):
+        evidence.append(_write_input_spec(item, body))
+    return tuple(evidence)
+
+
+def _write_input_spec(item: MemoryItem, body: str) -> _WriteEvidenceSpec:
     content = body if body.strip() else f"{item.title}\n{item.summary}"
     resource = ResourceRecord(
-        id=make_resource_id(f"{item.title} write input"),
+        id="res-19700101-000000-write-input-template",
         kind=ResourceKind.document,
         uri=f"memory://items/{item.id}/write-input",
         title=f"Write input for {item.title}",
@@ -383,6 +418,7 @@ def _write_input_sidecar(
         tenant_id=item.tenant_id,
         tags=item.tags,
         sensitivity=item.sensitivity,
+        created_at=item.created_at,
         metadata={
             "memory_item_id": item.id,
             "source_kind": getattr(item.source, "kind", None),
@@ -390,7 +426,7 @@ def _write_input_sidecar(
         },
     )
     extraction = ExtractionRecord(
-        id=make_extraction_id(f"{item.title} write input"),
+        id="ext-19700101-000000-write-input-template",
         resource_id=resource.id,
         kind=ExtractionKind.text,
         extractor="amh.write-service.write-input",
@@ -399,11 +435,100 @@ def _write_input_sidecar(
         content_sha256=sha256_text(content),
         source_locator=f"memory://items/{item.id}/body",
         confidence=item.confidence,
+        created_at=item.created_at,
         metadata={"memory_item_id": item.id, "evidence_role": "write_input"},
     )
+    return _WriteEvidenceSpec(
+        id_title=f"{item.title} write input",
+        resource=resource,
+        extraction=extraction,
+    )
+
+
+def _file_ref_spec(
+    item: MemoryItem,
+    file: _WriteEvidenceFile,
+) -> _WriteEvidenceSpec:
+    mime_type, _encoding = mimetypes.guess_type(str(file.path))
+    resource = ResourceRecord(
+        id="res-19700101-000000-file-ref-template",
+        kind=_resource_kind_for_file(file.path, mime_type),
+        uri=_file_uri(file.path),
+        title=file.path.name,
+        mime_type=mime_type,
+        sha256=file.sha256,
+        size_bytes=file.size_bytes,
+        created_at=item.created_at,
+        project=item.project,
+        tenant_id=item.tenant_id,
+        tags=item.tags,
+        sensitivity=item.sensitivity,
+        metadata={
+            "memory_item_id": item.id,
+            "ref_file": file.ref_file,
+            "evidence_role": "ref_file",
+        },
+    )
+    extraction = (
+        ExtractionRecord(
+            id="ext-19700101-000000-file-ref-template",
+            resource_id=resource.id,
+            kind=ExtractionKind.text,
+            extractor="amh.write-service.file-ref",
+            extractor_version="1",
+            content_text=file.text,
+            content_sha256=sha256_text(file.text),
+            created_at=item.created_at,
+            source_locator=_file_uri(file.path),
+            confidence=item.confidence,
+            metadata={"memory_item_id": item.id, "ref_file": file.ref_file},
+        )
+        if file.text is not None
+        else None
+    )
+    return _WriteEvidenceSpec(
+        id_title=file.path.name,
+        resource=resource,
+        extraction=extraction,
+    )
+
+
+def _materialize_evidence_spec(
+    resource_store: ResourceStore,
+    spec: _WriteEvidenceSpec,
+) -> tuple[str, str | None]:
+    resource = spec.resource.model_copy(
+        update={
+            "id": make_resource_id(spec.id_title),
+            "created_at": datetime.now(timezone.utc),
+        }
+    )
     resource_store.write_resource(resource)
+    if spec.extraction is None:
+        return resource.id, None
+    extraction = spec.extraction.model_copy(
+        update={
+            "id": make_extraction_id(spec.id_title),
+            "resource_id": resource.id,
+            "created_at": datetime.now(timezone.utc),
+        }
+    )
     resource_store.write_extraction(extraction)
     return resource.id, extraction.id
+
+
+def _write_input_sidecar(
+    *,
+    resource_store: ResourceStore,
+    item: MemoryItem,
+    body: str,
+) -> tuple[str, str]:
+    resource_id, extraction_id = _materialize_evidence_spec(
+        resource_store,
+        _write_input_spec(item, body),
+    )
+    assert extraction_id is not None
+    return resource_id, extraction_id
 
 
 def _write_source_record(
@@ -454,45 +579,171 @@ def _write_file_ref_sidecar(
     path = Path(ref_file).expanduser()
     if not path.exists() or not path.is_file():
         return None, None
-    stat = path.stat()
-    mime_type, _encoding = mimetypes.guess_type(str(path))
-    resource = ResourceRecord(
-        id=make_resource_id(path.name),
-        kind=_resource_kind_for_file(path, mime_type),
-        uri=_file_uri(path),
-        title=path.name,
-        mime_type=mime_type,
-        sha256=sha256_file(path),
-        size_bytes=stat.st_size,
-        project=item.project,
-        tenant_id=item.tenant_id,
-        tags=item.tags,
-        sensitivity=item.sensitivity,
-        metadata={
-            "memory_item_id": item.id,
-            "ref_file": ref_file,
-            "evidence_role": "ref_file",
-        },
+    opened = path.stat()
+    return _materialize_evidence_spec(
+        resource_store,
+        _file_ref_spec(
+            item,
+            _WriteEvidenceFile(
+                ref_file=ref_file,
+                path=path,
+                sha256=sha256_file(path),
+                size_bytes=opened.st_size,
+                text=_read_text_file(path),
+            ),
+        ),
     )
-    resource_store.write_resource(resource)
-    extraction_text = _read_text_file(path)
-    extraction_id = None
-    if extraction_text is not None:
-        extraction = ExtractionRecord(
-            id=make_extraction_id(path.name),
-            resource_id=resource.id,
-            kind=ExtractionKind.text,
-            extractor="amh.write-service.file-ref",
-            extractor_version="1",
-            content_text=extraction_text,
-            content_sha256=sha256_text(extraction_text),
-            source_locator=_file_uri(path),
-            confidence=item.confidence,
-            metadata={"memory_item_id": item.id, "ref_file": ref_file},
+
+
+def _matches_existing_write(
+    item: MemoryItem,
+    body: str,
+    existing: MemoryItem,
+    existing_body: str,
+    *,
+    files: Sequence[_WriteEvidenceFile],
+    resources: Mapping[str, ResourceRecord],
+    extractions: Mapping[str, ExtractionRecord],
+    now: datetime,
+) -> bool:
+    if (
+        body.rstrip() != existing_body.rstrip()
+        or len(item.refs.files) > _MAX_WRITE_EVIDENCE_FILES
+        or len(item.refs.resources) > _MAX_WRITE_EVIDENCE_REFS
+        or len(item.refs.extractions) > _MAX_WRITE_EVIDENCE_REFS
+        or len(existing.refs.resources) > _MAX_WRITE_EVIDENCE_REFS
+        or len(existing.refs.extractions) > _MAX_WRITE_EVIDENCE_REFS
+        or [file.ref_file for file in files] != item.refs.files
+    ):
+        return False
+    expected, _warning = _mark_boundary_review_candidate(item)
+    expected = enrich_memory_item(expected)
+    specs = _prepare_evidence_plan(expected, body, files)
+    if len(specs) + len(expected.refs.resources) > _MAX_WRITE_EVIDENCE_REFS:
+        return False
+    explicit_resources = (
+        _dedupe(list(expected.refs.resources))
+        if specs
+        else list(expected.refs.resources)
+    )
+    explicit_extractions = (
+        _dedupe(list(expected.refs.extractions))
+        if specs
+        else list(expected.refs.extractions)
+    )
+    generated_resource_ids = existing.refs.resources[len(explicit_resources) :]
+    generated_extraction_ids = existing.refs.extractions[
+        len(explicit_extractions) :
+    ]
+    if (
+        existing.refs.resources[: len(explicit_resources)] != explicit_resources
+        or existing.refs.extractions[: len(explicit_extractions)]
+        != explicit_extractions
+        or len(generated_resource_ids) != len(specs)
+        or len(generated_extraction_ids)
+        != sum(spec.extraction is not None for spec in specs)
+        or existing.refs.resources
+        != _dedupe([*expected.refs.resources, *generated_resource_ids])
+        or existing.refs.extractions
+        != _dedupe([*expected.refs.extractions, *generated_extraction_ids])
+    ):
+        return False
+
+    last_created_at: datetime | None = None
+    extraction_index = 0
+    for spec, resource_id in zip(specs, generated_resource_ids, strict=True):
+        resource = resources.get(resource_id)
+        if (
+            resource is None
+            or not _matches_generated_evidence(
+                resource,
+                spec.resource,
+                prefix="res",
+                item_created_at=expected.created_at,
+                now=now,
+            )
+            or (
+                last_created_at is not None
+                and resource.created_at < last_created_at
+            )
+        ):
+            return False
+        last_created_at = resource.created_at
+        if spec.extraction is None:
+            continue
+        extraction_id = generated_extraction_ids[extraction_index]
+        extraction_index += 1
+        extraction = extractions.get(extraction_id)
+        if (
+            extraction is None
+            or extraction.resource_id != resource.id
+            or not _matches_generated_evidence(
+                extraction,
+                spec.extraction,
+                prefix="ext",
+                exclude={"resource_id"},
+                item_created_at=expected.created_at,
+                now=now,
+            )
+            or extraction.created_at < resource.created_at
+        ):
+            return False
+        last_created_at = extraction.created_at
+
+    expected = expected.model_copy(
+        update={
+            "refs": expected.refs.model_copy(
+                update={
+                    "resources": list(existing.refs.resources),
+                    "extractions": list(existing.refs.extractions),
+                }
+            )
+        }
+    )
+    return existing == expected
+
+
+def _matches_generated_evidence(
+    actual: ResourceRecord | ExtractionRecord,
+    expected: ResourceRecord | ExtractionRecord,
+    *,
+    prefix: str,
+    exclude: set[str] | None = None,
+    item_created_at: datetime,
+    now: datetime,
+) -> bool:
+    match = _GENERATED_EVIDENCE_ID_RE.match(actual.id)
+    if match is None or match.group("prefix") != prefix:
+        return False
+    try:
+        id_local = datetime.strptime(
+            match.group("date") + match.group("time"),
+            "%Y%m%d%H%M%S",
         )
-        resource_store.write_extraction(extraction)
-        extraction_id = extraction.id
-    return resource.id, extraction_id
+    except ValueError:
+        return False
+    created_utc = actual.created_at.astimezone(timezone.utc)
+    lower = item_created_at.astimezone(timezone.utc)
+    upper = now.astimezone(timezone.utc) + timedelta(
+        seconds=_GENERATED_EVIDENCE_CLOCK_SKEW_SECONDS
+    )
+    created_local = actual.created_at.astimezone().replace(tzinfo=None)
+    ignored = {"id", "created_at", *(exclude or set())}
+    return (
+        lower <= created_utc <= upper
+        and abs((created_local - id_local).total_seconds())
+        <= _GENERATED_EVIDENCE_CLOCK_SKEW_SECONDS
+        and actual.model_dump(
+            mode="json",
+            exclude_none=False,
+            exclude=ignored,
+        )
+        == expected.model_dump(
+            mode="json",
+            exclude_none=False,
+            exclude=ignored,
+        )
+    )
 
 
 def _should_capture_write_input(body: str) -> bool:
