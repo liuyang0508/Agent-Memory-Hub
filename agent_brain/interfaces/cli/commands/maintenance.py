@@ -218,6 +218,26 @@ def sync_pending(
         "--safe-only",
         help="Apply all records classified ready.",
     ),
+    approve_audit: list[str] = typer.Option(
+        [],
+        "--approve-audit",
+        help="Approve one public/internal audit-blocked record; repeatable.",
+    ),
+    accept_duplicate: list[str] = typer.Option(
+        [],
+        "--accept-duplicate",
+        help="Accept an exact duplicate as ID:ITEM; repeatable.",
+    ),
+    convert_type: list[str] = typer.Option(
+        [],
+        "--convert-type",
+        help="Convert legacy feedback as ID:decision; repeatable.",
+    ),
+    gc_orphan_locks: bool = typer.Option(
+        False,
+        "--gc-orphan-locks",
+        help="Preview orphan record locks; delete only with --apply.",
+    ),
     dry_run: bool = typer.Option(
         False,
         "--dry-run",
@@ -232,66 +252,206 @@ def sync_pending(
     ),
 ) -> None:
     """Preview pending writes by default; apply only an explicit selection."""
-    from agent_brain.memory.store.pending import PendingQueue
+    from agent_brain.memory.store.pending import (
+        PendingQueue,
+        PendingResolutionAction,
+        PendingResolutionStats,
+    )
 
     if format not in {"text", "json"}:
         typer.echo("format must be text or json", err=True)
         raise typer.Exit(2)
+    resolution_actions = [
+        PendingResolutionAction("approve_audit", record_id)
+        for record_id in approve_audit
+        if record_id
+    ]
+    if len(resolution_actions) != len(approve_audit):
+        typer.echo("--approve-audit requires ID", err=True)
+        raise typer.Exit(2)
+    for value in accept_duplicate:
+        record_id, separator, target_id = value.rpartition(":")
+        if value.count(":") != 1 or not separator or not record_id or not target_id:
+            typer.echo("--accept-duplicate requires ID:ITEM", err=True)
+            raise typer.Exit(2)
+        resolution_actions.append(
+            PendingResolutionAction("accept_duplicate", record_id, target_id)
+        )
+    for value in convert_type:
+        record_id, separator, target_type = value.rpartition(":")
+        if (
+            value.count(":") != 1
+            or not separator
+            or not record_id
+            or target_type != "decision"
+        ):
+            typer.echo("--convert-type requires ID:decision", err=True)
+            raise typer.Exit(2)
+        resolution_actions.append(
+            PendingResolutionAction("convert_type", record_id, target_type)
+        )
+
+    selection_groups = sum(
+        (bool(record_ids), safe_only, bool(resolution_actions))
+    )
+    if selection_groups > 1:
+        typer.echo(
+            "--record, --safe-only, and resolution options are mutually exclusive",
+            err=True,
+        )
+        raise typer.Exit(2)
+
     queue = PendingQueue()
-    if not apply or dry_run:
+    effective_apply = apply and not dry_run
+
+    if resolution_actions or (gc_orphan_locks and selection_groups == 0):
+        if resolution_actions:
+            resolution_stats = queue.resolve(
+                resolution_actions,
+                apply=effective_apply,
+                gc_orphan_locks=gc_orphan_locks,
+            )
+            if gc_orphan_locks and not effective_apply:
+                resolution_stats.lock_gc_report = queue.collect_orphan_locks(
+                    apply=False
+                )
+        else:
+            resolution_stats = PendingResolutionStats(dry_run=not effective_apply)
+            resolution_stats.lock_gc_report = queue.collect_orphan_locks(
+                apply=effective_apply
+            )
+
+        if format == "json":
+            payload = (
+                resolution_stats.to_summary_dict()
+                if summary_only
+                else resolution_stats.to_dict()
+            )
+            typer.echo(json.dumps(payload, ensure_ascii=False, indent=2))
+        elif summary_only:
+            summary = resolution_stats.to_summary_dict()
+            typer.echo(
+                f"dry_run={str(resolution_stats.dry_run).lower()} "
+                f"actions={summary['action_counts']} "
+                f"statuses={summary['status_counts']}"
+            )
+        else:
+            typer.echo(
+                f"dry_run={str(resolution_stats.dry_run).lower()} "
+                f"results={len(resolution_stats.results)}"
+            )
+            for resolution_result in resolution_stats.results:
+                typer.echo(
+                    f"  {resolution_result.record_id}: "
+                    f"action={resolution_result.action} "
+                    f"status={resolution_result.status} "
+                    f"reason={resolution_result.reason}"
+                )
+        lock_report = resolution_stats.lock_gc_report
+        if format == "text" and lock_report is not None:
+            typer.echo(
+                f"lock_gc total={lock_report.total} orphan={lock_report.orphan} "
+                f"deleted={lock_report.deleted} unsafe={lock_report.unsafe} "
+                f"truncated={str(lock_report.truncated).lower()}"
+            )
+        unsuccessful = resolution_stats.governance_reason is not None
+        if resolution_actions:
+            expected_status = "applied" if effective_apply else "ready"
+            unsuccessful = unsuccessful or any(
+                resolution_result.status != expected_status
+                for resolution_result in resolution_stats.results
+            )
+            if effective_apply:
+                unsuccessful = unsuccessful or (
+                    resolution_stats.receipt is not None
+                    and resolution_stats.receipt.state != "completed"
+                )
+        if lock_report is not None:
+            unsuccessful = unsuccessful or (
+                lock_report.unsafe > 0
+                or lock_report.truncated
+                or lock_report.reason is not None
+            )
+        if unsuccessful:
+            raise typer.Exit(1)
+        return
+
+    if not effective_apply:
         preview = queue.preview(limit=limit)
+        lock_report = (
+            queue.collect_orphan_locks(apply=False)
+            if gc_orphan_locks
+            else None
+        )
         if summary_only:
             summary = preview.to_summary_dict()
+            if lock_report is not None:
+                summary["lock_gc"] = lock_report.to_dict()
             if format == "json":
                 typer.echo(json.dumps(summary, ensure_ascii=False, indent=2))
-                return
-            groups = summary["groups"]
-            assert isinstance(groups, dict)
+            else:
+                groups = summary["groups"]
+                assert isinstance(groups, dict)
+                typer.echo(
+                    f"pending={summary['total']} returned={summary['returned']} "
+                    f"truncated={str(summary['truncated']).lower()} "
+                    f"ready={groups['ready']} review={groups['review']} "
+                    f"blocker={groups['blocker']}"
+                )
+                typer.echo("(summary-only preview — no pending records applied)")
+        elif format == "json":
+            payload = preview.to_dict()
+            if lock_report is not None:
+                payload["lock_gc"] = lock_report.to_dict()
+            typer.echo(json.dumps(payload, ensure_ascii=False, indent=2))
+        else:
             typer.echo(
-                f"pending={summary['total']} returned={summary['returned']} "
-                f"truncated={str(summary['truncated']).lower()} "
-                f"ready={groups['ready']} review={groups['review']} "
-                f"blocker={groups['blocker']}"
+                f"pending={preview.total} returned={preview.returned} "
+                f"truncated={str(preview.truncated).lower()}"
             )
-            typer.echo("(summary-only preview — no pending records applied)")
-            return
-        if format == "json":
-            typer.echo(json.dumps(preview.to_dict(), ensure_ascii=False, indent=2))
-            return
-        typer.echo(
-            f"pending={preview.total} returned={preview.returned} "
-            f"truncated={str(preview.truncated).lower()}"
-        )
-        for record in preview.records:
-            if record.malformed:
-                typer.echo(f"  malformed {record.path}: {record.error}")
-                continue
-            typer.echo(
-                f"  {record.path}: {record.type or 'unknown'} "
-                f"{record.title or '(untitled)'} attempt={record.attempt}"
-            )
-        typer.echo("(preview — no pending records applied)")
+            for record in preview.records:
+                if record.malformed:
+                    typer.echo(f"  malformed {record.path}: {record.error}")
+                    continue
+                typer.echo(
+                    f"  {record.path}: {record.type or 'unknown'} "
+                    f"{record.title or '(untitled)'} attempt={record.attempt}"
+                )
+            typer.echo("(preview — no pending records applied)")
+        if lock_report is not None and (
+            lock_report.unsafe > 0
+            or lock_report.truncated
+            or lock_report.reason is not None
+        ):
+            raise typer.Exit(1)
         return
 
     if not record_ids and not safe_only:
-        typer.echo("--apply requires --record or --safe-only", err=True)
-        raise typer.Exit(2)
-    if record_ids and safe_only:
-        typer.echo("--record and --safe-only are mutually exclusive", err=True)
+        typer.echo(
+            "--apply requires --record or --safe-only, a resolution option, "
+            "or --gc-orphan-locks",
+            err=True,
+        )
         raise typer.Exit(2)
 
     stats = queue.apply(record_ids=record_ids or None, safe_only=safe_only)
     if record_ids:
         unsuccessful = any(
-            result.status not in {"written", "already_written"}
-            for result in stats.results
+            apply_result.status not in {"written", "already_written"}
+            for apply_result in stats.results
         )
     else:
         unsuccessful = stats.failed > 0 or any(
-            result.classification in {"audit_blocked", "conflict", "malformed"}
-            for result in stats.results
+            apply_result.classification in {"audit_blocked", "conflict", "malformed"}
+            for apply_result in stats.results
         )
     unsuccessful = unsuccessful or stats.governance_reason is not None
+    if stats.lock_gc_report is not None:
+        unsuccessful = unsuccessful or (
+            stats.lock_gc_report.unsafe > 0
+            or stats.lock_gc_report.truncated
+            or stats.lock_gc_report.reason is not None
+        )
     if format == "json":
         payload = stats.to_summary_dict() if summary_only else stats.to_dict()
         typer.echo(json.dumps(payload, ensure_ascii=False, indent=2))
@@ -302,11 +462,11 @@ def sync_pending(
             f"failed={stats.failed} dead={stats.dead}"
         )
         if not summary_only:
-            for result in stats.results:
+            for apply_result in stats.results:
                 typer.echo(
-                    f"  {result.record_id}: status={result.status} "
-                    f"classification={result.classification or 'unknown'} "
-                    f"reason={result.reason}"
+                    f"  {apply_result.record_id}: status={apply_result.status} "
+                    f"classification={apply_result.classification or 'unknown'} "
+                    f"reason={apply_result.reason}"
                 )
     if unsuccessful:
         raise typer.Exit(1)

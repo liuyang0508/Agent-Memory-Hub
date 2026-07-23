@@ -1413,6 +1413,18 @@ class PendingQueue:
         path_snapshot = _pending_record_paths(brain / "pending")
         return self._preview_from_snapshot(path_snapshot, limit=limit)
 
+    def collect_orphan_locks(
+        self,
+        *,
+        apply: bool = False,
+    ) -> PendingLockGcReport:
+        """Preview orphan record locks, or collect them under the queue lock."""
+
+        if not apply:
+            return self._collect_orphan_locks_unlocked(apply=False)
+        with _locked_pending_queue(self._brain_dir()):
+            return self._collect_orphan_locks_unlocked(apply=True)
+
     def _preview_from_snapshot(
         self,
         path_snapshot: _PendingPathSnapshot,
@@ -2213,7 +2225,11 @@ class PendingQueue:
             )
         return None
 
-    def _collect_record_locks(self) -> PendingLockGcReport:
+    def _collect_orphan_locks_unlocked(
+        self,
+        *,
+        apply: bool,
+    ) -> PendingLockGcReport:
         remaining = _pending_record_paths(
             self._brain_dir() / "pending",
             entry_cap=MAX_PENDING_QUEUE_ENTRIES,
@@ -2227,11 +2243,14 @@ class PendingQueue:
             return collect_pending_record_locks(
                 self._brain_dir() / "pending",
                 live_record_names={path.name for path in remaining.paths},
-                apply=True,
+                apply=apply,
                 limit=MAX_PENDING_QUEUE_ENTRIES,
             )
         except Exception:
             return PendingLockGcReport(reason="PENDING_LOCK_GC_UNAVAILABLE")
+
+    def _collect_record_locks(self) -> PendingLockGcReport:
+        return self._collect_orphan_locks_unlocked(apply=True)
 
     def _validate_resolution(
         self,

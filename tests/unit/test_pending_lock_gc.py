@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from agent_brain.memory.governance import pending_lock_gc as lock_gc
+from agent_brain.memory.store.pending import PendingQueue
 
 
 def _lock_file(pending: Path, record_name: str) -> Path:
@@ -173,3 +174,27 @@ def test_pending_lock_gc_blocks_inode_replacement_before_unlink(
     assert report.deleted == 0
     assert report.preserved == 1
     assert orphan.exists()
+
+
+def test_pending_queue_collect_orphan_locks_is_preview_first(
+    tmp_brain: Path,
+) -> None:
+    lock_dir = tmp_brain / "pending" / ".amh-record-locks"
+    lock_dir.mkdir(parents=True)
+    orphan = lock_dir / f"{'0' * 32}.lock"
+    orphan.write_bytes(b"")
+    orphan.chmod(0o600)
+    queue = PendingQueue(brain=tmp_brain)
+
+    preview = queue.collect_orphan_locks(apply=False)
+
+    assert preview.orphan == 1
+    assert preview.deleted == 0
+    assert orphan.exists()
+    assert not (tmp_brain / "runtime").exists()
+
+    applied = queue.collect_orphan_locks(apply=True)
+
+    assert applied.deleted == 1
+    assert not orphan.exists()
+    assert (tmp_brain / "runtime" / "locks" / "pending" / "queue.lock").exists()

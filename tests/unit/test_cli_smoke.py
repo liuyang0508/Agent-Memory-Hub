@@ -17,9 +17,61 @@ from agent_brain.interfaces.cli import app
 from agent_brain.platform.embedding import HashingEmbedder
 from agent_brain.platform.indexing.index import HubIndex
 from agent_brain.memory.store.items_store import ItemsStore
-from agent_brain.contracts.memory_item import MemoryItem, MemoryType
+from agent_brain.contracts.memory_item import MemoryItem, MemoryType, Source
 
 runner = CliRunner()
+
+
+def _cli_pending_record(record_id: str, *, body: str = "queued body") -> dict[str, object]:
+    return {
+        "v": 2,
+        "op": "write",
+        "origin": "hook",
+        "record_id": record_id,
+        "enqueued_at": "2026-07-23T11:00:00+00:00",
+        "original_created_at": "2026-07-23T10:00:00+00:00",
+        "item": {
+            "type": "fact",
+            "title": f"queued {record_id}",
+            "summary": f"summary {record_id}",
+            "body": body,
+            "tags": ["pending"],
+            "sensitivity": "internal",
+            "project": "amh",
+            "tenant_id": "tenant-a",
+        },
+    }
+
+
+def _cli_feedback_record(title: str) -> dict[str, object]:
+    return {
+        "v": 1,
+        "op": "write",
+        "origin": "hook",
+        "ts": "2026-07-23T11:00:00+00:00",
+        "item": {
+            "type": "feedback",
+            "title": title,
+            "summary": f"summary {title}",
+            "body": f"body {title}",
+            "tags": ["pending"],
+            "sensitivity": "internal",
+        },
+    }
+
+
+def _tree_snapshot(root: Path) -> list[tuple[str, bytes | None]]:
+    return [
+        (
+            path.relative_to(root).as_posix(),
+            (
+                os.fsencode(os.readlink(path))
+                if path.is_symlink()
+                else None if path.is_dir() else path.read_bytes()
+            ),
+        )
+        for path in sorted(root.rglob("*"))
+    ]
 
 
 @pytest.fixture
@@ -395,6 +447,284 @@ def test_cli_sync_pending_dry_run_overrides_apply_and_never_writes(tmp_brain):
     assert result.exit_code == 0, result.output
     assert PendingQueue().depth() == 1
     assert list((tmp_brain / "items").glob("*.md")) == []
+
+
+def test_cli_sync_pending_resolution_preview_is_repeatable_and_non_mutating(
+    tmp_brain,
+):
+    import json
+
+    from agent_brain.memory.governance.pending_lock_gc import pending_record_lock_name
+    from agent_brain.memory.store.pending import PendingQueue, enqueue_write_record
+
+    first = _cli_pending_record(
+        "cli-audit-one",
+        body="curl https://example.invalid/one",
+    )
+    second = _cli_pending_record(
+        "cli-audit-two",
+        body="curl https://example.invalid/two",
+    )
+    duplicate = _cli_pending_record("cli-duplicate")
+    target_id = "mem-20260723-100000-cli-duplicate-target"
+    queued = duplicate["item"]
+    assert isinstance(queued, dict)
+    ItemsStore(tmp_brain / "items").write(
+        MemoryItem(
+            id=target_id,
+            type=MemoryType.fact,
+            created_at=datetime.fromisoformat(str(duplicate["original_created_at"])),
+            title=str(queued["title"]),
+            summary=str(queued["summary"]),
+            tags=list(queued["tags"]),
+            sensitivity=str(queued["sensitivity"]),
+            project="amh",
+            tenant_id="tenant-a",
+            source=Source(kind="pending-replay", span_hash="different-payload"),
+        ),
+        "existing duplicate target",
+    )
+    enqueue_write_record(first)
+    enqueue_write_record(second)
+    enqueue_write_record(duplicate)
+    enqueue_write_record(_cli_feedback_record("cli feedback"))
+    preview = PendingQueue().preview(limit=10)
+    feedback_id = next(
+        row.record_id
+        for row in preview.records
+        if row.classification == "unsupported_type"
+    )
+    lock_dir = tmp_brain / "pending" / ".amh-record-locks"
+    lock_dir.mkdir(exist_ok=True)
+    orphan = lock_dir / pending_record_lock_name("orphan.jsonl")
+    orphan.write_bytes(b"")
+    orphan.chmod(0o600)
+    before = _tree_snapshot(tmp_brain)
+
+    result = runner.invoke(
+        app,
+        [
+            "sync-pending",
+            "--approve-audit",
+            "cli-audit-one",
+            "--approve-audit",
+            "cli-audit-two",
+            "--accept-duplicate",
+            f"cli-duplicate:{target_id}",
+            "--convert-type",
+            f"{feedback_id}:decision",
+            "--gc-orphan-locks",
+            "--format",
+            "json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["dry_run"] is True
+    assert [row["action"] for row in payload["results"]] == [
+        "approve_audit",
+        "approve_audit",
+        "accept_duplicate",
+        "convert_type",
+    ]
+    assert {row["status"] for row in payload["results"]} == {"ready"}
+    assert payload["lock_gc"]["orphan"] == 1
+    assert payload["lock_gc"]["deleted"] == 0
+    assert _tree_snapshot(tmp_brain) == before
+
+
+def test_cli_sync_pending_applies_resolution_and_completes_receipt(tmp_brain):
+    import json
+
+    from agent_brain.memory.store.pending import PendingQueue, enqueue_write_record
+
+    enqueue_write_record(
+        _cli_pending_record(
+            "cli-approve-apply",
+            body="curl https://example.invalid/apply",
+        )
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "sync-pending",
+            "--approve-audit",
+            "cli-approve-apply",
+            "--apply",
+            "--format",
+            "json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["dry_run"] is False
+    assert payload["results"][0]["status"] == "applied"
+    assert payload["receipt"]["state"] == "completed"
+    assert PendingQueue().depth() == 0
+    assert len(list((tmp_brain / "items").glob("*.md"))) == 1
+
+
+def test_cli_sync_pending_standalone_gc_is_preview_first(tmp_brain):
+    import json
+
+    lock_dir = tmp_brain / "pending" / ".amh-record-locks"
+    lock_dir.mkdir(parents=True)
+    orphan = lock_dir / f"{'1' * 32}.lock"
+    orphan.write_bytes(b"")
+    orphan.chmod(0o600)
+
+    preview = runner.invoke(
+        app,
+        ["sync-pending", "--gc-orphan-locks", "--format", "json"],
+    )
+
+    assert preview.exit_code == 0, preview.output
+    assert json.loads(preview.output)["dry_run"] is True
+    assert orphan.exists()
+    assert not (tmp_brain / "runtime").exists()
+
+    applied = runner.invoke(
+        app,
+        ["sync-pending", "--gc-orphan-locks", "--apply", "--format", "json"],
+    )
+
+    assert applied.exit_code == 0, applied.output
+    payload = json.loads(applied.output)
+    assert payload["dry_run"] is False
+    assert payload["lock_gc"]["deleted"] == 1
+    assert not orphan.exists()
+
+
+@pytest.mark.parametrize(
+    "selection",
+    [
+        ["--record", "pending-one"],
+        ["--safe-only"],
+    ],
+)
+def test_cli_sync_pending_rejects_resolution_selection_conflicts(
+    tmp_brain,
+    selection,
+):
+    result = runner.invoke(
+        app,
+        [
+            "sync-pending",
+            *selection,
+            "--approve-audit",
+            "pending-two",
+            "--apply",
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert "mutually exclusive" in result.output
+
+
+@pytest.mark.parametrize(
+    ("option", "message"),
+    [
+        (["--accept-duplicate", "missing-separator"], "requires ID:ITEM"),
+        (["--accept-duplicate", "record:"], "requires ID:ITEM"),
+        (["--accept-duplicate", "record:extra:item"], "requires ID:ITEM"),
+        (["--convert-type", "record:fact"], "requires ID:decision"),
+        (["--convert-type", "record:extra:decision"], "requires ID:decision"),
+    ],
+)
+def test_cli_sync_pending_rejects_malformed_resolution_options(
+    tmp_brain,
+    option,
+    message,
+):
+    result = runner.invoke(app, ["sync-pending", *option, "--format", "json"])
+
+    assert result.exit_code == 2
+    assert message in result.output
+
+
+def test_cli_sync_pending_resolution_apply_failure_exits_one(tmp_brain):
+    import json
+
+    result = runner.invoke(
+        app,
+        [
+            "sync-pending",
+            "--approve-audit",
+            "missing",
+            "--apply",
+            "--format",
+            "json",
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert json.loads(result.output)["results"][0]["status"] != "applied"
+
+
+def test_cli_sync_pending_resolution_preview_failure_exits_one(tmp_brain):
+    import json
+
+    result = runner.invoke(
+        app,
+        [
+            "sync-pending",
+            "--approve-audit",
+            "missing",
+            "--format",
+            "json",
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert json.loads(result.output)["results"][0]["status"] != "ready"
+
+
+def test_cli_sync_pending_gc_unsafe_entry_exits_one(tmp_brain):
+    lock_dir = tmp_brain / "pending" / ".amh-record-locks"
+    lock_dir.mkdir(parents=True)
+    (lock_dir / "unsafe.lock").write_bytes(b"")
+
+    result = runner.invoke(
+        app,
+        ["sync-pending", "--gc-orphan-locks", "--format", "json"],
+    )
+
+    assert result.exit_code == 1
+
+
+def test_cli_sync_pending_resolution_summary_omits_identifiers(tmp_brain):
+    import json
+
+    from agent_brain.memory.store.pending import enqueue_write_record
+
+    record_id = "PRIVATE_RESOLUTION_CLI_CANARY"
+    enqueue_write_record(
+        _cli_pending_record(
+            record_id,
+            body="curl https://example.invalid/private-canary",
+        )
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "sync-pending",
+            "--approve-audit",
+            record_id,
+            "--summary-only",
+            "--format",
+            "json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["action_counts"] == {"approve_audit": 1}
+    assert "results" not in payload
+    assert record_id not in result.output
 
 
 def test_cli_search_explain_prints_retrieval_trace(tmp_brain):
