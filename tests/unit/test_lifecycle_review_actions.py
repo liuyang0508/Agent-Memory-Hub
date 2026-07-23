@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 
 from agent_brain.contracts.memory_item import MemoryItem, MemoryType
+from agent_brain.memory.governance.auto_governance import AutoGovernanceCycle
 from agent_brain.memory.governance.lifecycle_ledger import (
     LifecycleLedgerRecord,
     append_lifecycle_record,
@@ -26,6 +27,7 @@ from agent_brain.memory.governance.lifecycle_review import (
     apply_lifecycle_review_items,
     build_lifecycle_review_plan,
 )
+from agent_brain.memory.governance.maintenance_plan import build_maintenance_plan
 from agent_brain.memory.governance.supersession import SupersessionService
 from agent_brain.memory.store.items_store import ItemsStore
 
@@ -155,6 +157,79 @@ def test_lifecycle_queue_hides_future_defer_and_restores_at_deadline(
 
     assert hidden.review_queue == []
     assert [row.item_id for row in restored.review_queue] == [item.id]
+
+
+def test_lifecycle_plan_ranks_newer_same_scope_replacement(
+    tmp_path: Path,
+) -> None:
+    now = datetime(2026, 7, 23, tzinfo=timezone.utc)
+    brain = tmp_path / "brain"
+    store = ItemsStore(brain / "items")
+    old = MemoryItem(
+        id="mem-20260524-180029-old-hooks-recall",
+        type=MemoryType.signal,
+        created_at=now - timedelta(days=60),
+        project="amh",
+        title="Hooks recall status",
+        summary="Hooks recall issue remains open",
+        tags=["hooks", "recall"],
+    )
+    newer = MemoryItem(
+        id="mem-20260722-180030-new-hooks-recall",
+        type=MemoryType.signal,
+        created_at=now - timedelta(days=1),
+        project="amh",
+        title="Hooks recall status",
+        summary="Hooks recall issue resolved and repaired",
+        tags=["hooks", "recall"],
+    )
+    store.write(old, "old body")
+    store.write(newer, "newer body")
+
+    plan = build_lifecycle_review_plan(
+        brain_dir=brain,
+        items_store=store,
+        now=now,
+    )
+
+    row = next(row for row in plan.review_queue if row.item_id == old.id)
+    assert row.candidates[0]["replacement_id"] == newer.id
+    assert row.can_auto_apply is False
+
+
+def test_explicit_empty_items_mapping_disables_lifecycle_candidates(
+    tmp_path: Path,
+) -> None:
+    now = datetime(2026, 7, 23, tzinfo=timezone.utc)
+    brain = tmp_path / "brain"
+    store = ItemsStore(brain / "items")
+    old = _stale_item("mem-20260524-180031-explicit-empty-old", now=now)
+    newer = old.model_copy(
+        update={
+            "id": "mem-20260722-180032-explicit-empty-new",
+            "created_at": now - timedelta(days=1),
+            "summary": "Runtime issue resolved",
+        }
+    )
+    store.write(old, "old body")
+    store.write(newer, "newer body")
+    report = AutoGovernanceCycle(
+        brain_dir=brain,
+        items_store=store,
+        include_index=False,
+        include_evolve=False,
+        include_conversations=False,
+        now=now,
+    ).run()
+
+    plan = build_maintenance_plan(
+        report,
+        category_filter="lifecycle",
+        items_by_id={},
+    )
+
+    row = next(row for row in plan.review_queue if row.item_id == old.id)
+    assert row.candidates == []
 
 
 def test_lifecycle_queue_later_successful_review_action_supersedes_defer(

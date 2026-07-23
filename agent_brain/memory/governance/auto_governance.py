@@ -7,6 +7,7 @@ skill synthesis stay review-required.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -65,6 +66,11 @@ class AutoGovernanceReport:
     actions: list[AutoGovernanceAction]
     applied_count: int = 0
     apply: bool = False
+    items_by_id: Mapping[str, MemoryItem] = field(
+        default_factory=dict,
+        repr=False,
+        compare=False,
+    )
 
     @property
     def safe_apply_count(self) -> int:
@@ -137,6 +143,7 @@ class AutoGovernanceCycle:
             actions=actions,
             applied_count=applied_count,
             apply=apply,
+            items_by_id={item.id: item for item, _body in items},
         )
 
     def _maturity_actions(self, *, apply: bool) -> list[AutoGovernanceAction]:

@@ -173,7 +173,9 @@ def build_maintenance_plan(
         _build_lane(risk, actions_by_risk[risk], limit_per_lane=limit_per_lane)
         for risk in _LANE_ORDER
     ]
-    normalized_items = dict(items_by_id or {})
+    normalized_items = dict(
+        report.items_by_id if items_by_id is None else items_by_id
+    )
     normalized_edges = set(supersedes_edges or ())
     normalized_edges.update(
         (item.superseded_by, item.id)

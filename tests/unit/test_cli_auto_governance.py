@@ -344,6 +344,61 @@ def test_govern_plan_lifecycle_json_includes_read_only_review_queue(
     assert unchanged.title == item.title
 
 
+def test_govern_plan_lifecycle_json_includes_replacement_candidates(
+    tmp_brain_dir: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("BRAIN_DIR", str(tmp_brain_dir))
+    store = ItemsStore(tmp_brain_dir / "items")
+    now = datetime.now(timezone.utc)
+    old = MemoryItem(
+        id="mem-20260524-170015-cli-lifecycle-old",
+        type=MemoryType.signal,
+        created_at=now - timedelta(days=60),
+        project="amh",
+        title="Hooks recall status",
+        summary="Hooks recall issue remains open",
+        tags=["hooks", "recall"],
+    )
+    newer = MemoryItem(
+        id="mem-20260722-170016-cli-lifecycle-new",
+        type=MemoryType.signal,
+        created_at=now - timedelta(days=1),
+        project="amh",
+        title="Hooks recall status",
+        summary="Hooks recall issue resolved and repaired",
+        tags=["hooks", "recall"],
+    )
+    store.write(old, "old body")
+    store.write(newer, "newer body")
+
+    result = runner.invoke(
+        app,
+        [
+            "govern",
+            "plan",
+            "--format",
+            "json",
+            "--category",
+            "lifecycle",
+            "--limit",
+            "100",
+            "--no-index-repair",
+            "--no-evolve",
+            "--no-conversations",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    row = next(
+        row for row in payload["review_queue"]
+        if row["item_id"] == old.id
+    )
+    assert row["candidates"][0]["replacement_id"] == newer.id
+    assert row["can_auto_apply"] is False
+
+
 def test_govern_plan_lifecycle_markdown_includes_review_details(
     tmp_brain_dir: Path,
     monkeypatch,
