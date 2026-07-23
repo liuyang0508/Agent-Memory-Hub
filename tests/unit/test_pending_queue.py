@@ -24,6 +24,7 @@ from agent_brain.memory.store.items_store import ItemsStore
 from agent_brain.memory.store.pending import (
     PendingEnqueueError,
     PendingQueue,
+    PendingResolutionAction,
     enqueue_write_record,
 )
 from agent_brain.platform.embedding import HashingEmbedder
@@ -473,6 +474,16 @@ def _write_existing_item(
     if corrupt_body:
         frontmatter = render_item_markdown(item, "").encode("utf-8")
         path.write_bytes(frontmatter + b"\xff\xfe\xfd")
+
+
+def _tree_snapshot(root: Path) -> list[tuple[str, bytes | None]]:
+    return [
+        (
+            path.relative_to(root).as_posix(),
+            None if path.is_dir() else path.read_bytes(),
+        )
+        for path in sorted(root.rglob("*"))
+    ]
 
 
 def test_enqueue_then_explicit_safe_replay_writes_item(tmp_brain: Path) -> None:
@@ -2903,3 +2914,403 @@ def test_limit_zero_does_not_scan_existing_items(
     assert preview.total == 1
     assert preview.returned == 0
     assert preview.truncated is True
+
+
+def test_resolution_preview_validates_all_supported_actions_without_mutation(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _freeze_now(monkeypatch)
+    audit = _v2_record(record_id="resolution-audit")
+    audit_item = audit["item"]
+    assert isinstance(audit_item, dict)
+    audit_item["title"] = "audit-only record"
+    audit_item["summary"] = "audit-only summary"
+    audit_item["body"] = "curl https://example.invalid/review"
+    enqueue_write_record(audit)
+
+    duplicate = _v2_record(record_id="resolution-duplicate")
+    target_id = "mem-20260701-100000-resolution-duplicate-target"
+    _write_existing_item(
+        tmp_brain,
+        duplicate,
+        item_id=target_id,
+        span_hash="different-payload",
+    )
+    enqueue_write_record(duplicate)
+
+    enqueue_write_record(_legacy_feedback_record())
+    initial = PendingQueue().preview(limit=10)
+    feedback = next(
+        record for record in initial.records if record.classification == "unsupported_type"
+    )
+    before = _tree_snapshot(tmp_brain)
+
+    stats = PendingQueue().resolve(
+        [
+            PendingResolutionAction("approve_audit", "resolution-audit"),
+            PendingResolutionAction(
+                "accept_duplicate",
+                "resolution-duplicate",
+                target_id,
+            ),
+            PendingResolutionAction("convert_type", feedback.record_id, "decision"),
+        ]
+    )
+
+    assert stats.dry_run is True
+    assert [result.status for result in stats.results] == ["ready", "ready", "ready"]
+    assert [result.reason for result in stats.results] == [
+        "PENDING_RESOLUTION_READY",
+        "PENDING_RESOLUTION_READY",
+        "PENDING_RESOLUTION_READY",
+    ]
+    assert [result.classification for result in stats.results] == [
+        "audit_blocked",
+        "duplicate_candidate",
+        "unsupported_type",
+    ]
+    assert stats.receipt is None
+    assert stats.lock_gc_report is None
+    assert _tree_snapshot(tmp_brain) == before
+
+
+def test_resolution_conflict_blocks_whole_batch_without_mutation(
+    tmp_brain: Path,
+) -> None:
+    enqueue_write_record(_v2_record(record_id="resolution-conflict"))
+    before = _tree_snapshot(tmp_brain)
+
+    stats = PendingQueue().resolve(
+        [
+            PendingResolutionAction("approve_audit", "resolution-conflict"),
+            PendingResolutionAction("convert_type", "resolution-conflict", "decision"),
+        ]
+    )
+
+    assert stats.governance_reason == "CONFLICTING_PENDING_RESOLUTIONS"
+    assert len(stats.results) == 2
+    assert {result.status for result in stats.results} == {"blocked"}
+    assert {result.reason for result in stats.results} == {
+        "CONFLICTING_PENDING_RESOLUTIONS"
+    }
+    assert _tree_snapshot(tmp_brain) == before
+
+
+@pytest.mark.parametrize("sensitivity", ["private", "secret"])
+def test_resolution_audit_approval_rejects_sensitive_records(
+    tmp_brain: Path,
+    sensitivity: str,
+) -> None:
+    record = _v2_record(record_id=f"resolution-sensitive-{sensitivity}")
+    item = record["item"]
+    assert isinstance(item, dict)
+    item["sensitivity"] = sensitivity
+    item["body"] = "curl https://example.invalid/private"
+    enqueue_write_record(record)
+
+    result = PendingQueue().resolve(
+        [PendingResolutionAction("approve_audit", str(record["record_id"]))]
+    ).results[0]
+
+    assert result.status == "blocked"
+    assert result.reason == "PENDING_AUDIT_APPROVAL_REQUIRED"
+
+
+def test_resolution_audit_approval_never_bypasses_secret_findings(
+    tmp_brain: Path,
+) -> None:
+    record = _v2_record(record_id="resolution-secret-finding")
+    item = record["item"]
+    assert isinstance(item, dict)
+    item["body"] = 'api_key = "abcdefghijklmnopqrstuvwxyz123456"'
+    enqueue_write_record(record)
+
+    result = PendingQueue().resolve(
+        [PendingResolutionAction("approve_audit", "resolution-secret-finding")]
+    ).results[0]
+
+    assert result.status == "blocked"
+    assert result.reason == "PENDING_AUDIT_SECRET_BLOCKED"
+
+
+@pytest.mark.parametrize(
+    ("case", "target_id", "project", "title"),
+    [
+        (
+            "missing",
+            "mem-20260701-100000-resolution-missing",
+            "amh",
+            "queued fact",
+        ),
+        (
+            "scope",
+            "mem-20260701-100000-resolution-scope",
+            "other",
+            "queued fact",
+        ),
+        (
+            "metadata",
+            "mem-20260701-100000-resolution-metadata",
+            "amh",
+            "different title",
+        ),
+    ],
+)
+def test_resolution_duplicate_rejects_wrong_target(
+    tmp_brain: Path,
+    case: str,
+    target_id: str,
+    project: str,
+    title: str,
+) -> None:
+    record = _v2_record(record_id=f"resolution-duplicate-{case}")
+    matching_id = f"mem-20260701-100000-resolution-matching-{case}"
+    _write_existing_item(
+        tmp_brain,
+        record,
+        item_id=matching_id,
+        span_hash="different-payload",
+    )
+    if case != "missing":
+        target_record = _v2_record(record_id=f"resolution-target-{case}", project=project)
+        target_item = target_record["item"]
+        assert isinstance(target_item, dict)
+        target_item["title"] = title
+        _write_existing_item(
+            tmp_brain,
+            target_record,
+            item_id=target_id,
+            span_hash="target-payload",
+            project=project,
+        )
+    enqueue_write_record(record)
+
+    result = PendingQueue().resolve(
+        [PendingResolutionAction("accept_duplicate", str(record["record_id"]), target_id)]
+    ).results[0]
+
+    assert result.status == "blocked"
+    assert result.reason == "PENDING_DUPLICATE_TARGET_MISMATCH"
+
+
+@pytest.mark.parametrize(
+    ("source_type", "target", "body", "expected"),
+    [
+        ("feedback", "fact", "legacy feedback body", "PENDING_CONVERSION_UNSUPPORTED"),
+        ("obsolete", "decision", "legacy feedback body", "PENDING_CONVERSION_UNSUPPORTED"),
+        ("feedback", "decision", ["not", "text"], "PENDING_CONVERSION_INVALID"),
+        (
+            "feedback",
+            "decision",
+            "curl https://example.invalid/converted",
+            "PENDING_CONVERSION_INVALID",
+        ),
+    ],
+)
+def test_resolution_conversion_rejects_unsupported_or_unsafe_input(
+    tmp_brain: Path,
+    source_type: str,
+    target: str,
+    body: object,
+    expected: str,
+) -> None:
+    record = _legacy_feedback_record()
+    item = record["item"]
+    assert isinstance(item, dict)
+    item["type"] = source_type
+    item["body"] = body
+    enqueue_write_record(record)
+    preview = PendingQueue().preview(limit=1).records[0]
+
+    result = PendingQueue().resolve(
+        [PendingResolutionAction("convert_type", preview.record_id, target)]
+    ).results[0]
+
+    assert result.status == "blocked"
+    assert result.reason == expected
+
+
+def test_resolution_rejects_record_drift_between_preview_and_validation(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    record = _v2_record(record_id="resolution-drift")
+    item = record["item"]
+    assert isinstance(item, dict)
+    item["body"] = "curl https://example.invalid/drift"
+    enqueue_write_record(record)
+    real_read = pending_module._read_pending_record_snapshot
+    reads = 0
+
+    def changed_second_read(*args, **kwargs):
+        nonlocal reads
+        raw, identity = real_read(*args, **kwargs)
+        reads += 1
+        return (raw + b" ", identity) if reads == 2 else (raw, identity)
+
+    monkeypatch.setattr(
+        pending_module,
+        "_read_pending_record_snapshot",
+        changed_second_read,
+    )
+
+    result = PendingQueue().resolve(
+        [PendingResolutionAction("approve_audit", "resolution-drift")]
+    ).results[0]
+
+    assert result.status == "blocked"
+    assert result.reason == "PENDING_RESOLUTION_CHANGED"
+
+
+def test_resolution_summary_is_aggregate_only_and_preserves_public_reasons() -> None:
+    stats = pending_module.PendingResolutionStats(dry_run=True)
+    stats.results.extend(
+        [
+            pending_module.PendingResolutionResult(
+                action="accept_duplicate",
+                record_id="PRIVATE_RESOLUTION_RECORD_CANARY",
+                target="mem-20260701-100000-private-target-canary",
+                item_id="mem-20260701-100000-private-item-canary",
+                classification="duplicate_candidate",
+                status="blocked",
+                reason="PENDING_DUPLICATE_TARGET_MISMATCH",
+            ),
+            pending_module.PendingResolutionResult(
+                action="approve_audit",
+                record_id="PRIVATE_SECOND_RECORD_CANARY",
+                classification="audit_blocked",
+                status="ready",
+                reason="PENDING_RESOLUTION_READY",
+            ),
+        ]
+    )
+
+    summary = stats.to_summary_dict()
+    encoded = json.dumps(summary, sort_keys=True)
+
+    assert summary["schema_version"] == 1
+    assert summary["dry_run"] is True
+    assert summary["action_counts"] == {
+        "accept_duplicate": 1,
+        "approve_audit": 1,
+    }
+    assert summary["reason_counts"] == {
+        "PENDING_DUPLICATE_TARGET_MISMATCH": 1,
+        "PENDING_RESOLUTION_READY": 1,
+    }
+    for canary in (
+        "PRIVATE_RESOLUTION_RECORD_CANARY",
+        "PRIVATE_SECOND_RECORD_CANARY",
+        "private-target-canary",
+        "private-item-canary",
+        "title",
+        "summary",
+        "body",
+        "path",
+    ):
+        assert canary not in encoded
+
+
+def test_resolution_deduplicates_exact_actions_and_empty_is_side_effect_free(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    brain = tmp_path / "not-created"
+    empty = PendingQueue(brain=brain).resolve([])
+    empty_apply = PendingQueue(brain=brain).resolve([], apply=True)
+
+    assert empty.dry_run is True
+    assert empty.results == []
+    assert empty_apply.dry_run is True
+    assert empty_apply.results == []
+    assert not brain.exists()
+
+    brain.mkdir()
+    (brain / "items").mkdir()
+    monkeypatch.setenv("BRAIN_DIR", str(brain))
+    record = _v2_record(record_id="resolution-idempotent")
+    item = record["item"]
+    assert isinstance(item, dict)
+    item["body"] = "curl https://example.invalid/idempotent"
+    enqueue_write_record(record)
+    action = PendingResolutionAction("approve_audit", "resolution-idempotent")
+    before = _tree_snapshot(brain)
+
+    stats = PendingQueue(brain=brain).resolve([action, action])
+
+    assert len(stats.results) == 1
+    assert stats.results[0].reason == "PENDING_RESOLUTION_READY"
+    assert _tree_snapshot(brain) == before
+
+
+def test_resolution_apply_true_is_blocked_without_mutation(
+    tmp_brain: Path,
+) -> None:
+    record = _v2_record(record_id="resolution-apply-not-yet")
+    item = record["item"]
+    assert isinstance(item, dict)
+    item["body"] = "curl https://example.invalid/apply"
+    enqueue_write_record(record)
+    before = _tree_snapshot(tmp_brain)
+
+    stats = PendingQueue().resolve(
+        [PendingResolutionAction("approve_audit", "resolution-apply-not-yet")],
+        apply=True,
+    )
+
+    assert stats.dry_run is False
+    assert len(stats.results) == 1
+    assert stats.results[0].status == "blocked"
+    assert stats.results[0].reason == "PENDING_RESOLUTION_NOT_APPLICABLE"
+    assert stats.receipt is None
+    assert stats.lock_gc_report is None
+    assert _tree_snapshot(tmp_brain) == before
+
+
+def test_resolution_invalid_action_shapes_fail_closed_and_summarize_safely(
+    tmp_brain: Path,
+) -> None:
+    malformed = [
+        object(),
+        PendingResolutionAction("delete", "resolution-invalid-action"),  # type: ignore[arg-type]
+        PendingResolutionAction("approve_audit", "../invalid-record"),
+        PendingResolutionAction(  # type: ignore[arg-type]
+            {"not": "an action"},
+            "resolution-invalid-action-type",
+        ),
+        PendingResolutionAction(  # type: ignore[arg-type]
+            "accept_duplicate",
+            "resolution-invalid-target",
+            {"not": "a target"},
+        ),
+    ]
+    before = _tree_snapshot(tmp_brain)
+
+    stats = PendingQueue().resolve(malformed)  # type: ignore[arg-type]
+
+    assert len(stats.results) == len(malformed)
+    assert {result.status for result in stats.results} == {"blocked"}
+    assert {result.reason for result in stats.results} == {
+        "PENDING_RESOLUTION_NOT_APPLICABLE"
+    }
+    assert stats.to_summary_dict()["reason_counts"] == {
+        "PENDING_RESOLUTION_NOT_APPLICABLE": len(malformed)
+    }
+    assert _tree_snapshot(tmp_brain) == before
+
+
+def test_resolution_preserves_existing_conflict_reason(
+    tmp_brain: Path,
+) -> None:
+    record = _v2_record(record_id="resolution-existing-conflict")
+    record["payload_sha256"] = "0" * 64
+    enqueue_write_record(record)
+
+    result = PendingQueue().resolve(
+        [PendingResolutionAction("approve_audit", "resolution-existing-conflict")]
+    ).results[0]
+
+    assert result.status == "blocked"
+    assert result.classification == "conflict"
+    assert result.reason == "PAYLOAD_HASH_MISMATCH"

@@ -80,6 +80,7 @@ from agent_brain.memory.governance.pending_lock_gc import (
     collect_pending_record_locks,
     pending_record_lock_name,
 )
+from agent_brain.memory.governance.audit.report import AuditReport
 from agent_brain.memory.store.durable_fs import (
     SecureDirectory,
     lifecycle_mutation_capability,
@@ -141,12 +142,19 @@ PendingClassification = Literal[
     "malformed",
     "audit_blocked",
 ]
+PendingResolutionName = Literal[
+    "approve_audit",
+    "accept_duplicate",
+    "convert_type",
+]
+PendingResolutionStatus = Literal["ready", "applied", "blocked", "failed"]
 
 _PUBLIC_PENDING_REASONS = frozenset(
     {
         "AUDIT_BLOCKED",
         "AUDIT_SCAN_FAILED",
         "CONCURRENT_MODIFICATION",
+        "CONFLICTING_PENDING_RESOLUTIONS",
         "DUPLICATE_RECORD_ID_SELECTION",
         "EMPTY_PENDING_RECORD",
         "EXISTING_ITEM_SCAN_UNAVAILABLE",
@@ -169,6 +177,11 @@ _PUBLIC_PENDING_REASONS = frozenset(
         "NAIVE_ORIGINAL_CREATED_AT",
         "PAYLOAD_HASH_MISMATCH",
         "PENDING_APPLY_FAILED",
+        "PENDING_AUDIT_APPROVAL_REQUIRED",
+        "PENDING_AUDIT_FINDINGS_CHANGED",
+        "PENDING_AUDIT_SECRET_BLOCKED",
+        "PENDING_CONVERSION_INVALID",
+        "PENDING_CONVERSION_UNSUPPORTED",
         "PENDING_DIRECTORY_FSYNC_UNAVAILABLE",
         "PENDING_ITEM_SNAPSHOT_UNTRUSTED",
         "PENDING_QUEUE_TRUNCATED",
@@ -182,9 +195,13 @@ _PUBLIC_PENDING_REASONS = frozenset(
         "PENDING_RECORD_NOT_REGULAR",
         "PENDING_RECORD_READ_FAILED",
         "PENDING_RECORD_TOO_LARGE",
+        "PENDING_RESOLUTION_CHANGED",
+        "PENDING_RESOLUTION_NOT_APPLICABLE",
+        "PENDING_RESOLUTION_READY",
         "PENDING_RECORD_CHANGED",
         "PENDING_SCAN_UNAVAILABLE",
         "PENDING_STABLE_ID_CONFLICT",
+        "PENDING_DUPLICATE_TARGET_MISMATCH",
         "PENDING_UNLINK_FAILED",
         "PENDING_WRITE_SERVICE_UNAVAILABLE",
         "PLATFORM_UNSUPPORTED",
@@ -726,6 +743,100 @@ def enqueue_write_record(record: dict[str, object]) -> Path:
         return _publish_pending_record(brain, filename, data)
 
 
+@dataclass(frozen=True)
+class PendingResolutionAction:
+    """One explicit request to resolve a review-only pending record."""
+
+    action: PendingResolutionName
+    record_id: str
+    target: str | None = None
+
+
+@dataclass(frozen=True)
+class PendingResolutionResult:
+    """Detailed read-only outcome for one pending resolution request."""
+
+    action: str
+    record_id: str
+    status: PendingResolutionStatus
+    reason: str
+    classification: PendingClassification | None
+    target: str | None = None
+    item_id: str | None = None
+    index_repair_required: bool = False
+    warnings: tuple[str, ...] = ()
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "action": self.action,
+            "record_id": self.record_id,
+            "status": self.status,
+            "reason": self.reason,
+            "classification": self.classification,
+            "target": self.target,
+            "item_id": self.item_id,
+            "index_repair_required": self.index_repair_required,
+            "warnings": list(self.warnings),
+        }
+
+
+@dataclass
+class PendingResolutionStats:
+    """Aggregate read-only outcomes for explicit pending resolutions."""
+
+    dry_run: bool
+    results: list[PendingResolutionResult] = dataclass_field(default_factory=list)
+    receipt: PendingBatchReceipt | None = None
+    governance_reason: str | None = None
+    lock_gc_report: PendingLockGcReport | None = None
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "dry_run": self.dry_run,
+            "results": [result.to_dict() for result in self.results],
+            "receipt": self.receipt.to_dict() if self.receipt is not None else None,
+            "governance_reason": self.governance_reason,
+            "lock_gc": (
+                self.lock_gc_report.to_dict() if self.lock_gc_report is not None else None
+            ),
+        }
+
+    def to_summary_dict(self) -> dict[str, object]:
+        """Return aggregate outcomes without record, item, target, or content fields."""
+
+        return {
+            "schema_version": 1,
+            "dry_run": self.dry_run,
+            "action_counts": dict(
+                sorted(Counter(result.action for result in self.results).items())
+            ),
+            "status_counts": dict(
+                sorted(Counter(result.status for result in self.results).items())
+            ),
+            "classification_counts": dict(
+                sorted(
+                    Counter(
+                        result.classification or "unknown" for result in self.results
+                    ).items()
+                )
+            ),
+            "reason_counts": dict(
+                sorted(
+                    Counter(
+                        _public_pending_reason(result.reason)
+                        or "UNKNOWN_PENDING_REASON"
+                        for result in self.results
+                    ).items()
+                )
+            ),
+            "receipt": self.receipt.to_dict() if self.receipt is not None else None,
+            "governance_reason": _public_pending_reason(self.governance_reason),
+            "lock_gc": (
+                self.lock_gc_report.to_dict() if self.lock_gc_report is not None else None
+            ),
+        }
+
+
 PendingApplyStatus = Literal[
     "written",
     "already_written",
@@ -1012,6 +1123,14 @@ class PendingItemCatalogSnapshot:
     reason: str | None = None
     entry_count: int = 0
     metadata_bytes: int = 0
+
+
+@dataclass(frozen=True)
+class _PendingResolutionSelection:
+    action: PendingResolutionAction
+    preview: PendingRecordPreview
+    audit_digest: str | None = None
+    target_digest: str | None = None
 
 
 # Private compatibility for tests and integrations that imported the old name.
@@ -1450,6 +1569,151 @@ class PendingQueue:
             reason="PENDING_READINESS_BUDGET_EXCEEDED",
         )
 
+    def resolve(
+        self,
+        actions: Iterable[PendingResolutionAction],
+        *,
+        apply: bool = False,
+    ) -> PendingResolutionStats:
+        """Validate explicit backlog resolutions without mutating the brain."""
+
+        stats = PendingResolutionStats(dry_run=not apply)
+        try:
+            requested = list(actions)
+        except TypeError:
+            stats.results.append(_invalid_resolution_result())
+            return stats
+        if not requested:
+            return PendingResolutionStats(dry_run=True)
+
+        valid: list[PendingResolutionAction] = []
+        for candidate in requested:
+            if not isinstance(candidate, PendingResolutionAction):
+                stats.results.append(_invalid_resolution_result())
+                continue
+            if not _valid_resolution_action_structure(candidate):
+                stats.results.append(
+                    _resolution_result(
+                        candidate,
+                        status="blocked",
+                        reason="PENDING_RESOLUTION_NOT_APPLICABLE",
+                    )
+                )
+                continue
+            if candidate not in valid:
+                valid.append(candidate)
+
+        by_record: dict[str, set[tuple[str, str | None]]] = {}
+        for action in valid:
+            by_record.setdefault(action.record_id, set()).add(
+                (action.action, action.target)
+            )
+        if any(len(selections) > 1 for selections in by_record.values()):
+            stats.governance_reason = "CONFLICTING_PENDING_RESOLUTIONS"
+            stats.results.extend(
+                _resolution_result(
+                    action,
+                    status="blocked",
+                    reason="CONFLICTING_PENDING_RESOLUTIONS",
+                )
+                for action in valid
+            )
+            return stats
+
+        if apply:
+            stats.results.extend(
+                _resolution_result(
+                    action,
+                    status="blocked",
+                    reason="PENDING_RESOLUTION_NOT_APPLICABLE",
+                )
+                for action in valid
+            )
+            return stats
+
+        path_snapshot = _pending_record_paths(self._brain_dir() / "pending")
+        catalog = _scan_existing_item_metadata(self._brain_dir() / "items")
+        preview = self._preview_from_snapshot(
+            path_snapshot,
+            limit=MAX_PENDING_QUEUE_ENTRIES + 1,
+            item_catalog=catalog,
+        )
+        scan_reason = preview.reason
+        if preview.truncated or preview.total > MAX_PENDING_QUEUE_ENTRIES:
+            scan_reason = "PENDING_QUEUE_TRUNCATED"
+        if preview.scan_unavailable or scan_reason == "PENDING_QUEUE_TRUNCATED":
+            stats.results.extend(
+                _resolution_result(
+                    action,
+                    classification="audit_blocked",
+                    status="failed",
+                    reason=scan_reason or "PENDING_SCAN_UNAVAILABLE",
+                )
+                for action in valid
+            )
+            return stats
+
+        by_id: dict[str, list[PendingRecordPreview]] = {}
+        for record in preview.records:
+            by_id.setdefault(record.record_id, []).append(record)
+        for action in valid:
+            matches = by_id.get(action.record_id, [])
+            if not matches:
+                stats.results.append(
+                    _resolution_result(
+                        action,
+                        status="failed",
+                        reason="RECORD_ID_NOT_FOUND",
+                    )
+                )
+            elif len(matches) != 1:
+                stats.results.append(
+                    _resolution_result(
+                        action,
+                        classification="conflict",
+                        status="blocked",
+                        reason="PENDING_RECORD_ID_CONFLICT",
+                    )
+                )
+            else:
+                _selection, result = self._validate_resolution(
+                    action,
+                    matches[0],
+                    catalog.items,
+                )
+                stats.results.append(result)
+        return stats
+
+    def _validate_resolution(
+        self,
+        action: PendingResolutionAction,
+        preview: PendingRecordPreview,
+        existing_items: Mapping[str, MemoryItem],
+    ) -> tuple[_PendingResolutionSelection | None, PendingResolutionResult]:
+        expected_hash = preview._record_sha256
+        expected_identity = preview._record_identity
+        if expected_hash is None or expected_identity is None:
+            return _resolution_blocked(action, preview, "PENDING_RESOLUTION_CHANGED")
+        try:
+            raw, identity = _read_pending_record_snapshot(Path(preview.path))
+        except (FileNotFoundError, _PendingReadError):
+            return _resolution_blocked(action, preview, "PENDING_RESOLUTION_CHANGED")
+        if identity != expected_identity or hashlib.sha256(raw).hexdigest() != expected_hash:
+            return _resolution_blocked(action, preview, "PENDING_RESOLUTION_CHANGED")
+        if preview.classification == "conflict":
+            return _resolution_blocked(action, preview, preview.reason)
+
+        if action.action == "approve_audit":
+            return _preview_audit_resolution(action, preview, raw)
+        if action.action == "accept_duplicate":
+            return _preview_duplicate_resolution(
+                action,
+                preview,
+                raw,
+                existing_items,
+            )
+        return _preview_conversion_resolution(action, preview, raw)
+
     def replay(
         self,
         *,
@@ -1857,6 +2121,257 @@ class PendingQueue:
             return _malformed_preview(path, "PENDING_RECORD_READ_FAILED", raw=raw)
 
 
+_RESOLUTION_ACTIONS = frozenset(
+    {"approve_audit", "accept_duplicate", "convert_type"}
+)
+_DECISION_CONVERSION_REASON = (
+    "该内容来自旧版 feedback 中已确认的长期约束，迁移为 decision 后才能进入统一记忆模型。"
+)
+_DECISION_CONVERSION_COST = (
+    "恢复为不受支持的 feedback 会让该约束再次滞留在 pending，无法被正常维护和召回。"
+)
+
+
+def _valid_resolution_action_structure(action: PendingResolutionAction) -> bool:
+    return (
+        isinstance(action.action, str)
+        and action.action in _RESOLUTION_ACTIONS
+        and isinstance(action.record_id, str)
+        and _RECORD_ID_PATTERN.fullmatch(action.record_id) is not None
+        and (action.target is None or isinstance(action.target, str))
+    )
+
+
+def _invalid_resolution_result() -> PendingResolutionResult:
+    return PendingResolutionResult(
+        action="unknown",
+        record_id="",
+        classification=None,
+        status="blocked",
+        reason="PENDING_RESOLUTION_NOT_APPLICABLE",
+    )
+
+
+def _resolution_result(
+    action: PendingResolutionAction,
+    *,
+    preview: PendingRecordPreview | None = None,
+    classification: PendingClassification | None = None,
+    status: PendingResolutionStatus,
+    reason: str,
+    item_id: str | None = None,
+) -> PendingResolutionResult:
+    return PendingResolutionResult(
+        action=action.action if isinstance(action.action, str) else "unknown",
+        record_id=action.record_id if isinstance(action.record_id, str) else "",
+        classification=(
+            preview.classification if preview is not None else classification
+        ),
+        status=status,
+        reason=reason,
+        target=action.target if isinstance(action.target, str) else None,
+        item_id=item_id,
+    )
+
+
+def _resolution_ready(
+    action: PendingResolutionAction,
+    preview: PendingRecordPreview,
+    *,
+    item_id: str | None = None,
+) -> PendingResolutionResult:
+    return _resolution_result(
+        action,
+        preview=preview,
+        status="ready",
+        reason="PENDING_RESOLUTION_READY",
+        item_id=item_id,
+    )
+
+
+def _resolution_blocked(
+    action: PendingResolutionAction,
+    preview: PendingRecordPreview,
+    reason: str,
+) -> tuple[None, PendingResolutionResult]:
+    return None, _resolution_result(
+        action,
+        preview=preview,
+        status="blocked",
+        reason=reason,
+    )
+
+
+def _audit_report(text: str) -> AuditReport:
+    from agent_brain.memory.governance.audit.scanner import audit_memory_text
+
+    return audit_memory_text(text)
+
+
+def _domain_digest(domain: str, value: object) -> str:
+    encoded = json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("utf-8")
+    return hashlib.sha256(domain.encode("utf-8") + b"\0" + encoded).hexdigest()
+
+
+def _audit_findings_digest(report: AuditReport) -> str:
+    findings = report.findings
+    rows = sorted(
+        (finding.rule_id, finding.severity, finding.category)
+        for finding in findings
+    )
+    return _domain_digest("amh.pending.audit-findings.v1", rows)
+
+
+def _preview_audit_resolution(
+    action: PendingResolutionAction,
+    preview: PendingRecordPreview,
+    raw: bytes,
+) -> tuple[_PendingResolutionSelection | None, PendingResolutionResult]:
+    if (
+        action.target is not None
+        or preview.classification != "audit_blocked"
+        or preview.reason != "AUDIT_BLOCKED"
+    ):
+        return _resolution_blocked(
+            action, preview, "PENDING_RESOLUTION_NOT_APPLICABLE"
+        )
+    rebuilt = _pending_write_input(Path(preview.path), raw, preview)
+    if rebuilt is None:
+        return _resolution_blocked(action, preview, "PENDING_RESOLUTION_CHANGED")
+    item, body, _allow_unsafe = rebuilt
+    if str(item.sensitivity) not in {"public", "internal"}:
+        return _resolution_blocked(
+            action, preview, "PENDING_AUDIT_APPROVAL_REQUIRED"
+        )
+    try:
+        report = _audit_report("\n".join((item.title, item.summary, body)))
+        digest = _audit_findings_digest(report)
+    except Exception:
+        return _resolution_blocked(
+            action, preview, "PENDING_AUDIT_FINDINGS_CHANGED"
+        )
+    if any(finding.category == "secrets" for finding in report.findings):
+        return _resolution_blocked(action, preview, "PENDING_AUDIT_SECRET_BLOCKED")
+    if report.passed:
+        return _resolution_blocked(action, preview, "PENDING_RESOLUTION_CHANGED")
+    return (
+        _PendingResolutionSelection(
+            action=action,
+            preview=preview,
+            audit_digest=digest,
+        ),
+        _resolution_ready(action, preview, item_id=item.id),
+    )
+
+
+def _preview_duplicate_resolution(
+    action: PendingResolutionAction,
+    preview: PendingRecordPreview,
+    raw: bytes,
+    existing_items: Mapping[str, MemoryItem],
+) -> tuple[_PendingResolutionSelection | None, PendingResolutionResult]:
+    if (
+        preview.classification != "duplicate_candidate"
+        or preview.reason != "SAME_SCOPE_METADATA_DUPLICATE"
+    ):
+        return _resolution_blocked(
+            action, preview, "PENDING_RESOLUTION_NOT_APPLICABLE"
+        )
+    if not is_valid_memory_item_id(action.target):
+        return _resolution_blocked(
+            action, preview, "PENDING_DUPLICATE_TARGET_MISMATCH"
+        )
+    rebuilt = _pending_write_input(Path(preview.path), raw, preview)
+    if rebuilt is None:
+        return _resolution_blocked(action, preview, "PENDING_RESOLUTION_CHANGED")
+    item, _body, _allow_unsafe = rebuilt
+    target = existing_items.get(cast(str, action.target))
+    if target is None or not (
+        _same_scope(item, target)
+        and str(item.type) == str(target.type)
+        and item.title.strip().lower() == target.title.strip().lower()
+        and item.summary.strip().lower() == target.summary.strip().lower()
+    ):
+        return _resolution_blocked(
+            action, preview, "PENDING_DUPLICATE_TARGET_MISMATCH"
+        )
+    digest = _domain_digest(
+        "amh.pending.resolution.target.v1",
+        target.model_dump(mode="json", exclude_none=False),
+    )
+    return (
+        _PendingResolutionSelection(
+            action=action,
+            preview=preview,
+            target_digest=digest,
+        ),
+        _resolution_ready(action, preview, item_id=item.id),
+    )
+
+
+def _preview_conversion_resolution(
+    action: PendingResolutionAction,
+    preview: PendingRecordPreview,
+    raw: bytes,
+) -> tuple[_PendingResolutionSelection | None, PendingResolutionResult]:
+    if (
+        preview.classification != "unsupported_type"
+        or preview.reason != "UNSUPPORTED_MEMORY_TYPE"
+    ):
+        return _resolution_blocked(
+            action, preview, "PENDING_RESOLUTION_NOT_APPLICABLE"
+        )
+    parsed = _pending_record_payload(Path(preview.path), raw, preview)
+    if parsed is None:
+        return _resolution_blocked(action, preview, "PENDING_CONVERSION_INVALID")
+    item, version, original_created_at, payload_sha256 = parsed
+    if action.target != "decision" or item.get("type") != "feedback":
+        return _resolution_blocked(action, preview, "PENDING_CONVERSION_UNSUPPORTED")
+    body = item.get("body", "")
+    if not isinstance(body, str) or preview._stable_item_id is None:
+        return _resolution_blocked(action, preview, "PENDING_CONVERSION_INVALID")
+    converted_body = (
+        f"**决策**\n\n{body.strip()}\n\n"
+        f"**理由**\n\n{_DECISION_CONVERSION_REASON}\n\n"
+        f"**改回去的代价**\n\n{_DECISION_CONVERSION_COST}"
+    )
+    converted = dict(item)
+    converted["type"] = "decision"
+    converted["body"] = converted_body
+    validated, reason = _validate_pending_item(
+        item=converted,
+        version=version,
+        stable_item_id=preview._stable_item_id,
+        original_created_at=original_created_at,
+        payload_sha256=payload_sha256,
+    )
+    if validated is None or reason is not None:
+        return _resolution_blocked(action, preview, "PENDING_CONVERSION_INVALID")
+    try:
+        report = _audit_report(
+            "\n".join((validated.title, validated.summary, converted_body))
+        )
+    except Exception:
+        report = None
+    if report is None or not report.passed:
+        return _resolution_blocked(action, preview, "PENDING_CONVERSION_INVALID")
+    digest = _domain_digest("amh.pending.resolution.target.v1", "decision")
+    return (
+        _PendingResolutionSelection(
+            action=action,
+            preview=preview,
+            target_digest=digest,
+        ),
+        _resolution_ready(action, preview, item_id=validated.id),
+    )
+
+
 def _pending_receipt_selection(record: PendingRecordPreview) -> PendingReceiptSelection:
     binding = record._record_sha256 or record.payload_sha256
     if binding is None or re.fullmatch(r"[0-9a-f]{64}", binding) is None:
@@ -2150,6 +2665,34 @@ def _pending_write_input(
 ) -> tuple[MemoryItem, str, bool] | None:
     """Rebuild the exact previewed item without trusting mutable wall-clock state."""
 
+    parsed = _pending_record_payload(path, raw, preview)
+    if parsed is None or preview._stable_item_id is None:
+        return None
+    item, version, original_created_at, payload_sha256 = parsed
+    validated, validation_reason = _validate_pending_item(
+        item=item,
+        version=version,
+        stable_item_id=preview._stable_item_id,
+        original_created_at=original_created_at,
+        payload_sha256=payload_sha256,
+    )
+    if validated is None or validation_reason is not None:
+        return None
+    body = item.get("body", "")
+    if not isinstance(body, str):
+        return None
+    # The apply boundary always re-runs the audit. A queued allow_unsafe bit
+    # cannot silently bypass a governance apply decision.
+    return validated, body, False
+
+
+def _pending_record_payload(
+    path: Path,
+    raw: bytes,
+    preview: PendingRecordPreview,
+) -> tuple[dict[str, object], int, datetime, str] | None:
+    """Re-validate the exact envelope while retaining unsupported raw item types."""
+
     try:
         line = raw.decode("utf-8").strip().splitlines()[0]
         record = json.loads(line, parse_constant=_reject_json_constant)
@@ -2172,7 +2715,7 @@ def _pending_write_input(
                 return None
         elif _legacy_record_id(path, record) != preview.record_id:
             return None
-        if preview.original_created_at is None or preview._stable_item_id is None:
+        if preview.original_created_at is None:
             return None
         original_created_at, reason = _parse_pending_time(
             preview.original_created_at,
@@ -2180,21 +2723,22 @@ def _pending_write_input(
         )
         if reason or original_created_at is None:
             return None
-        validated, validation_reason = _validate_pending_item(
-            item=item,
-            version=version,
-            stable_item_id=preview._stable_item_id,
-            original_created_at=original_created_at,
-            payload_sha256=payload_sha256,
+        raw_original = record.get("original_created_at")
+        if raw_original is None:
+            raw_original = item.get("created_at")
+        if raw_original is None:
+            raw_original = _enqueued_at_value(path, record, version=version)
+        current_original, current_reason = _parse_pending_time(
+            raw_original,
+            field="ORIGINAL_CREATED_AT",
         )
-        if validated is None or validation_reason is not None:
+        if (
+            current_reason
+            or current_original is None
+            or current_original != original_created_at
+        ):
             return None
-        body = item.get("body", "")
-        if not isinstance(body, str):
-            return None
-        # The apply boundary always re-runs the audit. A queued allow_unsafe bit
-        # cannot silently bypass a governance apply decision.
-        return validated, body, False
+        return item, version, original_created_at, payload_sha256
     except (IndexError, UnicodeError, ValueError, TypeError, OverflowError):
         return None
 
