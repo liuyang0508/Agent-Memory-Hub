@@ -211,6 +211,7 @@ _PUBLIC_PENDING_REASONS = frozenset(
         "PENDING_DUPLICATE_TARGET_MISMATCH",
         "PENDING_UNLINK_FAILED",
         "PENDING_WRITE_SERVICE_UNAVAILABLE",
+        "PENDING_WRITE_SERVICE_CLOSE_FAILED",
         "PLATFORM_UNSUPPORTED",
         "READY",
         "RECORD_ID_NOT_FOUND",
@@ -1168,6 +1169,15 @@ class _PendingResolutionSelection:
     preview: PendingRecordPreview
     audit_digest: str | None = None
     target_digest: str | None = None
+    recovery: bool = False
+
+
+@dataclass(frozen=True)
+class _PendingResolutionIntent:
+    item: MemoryItem
+    body: str
+    audit_digest: str | None = None
+    target_digest: str | None = None
 
 
 # Private compatibility for tests and integrations that imported the old name.
@@ -1641,8 +1651,8 @@ class PendingQueue:
             return stats
 
         result_slots: list[PendingResolutionResult | None] = [None] * len(requested)
-        valid: list[tuple[int, PendingResolutionAction]] = []
-        seen_valid: dict[tuple[str, str, str | None], int] = {}
+        structurally_valid: list[tuple[int, PendingResolutionAction]] = []
+        seen_valid: set[tuple[str, str, str, str]] = set()
         for request_index, candidate in enumerate(requested):
             if type(candidate) is not PendingResolutionAction:
                 result_slots[request_index] = _invalid_resolution_result()
@@ -1654,11 +1664,40 @@ class PendingQueue:
                     reason="PENDING_RESOLUTION_NOT_APPLICABLE",
                 )
                 continue
-            if candidate.target is None or type(candidate.target) is str:
-                key = (candidate.action, candidate.record_id, candidate.target)
-                if key in seen_valid:
-                    continue
-                seen_valid[key] = request_index
+            target_kind, target_value = _resolution_target_key(candidate.target)
+            key = (
+                candidate.action,
+                candidate.record_id,
+                target_kind,
+                target_value,
+            )
+            if key in seen_valid:
+                continue
+            seen_valid.add(key)
+            structurally_valid.append((request_index, candidate))
+        if not structurally_valid:
+            stats.results = [result for result in result_slots if result is not None]
+            return stats
+
+        by_record: dict[str, set[tuple[str, str, str]]] = {}
+        for _request_index, action in structurally_valid:
+            target_kind, target_value = _resolution_target_key(action.target)
+            by_record.setdefault(action.record_id, set()).add(
+                (action.action, target_kind, target_value)
+            )
+        if any(len(selections) > 1 for selections in by_record.values()):
+            stats.governance_reason = "CONFLICTING_PENDING_RESOLUTIONS"
+            for request_index, action in structurally_valid:
+                result_slots[request_index] = _resolution_result(
+                    action,
+                    status="blocked",
+                    reason="CONFLICTING_PENDING_RESOLUTIONS",
+                )
+            stats.results = [result for result in result_slots if result is not None]
+            return stats
+
+        valid: list[tuple[int, PendingResolutionAction]] = []
+        for request_index, candidate in structurally_valid:
             rejection_reason = _resolution_target_rejection_reason(candidate)
             if rejection_reason is not None:
                 result_slots[request_index] = _resolution_result(
@@ -1669,22 +1708,6 @@ class PendingQueue:
                 continue
             valid.append((request_index, candidate))
         if not valid:
-            stats.results = [result for result in result_slots if result is not None]
-            return stats
-
-        by_record: dict[str, set[tuple[str, str | None]]] = {}
-        for _request_index, action in valid:
-            by_record.setdefault(action.record_id, set()).add(
-                (action.action, action.target)
-            )
-        if any(len(selections) > 1 for selections in by_record.values()):
-            stats.governance_reason = "CONFLICTING_PENDING_RESOLUTIONS"
-            for request_index, action in valid:
-                result_slots[request_index] = _resolution_result(
-                    action,
-                    status="blocked",
-                    reason="CONFLICTING_PENDING_RESOLUTIONS",
-                )
             stats.results = [result for result in result_slots if result is not None]
             return stats
 
@@ -1748,6 +1771,8 @@ class PendingQueue:
         self,
         valid: list[tuple[int, PendingResolutionAction]],
         result_slots: list[PendingResolutionResult | None],
+        *,
+        recovery_store: ItemsStore | None = None,
     ) -> tuple[PendingPreview | None, list[tuple[int, _PendingResolutionSelection]]]:
         snapshot = _pending_record_paths(self._brain_dir() / "pending")
         catalog = _scan_existing_item_metadata(self._brain_dir() / "items")
@@ -1793,6 +1818,7 @@ class PendingQueue:
                     action,
                     matches[0],
                     catalog.items,
+                    recovery_store=recovery_store,
                 )
                 result_slots[request_index] = result
                 if selection is not None:
@@ -1811,7 +1837,11 @@ class PendingQueue:
         """Apply resolutions while queue and catalog locks are held."""
 
         stats = PendingResolutionStats(dry_run=False)
-        preview, ready = self._plan_resolutions(valid, result_slots)
+        preview, ready = self._plan_resolutions(
+            valid,
+            result_slots,
+            recovery_store=store,
+        )
         if preview is None or not ready:
             stats.results = [result for result in result_slots if result is not None]
             return stats
@@ -1841,6 +1871,7 @@ class PendingQueue:
         stats.receipt = prepared
 
         service = None
+        close_warning: str | None = None
         try:
             for request_index, selection in ready:
                 if selection.action.action != "accept_duplicate" and service is None:
@@ -1863,16 +1894,27 @@ class PendingQueue:
                 )
         finally:
             if service is not None:
-                service.close()
+                try:
+                    service.close()
+                except Exception:
+                    close_warning = "PENDING_WRITE_SERVICE_CLOSE_FAILED"
 
         if gc_orphan_locks:
             stats.lock_gc_report = self._collect_record_locks()
+        if close_warning is not None:
+            stats.governance_reason = close_warning
         stats.results = [result for result in result_slots if result is not None]
-        batch_warnings = (
-            (stats.lock_gc_report.reason,)
-            if stats.lock_gc_report is not None
-            and stats.lock_gc_report.reason is not None
-            else ()
+        batch_warnings = tuple(
+            warning
+            for warning in (
+                close_warning,
+                (
+                    stats.lock_gc_report.reason
+                    if stats.lock_gc_report is not None
+                    else None
+                ),
+            )
+            if warning is not None
         )
         try:
             completed = complete_pending_receipt(
@@ -1932,6 +1974,16 @@ class PendingQueue:
                         preview=preview,
                         status="blocked",
                         reason="PENDING_RESOLUTION_CHANGED",
+                    )
+
+                if selection.recovery:
+                    return self._recover_resolution(
+                        selection,
+                        raw=raw,
+                        expected_hash=expected_hash,
+                        expected_identity=expected_identity,
+                        store=store,
+                        service=service,
                     )
 
                 if action.action == "accept_duplicate":
@@ -2020,6 +2072,71 @@ class PendingQueue:
             )
 
     @staticmethod
+    def _recover_resolution(
+        selection: _PendingResolutionSelection,
+        *,
+        raw: bytes,
+        expected_hash: str,
+        expected_identity: tuple[int, int],
+        store: ItemsStore,
+        service: object | None,
+    ) -> PendingResolutionResult:
+        action = selection.action
+        preview = selection.preview
+        intent, reason, item_id = _resolution_intent(action, preview, raw)
+        if intent is None or item_id is None or service is None:
+            return _resolution_result(
+                action,
+                preview=preview,
+                status="blocked",
+                reason=reason or "PENDING_RESOLUTION_CHANGED",
+            )
+        if (
+            intent.audit_digest != selection.audit_digest
+            or intent.target_digest != selection.target_digest
+        ):
+            return _resolution_result(
+                action,
+                preview=preview,
+                status="blocked",
+                reason="PENDING_RESOLUTION_CHANGED",
+            )
+        with store.locked_items([item_id]) as locked:
+            try:
+                existing, existing_body = locked.get(item_id)
+            except FileNotFoundError:
+                return _resolution_result(
+                    action,
+                    preview=preview,
+                    status="blocked",
+                    reason="PENDING_RESOLUTION_CHANGED",
+                )
+            if not _matches_resolution_existing(intent, existing, existing_body):
+                return _resolution_result(
+                    action,
+                    preview=preview,
+                    status="blocked",
+                    reason="PENDING_RESOLUTION_CHANGED",
+                )
+            reconcile = getattr(service, "reconcile_existing")
+            repaired = reconcile(item=existing, body=existing_body)
+            if "source-ledger" in repaired.degraded:
+                return _resolution_result(
+                    action,
+                    preview=preview,
+                    status="failed",
+                    reason="SOURCE_LEDGER_REPAIR_REQUIRED",
+                    item_id=_result_item_id(preview, item_id),
+                )
+            return _unlink_applied_resolution(
+                selection,
+                expected_hash=expected_hash,
+                expected_identity=expected_identity,
+                item_id=item_id,
+                index_repair_required="index" in repaired.degraded,
+            )
+
+    @staticmethod
     def _apply_duplicate_resolution(
         selection: _PendingResolutionSelection,
         *,
@@ -2087,6 +2204,8 @@ class PendingQueue:
         action: PendingResolutionAction,
         preview: PendingRecordPreview,
         existing_items: Mapping[str, MemoryItem],
+        *,
+        recovery_store: ItemsStore | None = None,
     ) -> tuple[_PendingResolutionSelection | None, PendingResolutionResult]:
         expected_hash = preview._record_sha256
         expected_identity = preview._record_identity
@@ -2098,6 +2217,16 @@ class PendingQueue:
             return _resolution_blocked(action, preview, "PENDING_RESOLUTION_CHANGED")
         if identity != expected_identity or hashlib.sha256(raw).hexdigest() != expected_hash:
             return _resolution_blocked(action, preview, "PENDING_RESOLUTION_CHANGED")
+        if recovery_store is not None:
+            recovery = _preview_recovery_resolution(
+                action,
+                preview,
+                raw,
+                existing_items=existing_items,
+                store=recovery_store,
+            )
+            if recovery is not None:
+                return recovery
         if preview.classification == "conflict":
             return _resolution_blocked(action, preview, preview.reason)
 
@@ -2527,6 +2656,14 @@ def _valid_resolution_action_structure(action: PendingResolutionAction) -> bool:
     )
 
 
+def _resolution_target_key(target: object) -> tuple[str, str]:
+    if target is None:
+        return "none", ""
+    if type(target) is str:
+        return "string", target
+    return "invalid", ""
+
+
 def _resolution_target_rejection_reason(
     action: PendingResolutionAction,
 ) -> str | None:
@@ -2664,32 +2801,20 @@ def _preview_audit_resolution(
         return _resolution_blocked(
             action, preview, "PENDING_RESOLUTION_NOT_APPLICABLE"
         )
-    rebuilt = _pending_write_input(Path(preview.path), raw, preview)
-    if rebuilt is None:
-        return _resolution_blocked(action, preview, "PENDING_RESOLUTION_CHANGED")
-    item, body, _allow_unsafe = rebuilt
-    if str(item.sensitivity) not in {"public", "internal"}:
+    intent, reason, item_id = _resolution_intent(action, preview, raw)
+    if intent is None:
         return _resolution_blocked(
-            action, preview, "PENDING_AUDIT_APPROVAL_REQUIRED"
+            action,
+            preview,
+            reason or "PENDING_RESOLUTION_CHANGED",
         )
-    try:
-        report = _audit_report("\n".join((item.title, item.summary, body)))
-        digest = _audit_findings_digest(report)
-    except Exception:
-        return _resolution_blocked(
-            action, preview, "PENDING_AUDIT_FINDINGS_CHANGED"
-        )
-    if any(finding.category == "secrets" for finding in report.findings):
-        return _resolution_blocked(action, preview, "PENDING_AUDIT_SECRET_BLOCKED")
-    if report.passed:
-        return _resolution_blocked(action, preview, "PENDING_RESOLUTION_CHANGED")
     return (
         _PendingResolutionSelection(
             action=action,
             preview=preview,
-            audit_digest=digest,
+            audit_digest=intent.audit_digest,
         ),
-        _resolution_ready(action, preview, item_id=item.id),
+        _resolution_ready(action, preview, item_id=item_id),
     )
 
 
@@ -2733,6 +2858,131 @@ def _preview_duplicate_resolution(
     )
 
 
+def _preview_recovery_resolution(
+    action: PendingResolutionAction,
+    preview: PendingRecordPreview,
+    raw: bytes,
+    *,
+    existing_items: Mapping[str, MemoryItem],
+    store: ItemsStore,
+) -> tuple[_PendingResolutionSelection | None, PendingResolutionResult] | None:
+    intent, reason, item_id = _resolution_intent(action, preview, raw)
+    if item_id is None or item_id not in existing_items:
+        return None
+    if intent is None:
+        return _resolution_blocked(
+            action,
+            preview,
+            reason or "PENDING_RESOLUTION_CHANGED",
+        )
+    try:
+        existing, existing_body = store.get_nofollow(item_id)
+    except (FileNotFoundError, OSError, UnicodeError, ValueError):
+        return _resolution_blocked(action, preview, "PENDING_RESOLUTION_CHANGED")
+    if not _matches_resolution_existing(intent, existing, existing_body):
+        return _resolution_blocked(action, preview, "PENDING_RESOLUTION_CHANGED")
+    return (
+        _PendingResolutionSelection(
+            action=action,
+            preview=preview,
+            audit_digest=intent.audit_digest,
+            target_digest=intent.target_digest,
+            recovery=True,
+        ),
+        _resolution_ready(action, preview, item_id=item_id),
+    )
+
+
+def _resolution_intent(
+    action: PendingResolutionAction,
+    preview: PendingRecordPreview,
+    raw: bytes,
+) -> tuple[_PendingResolutionIntent | None, str | None, str | None]:
+    if action.action == "approve_audit":
+        rebuilt = _pending_write_input(Path(preview.path), raw, preview)
+        if rebuilt is None:
+            return None, "PENDING_RESOLUTION_CHANGED", preview._stable_item_id
+        item, body, _allow_unsafe = rebuilt
+        if str(item.sensitivity) not in {"public", "internal"}:
+            return None, "PENDING_AUDIT_APPROVAL_REQUIRED", item.id
+        try:
+            report = _audit_report("\n".join((item.title, item.summary, body)))
+        except Exception:
+            return None, "PENDING_AUDIT_FINDINGS_CHANGED", item.id
+        if any(finding.category == "secrets" for finding in report.findings):
+            return None, "PENDING_AUDIT_SECRET_BLOCKED", item.id
+        if report.passed:
+            return None, "PENDING_RESOLUTION_CHANGED", item.id
+        digest = _audit_findings_digest(report)
+        return _PendingResolutionIntent(item, body, audit_digest=digest), None, item.id
+
+    parsed = _pending_record_payload(Path(preview.path), raw, preview)
+    if parsed is None:
+        return None, "PENDING_CONVERSION_INVALID", preview._stable_item_id
+    if parsed[0].get("type") != "feedback":
+        return None, "PENDING_CONVERSION_UNSUPPORTED", preview._stable_item_id
+    converted = _converted_pending_write(preview, raw)
+    if converted is None:
+        return None, "PENDING_CONVERSION_INVALID", preview._stable_item_id
+    item, body = converted
+    try:
+        conversion_report = _audit_report(
+            "\n".join((item.title, item.summary, body))
+        )
+    except Exception:
+        conversion_report = None
+    if conversion_report is None or not conversion_report.passed:
+        return None, "PENDING_CONVERSION_INVALID", item.id
+    return (
+        _PendingResolutionIntent(
+            item,
+            body,
+            target_digest=_domain_digest(
+                "amh.pending.resolution.target.v1",
+                "decision",
+            ),
+        ),
+        None,
+        item.id,
+    )
+
+
+def _matches_resolution_existing(
+    intent: _PendingResolutionIntent,
+    existing: MemoryItem,
+    existing_body: str,
+) -> bool:
+    if (
+        not _same_scope(intent.item, existing)
+        or intent.body.rstrip() != existing_body.rstrip()
+    ):
+        return False
+    from agent_brain.memory.store.field_enrichment import enrich_memory_item
+    from agent_brain.memory.store.write_service import _mark_boundary_review_candidate
+
+    expected, _warning = _mark_boundary_review_candidate(intent.item)
+    expected = enrich_memory_item(expected)
+    expected_data = expected.model_dump(mode="json", exclude_none=False)
+    existing_data = existing.model_dump(mode="json", exclude_none=False)
+    expected_refs = cast(dict[str, object], expected_data["refs"])
+    existing_refs = cast(dict[str, object], existing_data["refs"])
+    for field in ("files", "urls", "mems", "commits"):
+        if expected_refs[field] != existing_refs[field]:
+            return False
+    for field in ("resources", "extractions"):
+        wanted = cast(list[str], expected_refs[field])
+        stored = cast(list[str], existing_refs[field])
+        if wanted:
+            if stored != wanted:
+                return False
+        elif len(stored) > 1:
+            return False
+    if bool(existing_refs["resources"]) != bool(existing_refs["extractions"]):
+        return False
+    existing_data["refs"] = expected_refs
+    return existing_data == expected_data
+
+
 def _matches_duplicate_target(
     item: MemoryItem,
     target: MemoryItem | None,
@@ -2759,31 +3009,20 @@ def _preview_conversion_resolution(
         )
     if action.target != "decision":
         return _resolution_blocked(action, preview, "PENDING_CONVERSION_UNSUPPORTED")
-    parsed = _pending_record_payload(Path(preview.path), raw, preview)
-    if parsed is None:
-        return _resolution_blocked(action, preview, "PENDING_CONVERSION_INVALID")
-    if parsed[0].get("type") != "feedback":
-        return _resolution_blocked(action, preview, "PENDING_CONVERSION_UNSUPPORTED")
-    converted = _converted_pending_write(preview, raw)
-    if converted is None:
-        return _resolution_blocked(action, preview, "PENDING_CONVERSION_INVALID")
-    validated, converted_body = converted
-    try:
-        report = _audit_report(
-            "\n".join((validated.title, validated.summary, converted_body))
+    intent, reason, item_id = _resolution_intent(action, preview, raw)
+    if intent is None:
+        return _resolution_blocked(
+            action,
+            preview,
+            reason or "PENDING_CONVERSION_INVALID",
         )
-    except Exception:
-        report = None
-    if report is None or not report.passed:
-        return _resolution_blocked(action, preview, "PENDING_CONVERSION_INVALID")
-    target_digest = _domain_digest("amh.pending.resolution.target.v1", "decision")
     return (
         _PendingResolutionSelection(
             action=action,
             preview=preview,
-            target_digest=target_digest,
+            target_digest=intent.target_digest,
         ),
-        _resolution_ready(action, preview, item_id=validated.id),
+        _resolution_ready(action, preview, item_id=item_id),
     )
 
 

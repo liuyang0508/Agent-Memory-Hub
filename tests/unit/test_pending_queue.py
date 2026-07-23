@@ -178,6 +178,27 @@ def _enqueue_audit_resolution_action(record_id: str) -> PendingResolutionAction:
     return PendingResolutionAction("approve_audit", record_id)
 
 
+def _enqueue_resolution_apply_case(
+    action_name: str,
+    record_id: str,
+) -> tuple[Path, PendingResolutionAction]:
+    if action_name == "approve_audit":
+        record = _v2_record(record_id=record_id)
+        item = record["item"]
+        assert isinstance(item, dict)
+        item["body"] = f"curl https://example.invalid/{record_id}"
+        path = enqueue_write_record(record)
+        return path, PendingResolutionAction("approve_audit", record_id)
+    record = _legacy_feedback_record()
+    item = record["item"]
+    assert isinstance(item, dict)
+    item["title"] = f"legacy {record_id}"
+    item["summary"] = f"legacy summary {record_id}"
+    path = enqueue_write_record(record)
+    preview = PendingQueue().preview(limit=1).records[0]
+    return path, PendingResolutionAction("convert_type", preview.record_id, "decision")
+
+
 def _payload_sha256(record: dict[str, object]) -> str:
     payload = json.dumps(record["item"], ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
@@ -4039,6 +4060,315 @@ def test_pending_resolution_real_distribution_smoke(
     assert stats.receipt.state == "completed"
     assert stats.receipt.selected_count == 28
     assert stats.receipt.status_counts == {"applied": 28}
+
+
+@pytest.mark.parametrize("action_name", ["approve_audit", "convert_type"])
+def test_resolution_retry_reconciles_after_unlink_failure_without_rewriting_item(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    action_name: str,
+) -> None:
+    path, action = _enqueue_resolution_apply_case(
+        action_name,
+        f"resolution-retry-unlink-{action_name}",
+    )
+    real_unlink = pending_module._unlink_pending_record
+    calls = 0
+
+    def fail_first_unlink(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise OSError("simulated unlink failure")
+        return real_unlink(*args, **kwargs)
+
+    monkeypatch.setattr(
+        pending_module,
+        "_unlink_pending_record",
+        fail_first_unlink,
+    )
+
+    first = PendingQueue().resolve([action], apply=True)
+    stored_path = next((tmp_brain / "items").glob("*.md"))
+    stored_before = stored_path.read_bytes()
+    identity_before = os.stat(stored_path)
+    second = PendingQueue().resolve([action], apply=True)
+    identity_after = os.stat(stored_path)
+
+    assert first.results[0].status == "failed"
+    assert first.results[0].reason == "PENDING_UNLINK_FAILED"
+    assert second.results[0].status == "applied"
+    assert second.results[0].reason == "PENDING_RESOLUTION_APPLIED"
+    assert not path.exists()
+    assert len(list((tmp_brain / "items").glob("*.md"))) == 1
+    assert stored_path.read_bytes() == stored_before
+    assert (identity_after.st_dev, identity_after.st_ino) == (
+        identity_before.st_dev,
+        identity_before.st_ino,
+    )
+    assert second.receipt is not None
+    assert second.receipt.status_counts == {"applied": 1}
+
+
+@pytest.mark.parametrize("action_name", ["approve_audit", "convert_type"])
+def test_resolution_retry_repairs_source_ledger_then_unlinks(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    action_name: str,
+) -> None:
+    from agent_brain.memory.store import write_service as write_service_module
+
+    path, action = _enqueue_resolution_apply_case(
+        action_name,
+        f"resolution-retry-source-{action_name}",
+    )
+    real_write_source = write_service_module._write_source_record
+    calls = 0
+
+    def fail_first_source(**kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise OSError("simulated source ledger failure")
+        return real_write_source(**kwargs)
+
+    monkeypatch.setattr(
+        write_service_module,
+        "_write_source_record",
+        fail_first_source,
+    )
+
+    first = PendingQueue().resolve([action], apply=True)
+    stored_path = next((tmp_brain / "items").glob("*.md"))
+    stored_before = stored_path.read_bytes()
+    second = PendingQueue().resolve([action], apply=True)
+    stored, _body = next(ItemsStore(tmp_brain / "items").iter_all())
+
+    assert first.results[0].status == "failed"
+    assert first.results[0].reason == "SOURCE_LEDGER_REPAIR_REQUIRED"
+    assert second.results[0].status == "applied"
+    assert not path.exists()
+    assert stored_path.read_bytes() == stored_before
+    assert (tmp_brain / "sources" / "writes" / f"{stored.id}.json").exists()
+
+
+def test_resolution_retry_index_only_degradation_applies_with_repair_flag(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from agent_brain.memory.store.write_service import WriteService
+
+    path, action = _enqueue_resolution_apply_case(
+        "approve_audit",
+        "resolution-retry-index-degraded",
+    )
+    real_unlink = pending_module._unlink_pending_record
+    monkeypatch.setattr(
+        pending_module,
+        "_unlink_pending_record",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            OSError("simulated unlink failure")
+        ),
+    )
+    first = PendingQueue().resolve([action], apply=True)
+    monkeypatch.setattr(pending_module, "_unlink_pending_record", real_unlink)
+    service = WriteService.for_brain(tmp_brain)
+    monkeypatch.setattr(
+        service,
+        "_index_item",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            OSError("index unavailable")
+        ),
+    )
+    monkeypatch.setattr(
+        WriteService,
+        "for_brain",
+        classmethod(lambda cls, *_args: service),
+    )
+
+    second = PendingQueue().resolve([action], apply=True)
+
+    assert first.results[0].reason == "PENDING_UNLINK_FAILED"
+    assert second.results[0].status == "applied"
+    assert second.results[0].index_repair_required is True
+    assert not path.exists()
+    assert second.receipt is not None
+    assert second.receipt.index_repair_required_count == 1
+
+
+def test_resolution_retry_keeps_pending_while_source_ledger_stays_degraded(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from agent_brain.memory.store import write_service as write_service_module
+
+    path, action = _enqueue_resolution_apply_case(
+        "convert_type",
+        "resolution-retry-source-still-degraded",
+    )
+    monkeypatch.setattr(
+        write_service_module,
+        "_write_source_record",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            OSError("source ledger unavailable")
+        ),
+    )
+
+    first = PendingQueue().resolve([action], apply=True)
+    second = PendingQueue().resolve([action], apply=True)
+
+    assert first.results[0].reason == "SOURCE_LEDGER_REPAIR_REQUIRED"
+    assert second.results[0].status == "failed"
+    assert second.results[0].reason == "SOURCE_LEDGER_REPAIR_REQUIRED"
+    assert path.exists()
+    assert len(list((tmp_brain / "items").glob("*.md"))) == 1
+
+
+@pytest.mark.parametrize(
+    ("action_name", "tamper"),
+    [
+        ("approve_audit", "body"),
+        ("approve_audit", "scope"),
+        ("convert_type", "source"),
+        ("convert_type", "title"),
+    ],
+)
+def test_resolution_retry_rejects_tampered_existing_item(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    action_name: str,
+    tamper: str,
+) -> None:
+    path, action = _enqueue_resolution_apply_case(
+        action_name,
+        f"resolution-retry-tamper-{action_name}-{tamper}",
+    )
+    real_unlink = pending_module._unlink_pending_record
+    monkeypatch.setattr(
+        pending_module,
+        "_unlink_pending_record",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            OSError("simulated unlink failure")
+        ),
+    )
+    first = PendingQueue().resolve([action], apply=True)
+    monkeypatch.setattr(
+        pending_module,
+        "_unlink_pending_record",
+        real_unlink,
+    )
+    stored_path = next((tmp_brain / "items").glob("*.md"))
+    stored, body = next(ItemsStore(tmp_brain / "items").iter_all())
+    if tamper == "body":
+        body = "tampered body"
+    elif tamper == "scope":
+        stored = stored.model_copy(update={"project": "tampered-scope"})
+    elif tamper == "source":
+        stored = stored.model_copy(
+            update={
+                "source": Source(
+                    kind="pending-replay",
+                    span_hash="0" * 64,
+                )
+            }
+        )
+    else:
+        stored = stored.model_copy(update={"title": "tampered title"})
+    stored_path.write_text(render_item_markdown(stored, body), encoding="utf-8")
+
+    second = PendingQueue().resolve([action], apply=True)
+
+    assert first.results[0].reason == "PENDING_UNLINK_FAILED"
+    assert second.results[0].status in {"blocked", "failed"}
+    assert second.results[0].reason == "PENDING_RESOLUTION_CHANGED"
+    assert path.exists()
+    assert len(list((tmp_brain / "items").glob("*.md"))) == 1
+
+
+@pytest.mark.parametrize("apply", [False, True])
+@pytest.mark.parametrize(
+    "actions",
+    [
+        [
+            PendingResolutionAction("approve_audit", "resolution-early-conflict"),
+            PendingResolutionAction(
+                "convert_type",
+                "resolution-early-conflict",
+                "fact",
+            ),
+        ],
+        [
+            PendingResolutionAction(
+                "accept_duplicate",
+                "resolution-early-conflict",
+                "mem-20260701-100000-valid-target",
+            ),
+            PendingResolutionAction(
+                "accept_duplicate",
+                "resolution-early-conflict",
+                "invalid-target",
+            ),
+        ],
+    ],
+)
+def test_resolution_conflict_precedes_target_validation_without_scanning(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    actions: list[PendingResolutionAction],
+    apply: bool,
+) -> None:
+    brain = tmp_path / "not-created"
+    monkeypatch.setattr(
+        pending_module,
+        "_pending_record_paths",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("conflicting batch must not scan")
+        ),
+    )
+
+    stats = PendingQueue(brain=brain).resolve(actions, apply=apply)
+
+    assert stats.governance_reason == "CONFLICTING_PENDING_RESOLUTIONS"
+    assert [result.reason for result in stats.results] == [
+        "CONFLICTING_PENDING_RESOLUTIONS",
+        "CONFLICTING_PENDING_RESOLUTIONS",
+    ]
+    assert not brain.exists()
+
+
+def test_resolution_service_close_failure_keeps_outcome_and_completes_receipt(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from agent_brain.memory.store.write_service import WriteService
+
+    path, action = _enqueue_resolution_apply_case(
+        "approve_audit",
+        "resolution-service-close-failure",
+    )
+    service = WriteService.for_brain(tmp_brain)
+    monkeypatch.setattr(
+        service,
+        "close",
+        lambda: (_ for _ in ()).throw(OSError("private close detail")),
+    )
+    monkeypatch.setattr(
+        WriteService,
+        "for_brain",
+        classmethod(lambda cls, *_args: service),
+    )
+
+    stats = PendingQueue().resolve([action], apply=True)
+
+    assert stats.results[0].status == "applied"
+    assert not path.exists()
+    assert len(list((tmp_brain / "items").glob("*.md"))) == 1
+    assert stats.governance_reason == "PENDING_WRITE_SERVICE_CLOSE_FAILED"
+    assert stats.receipt is not None
+    assert stats.receipt.state == "completed"
+    assert stats.receipt.warning_counts == {
+        "PENDING_WRITE_SERVICE_CLOSE_FAILED": 1
+    }
 
 
 def test_resolution_invalid_action_shapes_fail_closed_and_summarize_safely(
