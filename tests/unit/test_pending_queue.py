@@ -180,6 +180,17 @@ def _stable_item_id(record: dict[str, object]) -> str:
     return f"mem-{created_at:%Y%m%d-%H%M%S}-{slug or 'pending'}-{stable}"
 
 
+def _expected_domain_digest(domain: str, value: object) -> str:
+    encoded = json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("utf-8")
+    return hashlib.sha256(domain.encode("utf-8") + b"\0" + encoded).hexdigest()
+
+
 def _freeze_now(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("agent_brain.memory.store.pending._utc_now", lambda: NOW, raising=False)
 
@@ -2963,6 +2974,19 @@ def test_resolution_preview_validates_all_supported_actions_without_mutation(
         record for record in initial.records if record.classification == "unsupported_type"
     )
     before = _tree_snapshot(tmp_brain)
+    selections: list[object] = []
+    validate_resolution = PendingQueue._validate_resolution
+
+    def capture_private_selection(*args, **kwargs):
+        selection, result = validate_resolution(*args, **kwargs)
+        selections.append(selection)
+        return selection, result
+
+    monkeypatch.setattr(
+        PendingQueue,
+        "_validate_resolution",
+        capture_private_selection,
+    )
 
     stats = PendingQueue().resolve(
         [
@@ -2991,6 +3015,44 @@ def test_resolution_preview_validates_all_supported_actions_without_mutation(
     assert all(result.item_id is not None for result in stats.results)
     assert stats.receipt is None
     assert stats.lock_gc_report is None
+    assert len(selections) == 3
+    assert all(selection is not None for selection in selections)
+    private_digests = {
+        digest
+        for selection in selections
+        for digest in (
+            selection.audit_digest,  # type: ignore[union-attr]
+            selection.target_digest,  # type: ignore[union-attr]
+        )
+        if digest is not None
+    }
+    assert len(private_digests) == 3
+    assert all(re.fullmatch(r"[0-9a-f]{64}", digest) for digest in private_digests)
+    target_item, _target_body = ItemsStore(tmp_brain / "items").get_nofollow(target_id)
+    expected_target_digest = _expected_domain_digest(
+        "amh.pending.resolution.target.v1",
+        target_item.model_dump(mode="json", exclude_none=False),
+    )
+    expected_conversion_digest = _expected_domain_digest(
+        "amh.pending.resolution.target.v1",
+        "decision",
+    )
+    assert expected_target_digest in private_digests
+    assert expected_conversion_digest in private_digests
+    public_json = json.dumps(
+        {
+            "detail": stats.to_dict(),
+            "summary": stats.to_summary_dict(),
+        },
+        sort_keys=True,
+    )
+    filesystem_text = b"\n".join(
+        content
+        for _path, content in _tree_snapshot(tmp_brain)
+        if content is not None
+    ).decode("utf-8", errors="replace")
+    assert all(digest not in public_json for digest in private_digests)
+    assert all(digest not in filesystem_text for digest in private_digests)
     assert _tree_snapshot(tmp_brain) == before
 
 
@@ -3666,3 +3728,54 @@ def test_resolution_duplicate_revalidates_target_snapshot(
     assert result.status == "blocked"
     assert result.reason == "PENDING_RESOLUTION_CHANGED"
     assert pending_path.read_bytes() == pending_bytes
+
+
+def test_resolution_audit_digest_is_deterministic_and_order_independent() -> None:
+    first = SimpleNamespace(rule_id="NET-002", severity="high", category="network")
+    second = SimpleNamespace(rule_id="CODE-001", severity="critical", category="code")
+    forward = SimpleNamespace(findings=[first, second])
+    reverse = SimpleNamespace(findings=[second, first])
+    expected = _expected_domain_digest(
+        "amh.pending.audit-findings.v1",
+        [
+            ("CODE-001", "critical", "code"),
+            ("NET-002", "high", "network"),
+        ],
+    )
+
+    assert pending_module._audit_findings_digest(forward) == expected
+    assert pending_module._audit_findings_digest(reverse) == expected
+
+
+def test_resolution_duplicate_blocks_when_fresh_target_digest_changes(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    record = _v2_record(record_id="resolution-target-digest-drift")
+    target_id = "mem-20260701-100000-resolution-target-digest-drift"
+    _write_existing_item(
+        tmp_brain,
+        record,
+        item_id=target_id,
+        span_hash="different-payload",
+    )
+    enqueue_write_record(record)
+    digests = iter(("a" * 64, "b" * 64))
+    domains: list[str] = []
+
+    def drifting_digest(domain: str, _value: object) -> str:
+        domains.append(domain)
+        return next(digests)
+
+    monkeypatch.setattr(pending_module, "_domain_digest", drifting_digest)
+
+    result = PendingQueue().resolve(
+        [PendingResolutionAction("accept_duplicate", str(record["record_id"]), target_id)]
+    ).results[0]
+
+    assert domains == [
+        "amh.pending.resolution.target.v1",
+        "amh.pending.resolution.target.v1",
+    ]
+    assert result.status == "blocked"
+    assert result.reason == "PENDING_RESOLUTION_CHANGED"

@@ -1160,6 +1160,14 @@ class PendingItemCatalogSnapshot:
     metadata_bytes: int = 0
 
 
+@dataclass(frozen=True)
+class _PendingResolutionSelection:
+    action: PendingResolutionAction
+    preview: PendingRecordPreview
+    audit_digest: str | None = None
+    target_digest: str | None = None
+
+
 # Private compatibility for tests and integrations that imported the old name.
 _ItemMetadataSnapshot = PendingItemCatalogSnapshot
 
@@ -1703,6 +1711,7 @@ class PendingQueue:
         by_id: dict[str, list[PendingRecordPreview]] = {}
         for record in preview.records:
             by_id.setdefault(record.record_id, []).append(record)
+        ready_selections: list[_PendingResolutionSelection] = []
         for action in valid:
             matches = by_id.get(action.record_id, [])
             if not matches:
@@ -1723,12 +1732,16 @@ class PendingQueue:
                     )
                 )
             else:
-                result = self._validate_resolution(
+                selected_preview = matches[0]
+                selection, result = self._validate_resolution(
                     action,
-                    matches[0],
+                    selected_preview,
                     catalog.items,
                 )
+                if selection is not None:
+                    ready_selections.append(selection)
                 stats.results.append(result)
+        assert len(ready_selections) <= len(valid)
         return stats
 
     def _validate_resolution(
@@ -1736,7 +1749,7 @@ class PendingQueue:
         action: PendingResolutionAction,
         preview: PendingRecordPreview,
         existing_items: Mapping[str, MemoryItem],
-    ) -> PendingResolutionResult:
+    ) -> tuple[_PendingResolutionSelection | None, PendingResolutionResult]:
         expected_hash = preview._record_sha256
         expected_identity = preview._record_identity
         if expected_hash is None or expected_identity is None:
@@ -2279,8 +2292,8 @@ def _resolution_blocked(
     action: PendingResolutionAction,
     preview: PendingRecordPreview,
     reason: str,
-) -> PendingResolutionResult:
-    return _resolution_result(
+) -> tuple[None, PendingResolutionResult]:
+    return None, _resolution_result(
         action,
         preview=preview,
         status="blocked",
@@ -2294,11 +2307,30 @@ def _audit_report(text: str) -> AuditReport:
     return audit_memory_text(text)
 
 
+def _domain_digest(domain: str, value: object) -> str:
+    encoded = json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("utf-8")
+    return hashlib.sha256(domain.encode("utf-8") + b"\0" + encoded).hexdigest()
+
+
+def _audit_findings_digest(report: AuditReport) -> str:
+    rows = sorted(
+        (finding.rule_id, finding.severity, finding.category)
+        for finding in report.findings
+    )
+    return _domain_digest("amh.pending.audit-findings.v1", rows)
+
+
 def _preview_audit_resolution(
     action: PendingResolutionAction,
     preview: PendingRecordPreview,
     raw: bytes,
-) -> PendingResolutionResult:
+) -> tuple[_PendingResolutionSelection | None, PendingResolutionResult]:
     if (
         action.target is not None
         or preview.classification != "audit_blocked"
@@ -2317,6 +2349,7 @@ def _preview_audit_resolution(
         )
     try:
         report = _audit_report("\n".join((item.title, item.summary, body)))
+        digest = _audit_findings_digest(report)
     except Exception:
         return _resolution_blocked(
             action, preview, "PENDING_AUDIT_FINDINGS_CHANGED"
@@ -2325,7 +2358,14 @@ def _preview_audit_resolution(
         return _resolution_blocked(action, preview, "PENDING_AUDIT_SECRET_BLOCKED")
     if report.passed:
         return _resolution_blocked(action, preview, "PENDING_RESOLUTION_CHANGED")
-    return _resolution_ready(action, preview, item_id=item.id)
+    return (
+        _PendingResolutionSelection(
+            action=action,
+            preview=preview,
+            audit_digest=digest,
+        ),
+        _resolution_ready(action, preview, item_id=item.id),
+    )
 
 
 def _preview_duplicate_resolution(
@@ -2334,7 +2374,7 @@ def _preview_duplicate_resolution(
     raw: bytes,
     existing_items: Mapping[str, MemoryItem],
     items_dir: Path,
-) -> PendingResolutionResult:
+) -> tuple[_PendingResolutionSelection | None, PendingResolutionResult]:
     if (
         preview.classification != "duplicate_candidate"
         or preview.reason != "SAME_SCOPE_METADATA_DUPLICATE"
@@ -2355,17 +2395,32 @@ def _preview_duplicate_resolution(
         return _resolution_blocked(
             action, preview, "PENDING_DUPLICATE_TARGET_MISMATCH"
         )
+    target_digest = _domain_digest(
+        "amh.pending.resolution.target.v1",
+        target.model_dump(mode="json", exclude_none=False),
+    )
     fresh_catalog = _scan_existing_item_metadata(items_dir)
     current_target = fresh_catalog.items.get(cast(str, action.target))
     if (
         not fresh_catalog.trusted
         or current_target is None
-        or target.model_dump(mode="json", exclude_none=False)
-        != current_target.model_dump(mode="json", exclude_none=False)
         or not _matches_duplicate_target(item, current_target)
     ):
         return _resolution_blocked(action, preview, "PENDING_RESOLUTION_CHANGED")
-    return _resolution_ready(action, preview, item_id=item.id)
+    current_target_digest = _domain_digest(
+        "amh.pending.resolution.target.v1",
+        current_target.model_dump(mode="json", exclude_none=False),
+    )
+    if current_target_digest != target_digest:
+        return _resolution_blocked(action, preview, "PENDING_RESOLUTION_CHANGED")
+    return (
+        _PendingResolutionSelection(
+            action=action,
+            preview=preview,
+            target_digest=target_digest,
+        ),
+        _resolution_ready(action, preview, item_id=item.id),
+    )
 
 
 def _matches_duplicate_target(
@@ -2384,7 +2439,7 @@ def _preview_conversion_resolution(
     action: PendingResolutionAction,
     preview: PendingRecordPreview,
     raw: bytes,
-) -> PendingResolutionResult:
+) -> tuple[_PendingResolutionSelection | None, PendingResolutionResult]:
     if (
         preview.classification != "unsupported_type"
         or preview.reason != "UNSUPPORTED_MEMORY_TYPE"
@@ -2426,7 +2481,15 @@ def _preview_conversion_resolution(
         report = None
     if report is None or not report.passed:
         return _resolution_blocked(action, preview, "PENDING_CONVERSION_INVALID")
-    return _resolution_ready(action, preview, item_id=validated.id)
+    target_digest = _domain_digest("amh.pending.resolution.target.v1", "decision")
+    return (
+        _PendingResolutionSelection(
+            action=action,
+            preview=preview,
+            target_digest=target_digest,
+        ),
+        _resolution_ready(action, preview, item_id=validated.id),
+    )
 
 
 def _pending_receipt_selection(record: PendingRecordPreview) -> PendingReceiptSelection:
