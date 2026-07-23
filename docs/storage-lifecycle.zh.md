@@ -35,6 +35,68 @@
 | `playbook/` | 纪律、hooks、rules、skills、SOP 等操作手册素材。 | 安装包或 playbook 导入时。 | onboarding、agent-facing discipline、工具说明。 | `agent_runtime_kit/tools/list-playbook.sh` 或 Web/安装器。 |
 | `items.backup-*` / `items.dogfood-*` | 备份、dogfood 快照或迁移前副本。 | 迁移、修复、实验前。 | 回滚、人工审计。 | 直接文件系统查看，不参与默认检索。 |
 
+<a id="pending-resolution-governance"></a>
+
+## pending resolution 治理
+
+`memory sync-pending` 默认预览，不加 `--apply` 不会写 item、移除 pending record
+或删除 lock。三类 resolution 都必须显式给出 pending record：
+
+```bash
+memory sync-pending --approve-audit <record-id> --format json
+memory sync-pending --accept-duplicate <record-id>:<existing-item-id> --format json
+memory sync-pending --convert-type <record-id>:decision --format json
+```
+
+- `--approve-audit` 只处理 public/internal 的 audit-blocked record；secrets finding
+  始终阻断并留在 pending。
+- `--accept-duplicate` 只接受与目标 item 完全一致的 duplicate，成功后移除 pending
+  record，不写新 item。
+- `--convert-type` 当前只支持旧 `feedback -> decision`；其他目标类型属于参数错误，
+  其他源类型不会转换。
+
+预览全部为 `ready` 后，把同一组参数加上 `--apply` 才执行。例如：
+
+```bash
+memory sync-pending --approve-audit <record-id> --apply --format json
+```
+
+独立 lock GC 同样默认预览：
+
+```bash
+memory sync-pending --gc-orphan-locks --format json
+memory sync-pending --gc-orphan-locks --apply --format json
+```
+
+apply 只删除能证明对应 record 已不存在、路径安全、且能对同一 inode 取得非阻塞独占锁的
+orphan record lock；持锁、截断或无法证明安全时保持不变并返回失败。
+
+每次显式 apply 都先向 `runtime/pending-apply-receipts.jsonl` 追加 prepared receipt，
+结束后再追加 completed 或 incomplete 状态。receipt 只序列化批次 digest、结果 digest、
+计数和闭集 reason，不公开原始 record/item ID、target 或正文。需要只看低敏聚合时使用
+`--summary-only --format json`；普通 JSON 结果用于操作者核对显式选择，可能包含 record ID，
+不要把它当作公开 receipt。
+
+CLI 退出码：
+
+| 退出码 | 含义 |
+|---:|---|
+| `0` | 每个显式 resolution 都 ready/applied，且 lock GC（若请求）安全完成。 |
+| `1` | record 缺失或阻断、apply/receipt 不完整、GC 不安全/截断/不可用等治理失败。 |
+| `2` | 参数格式或组合错误，例如缺少 `ID:ITEM`、非 `ID:decision`、或和 `--record` / `--safe-only` 冲突。 |
+
+apply 中断后不要猜测哪些步骤完成，也不要直接扩大选择范围。先用原参数去掉 `--apply`
+重跑 preview，再检查索引与 readiness：
+
+```bash
+memory sync-pending <原 resolution 参数> --format json
+memory verify --format json
+memory govern readiness --format json
+```
+
+只有 preview 重新变为 ready，且 index/readiness 没有相关 blocker 时，才用同一组显式
+record 再次 `--apply`。`memory verify` 和 readiness 都是只读检查，不会替操作者修复。
+
 ## 一条模拟对话串完整链路
 
 下面用一次真实工作流说明：谁写、写到哪里、下一次怎么取。

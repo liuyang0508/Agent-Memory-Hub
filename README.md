@@ -438,6 +438,23 @@ write signal / candidate / raw transcript / task outcome
 | 15 | `EvolveEngine` and `DreamingWorker` propose consolidate/promote/archive/crystallize/synthesize_skill actions behind audit gates; approved proactive candidates write through `WriteService`. | High-risk evolution cannot silently rewrite the brain. | Approved item, archive, promotion, skill proposal, or blocker. |
 | 16 | `GET /api/data-flow` and `GET /api/memory-lineage` expose redacted maintenance, recall, and evolution read models. | Web read models do not reveal raw prompts, queries, or bodies. | Explainable observability. |
 
+### Pending resolution governance
+
+`memory sync-pending` is preview-first. The three governed resolutions require an
+explicit pending record: `--approve-audit ID`, `--accept-duplicate ID:ITEM`, or
+`--convert-type ID:decision`; only `--apply` mutates state. Audit approval is
+limited to public/internal findings and never bypasses secrets. Exact-duplicate
+acceptance removes the pending record without writing a new item, and conversion
+currently supports only `feedback -> decision`.
+
+Standalone `--gc-orphan-locks` also previews by default and deletes only proven
+orphan locks that are not held. Apply receipts serialize aggregate counts and
+digests, never raw record/item IDs or bodies. After a failed apply, rerun the same
+preview, then `memory verify --format json` and
+`memory govern readiness --format json` before retrying. Exit status is `0` only
+when every requested resolution is ready/applied and lock GC is safe, `1` for a
+governance or apply failure, and `2` for invalid CLI option combinations.
+
 ## Exact Retrieval Order
 
 AMH does not treat "recall" as a black box. The combined diagram shows both the

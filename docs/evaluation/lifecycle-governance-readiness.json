@@ -14,7 +14,7 @@
     "observed_drift_count": 1,
     "status": "pass"
   },
-  "implementation_hash": "sha256:b34cd38868273ed5cee19b670233a2432ac11160b3a509436e2cabab663f39af",
+  "implementation_hash": "sha256:efeb4282d57b1ee5e5612ff7a257ae179043c6e83283bad06e4988dc72eb7022",
   "implementation_manifest": [
     {
       "path": "agent_brain/agent_integrations/hermes/import_export_tools.py",
@@ -42,7 +42,7 @@
     },
     {
       "path": "agent_brain/interfaces/cli/commands/maintenance.py",
-      "sha256": "sha256:326946bd4e115c1a367af3d8f14fc88c638c90e679dcd379c3006d2112e318f5"
+      "sha256": "sha256:c1dbcbb12f7f32b95ae840339edcc498a0464b4aec1b0aa3553326494a7d787a"
     },
     {
       "path": "agent_brain/interfaces/cli/commands/review.py",
@@ -86,7 +86,7 @@
     },
     {
       "path": "agent_brain/memory/governance/auto_governance.py",
-      "sha256": "sha256:5ab05c7f98dd23ac80248e6c18107adbd74705742fe168059c79cfb8ca92fe7d"
+      "sha256": "sha256:b4f4d08c8735a4aa1217c7cd28104e96bea43f12213e38db63c31174071a5ae3"
     },
     {
       "path": "agent_brain/memory/governance/git_fd_exec.py",
@@ -118,7 +118,7 @@
     },
     {
       "path": "agent_brain/memory/governance/maintenance_plan.py",
-      "sha256": "sha256:b2b3ff022fcc0fc40dc4de588153e901eeaffe6b2385b2b33723c826bff8e321"
+      "sha256": "sha256:ed6f51e623150b1500416ed3f14dce64c23735f4a638cc10798555461367d0e2"
     },
     {
       "path": "agent_brain/memory/governance/supersession.py",
@@ -138,11 +138,11 @@
     },
     {
       "path": "agent_brain/memory/store/pending.py",
-      "sha256": "sha256:582340bf893fb362a6dc768355405010a338ab3b93fba5c14271bd1792c535d4"
+      "sha256": "sha256:2bc78cab2d0a356aea52ee94499318050ddaad1ddeca8dfd125bdc7210abef80"
     },
     {
       "path": "agent_brain/memory/store/write_service.py",
-      "sha256": "sha256:7ee2b4f26d036475a29f8c93d2c19cbf7b7d80c05035effd6aef59d8627c9cad"
+      "sha256": "sha256:8db6310aad76ed67027b9c1cf505c8f666b28f153fb6319a732cf51732c04e2d"
     },
     {
       "path": "agent_brain/platform/indexing/graph_index.py",

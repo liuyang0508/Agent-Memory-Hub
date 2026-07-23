@@ -59,6 +59,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   completion is reported as incomplete. Proven orphan record locks are collected
   only while the global pending queue lock is held and after a non-blocking
   exclusive inode check.
+- **Explicit pending resolutions** — `memory sync-pending` now previews
+  per-record audit approval, exact-duplicate acceptance, legacy
+  `feedback -> decision` conversion, and standalone orphan-lock GC. `--apply`
+  is required to mutate; audit approval never bypasses secrets, duplicate
+  acceptance writes no new item, and low-sensitivity receipts expose digests
+  and counts instead of raw record/item IDs or bodies.
 - **Index operational truth** — `memory verify --format json` now compares
   Markdown and `items_meta` IDs, `.index-dirty` repair debt, and Markdown-derived
   supersession against `refs_graph` through an external read-only SQLite

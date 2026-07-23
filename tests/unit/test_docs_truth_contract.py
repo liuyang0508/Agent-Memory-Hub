@@ -529,6 +529,19 @@ def test_lifecycle_governance_public_evidence_has_bounded_truth_claims():
         assert forbidden not in public_text
 
 
+def test_pending_resolution_docs_are_preview_first_and_secret_safe() -> None:
+    readme = Path("README.zh.md").read_text(encoding="utf-8")
+    lifecycle = Path("docs/storage-lifecycle.zh.md").read_text(encoding="utf-8")
+    combined = f"{readme}\n{lifecycle}"
+    assert "sync-pending --approve-audit" in combined
+    assert "sync-pending --accept-duplicate" in combined
+    assert "sync-pending --convert-type" in combined
+    assert "sync-pending --gc-orphan-locks" in combined
+    assert "默认预览" in combined
+    assert "secrets" in combined
+    assert "--apply" in combined
+
+
 def _read(path: str) -> str:
     return (ROOT / path).read_text(encoding="utf-8")
 
