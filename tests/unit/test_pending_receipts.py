@@ -75,6 +75,25 @@ def _resolution_prepared(
     )
 
 
+def _resolution_outcomes():
+    return [
+        receipts_module.PendingReceiptOutcome(
+            record_id="pending-audit-one",
+            status="applied",
+            classification="ready",
+            reason="PENDING_RESOLUTION_READY",
+            index_repair_required=False,
+        ),
+        receipts_module.PendingReceiptOutcome(
+            record_id="pending-duplicate-two",
+            status="blocked",
+            classification="audit_blocked",
+            reason="PENDING_AUDIT_APPROVAL_REQUIRED",
+            index_repair_required=True,
+        ),
+    ]
+
+
 def test_pending_receipt_is_fixed_schema_deterministic_and_low_sensitivity():
     prepared = _prepared()
     repeated = _prepared()
@@ -206,6 +225,66 @@ def test_pending_receipt_completion_includes_bounded_batch_warnings():
     assert completed.warning_counts == {"PENDING_LOCK_GC_TRUNCATED": 1}
 
 
+def test_pending_resolution_completion_rejects_missing_outcomes():
+    with pytest.raises(TypeError, match="INVALID_PENDING_BATCH_RECEIPT"):
+        receipts_module.complete_pending_receipt(
+            _resolution_prepared(),
+            outcomes=[],
+            depth_after=2,
+            completed_at=COMPLETED_AT,
+        )
+
+
+@pytest.mark.parametrize(
+    ("field_name", "value"),
+    [
+        ("status_counts", {"applied": 1}),
+        ("classification_counts", {"ready": 1}),
+        ("reason_counts", {"PENDING_RESOLUTION_READY": 1}),
+        ("index_repair_required_count", 3),
+    ],
+)
+def test_pending_resolution_completion_rejects_mismatched_aggregates(
+    tmp_brain,
+    field_name,
+    value,
+):
+    prepared = _resolution_prepared()
+    completed = receipts_module.complete_pending_receipt(
+        prepared,
+        outcomes=_resolution_outcomes(),
+        depth_after=2,
+        completed_at=COMPLETED_AT,
+    )
+
+    receipts_module.append_pending_receipt(tmp_brain, prepared)
+    with pytest.raises(TypeError, match="INVALID_PENDING_BATCH_RECEIPT"):
+        receipts_module.append_pending_receipt(
+            tmp_brain,
+            replace(completed, **{field_name: value}),
+        )
+
+
+def test_pending_resolution_rejects_zero_action_count(tmp_brain):
+    prepared = replace(
+        _resolution_prepared(),
+        action_counts={"accept_duplicate": 0, "approve_audit": 2},
+    )
+
+    with pytest.raises(TypeError, match="INVALID_PENDING_BATCH_RECEIPT"):
+        receipts_module.append_pending_receipt(tmp_brain, prepared)
+
+
+def test_pending_resolution_rejects_empty_current_batch():
+    with pytest.raises(TypeError, match="INVALID_PENDING_BATCH_RECEIPT"):
+        receipts_module.prepare_pending_receipt(
+            selection_mode="resolution",
+            requested_count=0,
+            selected=[],
+            depth_before=0,
+        )
+
+
 def test_pending_receipt_ledger_is_durable_private_and_reports_incomplete(tmp_brain):
     prepared = _prepared()
     receipts_module.append_pending_receipt(tmp_brain, prepared)
@@ -260,11 +339,34 @@ def test_pending_receipt_ledger_reads_legacy_v1_and_appends_current_receipt(tmp_
     assert after_append.incomplete_count == 1
 
 
+def test_pending_receipt_ledger_rejects_legacy_shaped_resolution(tmp_brain):
+    runtime = tmp_brain / "runtime"
+    runtime.mkdir(parents=True)
+    ledger = runtime / "pending-apply-receipts.jsonl"
+    payload = _prepared().to_dict()
+    payload.update(
+        selection_mode="resolution",
+        requested_count=0,
+        selected_count=0,
+        depth_before=0,
+    )
+    payload.pop("action_counts")
+    ledger.write_text(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n",
+        encoding="utf-8",
+    )
+    os.chmod(ledger, 0o600)
+
+    assert receipts_module.read_pending_receipt_ledger_health(tmp_brain).status == (
+        "corrupt"
+    )
+
+
 def test_pending_resolution_sequence_rejects_tampered_action_counts(tmp_brain):
     prepared = _resolution_prepared()
     completed = receipts_module.complete_pending_receipt(
         prepared,
-        outcomes=[],
+        outcomes=_resolution_outcomes(),
         depth_after=2,
         completed_at=COMPLETED_AT,
     )

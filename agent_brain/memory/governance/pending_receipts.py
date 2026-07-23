@@ -550,6 +550,8 @@ def _parse_receipt(raw: bytes) -> PendingBatchReceipt | None:
         return None
     fields = set(data)
     if fields == PENDING_RECEIPT_V1_FIELDS:
+        if data.get("selection_mode") not in ("explicit", "safe_only"):
+            return None
         data = dict(data)
         data["action_counts"] = {}
     elif fields != PENDING_RECEIPT_FIELDS:
@@ -634,7 +636,10 @@ def _valid_receipt(receipt: object) -> bool:
         return False
     if receipt.selection_mode == "resolution":
         if (
-            "apply" in receipt.action_counts
+            receipt.selected_count == 0
+            or not receipt.action_counts
+            or "apply" in receipt.action_counts
+            or any(value == 0 for value in receipt.action_counts.values())
             or sum(receipt.action_counts.values()) != receipt.selected_count
         ):
             return False
@@ -651,6 +656,13 @@ def _valid_receipt(receipt: object) -> bool:
             and receipt.completed_at is None
             and receipt.result_digest is None
         )
+    if receipt.selection_mode == "resolution" and (
+        sum(receipt.status_counts.values()) != receipt.selected_count
+        or sum(receipt.classification_counts.values()) != receipt.selected_count
+        or sum(receipt.reason_counts.values()) != receipt.selected_count
+        or receipt.index_repair_required_count > receipt.selected_count
+    ):
+        return False
     return (
         receipt.depth_after is not None
         and receipt.completed_at is not None
