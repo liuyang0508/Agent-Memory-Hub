@@ -184,11 +184,14 @@ def _enqueue_resolution_apply_case(
     record_id: str,
     *,
     refs: dict[str, object] | None = None,
+    title: str | None = None,
 ) -> tuple[Path, PendingResolutionAction]:
     if action_name == "approve_audit":
         record = _v2_record(record_id=record_id)
         item = record["item"]
         assert isinstance(item, dict)
+        if title is not None:
+            item["title"] = title
         item["body"] = f"curl https://example.invalid/{record_id}"
         if refs is not None:
             item["refs"] = refs
@@ -197,7 +200,7 @@ def _enqueue_resolution_apply_case(
     record = _legacy_feedback_record()
     item = record["item"]
     assert isinstance(item, dict)
-    item["title"] = f"legacy {record_id}"
+    item["title"] = title or f"legacy {record_id}"
     item["summary"] = f"legacy summary {record_id}"
     if refs is not None:
         item["refs"] = refs
@@ -213,11 +216,13 @@ def _begin_resolution_recovery_case(
     action_name: str = "approve_audit",
     record_id: str,
     refs: dict[str, object] | None = None,
+    title: str | None = None,
 ) -> tuple[Path, PendingResolutionAction, Path, MemoryItem, str]:
     path, action = _enqueue_resolution_apply_case(
         action_name,
         record_id,
         refs=refs,
+        title=title,
     )
     real_unlink = pending_module._unlink_pending_record
     monkeypatch.setattr(
@@ -307,12 +312,12 @@ def _rewrite_generated_evidence_wall_time(
         f"{created_at + (extraction_offset or offset):%Y%m%d-%H%M%S}"
     )
     resource_tail = re.sub(
-        r"^res-\d{8}-\d{6}-(?:utc-v1-)?",
+        r"^res-\d{8}-\d{6}-(?:~utc-v1~)?",
         "",
         old_resource_id,
     )
     extraction_tail = re.sub(
-        r"^ext-\d{8}-\d{6}-(?:utc-v1-)?",
+        r"^ext-\d{8}-\d{6}-(?:~utc-v1~)?",
         "",
         old_extraction_id,
     )
@@ -4991,6 +4996,51 @@ def test_resolution_retry_accepts_consistent_legacy_timezone_offset(
     assert not path.exists()
 
 
+@pytest.mark.parametrize("collision", ["title", "file_basename"])
+def test_resolution_retry_accepts_legacy_utc_v1_user_slug_collision(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    collision: str,
+) -> None:
+    refs: dict[str, object] | None = None
+    title: str | None = None
+    if collision == "title":
+        title = "utc v1 legacy title collision"
+    else:
+        ref_file = tmp_brain / "utc v1 legacy file collision.txt"
+        ref_file.write_text("legacy collision evidence", encoding="utf-8")
+        refs = {"files": [str(ref_file)]}
+    path, action, stored_path, stored, body = _begin_resolution_recovery_case(
+        tmp_brain,
+        monkeypatch,
+        record_id=f"resolution-recovery-legacy-slug-{collision}",
+        refs=refs,
+        title=title,
+    )
+    assert stored.refs.resources[0][20:].startswith("~utc-v1~")
+    assert stored.refs.extractions[0][20:].startswith("~utc-v1~")
+    _rewrite_generated_evidence_wall_time(
+        tmp_brain,
+        stored_path,
+        stored,
+        body,
+        offset=timedelta(hours=8),
+    )
+    legacy_resource_id = next((tmp_brain / "resources").glob("*.json")).stem
+    legacy_extraction_id = next((tmp_brain / "extractions").glob("*.json")).stem
+    assert legacy_resource_id[20:].startswith("utc-v1-")
+    assert legacy_extraction_id[20:].startswith("utc-v1-")
+    assert "~utc-v1~" not in legacy_resource_id
+    assert "~utc-v1~" not in legacy_extraction_id
+
+    preview = PendingQueue().resolve([action])
+    applied = PendingQueue().resolve([action], apply=True)
+
+    assert preview.results[0].status == "ready"
+    assert applied.results[0].status == "applied"
+    assert not path.exists()
+
+
 def test_resolution_retry_rejects_invalid_legacy_timezone_offset(
     tmp_brain: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -5066,7 +5116,12 @@ def test_resolution_retry_rejects_shifted_utc_v1_created_at(
 
 @pytest.mark.parametrize(
     "tamper",
-    ["missing_metadata", "mismatched_metadata", "missing_id_marker"],
+    [
+        "missing_metadata",
+        "mismatched_metadata",
+        "missing_id_marker",
+        "unknown_sentinel",
+    ],
 )
 def test_resolution_retry_requires_matching_utc_v1_markers(
     tmp_brain: Path,
@@ -5090,11 +5145,15 @@ def test_resolution_retry_requires_matching_utc_v1_markers(
     elif tamper == "mismatched_metadata":
         extraction["metadata"]["timestamp_basis"] = "local-v0"
     else:
-        new_resource_id = resource_id.replace("-utc-v1-", "-", 1)
-        new_extraction_id = extraction_id.replace("-utc-v1-", "-", 1)
+        replacement = "" if tamper == "missing_id_marker" else "~utc-v2~"
+        new_resource_id = resource_id.replace("~utc-v1~", replacement, 1)
+        new_extraction_id = extraction_id.replace("~utc-v1~", replacement, 1)
         resource["id"] = new_resource_id
         extraction["id"] = new_extraction_id
         extraction["resource_id"] = new_resource_id
+        if tamper == "unknown_sentinel":
+            resource["metadata"].pop("timestamp_basis", None)
+            extraction["metadata"].pop("timestamp_basis", None)
         resource_path.unlink()
         extraction_path.unlink()
         resource_path = tmp_brain / "resources" / f"{new_resource_id}.json"

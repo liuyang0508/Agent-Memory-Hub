@@ -193,8 +193,8 @@ def test_write_service_attaches_write_input_evidence_sidecar(tmp_brain):
     created_at = datetime.fromisoformat(resource["created_at"]).astimezone(timezone.utc)
     assert resource_id[4:19] == f"{created_at:%Y%m%d-%H%M%S}"
     assert extraction_id[4:19] == f"{created_at:%Y%m%d-%H%M%S}"
-    assert resource_id[20:].startswith("utc-v1-")
-    assert extraction_id[20:].startswith("utc-v1-")
+    assert resource_id[20:].startswith("~utc-v1~")
+    assert extraction_id[20:].startswith("~utc-v1~")
     assert resource["metadata"]["timestamp_basis"] == "utc-v1"
     assert extraction["metadata"]["timestamp_basis"] == "utc-v1"
     assert extraction["created_at"] == resource["created_at"]

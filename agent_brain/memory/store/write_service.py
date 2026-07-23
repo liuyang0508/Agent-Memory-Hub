@@ -85,7 +85,7 @@ _GENERATED_EVIDENCE_CLOCK_SKEW_SECONDS = 5
 _MAX_LEGACY_EVIDENCE_OFFSET_SECONDS = 14 * 60 * 60
 _LEGACY_EVIDENCE_OFFSET_GRANULARITY_SECONDS = 15 * 60
 _EVIDENCE_TIMESTAMP_BASIS = "utc-v1"
-_UTC_V1_ID_PREFIX = f"{_EVIDENCE_TIMESTAMP_BASIS}-"
+_UTC_V1_ID_SENTINEL = f"~{_EVIDENCE_TIMESTAMP_BASIS}~"
 _GENERATED_EVIDENCE_ID_RE = re.compile(
     r"^(?P<prefix>res|ext)-(?P<date>\d{8})-(?P<time>\d{6})-"
 )
@@ -682,30 +682,41 @@ def _materialize_evidence_spec(
     spec: _WriteEvidenceSpec,
 ) -> tuple[str, str | None]:
     created_at = datetime.now(timezone.utc)
+    resource_id = _with_utc_v1_evidence_sentinel(
+        make_resource_id(spec.id_title, when=created_at)
+    )
     resource = spec.resource.model_copy(
         update={
-            "id": make_resource_id(
-                f"{_EVIDENCE_TIMESTAMP_BASIS} {spec.id_title}",
-                when=created_at,
-            ),
+            "id": resource_id,
             "created_at": created_at,
         }
     )
     resource_store.write_resource(resource)
     if spec.extraction is None:
         return resource.id, None
+    extraction_id = _with_utc_v1_evidence_sentinel(
+        make_extraction_id(spec.id_title, when=created_at)
+    )
     extraction = spec.extraction.model_copy(
         update={
-            "id": make_extraction_id(
-                f"{_EVIDENCE_TIMESTAMP_BASIS} {spec.id_title}",
-                when=created_at,
-            ),
+            "id": extraction_id,
             "resource_id": resource.id,
             "created_at": created_at,
         }
     )
     resource_store.write_extraction(extraction)
     return resource.id, extraction.id
+
+
+def _with_utc_v1_evidence_sentinel(generated_id: str) -> str:
+    match = _GENERATED_EVIDENCE_ID_RE.match(generated_id)
+    if match is None:
+        raise ValueError("INVALID_GENERATED_EVIDENCE_ID")
+    return (
+        generated_id[: match.end()]
+        + _UTC_V1_ID_SENTINEL
+        + generated_id[match.end() :]
+    )
 
 
 def _write_source_record(
@@ -936,8 +947,11 @@ def _generated_evidence_timestamp(
         exclude_none=False,
         exclude=ignored,
     )
-    id_is_utc_v1 = actual.id[match.end() :].startswith(_UTC_V1_ID_PREFIX)
+    id_tail = actual.id[match.end() :]
+    id_is_utc_v1 = id_tail.startswith(_UTC_V1_ID_SENTINEL)
     marker_present = "timestamp_basis" in actual.metadata
+    if id_tail.startswith("~") and not id_is_utc_v1:
+        return None
     if id_is_utc_v1:
         if (
             not marker_present

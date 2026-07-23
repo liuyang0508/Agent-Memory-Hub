@@ -75,6 +75,19 @@ def test_legacy_unicode_evidence_ids_validate_and_load_without_rewrite(
     )
 
 
+def test_structural_utc_v1_sentinel_is_portable_for_evidence_ids() -> None:
+    from agent_brain.contracts.resource import (
+        validate_extraction_id,
+        validate_resource_id,
+    )
+
+    resource_id = "res-20260724-120000-~utc-v1~portable-abcdef12"
+    extraction_id = "ext-20260724-120000-~utc-v1~portable-12345678"
+
+    assert validate_resource_id(resource_id) == resource_id
+    assert validate_extraction_id(extraction_id) == extraction_id
+
+
 def test_legacy_punctuation_evidence_fixtures_load_without_rewrite(
     fixtures_dir: Path,
 ) -> None:
