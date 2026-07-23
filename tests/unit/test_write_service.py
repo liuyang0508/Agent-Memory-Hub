@@ -8,6 +8,7 @@ and the audit gate fail-closes on critical/high findings unless explicitly waive
 
 import logging
 import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -245,6 +246,56 @@ def test_write_evidence_caps_fail_before_any_durable_write(
     assert not list((tmp_brain / "items").glob("*.md"))
     assert not (tmp_brain / "resources").exists()
     assert not (tmp_brain / "extractions").exists()
+
+
+@pytest.mark.parametrize(
+    ("ref_file", "canary", "needs_unicode_failure"),
+    [
+        ("PRIVATE_NUL_PATH_CANARY\0evidence", "PRIVATE_NUL_PATH_CANARY", False),
+        (
+            "~PRIVATE_UNKNOWN_USER_CANARY/evidence",
+            "PRIVATE_UNKNOWN_USER_CANARY",
+            False,
+        ),
+        (
+            "PRIVATE_SURROGATE_PATH_CANARY_\ud800",
+            "PRIVATE_SURROGATE_PATH_CANARY",
+            True,
+        ),
+        (
+            "PRIVATE_OVERLONG_PATH_CANARY_" + "x" * 5000,
+            "PRIVATE_OVERLONG_PATH_CANARY",
+            False,
+        ),
+    ],
+)
+def test_write_evidence_malformed_path_fails_closed_without_path_or_cause(
+    tmp_brain: Path,
+    ref_file: str,
+    canary: str,
+    needs_unicode_failure: bool,
+) -> None:
+    if needs_unicode_failure:
+        try:
+            os.lstat(Path(ref_file))
+        except UnicodeError:
+            pass
+        else:
+            pytest.skip("platform accepts the selected surrogate path")
+    svc = WriteService.for_brain(tmp_brain)
+    item = _item(title="malformed evidence path").model_copy(
+        update={"refs": Refs(files=[ref_file])}
+    )
+    before = _tree_snapshot(tmp_brain)
+
+    with pytest.raises(RuntimeError) as caught:
+        svc.write(item=item, body="bounded body", allow_unsafe=True)
+
+    assert str(caught.value) == "WRITE_EVIDENCE_FILE_UNSAFE"
+    assert caught.value.__cause__ is None
+    assert canary not in str(caught.value)
+    assert canary not in repr(caught.value)
+    assert _tree_snapshot(tmp_brain) == before
 
 
 def test_write_evidence_accepts_exact_file_count_cap(tmp_brain: Path) -> None:

@@ -4732,6 +4732,120 @@ def test_resolution_planning_blocks_evidence_cap_without_any_mutation(
 
 
 @pytest.mark.parametrize(
+    ("ref_file", "canary", "needs_unicode_failure"),
+    [
+        ("PRIVATE_NUL_RESOLUTION_CANARY\0evidence", "PRIVATE_NUL_RESOLUTION_CANARY", False),
+        (
+            "~PRIVATE_UNKNOWN_RESOLUTION_USER_CANARY/evidence",
+            "PRIVATE_UNKNOWN_RESOLUTION_USER_CANARY",
+            False,
+        ),
+        (
+            "PRIVATE_OVERLONG_RESOLUTION_CANARY_" + "x" * 5000,
+            "PRIVATE_OVERLONG_RESOLUTION_CANARY",
+            False,
+        ),
+    ],
+)
+def test_resolution_planning_closes_malformed_evidence_path_without_leak_or_mutation(
+    tmp_brain: Path,
+    ref_file: str,
+    canary: str,
+    needs_unicode_failure: bool,
+) -> None:
+    if needs_unicode_failure:
+        try:
+            os.lstat(Path(ref_file))
+        except UnicodeError:
+            pass
+        else:
+            pytest.skip("platform accepts the selected surrogate path")
+    path, action = _enqueue_resolution_apply_case(
+        "approve_audit",
+        f"resolution-malformed-path-{hashlib.sha256(canary.encode()).hexdigest()[:8]}",
+        refs={"files": [ref_file]},
+    )
+    before = _tree_snapshot(tmp_brain)
+
+    dry = PendingQueue().resolve([action])
+    applied = PendingQueue().resolve([action], apply=True)
+
+    for stats in (dry, applied):
+        assert stats.results[0].status == "blocked"
+        assert stats.results[0].reason == "PENDING_WRITE_EVIDENCE_INVALID"
+        public = json.dumps(
+            {
+                "detail": stats.to_dict(),
+                "summary": stats.to_summary_dict(),
+            },
+            sort_keys=True,
+        )
+        assert canary not in public
+    assert dry.receipt is None
+    assert applied.receipt is None
+    assert path.exists()
+    assert _tree_snapshot(tmp_brain) == before
+
+
+def test_write_and_resolution_close_symlink_target_encoding_error_without_leak(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from agent_brain.memory.store import write_service as write_service_module
+
+    target_canary = "PRIVATE_SYMLINK_TARGET_CANARY"
+    ref_file = tmp_brain / "encoded-target-link"
+    ref_file.symlink_to(target_canary)
+    direct = MemoryItem(
+        id="mem-20260701-100000-symlink-target-encoding",
+        type="fact",
+        created_at=datetime(2026, 7, 1, tzinfo=timezone.utc),
+        title="symlink target encoding",
+        summary="encoding failure is closed",
+        refs={"files": [str(ref_file)]},
+    )
+    path, action = _enqueue_resolution_apply_case(
+        "approve_audit",
+        "resolution-symlink-target-encoding",
+        refs={"files": [str(ref_file)]},
+    )
+    service = write_service_module.WriteService.for_brain(tmp_brain)
+    before = _tree_snapshot(tmp_brain)
+    real_fsencode = write_service_module.os.fsencode
+
+    def fail_target_encoding(value: object) -> bytes:
+        if value == target_canary:
+            raise UnicodeError(target_canary)
+        return real_fsencode(value)
+
+    monkeypatch.setattr(write_service_module.os, "fsencode", fail_target_encoding)
+    with pytest.raises(RuntimeError) as caught:
+        service.write(
+            item=direct,
+            body="bounded body",
+            allow_unsafe=True,
+        )
+    dry = PendingQueue().resolve([action])
+    applied = PendingQueue().resolve([action], apply=True)
+    monkeypatch.setattr(write_service_module.os, "fsencode", real_fsencode)
+
+    assert str(caught.value) == "WRITE_EVIDENCE_FILE_UNSAFE"
+    assert caught.value.__cause__ is None
+    assert target_canary not in repr(caught.value)
+    for stats in (dry, applied):
+        assert stats.results[0].status == "blocked"
+        assert stats.results[0].reason == "PENDING_WRITE_EVIDENCE_INVALID"
+        assert target_canary not in json.dumps(stats.to_dict(), sort_keys=True)
+        assert target_canary not in json.dumps(
+            stats.to_summary_dict(),
+            sort_keys=True,
+        )
+        assert stats.receipt is None
+    assert path.exists()
+    assert _tree_snapshot(tmp_brain) == before
+
+
+@pytest.mark.parametrize(
     ("case", "action_name"),
     [
         ("count", "approve_audit"),

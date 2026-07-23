@@ -426,16 +426,17 @@ def _prepare_write_evidence(
 
     files: list[_WriteEvidenceFile] = []
     for ref_file in item.refs.files:
-        path = Path(ref_file).expanduser()
+        try:
+            path = Path(ref_file).expanduser()
+        except (OSError, RuntimeError, ValueError, UnicodeError):
+            raise _WriteEvidenceBoundaryError("WRITE_EVIDENCE_FILE_UNSAFE") from None
         try:
             before = os.lstat(path)
         except FileNotFoundError:
             files.append(_WriteEvidenceFile(ref_file=ref_file, path=path))
             continue
-        except OSError as exc:
-            raise _WriteEvidenceBoundaryError(
-                "WRITE_EVIDENCE_FILE_UNSAFE"
-            ) from exc
+        except (OSError, RuntimeError, ValueError, UnicodeError):
+            raise _WriteEvidenceBoundaryError("WRITE_EVIDENCE_FILE_UNSAFE") from None
 
         if stat.S_ISLNK(before.st_mode):
             try:
@@ -457,10 +458,10 @@ def _prepare_write_evidence(
                     before, after
                 ):
                     raise OSError
-            except OSError as exc:
+            except (OSError, RuntimeError, ValueError, UnicodeError):
                 raise _WriteEvidenceBoundaryError(
                     "WRITE_EVIDENCE_FILE_UNSAFE"
-                ) from exc
+                ) from None
             if target_stat is None or (
                 not stat.S_ISLNK(target_stat.st_mode)
                 and not is_safe_regular(target_stat)
@@ -522,10 +523,8 @@ def _prepare_write_evidence(
                 or len(content) != after.st_size
             ):
                 raise OSError
-        except OSError as exc:
-            raise _WriteEvidenceBoundaryError(
-                "WRITE_EVIDENCE_FILE_UNSAFE"
-            ) from exc
+        except (OSError, RuntimeError, ValueError, UnicodeError):
+            raise _WriteEvidenceBoundaryError("WRITE_EVIDENCE_FILE_UNSAFE") from None
         finally:
             if descriptor is not None:
                 close_descriptor(descriptor)
