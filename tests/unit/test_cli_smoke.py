@@ -664,6 +664,53 @@ def test_cli_sync_pending_resolution_apply_failure_exits_one(tmp_brain):
     assert json.loads(result.output)["results"][0]["status"] != "applied"
 
 
+def test_cli_sync_pending_resolution_apply_requires_completed_receipt(
+    tmp_brain,
+    monkeypatch,
+):
+    import json
+
+    from agent_brain.memory.store.pending import (
+        PendingQueue,
+        PendingResolutionResult,
+        PendingResolutionStats,
+    )
+
+    monkeypatch.setattr(
+        PendingQueue,
+        "resolve",
+        lambda *_args, **_kwargs: PendingResolutionStats(
+            dry_run=False,
+            results=[
+                PendingResolutionResult(
+                    action="approve_audit",
+                    record_id="receiptless",
+                    status="applied",
+                    reason="PENDING_RESOLUTION_APPLIED",
+                    classification="audit_blocked",
+                )
+            ],
+        ),
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "sync-pending",
+            "--approve-audit",
+            "receiptless",
+            "--apply",
+            "--format",
+            "json",
+        ],
+    )
+
+    assert result.exit_code == 1
+    payload = json.loads(result.output)
+    assert payload["results"][0]["status"] == "applied"
+    assert payload["receipt"] is None
+
+
 def test_cli_sync_pending_resolution_preview_failure_exits_one(tmp_brain):
     import json
 
@@ -680,6 +727,36 @@ def test_cli_sync_pending_resolution_preview_failure_exits_one(tmp_brain):
 
     assert result.exit_code == 1
     assert json.loads(result.output)["results"][0]["status"] != "ready"
+
+
+@pytest.mark.parametrize(
+    "selection",
+    [
+        ["--record", "pending-one"],
+        ["--safe-only"],
+    ],
+)
+@pytest.mark.parametrize("apply_option", [[], ["--apply"]])
+def test_cli_sync_pending_rejects_gc_with_legacy_selection_without_mutation(
+    tmp_brain,
+    selection,
+    apply_option,
+):
+    before = _tree_snapshot(tmp_brain)
+
+    result = runner.invoke(
+        app,
+        [
+            "sync-pending",
+            *selection,
+            "--gc-orphan-locks",
+            *apply_option,
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert "--gc-orphan-locks requires standalone or resolution mode" in result.output
+    assert _tree_snapshot(tmp_brain) == before
 
 
 def test_cli_sync_pending_gc_unsafe_entry_exits_one(tmp_brain):

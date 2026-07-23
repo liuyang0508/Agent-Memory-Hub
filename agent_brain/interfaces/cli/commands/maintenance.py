@@ -300,6 +300,12 @@ def sync_pending(
             err=True,
         )
         raise typer.Exit(2)
+    if gc_orphan_locks and (record_ids or safe_only):
+        typer.echo(
+            "--gc-orphan-locks requires standalone or resolution mode",
+            err=True,
+        )
+        raise typer.Exit(2)
 
     queue = PendingQueue()
     effective_apply = apply and not dry_run
@@ -363,8 +369,8 @@ def sync_pending(
             )
             if effective_apply:
                 unsuccessful = unsuccessful or (
-                    resolution_stats.receipt is not None
-                    and resolution_stats.receipt.state != "completed"
+                    resolution_stats.receipt is None
+                    or resolution_stats.receipt.state != "completed"
                 )
         if lock_report is not None:
             unsuccessful = unsuccessful or (
