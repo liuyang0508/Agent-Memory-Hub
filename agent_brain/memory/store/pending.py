@@ -147,6 +147,7 @@ PendingResolutionName = Literal[
     "accept_duplicate",
     "convert_type",
 ]
+PendingResolutionPublicName = PendingResolutionName | Literal["unknown"]
 PendingResolutionStatus = Literal["ready", "applied", "blocked", "failed"]
 
 _PUBLIC_PENDING_REASONS = frozenset(
@@ -198,7 +199,6 @@ _PUBLIC_PENDING_REASONS = frozenset(
         "PENDING_RESOLUTION_CHANGED",
         "PENDING_RESOLUTION_NOT_APPLICABLE",
         "PENDING_RESOLUTION_READY",
-        "PENDING_RECORD_CHANGED",
         "PENDING_SCAN_UNAVAILABLE",
         "PENDING_STABLE_ID_CONFLICT",
         "PENDING_DUPLICATE_TARGET_MISMATCH",
@@ -756,7 +756,7 @@ class PendingResolutionAction:
 class PendingResolutionResult:
     """Detailed read-only outcome for one pending resolution request."""
 
-    action: str
+    action: PendingResolutionPublicName
     record_id: str
     status: PendingResolutionStatus
     reason: str
@@ -765,6 +765,9 @@ class PendingResolutionResult:
     item_id: str | None = None
     index_repair_required: bool = False
     warnings: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "action", _public_resolution_action(self.action))
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -808,7 +811,12 @@ class PendingResolutionStats:
             "schema_version": 1,
             "dry_run": self.dry_run,
             "action_counts": dict(
-                sorted(Counter(result.action for result in self.results).items())
+                sorted(
+                    Counter(
+                        _public_resolution_action(result.action)
+                        for result in self.results
+                    ).items()
+                )
             ),
             "status_counts": dict(
                 sorted(Counter(result.status for result in self.results).items())
@@ -2134,12 +2142,18 @@ _DECISION_CONVERSION_COST = (
 
 def _valid_resolution_action_structure(action: PendingResolutionAction) -> bool:
     return (
-        isinstance(action.action, str)
+        type(action.action) is str
         and action.action in _RESOLUTION_ACTIONS
-        and isinstance(action.record_id, str)
+        and type(action.record_id) is str
         and _RECORD_ID_PATTERN.fullmatch(action.record_id) is not None
-        and (action.target is None or isinstance(action.target, str))
+        and (action.target is None or type(action.target) is str)
     )
+
+
+def _public_resolution_action(value: object) -> PendingResolutionPublicName:
+    if type(value) is str and value in _RESOLUTION_ACTIONS:
+        return cast(PendingResolutionName, value)
+    return "unknown"
 
 
 def _invalid_resolution_result() -> PendingResolutionResult:
@@ -2162,14 +2176,14 @@ def _resolution_result(
     item_id: str | None = None,
 ) -> PendingResolutionResult:
     return PendingResolutionResult(
-        action=action.action if isinstance(action.action, str) else "unknown",
-        record_id=action.record_id if isinstance(action.record_id, str) else "",
+        action=_public_resolution_action(action.action),
+        record_id=action.record_id if type(action.record_id) is str else "",
         classification=(
             preview.classification if preview is not None else classification
         ),
         status=status,
         reason=reason,
-        target=action.target if isinstance(action.target, str) else None,
+        target=action.target if type(action.target) is str else None,
         item_id=item_id,
     )
 

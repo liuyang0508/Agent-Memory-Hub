@@ -33,6 +33,10 @@ from agent_brain.platform.embedding import HashingEmbedder
 NOW = datetime(2026, 7, 20, 12, 0, tzinfo=timezone.utc)
 
 
+class UnhashableStr(str):
+    __hash__ = None  # type: ignore[assignment]
+
+
 class _StatProxy:
     def __init__(self, original: os.stat_result, **overrides: object) -> None:
         self._original = original
@@ -3314,3 +3318,91 @@ def test_resolution_preserves_existing_conflict_reason(
     assert result.status == "blocked"
     assert result.classification == "conflict"
     assert result.reason == "PAYLOAD_HASH_MISMATCH"
+
+
+def test_resolution_rejects_unhashable_str_subclasses_without_side_effects(
+    tmp_brain: Path,
+) -> None:
+    actions = [
+        PendingResolutionAction(  # type: ignore[arg-type]
+            UnhashableStr("approve_audit"),
+            "resolution-unhashable-action",
+        ),
+        PendingResolutionAction(
+            "approve_audit",
+            UnhashableStr("resolution-unhashable-record"),
+        ),
+        PendingResolutionAction(
+            "accept_duplicate",
+            "resolution-unhashable-target",
+            UnhashableStr("mem-20260701-100000-unhashable-target"),
+        ),
+    ]
+    before = _tree_snapshot(tmp_brain)
+
+    stats = PendingQueue().resolve(actions)
+
+    assert len(stats.results) == 3
+    assert {result.status for result in stats.results} == {"blocked"}
+    assert {result.reason for result in stats.results} == {
+        "PENDING_RESOLUTION_NOT_APPLICABLE"
+    }
+    assert stats.results[0].action == "unknown"
+    assert stats.results[1].record_id == ""
+    assert stats.results[2].target is None
+    assert _tree_snapshot(tmp_brain) == before
+
+
+def test_resolution_closes_unknown_action_in_result_and_summary() -> None:
+    canary = "PRIVATE_TITLE_CANARY"
+    result = pending_module.PendingResolutionResult(
+        action=canary,
+        record_id="resolution-unknown-action",
+        classification=None,
+        status="blocked",
+        reason="PENDING_RESOLUTION_NOT_APPLICABLE",
+    )
+    stats = pending_module.PendingResolutionStats(dry_run=True, results=[result])
+
+    encoded = json.dumps(
+        {"result": result.to_dict(), "summary": stats.to_summary_dict()},
+        sort_keys=True,
+    )
+
+    assert result.action == "unknown"
+    assert stats.to_summary_dict()["action_counts"] == {"unknown": 1}
+    assert canary not in encoded
+
+
+def test_resolution_rejects_identity_drift_with_original_hash(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    record = _v2_record(record_id="resolution-identity-drift")
+    item = record["item"]
+    assert isinstance(item, dict)
+    item["body"] = "curl https://example.invalid/identity-drift"
+    enqueue_write_record(record)
+    real_read = pending_module._read_pending_record_snapshot
+    reads = 0
+
+    def changed_identity_second_read(*args, **kwargs):
+        nonlocal reads
+        raw, identity = real_read(*args, **kwargs)
+        reads += 1
+        if reads == 2:
+            return raw, (identity[0], identity[1] + 1)
+        return raw, identity
+
+    monkeypatch.setattr(
+        pending_module,
+        "_read_pending_record_snapshot",
+        changed_identity_second_read,
+    )
+
+    result = PendingQueue().resolve(
+        [PendingResolutionAction("approve_audit", "resolution-identity-drift")]
+    ).results[0]
+
+    assert result.status == "blocked"
+    assert result.reason == "PENDING_RESOLUTION_CHANGED"
