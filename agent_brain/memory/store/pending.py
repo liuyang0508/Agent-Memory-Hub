@@ -1630,7 +1630,7 @@ class PendingQueue:
                         status="blocked",
                         reason="PENDING_RESOLUTION_REQUEST_TOO_LARGE",
                     )
-                    if isinstance(candidate, PendingResolutionAction)
+                    if type(candidate) is PendingResolutionAction
                     else _invalid_resolution_result(
                         reason="PENDING_RESOLUTION_REQUEST_TOO_LARGE"
                     )
@@ -1638,9 +1638,9 @@ class PendingQueue:
             return stats
 
         valid: list[PendingResolutionAction] = []
-        seen_valid: set[PendingResolutionAction] = set()
+        seen_valid: set[tuple[str, str, str | None]] = set()
         for candidate in requested:
-            if not isinstance(candidate, PendingResolutionAction):
+            if type(candidate) is not PendingResolutionAction:
                 stats.results.append(_invalid_resolution_result())
                 continue
             if not _valid_resolution_action_structure(candidate):
@@ -1652,9 +1652,20 @@ class PendingQueue:
                     )
                 )
                 continue
-            if candidate not in seen_valid:
+            rejection_reason = _resolution_target_rejection_reason(candidate)
+            if rejection_reason is not None:
+                stats.results.append(
+                    _resolution_result(
+                        candidate,
+                        status="blocked",
+                        reason=rejection_reason,
+                    )
+                )
+                continue
+            key = (candidate.action, candidate.record_id, candidate.target)
+            if key not in seen_valid:
                 valid.append(candidate)
-                seen_valid.add(candidate)
+                seen_valid.add(key)
         if not valid:
             return stats
 
@@ -1711,7 +1722,7 @@ class PendingQueue:
         by_id: dict[str, list[PendingRecordPreview]] = {}
         for record in preview.records:
             by_id.setdefault(record.record_id, []).append(record)
-        ready_selections: list[_PendingResolutionSelection] = []
+        ready_selections: list[tuple[int, _PendingResolutionSelection]] = []
         for action in valid:
             matches = by_id.get(action.record_id, [])
             if not matches:
@@ -1739,8 +1750,36 @@ class PendingQueue:
                     catalog.items,
                 )
                 if selection is not None:
-                    ready_selections.append(selection)
+                    ready_selections.append((len(stats.results), selection))
                 stats.results.append(result)
+        duplicate_selections = [
+            indexed
+            for indexed in ready_selections
+            if indexed[1].action.action == "accept_duplicate"
+        ]
+        if duplicate_selections:
+            fresh_catalog = _scan_existing_item_metadata(self._brain_dir() / "items")
+            for result_index, selection in duplicate_selections:
+                target_id = cast(str, selection.action.target)
+                initial_target = catalog.items.get(target_id)
+                current_target = fresh_catalog.items.get(target_id)
+                if (
+                    not fresh_catalog.trusted
+                    or initial_target is None
+                    or current_target is None
+                    or not _matches_duplicate_target(initial_target, current_target)
+                    or _domain_digest(
+                        "amh.pending.resolution.target.v1",
+                        current_target.model_dump(mode="json", exclude_none=False),
+                    )
+                    != selection.target_digest
+                ):
+                    stats.results[result_index] = _resolution_result(
+                        selection.action,
+                        preview=selection.preview,
+                        status="blocked",
+                        reason="PENDING_RESOLUTION_CHANGED",
+                    )
         assert len(ready_selections) <= len(valid)
         return stats
 
@@ -1771,7 +1810,6 @@ class PendingQueue:
                 preview,
                 raw,
                 existing_items,
-                self._brain_dir() / "items",
             )
         return _preview_conversion_resolution(action, preview, raw)
 
@@ -2212,8 +2250,21 @@ def _valid_resolution_action_structure(action: PendingResolutionAction) -> bool:
         and action.action in _RESOLUTION_ACTIONS
         and type(action.record_id) is str
         and _RECORD_ID_PATTERN.fullmatch(action.record_id) is not None
-        and (action.target is None or type(action.target) is str)
     )
+
+
+def _resolution_target_rejection_reason(
+    action: PendingResolutionAction,
+) -> str | None:
+    if action.action == "approve_audit":
+        return None if action.target is None else "PENDING_RESOLUTION_NOT_APPLICABLE"
+    if action.action == "accept_duplicate":
+        if type(action.target) is str and is_valid_memory_item_id(action.target):
+            return None
+        return "PENDING_DUPLICATE_TARGET_MISMATCH"
+    if type(action.target) is str and action.target == "decision":
+        return None
+    return "PENDING_CONVERSION_UNSUPPORTED"
 
 
 def _public_resolution_action(value: object) -> PendingResolutionPublicName:
@@ -2373,7 +2424,6 @@ def _preview_duplicate_resolution(
     preview: PendingRecordPreview,
     raw: bytes,
     existing_items: Mapping[str, MemoryItem],
-    items_dir: Path,
 ) -> tuple[_PendingResolutionSelection | None, PendingResolutionResult]:
     if (
         preview.classification != "duplicate_candidate"
@@ -2399,20 +2449,6 @@ def _preview_duplicate_resolution(
         "amh.pending.resolution.target.v1",
         target.model_dump(mode="json", exclude_none=False),
     )
-    fresh_catalog = _scan_existing_item_metadata(items_dir)
-    current_target = fresh_catalog.items.get(cast(str, action.target))
-    if (
-        not fresh_catalog.trusted
-        or current_target is None
-        or not _matches_duplicate_target(item, current_target)
-    ):
-        return _resolution_blocked(action, preview, "PENDING_RESOLUTION_CHANGED")
-    current_target_digest = _domain_digest(
-        "amh.pending.resolution.target.v1",
-        current_target.model_dump(mode="json", exclude_none=False),
-    )
-    if current_target_digest != target_digest:
-        return _resolution_blocked(action, preview, "PENDING_RESOLUTION_CHANGED")
     return (
         _PendingResolutionSelection(
             action=action,

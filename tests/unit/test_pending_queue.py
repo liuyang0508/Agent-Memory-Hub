@@ -37,6 +37,10 @@ class UnhashableStr(str):
     __hash__ = None  # type: ignore[assignment]
 
 
+class UnhashablePendingResolutionAction(PendingResolutionAction):
+    __hash__ = None  # type: ignore[assignment]
+
+
 class _GuardedInfiniteActions:
     def __init__(self) -> None:
         self.reads = 0
@@ -3380,10 +3384,12 @@ def test_resolution_invalid_action_shapes_fail_closed_and_summarize_safely(
     assert len(stats.results) == len(malformed)
     assert {result.status for result in stats.results} == {"blocked"}
     assert {result.reason for result in stats.results} == {
-        "PENDING_RESOLUTION_NOT_APPLICABLE"
+        "PENDING_DUPLICATE_TARGET_MISMATCH",
+        "PENDING_RESOLUTION_NOT_APPLICABLE",
     }
     assert stats.to_summary_dict()["reason_counts"] == {
-        "PENDING_RESOLUTION_NOT_APPLICABLE": len(malformed)
+        "PENDING_DUPLICATE_TARGET_MISMATCH": 1,
+        "PENDING_RESOLUTION_NOT_APPLICABLE": len(malformed) - 1,
     }
     assert _tree_snapshot(tmp_brain) == before
 
@@ -3428,9 +3434,11 @@ def test_resolution_rejects_unhashable_str_subclasses_without_side_effects(
 
     assert len(stats.results) == 3
     assert {result.status for result in stats.results} == {"blocked"}
-    assert {result.reason for result in stats.results} == {
-        "PENDING_RESOLUTION_NOT_APPLICABLE"
-    }
+    assert [result.reason for result in stats.results] == [
+        "PENDING_RESOLUTION_NOT_APPLICABLE",
+        "PENDING_RESOLUTION_NOT_APPLICABLE",
+        "PENDING_DUPLICATE_TARGET_MISMATCH",
+    ]
     assert stats.results[0].action == "unknown"
     assert stats.results[1].record_id == ""
     assert stats.results[2].target is None
@@ -3582,6 +3590,108 @@ def test_resolution_invalid_only_request_returns_without_scanning(
 
 
 @pytest.mark.parametrize(
+    ("action", "expected_reason"),
+    [
+        pytest.param(
+            PendingResolutionAction(
+                "approve_audit",
+                "resolution-audit-target",
+                "decision",
+            ),
+            "PENDING_RESOLUTION_NOT_APPLICABLE",
+            id="audit-target",
+        ),
+        pytest.param(
+            PendingResolutionAction(
+                "accept_duplicate",
+                "resolution-duplicate-none",
+            ),
+            "PENDING_DUPLICATE_TARGET_MISMATCH",
+            id="duplicate-none",
+        ),
+        pytest.param(
+            PendingResolutionAction(
+                "accept_duplicate",
+                "resolution-duplicate-invalid",
+                "not-a-memory-id",
+            ),
+            "PENDING_DUPLICATE_TARGET_MISMATCH",
+            id="duplicate-invalid",
+        ),
+        pytest.param(
+            PendingResolutionAction(
+                "convert_type",
+                "resolution-conversion-fact",
+                "fact",
+            ),
+            "PENDING_CONVERSION_UNSUPPORTED",
+            id="conversion-fact",
+        ),
+        pytest.param(
+            PendingResolutionAction(
+                "convert_type",
+                "resolution-conversion-subclass",
+                UnhashableStr("decision"),
+            ),
+            "PENDING_CONVERSION_UNSUPPORTED",
+            id="conversion-str-subclass",
+        ),
+    ],
+)
+def test_resolution_rejects_invalid_action_targets_before_scanning(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    action: PendingResolutionAction,
+    expected_reason: str,
+) -> None:
+    monkeypatch.setattr(
+        pending_module,
+        "_pending_record_paths",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("must not scan")),
+    )
+    monkeypatch.setattr(
+        pending_module,
+        "_scan_existing_item_metadata",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("must not scan")),
+    )
+    before = _tree_snapshot(tmp_brain)
+
+    result = PendingQueue().resolve([action]).results[0]
+
+    assert result.status == "blocked"
+    assert result.reason == expected_reason
+    assert _tree_snapshot(tmp_brain) == before
+
+
+def test_resolution_rejects_unhashable_action_subclass_before_scanning(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        pending_module,
+        "_pending_record_paths",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("must not scan")),
+    )
+    monkeypatch.setattr(
+        pending_module,
+        "_scan_existing_item_metadata",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("must not scan")),
+    )
+    before = _tree_snapshot(tmp_brain)
+    action = UnhashablePendingResolutionAction(
+        "approve_audit",
+        "resolution-action-subclass",
+    )
+
+    result = PendingQueue().resolve([action]).results[0]
+
+    assert result.action == "unknown"
+    assert result.status == "blocked"
+    assert result.reason == "PENDING_RESOLUTION_NOT_APPLICABLE"
+    assert _tree_snapshot(tmp_brain) == before
+
+
+@pytest.mark.parametrize(
     "value",
     [
         pytest.param(UnhashableStr("ready"), id="unhashable-str-subclass"),
@@ -3728,6 +3838,52 @@ def test_resolution_duplicate_revalidates_target_snapshot(
     assert result.status == "blocked"
     assert result.reason == "PENDING_RESOLUTION_CHANGED"
     assert pending_path.read_bytes() == pending_bytes
+
+
+def test_resolution_duplicate_batch_uses_one_fresh_target_scan(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    actions: list[PendingResolutionAction] = []
+    for index in range(2):
+        record = _v2_record(record_id=f"resolution-batch-duplicate-{index}")
+        item = record["item"]
+        assert isinstance(item, dict)
+        item["title"] = f"batch duplicate title {index}"
+        item["summary"] = f"batch duplicate summary {index}"
+        target_id = f"mem-20260701-100000-resolution-batch-target-{index}"
+        _write_existing_item(
+            tmp_brain,
+            record,
+            item_id=target_id,
+            span_hash=f"different-payload-{index}",
+        )
+        enqueue_write_record(record)
+        actions.append(
+            PendingResolutionAction(
+                "accept_duplicate",
+                str(record["record_id"]),
+                target_id,
+            )
+        )
+    real_scan = pending_module._scan_existing_item_metadata
+    scans = 0
+
+    def counted_scan(*args, **kwargs):
+        nonlocal scans
+        scans += 1
+        return real_scan(*args, **kwargs)
+
+    monkeypatch.setattr(pending_module, "_scan_existing_item_metadata", counted_scan)
+
+    stats = PendingQueue().resolve(actions)
+
+    assert scans == 2
+    assert [result.status for result in stats.results] == ["ready", "ready"]
+    assert [result.record_id for result in stats.results] == [
+        "resolution-batch-duplicate-0",
+        "resolution-batch-duplicate-1",
+    ]
 
 
 def test_resolution_audit_digest_is_deterministic_and_order_independent() -> None:
