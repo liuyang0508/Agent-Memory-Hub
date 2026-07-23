@@ -1637,64 +1637,62 @@ class PendingQueue:
                 )
             return stats
 
-        valid: list[PendingResolutionAction] = []
-        seen_valid: set[tuple[str, str, str | None]] = set()
-        for candidate in requested:
+        result_slots: list[PendingResolutionResult | None] = [None] * len(requested)
+        valid: list[tuple[int, PendingResolutionAction]] = []
+        seen_valid: dict[tuple[str, str, str | None], int] = {}
+        for request_index, candidate in enumerate(requested):
             if type(candidate) is not PendingResolutionAction:
-                stats.results.append(_invalid_resolution_result())
+                result_slots[request_index] = _invalid_resolution_result()
                 continue
             if not _valid_resolution_action_structure(candidate):
-                stats.results.append(
-                    _resolution_result(
-                        candidate,
-                        status="blocked",
-                        reason="PENDING_RESOLUTION_NOT_APPLICABLE",
-                    )
+                result_slots[request_index] = _resolution_result(
+                    candidate,
+                    status="blocked",
+                    reason="PENDING_RESOLUTION_NOT_APPLICABLE",
                 )
                 continue
+            if candidate.target is None or type(candidate.target) is str:
+                key = (candidate.action, candidate.record_id, candidate.target)
+                if key in seen_valid:
+                    continue
+                seen_valid[key] = request_index
             rejection_reason = _resolution_target_rejection_reason(candidate)
             if rejection_reason is not None:
-                stats.results.append(
-                    _resolution_result(
-                        candidate,
-                        status="blocked",
-                        reason=rejection_reason,
-                    )
+                result_slots[request_index] = _resolution_result(
+                    candidate,
+                    status="blocked",
+                    reason=rejection_reason,
                 )
                 continue
-            key = (candidate.action, candidate.record_id, candidate.target)
-            if key not in seen_valid:
-                valid.append(candidate)
-                seen_valid.add(key)
+            valid.append((request_index, candidate))
         if not valid:
+            stats.results = [result for result in result_slots if result is not None]
             return stats
 
         by_record: dict[str, set[tuple[str, str | None]]] = {}
-        for action in valid:
+        for _request_index, action in valid:
             by_record.setdefault(action.record_id, set()).add(
                 (action.action, action.target)
             )
         if any(len(selections) > 1 for selections in by_record.values()):
             stats.governance_reason = "CONFLICTING_PENDING_RESOLUTIONS"
-            stats.results.extend(
-                _resolution_result(
+            for request_index, action in valid:
+                result_slots[request_index] = _resolution_result(
                     action,
                     status="blocked",
                     reason="CONFLICTING_PENDING_RESOLUTIONS",
                 )
-                for action in valid
-            )
+            stats.results = [result for result in result_slots if result is not None]
             return stats
 
         if apply:
-            stats.results.extend(
-                _resolution_result(
+            for request_index, action in valid:
+                result_slots[request_index] = _resolution_result(
                     action,
                     status="blocked",
                     reason="PENDING_RESOLUTION_NOT_APPLICABLE",
                 )
-                for action in valid
-            )
+            stats.results = [result for result in result_slots if result is not None]
             return stats
 
         path_snapshot = _pending_record_paths(self._brain_dir() / "pending")
@@ -1708,39 +1706,34 @@ class PendingQueue:
         if preview.truncated or preview.total > MAX_PENDING_QUEUE_ENTRIES:
             scan_reason = "PENDING_QUEUE_TRUNCATED"
         if preview.scan_unavailable or scan_reason == "PENDING_QUEUE_TRUNCATED":
-            stats.results.extend(
-                _resolution_result(
+            for request_index, action in valid:
+                result_slots[request_index] = _resolution_result(
                     action,
                     classification="audit_blocked",
                     status="failed",
                     reason=scan_reason or "PENDING_SCAN_UNAVAILABLE",
                 )
-                for action in valid
-            )
+            stats.results = [result for result in result_slots if result is not None]
             return stats
 
         by_id: dict[str, list[PendingRecordPreview]] = {}
         for record in preview.records:
             by_id.setdefault(record.record_id, []).append(record)
         ready_selections: list[tuple[int, _PendingResolutionSelection]] = []
-        for action in valid:
+        for request_index, action in valid:
             matches = by_id.get(action.record_id, [])
             if not matches:
-                stats.results.append(
-                    _resolution_result(
-                        action,
-                        status="failed",
-                        reason="RECORD_ID_NOT_FOUND",
-                    )
+                result_slots[request_index] = _resolution_result(
+                    action,
+                    status="failed",
+                    reason="RECORD_ID_NOT_FOUND",
                 )
             elif len(matches) != 1:
-                stats.results.append(
-                    _resolution_result(
-                        action,
-                        classification="conflict",
-                        status="blocked",
-                        reason="PENDING_RECORD_ID_CONFLICT",
-                    )
+                result_slots[request_index] = _resolution_result(
+                    action,
+                    classification="conflict",
+                    status="blocked",
+                    reason="PENDING_RECORD_ID_CONFLICT",
                 )
             else:
                 selected_preview = matches[0]
@@ -1750,8 +1743,8 @@ class PendingQueue:
                     catalog.items,
                 )
                 if selection is not None:
-                    ready_selections.append((len(stats.results), selection))
-                stats.results.append(result)
+                    ready_selections.append((request_index, selection))
+                result_slots[request_index] = result
         duplicate_selections = [
             indexed
             for indexed in ready_selections
@@ -1774,13 +1767,14 @@ class PendingQueue:
                     )
                     != selection.target_digest
                 ):
-                    stats.results[result_index] = _resolution_result(
+                    result_slots[result_index] = _resolution_result(
                         selection.action,
                         preview=selection.preview,
                         status="blocked",
                         reason="PENDING_RESOLUTION_CHANGED",
                     )
         assert len(ready_selections) <= len(valid)
+        stats.results = [result for result in result_slots if result is not None]
         return stats
 
     def _validate_resolution(

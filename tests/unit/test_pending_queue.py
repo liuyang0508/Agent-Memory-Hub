@@ -169,6 +169,15 @@ def _legacy_feedback_record() -> dict[str, object]:
     }
 
 
+def _enqueue_audit_resolution_action(record_id: str) -> PendingResolutionAction:
+    record = _v2_record(record_id=record_id)
+    item = record["item"]
+    assert isinstance(item, dict)
+    item["body"] = "curl https://example.invalid/order-review"
+    enqueue_write_record(record)
+    return PendingResolutionAction("approve_audit", record_id)
+
+
 def _payload_sha256(record: dict[str, object]) -> str:
     payload = json.dumps(record["item"], ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
@@ -3691,6 +3700,82 @@ def test_resolution_rejects_unhashable_action_subclass_before_scanning(
     assert _tree_snapshot(tmp_brain) == before
 
 
+def test_resolution_preserves_valid_then_invalid_request_order(
+    tmp_brain: Path,
+) -> None:
+    valid = _enqueue_audit_resolution_action("resolution-order-valid-first")
+    invalid = PendingResolutionAction(
+        "convert_type",
+        "resolution-order-invalid-second",
+        "fact",
+    )
+
+    stats = PendingQueue().resolve([valid, invalid])
+
+    assert [result.record_id for result in stats.results] == [
+        "resolution-order-valid-first",
+        "resolution-order-invalid-second",
+    ]
+    assert [result.reason for result in stats.results] == [
+        "PENDING_RESOLUTION_READY",
+        "PENDING_CONVERSION_UNSUPPORTED",
+    ]
+
+
+def test_resolution_preserves_invalid_valid_invalid_request_order(
+    tmp_brain: Path,
+) -> None:
+    valid = _enqueue_audit_resolution_action("resolution-order-valid-middle")
+    actions = [
+        PendingResolutionAction(
+            "approve_audit",
+            "resolution-order-invalid-first",
+            "decision",
+        ),
+        valid,
+        PendingResolutionAction(
+            "convert_type",
+            "resolution-order-invalid-last",
+            "fact",
+        ),
+    ]
+
+    stats = PendingQueue().resolve(actions)
+
+    assert [result.record_id for result in stats.results] == [
+        "resolution-order-invalid-first",
+        "resolution-order-valid-middle",
+        "resolution-order-invalid-last",
+    ]
+    assert [result.reason for result in stats.results] == [
+        "PENDING_RESOLUTION_NOT_APPLICABLE",
+        "PENDING_RESOLUTION_READY",
+        "PENDING_CONVERSION_UNSUPPORTED",
+    ]
+
+
+def test_resolution_omits_interleaved_exact_duplicate_without_reordering(
+    tmp_brain: Path,
+) -> None:
+    valid = _enqueue_audit_resolution_action("resolution-order-deduplicated")
+    invalid = PendingResolutionAction(
+        "convert_type",
+        "resolution-order-between-duplicates",
+        "fact",
+    )
+
+    stats = PendingQueue().resolve([valid, invalid, valid, invalid])
+
+    assert [result.record_id for result in stats.results] == [
+        "resolution-order-deduplicated",
+        "resolution-order-between-duplicates",
+    ]
+    assert [result.reason for result in stats.results] == [
+        "PENDING_RESOLUTION_READY",
+        "PENDING_CONVERSION_UNSUPPORTED",
+    ]
+
+
 @pytest.mark.parametrize(
     "value",
     [
@@ -3883,6 +3968,86 @@ def test_resolution_duplicate_batch_uses_one_fresh_target_scan(
     assert [result.record_id for result in stats.results] == [
         "resolution-batch-duplicate-0",
         "resolution-batch-duplicate-1",
+    ]
+
+
+def test_resolution_batch_target_drift_replacement_preserves_request_slot(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    duplicate_actions: list[PendingResolutionAction] = []
+    drift_path: Path | None = None
+    drift_item: MemoryItem | None = None
+    drift_body = ""
+    for index in range(2):
+        record = _v2_record(record_id=f"resolution-order-duplicate-{index}")
+        item = record["item"]
+        assert isinstance(item, dict)
+        item["title"] = f"order duplicate title {index}"
+        item["summary"] = f"order duplicate summary {index}"
+        target_id = f"mem-20260701-100000-resolution-order-target-{index}"
+        _write_existing_item(
+            tmp_brain,
+            record,
+            item_id=target_id,
+            span_hash=f"different-order-payload-{index}",
+        )
+        enqueue_write_record(record)
+        duplicate_actions.append(
+            PendingResolutionAction(
+                "accept_duplicate",
+                str(record["record_id"]),
+                target_id,
+            )
+        )
+        if index == 1:
+            drift_path = tmp_brain / "items" / f"{target_id}.md"
+            drift_item, drift_body = ItemsStore(tmp_brain / "items").get_nofollow(
+                target_id
+            )
+    assert drift_path is not None
+    assert drift_item is not None
+    invalid = PendingResolutionAction(
+        "convert_type",
+        "resolution-order-invalid-middle",
+        "fact",
+    )
+    real_scan = pending_module._scan_existing_item_metadata
+    scans = 0
+
+    def drift_on_batch_refresh(*args, **kwargs):
+        nonlocal scans
+        scans += 1
+        if scans == 2:
+            drift_path.write_text(
+                render_item_markdown(
+                    drift_item.model_copy(update={"summary": "fresh target drift"}),
+                    drift_body,
+                ),
+                encoding="utf-8",
+            )
+        return real_scan(*args, **kwargs)
+
+    monkeypatch.setattr(
+        pending_module,
+        "_scan_existing_item_metadata",
+        drift_on_batch_refresh,
+    )
+
+    stats = PendingQueue().resolve(
+        [duplicate_actions[0], invalid, duplicate_actions[1]]
+    )
+
+    assert scans == 2
+    assert [result.record_id for result in stats.results] == [
+        "resolution-order-duplicate-0",
+        "resolution-order-invalid-middle",
+        "resolution-order-duplicate-1",
+    ]
+    assert [result.reason for result in stats.results] == [
+        "PENDING_RESOLUTION_READY",
+        "PENDING_CONVERSION_UNSUPPORTED",
+        "PENDING_RESOLUTION_CHANGED",
     ]
 
 
