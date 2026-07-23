@@ -9,6 +9,9 @@ and the audit gate fail-closes on critical/high findings unless explicitly waive
 import logging
 import json
 from datetime import datetime, timezone
+from pathlib import Path
+
+import pytest
 
 from agent_brain.contracts.memory_item import MemoryItem, MemoryType, Refs, Source
 from agent_brain.memory.store.items_store import ItemsStore
@@ -33,6 +36,16 @@ def _item(title="hello world", type=MemoryType.fact):
     return MemoryItem(
         id=make_item_id(title, when=now), type=type, created_at=now, title=title, summary="s"
     )
+
+
+def _tree_snapshot(root: Path) -> list[tuple[str, bytes | None]]:
+    return [
+        (
+            str(path.relative_to(root)),
+            None if path.is_dir() else path.read_bytes(),
+        )
+        for path in sorted(root.rglob("*"))
+    ]
 
 
 def test_write_succeeds_when_md_append_succeeds(tmp_brain):
@@ -170,8 +183,16 @@ def test_write_service_attaches_write_input_evidence_sidecar(tmp_brain):
     assert stored.refs.extractions
     resource_id = stored.refs.resources[0]
     extraction_id = stored.refs.extractions[0]
-    assert (tmp_brain / "resources" / f"{resource_id}.json").exists()
-    assert (tmp_brain / "extractions" / f"{extraction_id}.json").exists()
+    resource_path = tmp_brain / "resources" / f"{resource_id}.json"
+    extraction_path = tmp_brain / "extractions" / f"{extraction_id}.json"
+    assert resource_path.exists()
+    assert extraction_path.exists()
+    resource = json.loads(resource_path.read_text(encoding="utf-8"))
+    extraction = json.loads(extraction_path.read_text(encoding="utf-8"))
+    created_at = datetime.fromisoformat(resource["created_at"]).astimezone(timezone.utc)
+    assert resource_id[4:19] == f"{created_at:%Y%m%d-%H%M%S}"
+    assert extraction_id[4:19] == f"{created_at:%Y%m%d-%H%M%S}"
+    assert extraction["created_at"] == resource["created_at"]
     source_record = tmp_brain / "sources" / "writes" / f"{item.id}.json"
     assert source_record.exists()
     data = json.loads(source_record.read_text(encoding="utf-8"))
@@ -180,6 +201,79 @@ def test_write_service_attaches_write_input_evidence_sidecar(tmp_brain):
     assert data["refs"]["resources"] == [resource_id]
     assert data["refs"]["extractions"] == [extraction_id]
     assert "fact item has no source refs" not in res.warnings
+
+
+@pytest.mark.parametrize(
+    ("case", "expected"),
+    [
+        ("count", "WRITE_EVIDENCE_FILE_COUNT_EXCEEDED"),
+        ("size", "WRITE_EVIDENCE_FILE_TOO_LARGE"),
+    ],
+)
+def test_write_evidence_caps_fail_before_any_durable_write(
+    tmp_brain: Path,
+    case: str,
+    expected: str,
+) -> None:
+    svc = WriteService.for_brain(tmp_brain)
+    if case == "count":
+        refs = Refs(
+            files=[str(tmp_brain / f"missing-{index}.txt") for index in range(65)]
+        )
+        rejected_path = refs.files[-1]
+    else:
+        oversized = tmp_brain / "oversized.bin"
+        with oversized.open("wb") as handle:
+            handle.truncate(64 * 1024 * 1024 + 1)
+        refs = Refs(files=[str(oversized)])
+        rejected_path = str(oversized)
+    item = _item(title=f"reject evidence {case}").model_copy(
+        update={"refs": refs}
+    )
+    before = _tree_snapshot(tmp_brain)
+
+    with pytest.raises(RuntimeError) as caught:
+        svc.write(item=item, body="bounded body", allow_unsafe=True)
+
+    assert str(caught.value) == expected
+    assert rejected_path not in str(caught.value)
+    assert _tree_snapshot(tmp_brain) == before
+    assert not list((tmp_brain / "items").glob("*.md"))
+    assert not (tmp_brain / "resources").exists()
+    assert not (tmp_brain / "extractions").exists()
+
+
+def test_write_evidence_accepts_exact_file_count_cap(tmp_brain: Path) -> None:
+    svc = WriteService.for_brain(tmp_brain)
+    refs = Refs(
+        files=[str(tmp_brain / f"missing-{index}.txt") for index in range(64)]
+    )
+    item = _item(title="exact evidence file count").model_copy(
+        update={"refs": refs}
+    )
+
+    result = svc.write(item=item, body="bounded body", allow_unsafe=True)
+
+    stored, _body = svc._store.get(item.id)
+    assert result.status == "written"
+    assert stored.refs.files == refs.files
+
+
+def test_write_evidence_accepts_exact_file_size_cap(tmp_brain: Path) -> None:
+    evidence = tmp_brain / "exactly-64mib.bin"
+    with evidence.open("wb") as handle:
+        handle.truncate(64 * 1024 * 1024)
+    svc = WriteService.for_brain(tmp_brain)
+    item = _item(title="exact evidence size").model_copy(
+        update={"refs": Refs(files=[str(evidence)])}
+    )
+
+    result = svc.write(item=item, body="bounded body", allow_unsafe=True)
+
+    stored, _body = svc._store.get(item.id)
+    assert result.status == "written"
+    assert len(stored.refs.resources) == 2
+    assert len(stored.refs.extractions) == 1
 
 
 def test_evidence_quality_warnings_do_not_block_write(tmp_brain):

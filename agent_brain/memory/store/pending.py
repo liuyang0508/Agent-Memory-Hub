@@ -65,12 +65,6 @@ from agent_brain.contracts.memory_item import (
     Validity,
     is_valid_memory_item_id,
 )
-from agent_brain.contracts.resource import (
-    ExtractionRecord,
-    ResourceRecord,
-    validate_extraction_id,
-    validate_resource_id,
-)
 from agent_brain.memory.store.item_markdown import parse_item_markdown
 from agent_brain.memory.store.items_store import ItemsStore
 from agent_brain.memory.governance.pending_receipts import (
@@ -136,7 +130,6 @@ MAX_ITEM_FRONTMATTER_BYTES = 64 * 1024
 MAX_ITEM_METADATA_ENTRIES = 20_000
 MAX_ITEM_METADATA_BYTES = 64 * 1024 * 1024
 MAX_ITEM_DIRECTORY_DEPTH = 32
-_MAX_RESOLUTION_SYMLINK_TARGET_BYTES = 4096
 STALE_EPHEMERAL_SECONDS = 30 * 24 * 60 * 60
 _monotonic = time.monotonic
 
@@ -2959,7 +2952,7 @@ def _resolution_intent(
         return None, "PENDING_CONVERSION_INVALID", preview._stable_item_id
     if parsed[0].get("type") != "feedback":
         return None, "PENDING_CONVERSION_UNSUPPORTED", preview._stable_item_id
-    converted = _converted_pending_write(preview, raw)
+    converted = _converted_pending_write(preview, raw, parsed=parsed)
     if converted is None:
         return None, "PENDING_CONVERSION_INVALID", preview._stable_item_id
     item, body = converted
@@ -2994,125 +2987,16 @@ def _matches_resolution_existing(
 ) -> bool:
     if not _same_scope(intent.item, existing):
         return False
-    from agent_brain.memory.store.write_service import (
-        _MAX_WRITE_EVIDENCE_FILES,
-        _MAX_WRITE_EVIDENCE_FILE_BYTES,
-        _MAX_WRITE_EVIDENCE_RECORD_BYTES,
-        _MAX_WRITE_EVIDENCE_REFS,
-        _TEXT_EXTRACTION_MAX_BYTES,
-        _WriteEvidenceFile,
-        _matches_existing_write,
-    )
+    from agent_brain.memory.store.write_service import _matches_existing_write
 
-    if (
-        len(intent.item.refs.files) > _MAX_WRITE_EVIDENCE_FILES
-        or len(existing.refs.resources) > _MAX_WRITE_EVIDENCE_REFS
-        or len(existing.refs.extractions) > _MAX_WRITE_EVIDENCE_REFS
-    ):
-        return False
-    files: list[_WriteEvidenceFile] = []
-    for ref_file in intent.item.refs.files:
-        path = Path(ref_file).expanduser()
-        try:
-            content = _read_pending_record(
-                path,
-                limit=_MAX_WRITE_EVIDENCE_FILE_BYTES,
-            )
-        except FileNotFoundError:
-            files.append(_WriteEvidenceFile(ref_file=ref_file, path=path))
-            continue
-        except _PendingReadError as exc:
-            if exc.reason != "PENDING_RECORD_NOT_REGULAR" and (
-                exc.reason != "PENDING_RECORD_CHANGED"
-                or _symlink_ref_state(path) != "skipped"
-            ):
-                return False
-            files.append(_WriteEvidenceFile(ref_file=ref_file, path=path))
-            continue
-        except OSError:
-            return False
-        try:
-            text = (
-                content.decode("utf-8")
-                if len(content) <= _TEXT_EXTRACTION_MAX_BYTES
-                else None
-            )
-        except UnicodeDecodeError:
-            text = None
-        files.append(
-            _WriteEvidenceFile(
-                ref_file=ref_file,
-                path=path,
-                sha256=hashlib.sha256(content).hexdigest(),
-                size_bytes=len(content),
-                text=text,
-            )
-        )
-
-    resources: dict[str, ResourceRecord] = {}
-    for resource_id in existing.refs.resources:
-        try:
-            validate_resource_id(resource_id)
-            resources[resource_id] = ResourceRecord.model_validate_json(
-                _read_pending_record(
-                    brain / "resources" / f"{resource_id}.json",
-                    limit=_MAX_WRITE_EVIDENCE_RECORD_BYTES,
-                )
-            )
-        except (FileNotFoundError, OSError, UnicodeError, ValueError, _PendingReadError):
-            continue
-    extractions: dict[str, ExtractionRecord] = {}
-    for extraction_id in existing.refs.extractions:
-        try:
-            validate_extraction_id(extraction_id)
-            extractions[extraction_id] = ExtractionRecord.model_validate_json(
-                _read_pending_record(
-                    brain / "extractions" / f"{extraction_id}.json",
-                    limit=_MAX_WRITE_EVIDENCE_RECORD_BYTES,
-                )
-            )
-        except (FileNotFoundError, OSError, UnicodeError, ValueError, _PendingReadError):
-            continue
     return _matches_existing_write(
         intent.item,
         intent.body,
         existing,
         existing_body,
-        files=files,
-        resources=resources,
-        extractions=extractions,
+        brain=brain,
         now=_utc_now(),
     )
-
-
-def _symlink_ref_state(path: Path) -> Literal["skipped", "regular", "unsafe"]:
-    """Classify one link without reading or following its final target."""
-
-    try:
-        before = os.lstat(path)
-        if not stat.S_ISLNK(before.st_mode):
-            return "unsafe"
-        target = os.readlink(path)
-        if not target or len(os.fsencode(target)) > _MAX_RESOLUTION_SYMLINK_TARGET_BYTES:
-            return "unsafe"
-
-        target_path = Path(target)
-        if not target_path.is_absolute():
-            target_path = path.parent / target_path
-        try:
-            target_stat = os.lstat(target_path)
-        except FileNotFoundError:
-            state: Literal["skipped", "regular"] = "skipped"
-        else:
-            if stat.S_ISLNK(target_stat.st_mode):
-                return "unsafe"
-            state = "regular" if _is_safe_regular_file(target_stat) else "skipped"
-        after = os.lstat(path)
-        if not stat.S_ISLNK(after.st_mode) or not _same_file_identity(before, after):
-            return "unsafe"
-        return state
-    except (OSError, UnicodeError, ValueError):
-        return "unsafe"
 
 
 def _matches_duplicate_target(
@@ -3161,8 +3045,11 @@ def _preview_conversion_resolution(
 def _converted_pending_write(
     preview: PendingRecordPreview,
     raw: bytes,
+    *,
+    parsed: tuple[dict[str, object], int, datetime, str] | None = None,
 ) -> tuple[MemoryItem, str] | None:
-    parsed = _pending_record_payload(Path(preview.path), raw, preview)
+    if parsed is None:
+        parsed = _pending_record_payload(Path(preview.path), raw, preview)
     if parsed is None:
         return None
     item, version, original_created_at, payload_sha256 = parsed

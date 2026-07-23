@@ -20,11 +20,13 @@ later ``sync-pending``/reindex can repair the derived index.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import mimetypes
 import os
-from collections.abc import Callable, Mapping, Sequence
+import stat
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -47,8 +49,16 @@ from agent_brain.contracts.resource import (
     ResourceRecord,
     make_extraction_id,
     make_resource_id,
-    sha256_file,
     sha256_text,
+    validate_extraction_id,
+    validate_resource_id,
+)
+from agent_brain.platform.bounded_json import open_bounded_json_directory
+from agent_brain.platform.secure_io import (
+    close_descriptor,
+    open_directory_path_without_symlinks,
+    open_regular_file_at,
+    secure_dir_fd_io_supported,
 )
 
 logger = logging.getLogger(__name__)
@@ -70,7 +80,10 @@ _MAX_WRITE_EVIDENCE_FILES = 64
 _MAX_WRITE_EVIDENCE_REFS = 256
 _MAX_WRITE_EVIDENCE_FILE_BYTES = 64 * 1024 * 1024
 _MAX_WRITE_EVIDENCE_RECORD_BYTES = 2 * 1024 * 1024
+_MAX_WRITE_EVIDENCE_SYMLINK_BYTES = 4096
 _GENERATED_EVIDENCE_CLOCK_SKEW_SECONDS = 5
+_MAX_LEGACY_EVIDENCE_OFFSET_SECONDS = 14 * 60 * 60
+_LEGACY_EVIDENCE_OFFSET_GRANULARITY_SECONDS = 15 * 60
 _GENERATED_EVIDENCE_ID_RE = re.compile(
     r"^(?P<prefix>res|ext)-(?P<date>\d{8})-(?P<time>\d{6})-"
 )
@@ -90,6 +103,10 @@ class _WriteEvidenceSpec:
     id_title: str
     resource: ResourceRecord
     extraction: ExtractionRecord | None = None
+
+
+class _WriteEvidenceBoundaryError(RuntimeError):
+    pass
 
 
 def _brain_dir() -> Path:
@@ -201,7 +218,8 @@ class WriteService:
             )
         item, review_warning = _mark_boundary_review_candidate(item)
         item = enrich_memory_item(item)
-        item = self._attach_evidence_sidecar(item, body)
+        evidence = _prepare_write_evidence(item, body)
+        item = self._attach_evidence_sidecar(item, evidence)
         # md append — the source of truth. If this raises, the write genuinely
         # failed and the exception propagates to the caller (entry points decide
         # whether to buffer to the pending queue).
@@ -293,7 +311,11 @@ class WriteService:
         except Exception:
             pass
 
-    def _attach_evidence_sidecar(self, item: MemoryItem, body: str) -> MemoryItem:
+    def _attach_evidence_sidecar(
+        self,
+        item: MemoryItem,
+        evidence: tuple[_WriteEvidenceSpec, ...],
+    ) -> MemoryItem:
         """Attach resource/extraction evidence produced by the write boundary.
 
         Explicit refs stay authoritative. Existing file refs are mirrored into
@@ -303,17 +325,16 @@ class WriteService:
         bare assertions. Multimodal placeholders are deliberately excluded:
         ``[Image #1]`` requires a real resource/extraction, not a text echo.
         """
-        brain = self._brain_dir or self._store.items_dir.parent
-        resource_store = ResourceStore(brain)
+        if not evidence:
+            return item
+        resource_store = ResourceStore(
+            self._brain_dir or self._store.items_dir.parent
+        )
         refs = item.refs.model_dump(mode="json")
         resources = list(refs.get("resources") or [])
         extractions = list(refs.get("extractions") or [])
 
-        files = [
-            _snapshot_write_evidence_file(ref_file)
-            for ref_file in refs.get("files") or []
-        ]
-        for spec in _prepare_evidence_plan(item, body, files):
+        for spec in evidence:
             resource_id, extraction_id = _materialize_evidence_spec(
                 resource_store,
                 spec,
@@ -383,11 +404,149 @@ def _with_overview(item: MemoryItem, overview: str) -> MemoryItem:
     return MemoryItem.model_validate(data)
 
 
-def _prepare_evidence_plan(
+def _prepare_write_evidence(
     item: MemoryItem,
     body: str,
-    files: Sequence[_WriteEvidenceFile],
 ) -> tuple[_WriteEvidenceSpec, ...]:
+    if len(item.refs.files) > _MAX_WRITE_EVIDENCE_FILES:
+        raise _WriteEvidenceBoundaryError("WRITE_EVIDENCE_FILE_COUNT_EXCEEDED")
+    if (
+        len(item.refs.resources) > _MAX_WRITE_EVIDENCE_REFS
+        or len(item.refs.extractions) > _MAX_WRITE_EVIDENCE_REFS
+    ):
+        raise _WriteEvidenceBoundaryError("WRITE_EVIDENCE_REF_COUNT_EXCEEDED")
+
+    def is_safe_regular(opened: object) -> bool:
+        attributes = int(getattr(opened, "st_file_attributes", 0) or 0)
+        return stat.S_ISREG(int(getattr(opened, "st_mode", 0))) and not (
+            attributes & 0x0400
+        )
+
+    files: list[_WriteEvidenceFile] = []
+    for ref_file in item.refs.files:
+        path = Path(ref_file).expanduser()
+        try:
+            before = os.lstat(path)
+        except FileNotFoundError:
+            files.append(_WriteEvidenceFile(ref_file=ref_file, path=path))
+            continue
+        except OSError as exc:
+            raise _WriteEvidenceBoundaryError(
+                "WRITE_EVIDENCE_FILE_UNSAFE"
+            ) from exc
+
+        if stat.S_ISLNK(before.st_mode):
+            try:
+                target = os.readlink(path)
+                if (
+                    not target
+                    or len(os.fsencode(target)) > _MAX_WRITE_EVIDENCE_SYMLINK_BYTES
+                ):
+                    raise OSError
+                target_path = Path(target)
+                if not target_path.is_absolute():
+                    target_path = path.parent / target_path
+                try:
+                    target_stat = os.lstat(target_path)
+                except FileNotFoundError:
+                    target_stat = None
+                after = os.lstat(path)
+                if not stat.S_ISLNK(after.st_mode) or not os.path.samestat(
+                    before, after
+                ):
+                    raise OSError
+            except OSError as exc:
+                raise _WriteEvidenceBoundaryError(
+                    "WRITE_EVIDENCE_FILE_UNSAFE"
+                ) from exc
+            if target_stat is None or (
+                not stat.S_ISLNK(target_stat.st_mode)
+                and not is_safe_regular(target_stat)
+            ):
+                files.append(_WriteEvidenceFile(ref_file=ref_file, path=path))
+                continue
+            raise _WriteEvidenceBoundaryError("WRITE_EVIDENCE_FILE_UNSAFE")
+
+        if not is_safe_regular(before):
+            files.append(_WriteEvidenceFile(ref_file=ref_file, path=path))
+            continue
+        if before.st_size > _MAX_WRITE_EVIDENCE_FILE_BYTES:
+            raise _WriteEvidenceBoundaryError("WRITE_EVIDENCE_FILE_TOO_LARGE")
+
+        directory_descriptor: int | None = None
+        descriptor: int | None = None
+        try:
+            if secure_dir_fd_io_supported():
+                directory_descriptor = open_directory_path_without_symlinks(
+                    path.parent
+                )
+                descriptor = open_regular_file_at(
+                    directory_descriptor,
+                    path.name,
+                )
+            else:
+                flags = (
+                    os.O_RDONLY
+                    | getattr(os, "O_BINARY", 0)
+                    | getattr(os, "O_CLOEXEC", 0)
+                    | getattr(os, "O_NONBLOCK", 0)
+                    | getattr(os, "O_NOFOLLOW", 0)
+                )
+                descriptor = os.open(path, flags)
+            opened = os.fstat(descriptor)
+            if (
+                not is_safe_regular(opened)
+                or not os.path.samestat(before, opened)
+                or opened.st_size > _MAX_WRITE_EVIDENCE_FILE_BYTES
+            ):
+                raise OSError
+            chunks: list[bytes] = []
+            remaining = _MAX_WRITE_EVIDENCE_FILE_BYTES + 1
+            while remaining > 0:
+                chunk = os.read(descriptor, min(1024 * 1024, remaining))
+                if not chunk:
+                    break
+                chunks.append(chunk)
+                remaining -= len(chunk)
+            content = b"".join(chunks)
+            after = os.fstat(descriptor)
+            path_after = os.lstat(path)
+            if (
+                len(content) > _MAX_WRITE_EVIDENCE_FILE_BYTES
+                or not os.path.samestat(opened, after)
+                or not os.path.samestat(after, path_after)
+                or opened.st_size != after.st_size
+                or opened.st_mtime_ns != after.st_mtime_ns
+                or len(content) != after.st_size
+            ):
+                raise OSError
+        except OSError as exc:
+            raise _WriteEvidenceBoundaryError(
+                "WRITE_EVIDENCE_FILE_UNSAFE"
+            ) from exc
+        finally:
+            if descriptor is not None:
+                close_descriptor(descriptor)
+            if directory_descriptor is not None:
+                close_descriptor(directory_descriptor)
+        try:
+            text = (
+                content.decode("utf-8")
+                if len(content) <= _TEXT_EXTRACTION_MAX_BYTES
+                else None
+            )
+        except UnicodeDecodeError:
+            text = None
+        files.append(
+            _WriteEvidenceFile(
+                ref_file=ref_file,
+                path=path,
+                sha256=hashlib.sha256(content).hexdigest(),
+                size_bytes=len(content),
+                text=text,
+            )
+        )
+
     evidence = [
         _file_ref_spec(item, file)
         for file in files
@@ -398,6 +557,13 @@ def _prepare_evidence_plan(
     )
     if extraction_count == 0 and _should_capture_write_input(body):
         evidence.append(_write_input_spec(item, body))
+    generated_extractions = sum(spec.extraction is not None for spec in evidence)
+    if (
+        len(item.refs.resources) + len(evidence) > _MAX_WRITE_EVIDENCE_REFS
+        or len(item.refs.extractions) + generated_extractions
+        > _MAX_WRITE_EVIDENCE_REFS
+    ):
+        raise _WriteEvidenceBoundaryError("WRITE_EVIDENCE_REF_COUNT_EXCEEDED")
     return tuple(evidence)
 
 
@@ -496,10 +662,11 @@ def _materialize_evidence_spec(
     resource_store: ResourceStore,
     spec: _WriteEvidenceSpec,
 ) -> tuple[str, str | None]:
+    created_at = datetime.now(timezone.utc)
     resource = spec.resource.model_copy(
         update={
-            "id": make_resource_id(spec.id_title),
-            "created_at": datetime.now(timezone.utc),
+            "id": make_resource_id(spec.id_title, when=created_at),
+            "created_at": created_at,
         }
     )
     resource_store.write_resource(resource)
@@ -507,9 +674,9 @@ def _materialize_evidence_spec(
         return resource.id, None
     extraction = spec.extraction.model_copy(
         update={
-            "id": make_extraction_id(spec.id_title),
+            "id": make_extraction_id(spec.id_title, when=created_at),
             "resource_id": resource.id,
-            "created_at": datetime.now(timezone.utc),
+            "created_at": created_at,
         }
     )
     resource_store.write_extraction(extraction)
@@ -555,45 +722,26 @@ def _write_source_record(
     return path
 
 
-def _snapshot_write_evidence_file(ref_file: str) -> _WriteEvidenceFile:
-    path = Path(ref_file).expanduser()
-    if not path.exists() or not path.is_file():
-        return _WriteEvidenceFile(ref_file=ref_file, path=path)
-    opened = path.stat()
-    return _WriteEvidenceFile(
-        ref_file=ref_file,
-        path=path,
-        sha256=sha256_file(path),
-        size_bytes=opened.st_size,
-        text=_read_text_file(path),
-    )
-
-
 def _matches_existing_write(
     item: MemoryItem,
     body: str,
     existing: MemoryItem,
     existing_body: str,
     *,
-    files: Sequence[_WriteEvidenceFile],
-    resources: Mapping[str, ResourceRecord],
-    extractions: Mapping[str, ExtractionRecord],
+    brain: Path,
     now: datetime,
 ) -> bool:
     if (
         body.rstrip() != existing_body.rstrip()
-        or len(item.refs.files) > _MAX_WRITE_EVIDENCE_FILES
-        or len(item.refs.resources) > _MAX_WRITE_EVIDENCE_REFS
-        or len(item.refs.extractions) > _MAX_WRITE_EVIDENCE_REFS
         or len(existing.refs.resources) > _MAX_WRITE_EVIDENCE_REFS
         or len(existing.refs.extractions) > _MAX_WRITE_EVIDENCE_REFS
-        or [file.ref_file for file in files] != item.refs.files
     ):
         return False
     expected, _warning = _mark_boundary_review_candidate(item)
     expected = enrich_memory_item(expected)
-    specs = _prepare_evidence_plan(expected, body, files)
-    if len(specs) + len(expected.refs.resources) > _MAX_WRITE_EVIDENCE_REFS:
+    try:
+        specs = _prepare_write_evidence(expected, body)
+    except _WriteEvidenceBoundaryError:
         return False
     explicit_resources = (
         _dedupe(list(expected.refs.resources))
@@ -623,18 +771,62 @@ def _matches_existing_write(
     ):
         return False
 
+    resources: dict[str, ResourceRecord] = {}
+    if generated_resource_ids:
+        with open_bounded_json_directory(brain / "resources") as reader:
+            if reader is None:
+                return False
+            try:
+                for resource_id in generated_resource_ids:
+                    validate_resource_id(resource_id)
+                    payload = reader.read_object(
+                        f"{resource_id}.json",
+                        max_bytes=_MAX_WRITE_EVIDENCE_RECORD_BYTES,
+                    )
+                    if payload is None:
+                        return False
+                    resources[resource_id] = ResourceRecord.model_validate(payload)
+            except (TypeError, ValueError):
+                return False
+    extractions: dict[str, ExtractionRecord] = {}
+    if generated_extraction_ids:
+        with open_bounded_json_directory(brain / "extractions") as reader:
+            if reader is None:
+                return False
+            try:
+                for extraction_id in generated_extraction_ids:
+                    validate_extraction_id(extraction_id)
+                    payload = reader.read_object(
+                        f"{extraction_id}.json",
+                        max_bytes=_MAX_WRITE_EVIDENCE_RECORD_BYTES,
+                    )
+                    if payload is None:
+                        return False
+                    extractions[extraction_id] = ExtractionRecord.model_validate(
+                        payload
+                    )
+            except (TypeError, ValueError):
+                return False
+
     last_created_at: datetime | None = None
+    generated_offset: int | None = None
     extraction_index = 0
     for spec, resource_id in zip(specs, generated_resource_ids, strict=True):
         resource = resources.get(resource_id)
+        if resource is None:
+            return False
+        resource_offset = _generated_evidence_offset(
+            resource,
+            spec.resource,
+            prefix="res",
+            item_created_at=expected.created_at,
+            now=now,
+        )
         if (
-            resource is None
-            or not _matches_generated_evidence(
-                resource,
-                spec.resource,
-                prefix="res",
-                item_created_at=expected.created_at,
-                now=now,
+            resource_offset is None
+            or (
+                generated_offset is not None
+                and resource_offset != generated_offset
             )
             or (
                 last_created_at is not None
@@ -642,26 +834,31 @@ def _matches_existing_write(
             )
         ):
             return False
+        generated_offset = resource_offset
         last_created_at = resource.created_at
         if spec.extraction is None:
             continue
         extraction_id = generated_extraction_ids[extraction_index]
         extraction_index += 1
         extraction = extractions.get(extraction_id)
+        if extraction is None:
+            return False
+        extraction_offset = _generated_evidence_offset(
+            extraction,
+            spec.extraction,
+            prefix="ext",
+            exclude={"resource_id"},
+            item_created_at=expected.created_at,
+            now=now,
+        )
         if (
-            extraction is None
-            or extraction.resource_id != resource.id
-            or not _matches_generated_evidence(
-                extraction,
-                spec.extraction,
-                prefix="ext",
-                exclude={"resource_id"},
-                item_created_at=expected.created_at,
-                now=now,
-            )
+            extraction.resource_id != resource.id
+            or extraction_offset is None
+            or extraction_offset != generated_offset
             or extraction.created_at < resource.created_at
         ):
             return False
+        generated_offset = extraction_offset
         last_created_at = extraction.created_at
 
     expected = expected.model_copy(
@@ -677,7 +874,7 @@ def _matches_existing_write(
     return existing == expected
 
 
-def _matches_generated_evidence(
+def _generated_evidence_offset(
     actual: ResourceRecord | ExtractionRecord,
     expected: ResourceRecord | ExtractionRecord,
     *,
@@ -685,39 +882,45 @@ def _matches_generated_evidence(
     exclude: set[str] | None = None,
     item_created_at: datetime,
     now: datetime,
-) -> bool:
+) -> int | None:
     match = _GENERATED_EVIDENCE_ID_RE.match(actual.id)
     if match is None or match.group("prefix") != prefix:
-        return False
+        return None
     try:
         id_local = datetime.strptime(
             match.group("date") + match.group("time"),
             "%Y%m%d%H%M%S",
         )
     except ValueError:
-        return False
+        return None
     created_utc = actual.created_at.astimezone(timezone.utc)
     lower = item_created_at.astimezone(timezone.utc)
     upper = now.astimezone(timezone.utc) + timedelta(
         seconds=_GENERATED_EVIDENCE_CLOCK_SKEW_SECONDS
     )
-    created_local = actual.created_at.astimezone().replace(tzinfo=None)
+    created_wall_utc = created_utc.replace(tzinfo=None)
+    raw_offset = (id_local - created_wall_utc).total_seconds()
+    offset = round(
+        raw_offset / _LEGACY_EVIDENCE_OFFSET_GRANULARITY_SECONDS
+    ) * _LEGACY_EVIDENCE_OFFSET_GRANULARITY_SECONDS
     ignored = {"id", "created_at", *(exclude or set())}
-    return (
-        lower <= created_utc <= upper
-        and abs((created_local - id_local).total_seconds())
-        <= _GENERATED_EVIDENCE_CLOCK_SKEW_SECONDS
-        and actual.model_dump(
+    if (
+        not lower <= created_utc <= upper
+        or abs(offset) > _MAX_LEGACY_EVIDENCE_OFFSET_SECONDS
+        or abs(raw_offset - offset) > _GENERATED_EVIDENCE_CLOCK_SKEW_SECONDS
+        or actual.model_dump(
             mode="json",
             exclude_none=False,
             exclude=ignored,
         )
-        == expected.model_dump(
+        != expected.model_dump(
             mode="json",
             exclude_none=False,
             exclude=ignored,
         )
-    )
+    ):
+        return None
+    return offset
 
 
 def _should_capture_write_input(body: str) -> bool:
@@ -737,17 +940,6 @@ def _resource_kind_for_file(path: Path, mime_type: str | None) -> ResourceKind:
     if suffix in {".md", ".markdown", ".txt", ".rst", ".json", ".yaml", ".yml"}:
         return ResourceKind.document
     return ResourceKind.file
-
-
-def _read_text_file(path: Path) -> str | None:
-    try:
-        if path.stat().st_size > _TEXT_EXTRACTION_MAX_BYTES:
-            return None
-        return path.read_text(encoding="utf-8")
-    except UnicodeDecodeError:
-        return None
-    except OSError:
-        return None
 
 
 def _file_uri(path: Path) -> str:

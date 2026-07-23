@@ -8,6 +8,7 @@ import re
 import stat
 import sys
 import threading
+import time
 import unicodedata
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -282,6 +283,58 @@ def _resolution_evidence_refs(
             "extractions": ["ext-20260720-120000-explicit-aaaaaaaa"],
         },
         (2, 2),
+    )
+
+
+def _rewrite_generated_evidence_wall_time(
+    tmp_brain: Path,
+    stored_path: Path,
+    stored: MemoryItem,
+    body: str,
+    *,
+    offset: timedelta,
+) -> None:
+    old_resource_id = stored.refs.resources[0]
+    old_extraction_id = stored.refs.extractions[0]
+    resource_path = tmp_brain / "resources" / f"{old_resource_id}.json"
+    extraction_path = tmp_brain / "extractions" / f"{old_extraction_id}.json"
+    resource = json.loads(resource_path.read_text(encoding="utf-8"))
+    extraction = json.loads(extraction_path.read_text(encoding="utf-8"))
+    created_at = datetime.fromisoformat(resource["created_at"]).astimezone(timezone.utc)
+    wall_time = created_at + offset
+    stamp = f"{wall_time:%Y%m%d-%H%M%S}"
+    new_resource_id = re.sub(
+        r"^res-\d{8}-\d{6}-",
+        f"res-{stamp}-",
+        old_resource_id,
+    )
+    new_extraction_id = re.sub(
+        r"^ext-\d{8}-\d{6}-",
+        f"ext-{stamp}-",
+        old_extraction_id,
+    )
+    resource["id"] = new_resource_id
+    extraction["id"] = new_extraction_id
+    extraction["resource_id"] = new_resource_id
+    (tmp_brain / "resources" / f"{new_resource_id}.json").write_text(
+        json.dumps(resource),
+        encoding="utf-8",
+    )
+    (tmp_brain / "extractions" / f"{new_extraction_id}.json").write_text(
+        json.dumps(extraction),
+        encoding="utf-8",
+    )
+    resource_path.unlink()
+    extraction_path.unlink()
+    refs = stored.refs.model_copy(
+        update={
+            "resources": [new_resource_id],
+            "extractions": [new_extraction_id],
+        }
+    )
+    stored_path.write_text(
+        render_item_markdown(stored.model_copy(update={"refs": refs}), body),
+        encoding="utf-8",
     )
 
 
@@ -3342,6 +3395,35 @@ def test_resolution_conversion_rejects_unsupported_or_unsafe_input(
     assert result.reason == expected
 
 
+def test_resolution_conversion_intent_parses_payload_once(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = enqueue_write_record(_legacy_feedback_record())
+    preview = PendingQueue().preview(limit=1).records[0]
+    raw = path.read_bytes()
+    real_parse = pending_module._pending_record_payload
+    calls = 0
+
+    def counted_parse(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return real_parse(*args, **kwargs)
+
+    monkeypatch.setattr(pending_module, "_pending_record_payload", counted_parse)
+
+    intent, reason, item_id = pending_module._resolution_intent(
+        PendingResolutionAction("convert_type", preview.record_id, "decision"),
+        preview,
+        raw,
+    )
+
+    assert intent is not None
+    assert reason is None
+    assert item_id == preview._stable_item_id
+    assert calls == 1
+
+
 def test_resolution_rejects_record_drift_between_preview_and_validation(
     tmp_brain: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -4462,52 +4544,42 @@ def test_resolution_retry_rejects_broken_symlink_that_gains_regular_target(
 
 def test_resolution_retry_keeps_regular_file_symlink_fail_closed(
     tmp_brain: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     target = tmp_brain / "regular-symlink-target.txt"
     target.write_text("writer follows this target", encoding="utf-8")
     ref_file = tmp_brain / "regular-file-link.txt"
     ref_file.symlink_to(target)
-    path, action, _stored_path, stored, _body = _begin_resolution_recovery_case(
-        tmp_brain,
-        monkeypatch,
+    path, action = _enqueue_resolution_apply_case(
+        "approve_audit",
         record_id="resolution-recovery-regular-file-symlink",
         refs={"files": [str(ref_file)]},
     )
 
-    preview = PendingQueue().resolve([action])
     applied = PendingQueue().resolve([action], apply=True)
 
-    assert len(stored.refs.resources) == 1
-    assert len(stored.refs.extractions) == 1
-    assert preview.results[0].status == "blocked"
-    assert preview.results[0].reason == "PENDING_RESOLUTION_CHANGED"
-    assert applied.results[0].status == "blocked"
-    assert applied.results[0].reason == "PENDING_RESOLUTION_CHANGED"
+    assert applied.results[0].status == "failed"
+    assert applied.results[0].reason == "PENDING_APPLY_FAILED"
     assert path.exists()
+    assert not list((tmp_brain / "items").glob("*.md"))
 
 
 def test_resolution_retry_keeps_symlink_loop_fail_closed(
     tmp_brain: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     ref_file = tmp_brain / "self-loop-link.txt"
     ref_file.symlink_to(ref_file)
-    path, action, _stored_path, _stored, _body = _begin_resolution_recovery_case(
-        tmp_brain,
-        monkeypatch,
+    path, action = _enqueue_resolution_apply_case(
+        "approve_audit",
         record_id="resolution-recovery-symlink-loop",
         refs={"files": [str(ref_file)]},
     )
 
-    preview = PendingQueue().resolve([action])
     applied = PendingQueue().resolve([action], apply=True)
 
-    assert preview.results[0].status == "blocked"
-    assert preview.results[0].reason == "PENDING_RESOLUTION_CHANGED"
-    assert applied.results[0].status == "blocked"
-    assert applied.results[0].reason == "PENDING_RESOLUTION_CHANGED"
+    assert applied.results[0].status == "failed"
+    assert applied.results[0].reason == "PENDING_APPLY_FAILED"
     assert path.exists()
+    assert not list((tmp_brain / "items").glob("*.md"))
 
 
 def test_resolution_retry_rejects_skipped_ref_that_becomes_a_file(
@@ -4564,6 +4636,122 @@ def test_resolution_retry_preserves_mixed_readable_and_skipped_file_order(
     assert preview.results[0].status == "ready"
     assert applied.results[0].status == "applied"
     assert not path.exists()
+
+
+@pytest.mark.parametrize("case", ["count", "size"])
+def test_resolution_apply_keeps_pending_when_evidence_cap_is_exceeded(
+    tmp_brain: Path,
+    case: str,
+) -> None:
+    if case == "count":
+        refs = {
+            "files": [
+                str(tmp_brain / f"pending-missing-{index}.txt")
+                for index in range(65)
+            ]
+        }
+    else:
+        oversized = tmp_brain / "pending-oversized.bin"
+        with oversized.open("wb") as handle:
+            handle.truncate(64 * 1024 * 1024 + 1)
+        refs = {"files": [str(oversized)]}
+    path, action = _enqueue_resolution_apply_case(
+        "approve_audit",
+        f"resolution-evidence-cap-{case}",
+        refs=refs,
+    )
+
+    result = PendingQueue().resolve([action], apply=True)
+
+    assert result.results[0].status == "failed"
+    assert result.results[0].reason == "PENDING_APPLY_FAILED"
+    assert path.exists()
+    assert not list((tmp_brain / "items").glob("*.md"))
+    assert not list((tmp_brain / "resources").glob("*.json"))
+    assert not list((tmp_brain / "extractions").glob("*.json"))
+
+
+@pytest.mark.skipif(not hasattr(time, "tzset"), reason="requires time.tzset")
+def test_resolution_retry_new_evidence_is_timezone_independent(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    previous_tz = os.environ.get("TZ")
+    try:
+        os.environ["TZ"] = "Asia/Shanghai"
+        time.tzset()
+        path, action, _stored_path, _stored, _body = _begin_resolution_recovery_case(
+            tmp_brain,
+            monkeypatch,
+            record_id="resolution-recovery-cross-timezone",
+        )
+        os.environ["TZ"] = "UTC"
+        time.tzset()
+
+        preview = PendingQueue().resolve([action])
+        applied = PendingQueue().resolve([action], apply=True)
+
+        assert preview.results[0].status == "ready"
+        assert applied.results[0].status == "applied"
+        assert not path.exists()
+    finally:
+        if previous_tz is None:
+            os.environ.pop("TZ", None)
+        else:
+            os.environ["TZ"] = previous_tz
+        time.tzset()
+
+
+def test_resolution_retry_accepts_consistent_legacy_timezone_offset(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path, action, stored_path, stored, body = _begin_resolution_recovery_case(
+        tmp_brain,
+        monkeypatch,
+        record_id="resolution-recovery-legacy-timezone",
+    )
+    _rewrite_generated_evidence_wall_time(
+        tmp_brain,
+        stored_path,
+        stored,
+        body,
+        offset=timedelta(hours=8),
+    )
+
+    preview = PendingQueue().resolve([action])
+    applied = PendingQueue().resolve([action], apply=True)
+
+    assert preview.results[0].status == "ready"
+    assert applied.results[0].status == "applied"
+    assert not path.exists()
+
+
+def test_resolution_retry_rejects_invalid_legacy_timezone_offset(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path, action, stored_path, stored, body = _begin_resolution_recovery_case(
+        tmp_brain,
+        monkeypatch,
+        record_id="resolution-recovery-invalid-legacy-timezone",
+    )
+    _rewrite_generated_evidence_wall_time(
+        tmp_brain,
+        stored_path,
+        stored,
+        body,
+        offset=timedelta(hours=8, minutes=7),
+    )
+
+    preview = PendingQueue().resolve([action])
+    applied = PendingQueue().resolve([action], apply=True)
+
+    assert preview.results[0].status == "blocked"
+    assert preview.results[0].reason == "PENDING_RESOLUTION_CHANGED"
+    assert applied.results[0].status == "blocked"
+    assert applied.results[0].reason == "PENDING_RESOLUTION_CHANGED"
+    assert path.exists()
 
 
 @pytest.mark.parametrize("batch_order", ["alone", "before_audit", "after_audit"])
@@ -5008,10 +5196,9 @@ def test_resolution_retry_rejects_out_of_order_evidence_created_at(
     )
     resource = json.loads(resource_path.read_text(encoding="utf-8"))
     extraction = json.loads(extraction_path.read_text(encoding="utf-8"))
-    resource["created_at"], extraction["created_at"] = (
-        extraction["created_at"],
-        resource["created_at"],
-    )
+    extraction["created_at"] = (
+        datetime.fromisoformat(resource["created_at"]) - timedelta(seconds=1)
+    ).isoformat()
     resource_path.write_text(json.dumps(resource), encoding="utf-8")
     extraction_path.write_text(json.dumps(extraction), encoding="utf-8")
 
