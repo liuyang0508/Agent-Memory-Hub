@@ -18,7 +18,7 @@
 
 ## 可重放标识
 
-- Implementation hash：`sha256:efeb4282d57b1ee5e5612ff7a257ae179043c6e83283bad06e4988dc72eb7022`
+- Implementation hash：`sha256:7eae10f85754c8bbfc4e7d04b9ba4b4a28e4e240d8e3c8d293abfae67f9a651c`
 - Fixture hash：`sha256:256ea5ffe4fe78d72719755c6587dfce2c8580909108db6cc7568079b2e555df`
 - Generator：`amh-lifecycle-governance-generator/v1`
 

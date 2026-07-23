@@ -651,6 +651,7 @@ def _valid_receipt(receipt: object) -> bool:
     if receipt.selection_mode == "resolution":
         if (
             receipt.selected_count == 0
+            or receipt.selected_count > receipt.requested_count
             or not receipt.action_counts
             or "apply" in receipt.action_counts
             or any(value == 0 for value in receipt.action_counts.values())

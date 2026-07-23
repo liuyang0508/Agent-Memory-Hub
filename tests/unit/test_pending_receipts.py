@@ -377,6 +377,69 @@ def test_pending_resolution_rejects_empty_current_batch():
         )
 
 
+@pytest.mark.parametrize(
+    ("requested_count", "selected_count"),
+    [(0, 1), (1, 2)],
+)
+def test_pending_resolution_prepare_rejects_more_selected_than_requested(
+    requested_count,
+    selected_count,
+):
+    selected = [
+        receipts_module.PendingReceiptSelection(
+            record_id=f"pending-{index}",
+            payload_sha256=f"{index + 1:064x}",
+            action="approve_audit",
+        )
+        for index in range(selected_count)
+    ]
+
+    with pytest.raises(TypeError, match="INVALID_PENDING_BATCH_RECEIPT"):
+        receipts_module.prepare_pending_receipt(
+            selection_mode="resolution",
+            requested_count=requested_count,
+            selected=selected,
+            depth_before=selected_count,
+        )
+
+
+@pytest.mark.parametrize("state", ["prepared", "completed", "incomplete"])
+def test_pending_resolution_rejects_impossible_counts_in_every_state(state):
+    prepared = _resolution_prepared()
+    receipt = {
+        "prepared": prepared,
+        "completed": receipts_module.complete_pending_receipt(
+            prepared,
+            outcomes=_resolution_outcomes(),
+            depth_after=0,
+            completed_at=COMPLETED_AT,
+        ),
+        "incomplete": receipts_module.incomplete_pending_receipt(prepared),
+    }[state]
+
+    assert receipts_module._valid_receipt(  # noqa: SLF001 - validator contract.
+        replace(receipt, requested_count=1)
+    ) is False
+
+
+def test_pending_resolution_parser_and_ledger_reject_impossible_counts(tmp_brain):
+    payload = _resolution_prepared().to_dict()
+    payload["requested_count"] = 1
+    encoded = (
+        json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n"
+    ).encode()
+
+    assert receipts_module._parse_receipt(encoded) is None  # noqa: SLF001
+    runtime = tmp_brain / "runtime"
+    runtime.mkdir(parents=True)
+    ledger = runtime / "pending-apply-receipts.jsonl"
+    ledger.write_bytes(encoded)
+    os.chmod(ledger, 0o600)
+    assert receipts_module.read_pending_receipt_ledger_health(tmp_brain).status == (
+        "corrupt"
+    )
+
+
 def test_pending_receipt_ledger_is_durable_private_and_reports_incomplete(tmp_brain):
     prepared = _prepared()
     receipts_module.append_pending_receipt(tmp_brain, prepared)

@@ -7,7 +7,7 @@ skill synthesis stay review-required.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -31,6 +31,27 @@ _LIFECYCLE_STALE_DAYS = {
     "signal": 30,
     "handoff": 30,
 }
+
+
+class _MemoryItemSnapshot(Mapping[str, MemoryItem]):
+    """Caller-isolated item values backed by immutable serialized snapshots."""
+
+    def __init__(self, items: Mapping[str, MemoryItem]) -> None:
+        self._payloads = MappingProxyType(
+            {
+                item_id: item.model_dump_json().encode("utf-8")
+                for item_id, item in items.items()
+            }
+        )
+
+    def __getitem__(self, item_id: str) -> MemoryItem:
+        return MemoryItem.model_validate_json(self._payloads[item_id])
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._payloads)
+
+    def __len__(self) -> int:
+        return len(self._payloads)
 
 
 def lifecycle_review_due(item: MemoryItem, *, now: datetime) -> bool:
@@ -77,7 +98,7 @@ class AutoGovernanceReport:
         object.__setattr__(
             self,
             "items_by_id",
-            MappingProxyType(dict(self.items_by_id)),
+            _MemoryItemSnapshot(self.items_by_id),
         )
 
     @property

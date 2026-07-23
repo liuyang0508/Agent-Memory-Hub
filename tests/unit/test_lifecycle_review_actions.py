@@ -14,6 +14,7 @@ import pytest
 
 from agent_brain.contracts.memory_item import MemoryItem, MemoryType
 from agent_brain.memory.governance.auto_governance import (
+    AutoGovernanceAction,
     AutoGovernanceCycle,
     AutoGovernanceReport,
 )
@@ -203,19 +204,55 @@ def test_lifecycle_plan_ranks_newer_same_scope_replacement(
 
 def test_auto_governance_report_owns_read_only_item_snapshot() -> None:
     now = datetime(2026, 7, 23, tzinfo=timezone.utc)
-    item = _stale_item("mem-20260524-180033-report-snapshot", now=now)
-    caller_items = {item.id: item}
+    obsolete = _stale_item("mem-20260524-180033-report-snapshot", now=now)
+    obsolete.refs.files.append("original.py")
+    obsolete.validity.repo = "original/repo"
+    replacement = obsolete.model_copy(deep=True)
+    replacement.id = "mem-20260722-180034-report-replacement"
+    replacement.created_at = now - timedelta(days=1)
+    replacement.title = "Runtime issue resolved"
+    replacement.summary = "Runtime issue resolved"
+    replacement.refs.mems = [obsolete.id]
+    caller_items = {obsolete.id: obsolete, replacement.id: replacement}
 
     report = AutoGovernanceReport(
-        scanned_items=1,
-        actions=[],
+        scanned_items=2,
+        actions=[
+            AutoGovernanceAction(
+                action="review_archive",
+                risk="review_required",
+                title="Review stale signal",
+                reason="stale_signal_older_than_30_days",
+                item_ids=[obsolete.id],
+                details={"issue_type": "stale_signal"},
+            )
+        ],
         items_by_id=caller_items,
     )
+    obsolete.title = "caller mutation"
+    obsolete.tags.append("caller-mutation")
+    obsolete.refs.files.append("caller.py")
+    obsolete.validity.repo = "caller/repo"
+    replacement.refs.mems.clear()
     caller_items.clear()
 
-    assert report.items_by_id[item.id] is item
+    first = report.items_by_id[obsolete.id]
+    first.title = "reader mutation"
+    first.tags.append("reader-mutation")
+    first.refs.files.append("reader.py")
+    first.validity.repo = "reader/repo"
+    second = report.items_by_id[obsolete.id]
+
+    assert second.title == f"Stale {obsolete.id}"
+    assert second.tags == ["runtime"]
+    assert second.refs.files == ["original.py"]
+    assert second.validity.repo == "original/repo"
+    assert second is not first
+    assert report.items_by_id[replacement.id].refs.mems == [obsolete.id]
+    row = build_maintenance_plan(report).to_dict()["review_queue"][0]
+    assert row["candidates"][0]["replacement_id"] == replacement.id
     with pytest.raises(TypeError):
-        operator.setitem(report.items_by_id, item.id, item)
+        operator.setitem(report.items_by_id, obsolete.id, obsolete)
     with pytest.raises(AttributeError):
         getattr(report.items_by_id, "clear")()
 
