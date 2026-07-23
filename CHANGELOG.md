@@ -54,17 +54,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   large brain. The report also exposes low-sensitivity reason counts, record-lock
   hygiene, and pending apply receipt-ledger health.
 - **Auditable pending batches** — `memory sync-pending --summary-only` provides
-  count-only preview/apply JSON. Explicit apply writes prepared/completed,
-  append-only receipts under `runtime/pending-apply-receipts.jsonl`; partial
-  completion is reported as incomplete. Proven orphan record locks are collected
-  only while the global pending queue lock is held and after a non-blocking
-  exclusive inode check.
+  count-only preview/apply JSON. Explicit pending record/resolution apply writes
+  prepared/completed append-only receipts under
+  `runtime/pending-apply-receipts.jsonl`; an unmatched prepared entry is reported
+  as incomplete when completion append fails. Standalone lock GC writes no
+  receipt. Proven orphan record locks are collected only while the global
+  pending queue lock is held and after a non-blocking exclusive inode check;
+  held locks are preserved without failing GC by themselves.
 - **Explicit pending resolutions** — `memory sync-pending` now previews
   per-record audit approval, exact-duplicate acceptance, legacy
   `feedback -> decision` conversion, and standalone orphan-lock GC. `--apply`
   is required to mutate; audit approval never bypasses secrets, duplicate
-  acceptance writes no new item, and low-sensitivity receipts expose digests
-  and counts instead of raw record/item IDs or bodies.
+  acceptance writes no new item, and low-sensitivity record/resolution receipts
+  expose digests and counts instead of raw record/item IDs or bodies.
 - **Index operational truth** — `memory verify --format json` now compares
   Markdown and `items_meta` IDs, `.index-dirty` repair debt, and Markdown-derived
   supersession against `refs_graph` through an external read-only SQLite
@@ -75,7 +77,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **Breaking / next-major:** `memory sync-pending` 现在默认预览；只有显式
-  `--apply`（配合 `--record` 或 `--safe-only`）才会写入或清理队列。
+  `--apply` 配合 `--record`、`--safe-only`、逐 record resolution 或 standalone
+  lock GC 才会执行对应变更。
   `memory govern apply-lifecycle` 同样默认预览，supersede、archive、
   keep-active、defer 与 revert-supersession 都要求显式 `--apply`。MCP
   `link_memories(..., relation="supersedes")` 也默认预览，只有

@@ -167,11 +167,12 @@ you pass `--apply`.
 
 `memory sync-pending` also defaults to preview. Use `--summary-only` when you
 only need classification, blocker reason, lock-hygiene, or batch counts and do
-not want titles, summaries, paths, or record IDs in the output. A mutating run
-still requires `--apply` plus `--record` or `--safe-only`; it persists a
-low-sensitivity prepared/completed receipt before reporting the batch complete.
-An incomplete receipt is an explicit governance warning, not proof that the
-underlying item write failed.
+not want titles, summaries, paths, or record IDs in the output. Record replay
+requires `--apply` plus `--record` or `--safe-only`; governed resolutions use
+their explicit per-record options. Record/resolution apply persists a
+low-sensitivity prepared/completed receipt before reporting the batch complete;
+standalone lock GC does not. An incomplete receipt is an explicit governance
+warning, not proof that the underlying item write failed.
 
 `memory verify --format json` is a non-mutating index health check across three
 sources: active Markdown versus `items_meta` IDs, the `.index-dirty` repair-debt
@@ -448,9 +449,11 @@ acceptance removes the pending record without writing a new item, and conversion
 currently supports only `feedback -> decision`.
 
 Standalone `--gc-orphan-locks` also previews by default and deletes only proven
-orphan locks that are not held. Apply receipts serialize aggregate counts and
-digests, never raw record/item IDs or bodies. After a failed apply, rerun the same
-preview, then `memory verify --format json` and
+orphan locks that are not held. Held locks are safely preserved and do not fail
+GC by themselves; unsafe, truncated, or unavailable scans do. Pending
+record/resolution apply receipts serialize aggregate counts and digests, never
+raw record/item IDs or bodies; standalone GC creates no receipt. After a failed
+apply, rerun the same preview, then `memory verify --format json` and
 `memory govern readiness --format json` before retrying. Exit status is `0` only
 when every requested resolution is ready/applied and lock GC is safe, `1` for a
 governance or apply failure, and `2` for invalid CLI option combinations.

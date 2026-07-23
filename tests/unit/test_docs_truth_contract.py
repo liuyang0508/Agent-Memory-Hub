@@ -542,6 +542,31 @@ def test_pending_resolution_docs_are_preview_first_and_secret_safe() -> None:
     assert "--apply" in combined
 
 
+def test_pending_resolution_docs_preserve_receipt_and_lock_gc_boundaries() -> None:
+    lifecycle = _read("docs/storage-lifecycle.zh.md")
+    normalized = " ".join(lifecycle.split())
+    assert (
+        "memory sync-pending --approve-audit <record-id> --format json\n"
+        "memory sync-pending --accept-duplicate "
+        "<record-id>:<existing-item-id> --format json\n"
+        "memory sync-pending --convert-type <record-id>:decision --format json"
+        in lifecycle
+    )
+    assert (
+        "memory sync-pending --gc-orphan-locks --format json\n"
+        "memory sync-pending --gc-orphan-locks --apply --format json"
+        in lifecycle
+    )
+    assert "standalone GC 不生成 receipt" in normalized
+    assert "只追加 prepared 和 completed" in normalized
+    assert "没有匹配 completed 的 prepared" in normalized
+    assert "派生为 incomplete" in normalized
+    assert "持锁的 orphan 会安全保留" in normalized
+    assert "持锁本身不会导致非零退出码" in normalized
+    assert "unsafe、truncated 或 unavailable" in normalized
+    assert "追加 completed 或 incomplete" not in lifecycle
+
+
 def _read(path: str) -> str:
     return (ROOT / path).read_text(encoding="utf-8")
 

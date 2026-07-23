@@ -23,7 +23,7 @@
 | `index.db` | 派生索引：`items_meta` 元数据、全文索引、向量、`refs_graph` 引用图谱。 | `WriteService` best-effort upsert；`memory reindex` 重建；显式 repair 按类别修复。 | `memory search`、hook 自动注入、Web 搜索、MCP/SDK search。 | `memory search "query" --explain --format text`；`memory verify --format json` 检查投影健康；源码是 `HubIndex` + `Retriever`。 |
 | `.index-dirty` | index 更新失败后的待核销修复债，按行记录 item id。 | Markdown 已成功写入，但 index/embedder 不可用或 SQLite 写失败时。 | `memory verify` 与 readiness 只读检查；显式 repair 核销。 | `memory verify --format json` 先预览，确认后才运行 `memory verify --repair --format json`。 |
 | `pending/*.jsonl` | 写入口降级缓冲。Python 或完整写入链不可用时，先把待写 item 记录下来。 | hook shim 或写入入口无法调用 `WriteService` 时。 | `memory sync-pending` 默认只预览；显式 `--apply --record ...` 或 `--apply --safe-only` 才重放。 | 先用 `memory sync-pending --summary-only --format json` 看低敏聚合；源码是 `PendingQueue.preview()` / `apply()`。 |
-| `runtime/pending-apply-receipts.jsonl` | pending apply 的低敏、append-only 两阶段回执。 | 显式 apply 在写 item 前追加 prepared，完成后追加 completed。 | prepared 没有对应 completed 表示批次证据不完整；不包含 title、summary、path、record id 或 item id。 | `memory govern readiness --format json` 查看 ledger status / incomplete count；不要手工改写。 |
+| `runtime/pending-apply-receipts.jsonl` | pending record/resolution apply 的低敏、append-only 两阶段回执；standalone GC 不写。 | 适用的显式 apply 在写 item 前追加 prepared，完成后追加 completed。 | prepared 没有对应 completed 表示批次证据不完整；不包含 title、summary、path、record id 或 item id。 | `memory govern readiness --format json` 查看 ledger status / incomplete count；不要手工改写。 |
 | `runtime/adapter-events.jsonl` | hook 是否真实跑过的机械证据。只记录 adapter、event、session、cwd，不存 prompt/body。 | SessionStart、UserPromptSubmit、Stop、PreCompact、PostCompact、SubagentStart、SubagentStop hook 执行时。 | adapter doctor、verified gate、运行状态诊断。 | `memory adapter doctor <adapter> --format json`；源码是 `runtime_events.py`。 |
 | `runtime/injection-cohorts.jsonl` | 某次自动注入最终进入上下文的 item id 集合、pack metrics 和安全关键词 `query_terms`。不会存 prompt 正文。 | `inject-context.sh` 调 `memory search --record-injection-cohort` 且有结果时。 | 分析哪些关键词触发了哪些记忆、哪些被反馈采纳/拒绝。 | `memory hook recent --format json`、runtime 诊断、Web trace、`latest_injection_cohort()`。 |
 | `runtime/recall-gaps.jsonl` | 召回缺口：没有结果、query 太弱、候选被 firewall 拒绝、图片/音频缺少 OCR/ASR 文本等。 | hook/search 开启 `--record-recall-gap` 且没有可注入上下文时。 | 发现“为什么没召回”、训练 benchmark/治理候选。 | `memory hook recent --limit 5` 看最近 hook 结果；`memory recall-drift ...` 做批量治理；源码是 `recall_events.py`。 |
@@ -69,11 +69,15 @@ memory sync-pending --gc-orphan-locks --apply --format json
 ```
 
 apply 只删除能证明对应 record 已不存在、路径安全、且能对同一 inode 取得非阻塞独占锁的
-orphan record lock；持锁、截断或无法证明安全时保持不变并返回失败。
+orphan record lock。持锁的 orphan 会安全保留，不属于 unsafe；持锁本身不会导致非零退出码。
+只有 unsafe、truncated 或 unavailable 才会使 GC 返回失败。
 
-每次显式 apply 都先向 `runtime/pending-apply-receipts.jsonl` 追加 prepared receipt，
-结束后再追加 completed 或 incomplete 状态。receipt 只序列化批次 digest、结果 digest、
-计数和闭集 reason，不公开原始 record/item ID、target 或正文。需要只看低敏聚合时使用
+receipt 适用于 pending record/resolution apply；standalone GC 不生成 receipt。适用的
+apply 会先向 `runtime/pending-apply-receipts.jsonl` 追加 prepared，完成后追加 completed；
+ledger 只追加 prepared 和 completed。若 completion append 失败，ledger 保留没有匹配
+completed 的 prepared，readiness health 和 CLI 结果再把该批次派生为 incomplete，而不是向
+ledger 追加 incomplete。receipt 只序列化批次 digest、结果 digest、计数和闭集 reason，
+不公开原始 record/item ID、target 或正文。需要只看低敏聚合时使用
 `--summary-only --format json`；普通 JSON 结果用于操作者核对显式选择，可能包含 record ID，
 不要把它当作公开 receipt。
 
@@ -82,7 +86,7 @@ CLI 退出码：
 | 退出码 | 含义 |
 |---:|---|
 | `0` | 每个显式 resolution 都 ready/applied，且 lock GC（若请求）安全完成。 |
-| `1` | record 缺失或阻断、apply/receipt 不完整、GC 不安全/截断/不可用等治理失败。 |
+| `1` | record 缺失或阻断、apply/receipt 不完整、GC unsafe/truncated/unavailable 等治理失败；held lock 本身不是失败。 |
 | `2` | 参数格式或组合错误，例如缺少 `ID:ITEM`、非 `ID:decision`、或和 `--record` / `--safe-only` 冲突。 |
 
 apply 中断后不要猜测哪些步骤完成，也不要直接扩大选择范围。先用原参数去掉 `--apply`
@@ -345,9 +349,11 @@ memory doctor --offline
 - **运行诊断**在 `runtime/`，它记录系统行为，不记录完整正文。
 - **失败兜底**在 `pending/` 和 `.index-dirty`，用于恢复，不是最终状态。
 
-pending apply 的完整性边界是：先 durable append prepared receipt，再逐记录走
-`WriteService`，最后 append completed receipt。completed append 失败时，item 写入事实不回滚，
-但 CLI 会返回 `PENDING_RECEIPT_COMPLETION_FAILED` 和 incomplete receipt。record lock 只会在持有
-全局 pending queue lock、确认对应 record 已不存在、且能对同一 inode 取得非阻塞独占锁后删除。
+pending record/resolution apply 的完整性边界是：先 durable append prepared receipt，再逐记录走
+`WriteService`，最后 append completed receipt；standalone GC 不走 receipt ledger。
+completed append 失败时，item 写入事实不回滚，ledger 保留 unmatched prepared，CLI 会返回
+`PENDING_RECEIPT_COMPLETION_FAILED` 并派生 `receipt.state=incomplete`。record lock 只会在持有
+全局 pending queue lock、确认对应 record 已不存在、且能对同一 inode 取得非阻塞独占锁后删除；
+无法取得锁的 orphan 保留。
 
 因此用户可以放心：AMH 不是把所有聊天粗暴塞进 prompt，而是把原始证据、可复用结论、索引投影和运行诊断分层管理。

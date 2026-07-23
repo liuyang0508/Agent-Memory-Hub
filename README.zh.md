@@ -485,8 +485,9 @@ AMH 把维护分成十一段：
 `--apply` 才会变更。audit approval 只适用于 public/internal 内容，不能绕过
 secrets；接受 exact duplicate 只移除 pending record，不写新 item；类型转换当前只支持
 `feedback -> decision`。`memory sync-pending --gc-orphan-locks` 也默认预览，
-只有 `--apply` 才删除能证明已 orphan 且未持锁的 record lock。批次 receipt 只保存计数和
-digest，不公开原始 record/item ID 或正文。完整恢复步骤与退出码见
+只有 `--apply` 才删除能证明已 orphan 且未持锁的 record lock；held lock 安全保留，本身不导致
+失败。pending record/resolution apply 的 receipt 只保存计数和 digest，不公开原始
+record/item ID 或正文；standalone GC 不生成 receipt。完整恢复步骤与退出码见
 [存储生命周期](./docs/storage-lifecycle.zh.md#pending-resolution-governance)。
 
 ### 5. governance 和 evolution
