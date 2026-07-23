@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import operator
 import os
 import stat
 import subprocess
@@ -12,7 +13,10 @@ from pathlib import Path
 import pytest
 
 from agent_brain.contracts.memory_item import MemoryItem, MemoryType
-from agent_brain.memory.governance.auto_governance import AutoGovernanceCycle
+from agent_brain.memory.governance.auto_governance import (
+    AutoGovernanceCycle,
+    AutoGovernanceReport,
+)
 from agent_brain.memory.governance.lifecycle_ledger import (
     LifecycleLedgerRecord,
     append_lifecycle_record,
@@ -195,6 +199,25 @@ def test_lifecycle_plan_ranks_newer_same_scope_replacement(
     row = next(row for row in plan.review_queue if row.item_id == old.id)
     assert row.candidates[0]["replacement_id"] == newer.id
     assert row.can_auto_apply is False
+
+
+def test_auto_governance_report_owns_read_only_item_snapshot() -> None:
+    now = datetime(2026, 7, 23, tzinfo=timezone.utc)
+    item = _stale_item("mem-20260524-180033-report-snapshot", now=now)
+    caller_items = {item.id: item}
+
+    report = AutoGovernanceReport(
+        scanned_items=1,
+        actions=[],
+        items_by_id=caller_items,
+    )
+    caller_items.clear()
+
+    assert report.items_by_id[item.id] is item
+    with pytest.raises(TypeError):
+        operator.setitem(report.items_by_id, item.id, item)
+    with pytest.raises(AttributeError):
+        getattr(report.items_by_id, "clear")()
 
 
 def test_explicit_empty_items_mapping_disables_lifecycle_candidates(

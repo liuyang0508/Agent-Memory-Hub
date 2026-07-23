@@ -11,6 +11,7 @@ from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any, Literal
 
 from agent_brain.contracts.memory_item import MemoryItem
@@ -71,6 +72,13 @@ class AutoGovernanceReport:
         repr=False,
         compare=False,
     )
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "items_by_id",
+            MappingProxyType(dict(self.items_by_id)),
+        )
 
     @property
     def safe_apply_count(self) -> int:
