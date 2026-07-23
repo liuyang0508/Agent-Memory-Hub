@@ -133,6 +133,34 @@ def test_pending_resolution_receipt_binds_actions_without_exposing_inputs():
     assert "target_digest" not in encoded
 
 
+def test_pending_resolution_batch_digest_binds_selection_order():
+    forward = _resolution_prepared()
+    reverse = receipts_module.prepare_pending_receipt(
+        selection_mode="resolution",
+        requested_count=2,
+        selected=[
+            receipts_module.PendingReceiptSelection(
+                record_id="pending-duplicate-two",
+                payload_sha256="b" * 64,
+                action="accept_duplicate",
+                target_digest="c" * 64,
+            ),
+            receipts_module.PendingReceiptSelection(
+                record_id="pending-audit-one",
+                payload_sha256="a" * 64,
+                action="approve_audit",
+            ),
+        ],
+        depth_before=2,
+        batch_id="c" * 32,
+        prepared_at=PREPARED_AT,
+    )
+
+    assert forward.batch_digest == _resolution_prepared().batch_digest
+    assert forward.batch_digest != reverse.batch_digest
+    assert forward.action_counts == reverse.action_counts
+
+
 def test_pending_explicit_and_safe_only_batch_digest_remains_stable():
     expected = "e210e57ed7cb866e0a8aadfcaab3960c7a37ac864be3e32d169710d9fcb4c100"
     selected = [
@@ -163,6 +191,42 @@ def test_pending_explicit_and_safe_only_batch_digest_remains_stable():
     assert safe_only.batch_digest == expected
     assert explicit.action_counts == {}
     assert safe_only.action_counts == {}
+
+
+def test_pending_explicit_and_safe_only_result_digest_remains_stable():
+    expected = "e00b145c8475a5023ca6935c3821898cbb11300192a0cebac159dad7e3690ca6"
+    outcome = receipts_module.PendingReceiptOutcome(
+        record_id="PRIVATE_RECORD_ID_CANARY",
+        status="written",
+        classification="ready",
+        reason="WRITTEN",
+        index_repair_required=False,
+        warnings=(),
+    )
+    safe_only = receipts_module.prepare_pending_receipt(
+        selection_mode="safe_only",
+        requested_count=1,
+        selected=[
+            receipts_module.PendingReceiptSelection(
+                record_id="PRIVATE_RECORD_ID_CANARY",
+                payload_sha256="a" * 64,
+            )
+        ],
+        depth_before=3,
+        batch_id="b" * 32,
+        prepared_at=PREPARED_AT,
+    )
+
+    assert _completed().result_digest == expected
+    assert (
+        receipts_module.complete_pending_receipt(
+            safe_only,
+            outcomes=[outcome],
+            depth_after=2,
+            completed_at=COMPLETED_AT,
+        ).result_digest
+        == expected
+    )
 
 
 @pytest.mark.parametrize(
@@ -211,6 +275,34 @@ def test_pending_receipt_completion_contains_only_aggregate_outcomes():
     assert payload["reason_counts"] == {"WRITTEN": 1}
     assert len(str(payload["result_digest"])) == 64
     assert "PRIVATE_RECORD_ID_CANARY" not in encoded
+
+
+def test_pending_resolution_result_digest_binds_outcome_order():
+    prepared = _resolution_prepared()
+    outcomes = _resolution_outcomes()
+    forward = receipts_module.complete_pending_receipt(
+        prepared,
+        outcomes=outcomes,
+        depth_after=2,
+        completed_at=COMPLETED_AT,
+    )
+    repeated = receipts_module.complete_pending_receipt(
+        prepared,
+        outcomes=outcomes,
+        depth_after=2,
+        completed_at=COMPLETED_AT,
+    )
+    reverse = receipts_module.complete_pending_receipt(
+        prepared,
+        outcomes=reversed(outcomes),
+        depth_after=2,
+        completed_at=COMPLETED_AT,
+    )
+
+    assert forward.result_digest == repeated.result_digest
+    assert forward.result_digest != reverse.result_digest
+    assert forward.status_counts == reverse.status_counts
+    assert forward.reason_counts == reverse.reason_counts
 
 
 def test_pending_receipt_completion_includes_bounded_batch_warnings():

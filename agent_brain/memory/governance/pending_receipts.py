@@ -298,7 +298,11 @@ def prepare_pending_receipt(
                 if selection_mode == "resolution"
                 else b"amh.pending.batch.v1"
             ),
-            sorted(canonical_selection),
+            (
+                canonical_selection
+                if selection_mode == "resolution"
+                else sorted(canonical_selection)
+            ),
         ),
         selection_mode=selection_mode,
         requested_count=requested_count,
@@ -379,7 +383,11 @@ def complete_pending_receipt(
         result_digest=_canonical_digest(
             b"amh.pending.result.v1",
             {
-                "outcomes": sorted(canonical_outcomes),
+                "outcomes": (
+                    canonical_outcomes
+                    if prepared.selection_mode == "resolution"
+                    else sorted(canonical_outcomes)
+                ),
                 "batch_warnings": normalized_batch_warnings,
             },
         ),
