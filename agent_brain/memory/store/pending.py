@@ -2248,6 +2248,7 @@ class PendingQueue:
                         item=item,
                         body=body,
                         allow_unsafe=allow_unsafe,
+                        _evidence_idempotency_key=expected_hash,
                         _commit_guard=lambda phase: (
                             _require_pending_resolution_commit_guard(
                                 path,
@@ -4746,7 +4747,7 @@ def _require_pending_resolution_commit_guard(
 ) -> None:
     reason = (
         "PENDING_WRITE_RECOVERY_REQUIRED"
-        if phase == "postwrite"
+        if phase != "precommit"
         else "PENDING_READINESS_BUDGET_EXCEEDED"
     )
     try:

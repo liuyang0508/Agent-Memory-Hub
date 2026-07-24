@@ -4583,6 +4583,116 @@ def test_resolution_post_write_drift_retries_exactly_once(
     assert stored_path.read_bytes() == stored_before
 
 
+def test_resolution_post_sidecar_drift_reuses_evidence_on_retry(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from agent_brain.memory.store.write_service import WriteService
+
+    path, action = _enqueue_resolution_apply_case(
+        "approve_audit",
+        "resolution-post-sidecar-retry",
+    )
+    original_pending = path.read_bytes()
+    real_attach = WriteService._attach_evidence_sidecar
+    replaced = False
+
+    def attach_then_replace(self, item, evidence, **kwargs):
+        nonlocal replaced
+        attached = real_attach(self, item, evidence, **kwargs)
+        if not replaced:
+            replacement = path.with_suffix(".replacement")
+            replacement.write_bytes(original_pending)
+            os.chmod(replacement, 0o600)
+            os.replace(replacement, path)
+            replaced = True
+        return attached
+
+    monkeypatch.setattr(
+        WriteService,
+        "_attach_evidence_sidecar",
+        attach_then_replace,
+    )
+    first = PendingQueue().resolve([action], apply=True)
+    resources = list((tmp_brain / "resources").rglob("*.json"))
+    extractions = list((tmp_brain / "extractions").rglob("*.json"))
+    items_after_first = list((tmp_brain / "items").rglob("*.md"))
+    monkeypatch.setattr(
+        WriteService,
+        "_attach_evidence_sidecar",
+        real_attach,
+    )
+
+    second = PendingQueue().resolve([action], apply=True)
+
+    assert replaced
+    assert first.results[0].status == "failed"
+    assert first.results[0].reason == "PENDING_WRITE_RECOVERY_REQUIRED"
+    assert first.receipt is not None
+    assert first.receipt.reason_counts == {"PENDING_WRITE_RECOVERY_REQUIRED": 1}
+    assert items_after_first == []
+    assert len(resources) == len(extractions) == 1
+    assert second.results[0].status == "applied"
+    assert not path.exists()
+    assert list((tmp_brain / "resources").rglob("*.json")) == resources
+    assert list((tmp_brain / "extractions").rglob("*.json")) == extractions
+    assert len(list((tmp_brain / "items").rglob("*.md"))) == 1
+
+
+def test_resolution_post_sidecar_retry_rejects_evidence_conflict(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from agent_brain.memory.store.write_service import WriteService
+
+    path, action = _enqueue_resolution_apply_case(
+        "approve_audit",
+        "resolution-post-sidecar-conflict",
+    )
+    original_pending = path.read_bytes()
+    real_attach = WriteService._attach_evidence_sidecar
+    replaced = False
+
+    def attach_then_replace(self, item, evidence, **kwargs):
+        nonlocal replaced
+        attached = real_attach(self, item, evidence, **kwargs)
+        if not replaced:
+            replacement = path.with_suffix(".replacement")
+            replacement.write_bytes(original_pending)
+            os.chmod(replacement, 0o600)
+            os.replace(replacement, path)
+            replaced = True
+        return attached
+
+    monkeypatch.setattr(
+        WriteService,
+        "_attach_evidence_sidecar",
+        attach_then_replace,
+    )
+    first = PendingQueue().resolve([action], apply=True)
+    monkeypatch.setattr(
+        WriteService,
+        "_attach_evidence_sidecar",
+        real_attach,
+    )
+    resource_paths = list((tmp_brain / "resources").rglob("*.json"))
+    extraction_paths = list((tmp_brain / "extractions").rglob("*.json"))
+    resource = json.loads(resource_paths[0].read_text(encoding="utf-8"))
+    resource["metadata"]["evidence_role"] = "conflicting-role"
+    resource_paths[0].write_text(json.dumps(resource), encoding="utf-8")
+
+    second = PendingQueue().resolve([action], apply=True)
+
+    assert replaced
+    assert first.results[0].reason == "PENDING_WRITE_RECOVERY_REQUIRED"
+    assert second.results[0].status == "failed"
+    assert second.results[0].reason == "PENDING_APPLY_FAILED"
+    assert path.exists()
+    assert not list((tmp_brain / "items").rglob("*.md"))
+    assert list((tmp_brain / "resources").rglob("*.json")) == resource_paths
+    assert list((tmp_brain / "extractions").rglob("*.json")) == extraction_paths
+
+
 def test_resolution_post_write_recovery_rejects_item_body_mismatch(
     tmp_brain: Path,
     monkeypatch: pytest.MonkeyPatch,

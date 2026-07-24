@@ -192,6 +192,7 @@ class WriteService:
         allow_unsafe: bool = False,
         overview: str | None = None,
         _commit_guard: Callable[[str], None] | None = None,
+        _evidence_idempotency_key: str | None = None,
     ) -> WriteResult:
         """Funnel a single item+body into the pool.
 
@@ -222,7 +223,7 @@ class WriteService:
                 getattr(item.source, "kind", None),
             )
         if _commit_guard is not None:
-            _commit_guard("preflight")
+            _commit_guard("precommit")
         item, review_warning = _mark_boundary_review_candidate(item)
         item = enrich_memory_item(item)
         evidence_sidecar_degraded = (
@@ -231,7 +232,11 @@ class WriteService:
         )
         if not evidence_sidecar_degraded:
             evidence = _prepare_write_evidence(item, body)
-            item = self._attach_evidence_sidecar(item, evidence)
+            item = self._attach_evidence_sidecar(
+                item,
+                evidence,
+                _idempotency_key=_evidence_idempotency_key,
+            )
         # md append — the source of truth. If this raises, the write genuinely
         # failed and the exception propagates to the caller (entry points decide
         # whether to buffer to the pending queue).
@@ -241,7 +246,7 @@ class WriteService:
         if review_warning:
             warnings.append(review_warning)
         if _commit_guard is not None:
-            _commit_guard("precommit")
+            _commit_guard("postsidecar")
         path = self._store.write(item, body)
         if _commit_guard is not None:
             _commit_guard("postwrite")
@@ -335,6 +340,8 @@ class WriteService:
         self,
         item: MemoryItem,
         evidence: tuple[_WriteEvidenceSpec, ...],
+        *,
+        _idempotency_key: str | None = None,
     ) -> MemoryItem:
         """Attach resource/extraction evidence produced by the write boundary.
 
@@ -354,10 +361,12 @@ class WriteService:
         resources = list(refs.get("resources") or [])
         extractions = list(refs.get("extractions") or [])
 
-        for spec in evidence:
+        for ordinal, spec in enumerate(evidence):
             resource_id, extraction_id = _materialize_evidence_spec(
                 resource_store,
                 spec,
+                idempotency_key=_idempotency_key,
+                ordinal=ordinal,
             )
             resources.append(resource_id)
             if extraction_id:
@@ -700,10 +709,21 @@ def _file_ref_spec(
 def _materialize_evidence_spec(
     resource_store: ResourceStore,
     spec: _WriteEvidenceSpec,
+    *,
+    idempotency_key: str | None = None,
+    ordinal: int = 0,
 ) -> tuple[str, str | None]:
-    created_at = datetime.now(timezone.utc)
-    resource_id = _with_utc_v1_evidence_sentinel(
-        make_resource_id(spec.id_title, when=created_at)
+    created_at = (
+        spec.resource.created_at.astimezone(timezone.utc)
+        if idempotency_key is not None
+        else datetime.now(timezone.utc)
+    )
+    resource_id = _evidence_record_id(
+        "res",
+        spec.id_title,
+        created_at=created_at,
+        idempotency_key=idempotency_key,
+        ordinal=ordinal,
     )
     resource = spec.resource.model_copy(
         update={
@@ -711,11 +731,20 @@ def _materialize_evidence_spec(
             "created_at": created_at,
         }
     )
-    resource_store.write_resource(resource)
+    _write_evidence_record(
+        lambda: resource_store.write_resource(resource),
+        lambda: resource_store.get_resource(resource.id),
+        resource,
+        idempotent=idempotency_key is not None,
+    )
     if spec.extraction is None:
         return resource.id, None
-    extraction_id = _with_utc_v1_evidence_sentinel(
-        make_extraction_id(spec.id_title, when=created_at)
+    extraction_id = _evidence_record_id(
+        "ext",
+        spec.id_title,
+        created_at=created_at,
+        idempotency_key=idempotency_key,
+        ordinal=ordinal,
     )
     extraction = spec.extraction.model_copy(
         update={
@@ -724,8 +753,66 @@ def _materialize_evidence_spec(
             "created_at": created_at,
         }
     )
-    resource_store.write_extraction(extraction)
+    _write_evidence_record(
+        lambda: resource_store.write_extraction(extraction),
+        lambda: resource_store.get_extraction(extraction.id),
+        extraction,
+        idempotent=idempotency_key is not None,
+    )
     return resource.id, extraction.id
+
+
+def _evidence_record_id(
+    prefix: str,
+    title: str,
+    *,
+    created_at: datetime,
+    idempotency_key: str | None,
+    ordinal: int,
+) -> str:
+    if idempotency_key is None:
+        generated = (
+            make_resource_id(title, when=created_at)
+            if prefix == "res"
+            else make_extraction_id(title, when=created_at)
+        )
+    else:
+        suffix = hashlib.sha256(
+            (
+                "amh.write-service.pending-evidence.v1\0"
+                f"{idempotency_key}\0{ordinal}\0{prefix}"
+            ).encode("utf-8")
+        ).hexdigest()[:16]
+        randomized = (
+            make_resource_id(title, when=created_at)
+            if prefix == "res"
+            else make_extraction_id(title, when=created_at)
+        )
+        generated = f"{randomized.rsplit('-', 1)[0]}-{suffix}"
+    return _with_utc_v1_evidence_sentinel(generated)
+
+
+def _write_evidence_record(
+    write: Callable[[], Path],
+    read: Callable[[], ResourceRecord | ExtractionRecord],
+    expected: ResourceRecord | ExtractionRecord,
+    *,
+    idempotent: bool,
+) -> None:
+    try:
+        write()
+    except FileExistsError:
+        if not idempotent:
+            raise
+        try:
+            existing = read()
+        except Exception as exc:
+            raise FileExistsError("WRITE_EVIDENCE_IDEMPOTENCY_CONFLICT") from exc
+        if existing.model_dump(mode="json", exclude_none=False) != expected.model_dump(
+            mode="json",
+            exclude_none=False,
+        ):
+            raise FileExistsError("WRITE_EVIDENCE_IDEMPOTENCY_CONFLICT") from None
 
 
 def _with_utc_v1_evidence_sentinel(generated_id: str) -> str:
