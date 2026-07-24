@@ -61,6 +61,74 @@ def test_write_succeeds_when_md_append_succeeds(tmp_brain):
     assert res.indexed is True
 
 
+def test_write_keeps_core_item_when_secure_sidecars_are_unavailable(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from agent_brain.memory.store import write_service as write_service_module
+
+    class UnavailableResourceStore:
+        def __init__(self, _brain: Path) -> None:
+            raise OSError("SECURE_RESOURCE_STORE_UNAVAILABLE")
+
+    monkeypatch.setattr(write_service_module, "ResourceStore", UnavailableResourceStore)
+    monkeypatch.setattr(
+        write_service_module,
+        "secure_dir_fd_mutation_supported",
+        lambda: False,
+    )
+    item = _item(title="sidecar capability unavailable")
+    svc = WriteService.for_brain(tmp_brain)
+
+    result = svc.write(item=item, body="body", allow_unsafe=True)
+
+    stored, stored_body = ItemsStore(tmp_brain / "items").get(item.id)
+    assert result.status == "written"
+    assert result.degraded == ["evidence-sidecar", "source-ledger"]
+    assert stored_body == "body\n"
+    assert stored.refs.resources == []
+    assert stored.refs.extractions == []
+    assert not (tmp_brain / "resources").exists()
+    assert not (tmp_brain / "extractions").exists()
+    assert not (tmp_brain / "sources").exists()
+
+
+def test_write_skips_file_evidence_io_when_sidecar_capability_is_unavailable(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from agent_brain.memory.store import write_service as write_service_module
+
+    monkeypatch.setattr(
+        write_service_module,
+        "secure_dir_fd_mutation_supported",
+        lambda: False,
+    )
+    monkeypatch.setattr(
+        write_service_module,
+        "_prepare_write_evidence",
+        lambda *_args: (_ for _ in ()).throw(
+            AssertionError("evidence preparation must be skipped")
+        ),
+    )
+    item = _item(title="skip unavailable file evidence").model_copy(
+        update={"refs": Refs(files=[str(tmp_brain / "unsafe-input")])}
+    )
+
+    result = WriteService.for_brain(tmp_brain).write(
+        item=item,
+        body="body",
+        allow_unsafe=True,
+    )
+
+    stored, _body = ItemsStore(tmp_brain / "items").get(item.id)
+    assert result.status == "written"
+    assert result.degraded == ["evidence-sidecar", "source-ledger"]
+    assert stored.refs.files == item.refs.files
+    assert not (tmp_brain / "resources").exists()
+    assert not (tmp_brain / "extractions").exists()
+
+
 def test_write_still_written_when_indexing_fails(tmp_brain, monkeypatch):
     svc = WriteService.for_brain(tmp_brain)
     # Force the index/embedder layer to explode:
@@ -91,104 +159,13 @@ def test_reconcile_existing_repairs_source_ledger_and_index(tmp_brain):
     assert json.loads(source.read_text(encoding="utf-8"))["body_sha256"]
 
 
-def test_source_ledger_unsupported_platform_fallback_is_explicit(
-    tmp_brain: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    from agent_brain.memory.store import write_service as write_service_module
-
-    item = _item(title="source fallback")
-    item_path = tmp_brain / "items" / f"{item.id}.md"
-    monkeypatch.setattr(
-        write_service_module,
-        "secure_dir_fd_mutation_supported",
-        lambda: False,
-    )
-    monkeypatch.setattr(write_service_module, "_STRICT_SECURE_MUTATION", False)
-
-    with caplog.at_level(
-        logging.WARNING,
-        logger="agent_brain.memory.store.write_service",
-    ):
-        path = write_service_module._write_source_record(  # noqa: SLF001
-            brain_dir=tmp_brain,
-            item=item,
-            item_path=item_path,
-            body="body",
-        )
-
-    assert path.is_file()
-    assert "SOURCE_LEDGER_SECURE_IO_UNAVAILABLE" in caplog.text
-
-
-@pytest.mark.parametrize("symlink_component", ["sources", "writes"])
-def test_source_ledger_fallback_symlink_escape_degrades_without_external_write(
-    tmp_brain: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    symlink_component: str,
-) -> None:
-    from agent_brain.memory.store import write_service as write_service_module
-
-    outside = tmp_brain.parent / f"fallback-outside-{symlink_component}"
-    outside.mkdir()
-    sources = tmp_brain / "sources"
-    if symlink_component == "sources":
-        sources.symlink_to(outside, target_is_directory=True)
-    else:
-        sources.mkdir()
-        (sources / "writes").symlink_to(outside, target_is_directory=True)
-    monkeypatch.setattr(
-        write_service_module,
-        "secure_dir_fd_mutation_supported",
-        lambda: False,
-    )
-    monkeypatch.setattr(write_service_module, "_STRICT_SECURE_MUTATION", False)
-    svc = WriteService.for_brain(tmp_brain)
-    item = _item(title=f"fallback source {symlink_component} escape")
-
-    result = svc.write(item=item, body="body", allow_unsafe=True)
-
-    assert result.status == "written"
-    assert result.degraded == ["source-ledger"]
-    assert "SOURCE_LEDGER_REPAIR_REQUIRED" in result.warnings
-    assert list(outside.iterdir()) == []
-
-
-def test_source_ledger_fallback_broken_target_degrades_without_external_write(
+def test_source_ledger_unavailable_capability_never_materializes_sidecar(
     tmp_brain: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from agent_brain.memory.store import write_service as write_service_module
 
-    item = _item(title="fallback source broken target")
-    writes = tmp_brain / "sources" / "writes"
-    writes.mkdir(parents=True)
-    outside = tmp_brain.parent / "fallback-outside-source.json"
-    (writes / f"{item.id}.json").symlink_to(outside)
-    monkeypatch.setattr(
-        write_service_module,
-        "secure_dir_fd_mutation_supported",
-        lambda: False,
-    )
-    monkeypatch.setattr(write_service_module, "_STRICT_SECURE_MUTATION", False)
-    svc = WriteService.for_brain(tmp_brain)
-
-    result = svc.write(item=item, body="body", allow_unsafe=True)
-
-    assert result.status == "written"
-    assert result.degraded == ["source-ledger"]
-    assert "SOURCE_LEDGER_REPAIR_REQUIRED" in result.warnings
-    assert not outside.exists()
-
-
-def test_source_ledger_posix_without_secure_mutation_fails_closed(
-    tmp_brain: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from agent_brain.memory.store import write_service as write_service_module
-
-    item = _item(title="source strict")
+    item = _item(title="source sidecar unavailable")
     monkeypatch.setattr(
         write_service_module,
         "secure_dir_fd_mutation_supported",
@@ -202,6 +179,8 @@ def test_source_ledger_posix_without_secure_mutation_fails_closed(
             item_path=tmp_brain / "items" / f"{item.id}.md",
             body="body",
         )
+
+    assert not (tmp_brain / "sources").exists()
 
 
 def test_reconcile_existing_marks_index_dirty_without_losing_written_verdict(

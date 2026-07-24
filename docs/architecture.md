@@ -342,6 +342,10 @@ Maintenance invariants:
 - **Markdown remains authoritative.** `ItemsStore.write()` defines durable
   success. `sources/writes`, `resources`, `extractions`, `index.db`, `runtime`,
   `review`, and `derived` are ledgers, sidecars, projections, or candidates.
+- **Secure sidecars are capability-gated.** Without descriptor-relative secure
+  mutation, `WriteService` keeps the Markdown success but reports
+  `evidence-sidecar` / `source-ledger` degraded and creates neither sidecar;
+  non-POSIX secure sidecar writes are currently unavailable.
 - **Feedback is explicit.** `InjectionFeedback` reinforces adopted ids and
   penalizes rejected ids. Injected-but-unmentioned ids stay unchanged, so
   exposure alone cannot make an item hotter.

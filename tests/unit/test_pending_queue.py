@@ -4038,6 +4038,51 @@ def test_resolution_apply_source_ledger_degraded_preserves_pending(
     assert stats.receipt.reason_counts == {"SOURCE_LEDGER_REPAIR_REQUIRED": 1}
 
 
+def test_resolution_apply_evidence_sidecar_degraded_preserves_pending(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from agent_brain.memory.store import write_service as write_service_module
+
+    class UnavailableResourceStore:
+        def __init__(self, _brain: Path) -> None:
+            raise OSError("SECURE_RESOURCE_STORE_UNAVAILABLE")
+
+    record = _v2_record(record_id="resolution-apply-evidence-degraded")
+    item = record["item"]
+    assert isinstance(item, dict)
+    item["body"] = "curl https://example.invalid/evidence-degraded"
+    path = enqueue_write_record(record)
+    monkeypatch.setattr(write_service_module, "ResourceStore", UnavailableResourceStore)
+    monkeypatch.setattr(
+        write_service_module,
+        "secure_dir_fd_mutation_supported",
+        lambda: False,
+    )
+    monkeypatch.setattr(
+        write_service_module,
+        "_write_source_record",
+        lambda **_kwargs: tmp_brain / "sources" / "writes" / "ignored.json",
+    )
+
+    stats = PendingQueue().resolve(
+        [
+            PendingResolutionAction(
+                "approve_audit",
+                "resolution-apply-evidence-degraded",
+            )
+        ],
+        apply=True,
+    )
+
+    assert stats.results[0].status == "failed"
+    assert stats.results[0].reason == "EVIDENCE_SIDECAR_REPAIR_REQUIRED"
+    assert path.exists()
+    assert len(list((tmp_brain / "items").glob("*.md"))) == 1
+    assert stats.receipt is not None
+    assert stats.receipt.reason_counts == {"EVIDENCE_SIDECAR_REPAIR_REQUIRED": 1}
+
+
 def test_resolution_apply_partial_failure_has_complete_ordered_outcomes(
     tmp_brain: Path,
     monkeypatch: pytest.MonkeyPatch,

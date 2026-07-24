@@ -10,6 +10,13 @@
 
 一句话：**原始证据、长期知识、派生索引、运行账本分开存**。这样做的原因是：证据不能丢，长期记忆不能被 transcript 噪声污染，索引坏了可以重建，自动治理不能绕过审计。
 
+能力边界：`resources/`、`extractions/`、`sources/writes/` 当前只在运行时具备
+descriptor-relative secure mutation 能力时写入。非 POSIX 环境暂不提供这些
+sidecar 的安全写入；`WriteService` 仍可写入 Markdown 事实源，但会分别报告
+`evidence-sidecar` / `source-ledger` degraded 且不物化 sidecar。直接调用
+`ResourceStore` 会返回 `SECURE_RESOURCE_STORE_UNAVAILABLE`。因此当前不能宣称
+这些 sidecar 已实现跨平台安全写入。
+
 ## 目录地图
 
 | 路径 | 存什么 | 什么时候写入 | 什么时候读取 | 怎么读取 |
@@ -165,9 +172,9 @@ echo "**决策**：CSV 导出统一使用 utf-8-sig。
 
 1. 跑 schema 和 audit gate。
 2. 补字段、质量 warning、边界 review tag。
-3. 生成 resource/extraction sidecar：如果没有外部证据，至少把 write input 存成 `resources/` + `extractions/` 证据。
+3. 安全 sidecar 能力可用时生成 resource/extraction sidecar；否则跳过并报告 `evidence-sidecar` degraded。
 4. 写 `items/mem-*.md`，这是长期知识事实源。
-5. 写 `sources/writes/<item-id>.json`，这是这次写入的账本。
+5. 安全 sidecar 能力可用时写 `sources/writes/<item-id>.json`；否则报告 `source-ledger` degraded。
 6. best-effort 写 `index.db`。失败不撤销 Markdown，只追加 `.index-dirty`。
 
 所以一次长期记忆写入后，通常会看到：

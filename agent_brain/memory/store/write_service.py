@@ -56,7 +56,6 @@ from agent_brain.contracts.resource import (
 )
 from agent_brain.platform.bounded_json import open_bounded_json_directory
 from agent_brain.platform.secure_io import (
-    HardenedFallbackDirectory,
     close_descriptor,
     open_directory_path_without_symlinks,
     open_regular_file_at,
@@ -65,7 +64,6 @@ from agent_brain.platform.secure_io import (
 )
 
 logger = logging.getLogger(__name__)
-_STRICT_SECURE_MUTATION = os.name == "posix"
 
 # Severities that fail-close the write gate. Medium/low are advisory and do not
 # block (mirrors AuditReport.passed, which is False only on critical/high).
@@ -224,12 +222,16 @@ class WriteService:
             )
         item, review_warning = _mark_boundary_review_candidate(item)
         item = enrich_memory_item(item)
-        evidence = _prepare_write_evidence(item, body)
-        item = self._attach_evidence_sidecar(item, evidence)
+        evidence_sidecar_degraded = not secure_dir_fd_mutation_supported()
+        if not evidence_sidecar_degraded:
+            evidence = _prepare_write_evidence(item, body)
+            item = self._attach_evidence_sidecar(item, evidence)
         # md append — the source of truth. If this raises, the write genuinely
         # failed and the exception propagates to the caller (entry points decide
         # whether to buffer to the pending queue).
         warnings = quality_warnings_for(item, body, brain_dir=self._brain_dir)
+        if evidence_sidecar_degraded:
+            warnings.append("EVIDENCE_SIDECAR_REPAIR_REQUIRED")
         if review_warning:
             warnings.append(review_warning)
         path = self._store.write(item, body)
@@ -245,6 +247,8 @@ class WriteService:
             source_ledger_degraded = True
             warnings.append("SOURCE_LEDGER_REPAIR_REQUIRED")
         result = WriteResult(status="written", item_id=item.id, path=str(path), warnings=warnings)
+        if evidence_sidecar_degraded:
+            result.degraded.append("evidence-sidecar")
         if source_ledger_degraded:
             result.degraded.append("source-ledger")
         # index — best-effort; a failure here must never undo "written".
@@ -730,6 +734,8 @@ def _write_source_record(
     item_path: Path,
     body: str,
 ) -> Path:
+    if not secure_dir_fd_mutation_supported():
+        raise OSError("SECURE_SOURCE_LEDGER_UNAVAILABLE")
     path = Path(brain_dir) / "sources" / "writes" / f"{item.id}.json"
     refs = item.refs.model_dump(mode="json")
     record = {
@@ -757,46 +763,30 @@ def _write_source_record(
     payload = (
         json.dumps(record, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
     ).encode("utf-8")
-    if secure_dir_fd_mutation_supported():
-        root_descriptor = open_directory_path_without_symlinks(Path(brain_dir))
-        with SecureDirectory(root_descriptor) as brain:
-            with brain.child("sources", create=True) as sources:
-                with sources.child("writes", create=True) as writes:
+    root_descriptor = open_directory_path_without_symlinks(Path(brain_dir))
+    with SecureDirectory(root_descriptor) as brain:
+        with brain.child("sources", create=True) as sources:
+            with sources.child("writes", create=True) as writes:
+                try:
+                    writes.atomic_create(path.name, payload)
+                except FileExistsError:
+                    descriptor = open_regular_file_at(writes.fd, path.name)
                     try:
-                        writes.atomic_create(path.name, payload)
-                    except FileExistsError:
-                        descriptor = open_regular_file_at(writes.fd, path.name)
-                        try:
-                            with os.fdopen(descriptor, "rb", buffering=0) as handle:
-                                descriptor = -1
-                                existing = handle.read()
-                        finally:
-                            if descriptor >= 0:
-                                close_descriptor(descriptor)
-                        relation = (
-                            "match"
-                            if existing == payload
-                            else _source_record_relation(existing, record, body)
-                        )
-                        if relation == "repair":
-                            writes.atomic_write(path.name, payload)
-                        elif relation != "match":
-                            raise FileExistsError("SOURCE_RECORD_IDENTITY_CONFLICT")
-        return path
-    if _STRICT_SECURE_MUTATION:
-        raise OSError("SECURE_SOURCE_LEDGER_UNAVAILABLE")
-    logger.warning("SOURCE_LEDGER_SECURE_IO_UNAVAILABLE")
-    fallback_brain = HardenedFallbackDirectory.open_or_create(Path(brain_dir))
-    fallback_writes = fallback_brain.child("sources", create=True).child(
-        "writes",
-        create=True,
-    )
-    try:
-        fallback_writes.exclusive_create(path.name, payload)
-    except FileExistsError:
-        if fallback_writes.read_regular(path.name) == payload:
-            return path
-        raise FileExistsError("SOURCE_RECORD_IDENTITY_CONFLICT")
+                        with os.fdopen(descriptor, "rb", buffering=0) as handle:
+                            descriptor = -1
+                            existing = handle.read()
+                    finally:
+                        if descriptor >= 0:
+                            close_descriptor(descriptor)
+                    relation = (
+                        "match"
+                        if existing == payload
+                        else _source_record_relation(existing, record, body)
+                    )
+                    if relation == "repair":
+                        writes.atomic_write(path.name, payload)
+                    elif relation != "match":
+                        raise FileExistsError("SOURCE_RECORD_IDENTITY_CONFLICT")
     return path
 
 

@@ -163,6 +163,7 @@ _PUBLIC_PENDING_REASONS = frozenset(
         "CONFLICTING_PENDING_RESOLUTIONS",
         "DUPLICATE_RECORD_ID_SELECTION",
         "EMPTY_PENDING_RECORD",
+        "EVIDENCE_SIDECAR_REPAIR_REQUIRED",
         "EXISTING_ITEM_SCAN_UNAVAILABLE",
         "FUTURE_ENQUEUED_AT",
         "FUTURE_ORIGINAL_CREATED_AT",
@@ -2089,6 +2090,14 @@ class PendingQueue:
                         status="failed",
                         reason="PENDING_APPLY_FAILED",
                     )
+                if "evidence-sidecar" in written.degraded:
+                    return _resolution_result(
+                        action,
+                        preview=preview,
+                        status="failed",
+                        reason="EVIDENCE_SIDECAR_REPAIR_REQUIRED",
+                        item_id=_result_item_id(preview, item.id),
+                    )
                 if "source-ledger" in written.degraded:
                     return _resolution_result(
                         action,
@@ -2600,6 +2609,12 @@ class PendingQueue:
                             status="review_required",
                             reason="AUDIT_BLOCKED",
                             item_id=_result_item_id(record, item_id),
+                        )
+                    if "evidence-sidecar" in result.degraded:
+                        return _failed_apply_result(
+                            record,
+                            "EVIDENCE_SIDECAR_REPAIR_REQUIRED",
+                            item_id=item_id,
                         )
                     if "source-ledger" in result.degraded:
                         return _failed_apply_result(

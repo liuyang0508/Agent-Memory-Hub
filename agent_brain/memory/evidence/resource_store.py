@@ -16,7 +16,6 @@ from agent_brain.contracts.resource import (
 )
 from agent_brain.memory.store.durable_fs import SecureDirectory
 from agent_brain.platform.secure_io import (
-    HardenedFallbackDirectory,
     close_descriptor,
     open_directory_path_without_symlinks,
     open_or_create_directory_path_without_symlinks,
@@ -25,7 +24,6 @@ from agent_brain.platform.secure_io import (
 )
 
 _log = logging.getLogger(__name__)
-_STRICT_SECURE_MUTATION = os.name == "posix"
 
 
 @dataclass
@@ -50,56 +48,35 @@ class ResourceStore:
         self.root_dir = Path(root_dir)
         self.resources_dir = self.root_dir / "resources"
         self.extractions_dir = self.root_dir / "extractions"
-        self._secure = secure_dir_fd_mutation_supported()
-        self._fallback_resources: HardenedFallbackDirectory | None = None
-        self._fallback_extractions: HardenedFallbackDirectory | None = None
-        if _STRICT_SECURE_MUTATION and not self._secure:
+        if not secure_dir_fd_mutation_supported():
             raise OSError("SECURE_RESOURCE_STORE_UNAVAILABLE")
-        if self._secure:
-            with SecureDirectory(
-                open_or_create_directory_path_without_symlinks(self.root_dir)
-            ) as root:
-                with root.child("resources", create=True), root.child(
-                    "extractions", create=True
-                ):
-                    pass
-        else:
-            _log.warning("RESOURCE_STORE_SECURE_IO_UNAVAILABLE")
-            fallback_root = HardenedFallbackDirectory.open_or_create(self.root_dir)
-            self._fallback_resources = fallback_root.child("resources", create=True)
-            self._fallback_extractions = fallback_root.child(
-                "extractions",
-                create=True,
-            )
+        with SecureDirectory(
+            open_or_create_directory_path_without_symlinks(self.root_dir)
+        ) as root:
+            with root.child("resources", create=True), root.child(
+                "extractions", create=True
+            ):
+                pass
         self.last_scan = EvidenceScanStats()
 
     def write_resource(self, record: ResourceRecord) -> Path:
         path = self.resources_dir / f"{record.id}.json"
         data = self._json_bytes(record.model_dump(mode="json", exclude_none=False))
-        if self._secure:
-            with self._open_root() as root, root.child("resources") as resources:
-                resources.atomic_create(path.name, data)
-        else:
-            self._fallback_directory("resources").exclusive_create(path.name, data)
+        with self._open_root() as root, root.child("resources") as resources:
+            resources.atomic_create(path.name, data)
         return path
 
     def write_extraction(self, record: ExtractionRecord) -> Path:
         path = self.extractions_dir / f"{record.id}.json"
         data = self._json_bytes(record.model_dump(mode="json", exclude_none=False))
-        if self._secure:
-            with self._open_root() as root, root.child("resources") as resources:
-                descriptor = open_regular_file_at(
-                    resources.fd,
-                    f"{record.resource_id}.json",
-                )
-                close_descriptor(descriptor)
-                with root.child("extractions") as extractions:
-                    extractions.atomic_create(path.name, data)
-        else:
-            self._fallback_directory("resources").read_regular(
-                f"{record.resource_id}.json"
+        with self._open_root() as root, root.child("resources") as resources:
+            descriptor = open_regular_file_at(
+                resources.fd,
+                f"{record.resource_id}.json",
             )
-            self._fallback_directory("extractions").exclusive_create(path.name, data)
+            close_descriptor(descriptor)
+            with root.child("extractions") as extractions:
+                extractions.atomic_create(path.name, data)
         return path
 
     def get_resource(self, resource_id: str) -> ResourceRecord:
@@ -148,25 +125,11 @@ class ResourceStore:
         ).encode("utf-8")
 
     def _read_json(self, path: Path) -> dict[str, Any]:
-        if self._secure:
-            with self._open_root() as root, root.child(path.parent.name) as directory:
-                return self._read_json_at(directory.fd, path.name, path)
-        return self._decode_json(
-            self._fallback_directory(path.parent.name).read_regular(path.name),
-            path,
-        )
+        with self._open_root() as root, root.child(path.parent.name) as directory:
+            return self._read_json_at(directory.fd, path.name, path)
 
     def _iter_json(self, directory_name: str) -> Iterator[tuple[Path, dict[str, Any]]]:
         directory_path = self.root_dir / directory_name
-        if not self._secure:
-            fallback_directory = self._fallback_directory(directory_name)
-            for name in fallback_directory.names(suffix=".json"):
-                path = directory_path / name
-                try:
-                    yield path, self._read_json(path)
-                except Exception as error:  # noqa: BLE001 - isolate corrupt records.
-                    self._record_skip(path, error)
-            return
         with self._open_root() as root, root.child(directory_name) as secure_directory:
             with os.scandir(secure_directory.fd) as entries:
                 names = sorted(
@@ -180,16 +143,6 @@ class ResourceStore:
                     yield path, self._read_json_at(secure_directory.fd, name, path)
                 except Exception as error:  # noqa: BLE001 - isolate corrupt records.
                     self._record_skip(path, error)
-
-    def _fallback_directory(self, name: str) -> HardenedFallbackDirectory:
-        directory = (
-            self._fallback_resources
-            if name == "resources"
-            else self._fallback_extractions
-        )
-        if directory is None:
-            raise OSError("RESOURCE_STORE_FALLBACK_UNAVAILABLE")
-        return directory
 
     @classmethod
     def _read_json_at(
