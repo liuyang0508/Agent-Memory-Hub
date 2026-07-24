@@ -589,6 +589,52 @@ def test_pending_record_deadline_after_open_closes_fallback_descriptor(
     assert len(closed) == 1
 
 
+def test_resolution_expected_size_stops_growth_before_reading_bytes(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = enqueue_write_record(_v2_record(record_id="growth-before-bounded-read"))
+    opened = os.lstat(path)
+    budget = pending_module._PendingResolutionReadBudget(
+        identity=(int(opened.st_dev), int(opened.st_ino)),
+        size=int(opened.st_size),
+    )
+    real_require = pending_module._require_pending_resolution_read_budget
+    real_read = os.read
+    grew = False
+    bytes_read = 0
+
+    def grow_after_outer_check(current, expected):
+        nonlocal grew
+        real_require(current, expected)
+        if expected is not None and not grew:
+            path.write_bytes(path.read_bytes() + b"x" * 4096)
+            grew = True
+
+    def tracked_read(descriptor: int, size: int) -> bytes:
+        nonlocal bytes_read
+        chunk = real_read(descriptor, size)
+        bytes_read += len(chunk)
+        return chunk
+
+    monkeypatch.setattr(
+        pending_module,
+        "_require_pending_resolution_read_budget",
+        grow_after_outer_check,
+    )
+    monkeypatch.setattr(pending_module.os, "read", tracked_read)
+
+    with pytest.raises(pending_module._PendingReadError) as caught:
+        pending_module._read_pending_record_snapshot(
+            path,
+            expected_budget=budget,
+        )
+
+    assert grew
+    assert bytes_read == 0
+    assert caught.value.reason == "PENDING_READINESS_BUDGET_EXCEEDED"
+
+
 def test_metadata_deadline_after_root_open_closes_directory_descriptor(
     tmp_brain,
     monkeypatch,
@@ -3881,13 +3927,19 @@ def test_resolution_apply_blocks_fresh_record_drift(
         apply=True,
     )
 
-    assert stats.results[0].status == "blocked"
-    assert stats.results[0].reason == "PENDING_RESOLUTION_CHANGED"
+    expected_status = "failed" if drift == "missing" else "blocked"
+    expected_reason = (
+        "PENDING_READINESS_BUDGET_EXCEEDED"
+        if drift == "missing"
+        else "PENDING_RESOLUTION_CHANGED"
+    )
+    assert stats.results[0].status == expected_status
+    assert stats.results[0].reason == expected_reason
     assert path.read_bytes() == original
     assert list((tmp_brain / "items").glob("*.md")) == []
     assert stats.receipt is not None
     assert stats.receipt.state == "completed"
-    assert stats.receipt.status_counts == {"blocked": 1}
+    assert stats.receipt.status_counts == {expected_status: 1}
 
 
 def test_resolution_apply_blocks_changed_audit_findings(
@@ -4439,12 +4491,12 @@ def test_resolution_apply_detects_record_replacement_after_prepared_receipt(
         apply=True,
     )
 
-    assert stats.results[0].status == "blocked"
-    assert stats.results[0].reason == "PENDING_RESOLUTION_CHANGED"
+    assert stats.results[0].status == "failed"
+    assert stats.results[0].reason == "PENDING_READINESS_BUDGET_EXCEEDED"
     assert path.read_bytes() == original
     assert list((tmp_brain / "items").glob("*.md")) == []
     assert stats.receipt is not None
-    assert stats.receipt.status_counts == {"blocked": 1}
+    assert stats.receipt.status_counts == {"failed": 1}
 
 
 def test_pending_resolution_real_distribution_smoke(
@@ -6240,6 +6292,118 @@ def test_resolution_pending_byte_budget_is_inclusive_and_precedes_mutation(
     assert _tree_snapshot(tmp_brain) == before
 
 
+def test_resolution_rejects_lstat_size_understatement_before_mutation(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path, action = _enqueue_resolution_apply_case(
+        "approve_audit",
+        "resolution-understated-lstat-size",
+    )
+    before = _tree_snapshot(tmp_brain)
+    real_lstat = os.lstat
+
+    def understated_lstat(candidate, *args, **kwargs):
+        opened = real_lstat(candidate, *args, **kwargs)
+        if not isinstance(candidate, int) and Path(candidate) == path:
+            return _StatProxy(opened, st_size=1)
+        return opened
+
+    monkeypatch.setattr(pending_module.os, "lstat", understated_lstat)
+    monkeypatch.setattr(
+        pending_module,
+        "MAX_PENDING_RESOLUTION_TOTAL_BYTES",
+        1,
+        raising=False,
+    )
+
+    stats = PendingQueue().resolve([action], apply=True)
+
+    assert stats.results[0].status == "failed"
+    assert stats.results[0].reason == "PENDING_READINESS_BUDGET_EXCEEDED"
+    assert stats.receipt is None
+    assert path.exists()
+    assert _tree_snapshot(tmp_brain) == before
+
+
+def test_resolution_rejects_identity_replacement_after_budget_snapshot(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path, action = _enqueue_resolution_apply_case(
+        "approve_audit",
+        "resolution-post-budget-identity-race",
+    )
+    before = _tree_snapshot(tmp_brain)
+    real_budgets = pending_module._pending_resolution_read_budgets
+    replaced = False
+
+    def replace_after_budget_snapshot(*args, **kwargs):
+        nonlocal replaced
+        budgets = real_budgets(*args, **kwargs)
+        if budgets is not None and not replaced:
+            replacement = path.with_name(f".{path.name}.replacement")
+            replacement.write_bytes(path.read_bytes())
+            os.replace(replacement, path)
+            replaced = True
+        return budgets
+
+    monkeypatch.setattr(
+        pending_module,
+        "_pending_resolution_read_budgets",
+        replace_after_budget_snapshot,
+    )
+    monkeypatch.setattr(
+        pending_module,
+        "MAX_PENDING_RESOLUTION_TOTAL_BYTES",
+        path.stat().st_size,
+        raising=False,
+    )
+
+    stats = PendingQueue().resolve([action], apply=True)
+
+    assert replaced
+    assert stats.results[0].status == "failed"
+    assert stats.results[0].reason == "PENDING_READINESS_BUDGET_EXCEEDED"
+    assert stats.receipt is None
+    assert path.exists()
+    assert _tree_snapshot(tmp_brain) == before
+
+
+def test_resolution_apply_rejects_growth_after_second_plan(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path, action = _enqueue_resolution_apply_case(
+        "approve_audit",
+        "resolution-growth-after-second-plan",
+    )
+    real_apply = PendingQueue._apply_resolution
+    grew = False
+
+    def grow_before_apply(self, selection, **kwargs):
+        nonlocal grew
+        if not grew:
+            path.write_bytes(path.read_bytes() + b" ")
+            grew = True
+        return real_apply(self, selection, **kwargs)
+
+    monkeypatch.setattr(
+        PendingQueue,
+        "_apply_resolution",
+        grow_before_apply,
+    )
+
+    stats = PendingQueue().resolve([action], apply=True)
+
+    assert grew
+    assert stats.results[0].status == "failed"
+    assert stats.results[0].reason == "PENDING_READINESS_BUDGET_EXCEEDED"
+    assert stats.receipt is not None
+    assert path.exists()
+    assert not list((tmp_brain / "items").rglob("*.md"))
+
+
 def test_resolution_pending_entry_budget_uses_readiness_reason_without_mutation(
     tmp_brain: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -6336,6 +6500,81 @@ def test_resolution_dry_run_rechecks_deadline_after_validation(
         lambda: 2.0 if expired else 0.0,
     )
     monkeypatch.setattr(PendingQueue, "_validate_resolution", validate_then_expire)
+
+    stats = PendingQueue().resolve([action])
+
+    assert stats.results[0].status == "failed"
+    assert stats.results[0].reason == "PENDING_READINESS_BUDGET_EXCEEDED"
+    assert stats.receipt is None
+    assert path.exists()
+    assert _tree_snapshot(tmp_brain) == before
+
+
+def test_resolution_apply_rechecks_deadline_before_receipt_persistence(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path, action = _enqueue_resolution_apply_case(
+        "approve_audit",
+        "resolution-pre-receipt-deadline",
+    )
+    with pending_module._locked_pending_queue(tmp_brain):
+        with ItemsStore(tmp_brain / "items").locked_catalog():
+            pass
+    before = _tree_snapshot(tmp_brain)
+    real_plan = PendingQueue._plan_resolutions
+    plan_calls = 0
+    expired = False
+
+    def plan_then_expire(self, *args, **kwargs):
+        nonlocal plan_calls, expired
+        result = real_plan(self, *args, **kwargs)
+        plan_calls += 1
+        if plan_calls == 2:
+            expired = True
+        return result
+
+    monkeypatch.setattr(
+        pending_module,
+        "_monotonic",
+        lambda: 2.0 if expired else 0.0,
+    )
+    monkeypatch.setattr(PendingQueue, "_plan_resolutions", plan_then_expire)
+
+    stats = PendingQueue().resolve([action], apply=True)
+
+    assert plan_calls == 2
+    assert stats.results[0].status == "failed"
+    assert stats.results[0].reason == "PENDING_READINESS_BUDGET_EXCEEDED"
+    assert stats.receipt is None
+    assert path.exists()
+    assert _tree_snapshot(tmp_brain) == before
+
+
+def test_resolution_dry_run_rechecks_deadline_after_plan_returns(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path, action = _enqueue_resolution_apply_case(
+        "approve_audit",
+        "resolution-post-plan-deadline",
+    )
+    before = _tree_snapshot(tmp_brain)
+    real_plan = PendingQueue._plan_resolutions
+    expired = False
+
+    def plan_then_expire(self, *args, **kwargs):
+        nonlocal expired
+        result = real_plan(self, *args, **kwargs)
+        expired = True
+        return result
+
+    monkeypatch.setattr(
+        pending_module,
+        "_monotonic",
+        lambda: 2.0 if expired else 0.0,
+    )
+    monkeypatch.setattr(PendingQueue, "_plan_resolutions", plan_then_expire)
 
     stats = PendingQueue().resolve([action])
 
