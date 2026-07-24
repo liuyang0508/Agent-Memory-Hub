@@ -356,7 +356,7 @@ def test_resource_store_round_trips_resource_and_extraction(tmp_path) -> None:
     assert [e.id for e in store.iter_extractions(resource_id=resource.id)] == [extraction.id]
 
 
-@pytest.mark.skipif(sys.platform != "darwin", reason="macOS system alias")
+@pytest.mark.skipif(sys.platform != "darwin", reason="requires macOS")
 @pytest.mark.parametrize("temp_root", [None, "/tmp"])
 def test_resource_store_accepts_trusted_macos_root_aliases(temp_root: str | None) -> None:
     from agent_brain.contracts.resource import (

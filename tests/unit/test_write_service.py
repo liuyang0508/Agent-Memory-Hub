@@ -302,7 +302,7 @@ def test_write_service_attaches_write_input_evidence_sidecar(tmp_brain):
     assert "fact item has no source refs" not in res.warnings
 
 
-@pytest.mark.skipif(sys.platform != "darwin", reason="macOS system alias")
+@pytest.mark.skipif(sys.platform != "darwin", reason="requires macOS")
 @pytest.mark.parametrize("temp_root", [None, "/tmp"])
 def test_write_service_accepts_trusted_macos_root_aliases(
     temp_root: str | None,
