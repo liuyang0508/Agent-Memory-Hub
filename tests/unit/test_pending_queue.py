@@ -684,7 +684,7 @@ def _write_existing_item(
         tenant_id=tenant_id,
         source=Source(kind="pending-replay", span_hash=span_hash),
     )
-    path = ItemsStore(tmp_brain / "items").write(item, "existing body must not be read")
+    path = ItemsStore(tmp_brain / "items").write(item, str(queued.get("body") or ""))
     if corrupt_body:
         frontmatter = render_item_markdown(item, "").encode("utf-8")
         path.write_bytes(frontmatter + b"\xff\xfe\xfd")
@@ -1144,6 +1144,127 @@ def test_already_written_keeps_queue_when_source_ledger_repair_fails(
     assert result.failed == 1
     assert result.results[0].reason == "SOURCE_LEDGER_REPAIR_REQUIRED"
     assert path.exists()
+
+
+def test_apply_evidence_degraded_stays_pending_after_capability_recovers(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from agent_brain.memory.store import write_service as write_service_module
+
+    _freeze_now(monkeypatch)
+    record_id = "apply-evidence-degraded-retry"
+    path = enqueue_write_record(_v2_record(record_id=record_id))
+    capability = [False]
+    monkeypatch.setattr(
+        write_service_module,
+        "secure_dir_fd_mutation_supported",
+        lambda: capability[0],
+    )
+    monkeypatch.setattr(
+        write_service_module,
+        "_write_source_record",
+        lambda **_kwargs: tmp_brain / "sources" / "writes" / "ignored.json",
+    )
+
+    first = PendingQueue().apply(record_ids=[record_id])
+    stored_path = next((tmp_brain / "items").glob("*.md"))
+    stored_before_retry = stored_path.read_bytes()
+    resources_before_retry = tuple((tmp_brain / "resources").glob("*.json"))
+    extractions_before_retry = tuple((tmp_brain / "extractions").glob("*.json"))
+    capability[0] = True
+    second = PendingQueue().apply(record_ids=[record_id])
+
+    assert first.failed == second.failed == 1
+    assert (
+        first.results[0].reason
+        == second.results[0].reason
+        == "EVIDENCE_SIDECAR_REPAIR_REQUIRED"
+    )
+    assert path.exists()
+    assert stored_path.read_bytes() == stored_before_retry
+    assert tuple((tmp_brain / "resources").glob("*.json")) == resources_before_retry
+    assert (
+        tuple((tmp_brain / "extractions").glob("*.json"))
+        == extractions_before_retry
+    )
+    assert first.receipt is not None
+    assert second.receipt is not None
+    assert first.receipt.state == second.receipt.state == "completed"
+    assert first.receipt.reason_counts == second.receipt.reason_counts == {
+        "EVIDENCE_SIDECAR_REPAIR_REQUIRED": 1
+    }
+
+
+def test_apply_degraded_recovery_rejects_existing_body_mismatch(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from agent_brain.memory.store import write_service as write_service_module
+
+    _freeze_now(monkeypatch)
+    record_id = "apply-evidence-degraded-body-mismatch"
+    path = enqueue_write_record(_v2_record(record_id=record_id))
+    capability = [False]
+    monkeypatch.setattr(
+        write_service_module,
+        "secure_dir_fd_mutation_supported",
+        lambda: capability[0],
+    )
+    monkeypatch.setattr(
+        write_service_module,
+        "_write_source_record",
+        lambda **_kwargs: tmp_brain / "sources" / "writes" / "ignored.json",
+    )
+    first = PendingQueue().apply(record_ids=[record_id])
+    stored_path = next((tmp_brain / "items").glob("*.md"))
+    stored, _body = next(ItemsStore(tmp_brain / "items").iter_all())
+    stored_path.write_text(
+        render_item_markdown(stored, "tampered existing body"),
+        encoding="utf-8",
+    )
+
+    capability[0] = True
+    second = PendingQueue().apply(record_ids=[record_id])
+
+    assert first.results[0].reason == "EVIDENCE_SIDECAR_REPAIR_REQUIRED"
+    assert second.review_required == 1
+    assert second.results[0].reason == "STABLE_ITEM_PAYLOAD_CONFLICT"
+    assert path.exists()
+
+
+def test_apply_explicit_extraction_repairs_only_source_ledger_after_recovery(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from agent_brain.memory.store import write_service as write_service_module
+
+    _freeze_now(monkeypatch)
+    record_id = "apply-explicit-extraction-source-recovery"
+    record = _v2_record(record_id=record_id)
+    item = record["item"]
+    assert isinstance(item, dict)
+    item["refs"] = {
+        "extractions": ["ext-20260724-120000-apply-explicit-extraction"]
+    }
+    path = enqueue_write_record(record)
+    capability = [False]
+    monkeypatch.setattr(
+        write_service_module,
+        "secure_dir_fd_mutation_supported",
+        lambda: capability[0],
+    )
+
+    first = PendingQueue().apply(record_ids=[record_id])
+    capability[0] = True
+    second = PendingQueue().apply(record_ids=[record_id])
+    item_id = _stable_item_id(record)
+
+    assert first.results[0].reason == "SOURCE_LEDGER_REPAIR_REQUIRED"
+    assert second.already_written == 1
+    assert second.results[0].reason == "STABLE_ITEM_ALREADY_WRITTEN"
+    assert not path.exists()
+    assert (tmp_brain / "sources" / "writes" / f"{item_id}.json").exists()
 
 
 def test_unlink_directory_fsync_failure_keeps_written_result_with_fixed_warning(

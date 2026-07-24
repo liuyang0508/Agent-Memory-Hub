@@ -2571,8 +2571,33 @@ class PendingQueue:
                         existing = None
                     if existing is not None:
                         if (
-                            pending_item is None or _same_scope(existing, pending_item)
+                            pending_item is not None
+                            and write_input is not None
+                            and _same_scope(existing, pending_item)
                         ) and existing.source.span_hash == record.payload_sha256:
+                            pending_body = write_input[1]
+                            if existing_body.rstrip() != pending_body.rstrip():
+                                return PendingApplyResult(
+                                    record_id=record.record_id,
+                                    classification="conflict",
+                                    status="review_required",
+                                    reason="STABLE_ITEM_PAYLOAD_CONFLICT",
+                                    item_id=_result_item_id(record, item_id),
+                                )
+                            from agent_brain.memory.store.write_service import (
+                                _matches_degraded_evidence_write,
+                            )
+
+                            if _matches_degraded_evidence_write(
+                                pending_item,
+                                pending_body,
+                                existing,
+                            ):
+                                return _failed_apply_result(
+                                    record,
+                                    "EVIDENCE_SIDECAR_REPAIR_REQUIRED",
+                                    item_id=item_id,
+                                )
                             reconcile = getattr(service, "reconcile_existing")
                             reconciliation = reconcile(item=existing, body=existing_body)
                             if "source-ledger" in reconciliation.degraded:
