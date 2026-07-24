@@ -4575,6 +4575,7 @@ def test_resolution_post_write_drift_retries_exactly_once(
     assert first.results[0].reason == "PENDING_WRITE_RECOVERY_REQUIRED"
     assert first.receipt is not None
     assert first.receipt.status_counts == {"failed": 1}
+    assert first.receipt.reason_counts == {"PENDING_WRITE_RECOVERY_REQUIRED": 1}
     assert second.results[0].status == "applied"
     assert second.results[0].reason == "PENDING_RESOLUTION_APPLIED"
     assert not path.exists()
