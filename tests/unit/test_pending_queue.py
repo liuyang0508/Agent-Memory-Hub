@@ -4044,20 +4044,16 @@ def test_resolution_apply_evidence_sidecar_degraded_preserves_pending(
 ) -> None:
     from agent_brain.memory.store import write_service as write_service_module
 
-    class UnavailableResourceStore:
-        def __init__(self, _brain: Path) -> None:
-            raise OSError("SECURE_RESOURCE_STORE_UNAVAILABLE")
-
     record = _v2_record(record_id="resolution-apply-evidence-degraded")
     item = record["item"]
     assert isinstance(item, dict)
     item["body"] = "curl https://example.invalid/evidence-degraded"
     path = enqueue_write_record(record)
-    monkeypatch.setattr(write_service_module, "ResourceStore", UnavailableResourceStore)
+    capability = [False]
     monkeypatch.setattr(
         write_service_module,
         "secure_dir_fd_mutation_supported",
-        lambda: False,
+        lambda: capability[0],
     )
     monkeypatch.setattr(
         write_service_module,
@@ -4065,7 +4061,7 @@ def test_resolution_apply_evidence_sidecar_degraded_preserves_pending(
         lambda **_kwargs: tmp_brain / "sources" / "writes" / "ignored.json",
     )
 
-    stats = PendingQueue().resolve(
+    first = PendingQueue().resolve(
         [
             PendingResolutionAction(
                 "approve_audit",
@@ -4075,12 +4071,117 @@ def test_resolution_apply_evidence_sidecar_degraded_preserves_pending(
         apply=True,
     )
 
-    assert stats.results[0].status == "failed"
-    assert stats.results[0].reason == "EVIDENCE_SIDECAR_REPAIR_REQUIRED"
+    stored_path = next((tmp_brain / "items").glob("*.md"))
+    stored_before_retry = stored_path.read_bytes()
+    resource_paths_before_retry = tuple((tmp_brain / "resources").glob("*.json"))
+    extraction_paths_before_retry = tuple((tmp_brain / "extractions").glob("*.json"))
+    capability[0] = True
+    second = PendingQueue().resolve(
+        [
+            PendingResolutionAction(
+                "approve_audit",
+                "resolution-apply-evidence-degraded",
+            )
+        ],
+        apply=True,
+    )
+
+    assert first.results[0].status == second.results[0].status == "failed"
+    assert (
+        first.results[0].reason
+        == second.results[0].reason
+        == "EVIDENCE_SIDECAR_REPAIR_REQUIRED"
+    )
     assert path.exists()
     assert len(list((tmp_brain / "items").glob("*.md"))) == 1
-    assert stats.receipt is not None
-    assert stats.receipt.reason_counts == {"EVIDENCE_SIDECAR_REPAIR_REQUIRED": 1}
+    assert stored_path.read_bytes() == stored_before_retry
+    assert tuple((tmp_brain / "resources").glob("*.json")) == resource_paths_before_retry
+    assert (
+        tuple((tmp_brain / "extractions").glob("*.json"))
+        == extraction_paths_before_retry
+    )
+    assert first.receipt is not None
+    assert second.receipt is not None
+    assert first.receipt.state == second.receipt.state == "completed"
+    assert first.receipt.reason_counts == second.receipt.reason_counts == {
+        "EVIDENCE_SIDECAR_REPAIR_REQUIRED": 1
+    }
+
+
+def test_resolution_preview_skips_evidence_path_io_without_secure_mutation(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from agent_brain.memory.store import write_service as write_service_module
+
+    record = _v2_record(record_id="resolution-preview-no-evidence-path-io")
+    item = record["item"]
+    assert isinstance(item, dict)
+    item["body"] = "curl https://example.invalid/evidence-preview"
+    item["refs"] = {"files": [str(tmp_brain / "untrusted-input.txt")]}
+    enqueue_write_record(record)
+    prepare_calls = 0
+
+    def track_prepare(*_args: object, **_kwargs: object) -> tuple[()]:
+        nonlocal prepare_calls
+        prepare_calls += 1
+        return ()
+
+    monkeypatch.setattr(
+        write_service_module,
+        "secure_dir_fd_mutation_supported",
+        lambda: False,
+    )
+    monkeypatch.setattr(
+        write_service_module,
+        "_prepare_write_evidence",
+        track_prepare,
+    )
+
+    stats = PendingQueue().resolve(
+        [
+            PendingResolutionAction(
+                "approve_audit",
+                "resolution-preview-no-evidence-path-io",
+            )
+        ],
+        apply=False,
+    )
+
+    assert stats.results[0].status == "ready"
+    assert prepare_calls == 0
+
+
+def test_resolution_retry_with_explicit_extraction_is_not_evidence_degraded(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from agent_brain.memory.store import write_service as write_service_module
+
+    capability = [False]
+    monkeypatch.setattr(
+        write_service_module,
+        "secure_dir_fd_mutation_supported",
+        lambda: capability[0],
+    )
+    monkeypatch.setattr(
+        write_service_module,
+        "_write_source_record",
+        lambda **_kwargs: tmp_brain / "sources" / "writes" / "ignored.json",
+    )
+    path, action, _stored_path, _stored, _body = _begin_resolution_recovery_case(
+        tmp_brain,
+        monkeypatch,
+        record_id="resolution-retry-explicit-extraction",
+        refs={"extractions": ["ext-20260724-120000-explicit-extraction"]},
+    )
+
+    capability[0] = True
+    second = PendingQueue().resolve([action], apply=True)
+
+    assert second.results[0].status == "applied"
+    assert second.results[0].reason == "PENDING_RESOLUTION_APPLIED"
+    assert not path.exists()
 
 
 def test_resolution_apply_partial_failure_has_complete_ordered_outcomes(
@@ -5562,7 +5663,7 @@ def test_resolution_retry_rejects_missing_write_input_sidecar(
     _assert_resolution_recovery_blocked(path, action)
 
 
-def test_resolution_retry_rejects_missing_generated_evidence_refs(
+def test_resolution_retry_retains_missing_generated_evidence_for_repair(
     tmp_brain: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -5585,7 +5686,11 @@ def test_resolution_retry_rejects_missing_generated_evidence_refs(
         encoding="utf-8",
     )
 
-    _assert_resolution_recovery_blocked(path, action)
+    second = PendingQueue().resolve([action], apply=True)
+
+    assert second.results[0].status == "failed"
+    assert second.results[0].reason == "EVIDENCE_SIDECAR_REPAIR_REQUIRED"
+    assert path.exists()
 
 
 @pytest.mark.parametrize("change", ["missing", "changed"])

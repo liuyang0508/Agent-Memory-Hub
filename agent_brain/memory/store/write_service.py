@@ -222,7 +222,10 @@ class WriteService:
             )
         item, review_warning = _mark_boundary_review_candidate(item)
         item = enrich_memory_item(item)
-        evidence_sidecar_degraded = not secure_dir_fd_mutation_supported()
+        evidence_sidecar_degraded = (
+            _evidence_sidecar_requested(item, body)
+            and not secure_dir_fd_mutation_supported()
+        )
         if not evidence_sidecar_degraded:
             evidence = _prepare_write_evidence(item, body)
             item = self._attach_evidence_sidecar(item, evidence)
@@ -577,6 +580,8 @@ def _prepare_write_evidence(
 
 
 def _write_evidence_boundary_valid(item: MemoryItem, body: str) -> bool:
+    if not secure_dir_fd_mutation_supported():
+        return True
     try:
         _prepare_write_evidence(item, body)
     except _WriteEvidenceBoundaryError:
@@ -839,6 +844,10 @@ def _matches_existing_write(
         return False
     expected, _warning = _mark_boundary_review_candidate(item)
     expected = enrich_memory_item(expected)
+    if _matches_degraded_evidence_write(item, body, existing):
+        return True
+    if not secure_dir_fd_mutation_supported():
+        return existing == expected
     try:
         specs = _prepare_write_evidence(expected, body)
     except _WriteEvidenceBoundaryError:
@@ -972,6 +981,22 @@ def _matches_existing_write(
         }
     )
     return existing == expected
+
+
+def _matches_degraded_evidence_write(
+    item: MemoryItem,
+    body: str,
+    existing: MemoryItem,
+) -> bool:
+    expected, _warning = _mark_boundary_review_candidate(item)
+    expected = enrich_memory_item(expected)
+    return _evidence_sidecar_requested(expected, body) and existing == expected
+
+
+def _evidence_sidecar_requested(item: MemoryItem, body: str) -> bool:
+    return bool(item.refs.files) or (
+        not item.refs.extractions and _should_capture_write_input(body)
+    )
 
 
 def _generated_evidence_timestamp(

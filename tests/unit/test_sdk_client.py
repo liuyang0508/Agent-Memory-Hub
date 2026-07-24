@@ -420,6 +420,68 @@ class TestMemoryClientSearch:
             for entry in results[0].resource_context
         )
 
+    def test_search_survives_exact_secure_resource_store_unavailable(
+        self,
+        client,
+        monkeypatch,
+    ):
+        from agent_brain.memory.evidence import resource_store as resource_store_module
+
+        class UnavailableResourceStore:
+            def __init__(self, _brain):
+                raise OSError("SECURE_RESOURCE_STORE_UNAVAILABLE")
+
+        client.write(
+            type="episode",
+            title="SDK unavailable resource store boundary",
+            summary="SDK unavailable resource store boundary",
+            refs={"resources": ["res-20260724-120000-unavailable-store"]},
+        )
+        monkeypatch.setattr(
+            resource_store_module,
+            "ResourceStore",
+            UnavailableResourceStore,
+        )
+
+        results = client.search(
+            "SDK unavailable resource store boundary",
+            top_k=1,
+            include_resources=True,
+        )
+
+        assert len(results) == 1
+        assert results[0].resource_context == []
+
+    def test_search_does_not_swallow_unrelated_resource_store_errors(
+        self,
+        client,
+        monkeypatch,
+    ):
+        from agent_brain.memory.evidence import resource_store as resource_store_module
+
+        class BrokenResourceStore:
+            def __init__(self, _brain):
+                raise OSError("RESOURCE_STORE_BROKEN")
+
+        client.write(
+            type="episode",
+            title="SDK broken resource store boundary",
+            summary="SDK broken resource store boundary",
+            refs={"resources": ["res-20260724-120000-broken-store"]},
+        )
+        monkeypatch.setattr(
+            resource_store_module,
+            "ResourceStore",
+            BrokenResourceStore,
+        )
+
+        with pytest.raises(OSError, match="RESOURCE_STORE_BROKEN"):
+            client.search(
+                "SDK broken resource store boundary",
+                top_k=1,
+                include_resources=True,
+            )
+
     def test_explicit_raw_search_keeps_diagnostics_without_context_pack(self, client):
         item_id = client.write(
             type="episode",

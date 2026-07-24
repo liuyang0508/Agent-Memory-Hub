@@ -183,7 +183,12 @@ def _resource_context_for_item(
     )
     from agent_brain.memory.evidence.resource_store import ResourceStore
 
-    store = ResourceStore(brain_dir)
+    try:
+        store = ResourceStore(brain_dir)
+    except OSError as exc:
+        if exc.args == ("SECURE_RESOURCE_STORE_UNAVAILABLE",):
+            return []
+        raise
     contexts: list[dict[str, Any]] = []
     for resource_id in getattr(item.refs, "resources", []):
         try:

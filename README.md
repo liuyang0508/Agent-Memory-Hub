@@ -405,9 +405,10 @@ feedback changes trust signals, and which governance actions require review.
 write signal / candidate / raw transcript / task outcome
 -> entry normalization or pending fallback
 -> candidate quarantine and review
--> WriteService audit, enrichment, quality checks, evidence sidecars
+-> WriteService audit, enrichment, quality checks, secure-capability gate
 -> ItemsStore appends Markdown truth
--> sources/writes ledger + resources/extractions evidence
+-> when secure mutation is available: sources/writes ledger + resources/extractions evidence
+-> otherwise: explicit degraded result; an existing pending resolution stays for operator-visible repair
 -> index.db projection; .index-dirty / pending repaired by reindex or sync-pending
 -> runtime ledgers record injections, gaps, outcomes, adapter events
 -> feedback applies only adopted/rejected ids; ignored ids stay unchanged
@@ -415,6 +416,11 @@ write signal / candidate / raw transcript / task outcome
 -> AutoGovernance safe-applies only low-risk actions; high-risk actions become review/evolve proposals
 -> approved candidates or audited proposals re-enter the truth layer or an explicit allow-listed execution path
 ```
+
+AMH currently does not auto-backfill sidecars or rewrite refs for an existing
+degraded item when secure mutation later becomes available. The pending record
+and completed repair-required receipts remain the durable signal until a future
+native implementation or an explicit migration handles that repair.
 
 <p align="center">
   <img src="./docs/visuals/memory-maintenance-sequence.svg" alt="Maintenance pipeline from write, evidence, index, feedback, governance, and evolution" width="100%">
@@ -426,7 +432,7 @@ write signal / candidate / raw transcript / task outcome
 | 2 | CLI, MCP, SDK, Web, Hermes, and hook shims normalize to `MemoryItem + body`; if the core path is unavailable, the record lands in `pending/*.jsonl`. | Entry points differ, but the durable write contract should converge. | Normalized write contract or replayable pending record. |
 | 3 | Candidate-only material stays in `review/proactive-candidates.jsonl` or carries `needs-review` / `unverified-boundary` tags. | Candidates are quarantined from normal truth semantics. | Review queue item. |
 | 4 | `WriteService.write()` runs `audit_memory_text`, field enrichment, review-boundary marking, and quality warnings; critical/high audit findings block unless explicitly bypassed. | Audit is fail-closed for high-risk content. | Written, blocked, warning, or degraded result. |
-| 5 | When descriptor-relative secure mutation is available, `WriteService` creates `resources/*.json` and `extractions/*.json` from refs or write input where needed. Otherwise it skips sidecar IO and reports `evidence-sidecar` degraded. | Evidence sidecars explain provenance; they do not replace `MemoryItem`. Non-POSIX secure sidecar writes are currently unavailable. | Resource and extraction records, or an explicit degraded result. |
+| 5 | When descriptor-relative secure mutation is available, `WriteService` creates `resources/*.json` and `extractions/*.json` from refs or write input where needed. Otherwise it skips sidecar materialization and reports `evidence-sidecar` degraded. | Evidence sidecars explain provenance; they do not replace `MemoryItem`. Non-POSIX secure sidecar writes are currently unavailable. | Resource and extraction records, or an explicit degraded result. |
 | 6 | `ItemsStore.write()` appends `items/mem-*.md`. | The Markdown append is the only durable-write success criterion. | Markdown truth source. |
 | 7 | With the same secure mutation capability, `sources/writes/<item-id>.json` records writer, agent, session, item path, body hash, refs, validity, and source kind; otherwise `source-ledger` is degraded and no ledger file is created. | The ledger is observational provenance. | Write ledger or an explicit degraded result. |
 | 8 | `HubIndex.upsert()` projects metadata, FTS, vectors, and `refs_graph`; embedder/index failure marks `.index-dirty` without undoing Markdown. | `index.db` is rebuildable, not authoritative. | Derived index or dirty id. |

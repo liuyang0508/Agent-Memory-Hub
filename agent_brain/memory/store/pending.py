@@ -2173,6 +2173,22 @@ class PendingQueue:
                     status="blocked",
                     reason="PENDING_RESOLUTION_CHANGED",
                 )
+            from agent_brain.memory.store.write_service import (
+                _matches_degraded_evidence_write,
+            )
+
+            if _matches_degraded_evidence_write(
+                intent.item,
+                intent.body,
+                existing,
+            ):
+                return _resolution_result(
+                    action,
+                    preview=preview,
+                    status="failed",
+                    reason="EVIDENCE_SIDECAR_REPAIR_REQUIRED",
+                    item_id=_result_item_id(preview, item_id),
+                )
             reconcile = getattr(service, "reconcile_existing")
             repaired = reconcile(item=existing, body=existing_body)
             if "source-ledger" in repaired.degraded:

@@ -620,6 +620,18 @@ def _valid_receipt(receipt: object) -> bool:
     if type(receipt) is not PendingBatchReceipt:
         return False
     assert isinstance(receipt, PendingBatchReceipt)
+    if (
+        type(receipt.schema_version) is not int
+        or type(receipt.batch_id) is not str
+        or type(receipt.batch_digest) is not str
+        or type(receipt.selection_mode) is not str
+        or type(receipt.state) is not str
+        or (
+            receipt.result_digest is not None
+            and type(receipt.result_digest) is not str
+        )
+    ):
+        return False
     counts = (
         receipt.requested_count,
         receipt.selected_count,
