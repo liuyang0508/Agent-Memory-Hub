@@ -631,7 +631,7 @@ def test_cli_sync_pending_rejects_resolution_selection_conflicts(
         (["--accept-duplicate", "record:"], "requires ID:ITEM"),
         (["--accept-duplicate", "record:extra:item"], "requires ID:ITEM"),
         (["--convert-type", "record:fact"], "requires ID:decision"),
-        (["--convert-type", "record:extra:decision"], "requires ID:decision"),
+        (["--convert-type", "record/extra:decision"], "requires ID:decision"),
     ],
 )
 def test_cli_sync_pending_rejects_malformed_resolution_options(
@@ -643,6 +643,88 @@ def test_cli_sync_pending_rejects_malformed_resolution_options(
 
     assert result.exit_code == 2
     assert message in result.output
+
+
+def test_cli_sync_pending_parses_colons_inside_record_and_item_ids(tmp_brain):
+    import json
+
+    from agent_brain.memory.store.pending import enqueue_write_record
+
+    duplicate = _cli_pending_record("cli:duplicate")
+    queued = duplicate["item"]
+    assert isinstance(queued, dict)
+    target_id = "mem-20260723-100000-cli-target:tail"
+    ItemsStore(tmp_brain / "items").write(
+        MemoryItem(
+            id=target_id,
+            type=MemoryType.fact,
+            created_at=datetime.fromisoformat(str(duplicate["original_created_at"])),
+            title=str(queued["title"]),
+            summary=str(queued["summary"]),
+            tags=list(queued["tags"]),
+            sensitivity=str(queued["sensitivity"]),
+            project="amh",
+            tenant_id="tenant-a",
+            source=Source(kind="pending-replay", span_hash="different-payload"),
+        ),
+        "duplicate target",
+    )
+    feedback = _cli_pending_record("cli:feedback")
+    feedback_item = feedback["item"]
+    assert isinstance(feedback_item, dict)
+    feedback_item["type"] = "feedback"
+    enqueue_write_record(duplicate)
+    enqueue_write_record(feedback)
+
+    result = runner.invoke(
+        app,
+        [
+            "sync-pending",
+            "--accept-duplicate",
+            f"cli:duplicate:{target_id}",
+            "--convert-type",
+            "cli:feedback:decision",
+            "--format",
+            "json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert [
+        (row["action"], row["record_id"], row["target"])
+        for row in payload["results"]
+    ] == [
+        ("accept_duplicate", "cli:duplicate", target_id),
+        ("convert_type", "cli:feedback", "decision"),
+    ]
+
+
+def test_cli_sync_pending_rejects_ambiguous_colon_split_without_resolution(
+    tmp_brain,
+    monkeypatch,
+):
+    from agent_brain.memory.store.pending import PendingQueue
+
+    monkeypatch.setattr(
+        PendingQueue,
+        "resolve",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("ambiguous input must not reach resolution")
+        ),
+    )
+    value = (
+        "record:mem-20260723-100000-first:"
+        "mem-20260723-100000-second"
+    )
+
+    result = runner.invoke(
+        app,
+        ["sync-pending", "--accept-duplicate", value, "--format", "json"],
+    )
+
+    assert result.exit_code == 2
+    assert "requires ID:ITEM" in result.output
 
 
 def test_cli_sync_pending_resolution_apply_failure_exits_one(tmp_brain):

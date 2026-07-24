@@ -270,7 +270,9 @@ def sync_pending(
         PendingQueue,
         PendingResolutionAction,
         PendingResolutionStats,
+        is_valid_pending_record_id,
     )
+    from agent_brain.contracts.memory_item import is_valid_memory_item_id
 
     if format not in {"text", "json"}:
         typer.echo("format must be text or json", err=True)
@@ -284,25 +286,28 @@ def sync_pending(
         typer.echo("--approve-audit requires ID", err=True)
         raise typer.Exit(2)
     for value in accept_duplicate:
-        record_id, separator, target_id = value.rpartition(":")
-        if value.count(":") != 1 or not separator or not record_id or not target_id:
+        candidates = [
+            (value[:index], value[index + 1 :])
+            for index, character in enumerate(value)
+            if character == ":"
+            and is_valid_pending_record_id(value[:index])
+            and is_valid_memory_item_id(value[index + 1 :])
+        ]
+        if len(candidates) != 1:
             typer.echo("--accept-duplicate requires ID:ITEM", err=True)
             raise typer.Exit(2)
+        record_id, target_id = candidates[0]
         resolution_actions.append(
             PendingResolutionAction("accept_duplicate", record_id, target_id)
         )
     for value in convert_type:
-        record_id, separator, target_type = value.rpartition(":")
-        if (
-            value.count(":") != 1
-            or not separator
-            or not record_id
-            or target_type != "decision"
-        ):
+        suffix = ":decision"
+        record_id = value[: -len(suffix)] if value.endswith(suffix) else ""
+        if not is_valid_pending_record_id(record_id):
             typer.echo("--convert-type requires ID:decision", err=True)
             raise typer.Exit(2)
         resolution_actions.append(
-            PendingResolutionAction("convert_type", record_id, target_type)
+            PendingResolutionAction("convert_type", record_id, "decision")
         )
 
     selection_groups = sum(

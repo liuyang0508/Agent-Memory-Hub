@@ -6204,6 +6204,148 @@ def test_resolution_rejects_oversized_requests_before_scanning(
     }
 
 
+def test_resolution_pending_byte_budget_is_inclusive_and_precedes_mutation(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path, action = _enqueue_resolution_apply_case(
+        "approve_audit",
+        "resolution-pending-byte-budget",
+    )
+    size = path.stat().st_size
+    monkeypatch.setattr(
+        pending_module,
+        "MAX_PENDING_RESOLUTION_TOTAL_BYTES",
+        size,
+        raising=False,
+    )
+
+    exact = PendingQueue().resolve([action])
+    before = _tree_snapshot(tmp_brain)
+    monkeypatch.setattr(
+        pending_module,
+        "MAX_PENDING_RESOLUTION_TOTAL_BYTES",
+        size - 1,
+        raising=False,
+    )
+    dry = PendingQueue().resolve([action])
+    applied = PendingQueue().resolve([action], apply=True)
+
+    assert exact.results[0].status == "ready"
+    for stats in (dry, applied):
+        assert stats.results[0].status == "failed"
+        assert stats.results[0].reason == "PENDING_READINESS_BUDGET_EXCEEDED"
+        assert stats.receipt is None
+    assert path.exists()
+    assert _tree_snapshot(tmp_brain) == before
+
+
+def test_resolution_pending_entry_budget_uses_readiness_reason_without_mutation(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    first_path, action = _enqueue_resolution_apply_case(
+        "approve_audit",
+        "resolution-pending-entry-budget-selected",
+    )
+    second_path, _other = _enqueue_resolution_apply_case(
+        "approve_audit",
+        "resolution-pending-entry-budget-other",
+    )
+    monkeypatch.setattr(pending_module, "MAX_PENDING_QUEUE_ENTRIES", 1)
+    before = _tree_snapshot(tmp_brain)
+
+    dry = PendingQueue().resolve([action])
+    applied = PendingQueue().resolve([action], apply=True)
+
+    for stats in (dry, applied):
+        assert stats.results[0].status == "failed"
+        assert stats.results[0].reason == "PENDING_READINESS_BUDGET_EXCEEDED"
+        assert stats.receipt is None
+    assert first_path.exists()
+    assert second_path.exists()
+    assert _tree_snapshot(tmp_brain) == before
+
+
+def test_resolution_apply_second_plan_shares_injected_absolute_deadline(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path, action = _enqueue_resolution_apply_case(
+        "approve_audit",
+        "resolution-second-plan-deadline",
+    )
+    with pending_module._locked_pending_queue(tmp_brain):
+        with ItemsStore(tmp_brain / "items").locked_catalog():
+            pass
+    before = _tree_snapshot(tmp_brain)
+    real_plan = PendingQueue._plan_resolutions
+    plan_calls = 0
+    expired = False
+    expired_calls = 0
+
+    def clock() -> float:
+        nonlocal expired_calls
+        if not expired:
+            return 0.0
+        expired_calls += 1
+        return 0.0 if expired_calls == 1 else 2.0
+
+    def phased_plan(self, *args, **kwargs):
+        nonlocal plan_calls, expired, expired_calls
+        plan_calls += 1
+        if plan_calls == 2:
+            expired = True
+            expired_calls = 0
+        return real_plan(self, *args, **kwargs)
+
+    monkeypatch.setattr(pending_module, "_monotonic", clock)
+    monkeypatch.setattr(PendingQueue, "_plan_resolutions", phased_plan)
+
+    stats = PendingQueue().resolve([action], apply=True)
+
+    assert plan_calls == 2
+    assert stats.results[0].status == "failed"
+    assert stats.results[0].reason == "PENDING_READINESS_BUDGET_EXCEEDED"
+    assert stats.receipt is None
+    assert path.exists()
+    assert _tree_snapshot(tmp_brain) == before
+
+
+def test_resolution_dry_run_rechecks_deadline_after_validation(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path, action = _enqueue_resolution_apply_case(
+        "approve_audit",
+        "resolution-post-validation-deadline",
+    )
+    before = _tree_snapshot(tmp_brain)
+    real_validate = PendingQueue._validate_resolution
+    expired = False
+
+    def validate_then_expire(self, *args, **kwargs):
+        nonlocal expired
+        result = real_validate(self, *args, **kwargs)
+        expired = True
+        return result
+
+    monkeypatch.setattr(
+        pending_module,
+        "_monotonic",
+        lambda: 2.0 if expired else 0.0,
+    )
+    monkeypatch.setattr(PendingQueue, "_validate_resolution", validate_then_expire)
+
+    stats = PendingQueue().resolve([action])
+
+    assert stats.results[0].status == "failed"
+    assert stats.results[0].reason == "PENDING_READINESS_BUDGET_EXCEEDED"
+    assert stats.receipt is None
+    assert path.exists()
+    assert _tree_snapshot(tmp_brain) == before
+
+
 def test_resolution_bounds_infinite_invalid_generator_before_scanning(
     tmp_brain: Path,
     monkeypatch: pytest.MonkeyPatch,

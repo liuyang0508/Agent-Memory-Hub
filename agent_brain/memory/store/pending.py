@@ -52,7 +52,7 @@ from dataclasses import dataclass, field as dataclass_field, replace
 from datetime import datetime, timezone
 from itertools import islice
 from pathlib import Path
-from typing import BinaryIO, Literal, TypedDict, cast
+from typing import BinaryIO, Literal, TypeGuard, TypedDict, cast
 
 import yaml
 from pydantic import ValidationError
@@ -124,6 +124,8 @@ def dirty_index_path(brain: Path | None = None) -> Path:
 
 MAX_PENDING_RECORD_BYTES = 1024 * 1024
 MAX_PENDING_QUEUE_ENTRIES = 20_000
+MAX_PENDING_RESOLUTION_TOTAL_BYTES = 16 * 1024 * 1024
+PENDING_RESOLUTION_DEADLINE_SECONDS = 1.0
 MAX_DIRTY_INDEX_BYTES = 4 * 1024 * 1024
 MAX_DIRTY_INDEX_ENTRIES = 20_000
 MAX_ITEM_FRONTMATTER_BYTES = 64 * 1024
@@ -319,6 +321,12 @@ _WINDOWS_RESERVED_NAMES = frozenset(
 def _is_reparse_point(opened: object) -> bool:
     attributes = int(getattr(opened, "st_file_attributes", 0) or 0)
     return bool(attributes & _FILE_ATTRIBUTE_REPARSE_POINT)
+
+
+def is_valid_pending_record_id(value: object) -> TypeGuard[str]:
+    """Return whether a value is a canonical pending record id."""
+
+    return type(value) is str and _RECORD_ID_PATTERN.fullmatch(value) is not None
 
 
 def _is_safe_directory(opened: object) -> bool:
@@ -1448,21 +1456,12 @@ class PendingQueue:
                 scan_unavailable=path_snapshot.scan_unavailable,
                 reason=path_snapshot.reason,
             )
+        supplied_catalog = item_catalog is not None
         existing = item_catalog
         if existing is None:
             existing = _scan_existing_item_metadata(
                 brain / "items",
                 deadline_at=deadline_at,
-            )
-        elif not existing.trusted:
-            return PendingPreview(
-                total=path_snapshot.total,
-                returned=0,
-                limit=bounded_limit,
-                truncated=path_snapshot.total > 0,
-                records=[],
-                scan_unavailable=True,
-                reason="PENDING_ITEM_SNAPSHOT_UNTRUSTED",
             )
         if existing.reason == "PENDING_READINESS_BUDGET_EXCEEDED":
             return PendingPreview(
@@ -1473,6 +1472,16 @@ class PendingQueue:
                 records=[],
                 scan_unavailable=True,
                 reason=existing.reason,
+            )
+        if supplied_catalog and not existing.trusted:
+            return PendingPreview(
+                total=path_snapshot.total,
+                returned=0,
+                limit=bounded_limit,
+                truncated=path_snapshot.total > 0,
+                records=[],
+                scan_unavailable=True,
+                reason="PENDING_ITEM_SNAPSHOT_UNTRUSTED",
             )
         records: list[PendingRecordPreview] = []
         for path in classification_paths:
@@ -1591,18 +1600,11 @@ class PendingQueue:
                 scan_unavailable=True,
                 reason=snapshot.reason,
             )
-        total_bytes = 0
-        try:
-            for path in snapshot.paths:
-                _require_readiness_deadline(deadline_at)
-                opened = os.lstat(path)
-                _require_readiness_deadline(deadline_at)
-                if not _is_safe_regular_file(opened):
-                    raise OSError("pending record is not regular")
-                total_bytes += opened.st_size
-                if total_bytes > max_total_bytes:
-                    raise OverflowError
-        except (OSError, OverflowError, _PendingReadError):
+        if not _pending_paths_within_readiness_budget(
+            snapshot,
+            max_total_bytes=max_total_bytes,
+            deadline_at=deadline_at,
+        ):
             return PendingPreview(
                 total=snapshot.total,
                 returned=0,
@@ -1725,10 +1727,12 @@ class PendingQueue:
             stats.results = [result for result in result_slots if result is not None]
             return stats
 
+        deadline_at = _monotonic() + PENDING_RESOLUTION_DEADLINE_SECONDS
         if apply:
             _preview, preflight_ready = self._plan_resolutions(
                 valid,
                 result_slots,
+                deadline_at=deadline_at,
             )
             if not preflight_ready:
                 stats.results = [
@@ -1759,9 +1763,14 @@ class PendingQueue:
                         requested_count=len(requested),
                         store=store,
                         gc_orphan_locks=gc_orphan_locks,
+                        deadline_at=deadline_at,
                     )
 
-        preview, ready_selections = self._plan_resolutions(valid, result_slots)
+        preview, ready_selections = self._plan_resolutions(
+            valid,
+            result_slots,
+            deadline_at=deadline_at,
+        )
         if preview is None:
             stats.results = [result for result in result_slots if result is not None]
             return stats
@@ -1771,7 +1780,20 @@ class PendingQueue:
             if indexed[1].action.action == "accept_duplicate"
         ]
         if duplicate_selections:
-            fresh_catalog = _scan_existing_item_metadata(self._brain_dir() / "items")
+            fresh_catalog = _scan_existing_item_metadata(
+                self._brain_dir() / "items",
+                deadline_at=deadline_at,
+            )
+            if fresh_catalog.reason == "PENDING_READINESS_BUDGET_EXCEEDED":
+                _fail_resolution_planning(
+                    valid,
+                    result_slots,
+                    "PENDING_READINESS_BUDGET_EXCEEDED",
+                )
+                stats.results = [
+                    result for result in result_slots if result is not None
+                ]
+                return stats
             for result_index, selection in duplicate_selections:
                 target_id = cast(str, selection.action.target)
                 current_target = fresh_catalog.items.get(target_id)
@@ -1799,13 +1821,47 @@ class PendingQueue:
         valid: list[tuple[int, PendingResolutionAction]],
         result_slots: list[PendingResolutionResult | None],
         *,
+        deadline_at: float,
         recovery_store: ItemsStore | None = None,
     ) -> tuple[PendingPreview | None, list[tuple[int, _PendingResolutionSelection]]]:
-        snapshot = _pending_record_paths(self._brain_dir() / "pending")
-        catalog = _scan_existing_item_metadata(self._brain_dir() / "items")
+        snapshot = _pending_record_paths(
+            self._brain_dir() / "pending",
+            deadline_at=deadline_at,
+            entry_cap=MAX_PENDING_QUEUE_ENTRIES,
+        )
+        if snapshot.scan_unavailable:
+            _fail_resolution_planning(
+                valid,
+                result_slots,
+                snapshot.reason or "PENDING_SCAN_UNAVAILABLE",
+            )
+            return None, []
+        if not _pending_paths_within_readiness_budget(
+            snapshot,
+            max_total_bytes=MAX_PENDING_RESOLUTION_TOTAL_BYTES,
+            deadline_at=deadline_at,
+        ):
+            _fail_resolution_planning(
+                valid,
+                result_slots,
+                "PENDING_READINESS_BUDGET_EXCEEDED",
+            )
+            return None, []
+        catalog = _scan_existing_item_metadata(
+            self._brain_dir() / "items",
+            deadline_at=deadline_at,
+        )
+        if catalog.reason == "PENDING_READINESS_BUDGET_EXCEEDED":
+            _fail_resolution_planning(
+                valid,
+                result_slots,
+                "PENDING_READINESS_BUDGET_EXCEEDED",
+            )
+            return None, []
         preview = self._preview_from_snapshot(
             snapshot,
             limit=MAX_PENDING_QUEUE_ENTRIES + 1,
+            deadline_at=deadline_at,
             item_catalog=catalog,
         )
         scan_reason = preview.reason
@@ -1828,6 +1884,15 @@ class PendingQueue:
         planner_store = recovery_store
         items_dir = self._brain_dir() / "items"
         for request_index, action in valid:
+            try:
+                _require_readiness_deadline(deadline_at)
+            except _PendingReadError:
+                _fail_resolution_planning(
+                    valid,
+                    result_slots,
+                    "PENDING_READINESS_BUDGET_EXCEEDED",
+                )
+                return None, []
             matches = by_id.get(action.record_id, [])
             if not matches:
                 result_slots[request_index] = _resolution_result(
@@ -1857,7 +1922,24 @@ class PendingQueue:
                     matches[0],
                     catalog.items,
                     recovery_store=planner_store,
+                    deadline_at=deadline_at,
                 )
+                try:
+                    _require_readiness_deadline(deadline_at)
+                except _PendingReadError:
+                    _fail_resolution_planning(
+                        valid,
+                        result_slots,
+                        "PENDING_READINESS_BUDGET_EXCEEDED",
+                    )
+                    return None, []
+                if result.reason == "PENDING_READINESS_BUDGET_EXCEEDED":
+                    _fail_resolution_planning(
+                        valid,
+                        result_slots,
+                        "PENDING_READINESS_BUDGET_EXCEEDED",
+                    )
+                    return None, []
                 result_slots[request_index] = result
                 if selection is not None:
                     ready.append((request_index, selection))
@@ -1871,6 +1953,7 @@ class PendingQueue:
         requested_count: int,
         store: ItemsStore,
         gc_orphan_locks: bool,
+        deadline_at: float,
     ) -> PendingResolutionStats:
         """Apply resolutions while queue and catalog locks are held."""
 
@@ -1879,6 +1962,7 @@ class PendingQueue:
             valid,
             result_slots,
             recovery_store=store,
+            deadline_at=deadline_at,
         )
         if preview is None or not ready:
             stats.results = [result for result in result_slots if result is not None]
@@ -2284,15 +2368,29 @@ class PendingQueue:
         existing_items: Mapping[str, MemoryItem],
         *,
         recovery_store: ItemsStore | None = None,
+        deadline_at: float,
     ) -> tuple[_PendingResolutionSelection | None, PendingResolutionResult]:
         expected_hash = preview._record_sha256
         expected_identity = preview._record_identity
         if expected_hash is None or expected_identity is None:
             return _resolution_blocked(action, preview, "PENDING_RESOLUTION_CHANGED")
         try:
-            raw, identity = _read_pending_record_snapshot(Path(preview.path))
-        except (FileNotFoundError, _PendingReadError):
+            raw, identity = _read_pending_record_snapshot(
+                Path(preview.path),
+                deadline_at=deadline_at,
+            )
+        except FileNotFoundError:
             return _resolution_blocked(action, preview, "PENDING_RESOLUTION_CHANGED")
+        except _PendingReadError as exc:
+            return _resolution_blocked(
+                action,
+                preview,
+                (
+                    exc.reason
+                    if exc.reason == "PENDING_READINESS_BUDGET_EXCEEDED"
+                    else "PENDING_RESOLUTION_CHANGED"
+                ),
+            )
         if identity != expected_identity or hashlib.sha256(raw).hexdigest() != expected_hash:
             return _resolution_blocked(action, preview, "PENDING_RESOLUTION_CHANGED")
         if recovery_store is not None:
@@ -2760,8 +2858,7 @@ def _valid_resolution_action_structure(action: PendingResolutionAction) -> bool:
     return (
         type(action.action) is str
         and action.action in _RESOLUTION_ACTIONS
-        and type(action.record_id) is str
-        and _RECORD_ID_PATTERN.fullmatch(action.record_id) is not None
+        and is_valid_pending_record_id(action.record_id)
     )
 
 
@@ -2842,6 +2939,20 @@ def _resolution_result(
         target=action.target if type(action.target) is str else None,
         item_id=item_id,
     )
+
+
+def _fail_resolution_planning(
+    valid: Iterable[tuple[int, PendingResolutionAction]],
+    result_slots: list[PendingResolutionResult | None],
+    reason: str,
+) -> None:
+    for request_index, action in valid:
+        result_slots[request_index] = _resolution_result(
+            action,
+            classification="audit_blocked",
+            status="failed",
+            reason=reason,
+        )
 
 
 def _resolution_ready(
@@ -3644,9 +3755,7 @@ def _classify_pending_record(
     payload_sha256 = _canonical_payload_sha256(item)
     if version == 2:
         record_id_value = record.get("record_id")
-        if not isinstance(record_id_value, str) or not _RECORD_ID_PATTERN.fullmatch(
-            record_id_value
-        ):
+        if not is_valid_pending_record_id(record_id_value):
             return _malformed_preview(
                 path,
                 "INVALID_RECORD_ID",
@@ -4158,6 +4267,28 @@ class _PendingReadError(Exception):
 def _require_readiness_deadline(deadline_at: float | None) -> None:
     if deadline_at is not None and _monotonic() > deadline_at:
         raise _PendingReadError("PENDING_READINESS_BUDGET_EXCEEDED")
+
+
+def _pending_paths_within_readiness_budget(
+    snapshot: _PendingPathSnapshot,
+    *,
+    max_total_bytes: int,
+    deadline_at: float,
+) -> bool:
+    total_bytes = 0
+    try:
+        for path in snapshot.paths:
+            _require_readiness_deadline(deadline_at)
+            opened = os.lstat(path)
+            _require_readiness_deadline(deadline_at)
+            if not _is_safe_regular_file(opened):
+                return False
+            total_bytes += opened.st_size
+            if total_bytes > max_total_bytes:
+                return False
+    except (OSError, _PendingReadError):
+        return False
+    return True
 
 
 def _pending_record_paths(

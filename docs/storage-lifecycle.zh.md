@@ -57,7 +57,7 @@ memory sync-pending --convert-type <record-id>:decision --format json
 
 - `--approve-audit` 只处理 public/internal 的 audit-blocked record；secrets finding
   始终阻断并留在 pending。
-- `--accept-duplicate` 只接受与目标 item 完全一致的 duplicate，成功后移除 pending
+- `--accept-duplicate` 只接受与目标 item 同 scope、同 type，且规范化 title/summary 一致的 duplicate；body 可以不同，成功后移除 pending
   record，不写新 item。
 - `--convert-type` 当前只支持旧 `feedback -> decision`；其他目标类型属于参数错误，
   其他源类型不会转换。
