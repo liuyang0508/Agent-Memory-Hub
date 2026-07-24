@@ -146,14 +146,17 @@ CLI 只负责解析、互斥校验和序列化。分类、锁、record revalidat
 
 ### 6.2 明确动作清单
 
-本轮生成一份受版本控制的 operator-reviewed manifest，包含 item ID 与唯一动作：
+真实 brain 治理时生成一份 operator-reviewed、带版本与输入 digest 的本地 manifest，
+包含 item ID 与唯一动作。该文件保存到 `~/.agent-memory-hub/runtime/governance-manifests/`，
+权限必须为 mode `0600`，不得写入仓库、公开文档、公开 receipt 或日志：
 
 - `archive`：信息已过时、机械、或已被当前项目事实替代，但仍应保存原文；
 - `supersede:<replacement_id>`：只有存在明确、人工核验的替代 item 时使用；
 - `keep-active`：仍未解除、仍应召回的风险或待办。
 
-同一 item 出现多个不同动作时，整批 fail closed。manifest 不包含正文；执行前后保存低敏计数
-和 digest。
+同一 item 出现多个不同动作时，整批 fail closed。manifest 不包含正文；代码仓库只保存
+synthetic fixture 与合同测试，执行前后仅保存低敏计数和 digest。发布前的能力分支不代表
+Task 7 真实 brain 闭环已经完成。
 
 ### 6.3 归档规则
 

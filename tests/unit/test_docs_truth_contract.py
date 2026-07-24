@@ -94,6 +94,7 @@ def test_lifecycle_governance_report_is_reproducible_and_fail_closed(tmp_path):
     assert report["fixture_hash"].startswith("sha256:")
     assert report["supersession_contract"]["status"] == "pass"
     assert report["pending_contract"]["status"] == "pass"
+    assert report["pending_contract"]["scope"] == "preview-classification-only"
     assert report["surface_parity"]["status"] == "pass"
     assert report["surface_parity"]["default_preview_zero_mutation"] is True
     assert report["surface_parity"]["explicit_apply_mutates"] is True
@@ -118,6 +119,9 @@ def test_lifecycle_governance_report_is_reproducible_and_fail_closed(tmp_path):
         encoding="utf-8"
     )
     assert generator.render_markdown(report) == markdown_path.read_text(encoding="utf-8")
+    assert "- Pending classification preview：`PASS`" in markdown_path.read_text(
+        encoding="utf-8"
+    )
 
     tampered_fixture = tmp_path / "fixture.json"
     fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
@@ -1934,3 +1938,18 @@ def test_docs_describe_three_dimensional_verify_and_explicit_repair() -> None:
         assert "refs_graph" in text
         assert "memory verify --repair" in text
     assert "不会自动修复" in lifecycle
+
+
+def test_real_brain_governance_manifests_stay_local_and_private() -> None:
+    design = _read(
+        "docs/superpowers/specs/2026-07-23-governance-backlog-resolution-design.md"
+    )
+    plan = _read(
+        "docs/superpowers/plans/2026-07-23-governance-backlog-resolution.md"
+    )
+
+    assert "受版本控制的 operator-reviewed manifest" not in design
+    assert "mode `0600`" in design
+    assert "不得写入仓库" in design
+    assert "No repository code changes." in plan
+    assert "mode `0600`" in plan

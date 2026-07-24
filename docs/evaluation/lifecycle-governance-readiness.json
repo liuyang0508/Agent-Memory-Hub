@@ -14,7 +14,7 @@
     "observed_drift_count": 1,
     "status": "pass"
   },
-  "implementation_hash": "sha256:37c54ef7a95e068a6e7f6a2d2f7ad58b085d7ab2c8c3549454d65d41b608e0f2",
+  "implementation_hash": "sha256:cb3f57948224a92a6ef54668092a83f3a79a4fa81ce3b4d48eebe94427aebf22",
   "implementation_manifest": [
     {
       "path": "agent_brain/agent_integrations/hermes/import_export_tools.py",
@@ -170,7 +170,7 @@
     },
     {
       "path": "scripts/generate-lifecycle-governance-report.py",
-      "sha256": "sha256:8470fca3d38099d1c8bc53ec3bf13721973e3527101f3d96b24c6c5b123168d9"
+      "sha256": "sha256:4d55de20c5d7a8d53aebb85d6306f8f297b44da19f4f09577f427c3096ea2938"
     }
   ],
   "overall_status": "pending",
@@ -213,6 +213,7 @@
       }
     ],
     "preview_only": true,
+    "scope": "preview-classification-only",
     "status": "pass"
   },
   "privacy": {

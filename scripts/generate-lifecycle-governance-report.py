@@ -43,6 +43,7 @@ MARKDOWN_PATH = ROOT / "docs/evaluation/lifecycle-governance-readiness.zh.md"
 REPORT_SCHEMA_VERSION = "amh-lifecycle-governance-readiness/v1"
 FIXTURE_SCHEMA_VERSION = "amh-lifecycle-governance-evidence/v1"
 GENERATOR_VERSION = "amh-lifecycle-governance-generator/v1"
+PENDING_CONTRACT_SCOPE = "preview-classification-only"
 EXIT_PASS = 0
 EXIT_FAILED_GATES = 1
 EXIT_STALE_EVIDENCE = 2
@@ -543,7 +544,12 @@ def _run_pending_contract(fixture: dict[str, object]) -> dict[str, object]:
     cases = fixture.get("pending_cases")
     schema_errors = _validate_pending_cases(cases)
     if schema_errors:
-        return {"status": "fail", "cases": [], "schema_errors": schema_errors}
+        return {
+            "status": "fail",
+            "scope": PENDING_CONTRACT_SCOPE,
+            "cases": [],
+            "schema_errors": schema_errors,
+        }
     assert isinstance(cases, list)
     with tempfile.TemporaryDirectory(prefix="amh-pending-synthetic-") as directory:
         brain = Path(directory).resolve() / "brain"
@@ -586,6 +592,7 @@ def _run_pending_contract(fixture: dict[str, object]) -> dict[str, object]:
         passed = passed and len(rows) == len(input_matches)
         return {
             "status": "pass" if passed else "fail",
+            "scope": PENDING_CONTRACT_SCOPE,
             "preview_only": before == after,
             "cases": sorted(rows, key=lambda row: str(row["id"])),
         }
@@ -988,7 +995,8 @@ def render_markdown(report: dict[str, object]) -> str:
         "workflow job 已配置但当前不是 required context。\n\n"
         "## 合同结果\n\n"
         f"- Supersession：`{contract_statuses['supersession_contract']}`\n"
-        f"- Pending：`{contract_statuses['pending_contract']}`\n"
+        "- Pending classification preview："
+        f"`{contract_statuses['pending_contract']}`\n"
         f"- Graph drift：`{contract_statuses['graph_drift_contract']}`\n"
         f"- CLI / Web surface parity：`{contract_statuses['surface_parity']}`\n"
         f"- Privacy：`{contract_statuses['privacy']}`\n\n"

@@ -1393,6 +1393,97 @@ class TestSemanticSearch:
         assert result["firewall"]["action"] in {"include", "demote"}
         assert result["resource_context"][0]["resource_id"] == resource.id
 
+    def test_search_survives_exact_secure_resource_store_unavailable(
+        self,
+        client: TestClient,
+        admin_token: str,
+        brain_dir: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from agent_brain.contracts.memory_item import Refs
+        from web._base import _components, _components_cache
+        from web.api.routes import item_search
+
+        _components_cache.clear()
+        store, idx, _retriever, embedder = _components()
+        item = MemoryItem(
+            id="mem-20260724-120000-web-resource-store-unavailable",
+            type=MemoryType.fact,
+            created_at=datetime.now(timezone.utc),
+            title="Web resource store unavailable",
+            summary="Web resource store unavailable search boundary",
+            refs=Refs(resources=["res-20260724-120000-unavailable-store"]),
+        )
+        body = "Web resource store unavailable search body."
+        store.write(item, body)
+        idx.upsert(item, body, embedding=embedder.embed(item.title))
+
+        class UnavailableResourceStore:
+            def __init__(self, _brain):
+                raise OSError("SECURE_RESOURCE_STORE_UNAVAILABLE")
+
+        monkeypatch.setattr(
+            item_search,
+            "ResourceStore",
+            UnavailableResourceStore,
+        )
+
+        response = client.get(
+            "/api/search?"
+            "q=Web%20resource%20store%20unavailable"
+            "&context_firewall=true&include_resources=true",
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["results"][0]["id"] == item.id
+        assert payload["results"][0]["resource_context"] == []
+        assert payload["resource_results"] == []
+
+    def test_search_does_not_swallow_unrelated_resource_store_errors(
+        self,
+        client: TestClient,
+        admin_token: str,
+        brain_dir: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from agent_brain.contracts.memory_item import Refs
+        from web._base import _components, _components_cache
+        from web.api.routes import item_search
+
+        _components_cache.clear()
+        store, idx, _retriever, embedder = _components()
+        item = MemoryItem(
+            id="mem-20260724-120001-web-resource-store-broken",
+            type=MemoryType.fact,
+            created_at=datetime.now(timezone.utc),
+            title="Web resource store broken",
+            summary="Web resource store broken search boundary",
+            refs=Refs(resources=["res-20260724-120000-broken-store"]),
+        )
+        body = "Web resource store broken search body."
+        store.write(item, body)
+        idx.upsert(item, body, embedding=embedder.embed(item.title))
+
+        class BrokenResourceStore:
+            def __init__(self, _brain):
+                raise OSError("RESOURCE_STORE_BROKEN")
+
+        monkeypatch.setattr(
+            item_search,
+            "ResourceStore",
+            BrokenResourceStore,
+        )
+
+        with pytest.raises(OSError, match="RESOURCE_STORE_BROKEN"):
+            client.get(
+                "/api/search?"
+                "q=Web%20resource%20store%20broken"
+                "&context_firewall=true&include_resources=true",
+                headers={"Authorization": f"Bearer {admin_token}"},
+            )
+
     def test_search_defaults_to_gateway_and_records_only_final_safe_hits(
         self,
         brain_dir: Path,
