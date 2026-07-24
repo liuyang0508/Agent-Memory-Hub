@@ -6669,6 +6669,39 @@ def test_resolution_pending_entry_budget_uses_readiness_reason_without_mutation(
     assert _tree_snapshot(tmp_brain) == before
 
 
+def test_resolution_default_deadline_allows_bounded_real_scale_metadata_scan(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path, action = _enqueue_resolution_apply_case(
+        "approve_audit",
+        "resolution-real-scale-metadata-budget",
+    )
+    before = _tree_snapshot(tmp_brain)
+    real_scan = pending_module._scan_existing_item_metadata
+    elapsed = 0.0
+
+    def scan_then_advance(*args, **kwargs):
+        nonlocal elapsed
+        snapshot = real_scan(*args, **kwargs)
+        elapsed = 1.25
+        return snapshot
+
+    monkeypatch.setattr(pending_module, "_monotonic", lambda: elapsed)
+    monkeypatch.setattr(
+        pending_module,
+        "_scan_existing_item_metadata",
+        scan_then_advance,
+    )
+
+    stats = PendingQueue().resolve([action])
+
+    assert stats.results[0].status == "ready"
+    assert stats.results[0].reason == "PENDING_RESOLUTION_READY"
+    assert path.exists()
+    assert _tree_snapshot(tmp_brain) == before
+
+
 def test_resolution_apply_second_plan_shares_injected_absolute_deadline(
     tmp_brain: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -6691,7 +6724,11 @@ def test_resolution_apply_second_plan_shares_injected_absolute_deadline(
         if not expired:
             return 0.0
         expired_calls += 1
-        return 0.0 if expired_calls == 1 else 2.0
+        return (
+            0.0
+            if expired_calls == 1
+            else pending_module.PENDING_RESOLUTION_DEADLINE_SECONDS + 1.0
+        )
 
     def phased_plan(self, *args, **kwargs):
         nonlocal plan_calls, expired, expired_calls
@@ -6735,7 +6772,11 @@ def test_resolution_dry_run_rechecks_deadline_after_validation(
     monkeypatch.setattr(
         pending_module,
         "_monotonic",
-        lambda: 2.0 if expired else 0.0,
+        lambda: (
+            pending_module.PENDING_RESOLUTION_DEADLINE_SECONDS + 1.0
+            if expired
+            else 0.0
+        ),
     )
     monkeypatch.setattr(PendingQueue, "_validate_resolution", validate_then_expire)
 
@@ -6775,7 +6816,11 @@ def test_resolution_apply_rechecks_deadline_before_receipt_persistence(
     monkeypatch.setattr(
         pending_module,
         "_monotonic",
-        lambda: 2.0 if expired else 0.0,
+        lambda: (
+            pending_module.PENDING_RESOLUTION_DEADLINE_SECONDS + 1.0
+            if expired
+            else 0.0
+        ),
     )
     monkeypatch.setattr(PendingQueue, "_plan_resolutions", plan_then_expire)
 
@@ -6813,7 +6858,11 @@ def test_resolution_apply_rechecks_deadline_after_receipt_prepare(
     monkeypatch.setattr(
         pending_module,
         "_monotonic",
-        lambda: 2.0 if expired else 0.0,
+        lambda: (
+            pending_module.PENDING_RESOLUTION_DEADLINE_SECONDS + 1.0
+            if expired
+            else 0.0
+        ),
     )
     monkeypatch.setattr(
         pending_module,
@@ -6852,7 +6901,11 @@ def test_resolution_dry_run_rechecks_deadline_after_plan_returns(
     monkeypatch.setattr(
         pending_module,
         "_monotonic",
-        lambda: 2.0 if expired else 0.0,
+        lambda: (
+            pending_module.PENDING_RESOLUTION_DEADLINE_SECONDS + 1.0
+            if expired
+            else 0.0
+        ),
     )
     monkeypatch.setattr(PendingQueue, "_plan_resolutions", plan_then_expire)
 

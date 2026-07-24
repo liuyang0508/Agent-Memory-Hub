@@ -125,7 +125,10 @@ def dirty_index_path(brain: Path | None = None) -> Path:
 MAX_PENDING_RECORD_BYTES = 1024 * 1024
 MAX_PENDING_QUEUE_ENTRIES = 20_000
 MAX_PENDING_RESOLUTION_TOTAL_BYTES = 16 * 1024 * 1024
-PENDING_RESOLUTION_DEADLINE_SECONDS = 1.0
+# A real 2k-item catalog takes more than one second on secure dirfd scans.
+# Keep resolution planning bounded, but leave enough headroom for the mandatory
+# pre-lock and in-lock freshness passes.
+PENDING_RESOLUTION_DEADLINE_SECONDS = 5.0
 MAX_DIRTY_INDEX_BYTES = 4 * 1024 * 1024
 MAX_DIRTY_INDEX_ENTRIES = 20_000
 MAX_ITEM_FRONTMATTER_BYTES = 64 * 1024
