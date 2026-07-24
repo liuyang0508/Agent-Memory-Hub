@@ -216,6 +216,7 @@ _PUBLIC_PENDING_REASONS = frozenset(
         "PENDING_WRITE_SERVICE_UNAVAILABLE",
         "PENDING_WRITE_SERVICE_CLOSE_FAILED",
         "PENDING_WRITE_EVIDENCE_INVALID",
+        "PENDING_WRITE_RECOVERY_REQUIRED",
         "PLATFORM_UNSUPPORTED",
         "READY",
         "RECORD_ID_NOT_FOUND",
@@ -2023,6 +2024,11 @@ class PendingQueue:
                 ],
                 depth_before=preview.total,
             )
+            if _resolution_deadline_exceeded(valid, result_slots, deadline_at):
+                stats.results = [
+                    result for result in result_slots if result is not None
+                ]
+                return stats
             append_pending_receipt(self._brain_dir(), prepared)
         except Exception:
             stats.governance_reason = "PENDING_RECEIPT_PREPARE_FAILED"
@@ -2237,7 +2243,32 @@ class PendingQueue:
                     )
                 item, body, _queued_allow_unsafe = write_input
                 write = getattr(service, "write")
-                written = write(item=item, body=body, allow_unsafe=allow_unsafe)
+                try:
+                    written = write(
+                        item=item,
+                        body=body,
+                        allow_unsafe=allow_unsafe,
+                        _commit_guard=lambda phase: (
+                            _require_pending_resolution_commit_guard(
+                                path,
+                                expected_budget=read_budget,
+                                expected_hash=expected_hash,
+                                phase=phase,
+                            )
+                        ),
+                    )
+                except _PendingReadError as exc:
+                    return _resolution_result(
+                        action,
+                        preview=preview,
+                        status="failed",
+                        reason=exc.reason,
+                        item_id=(
+                            _result_item_id(preview, item.id)
+                            if exc.reason == "PENDING_WRITE_RECOVERY_REQUIRED"
+                            else None
+                        ),
+                    )
                 if written.status != "written":
                     return _resolution_result(
                         action,
@@ -4704,6 +4735,33 @@ def _require_pending_resolution_read_budget(
     size = int(getattr(opened, "st_size", -1))
     if identity != expected_budget.identity or size != expected_budget.size:
         raise _PendingReadError("PENDING_READINESS_BUDGET_EXCEEDED")
+
+
+def _require_pending_resolution_commit_guard(
+    path: Path,
+    *,
+    expected_budget: _PendingResolutionReadBudget,
+    expected_hash: str,
+    phase: str,
+) -> None:
+    reason = (
+        "PENDING_WRITE_RECOVERY_REQUIRED"
+        if phase == "postwrite"
+        else "PENDING_READINESS_BUDGET_EXCEEDED"
+    )
+    try:
+        raw, identity = _read_pending_record_snapshot(
+            path,
+            expected_budget=expected_budget,
+        )
+    except (FileNotFoundError, _PendingReadError) as exc:
+        raise _PendingReadError(reason) from exc
+    if (
+        identity != expected_budget.identity
+        or len(raw) != expected_budget.size
+        or hashlib.sha256(raw).hexdigest() != expected_hash
+    ):
+        raise _PendingReadError(reason)
 
 
 def _read_pending_record(

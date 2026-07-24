@@ -4499,6 +4499,133 @@ def test_resolution_apply_detects_record_replacement_after_prepared_receipt(
     assert stats.receipt.status_counts == {"failed": 1}
 
 
+def test_resolution_apply_rechecks_pending_at_write_precommit(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from agent_brain.memory.store.write_service import WriteService
+
+    path, action = _enqueue_resolution_apply_case(
+        "approve_audit",
+        "resolution-write-precommit-replacement",
+    )
+    original = path.read_bytes()
+    real_write = WriteService.write
+    replaced = False
+
+    def replace_at_write_entry(self, **kwargs):
+        nonlocal replaced
+        replacement = path.with_suffix(".replacement")
+        replacement.write_bytes(original)
+        os.chmod(replacement, 0o600)
+        os.replace(replacement, path)
+        replaced = True
+        return real_write(self, **kwargs)
+
+    monkeypatch.setattr(WriteService, "write", replace_at_write_entry)
+
+    stats = PendingQueue().resolve([action], apply=True)
+
+    assert replaced
+    assert stats.results[0].status == "failed"
+    assert stats.results[0].reason == "PENDING_READINESS_BUDGET_EXCEEDED"
+    assert stats.receipt is not None
+    assert stats.receipt.state == "completed"
+    assert stats.receipt.status_counts == {"failed": 1}
+    assert path.exists()
+    assert path.read_bytes() == original
+    assert not list((tmp_brain / "items").rglob("*.md"))
+    assert not list((tmp_brain / "resources").rglob("*.json"))
+    assert not list((tmp_brain / "extractions").rglob("*.json"))
+
+
+def test_resolution_post_write_drift_retries_exactly_once(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path, action = _enqueue_resolution_apply_case(
+        "approve_audit",
+        "resolution-post-write-retry",
+    )
+    original_pending = path.read_bytes()
+    real_store_write = ItemsStore.write
+    replaced = False
+
+    def write_then_replace(self, item, body):
+        nonlocal replaced
+        item_path = real_store_write(self, item, body)
+        if not replaced:
+            replacement = path.with_suffix(".replacement")
+            replacement.write_bytes(original_pending)
+            os.chmod(replacement, 0o600)
+            os.replace(replacement, path)
+            replaced = True
+        return item_path
+
+    monkeypatch.setattr(ItemsStore, "write", write_then_replace)
+    first = PendingQueue().resolve([action], apply=True)
+    monkeypatch.setattr(ItemsStore, "write", real_store_write)
+    stored_path = next((tmp_brain / "items").rglob("*.md"))
+    stored_before = stored_path.read_bytes()
+
+    second = PendingQueue().resolve([action], apply=True)
+
+    assert replaced
+    assert first.results[0].status == "failed"
+    assert first.results[0].reason == "PENDING_WRITE_RECOVERY_REQUIRED"
+    assert first.receipt is not None
+    assert first.receipt.status_counts == {"failed": 1}
+    assert second.results[0].status == "applied"
+    assert second.results[0].reason == "PENDING_RESOLUTION_APPLIED"
+    assert not path.exists()
+    assert list((tmp_brain / "items").rglob("*.md")) == [stored_path]
+    assert stored_path.read_bytes() == stored_before
+
+
+def test_resolution_post_write_recovery_rejects_item_body_mismatch(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path, action = _enqueue_resolution_apply_case(
+        "approve_audit",
+        "resolution-post-write-mismatch",
+    )
+    original_pending = path.read_bytes()
+    real_store_write = ItemsStore.write
+    replaced = False
+
+    def write_then_replace(self, item, body):
+        nonlocal replaced
+        item_path = real_store_write(self, item, body)
+        if not replaced:
+            replacement = path.with_suffix(".replacement")
+            replacement.write_bytes(original_pending)
+            os.chmod(replacement, 0o600)
+            os.replace(replacement, path)
+            replaced = True
+        return item_path
+
+    monkeypatch.setattr(ItemsStore, "write", write_then_replace)
+    first = PendingQueue().resolve([action], apply=True)
+    monkeypatch.setattr(ItemsStore, "write", real_store_write)
+    stored_path = next((tmp_brain / "items").rglob("*.md"))
+    stored, _body = next(ItemsStore(tmp_brain / "items").iter_all())
+    stored_path.write_text(
+        render_item_markdown(stored, "tampered recovery body"),
+        encoding="utf-8",
+    )
+
+    second = PendingQueue().resolve([action], apply=True)
+
+    assert replaced
+    assert first.results[0].status == "failed"
+    assert first.results[0].reason == "PENDING_WRITE_RECOVERY_REQUIRED"
+    assert second.results[0].status == "blocked"
+    assert second.results[0].reason == "PENDING_RESOLUTION_CHANGED"
+    assert path.exists()
+    assert stored_path.exists()
+
+
 def test_pending_resolution_real_distribution_smoke(
     tmp_brain: Path,
 ) -> None:
@@ -6544,6 +6671,48 @@ def test_resolution_apply_rechecks_deadline_before_receipt_persistence(
     stats = PendingQueue().resolve([action], apply=True)
 
     assert plan_calls == 2
+    assert stats.results[0].status == "failed"
+    assert stats.results[0].reason == "PENDING_READINESS_BUDGET_EXCEEDED"
+    assert stats.receipt is None
+    assert path.exists()
+    assert _tree_snapshot(tmp_brain) == before
+
+
+def test_resolution_apply_rechecks_deadline_after_receipt_prepare(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path, action = _enqueue_resolution_apply_case(
+        "approve_audit",
+        "resolution-post-receipt-prepare-deadline",
+    )
+    with pending_module._locked_pending_queue(tmp_brain):
+        with ItemsStore(tmp_brain / "items").locked_catalog():
+            pass
+    before = _tree_snapshot(tmp_brain)
+    real_prepare = pending_module.prepare_pending_receipt
+    expired = False
+
+    def prepare_then_expire(*args, **kwargs):
+        nonlocal expired
+        prepared = real_prepare(*args, **kwargs)
+        expired = True
+        return prepared
+
+    monkeypatch.setattr(
+        pending_module,
+        "_monotonic",
+        lambda: 2.0 if expired else 0.0,
+    )
+    monkeypatch.setattr(
+        pending_module,
+        "prepare_pending_receipt",
+        prepare_then_expire,
+    )
+
+    stats = PendingQueue().resolve([action], apply=True)
+
+    assert expired
     assert stats.results[0].status == "failed"
     assert stats.results[0].reason == "PENDING_READINESS_BUDGET_EXCEEDED"
     assert stats.receipt is None

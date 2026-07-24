@@ -191,6 +191,7 @@ class WriteService:
         body: str,
         allow_unsafe: bool = False,
         overview: str | None = None,
+        _commit_guard: Callable[[str], None] | None = None,
     ) -> WriteResult:
         """Funnel a single item+body into the pool.
 
@@ -220,6 +221,8 @@ class WriteService:
                 item.type,
                 getattr(item.source, "kind", None),
             )
+        if _commit_guard is not None:
+            _commit_guard("preflight")
         item, review_warning = _mark_boundary_review_candidate(item)
         item = enrich_memory_item(item)
         evidence_sidecar_degraded = (
@@ -237,7 +240,11 @@ class WriteService:
             warnings.append("EVIDENCE_SIDECAR_REPAIR_REQUIRED")
         if review_warning:
             warnings.append(review_warning)
+        if _commit_guard is not None:
+            _commit_guard("precommit")
         path = self._store.write(item, body)
+        if _commit_guard is not None:
+            _commit_guard("postwrite")
         source_ledger_degraded = False
         try:
             _write_source_record(
