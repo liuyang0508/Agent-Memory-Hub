@@ -25,6 +25,8 @@ def _item(
     contradict_count: int = 0,
     gain_score: float = 0.0,
     context_views: dict | None = None,
+    project: str | None = None,
+    tenant_id: str | None = None,
 ) -> MemoryItem:
     return MemoryItem.model_validate({
         "id": f"mem-20260611-030000-{suffix}",
@@ -42,6 +44,8 @@ def _item(
         "contradict_count": contradict_count,
         "gain_score": gain_score,
         "context_views": context_views or {},
+        "project": project,
+        "tenant_id": tenant_id,
     })
 
 
@@ -312,6 +316,90 @@ def test_topic_recency_still_keeps_newer_process_state() -> None:
 
     assert [d.candidate.item.id for d in result.included] == [newer.id]
     assert "topic_recency_newer" in _decision_by_id(result, old.id).reasons
+
+
+def test_topic_conflict_ignores_common_chinese_completion_phrase() -> None:
+    from agent_brain.memory.context.context_firewall import ContextCandidate, ContextFirewall
+    from agent_brain.memory.context.query_signal import QuerySignal
+
+    finance = _item(
+        "finance-audit-complete",
+        "fact",
+        "季度收入审计状态",
+        "本季度收入已经完成审计",
+        refs={"urls": ["https://example.test/finance/audit"]},
+        tags=["status"],
+    )
+    legal = _item(
+        "legal-review-complete",
+        "decision",
+        "合同审批复核状态",
+        "合同审批已经完成复核",
+        refs={"urls": ["https://example.test/legal/review"]},
+        tags=["status"],
+    )
+    signal = QuerySignal(
+        terms=("status",),
+        strong_terms=("status",),
+        weak_terms=(),
+        injectable=True,
+        reason="ok",
+        specificity=1.0,
+        decision="inject_allowed",
+    )
+
+    result = ContextFirewall(now=NOW).filter(
+        [
+            ContextCandidate(finance, score=10.0),
+            ContextCandidate(legal, score=3.0),
+        ],
+        query_signal=signal,
+    )
+
+    assert [decision.candidate.item.id for decision in result.included] == [
+        finance.id,
+        legal.id,
+    ]
+    assert "topic_conflict_requires_verification" not in result.cohort_reasons
+
+
+def test_topic_conflict_scope_includes_tenant() -> None:
+    from agent_brain.memory.context.context_firewall import ContextCandidate, ContextFirewall
+
+    tenant_a = _item(
+        "tenant-a-contract",
+        "fact",
+        "Supplier contract approval status",
+        "Supplier contract approval still needs legal review",
+        refs={"urls": ["https://example.test/a/legal"]},
+        tags=["supplier", "contract", "approval"],
+        project="procurement",
+        tenant_id="tenant-a",
+    )
+    tenant_b = _item(
+        "tenant-b-contract",
+        "decision",
+        "Supplier contract approval status",
+        "Supplier contract approval no longer needs legal review",
+        refs={"urls": ["https://example.test/b/legal"]},
+        tags=["supplier", "contract", "approval"],
+        project="procurement",
+        tenant_id="tenant-b",
+    )
+
+    result = ContextFirewall(now=NOW).filter(
+        [
+            ContextCandidate(tenant_a, score=10.0),
+            ContextCandidate(tenant_b, score=3.0),
+        ],
+        query="supplier contract approval",
+    )
+
+    assert [decision.candidate.item.id for decision in result.included] == [
+        tenant_a.id,
+        tenant_b.id,
+    ]
+    assert "topic_conflict_requires_verification" not in result.cohort_reasons
 
 
 def test_topic_recency_conflict_requires_specific_overlap() -> None:

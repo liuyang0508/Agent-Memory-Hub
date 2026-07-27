@@ -607,7 +607,7 @@ def test_write_marks_unsourced_manual_durable_memory_for_review(tmp_brain, item_
     assert {"needs-review", "unverified-boundary"} <= set(stored.tags)
     assert stored.confidence <= 0.35
     assert (
-        "memory item lacks explicit validity/source boundary; marked needs-review"
+        "durable memory item has no explicit source refs; marked needs-review"
         in res.warnings
     )
 
@@ -672,6 +672,10 @@ def test_write_quarantines_unacknowledged_same_scope_topic_candidate(tmp_brain):
     stored, _body = store.get(candidate.id)
     assert res.status == "written"
     assert {"needs-review", "unverified-boundary"} <= set(stored.tags)
+    assert (
+        "memory item has an unacknowledged same-scope topic candidate; "
+        "marked needs-review"
+    ) in res.warnings
 
 
 def test_write_accepts_acknowledged_same_scope_topic_candidate(tmp_brain):
@@ -709,6 +713,118 @@ def test_write_accepts_acknowledged_same_scope_topic_candidate(tmp_brain):
 
     stored, _body = store.get(candidate.id)
     assert res.status == "written"
+    assert "needs-review" not in stored.tags
+    assert "unverified-boundary" not in stored.tags
+
+
+def test_existing_write_match_replays_same_topic_review_normalization(tmp_brain):
+    from agent_brain.memory.store.write_service import _matches_existing_write
+
+    store = ItemsStore(tmp_brain / "items")
+    prior = _item(
+        title="客户评分配置权限仍需按分析方案核验",
+        type=MemoryType.fact,
+    ).model_copy(
+        update={
+            "project": "customer-operations",
+            "summary": "客户评分配置权限尚未覆盖当前分析方案口径",
+            "refs": Refs(urls=["https://example.test/product/review"]),
+        }
+    )
+    store.write(prior, "verified product review")
+    candidate = _item(
+        title="客户评分配置权限无需再次调整",
+        type=MemoryType.decision,
+    ).model_copy(
+        update={
+            "project": "customer-operations",
+            "summary": "客户评分配置权限已经覆盖当前分析方案口径",
+            "refs": Refs(urls=["https://example.test/operations/meeting"]),
+        }
+    )
+    body = "new sourced decision"
+    WriteService.for_brain(tmp_brain).write(
+        item=candidate,
+        body=body,
+        allow_unsafe=True,
+    )
+    existing, existing_body = store.get(candidate.id)
+
+    assert _matches_existing_write(
+        candidate,
+        body,
+        existing,
+        existing_body,
+        brain=tmp_brain,
+        now=datetime.now(timezone.utc),
+    )
+
+
+def test_write_checks_unacknowledged_topic_candidate_in_global_scope(tmp_brain):
+    store = ItemsStore(tmp_brain / "items")
+    existing = _item(
+        title="供应商合同付款条件仍需法务确认",
+        type=MemoryType.fact,
+    ).model_copy(
+        update={
+            "summary": "供应商合同付款条件尚未完成法务确认",
+            "refs": Refs(urls=["https://example.test/legal/review"]),
+        }
+    )
+    store.write(existing, "verified legal review")
+    candidate = _item(
+        title="供应商合同付款条件无需再次确认",
+        type=MemoryType.decision,
+    ).model_copy(
+        update={
+            "summary": "供应商合同付款条件已经完成法务确认",
+            "refs": Refs(urls=["https://example.test/operations/meeting"]),
+        }
+    )
+
+    result = WriteService.for_brain(tmp_brain).write(
+        item=candidate,
+        body="global pool decision",
+        allow_unsafe=True,
+    )
+
+    stored, _body = store.get(candidate.id)
+    assert result.status == "written"
+    assert {"needs-review", "unverified-boundary"} <= set(stored.tags)
+
+
+def test_write_does_not_confuse_unrelated_chinese_completion_phrases(tmp_brain):
+    store = ItemsStore(tmp_brain / "items")
+    finance = _item(
+        title="季度收入审计状态",
+        type=MemoryType.fact,
+    ).model_copy(
+        update={
+            "project": "company-operations",
+            "summary": "本季度收入已经完成审计",
+            "refs": Refs(urls=["https://example.test/finance/audit"]),
+        }
+    )
+    store.write(finance, "finance evidence")
+    legal = _item(
+        title="合同审批复核状态",
+        type=MemoryType.decision,
+    ).model_copy(
+        update={
+            "project": "company-operations",
+            "summary": "合同审批已经完成复核",
+            "refs": Refs(urls=["https://example.test/legal/approval"]),
+        }
+    )
+
+    result = WriteService.for_brain(tmp_brain).write(
+        item=legal,
+        body="legal evidence",
+        allow_unsafe=True,
+    )
+
+    stored, _body = store.get(legal.id)
+    assert result.status == "written"
     assert "needs-review" not in stored.tags
     assert "unverified-boundary" not in stored.tags
 

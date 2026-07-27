@@ -80,6 +80,13 @@ _REVIEW_SOURCE_TAGS = {"harvested", "conversation", "transcript"}
 _REVIEW_TAGS = ("needs-review", "unverified-boundary")
 _REVIEW_CONFIDENCE_CEILING = 0.35
 _REVIEW_WARNING = "memory item lacks explicit validity/source boundary; marked needs-review"
+_MISSING_SOURCE_REVIEW_WARNING = (
+    "durable memory item has no explicit source refs; marked needs-review"
+)
+_TOPIC_REVIEW_WARNING = (
+    "memory item has an unacknowledged same-scope topic candidate; "
+    "marked needs-review"
+)
 _WRITE_TOPIC_MIN_SHARED_TERMS = 3
 _MULTIMODAL_PLACEHOLDER_RE = re.compile(
     r"\[(?:Image|Audio|Video|PDF|Document)\s+#\d+\]",
@@ -403,37 +410,39 @@ def _mark_boundary_review_candidate(
     body: str = "",
     store: ItemsStore | None = None,
 ) -> tuple[MemoryItem, str | None]:
-    if not _needs_boundary_review(item, body=body, store=store):
+    tags_lower = {tag.strip().lower() for tag in item.tags}
+    if tags_lower & REVIEW_REQUIRED_TAGS:
+        return item, None
+    warning = _boundary_review_warning(item, body=body, store=store)
+    if warning is None:
         return item, None
     tags = sorted({*item.tags, *_REVIEW_TAGS})
     confidence = min(item.confidence, _REVIEW_CONFIDENCE_CEILING)
-    return item.model_copy(update={"tags": tags, "confidence": confidence}), _REVIEW_WARNING
+    return item.model_copy(update={"tags": tags, "confidence": confidence}), warning
 
 
-def _needs_boundary_review(
+def _boundary_review_warning(
     item: MemoryItem,
     *,
     body: str = "",
     store: ItemsStore | None = None,
-) -> bool:
+) -> str | None:
     tags = {tag.strip().lower() for tag in item.tags}
-    if tags & REVIEW_REQUIRED_TAGS:
-        return False
     item_type = str(getattr(item.type, "value", item.type))
     if item_type in SOURCE_REQUIRED_TYPES:
         if not has_source_refs(item):
-            return True
+            return _MISSING_SOURCE_REVIEW_WARNING
         if store is not None and _has_unacknowledged_topic_candidate(
             item,
             body=body,
             store=store,
         ):
-            return True
-        return False
+            return _TOPIC_REVIEW_WARNING
+        return None
     source_kind = str(getattr(item.source, "kind", "") or "").strip().lower()
     if source_kind not in _REVIEW_SOURCE_KINDS and not (tags & _REVIEW_SOURCE_TAGS):
-        return False
-    return not _has_explicit_boundary(item)
+        return None
+    return None if _has_explicit_boundary(item) else _REVIEW_WARNING
 
 
 def _has_unacknowledged_topic_candidate(
@@ -443,8 +452,6 @@ def _has_unacknowledged_topic_candidate(
     store: ItemsStore,
 ) -> bool:
     scope = (item.tenant_id or "", item.project or "")
-    if not any(scope):
-        return False
     candidate_terms = topic_recency_terms(ContextCandidate(item, body=body))
     # ponytail: source-of-truth scan is simplest; move to an index only if
     # measured write latency becomes a problem for large catalogs.
@@ -1000,9 +1007,19 @@ def _matches_existing_write(
         or len(existing.refs.extractions) > _MAX_WRITE_EVIDENCE_REFS
     ):
         return False
-    expected, _warning = _mark_boundary_review_candidate(item)
+    store = ItemsStore(brain / "items")
+    expected, _warning = _mark_boundary_review_candidate(
+        item,
+        body=body,
+        store=store,
+    )
     expected = enrich_memory_item(expected)
-    if _matches_degraded_evidence_write(item, body, existing):
+    if _matches_degraded_evidence_write(
+        item,
+        body,
+        existing,
+        store=store,
+    ):
         return True
     if not secure_dir_fd_mutation_supported():
         return existing == expected
@@ -1145,8 +1162,14 @@ def _matches_degraded_evidence_write(
     item: MemoryItem,
     body: str,
     existing: MemoryItem,
+    *,
+    store: ItemsStore | None = None,
 ) -> bool:
-    expected, _warning = _mark_boundary_review_candidate(item)
+    expected, _warning = _mark_boundary_review_candidate(
+        item,
+        body=body,
+        store=store,
+    )
     expected = enrich_memory_item(expected)
     return _evidence_sidecar_requested(expected, body) and existing == expected
 

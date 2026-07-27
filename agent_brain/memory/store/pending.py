@@ -2371,6 +2371,7 @@ class PendingQueue:
                 intent.item,
                 intent.body,
                 existing,
+                store=store,
             ):
                 return _resolution_result(
                     action,

@@ -210,6 +210,7 @@ def temporal_scope_signature(item: MemoryItem) -> tuple[str, ...]:
     """Return the scope key used to compare state memories."""
     validity = getattr(item, "validity", None)
     return tuple([
+        item.tenant_id or "",
         item.project or "",
         *(
             str(getattr(validity, field, "") or "")
@@ -251,12 +252,12 @@ def topic_recency_terms(candidate: ContextCandidate) -> set[str]:
         # ponytail: bounded character n-grams avoid a language dependency; use a
         # real tokenizer only if measured precision or write latency demands it.
         bounded = run[:128]
-        for size in (2, 3, 4):
-            terms.update(
-                bounded[index:index + size]
-                for index in range(max(0, len(bounded) - size + 1))
-                if bounded[index:index + size] not in TOPIC_RECENCY_STOPWORDS
-            )
+        size = 4
+        terms.update(
+            bounded[index:index + size]
+            for index in range(max(0, len(bounded) - size + 1))
+            if bounded[index:index + size] not in TOPIC_RECENCY_STOPWORDS
+        )
     return terms
 
 
