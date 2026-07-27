@@ -15,6 +15,13 @@ def link(
     label: str = typer.Option("related", "--label"),
 ) -> None:
     """Create a knowledge-graph link between two memory items."""
+    if label.strip().lower() == "supersedes":
+        typer.echo(
+            "supersedes requires governed lifecycle mutation; use "
+            f"`memory govern apply-lifecycle --supersede {source}:{target}`",
+            err=True,
+        )
+        raise typer.Exit(2)
     with _cli._managed_components() as (store, idx, _):
         idx.add_ref(source, target, label)
         store.link_mem(source, target)

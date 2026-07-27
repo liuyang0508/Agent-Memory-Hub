@@ -812,6 +812,34 @@ class TestLinkUnlinkCLI:
         assert result.exit_code == 0
         assert "unlinked" in result.output
 
+    def test_supersedes_link_requires_lifecycle_governance(self, populated_brain):
+        tmp, store, item = populated_brain
+        replacement = MemoryItem(
+            id="mem-20260528-100000-replacement",
+            type=MemoryType.decision,
+            created_at=datetime.now(timezone.utc),
+            title="Replacement decision",
+            summary="A governed replacement",
+        )
+        store.write(replacement, "replacement body")
+        before = {
+            path.name: path.read_bytes()
+            for path in store.items_dir.glob("*.md")
+        }
+
+        result = runner.invoke(
+            app,
+            ["link", replacement.id, item.id, "--label", "supersedes"],
+        )
+
+        assert result.exit_code != 0
+        assert "memory govern apply-lifecycle --supersede" in result.output
+        assert {
+            path.name: path.read_bytes()
+            for path in store.items_dir.glob("*.md")
+        } == before
+        assert not (tmp / "index.db").exists()
+
 
 class TestTagSuggestCLI:
     def test_suggest_tags(self, populated_brain):
