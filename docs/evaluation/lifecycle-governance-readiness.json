@@ -14,7 +14,7 @@
     "observed_drift_count": 1,
     "status": "pass"
   },
-  "implementation_hash": "sha256:265ec40a11761e5862f9b8ac6ff732d4b318976901b499486963d34ab6983f89",
+  "implementation_hash": "sha256:0607d937ef710b75e86c6c7029d12872b1c3620b63369ae4b8d57f6bf003bc47",
   "implementation_manifest": [
     {
       "path": "agent_brain/agent_integrations/hermes/import_export_tools.py",
@@ -142,7 +142,7 @@
     },
     {
       "path": "agent_brain/memory/store/write_service.py",
-      "sha256": "sha256:c1ec8d7cb6fa60e0921f02b45420aba85cb445773722abb81d28510923bff2e9"
+      "sha256": "sha256:7ec4e298b848b72bc55aa590a474733d1afda16bbeb65ba6dbecb65c982b1752"
     },
     {
       "path": "agent_brain/platform/indexing/graph_index.py",
