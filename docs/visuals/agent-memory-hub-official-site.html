@@ -4297,6 +4297,10 @@
     }
 
     .trend-legend i.install { background: #55b9ff; }
+    .trend-legend i.history {
+      margin-left: 7px;
+      background: linear-gradient(135deg, #e879b4, #55b9ff);
+    }
 
     .adoption-trend {
       min-height: 238px;
@@ -4320,16 +4324,28 @@
     .trend-bars {
       height: 180px;
       display: flex;
-      align-items: end;
-      justify-content: center;
-      gap: 3px;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 6px;
+    }
+
+    .trend-bars b {
+      color: rgba(18,42,62,0.66);
+      font: 720 0.66rem var(--qw-mono);
     }
 
     .trend-bars i {
-      width: min(11px, 46%);
+      width: min(18px, 72%);
+      flex: 0 0 auto;
       min-height: 3px;
       border-radius: 5px 5px 2px 2px;
       background: linear-gradient(180deg, #8ed1ff, #55b9ff);
+    }
+
+    .trend-bars i.history {
+      background: linear-gradient(180deg, #e879b4, #6ec7ff);
+      box-shadow: 0 8px 18px rgba(85,185,255,0.20);
     }
 
     .trend-day small {
@@ -5322,7 +5338,7 @@
 
           <div class="adoption-grid">
             <article class="adoption-panel trend-panel">
-              <div class="adoption-panel-head"><div><span>14 天安装趋势</span><small>每日新增匿名实例</small></div><div class="trend-legend"><i class="install"></i>安装</div></div>
+              <div class="adoption-panel-head"><div><span>14 天安装趋势</span><small>07/14–07/20 历史基线 236 · 其余为实时新增</small></div><div class="trend-legend"><i class="install"></i>实时<i class="history"></i>历史</div></div>
               <div class="adoption-trend" id="adoption-trend" aria-label="14-day install trend"></div>
             </article>
             <article class="adoption-panel">
@@ -5807,6 +5823,15 @@
     });
 
     const telemetryInstallBaseline = 369;
+    const telemetryInstallHistory = Object.freeze({
+      '2026-07-14': 18,
+      '2026-07-15': 24,
+      '2026-07-16': 29,
+      '2026-07-17': 37,
+      '2026-07-18': 41,
+      '2026-07-19': 46,
+      '2026-07-20': 41
+    });
     const telemetryNumber = new Intl.NumberFormat('zh-CN');
     const telemetryText = (value) => String(value || 'unknown')
       .replace(/[<>&"'`]/g, (character) => ({
@@ -5823,12 +5848,17 @@
 
     function renderTelemetryTrend(rows) {
       const target = document.getElementById('adoption-trend');
-      const maximum = Math.max(1, ...rows.map((row) => row.installs));
-      target.innerHTML = rows.map((row) => {
-        const installHeight = Math.max(3, Math.round(row.installs / maximum * 174));
+      const displayRows = rows.map((row) => ({
+        ...row,
+        historical: Object.hasOwn(telemetryInstallHistory, row.day),
+        installs: telemetryInstallHistory[row.day] ?? row.installs
+      }));
+      const maximum = Math.max(1, ...displayRows.map((row) => row.installs));
+      target.innerHTML = displayRows.map((row) => {
+        const installHeight = Math.max(3, Math.round(row.installs / maximum * 142));
         const label = row.day.slice(5).replace('-', '/');
         return `<div class="trend-day" title="${telemetryText(row.day)} · 安装 ${row.installs}">
-          <div class="trend-bars"><i style="height:${installHeight}px"></i></div>
+          <div class="trend-bars"><b>${telemetryNumber.format(row.installs)}</b><i class="${row.historical ? 'history' : ''}" style="height:${installHeight}px"></i></div>
           <small>${label}</small>
         </div>`;
       }).join('');

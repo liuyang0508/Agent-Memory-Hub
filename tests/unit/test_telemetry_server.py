@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import http.client
 import json
+import re
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
@@ -126,6 +127,13 @@ def test_official_site_contains_live_privacy_bounded_dashboard() -> None:
     assert "memory telemetry enable" in site
     assert "不采集姓名、账号、IP、目录、提示词或记忆内容" in site
     assert "const telemetryInstallBaseline = 369;" in site
+    history = re.search(
+        r"const telemetryInstallHistory = Object\.freeze\(\{(.*?)\}\);",
+        site,
+        re.DOTALL,
+    )
+    assert history is not None
+    assert sum(map(int, re.findall(r":\s*(\d+)", history.group(1)))) == 236
     assert 'id="metric-active-24h"' not in site
     assert 'id="community"' not in site
     assert "agent-memory-hub-wechat-community-qr-current.jpg" not in site
