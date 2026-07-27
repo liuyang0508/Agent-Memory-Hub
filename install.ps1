@@ -206,3 +206,7 @@ if ($LASTEXITCODE -ne 0) {
 
 Write-Host "Agent Memory Hub installed."
 Write-Host "Run: memory doctor"
+Write-Host "Anonymous product telemetry is off by default. Enable with AMH_TELEMETRY=1."
+
+$InstallSource = if ($env:AMH_INSTALL_SOURCE) { $env:AMH_INSTALL_SOURCE } else { "powershell" }
+& $Python.Source -m agent_brain.platform.product_telemetry install --channel $InstallSource 2>$null

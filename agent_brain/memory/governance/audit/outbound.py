@@ -2,6 +2,7 @@
 from dataclasses import dataclass, asdict
 from datetime import datetime, timezone, timedelta
 import json
+import os
 from pathlib import Path
 from typing import List
 
@@ -28,7 +29,7 @@ class OutboundEvent:
 
 def _get_audit_log_dir() -> Path:
     """Get the audit log directory path."""
-    brain_dir = Path.home() / ".agent-memory-hub"
+    brain_dir = Path(os.environ.get("BRAIN_DIR", Path.home() / ".agent-memory-hub")).expanduser()
     audit_dir = brain_dir / "audit-log"
     return audit_dir
 

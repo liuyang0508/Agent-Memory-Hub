@@ -297,6 +297,21 @@ curl -fsSL https://github.com/liuyang0508/agent-memory-hub/releases/latest/downl
 
 卸载只移除 AMH 托管的 hooks、MCP 配置和 `/remember`，默认保留 `~/.agent-memory-hub` 里的用户记忆、证据和索引。确认要连本地大脑一起清空时，再手动删除 `~/.agent-memory-hub`。详细命令见 [命令手册](#command-manual)。
 
+### 5. 可选的官网匿名安装与活跃统计
+
+产品遥测默认关闭。愿意出现在官网匿名使用看板中的用户，可以主动开启：
+
+```bash
+memory telemetry enable
+memory telemetry status
+memory telemetry disable
+```
+
+只会上报随机匿名 ID、系统/架构、AMH 版本、安装渠道、Agent 类型以及
+`install` / `active` 事件；不采集姓名、账号、IP、目录、提示词、对话或
+MemoryItem 内容。完整数据边界、接口和官网部署步骤见
+[官网匿名安装与活跃看板](./docs/product-telemetry.zh.md)。
+
 <a id="running-example"></a>
 
 ## 用一个真实问题看懂 AMH

@@ -206,6 +206,15 @@ MEMORY_BIN="$APP_VENV/bin/memory"
 AMH_INSTALL_ADAPTERS="${AMH_INSTALL_ADAPTERS:-codex claude_code wukong cursor cline continue_dev hermes_agent qoder qoder_work aider github_copilot aone_copilot openhuman opensquilla openclaw}"
 AMH_STRICT_ADAPTER_INSTALL="${AMH_STRICT_ADAPTER_INSTALL:-0}"
 AMH_ADAPTER_COMMAND_TIMEOUT="${AMH_ADAPTER_COMMAND_TIMEOUT:-5}"
+AMH_INSTALL_SOURCE="${AMH_INSTALL_SOURCE:-shell}"
+
+emit_install_telemetry() {
+  [ -x "$APP_PYTHON" ] || return 0
+  BRAIN_DIR="$USER_DATA" "$APP_PYTHON" \
+    -m agent_brain.platform.product_telemetry install \
+    --channel "$AMH_INSTALL_SOURCE" \
+    >/dev/null 2>&1 &
+}
 
 run_memory_adapter_command() {
   action="$1"
@@ -458,8 +467,10 @@ else
 fi
 
 if [ "$MINIMAL" = true ]; then
+    emit_install_telemetry
     echo ""
     echo "  最小安装完成。完整安装: ./install.sh"
+    echo "  匿名使用统计默认关闭；启用: AMH_TELEMETRY=1 ./install.sh --minimal"
     exit 0
 fi
 
@@ -707,3 +718,6 @@ echo "    memory gc --dry-run         预览 GC 清理"
 echo "    memory decay-status         衰减状态"
 echo ""
 echo "  卸载: ./install.sh --uninstall"
+echo "  匿名使用统计默认关闭；启用: AMH_TELEMETRY=1 ./install.sh"
+
+emit_install_telemetry

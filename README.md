@@ -136,6 +136,23 @@ If you installed a shell package through Homebrew or npm, run the AMH uninstall
 first to clean managed config, then remove the package with that package
 manager.
 
+### Optional anonymous adoption telemetry
+
+Product telemetry is off by default. Users who want to appear in the public
+adoption dashboard can explicitly opt in; the payload contains only a random
+instance ID, OS/architecture, AMH version, install channel, agent type, and an
+`install` or `active` event. It never includes usernames, IPs, paths, prompts,
+conversations, or memory content.
+
+```bash
+memory telemetry enable
+memory telemetry status
+memory telemetry disable
+```
+
+The public dashboard and server deployment contract are documented in
+[Product Telemetry](./docs/product-telemetry.zh.md).
+
 ### 3. Verify the install
 
 ```bash
