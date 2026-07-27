@@ -132,26 +132,26 @@ def _text(value: Any) -> str | None:
     return text or None
 
 
-def _within_raw_json_nesting_limit(raw: bytes) -> bool:
+def _within_json_nesting_limit(text: str) -> bool:
     depth = 0
     in_string = False
     escaped = False
-    for byte in raw:
+    for char in text:
         if in_string:
             if escaped:
                 escaped = False
-            elif byte == ord("\\"):
+            elif char == "\\":
                 escaped = True
-            elif byte == ord('"'):
+            elif char == '"':
                 in_string = False
             continue
-        if byte == ord('"'):
+        if char == '"':
             in_string = True
-        elif byte in (ord("["), ord("{")):
+        elif char in "[{":
             depth += 1
             if depth > MAX_JSON_NESTING:
                 return False
-        elif byte in (ord("]"), ord("}")):
+        elif char in "]}":
             depth -= 1
     return True
 
@@ -159,9 +159,10 @@ def _within_raw_json_nesting_limit(raw: bytes) -> bool:
 def _load_payload() -> Any:
     try:
         raw_payload = sys.stdin.buffer.read()
-        if not _within_raw_json_nesting_limit(raw_payload):
+        decoded_payload = raw_payload.decode("utf-8")
+        if not _within_json_nesting_limit(decoded_payload):
             return _INVALID_PAYLOAD
-        payload = json.loads(raw_payload)
+        payload = json.loads(decoded_payload)
     except (json.JSONDecodeError, UnicodeDecodeError, ValueError, RecursionError, OSError):
         return _INVALID_PAYLOAD
     return payload

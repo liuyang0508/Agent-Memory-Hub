@@ -45,6 +45,17 @@ def _run_payload(payload: object, brain_dir, *, adapter: str | None = None):
     return _run_cli(raw, brain_dir, adapter=adapter)
 
 
+def _nested_object_payload(depth: int) -> bytes:
+    arrays = depth - 1
+    return (
+        '{"prompt":"ok","nested":'
+        + ("[" * arrays)
+        + "0"
+        + ("]" * arrays)
+        + "}"
+    ).encode("utf-8")
+
+
 def test_preflight_records_runtime_live_prompt_and_normalizes_prompt(tmp_path) -> None:
     from agent_brain.agent_integrations.runtime_events import iter_runtime_events
     from agent_brain.memory.evidence.conversation_store import ConversationStore
@@ -393,6 +404,51 @@ def test_cli_stabilizes_invalid_input_without_stdout_or_payload_leak(
     if raw_payload:
         assert raw_payload[:40] not in result.stderr
     assert result.stderr.startswith(b"hook-preflight: ")
+
+
+@pytest.mark.parametrize("depth", [64, 65])
+def test_cli_enforces_exact_json_nesting_boundary(tmp_path, depth: int) -> None:
+    result = _run_cli(_nested_object_payload(depth), tmp_path)
+
+    if depth == 64:
+        assert result.returncode == 0
+        assert _fields(result.stdout)[1] == "ok"
+    else:
+        assert result.returncode == 2
+        assert result.stdout == b""
+        assert result.stderr == b"hook-preflight: invalid JSON\n"
+
+
+@pytest.mark.parametrize(
+    "encoding",
+    ["utf-16-le", "utf-16-be", "utf-32-le", "utf-32-be"],
+)
+def test_cli_rejects_non_utf8_payload_before_nesting_check(
+    tmp_path,
+    encoding: str,
+) -> None:
+    text = (
+        '{"prompt":"\u0122","nested":'
+        + ("[" * 65)
+        + "0"
+        + ("]" * 65)
+        + "}"
+    )
+
+    result = _run_cli(text.encode(encoding), tmp_path)
+
+    assert result.returncode == 2
+    assert result.stdout == b""
+    assert result.stderr == b"hook-preflight: invalid JSON\n"
+
+
+def test_cli_ignores_json_structure_inside_escaped_string(tmp_path) -> None:
+    prompt = 'brackets [{]} quote " slash \\\\ tail'
+
+    result = _run_payload({"prompt": prompt}, tmp_path)
+
+    assert result.returncode == 0
+    assert _fields(result.stdout)[1] == prompt
 
 
 @pytest.mark.parametrize("payload", [[], "prompt", 42, True, None])

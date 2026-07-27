@@ -31,6 +31,17 @@ def _run_payload(payload: object) -> subprocess.CompletedProcess[bytes]:
     return _run(json.dumps(payload, ensure_ascii=False).encode("utf-8"))
 
 
+def _nested_object_payload(depth: int) -> bytes:
+    arrays = depth - 1
+    return (
+        '{"prompt":"ok","nested":'
+        + ("[" * arrays)
+        + "0"
+        + ("]" * arrays)
+        + "}"
+    ).encode("utf-8")
+
+
 def _fields(stdout: bytes) -> list[str]:
     assert stdout.endswith(b"\0")
     return [field.decode("utf-8") for field in stdout[:-1].split(b"\0")]
@@ -223,6 +234,48 @@ def test_parser_stabilizes_json_resource_failures(raw_payload: bytes):
     assert result.stderr == b"parse-hook-payload: invalid JSON\n"
     assert b"Traceback" not in result.stderr
     assert str(SCRIPT).encode() not in result.stderr
+
+
+@pytest.mark.parametrize("depth", [64, 65])
+def test_parser_enforces_exact_json_nesting_boundary(depth: int):
+    result = _run(_nested_object_payload(depth))
+
+    if depth == 64:
+        assert result.returncode == 0
+        assert _fields(result.stdout)[1] == "ok"
+    else:
+        assert result.returncode != 0
+        assert result.stdout == b""
+        assert result.stderr == b"parse-hook-payload: invalid JSON\n"
+
+
+@pytest.mark.parametrize(
+    "encoding",
+    ["utf-16-le", "utf-16-be", "utf-32-le", "utf-32-be"],
+)
+def test_parser_rejects_non_utf8_payload_before_nesting_check(encoding: str):
+    text = (
+        '{"prompt":"\u0122","nested":'
+        + ("[" * 65)
+        + "0"
+        + ("]" * 65)
+        + "}"
+    )
+
+    result = _run(text.encode(encoding))
+
+    assert result.returncode != 0
+    assert result.stdout == b""
+    assert result.stderr == b"parse-hook-payload: invalid JSON\n"
+
+
+def test_parser_ignores_json_structure_inside_escaped_string():
+    prompt = 'brackets [{]} quote " slash \\\\ tail'
+
+    result = _run_payload({"prompt": prompt})
+
+    assert result.returncode == 0
+    assert _fields(result.stdout)[1] == prompt
 
 
 @pytest.mark.parametrize("payload", [[], "prompt", 42, True, None])
