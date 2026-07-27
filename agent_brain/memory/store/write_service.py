@@ -33,6 +33,13 @@ from pathlib import Path
 import re
 
 from agent_brain.memory.governance.audit.scanner import audit_memory_text
+from agent_brain.memory.context.context_firewall_rules import (
+    REVIEW_REQUIRED_TAGS,
+    SOURCE_REQUIRED_TYPES,
+    has_source_refs,
+    topic_recency_terms,
+)
+from agent_brain.memory.context.context_firewall_types import ContextCandidate
 from agent_brain.memory.recall.embedding_text import embedding_text_for_item
 from agent_brain.memory.evidence.resource_store import ResourceStore
 from agent_brain.memory.store.field_enrichment import enrich_memory_item
@@ -73,6 +80,7 @@ _REVIEW_SOURCE_TAGS = {"harvested", "conversation", "transcript"}
 _REVIEW_TAGS = ("needs-review", "unverified-boundary")
 _REVIEW_CONFIDENCE_CEILING = 0.35
 _REVIEW_WARNING = "memory item lacks explicit validity/source boundary; marked needs-review"
+_WRITE_TOPIC_MIN_SHARED_TERMS = 3
 _MULTIMODAL_PLACEHOLDER_RE = re.compile(
     r"\[(?:Image|Audio|Video|PDF|Document)\s+#\d+\]",
     re.IGNORECASE,
@@ -224,7 +232,11 @@ class WriteService:
             )
         if _commit_guard is not None:
             _commit_guard("precommit")
-        item, review_warning = _mark_boundary_review_candidate(item)
+        item, review_warning = _mark_boundary_review_candidate(
+            item,
+            body=body,
+            store=self._store,
+        )
         item = enrich_memory_item(item)
         evidence_sidecar_degraded = (
             _evidence_sidecar_requested(item, body)
@@ -385,22 +397,74 @@ def get_write_service() -> WriteService:
     return WriteService.for_brain()
 
 
-def _mark_boundary_review_candidate(item: MemoryItem) -> tuple[MemoryItem, str | None]:
-    if not _needs_boundary_review(item):
+def _mark_boundary_review_candidate(
+    item: MemoryItem,
+    *,
+    body: str = "",
+    store: ItemsStore | None = None,
+) -> tuple[MemoryItem, str | None]:
+    if not _needs_boundary_review(item, body=body, store=store):
         return item, None
     tags = sorted({*item.tags, *_REVIEW_TAGS})
     confidence = min(item.confidence, _REVIEW_CONFIDENCE_CEILING)
     return item.model_copy(update={"tags": tags, "confidence": confidence}), _REVIEW_WARNING
 
 
-def _needs_boundary_review(item: MemoryItem) -> bool:
+def _needs_boundary_review(
+    item: MemoryItem,
+    *,
+    body: str = "",
+    store: ItemsStore | None = None,
+) -> bool:
     tags = {tag.strip().lower() for tag in item.tags}
-    if tags & set(_REVIEW_TAGS):
+    if tags & REVIEW_REQUIRED_TAGS:
+        return False
+    item_type = str(getattr(item.type, "value", item.type))
+    if item_type in SOURCE_REQUIRED_TYPES:
+        if not has_source_refs(item):
+            return True
+        if store is not None and _has_unacknowledged_topic_candidate(
+            item,
+            body=body,
+            store=store,
+        ):
+            return True
         return False
     source_kind = str(getattr(item.source, "kind", "") or "").strip().lower()
     if source_kind not in _REVIEW_SOURCE_KINDS and not (tags & _REVIEW_SOURCE_TAGS):
         return False
     return not _has_explicit_boundary(item)
+
+
+def _has_unacknowledged_topic_candidate(
+    item: MemoryItem,
+    *,
+    body: str,
+    store: ItemsStore,
+) -> bool:
+    scope = (item.tenant_id or "", item.project or "")
+    if not any(scope):
+        return False
+    candidate_terms = topic_recency_terms(ContextCandidate(item, body=body))
+    # ponytail: source-of-truth scan is simplest; move to an index only if
+    # measured write latency becomes a problem for large catalogs.
+    for existing, existing_body in store.iter_all():
+        if (
+            existing.id == item.id
+            or existing.id in item.refs.mems
+            or existing.superseded_by
+            or str(getattr(existing.type, "value", existing.type))
+            not in SOURCE_REQUIRED_TYPES
+            or REVIEW_REQUIRED_TAGS & {tag.strip().lower() for tag in existing.tags}
+            or (existing.tenant_id or "", existing.project or "") != scope
+        ):
+            continue
+        existing_terms = topic_recency_terms(
+            ContextCandidate(existing, body=existing_body)
+        )
+        if len(candidate_terms & existing_terms) >= _WRITE_TOPIC_MIN_SHARED_TERMS:
+            return True
+    return False
 
 
 def _has_explicit_boundary(item: MemoryItem) -> bool:

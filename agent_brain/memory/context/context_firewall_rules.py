@@ -45,6 +45,7 @@ TEMPORAL_CONFLICT_ANCHORS = (
 TEMPORAL_SCOPE_FIELDS = ("cwd", "repo", "branch", "os", "adapter")
 TOPIC_RECENCY_TYPES = {"fact", "decision", "signal", "handoff"}
 TOPIC_TERM_RE = re.compile(r"[a-z0-9][a-z0-9_.-]{2,}|[\u4e00-\u9fff]{2,}")
+_CJK_RUN_RE = re.compile(r"[\u4e00-\u9fff]{2,}")
 TOPIC_RECENCY_STOPWORDS = {
     "after",
     "before",
@@ -241,11 +242,22 @@ def topic_recency_terms(candidate: ContextCandidate) -> set[str]:
         item.summary,
         " ".join(item.tags),
     ]).lower()
-    return {
+    terms = {
         term.strip("._-")
         for term in TOPIC_TERM_RE.findall(text)
         if term.strip("._-") and term.strip("._-") not in TOPIC_RECENCY_STOPWORDS
     }
+    for run in _CJK_RUN_RE.findall(text):
+        # ponytail: bounded character n-grams avoid a language dependency; use a
+        # real tokenizer only if measured precision or write latency demands it.
+        bounded = run[:128]
+        for size in (2, 3, 4):
+            terms.update(
+                bounded[index:index + size]
+                for index in range(max(0, len(bounded) - size + 1))
+                if bounded[index:index + size] not in TOPIC_RECENCY_STOPWORDS
+            )
+    return terms
 
 
 def age_days(created_at: datetime, now: datetime) -> int:

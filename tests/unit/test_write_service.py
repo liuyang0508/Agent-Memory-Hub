@@ -595,6 +595,124 @@ def test_write_marks_unbounded_harvested_memory_as_review_candidate(tmp_brain):
     )
 
 
+@pytest.mark.parametrize("item_type", [MemoryType.fact, MemoryType.decision])
+def test_write_marks_unsourced_manual_durable_memory_for_review(tmp_brain, item_type):
+    svc = WriteService.for_brain(tmp_brain)
+    item = _item(title=f"manual {item_type} without evidence", type=item_type)
+
+    res = svc.write(item=item, body="unverified durable claim", allow_unsafe=True)
+
+    stored, _body = svc._store.get(item.id)
+    assert res.status == "written"
+    assert {"needs-review", "unverified-boundary"} <= set(stored.tags)
+    assert stored.confidence <= 0.35
+    assert (
+        "memory item lacks explicit validity/source boundary; marked needs-review"
+        in res.warnings
+    )
+
+
+@pytest.mark.parametrize(
+    ("role", "summary"),
+    [
+        ("operations", "本周活动转化率已经达到目标"),
+        ("product", "灰度实验支持发布新入口"),
+        ("legal", "该合同条款适用于当前法域"),
+        ("finance", "本季度收入已经完成审计"),
+    ],
+)
+def test_write_uses_same_source_rule_for_every_profession(tmp_brain, role, summary):
+    svc = WriteService.for_brain(tmp_brain)
+    item = _item(title=f"{role} verified conclusion", type=MemoryType.fact).model_copy(
+        update={
+            "summary": summary,
+            "project": "shared-business-scope",
+            "refs": Refs(urls=[f"https://example.test/{role}/evidence"]),
+        }
+    )
+
+    res = svc.write(item=item, body=summary, allow_unsafe=True)
+
+    stored, _body = svc._store.get(item.id)
+    assert res.status == "written"
+    assert "needs-review" not in stored.tags
+    assert "unverified-boundary" not in stored.tags
+
+
+def test_write_quarantines_unacknowledged_same_scope_topic_candidate(tmp_brain):
+    store = ItemsStore(tmp_brain / "items")
+    existing = _item(
+        title="客户评分配置权限仍需按分析方案核验",
+        type=MemoryType.fact,
+    ).model_copy(
+        update={
+            "project": "customer-operations",
+            "summary": "客户评分配置权限尚未覆盖当前分析方案口径",
+            "refs": Refs(urls=["https://example.test/product/permission-review"]),
+        }
+    )
+    store.write(existing, "verified product review")
+    candidate = _item(
+        title="客户评分配置权限无需再次调整",
+        type=MemoryType.decision,
+    ).model_copy(
+        update={
+            "project": "customer-operations",
+            "summary": "客户评分配置权限已经覆盖当前分析方案口径",
+            "refs": Refs(urls=["https://example.test/meeting/decision"]),
+        }
+    )
+
+    res = WriteService.for_brain(tmp_brain).write(
+        item=candidate,
+        body="new decision without acknowledging the existing fact",
+        allow_unsafe=True,
+    )
+
+    stored, _body = store.get(candidate.id)
+    assert res.status == "written"
+    assert {"needs-review", "unverified-boundary"} <= set(stored.tags)
+
+
+def test_write_accepts_acknowledged_same_scope_topic_candidate(tmp_brain):
+    store = ItemsStore(tmp_brain / "items")
+    existing = _item(
+        title="客户评分配置权限仍需按分析方案核验",
+        type=MemoryType.fact,
+    ).model_copy(
+        update={
+            "project": "customer-operations",
+            "summary": "客户评分配置权限尚未覆盖当前分析方案口径",
+            "refs": Refs(urls=["https://example.test/product/permission-review"]),
+        }
+    )
+    store.write(existing, "verified product review")
+    candidate = _item(
+        title="客户评分配置权限调整结论",
+        type=MemoryType.decision,
+    ).model_copy(
+        update={
+            "project": "customer-operations",
+            "summary": "客户评分配置权限已按当前分析方案口径调整",
+            "refs": Refs(
+                urls=["https://example.test/meeting/approved-decision"],
+                mems=[existing.id],
+            ),
+        }
+    )
+
+    res = WriteService.for_brain(tmp_brain).write(
+        item=candidate,
+        body="decision explicitly considers the existing fact",
+        allow_unsafe=True,
+    )
+
+    stored, _body = store.get(candidate.id)
+    assert res.status == "written"
+    assert "needs-review" not in stored.tags
+    assert "unverified-boundary" not in stored.tags
+
+
 def test_write_keeps_sourced_harvested_memory_in_normal_pool(tmp_brain):
     svc = WriteService.for_brain(tmp_brain)
     item = _item(title="sourced harvested workflow", type=MemoryType.episode).model_copy(
