@@ -54,4 +54,4 @@ jobs:
           scp -i ~/.ssh/aihub_deploy_key -P "$AIHUB_SSH_PORT" deploy/telemetry_server.py "$remote:$AIHUB_WEB_ROOT/.telemetry/telemetry_server.py"
           scp -i ~/.ssh/aihub_deploy_key -P "$AIHUB_SSH_PORT" deploy/nginx-telemetry-location.conf "$remote:$AIHUB_WEB_ROOT/.telemetry/nginx-location.conf.example"
           ssh -i ~/.ssh/aihub_deploy_key -p "$AIHUB_SSH_PORT" "$remote" \
-            "if systemctl --user is-active --quiet agent-memory-hub-telemetry.service 2>/dev/null; then systemctl --user restart agent-memory-hub-telemetry.service; fi"
+            "if systemctl is-active --quiet agent-memory-hub-telemetry.service 2>/dev/null; then systemctl restart agent-memory-hub-telemetry.service; elif systemctl --user is-active --quiet agent-memory-hub-telemetry.service 2>/dev/null; then systemctl --user restart agent-memory-hub-telemetry.service; fi"

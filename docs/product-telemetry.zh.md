@@ -45,8 +45,7 @@ curl -fsSL https://github.com/liuyang0508/agent-memory-hub/releases/latest/downl
 `deploy/telemetry_server.py` 上传到 `$AIHUB_WEB_ROOT/.telemetry/`；首次部署
 仍需在官网服务器完成一次 systemd 与 Nginx 配置。
 
-用户级 systemd 服务示例（把 `/var/www/aihub` 替换为实际
-`$AIHUB_WEB_ROOT`）：
+官网生产环境使用独立的低权限 systemd 服务：
 
 ```ini
 [Unit]
@@ -55,20 +54,27 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/python3 /var/www/aihub/.telemetry/telemetry_server.py
+User=amh-telemetry
+Group=amh-telemetry
+ExecStart=/usr/bin/python3.11 /var/www/agent-memory-hub/current/.telemetry/telemetry_server.py --database /var/lib/agent-memory-hub/telemetry.sqlite3
 Restart=on-failure
 RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/agent-memory-hub
 
 [Install]
-WantedBy=default.target
+WantedBy=multi-user.target
 ```
 
-将它保存到
-`~/.config/systemd/user/agent-memory-hub-telemetry.service`，然后执行：
+将它保存到 `/etc/systemd/system/agent-memory-hub-telemetry.service`，创建
+`amh-telemetry` 系统用户及其数据目录后执行：
 
 ```bash
-systemctl --user daemon-reload
-systemctl --user enable --now agent-memory-hub-telemetry.service
+systemctl daemon-reload
+systemctl enable --now agent-memory-hub-telemetry.service
 curl -fsS http://127.0.0.1:8790/healthz
 ```
 
@@ -80,8 +86,9 @@ curl -fsS http://127.0.0.1:8790/healthz
 curl -fsS https://aihub0508.com/api/v1/telemetry/summary
 ```
 
-后续官网工作流检测到用户级 service 正在运行时，会在上传新服务端代码后自动
-restart；未安装 service 时仍只部署静态官网，不会误启动后台进程。
+后续官网工作流检测到 system service（或兼容的用户级 service）正在运行时，
+会在上传新服务端代码后自动 restart；未安装 service 时仍只部署静态官网，
+不会误启动后台进程。
 
 ## 接口
 
