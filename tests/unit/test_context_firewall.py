@@ -212,7 +212,7 @@ def test_temporal_state_conflict_keeps_newer_runtime_state() -> None:
     assert "temporal_state_conflict_newer" in excluded.reasons
 
 
-def test_topic_recency_conflict_keeps_newer_same_topic_fact() -> None:
+def test_topic_conflict_keeps_durable_candidates_and_requires_verification() -> None:
     from agent_brain.memory.context.context_firewall import ContextCandidate, ContextFirewall
 
     old = _item(
@@ -242,10 +242,76 @@ def test_topic_recency_conflict_keeps_newer_same_topic_fact() -> None:
         query="realbox api endpoint",
     )
 
+    assert [d.candidate.item.id for d in result.included] == [old.id, newer.id]
+    assert "topic_conflict_requires_verification" in result.cohort_reasons
+
+
+def test_topic_conflict_supports_cross_type_chinese_business_knowledge() -> None:
+    from agent_brain.memory.context.context_firewall import ContextCandidate, ContextFirewall
+
+    product_fact = _item(
+        "product-permission-fact",
+        "fact",
+        "客户评分配置权限仍需按分析方案核验",
+        "客户评分配置权限尚未覆盖当前分析方案口径",
+        days_ago=2,
+        refs={"urls": ["https://example.test/product/review"]},
+        tags=["customer", "permission"],
+    )
+    operations_decision = _item(
+        "operations-permission-decision",
+        "decision",
+        "客户评分配置权限无需再次调整",
+        "客户评分配置权限已经覆盖当前分析方案口径",
+        refs={"urls": ["https://example.test/operations/meeting"]},
+        tags=["customer", "permission"],
+    )
+
+    result = ContextFirewall(now=NOW).filter(
+        [
+            ContextCandidate(product_fact, score=10.0),
+            ContextCandidate(operations_decision, score=3.0),
+        ],
+        query="customer permission",
+    )
+
+    assert [d.candidate.item.id for d in result.included] == [
+        product_fact.id,
+        operations_decision.id,
+    ]
+    assert result.excluded == []
+    assert result.cohort_reasons == ("topic_conflict_requires_verification",)
+
+
+def test_topic_recency_still_keeps_newer_process_state() -> None:
+    from agent_brain.memory.context.context_firewall import ContextCandidate, ContextFirewall
+
+    old = _item(
+        "handoff-old",
+        "handoff",
+        "合同审批交接状态",
+        "合同审批正在等待法务复核",
+        days_ago=2,
+        tags=["contract", "approval", "handoff"],
+    )
+    newer = _item(
+        "handoff-new",
+        "handoff",
+        "合同审批交接状态",
+        "合同审批已经转交财务复核",
+        tags=["contract", "approval", "handoff"],
+    )
+
+    result = ContextFirewall(now=NOW).filter(
+        [
+            ContextCandidate(old, score=10.0),
+            ContextCandidate(newer, score=3.0),
+        ],
+        query="contract approval handoff",
+    )
+
     assert [d.candidate.item.id for d in result.included] == [newer.id]
-    excluded = _decision_by_id(result, old.id)
-    assert excluded.action == "exclude"
-    assert "topic_recency_newer" in excluded.reasons
+    assert "topic_recency_newer" in _decision_by_id(result, old.id).reasons
 
 
 def test_topic_recency_conflict_requires_specific_overlap() -> None:

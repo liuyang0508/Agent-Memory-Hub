@@ -435,6 +435,11 @@ def _serialize_routes(
 
 def _render_included_context(injection: InjectionResult) -> str:
     blocks: list[str] = []
+    if "topic_conflict_requires_verification" in injection.cohort_reasons:
+        blocks.append(
+            "⚠ 检测到可能冲突的长期记忆；不得按新旧或置信度选边，"
+            "请核验当前领域的权威来源。"
+        )
     for entry in injection.included:
         item = entry.decision.candidate.item
         pack = entry.pack

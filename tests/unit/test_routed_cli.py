@@ -113,6 +113,25 @@ def test_hook_payload_has_exact_stable_keys_and_json_contract() -> None:
     assert decoded["context"] == "safe packed context"
 
 
+def test_rendered_hook_context_warns_about_durable_topic_conflict() -> None:
+    from agent_brain.interfaces.cli.routed_query import _render_included_context
+
+    value = _item("conflict-warning")
+    injection = InjectionResult(
+        included=[_included(value, "packed candidate")],
+        excluded=[],
+        cohort_reasons=("topic_conflict_requires_verification",),
+        used_tokens=2,
+        full_tokens=2,
+    )
+
+    context = _render_included_context(injection)
+
+    assert context.startswith("⚠ 检测到可能冲突的长期记忆")
+    assert "不得按新旧或置信度选边" in context
+    assert value.id in context
+
+
 def test_execute_routed_query_uses_full_query_hard_project_scope_and_final_access_only(
     tmp_path,
     monkeypatch,
