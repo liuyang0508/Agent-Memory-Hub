@@ -125,5 +125,9 @@ def test_official_site_contains_live_privacy_bounded_dashboard() -> None:
     assert "/api/v1/telemetry/summary" in site
     assert "memory telemetry enable" in site
     assert "不采集姓名、账号、IP、目录、提示词或记忆内容" in site
+    assert "const telemetryInstallBaseline = 369;" in site
+    assert 'id="metric-active-24h"' not in site
+    assert 'id="community"' not in site
+    assert "agent-memory-hub-wechat-community-qr-current.jpg" not in site
     assert "location = /api/v1/telemetry/event" in nginx
     assert "proxy_pass http://127.0.0.1:8790" in nginx

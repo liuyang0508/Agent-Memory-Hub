@@ -4140,10 +4140,13 @@
 
     .adoption-section {
       background:
-        linear-gradient(90deg, rgba(89,184,255,0.07) 1px, transparent 1px),
-        linear-gradient(180deg, rgba(89,184,255,0.06) 1px, transparent 1px),
-        linear-gradient(180deg, #f8fdff, #f5fbff);
-      background-size: 54px 54px, 54px 54px, auto;
+        linear-gradient(90deg, rgba(89,184,255,0.10) 1px, transparent 1px),
+        linear-gradient(180deg, rgba(89,184,255,0.09) 1px, transparent 1px),
+        radial-gradient(circle at 12% 12%, rgba(232,121,180,0.18), transparent 30rem),
+        radial-gradient(circle at 88% 8%, rgba(85,185,255,0.30), transparent 34rem),
+        radial-gradient(circle at 58% 92%, rgba(132,231,168,0.24), transparent 36rem),
+        linear-gradient(135deg, #dff5ff 0%, #edf7ff 46%, #e8fbea 100%);
+      background-size: 54px 54px, 54px 54px, auto, auto, auto, auto;
     }
 
     .adoption-heading {
@@ -4191,7 +4194,7 @@
 
     .adoption-metrics {
       display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
+      grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 12px;
       margin-top: 28px;
     }
@@ -4199,15 +4202,23 @@
     .adoption-metrics article,
     .adoption-panel,
     .adoption-consent {
-      border: 1px solid rgba(85,185,255,0.18);
-      background: rgba(255,255,255,0.82);
-      box-shadow: 0 20px 46px rgba(45,103,148,0.07), inset 0 1px 0 rgba(255,255,255,0.94);
+      border: 1px solid rgba(85,185,255,0.26);
+      background: linear-gradient(145deg, rgba(232,247,255,0.94), rgba(229,249,240,0.88));
+      box-shadow: 0 22px 54px rgba(45,103,148,0.11), inset 0 1px 0 rgba(255,255,255,0.86);
     }
 
     .adoption-metrics article {
       min-height: 168px;
       padding: 20px;
       border-radius: 22px;
+    }
+
+    .adoption-metrics article:first-child {
+      background: linear-gradient(135deg, rgba(198,237,255,0.96), rgba(229,241,255,0.90));
+    }
+
+    .adoption-metrics article:last-child {
+      background: linear-gradient(135deg, rgba(211,249,231,0.94), rgba(229,242,255,0.90));
     }
 
     .adoption-metrics span,
@@ -4286,7 +4297,6 @@
     }
 
     .trend-legend i.install { background: #55b9ff; }
-    .trend-legend i.active { margin-left: 7px; background: #84e7a8; }
 
     .adoption-trend {
       min-height: 238px;
@@ -4320,10 +4330,6 @@
       min-height: 3px;
       border-radius: 5px 5px 2px 2px;
       background: linear-gradient(180deg, #8ed1ff, #55b9ff);
-    }
-
-    .trend-bars i.active {
-      background: linear-gradient(180deg, #b8f4cc, #4aca91);
     }
 
     .trend-day small {
@@ -5135,7 +5141,6 @@
           <a href="#capabilities">核心能力</a>
           <a href="#benchmark">评测报告</a>
           <a href="https://gitee.com/liuyang0508/Agent-Memory-Hub">Gitee 镜像</a>
-          <a href="#community">技术共创群</a>
         </nav>
         <a class="redesign-cta" href="#quick-access">Start</a>
       </div>
@@ -5304,23 +5309,21 @@
           <div class="adoption-heading">
             <div>
               <p class="section-label">Live adoption</p>
-              <h2>匿名安装与活跃脉搏</h2>
-              <p class="section-copy">实时展示主动加入匿名统计的安装实例，不代表全部用户，也不是实名用户清单。只统计随机 ID、系统、架构、版本、安装渠道和 Agent 类型；不采集姓名、账号、IP、目录、提示词或记忆内容。公开事件用于运营趋势，不作为计费或审计依据。</p>
+              <h2>匿名安装趋势</h2>
+              <p class="section-copy">累计安装以 369 个历史安装实例为上线基线，最近 24 小时、趋势和分布来自后续主动加入的匿名统计，不代表全部用户，也不是实名用户清单。只统计随机 ID、系统、架构、版本、安装渠道和 Agent 类型；不采集姓名、账号、IP、目录、提示词或记忆内容。</p>
             </div>
             <div class="adoption-status" id="adoption-status" role="status"><i></i><span>正在连接数据服务</span></div>
           </div>
 
           <div class="adoption-metrics" aria-label="Anonymous adoption metrics">
-            <article><span>匿名安装实例</span><strong id="metric-total">—</strong><small>自愿加入统计的去重设备</small></article>
-            <article><span>最近 24h 新安装</span><strong id="metric-installed-24h">—</strong><small>安装事件去重</small></article>
-            <article><span>24h 活跃</span><strong id="metric-active-24h">—</strong><small>至少一次 Agent runtime 心跳</small></article>
-            <article><span>7d 活跃</span><strong id="metric-active-7d">—</strong><small>匿名活跃实例</small></article>
+            <article><span>累计安装实例</span><strong id="metric-total">369</strong><small>历史安装基线 + 上线后匿名实例</small></article>
+            <article><span>最近 24h 新安装</span><strong id="metric-installed-24h">0</strong><small>匿名安装事件去重</small></article>
           </div>
 
           <div class="adoption-grid">
             <article class="adoption-panel trend-panel">
-              <div class="adoption-panel-head"><div><span>14 天趋势</span><small>每日去重实例</small></div><div class="trend-legend"><i class="install"></i>安装<i class="active"></i>活跃</div></div>
-              <div class="adoption-trend" id="adoption-trend" aria-label="14-day install and active trend"></div>
+              <div class="adoption-panel-head"><div><span>14 天安装趋势</span><small>每日新增匿名实例</small></div><div class="trend-legend"><i class="install"></i>安装</div></div>
+              <div class="adoption-trend" id="adoption-trend" aria-label="14-day install trend"></div>
             </article>
             <article class="adoption-panel">
               <div class="adoption-panel-head"><div><span>使用分布</span><small>Top categories</small></div></div>
@@ -5335,7 +5338,7 @@
               <div class="adoption-panel-head"><div><span>最近加入</span><small>匿名 ID 由服务端二次摘要</small></div><time id="adoption-updated">—</time></div>
               <div class="adoption-table-wrap">
                 <table class="adoption-table">
-                  <thead><tr><th>实例</th><th>平台</th><th>Agent</th><th>版本</th><th>渠道</th><th>最近活跃</th></tr></thead>
+                  <thead><tr><th>实例</th><th>平台</th><th>Agent</th><th>版本</th><th>渠道</th><th>首次安装</th></tr></thead>
                   <tbody id="adoption-recent"><tr><td colspan="6">正在读取匿名使用数据…</td></tr></tbody>
                 </table>
               </div>
@@ -5343,7 +5346,7 @@
           </div>
 
           <div class="adoption-consent">
-            <div><strong>默认关闭，用户自己决定。</strong><span>启用后每小时最多发送一次活跃心跳，所有出站请求写入本机 audit log。</span></div>
+            <div><strong>默认关闭，用户自己决定。</strong><span>官网当前只展示匿名安装数据；运行活跃能力保留在后端，待数据规模足够后再开放。所有出站请求写入本机 audit log。</span></div>
             <code>memory telemetry enable</code>
             <code>memory telemetry status</code>
             <code>memory telemetry disable</code>
@@ -5415,64 +5418,6 @@
         </div>
       </section>
 
-      <section class="redesign-section" id="community">
-        <div class="redesign-wrap welcome-panel">
-          <div class="co-create-copy">
-            <p class="section-label">Co-create</p>
-            <h2><span>欢迎把它用坏</span><span class="co-title-second">也欢迎一起把它修好</span></h2>
-            <p>Agent Memory Hub 还不是“万能记忆答案”，它更像一套本地优先、证据优先的上下文基础设施。技术交流群统一命名为 Agent Memory Hub 技术共创群，用来承接真实工作流、失败案例、评测样本、adapter 证据和治理建议。</p>
-            <div class="co-create-loop" aria-label="Co-create feedback loop">
-              <div class="loop-step"><b>collect</b><span>保留真实失败样本、链路日志、adapter 证据。</span></div>
-              <div class="loop-step"><b>verify</b><span>复现问题，写进 recall gap、benchmark 和 doctor。</span></div>
-              <div class="loop-step"><b>ship</b><span>把修复沉淀成可回归的策略、报告和能力边界。</span></div>
-            </div>
-          </div>
-          <div class="co-create-board">
-            <div class="contribution-grid" aria-label="Contribution input channels">
-              <article class="contribution-card">
-                <i>01</i>
-                <strong>真实工作流</strong>
-                <p>多 Agent 接力、历史同步、弱 prompt、跨窗口承接和本地文件证据。</p>
-              </article>
-              <article class="contribution-card">
-                <i>02</i>
-                <strong>失败案例</strong>
-                <p>误召回、漏召回、噪声注入、过期事实和无法解释的链路输出。</p>
-              </article>
-              <article class="contribution-card">
-                <i>03</i>
-                <strong>评测样本</strong>
-                <p>可以复跑的 query、期望 memory、source 边界和判定理由。</p>
-              </article>
-              <article class="contribution-card">
-                <i>04</i>
-                <strong>技术共创群</strong>
-                <p>Agent Memory Hub 技术共创群，长期讨论安装、适配器、召回、治理和路线建议。</p>
-              </article>
-            </div>
-            <figure class="community-qr-card" aria-label="Agent Memory Hub 技术共创群微信群二维码">
-              <figcaption>
-                <strong>扫码加入 Agent Memory Hub 技术共创群</strong>
-                <p>用于安装支持、适配器接入、召回问题反馈、评测样本共创和路线讨论。官网社区入口会展示当前可用的微信群二维码；如果微信群二维码过期，请刷新官网或在 GitHub / Gitee issue 留言获取新入口。</p>
-              </figcaption>
-              <img src="../assets/agent-memory-hub-wechat-community-qr-current.jpg" data-refresh-src="../assets/agent-memory-hub-wechat-community-qr-current.jpg" alt="Agent Memory Hub 技术共创群当前微信群二维码">
-            </figure>
-            <div class="governance-card" aria-label="Co-create governance output">
-              <div>
-                <strong>每个问题都应该回到证据账本，而不是停在感觉上。</strong>
-                <p>AMH 会把共创反馈落到运行事件、recall gap、task outcome、文档真值和 benchmark 报告里，后续改动必须能被重新验证。微信群二维码过期后，也可以在 GitHub / Gitee issue 留言获取新入口。</p>
-              </div>
-              <div class="governance-meter" aria-hidden="true"><span>feedback<br>loop</span></div>
-            </div>
-            <div class="welcome-actions">
-              <a href="#quick-access">快速接入</a>
-              <a class="secondary" href="https://gitee.com/liuyang0508/Agent-Memory-Hub">Gitee 镜像</a>
-              <a class="secondary" href="https://gitee.com/liuyang0508/Agent-Memory-Hub/blob/main/README.zh.md">阅读 README</a>
-              <a class="secondary" href="https://github.com/liuyang0508/agent-memory-hub/blob/main/docs/evaluation/amh-full-ranking-optimized-full/latest-memory-benchmark-report.zh.md">评测报告</a>
-            </div>
-          </div>
-        </div>
-      </section>
     </main>
 
     <footer class="redesign-footer">
@@ -5497,8 +5442,7 @@
             <a href="#capabilities">Obsidian / Wiki</a>
           </div>
           <div>
-            <h3>社区与入口</h3>
-            <a href="#community">Agent Memory Hub 技术共创群</a>
+            <h3>项目入口</h3>
             <a href="https://github.com/liuyang0508/agent-memory-hub/">GitHub 主仓库</a>
             <a href="https://gitee.com/liuyang0508/Agent-Memory-Hub">Gitee 国内镜像</a>
             <div class="footer-social">
@@ -5823,12 +5767,6 @@
   </footer>
 
   <script>
-    document.querySelectorAll('[data-refresh-src]').forEach((image) => {
-      const src = image.getAttribute('data-refresh-src');
-      if (!src) return;
-      image.src = `${src}?t=${Date.now()}`;
-    });
-
     document.querySelectorAll('[data-copy]').forEach((button) => {
       button.addEventListener('click', async () => {
         const text = button.getAttribute('data-copy') || '';
@@ -5868,6 +5806,7 @@
       });
     });
 
+    const telemetryInstallBaseline = 369;
     const telemetryNumber = new Intl.NumberFormat('zh-CN');
     const telemetryText = (value) => String(value || 'unknown')
       .replace(/[<>&"'`]/g, (character) => ({
@@ -5879,18 +5818,17 @@
       const target = document.getElementById(id);
       target.innerHTML = rows && rows.length
         ? rows.map((row) => `<span>${telemetryText(row.name)} · ${telemetryNumber.format(row.count)}</span>`).join('')
-        : '<span>暂无数据</span>';
+        : '<span>等待新增数据</span>';
     }
 
     function renderTelemetryTrend(rows) {
       const target = document.getElementById('adoption-trend');
-      const maximum = Math.max(1, ...rows.flatMap((row) => [row.installs, row.active]));
+      const maximum = Math.max(1, ...rows.map((row) => row.installs));
       target.innerHTML = rows.map((row) => {
         const installHeight = Math.max(3, Math.round(row.installs / maximum * 174));
-        const activeHeight = Math.max(3, Math.round(row.active / maximum * 174));
         const label = row.day.slice(5).replace('-', '/');
-        return `<div class="trend-day" title="${telemetryText(row.day)} · 安装 ${row.installs} · 活跃 ${row.active}">
-          <div class="trend-bars"><i style="height:${installHeight}px"></i><i class="active" style="height:${activeHeight}px"></i></div>
+        return `<div class="trend-day" title="${telemetryText(row.day)} · 安装 ${row.installs}">
+          <div class="trend-bars"><i style="height:${installHeight}px"></i></div>
           <small>${label}</small>
         </div>`;
       }).join('');
@@ -5912,10 +5850,8 @@
         const contentType = response.headers.get('content-type') || '';
         if (!response.ok || !contentType.includes('application/json')) throw new Error('telemetry API unavailable');
         const data = await response.json();
-        document.getElementById('metric-total').textContent = telemetryNumber.format(data.total_instances);
+        document.getElementById('metric-total').textContent = telemetryNumber.format(telemetryInstallBaseline + data.total_instances);
         document.getElementById('metric-installed-24h').textContent = telemetryNumber.format(data.installed_24h);
-        document.getElementById('metric-active-24h').textContent = telemetryNumber.format(data.active_24h);
-        document.getElementById('metric-active-7d').textContent = telemetryNumber.format(data.active_7d);
         renderTelemetryTrend(data.trend || []);
         renderTelemetryBreakdown('breakdown-platform', data.breakdowns && data.breakdowns.platform);
         renderTelemetryBreakdown('breakdown-adapter', data.breakdowns && data.breakdowns.adapter);
@@ -5923,8 +5859,8 @@
         renderTelemetryBreakdown('breakdown-channel', data.breakdowns && data.breakdowns.channel);
         const recent = data.recent || [];
         document.getElementById('adoption-recent').innerHTML = recent.length
-          ? recent.map((row) => `<tr><td>${telemetryText(row.id)}</td><td>${telemetryText(row.platform)}</td><td>${telemetryText(row.adapter)}</td><td>${telemetryText(row.product_version)}</td><td>${telemetryText(row.channel)}</td><td>${relativeTelemetryTime(row.last_active)}</td></tr>`).join('')
-          : '<tr><td colspan="6">等待第一位主动加入匿名统计的用户。</td></tr>';
+          ? recent.map((row) => `<tr><td>${telemetryText(row.id)}</td><td>${telemetryText(row.platform)}</td><td>${telemetryText(row.adapter)}</td><td>${telemetryText(row.product_version)}</td><td>${telemetryText(row.channel)}</td><td>${relativeTelemetryTime(row.first_seen)}</td></tr>`).join('')
+          : '<tr><td colspan="6">累计安装采用历史基线；等待新的匿名 opt-in 安装事件。</td></tr>';
         document.getElementById('adoption-updated').textContent = `更新于 ${new Date(data.generated_at).toLocaleTimeString('zh-CN', {hour12: false})}`;
         status.className = 'adoption-status live';
         status.querySelector('span').textContent = '实时数据 · 每 15 秒刷新';

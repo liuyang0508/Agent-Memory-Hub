@@ -7,7 +7,6 @@ on:
       - main
     paths:
       - docs/visuals/agent-memory-hub-official-site.html
-      - docs/assets/agent-memory-hub-wechat-community-qr-current.jpg
       - deploy/telemetry_server.py
       - deploy/nginx-telemetry-location.conf
       - docs/product-telemetry.zh.md
@@ -50,7 +49,6 @@ jobs:
           remote="${AIHUB_SSH_USER}@${AIHUB_SSH_HOST}"
           ssh -i ~/.ssh/aihub_deploy_key -p "$AIHUB_SSH_PORT" "$remote" "mkdir -p '$AIHUB_WEB_ROOT/assets' '$AIHUB_WEB_ROOT/.telemetry'"
           scp -i ~/.ssh/aihub_deploy_key -P "$AIHUB_SSH_PORT" docs/visuals/agent-memory-hub-official-site.html "$remote:$AIHUB_WEB_ROOT/index.html"
-          scp -i ~/.ssh/aihub_deploy_key -P "$AIHUB_SSH_PORT" docs/assets/agent-memory-hub-wechat-community-qr-current.jpg "$remote:$AIHUB_WEB_ROOT/assets/agent-memory-hub-wechat-community-qr-current.jpg"
           scp -i ~/.ssh/aihub_deploy_key -P "$AIHUB_SSH_PORT" deploy/telemetry_server.py "$remote:$AIHUB_WEB_ROOT/.telemetry/telemetry_server.py"
           scp -i ~/.ssh/aihub_deploy_key -P "$AIHUB_SSH_PORT" deploy/nginx-telemetry-location.conf "$remote:$AIHUB_WEB_ROOT/.telemetry/nginx-location.conf.example"
           ssh -i ~/.ssh/aihub_deploy_key -p "$AIHUB_SSH_PORT" "$remote" \
