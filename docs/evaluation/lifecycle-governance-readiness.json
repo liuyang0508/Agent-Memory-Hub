@@ -14,7 +14,7 @@
     "observed_drift_count": 1,
     "status": "pass"
   },
-  "implementation_hash": "sha256:f6ef5f3387f0676a58d6d005a7348efffe8bbb074ceb24c17fd77e31233893c8",
+  "implementation_hash": "sha256:e97f6868cebda477d87105c3fc47450e1b7eea80999e296e3ddb0adcaa644218",
   "implementation_manifest": [
     {
       "path": "agent_brain/agent_integrations/hermes/import_export_tools.py",
@@ -46,7 +46,7 @@
     },
     {
       "path": "agent_brain/interfaces/cli/commands/review.py",
-      "sha256": "sha256:33b9c188b51184317a8a1549500311f4dff70b924f8bd92cf07eb1e49dc95ab3"
+      "sha256": "sha256:081b5882c6f5e4babe1170bf89461afac0abe75a8c561cab62bfdadbf1291094"
     },
     {
       "path": "agent_brain/interfaces/cli/commands/subapps.py",
@@ -162,7 +162,7 @@
     },
     {
       "path": "agent_brain/product/governance_readiness.py",
-      "sha256": "sha256:d7d877e71a47022afa3dda011410821fd0abeea9fa9eb77e9577992c0003feda"
+      "sha256": "sha256:4499a0b82db633610532670d4bdf1e9d4fbf028ba84db26262cafd4daae832d2"
     },
     {
       "path": "web/api/routes/governance.py",

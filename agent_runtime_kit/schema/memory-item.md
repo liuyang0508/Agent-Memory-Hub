@@ -132,4 +132,6 @@ refs:
 
 - v0/v0.1 的 `agent_runtime_kit/templates/handoff-code.md` 和 `handoff-task.md` 仍然有效
 - 它们现在是 **type=handoff 的 memory item 的正文模板**
-- v0.1 的 `agent_runtime_kit/tools/gen-handoff.sh` 仍然有效，但应改造成调用 `write-memory.sh --type handoff`（v0.2.1 做）
+- v0.1 的 `agent_runtime_kit/tools/gen-handoff.sh` 仍可用于只生成草稿
+- 需要真正跨窗口/跨 Agent 续做时用 `memory handoff`，它会校验必填任务状态并通过
+  `WriteService` 写入共享大脑；下游用 `memory resume --fail-empty` 读取最新有效交接

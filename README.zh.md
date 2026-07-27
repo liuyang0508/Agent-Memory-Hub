@@ -201,11 +201,14 @@ memory govern readiness --format markdown
 memory govern plan --category lifecycle --format markdown
 memory govern plan --category lifecycle --format json
 memory govern apply-lifecycle <memory-id> --dry-run --format json
+memory hook summary --days 7
+memory review status --format json
 ```
 
 `memory doctor` 用来确认 CLI、数据目录、索引、hook / MCP 依赖是否可用。`memory govern readiness` 用来把发布可用性、长任务召回入口和记忆生命周期风险汇总成一张待治理表。doctor 通过后，再继续写入和召回。
 `memory govern plan --category lifecycle` 只生成 stale signal / handoff 的复核队列，不会自动归档或改写事实源。Markdown 给人逐条读；JSON 会额外输出 `review_queue`，便于 Web Admin 或脚本接人工确认流程。
 `memory govern apply-lifecycle` 默认 dry-run，只处理当前 `review_queue` 里的指定 ID；必须显式加 `--apply` 才会把匹配项移动到 `items/archived/`，未进入队列的 ID 会被跳过。
+`memory hook summary` 汇总指定时间窗内的注入量、反馈覆盖率、采用/拒绝/未评价比例、gap 原因、超时和隐私安全关键词；`memory review status` 会同时给出 review / pending 最老年龄和 SLA 告警。
 
 AMH 不会在 hook 里静默联网更新。换版本、移动 checkout、重装 release，或者 doctor 提示 hook path / `memory` shim 指向旧目录时，用显式命令修复：
 
@@ -216,6 +219,27 @@ memory self-update --repair-hooks
 ```
 
 `doctor --fix` 只修安装态漂移：重写 `~/.local/bin/memory` shim，并重装 Codex / Claude Code 这类核心 hook adapter。`self-update --dry-run` 只展示计划；`self-update --repair-hooks` 会基于当前 checkout 刷新安装状态和核心 hook。
+
+### 跨 Agent / 跨窗口无损续做
+
+切换 Agent 或停止未完成任务前，写一个结构化检查点。Git 状态自动采集；任务状态、下一步和验证方式是硬约束，不完整的 handoff 会被拒绝：
+
+```bash
+memory handoff \
+  --objective "完成召回质量门禁" \
+  --done "已加入真实 prompt 样本" \
+  --pending "尚未接入 readiness" \
+  --decision "复用 ContextFirewall | 保持策略一致 | 避免两套行为" \
+  --next "把样本接入发布门禁" \
+  --verify "pytest tests/unit/test_query_signal.py -q" \
+  --project agent-memory-hub \
+  --agent codex \
+  --target-agent claude_code
+
+memory resume --project agent-memory-hub --fail-empty
+```
+
+两条命令复用现有 Markdown 事实源、`WriteService`、敏感信息审计、TTL、注入网关和 `brief` 排序，不引入第二套 handoff 数据库。
 
 ### 3. 写入一条可复用记忆
 

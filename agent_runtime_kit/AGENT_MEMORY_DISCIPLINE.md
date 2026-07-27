@@ -76,7 +76,7 @@ memory conversation rebalance
 | `signal` | `**当前状态**` / `**影响**` / `**期望操作**` |
 | `episode` | `**情境**` / `**做了什么**` / `**结果**` / `**学到**` |
 | `artifact` | `**产出物**`（路径/链接） / `**用途**` |
-| `handoff` | 见 `agent_runtime_kit/templates/handoff-{code,task}.md` |
+| `handoff` | 优先用 `memory handoff` 生成完整结构；模板见 `agent_runtime_kit/templates/handoff-{code,task}.md` |
 
 ## 干活前先 query brain
 
@@ -106,7 +106,24 @@ memory conversation rebalance
 
 ## 承接工作时的上下文预算（resume budget）
 
-新会话承接半截工作时，**先跑 `memory brief`**（或 MCP `brief_memory`）——一次拿到
+跨 Agent、跨窗口或准备停止一个未完成任务前，用 `memory handoff` 写入结构化检查点；
+命令会自动采集 repo / branch / HEAD / working tree，并强制要求任务状态、下一步和验证方式：
+
+```bash
+memory handoff \
+  --objective "<一句话目标>" \
+  --done "<已完成项>" \
+  --pending "<未完成项>" \
+  --decision "<决策 | 理由 | 改回去的代价>" \
+  --next "<下一步可验证动作>" \
+  --verify "<验证命令和期望>" \
+  --project "<项目 slug>" \
+  --agent "<当前 agent>"
+```
+
+下一窗口优先执行 `memory resume --project <slug> --fail-empty`，直接读取通过注入网关
+筛选后的最新 handoff 全文。如果没有结构化 handoff，再跑 `memory brief`（或 MCP
+`brief_memory`）——一次拿到
 token 有界的全貌（开放 signal / 最近 handoff / 关键 decision / 最近 episode 的标题+摘要）。
 然后**只对真正需要的 1–3 条**执行 `memory read <id> --view detail --head 2000`
 或 MCP `read_memory(id, head=2000, view="detail")` 取证据正文。

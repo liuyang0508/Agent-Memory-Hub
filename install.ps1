@@ -126,9 +126,45 @@ if (-not (Test-InSourceCheckout $ScriptDir)) {
 }
 
 $CodeDir = $ScriptDir
-$Python = Get-Command python -ErrorAction SilentlyContinue
-if (-not $Python) {
-    $Python = Get-Command python3 -ErrorAction SilentlyContinue
+
+function Get-CompatiblePython {
+    $candidates = @()
+    if ($env:AMH_PYTHON) {
+        $candidates += $env:AMH_PYTHON
+    }
+    $candidates += @("python3.13", "python3.12", "python3.11", "python", "python3")
+    foreach ($candidate in $candidates) {
+        $command = Get-Command $candidate -ErrorAction SilentlyContinue
+        if (-not $command) {
+            continue
+        }
+        try {
+            $versionText = & $command.Source -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')"
+            $parts = $versionText.Split(".")
+            if ([int]$parts[0] -gt 3 -or ([int]$parts[0] -eq 3 -and [int]$parts[1] -ge 11)) {
+                return $command
+            }
+        } catch {
+            continue
+        }
+    }
+    return $null
+}
+
+$Python = Get-CompatiblePython
+$AdapterNames = if ($env:AMH_INSTALL_ADAPTERS) {
+    $env:AMH_INSTALL_ADAPTERS -split "\s+"
+} else {
+    @(
+        "codex", "claude_code", "wukong", "cursor", "cline", "continue_dev",
+        "hermes_agent", "qoder", "qoder_work", "aider", "github_copilot",
+        "aone_copilot", "openhuman", "opensquilla", "openclaw"
+    )
+}
+$CoreAdapterNames = if ($env:AMH_CORE_ADAPTERS) {
+    $env:AMH_CORE_ADAPTERS -split "\s+"
+} else {
+    @("codex", "claude_code")
 }
 
 if ($DryRun) {
@@ -149,6 +185,10 @@ if ($VerifyOnly) {
         "pyproject.toml",
         "agent_brain",
         "agent_runtime_kit/templates/remember.md.template",
+        "agent_runtime_kit/hooks/inject-context.sh",
+        "agent_runtime_kit/hooks/inject-discipline.sh",
+        "agent_runtime_kit/hooks/session-end-signal.sh",
+        "agent_runtime_kit/hooks/lifecycle-event.sh",
         "agent_runtime_kit/mcp/server.sh"
     )) {
         if (Test-Path (Join-Path $CodeDir $path)) {
@@ -183,7 +223,12 @@ if ($Uninstall) {
     Write-Host "Agent Memory Hub uninstall"
     Write-Host "  code: $CodeDir"
     Write-Host "  data: $BrainDir (kept)"
-    Write-Host "Uninstall on Windows currently removes no user data. Remove shortcuts or shell profile entries manually if you added them."
+    if ($Python) {
+        foreach ($adapter in $AdapterNames) {
+            & $Python.Source -m agent_brain.interfaces.cli adapter uninstall $adapter 2>$null
+        }
+    }
+    Write-Host "AMH-managed adapter configuration removed where available. User data is kept."
     exit 0
 }
 
@@ -204,8 +249,48 @@ if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }
 
-Write-Host "Agent Memory Hub installed."
+if (-not $Minimal) {
+    Write-Host "Configuring available Agent adapters..."
+    $installed = @()
+    $installFailed = @()
+    foreach ($adapter in $AdapterNames) {
+        & $Python.Source -m agent_brain.interfaces.cli adapter install $adapter
+        if ($LASTEXITCODE -eq 0) {
+            $installed += $adapter
+        } else {
+            $installFailed += $adapter
+            Write-Warning "Optional adapter was not configured: $adapter"
+        }
+    }
+
+    Write-Host "Verifying configured Agent adapters..."
+    $doctorOk = @()
+    $doctorFailed = @()
+    foreach ($adapter in $installed) {
+        & $Python.Source -m agent_brain.interfaces.cli adapter doctor $adapter
+        if ($LASTEXITCODE -eq 0) {
+            $doctorOk += $adapter
+        } else {
+            $doctorFailed += $adapter
+            Write-Warning "Adapter doctor did not pass: $adapter"
+        }
+    }
+    $coreFailed = @($CoreAdapterNames | Where-Object { $_ -notin $doctorOk })
+    if ($coreFailed.Count -gt 0) {
+        Write-Error "Core adapter install verification failed: $($coreFailed -join ', ')"
+        exit 1
+    }
+    if ($doctorFailed.Count -gt 0) {
+        Write-Host "optional_adapter_doctor_failures: $($doctorFailed -join ' ')"
+    }
+    if ($installFailed.Count -gt 0) {
+        Write-Host "optional_adapter_not_configured: $($installFailed -join ' ')"
+    }
+}
+
+Write-Host "Agent Memory Hub installed and core adapters verified."
 Write-Host "Run: memory doctor"
+Write-Host "Cross-agent resume: memory handoff --help; memory resume --fail-empty"
 Write-Host "Anonymous product telemetry is off by default. Enable with AMH_TELEMETRY=1."
 
 $InstallSource = if ($env:AMH_INSTALL_SOURCE) { $env:AMH_INSTALL_SOURCE } else { "powershell" }

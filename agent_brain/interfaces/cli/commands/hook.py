@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import json
+from collections import Counter
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -12,6 +14,53 @@ from agent_brain.interfaces.cli._app import hook_app
 from agent_brain.interfaces.cli._shared import _brain_dir, console
 from agent_brain.memory.context.injection_cohorts import iter_injection_cohorts
 from agent_brain.memory.governance.recall_events import iter_gap_records, iter_task_outcomes
+
+
+@hook_app.command("summary")
+def hook_summary(
+    days: int = typer.Option(7, "--days", min=1, help="UTC lookback window in days"),
+    format: str = typer.Option("table", "--format", help="Output format: table or json"),
+    adapter: str | None = typer.Option(None, "--adapter", help="Filter by adapter"),
+) -> None:
+    """Aggregate privacy-safe recall, injection, feedback, and timeout quality."""
+
+    rows = _recent_hook_rows(_brain_dir(), adapter=adapter, limit=0)
+    report = _build_hook_summary(rows, days=days)
+    if format == "json":
+        typer.echo(json.dumps(report, indent=2, ensure_ascii=False))
+        return
+    if format != "table":
+        typer.echo("format must be table or json", err=True)
+        raise typer.Exit(2)
+
+    table = Table(title=f"Hook Quality Summary ({days}d)")
+    table.add_column("metric")
+    table.add_column("value", justify="right")
+    records = report["records"]
+    feedback = report["feedback"]
+    table.add_row("injections", str(records["injections"]))
+    table.add_row("recall gaps", str(records["gaps"]))
+    table.add_row("feedback outcomes", str(records["outcomes"]))
+    table.add_row("timeouts", str(records["timeouts"]))
+    table.add_row("injected items", str(report["injected_items"]))
+    table.add_row("feedback coverage", _percent(feedback["cohort_coverage_rate"]))
+    table.add_row("adopted item rate", _percent(feedback["adopted_item_rate"]))
+    table.add_row("rejected item rate", _percent(feedback["rejected_item_rate"]))
+    table.add_row("unrated item rate", _percent(feedback["unrated_item_rate"]))
+    console.print(table)
+
+    if report["gap_reasons"]:
+        typer.echo(
+            "gap reasons: "
+            + ", ".join(f"{name}={count}" for name, count in report["gap_reasons"].items())
+        )
+    if report["top_keywords"]:
+        typer.echo(
+            "top keywords: "
+            + ", ".join(
+                f"{entry['keyword']}={entry['count']}" for entry in report["top_keywords"]
+            )
+        )
 
 
 @hook_app.command("recent")
@@ -170,6 +219,79 @@ def _recent_hook_rows(
     return rows
 
 
+def _build_hook_summary(
+    rows: list[dict[str, Any]],
+    *,
+    days: int,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    current = now or datetime.now(timezone.utc)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=timezone.utc)
+    cutoff = current.astimezone(timezone.utc) - timedelta(days=days)
+    selected = [row for row in rows if _timestamp_at_or_after(row.get("timestamp"), cutoff)]
+
+    injections = [row for row in selected if row.get("kind") == "injection"]
+    gaps = [row for row in selected if row.get("kind") == "recall_gap"]
+    outcomes = [row for row in selected if row.get("kind") == "outcome"]
+    timeouts = [
+        row
+        for row in selected
+        if row.get("kind") == "latency" and str(row.get("status")).lower() == "timeout"
+    ]
+    injected_ids = [
+        str(item_id)
+        for row in injections
+        for item_id in row.get("item_ids") or []
+    ]
+    feedback_totals = Counter({"injected": 0, "adopted": 0, "rejected": 0, "ignored": 0})
+    feedback_cohorts: set[str] = set()
+    for row in outcomes:
+        usage = row.get("usage")
+        if isinstance(usage, dict):
+            for key in feedback_totals:
+                feedback_totals[key] += int(usage.get(key) or 0)
+        if row.get("cohort_id"):
+            feedback_cohorts.add(str(row["cohort_id"]))
+
+    cohort_ids = {str(row["cohort_id"]) for row in injections if row.get("cohort_id")}
+    feedback_denominator = feedback_totals["injected"]
+    keywords = Counter(
+        keyword
+        for row in injections
+        for keyword in str(row.get("keywords") or "").split("|")
+        if keyword
+    )
+    gap_reasons = Counter(str(row.get("status") or "unclassified") for row in gaps)
+    return {
+        "window_days": days,
+        "generated_at": current.astimezone(timezone.utc).isoformat(),
+        "records": {
+            "injections": len(injections),
+            "gaps": len(gaps),
+            "outcomes": len(outcomes),
+            "timeouts": len(timeouts),
+        },
+        "injected_items": len(injected_ids),
+        "unique_injected_items": len(set(injected_ids)),
+        "feedback": {
+            "cohort_coverage_rate": _ratio(len(feedback_cohorts & cohort_ids), len(cohort_ids)),
+            "rated_items": feedback_denominator,
+            "adopted_items": feedback_totals["adopted"],
+            "rejected_items": feedback_totals["rejected"],
+            "unrated_items": feedback_totals["ignored"],
+            "adopted_item_rate": _ratio(feedback_totals["adopted"], feedback_denominator),
+            "rejected_item_rate": _ratio(feedback_totals["rejected"], feedback_denominator),
+            "unrated_item_rate": _ratio(feedback_totals["ignored"], feedback_denominator),
+        },
+        "gap_reasons": dict(gap_reasons.most_common()),
+        "top_keywords": [
+            {"keyword": keyword, "count": count}
+            for keyword, count in keywords.most_common(10)
+        ],
+    }
+
+
 def _cohort_id_from_task_outcome(task_id: str, question: str) -> str | None:
     prefix = "injection-feedback:"
     if task_id.startswith(prefix):
@@ -212,4 +334,23 @@ def _short(value: str, limit: int) -> str:
     return value[: limit - 1] + "…"
 
 
-__all__ = ["hook_recent"]
+def _timestamp_at_or_after(value: object, cutoff: datetime) -> bool:
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc) >= cutoff
+
+
+def _ratio(numerator: int, denominator: int) -> float:
+    return round(numerator / denominator, 4) if denominator else 0.0
+
+
+def _percent(value: object) -> str:
+    numeric = value if isinstance(value, (int, float)) else 0.0
+    return f"{numeric:.1%}"
+
+
+__all__ = ["hook_recent", "hook_summary"]

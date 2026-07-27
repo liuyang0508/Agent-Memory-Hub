@@ -165,12 +165,18 @@ memory sync-pending --summary-only --limit 100 --format json
 memory verify --format json
 memory search "project decision"
 memory hook recent --limit 5
+memory hook summary --days 7
+memory review status --format json
 ```
 
 `memory hook recent` shows whether a prompt injected memory, produced a recall
 gap, timed out, or later received outcome feedback with adopted / rejected /
 ignored item counts. It is the first check when an agent UI shows no
-`<agent_brain>` block. `memory govern readiness` also runs the packaged
+`<agent_brain>` block. `memory hook summary` aggregates injection volume,
+feedback coverage, adopted/rejected/unrated item rates, gap reasons, timeouts,
+and privacy-safe keywords over a chosen window. `memory review status` adds
+oldest-item age and SLA alerts for review and pending queues.
+`memory govern readiness` also runs the packaged
 query-signal adversarial cases for long Chinese tasks, JSON/config prompts,
 OCR/log/code snippets, and weak follow-ups.
 `memory govern plan --category lifecycle` lists stale `signal` / `handoff`
@@ -203,6 +209,31 @@ memory verify --repair --format json
 
 Repair is category-scoped, closes its write connection before the final
 read-only verification, and succeeds only when the `after` report is clean.
+
+### Cross-agent handoff and resume
+
+Before switching agents or stopping an unfinished task, persist one complete
+checkpoint. Git state is captured automatically; task state, next actions, and
+verification are required so an incomplete handoff cannot be written:
+
+```bash
+memory handoff \
+  --objective "Finish the recall quality gate" \
+  --done "Added the real-prompt fixture" \
+  --pending "Wire the fixture into readiness" \
+  --decision "Reuse ContextFirewall | keeps policy parity | avoids split behavior" \
+  --next "Add the fixture to the release gate" \
+  --verify "pytest tests/unit/test_query_signal.py -q" \
+  --project agent-memory-hub \
+  --agent codex \
+  --target-agent claude_code
+
+memory resume --project agent-memory-hub --fail-empty
+```
+
+Both commands use the same Markdown source of truth, `WriteService`, sensitivity
+audit, validity TTL, injection gateway, and `memory brief` ranking already used
+by the rest of AMH. No separate handoff database is introduced.
 
 ### Adapter lifecycle truth model
 
@@ -733,6 +764,10 @@ memory search "browser permission" --context-firewall --format text
 memory read mem-YYYYMMDD-HHMMSS-slug --view detail
 memory read mem-YYYYMMDD-HHMMSS-slug --view detail --head 2000
 memory brief
+memory handoff --help
+memory resume --project <project> --fail-empty
+memory hook summary --days 7
+memory review status --format json
 memory conversation ingest ~/.claude/projects/<project>/<session>.jsonl --agent claude-code
 memory conversation list --agent claude-code
 memory conversation rebalance

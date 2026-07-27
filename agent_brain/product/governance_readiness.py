@@ -183,7 +183,7 @@ def _release_lane(repo_root: Path) -> ReadinessLane:
         "install_sh": repo_root / "install.sh",
         "install_ps1": repo_root / "install.ps1",
         "homebrew_cask": repo_root / "Casks" / "agent-memory-hub.rb",
-        "npm_package_json": repo_root / "packaging" / "npm" / "package.json",
+        "npm_package_json": repo_root / "package.json",
         "release_publishing_doc": repo_root / "docs" / "release-publishing.md",
     }
     checks = [
@@ -205,7 +205,7 @@ def _release_lane(repo_root: Path) -> ReadinessLane:
     ]
     next_actions = []
     if not local_files["npm_package_json"].exists():
-        next_actions.append("prepare packaging/npm/package.json before npm publish")
+        next_actions.append("prepare package.json before npm publish")
     if any(check.status == "fail" for check in checks):
         next_actions.append("fix release readiness failures before tagging a release")
     return ReadinessLane(
