@@ -18,7 +18,8 @@ def link(
     if label.strip().lower() == "supersedes":
         typer.echo(
             "supersedes requires governed lifecycle mutation; use "
-            f"`memory govern apply-lifecycle --supersede {source}:{target}`",
+            "`memory govern apply-lifecycle --supersede OLD:NEW` "
+            "(obsolete:replacement; preview before --apply)",
             err=True,
         )
         raise typer.Exit(2)

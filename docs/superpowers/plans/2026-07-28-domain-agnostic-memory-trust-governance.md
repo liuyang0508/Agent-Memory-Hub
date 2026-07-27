@@ -65,7 +65,7 @@
 
 1. 增加失败测试：`memory link ... --label supersedes` 返回非零，且 Markdown 与索引均不变。
 2. CLI 对该 label fail closed，并提示
-   `memory govern apply-lifecycle --supersede replacement:obsolete`。
+   `memory govern apply-lifecycle --supersede OLD:NEW`（待失效条目:替代条目）。
 3. 保留其他 label 与 unlink 行为。
 4. 运行：`python -m pytest -q tests/unit/test_cli_crud.py tests/unit/test_link_unlink.py`
 5. 提交：`fix: reserve supersedes for lifecycle governance`

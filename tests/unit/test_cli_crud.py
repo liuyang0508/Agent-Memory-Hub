@@ -834,6 +834,7 @@ class TestLinkUnlinkCLI:
 
         assert result.exit_code != 0
         assert "memory govern apply-lifecycle --supersede" in result.output
+        assert "OLD:NEW" in result.output
         assert {
             path.name: path.read_bytes()
             for path in store.items_dir.glob("*.md")

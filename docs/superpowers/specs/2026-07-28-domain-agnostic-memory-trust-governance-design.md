@@ -100,7 +100,8 @@
 - snapshot、ledger、索引同步与失败恢复。
 
 通用 CLI `memory link --label supersedes` 不得直接写普通边。最小安全行为是 fail closed，并提示
-使用 `memory govern apply-lifecycle --supersede replacement:obsolete`。其他 link label 不变。
+使用 `memory govern apply-lifecycle --supersede OLD:NEW`，其中 `OLD` 是待失效条目，
+`NEW` 是替代条目。其他 link label 不变。
 
 ## 7. 当前错误数据修复
 
