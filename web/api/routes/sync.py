@@ -40,7 +40,7 @@ class SyncHeartbeatRequest(BaseModel):
 async def upload_sync_objects(
     request: SyncObjectsRequest,
     user: CurrentUser = Depends(get_current_user),
-):
+) -> dict[str, int]:
     require_org_role(_state_store(), user, "member")
     rows: list[dict[str, str]] = []
     for row in request.objects:
@@ -57,7 +57,9 @@ async def upload_sync_objects(
 
 
 @router.get("/api/sync/objects")
-async def download_sync_objects(user: CurrentUser = Depends(get_current_user)):
+async def download_sync_objects(
+    user: CurrentUser = Depends(get_current_user),
+) -> dict[str, object]:
     require_org_role(_state_store(), user, "viewer")
     rows = await run_in_threadpool(
         _state_store().list_sync_objects,
@@ -70,7 +72,7 @@ async def download_sync_objects(user: CurrentUser = Depends(get_current_user)):
 async def sync_heartbeat(
     request: SyncHeartbeatRequest,
     user: CurrentUser = Depends(get_current_user),
-):
+) -> dict[str, bool]:
     store = _state_store()
     require_org_role(store, user, "member")
     if not _DEVICE.fullmatch(request.device_id):

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
@@ -363,7 +364,7 @@ class LoopStore:
         loop_id: str,
         *,
         title: str,
-        depends_on: list[str] | None = None,
+        depends_on: Sequence[str] | None = None,
         assignee: str | None = None,
         actor: str = "cli",
         now: datetime | None = None,
@@ -372,7 +373,7 @@ class LoopStore:
         loop = self.get(loop_id)
         if loop.status in {LoopStatus.completed.value, LoopStatus.cancelled.value}:
             raise LoopTransitionError("cannot add a step to a terminal loop")
-        dependencies = list(dict.fromkeys(depends_on or []))
+        dependencies: list[str] = [*dict.fromkeys(depends_on or [])]
         known = {str(step.get("id")) for step in loop.steps}
         missing = [step_id for step_id in dependencies if step_id not in known]
         if missing:

@@ -320,17 +320,24 @@ class AutoGovernanceCycle:
             reason = "explicit_ttl_expired"
             index_repair_required = False
             if apply:
+                def eligible(
+                    candidate: MemoryItem,
+                    expected: str = item.id,
+                ) -> bool:
+                    candidate_ttl = candidate.validity.ttl_hours
+                    return (
+                        candidate.id == expected
+                        and candidate_ttl is not None
+                        and self.now
+                        > (candidate.validity.observed_at or candidate.created_at)
+                        + timedelta(hours=candidate_ttl)
+                    )
+
                 result = archive_reviewed_item(
                     brain_dir=self.brain_dir,
                     items_store=self.items_store,
                     item_id=item.id,
-                    eligible=lambda candidate, expected=item.id: (
-                        candidate.id == expected
-                        and candidate.validity.ttl_hours is not None
-                        and self.now
-                        > (candidate.validity.observed_at or candidate.created_at)
-                        + timedelta(hours=candidate.validity.ttl_hours)
-                    ),
+                    eligible=eligible,
                     index=self.index,
                 )
                 status = result.status

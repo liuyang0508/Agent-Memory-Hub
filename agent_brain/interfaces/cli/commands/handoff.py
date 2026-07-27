@@ -101,6 +101,7 @@ def handoff(
     if missing:
         typer.echo("incomplete handoff; required: " + ", ".join(missing), err=True)
         raise typer.Exit(2)
+    assert objective is not None
 
     source_agent = source_agent or os.environ.get("AGENT_MEMORY_HUB_ADAPTER") or "unknown"
     snapshot = capture_git_snapshot(repo)
