@@ -10,14 +10,14 @@ from agent_brain.interfaces.cli._app import telemetry_app
 from agent_brain.platform.product_telemetry import disable, emit, enable, status
 
 
-@telemetry_app.command("status")  # type: ignore[untyped-decorator]
+@telemetry_app.command("status")
 def telemetry_status() -> None:
     """Show consent and the last successful-attempt timestamps."""
 
     typer.echo(json.dumps(status(), ensure_ascii=False, indent=2, sort_keys=True))
 
 
-@telemetry_app.command("enable")  # type: ignore[untyped-decorator]
+@telemetry_app.command("enable")
 def telemetry_enable() -> None:
     """Enable bounded anonymous install/activity reporting."""
 
@@ -26,7 +26,7 @@ def telemetry_enable() -> None:
     typer.echo(f"Anonymous telemetry enabled: anon-{config['anonymous_id'][:8]}")
 
 
-@telemetry_app.command("disable")  # type: ignore[untyped-decorator]
+@telemetry_app.command("disable")
 def telemetry_disable() -> None:
     """Disable all future product-telemetry network calls."""
 

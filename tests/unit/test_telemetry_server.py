@@ -70,7 +70,7 @@ def test_payload_validation_is_fail_closed() -> None:
     with pytest.raises(ValueError, match="unexpected fields"):
         validate_payload({**_payload("a" * 32, "install"), "username": "private"})
     with pytest.raises(ValueError, match="invalid anonymous_id"):
-        validate_payload(_payload("/Users/example", "install"))
+        validate_payload(_payload("not-a-valid-id", "install"))
     with pytest.raises(ValueError, match="invalid event"):
         validate_payload(_payload("a" * 32, "memory-content"))
 
