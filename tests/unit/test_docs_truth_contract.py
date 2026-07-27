@@ -778,10 +778,10 @@ def test_dual_route_hook_benchmark_report_is_reproducible_and_privacy_bounded(
         "sha256:5ae6cc31cdc5cee2b52c9a87789fd4008a0092671d94caf438e428fdcd64d440"
     )
     assert report["provenance"]["payload_parser_sha256"] == (
-        "sha256:8a27cab6c8da05ee29c75c2ec5651e969536a374f62798ca568d7f82508bd02e"
+        "sha256:4c3a721ba5502b819b941fe0ab44013067b65eb06319a6efba7bc2cc457e61a2"
     )
     assert report["provenance"]["preflight_module_sha256"] == (
-        "sha256:a1072be7176e216f8c34cc57cb0e9e560ef5bd93eba147a6651add96547ae6aa"
+        "sha256:26f9be638e263a173f57b514617f5e0a794c0d07450ea90d177a0581c3c658bf"
     )
     assert len(report["provenance"]["candidate_commit"]) == 40
     subprocess.run(
