@@ -14,7 +14,7 @@
     "observed_drift_count": 1,
     "status": "pass"
   },
-  "implementation_hash": "sha256:f6ef5f3387f0676a58d6d005a7348efffe8bbb074ceb24c17fd77e31233893c8",
+  "implementation_hash": "sha256:8ab84b5a09ac47f8cf15b76e25f4d54b5462894e4e54f4886041d784f137da21",
   "implementation_manifest": [
     {
       "path": "agent_brain/agent_integrations/hermes/import_export_tools.py",
@@ -46,11 +46,11 @@
     },
     {
       "path": "agent_brain/interfaces/cli/commands/review.py",
-      "sha256": "sha256:33b9c188b51184317a8a1549500311f4dff70b924f8bd92cf07eb1e49dc95ab3"
+      "sha256": "sha256:081b5882c6f5e4babe1170bf89461afac0abe75a8c561cab62bfdadbf1291094"
     },
     {
       "path": "agent_brain/interfaces/cli/commands/subapps.py",
-      "sha256": "sha256:d36eb809bde0c5fe637f93ba475672f443f8a1fa5f2e06f70d288806afece425"
+      "sha256": "sha256:dfae14859ca1f0287c09a9ad7f5b38b4e633b6820f5fa842dc54b38246b8647f"
     },
     {
       "path": "agent_brain/interfaces/cli/doctor_offline.py",
@@ -86,7 +86,7 @@
     },
     {
       "path": "agent_brain/memory/governance/auto_governance.py",
-      "sha256": "sha256:9192ab7ec9870f8b6246e68bf1d18f6ce877a3041ac996fb1d9c324fcc42c735"
+      "sha256": "sha256:7d18b849338e9604a4a3b59e7eabc9eb0ac04906ec5befca14750af17e0c55a5"
     },
     {
       "path": "agent_brain/memory/governance/git_fd_exec.py",
@@ -138,11 +138,11 @@
     },
     {
       "path": "agent_brain/memory/store/pending.py",
-      "sha256": "sha256:b453eb10f61bdd701e72f5ce3db4943e55247f19f4d338ec8a46253cb57b3c9d"
+      "sha256": "sha256:bea319286aeafd45d8834a8c06790a42d0bd997e28278c9860d4c41a850e64c2"
     },
     {
       "path": "agent_brain/memory/store/write_service.py",
-      "sha256": "sha256:c1ec8d7cb6fa60e0921f02b45420aba85cb445773722abb81d28510923bff2e9"
+      "sha256": "sha256:d7889d14546f85d5959aa961a261735d8f54aed6574eaa9525100e49f0f6ccbc"
     },
     {
       "path": "agent_brain/platform/indexing/graph_index.py",
@@ -162,7 +162,7 @@
     },
     {
       "path": "agent_brain/product/governance_readiness.py",
-      "sha256": "sha256:d7d877e71a47022afa3dda011410821fd0abeea9fa9eb77e9577992c0003feda"
+      "sha256": "sha256:4499a0b82db633610532670d4bdf1e9d4fbf028ba84db26262cafd4daae832d2"
     },
     {
       "path": "web/api/routes/governance.py",

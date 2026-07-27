@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 
@@ -25,6 +26,7 @@ def _run_install(args: list[str], tmp_path: Path, *, script: Path = INSTALL_SH) 
         "LC_ALL": "C.UTF-8",
         "LANG": "C.UTF-8",
         "PYTHONUSERBASE": str(tmp_path / "pyuserbase"),
+        "AMH_PYTHON": sys.executable,
         "PATH": "/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin",
     }
     (tmp_path / "home").mkdir(exist_ok=True)
@@ -200,9 +202,28 @@ def test_install_script_wires_all_supported_adapters_through_single_entrypoint()
 
     assert '"$MEMORY_BIN" adapter install "$adapter"' in script
     assert '"$MEMORY_BIN" adapter uninstall "$adapter"' in script
+    assert '"$MEMORY_BIN" adapter doctor "$adapter"' in script
+    assert 'AMH_CORE_ADAPTERS="${AMH_CORE_ADAPTERS:-codex claude_code}"' in script
+    assert "CORE_ADAPTER_FAILED=" in script
+    assert "核心 adapter 安装后验证失败" in script
+    assert "optional_adapter_doctor_failures" in script
     assert "optional_adapter_not_configured" in script
     assert "adapter_install_partial_failures" not in script
     assert "adapter_uninstall_partial_failures" in script
+
+
+def test_powershell_installer_auto_configures_and_verifies_core_adapters():
+    script = INSTALL_PS1.read_text(encoding="utf-8")
+
+    assert "Get-CompatiblePython" in script
+    assert '"python3.13", "python3.12", "python3.11", "python", "python3"' in script
+    assert "$AdapterNames" in script
+    assert '$CoreAdapterNames' in script
+    assert "-m agent_brain.interfaces.cli adapter install $adapter" in script
+    assert "-m agent_brain.interfaces.cli adapter doctor $adapter" in script
+    assert "-m agent_brain.interfaces.cli adapter uninstall $adapter" in script
+    assert "Core adapter install verification failed" in script
+    assert "optional_adapter_not_configured" in script
 
 
 def test_install_script_completion_copy_is_adapter_failure_aware():

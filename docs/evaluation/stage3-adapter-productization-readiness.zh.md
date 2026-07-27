@@ -3,7 +3,7 @@
 状态：**PASS**
 证据时间：`2026-07-19T05:45:00+08:00`
 基线提交：`eab685aec5d6bbf8c54004448e6b547e7bcceeff`
-实现摘要：`sha256:f59cfda32e27a166cc9aea40bc6a18af1761d8d854c6fc27fdd8cf5d77c29e96`
+实现摘要：`sha256:82993fa52eea6a7c68268ff71d3011044091b21dfec6be89d11d06ae89168695`
 
 ## 结论
 
@@ -19,7 +19,7 @@
 
 ## 真机边界证据
 
-平台：`darwin-arm64`；证据提交：`bf10a302305b06511953e6b0c31ebf6072008b0c`；hook：`sha256:a716eda7ad90a0a0a645d5e15171d3fdfd73d793269c74aed840119f2ba584bc`。
+平台：`darwin-arm64`；证据提交：`bf10a302305b06511953e6b0c31ebf6072008b0c`；hook：`sha256:86546a3b4e73d7f32ab2f956d85985a24168be58558f38db86c00e4d80e1737e`。
 
 | Adapter | 批次 | install-verify | 最终判定 | blocker |
 |---|---:|---|---|---|

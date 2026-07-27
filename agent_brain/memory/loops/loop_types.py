@@ -40,6 +40,10 @@ class LoopEventType(str, Enum):
     completed = "completed"
     failed = "failed"
     cancelled = "cancelled"
+    step_added = "step_added"
+    step_changed = "step_changed"
+    blocker_opened = "blocker_opened"
+    blocker_resolved = "blocker_resolved"
 
 
 @dataclass(frozen=True)
@@ -63,6 +67,8 @@ class LoopRun:
     artifacts: list[dict[str, Any]] = field(default_factory=list)
     outcome: dict[str, Any] | None = None
     memory_candidates: list[dict[str, Any]] = field(default_factory=list)
+    steps: list[dict[str, Any]] = field(default_factory=list)
+    blockers: list[dict[str, Any]] = field(default_factory=list)
     sensitivity: str = "internal"
 
     def to_dict(self) -> dict[str, Any]:
@@ -90,6 +96,8 @@ class LoopRun:
             artifacts=[dict(item) for item in data.get("artifacts") or []],
             outcome=dict(data["outcome"]) if isinstance(data.get("outcome"), dict) else None,
             memory_candidates=[dict(item) for item in data.get("memory_candidates") or []],
+            steps=[dict(item) for item in data.get("steps") or []],
+            blockers=[dict(item) for item in data.get("blockers") or []],
             sensitivity=str(data.get("sensitivity") or "internal"),
         )
 
@@ -135,6 +143,10 @@ def make_loop_id(goal: str, now: datetime | None = None) -> str:
 
 def make_event_id(now: datetime | None = None) -> str:
     return f"lev-{_stamp(now)}-{uuid.uuid4().hex[:8]}"
+
+
+def make_step_id() -> str:
+    return f"step-{uuid.uuid4().hex[:12]}"
 
 
 def bounded_trigger(trigger: dict[str, Any] | None) -> dict[str, Any]:

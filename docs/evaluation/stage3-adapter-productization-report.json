@@ -21,8 +21,8 @@
   },
   "evaluated_at": "2026-07-19T05:45:00+08:00",
   "failed_gates": [],
-  "fixture_sha256": "sha256:20f27498c1b703e53ccedca51a4946c261501c1192c87b382e05bfb31c2661c9",
-  "implementation_sha256": "sha256:f59cfda32e27a166cc9aea40bc6a18af1761d8d854c6fc27fdd8cf5d77c29e96",
+  "fixture_sha256": "sha256:76cd6b820e19a97ddb896eb4125a1856e25c9c8cf2d406f3603285aac526a898",
+  "implementation_sha256": "sha256:82993fa52eea6a7c68268ff71d3011044091b21dfec6be89d11d06ae89168695",
   "lifecycle_result_schema_version": "amh-adapter-lifecycle-result/v1",
   "manifest_count": 16,
   "manifest_schema_version": "amh-adapter-manifest/v1",
@@ -818,7 +818,7 @@
     "cli_shim_status": "stable-checkout-restored",
     "evaluated_at": "2026-07-19T05:45:00+08:00",
     "evidence_commit": "bf10a302305b06511953e6b0c31ebf6072008b0c",
-    "hook_sha256": "sha256:a716eda7ad90a0a0a645d5e15171d3fdfd73d793269c74aed840119f2ba584bc",
+    "hook_sha256": "sha256:86546a3b4e73d7f32ab2f956d85985a24168be58558f38db86c00e4d80e1737e",
     "platform": "darwin-arm64"
   },
   "reason_codes": [

@@ -38,6 +38,7 @@ from agent_brain.interfaces.cli.commands.api_docs import *  # noqa: F401,F403
 from agent_brain.interfaces.cli.commands.status import *  # noqa: F401,F403
 from agent_brain.interfaces.cli.commands.graph import *  # noqa: F401,F403
 from agent_brain.interfaces.cli.commands.insight import *  # noqa: F401,F403
+from agent_brain.interfaces.cli.commands.handoff import *  # noqa: F401,F403
 from agent_brain.interfaces.cli.commands.adapters import *  # noqa: F401,F403
 from agent_brain.interfaces.cli.commands.audit import *  # noqa: F401,F403
 from agent_brain.interfaces.cli.commands.tier import *  # noqa: F401,F403
@@ -53,3 +54,5 @@ from agent_brain.interfaces.cli.commands.lint import *  # noqa: F401,F403
 from agent_brain.interfaces.cli.commands.wiki import *  # noqa: F401,F403
 from agent_brain.interfaces.cli.commands.codegraph import *  # noqa: F401,F403
 from agent_brain.interfaces.cli.commands.hook import *  # noqa: F401,F403
+from agent_brain.interfaces.cli.commands.telemetry import *  # noqa: F401,F403
+from agent_brain.interfaces.cli.commands.sync import *  # noqa: F401,F403

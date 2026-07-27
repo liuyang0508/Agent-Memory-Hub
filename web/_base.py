@@ -127,7 +127,7 @@ _components_cache: _ComponentsCache = _ComponentsCache()
 _components_cache_lock = threading.Lock()
 
 
-def _components():
+def _components() -> tuple[Any, Any, Any, Any]:
     brain = _brain_dir()
     key = str(brain)
     with _components_cache_lock:

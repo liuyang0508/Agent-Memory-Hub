@@ -315,6 +315,19 @@ case "$RELEASE_DECISION" in
   enabled) ;;
   *) ;;
 esac
+
+# Learn from explicit feedback in the next user prompt before retrieving the
+# next cohort. The classifier never persists prompt text and only applies
+# unambiguous all-cohort feedback (or a single-item continuation).
+if [ "$RESOLVER_READY" -eq 1 ] && [ -n "$PROMPT" ]; then
+  printf '%s' "$PROMPT" | "$MEMORY_PYTHON" \
+    -m agent_brain.memory.governance.auto_feedback \
+    --brain-dir "$BRAIN_DIR" \
+    --adapter "${AGENT_MEMORY_HUB_ADAPTER:-unknown}" \
+    --session "$SESSION_ID" \
+    >/dev/null 2>&1 || true
+fi
+
 RECALL_PROMPT="$PROMPT"
 MULTIMODAL_GAP_JSON=""
 MULTIMODAL_QUERY_HASH=""

@@ -339,6 +339,7 @@ def test_mcp_tools_accept_overview_and_context_view_controls(tmp_brain: Path):
         summary="mcp locator alpha",
         overview="mcp overview beta",
         body="mcp detail gamma",
+        ref_urls=["https://example.test/mcp-context-loading"],
     )
     item_id = written["id"]
 

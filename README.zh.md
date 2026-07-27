@@ -201,11 +201,14 @@ memory govern readiness --format markdown
 memory govern plan --category lifecycle --format markdown
 memory govern plan --category lifecycle --format json
 memory govern apply-lifecycle <memory-id> --dry-run --format json
+memory hook summary --days 7
+memory review status --format json
 ```
 
 `memory doctor` 用来确认 CLI、数据目录、索引、hook / MCP 依赖是否可用。`memory govern readiness` 用来把发布可用性、长任务召回入口和记忆生命周期风险汇总成一张待治理表。doctor 通过后，再继续写入和召回。
 `memory govern plan --category lifecycle` 只生成 stale signal / handoff 的复核队列，不会自动归档或改写事实源。Markdown 给人逐条读；JSON 会额外输出 `review_queue`，便于 Web Admin 或脚本接人工确认流程。
 `memory govern apply-lifecycle` 默认 dry-run，只处理当前 `review_queue` 里的指定 ID；必须显式加 `--apply` 才会把匹配项移动到 `items/archived/`，未进入队列的 ID 会被跳过。
+`memory hook summary` 汇总指定时间窗内的注入量、反馈覆盖率、采用/拒绝/未评价比例、gap 原因、超时和隐私安全关键词；`memory review status` 会同时给出 review / pending 最老年龄和 SLA 告警。
 
 AMH 不会在 hook 里静默联网更新。换版本、移动 checkout、重装 release，或者 doctor 提示 hook path / `memory` shim 指向旧目录时，用显式命令修复：
 
@@ -216,6 +219,27 @@ memory self-update --repair-hooks
 ```
 
 `doctor --fix` 只修安装态漂移：重写 `~/.local/bin/memory` shim，并重装 Codex / Claude Code 这类核心 hook adapter。`self-update --dry-run` 只展示计划；`self-update --repair-hooks` 会基于当前 checkout 刷新安装状态和核心 hook。
+
+### 跨 Agent / 跨窗口无损续做
+
+切换 Agent 或停止未完成任务前，写一个结构化检查点。Git 状态自动采集；任务状态、下一步和验证方式是硬约束，不完整的 handoff 会被拒绝：
+
+```bash
+memory handoff \
+  --objective "完成召回质量门禁" \
+  --done "已加入真实 prompt 样本" \
+  --pending "尚未接入 readiness" \
+  --decision "复用 ContextFirewall | 保持策略一致 | 避免两套行为" \
+  --next "把样本接入发布门禁" \
+  --verify "pytest tests/unit/test_query_signal.py -q" \
+  --project agent-memory-hub \
+  --agent codex \
+  --target-agent claude_code
+
+memory resume --project agent-memory-hub --fail-empty
+```
+
+两条命令复用现有 Markdown 事实源、`WriteService`、敏感信息审计、TTL、注入网关和 `brief` 排序，不引入第二套 handoff 数据库。
 
 ### 3. 写入一条可复用记忆
 
@@ -296,6 +320,21 @@ curl -fsSL https://github.com/liuyang0508/agent-memory-hub/releases/latest/downl
 ```
 
 卸载只移除 AMH 托管的 hooks、MCP 配置和 `/remember`，默认保留 `~/.agent-memory-hub` 里的用户记忆、证据和索引。确认要连本地大脑一起清空时，再手动删除 `~/.agent-memory-hub`。详细命令见 [命令手册](#command-manual)。
+
+### 5. 可选的官网匿名安装与活跃统计
+
+产品遥测默认关闭。愿意出现在官网匿名使用看板中的用户，可以主动开启：
+
+```bash
+memory telemetry enable
+memory telemetry status
+memory telemetry disable
+```
+
+只会上报随机匿名 ID、系统/架构、AMH 版本、安装渠道、Agent 类型以及
+`install` / `active` 事件；不采集姓名、账号、IP、目录、提示词、对话或
+MemoryItem 内容。完整数据边界、接口和官网部署步骤见
+[官网匿名安装与活跃看板](./docs/product-telemetry.zh.md)。
 
 <a id="running-example"></a>
 
@@ -1901,6 +1940,8 @@ memory conversation list --agent claude-code
 memory conversation rebalance
 
 memory loop create --goal "整理跨会话任务" --project agent-memory-hub --start
+memory loop step add <loop-id> --title "完成接口实现"
+memory loop step set <loop-id> <step-id> running
 memory loop checkpoint <loop-id> --note "完成第一阶段验证"
 memory loop gate open <loop-id> --gate code_review --reason "需要人工复核"
 memory loop complete <loop-id> --evidence "tests passed"
@@ -1915,6 +1956,10 @@ memory govern maturity
 memory sync-pending
 memory verify --repair
 memory reindex --prune
+
+memory sync init --server https://memory.example.com --api-key <key>
+memory sync run
+memory sync heartbeat
 
 memory benchmark retrieval --cases path/to/retrieval-cases.json
 memory benchmark compression
@@ -1969,6 +2014,16 @@ memory adapter uninstall <adapter>
 
 <a id="self-evolution"></a>
 
+## 新增核心能力
+
+| 能力 | 已落地边界 |
+|---|---|
+| 自动反馈调优 | 下一轮用户输入只在出现明确“上一批都有效/都错误”等信号时评价刚注入的 cohort；不保存原始 prompt，模糊反馈不改权重，同一 cohort 只应用一次。 |
+| 端到端加密同步 | `memory sync init/run/heartbeat` 在设备端用 AES-256-GCM 加密；服务端只存租户隔离的不可读对象和最小设备心跳，恢复密钥不上云。 |
+| 持久任务状态机 | LoopRun 持久化步骤依赖、阻塞项、完成与验证证据；`memory handoff --loop` 直接从同一账本生成交接状态。 |
+| 自动记忆治理 | 精确重复项可逆 supersede，明确 TTL 到期的短生命周期记录自动归档，语义冲突只做隔离降权并进入复核。 |
+| 组织运营与权限 | Web 管理台提供组织记忆、成员、设备、24 小时活跃和密文对象统计；`owner/admin/member/viewer` 权限按请求实时生效。 |
+
 ## 当前自进化能力
 
 AMH 的自进化不是“无人值守自动改记忆”。当前实现是分层治理系统：
@@ -1976,10 +2031,10 @@ AMH 的自进化不是“无人值守自动改记忆”。当前实现是分层�
 | 组件 | 当前做什么 | 不做什么 |
 |---|---|---|
 | `EvolveEngine` | 扫描记忆池，生成 consolidate、promote、archive、generate_skill、crystallize、synthesize_skill、version_up 等提案；执行前过审计门禁。 | 不绕过审计直接改高风险事实源。 |
-| `AutoGovernanceCycle` | 汇总成熟度、漂移、冲突、索引漂移、原始对话冷热分层；`--apply` 只执行低风险 safe-apply。 | 不把 drift/evolve/governance 高风险动作自动落入长期记忆。 |
+| `AutoGovernanceCycle` | 汇总成熟度、漂移、冲突、索引漂移、原始对话冷热分层；同租户同范围的精确重复项可逆 supersede，明确 TTL 已过期的短生命周期记录可归档，冲突项自动降置信并进入复核。 | 不自动做语义合并、批量删除、技能合成等高风险动作。 |
 | `DreamingWorker` | 做离线式 harvest、模式发现、结晶、技能候选、归档衰减、容量控制和分层再平衡。 | 不把候选技能或抽象结论直接当用户事实写入。 |
 | `evolution_control` | Web `/api/evolve` 返回高阶控制面：shadow/apply 模式、写入边界、近三天数据流转缺口、审计门禁、发布门禁和建议动作。 | 不执行自动修复；建议仍需转成 review、benchmark 或 `WriteService` 写入。 |
-| Loop Engineering Ledger | 记录目标、上下文、检查点、验证证据、失败原因和产物。 | 不是默认自动 runner；它提供账本和门禁，不替用户批准高风险变更。 |
+| Loop Engineering Ledger | 记录目标、依赖步骤、阻塞项、检查点、完成/验证证据、失败原因和产物；handoff 可直接从同一 LoopRun 生成。 | 不是默认自动 runner；它提供账本和门禁，不替用户批准高风险变更。 |
 
 更高阶自进化的方向是：让 P1 数据流转账本成为观测层，让 `EvolveEngine` / `DreamingWorker` 只产出提案，让检索、压缩、ML/DL、adapter doctor/runtime、Loop 验证共同作为门禁，最后才允许低风险策略进入 safe-apply。高风险写入仍必须进复核或 `WriteService`。
 
@@ -1992,8 +2047,8 @@ AMH 的自进化不是“无人值守自动改记忆”。当前实现是分层�
 | 层级 | 面向谁 | 状态 | 形态 |
 |---|---|---:|---|
 | **L1 个人事实层** | 个人使用多个智能体工具 | 已落地 | 本地 Markdown 记忆池 + 命令行、模型上下文协议、会话钩子、SDK、网页管理台。 |
-| **L2 团队共享事实层** | 小团队 | 基础能力 | 租户/认证字段、层级旁路和网页读模型已存在；多人同步、冲突和权限模型仍待建设。 |
-| **L3 企业记忆基础设施** | 组织级使用 | 基础能力 / 规划中 | 发布门禁、审计、策略字段已有底座；RBAC、管理策略面和部署模型仍是未来能力。 |
+| **L2 团队共享事实层** | 小团队 | 已落地基础版 | 端到端加密设备同步、冲突保留与收敛、租户隔离、持久任务步骤/阻塞状态和 handoff 续做。 |
+| **L3 企业记忆基础设施** | 组织级使用 | 已落地基础版 | `owner/admin/member/viewer` 实时 RBAC 与组织运营台已落地；托管 SaaS、外部身份源、计费和地域策略仍是后续部署能力。 |
 
 近期重点：
 

@@ -132,6 +132,22 @@ EOF
   exit 0
 fi
 
+PYTHON_CMD=""
+for candidate in "${AMH_PYTHON:-}" python3.13 python3.12 python3.11 python3; do
+  [ -n "$candidate" ] || continue
+  if command -v "$candidate" >/dev/null 2>&1; then
+    candidate_version=$("$candidate" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null || true)
+    candidate_major=$(echo "$candidate_version" | cut -d. -f1)
+    candidate_minor=$(echo "$candidate_version" | cut -d. -f2)
+    if [ "${candidate_major:-0}" -gt 3 ] || {
+      [ "${candidate_major:-0}" -eq 3 ] && [ "${candidate_minor:-0}" -ge 11 ]
+    }; then
+      PYTHON_CMD=$(command -v "$candidate")
+      break
+    fi
+  fi
+done
+
 if [ "$VERIFY_ONLY" = true ]; then
   echo "Agent Memory Hub local install verification"
   echo "  code:    $CODE_DIR"
@@ -173,12 +189,12 @@ if [ "$VERIFY_ONLY" = true ]; then
   check_exec "agent_runtime_kit/tools/write-memory.sh"
   check_exec "agent_runtime_kit/tools/search-memory.sh"
   check_exec "agent_runtime_kit/mcp/server.sh"
-  if command -v python3 >/dev/null 2>&1; then
-    PYVER=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
+  if [ -n "$PYTHON_CMD" ]; then
+    PYVER=$("$PYTHON_CMD" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
     PY_MAJOR=$(echo "$PYVER" | cut -d. -f1)
     PY_MINOR=$(echo "$PYVER" | cut -d. -f2)
     if [ "$PY_MAJOR" -gt 3 ] || { [ "$PY_MAJOR" -eq 3 ] && [ "$PY_MINOR" -ge 11 ]; }; then
-      echo "python3=$PYVER"
+      echo "python3=$PYVER ($PYTHON_CMD)"
     else
       echo "python3-too-old=$PYVER" >&2
       ERR=1
@@ -204,14 +220,24 @@ APP_VENV="$CODE_DIR/.venv"
 APP_PYTHON="$APP_VENV/bin/python"
 MEMORY_BIN="$APP_VENV/bin/memory"
 AMH_INSTALL_ADAPTERS="${AMH_INSTALL_ADAPTERS:-codex claude_code wukong cursor cline continue_dev hermes_agent qoder qoder_work aider github_copilot aone_copilot openhuman opensquilla openclaw}"
+AMH_CORE_ADAPTERS="${AMH_CORE_ADAPTERS:-codex claude_code}"
 AMH_STRICT_ADAPTER_INSTALL="${AMH_STRICT_ADAPTER_INSTALL:-0}"
 AMH_ADAPTER_COMMAND_TIMEOUT="${AMH_ADAPTER_COMMAND_TIMEOUT:-5}"
+AMH_INSTALL_SOURCE="${AMH_INSTALL_SOURCE:-shell}"
+
+emit_install_telemetry() {
+  [ -x "$APP_PYTHON" ] || return 0
+  BRAIN_DIR="$USER_DATA" "$APP_PYTHON" \
+    -m agent_brain.platform.product_telemetry install \
+    --channel "$AMH_INSTALL_SOURCE" \
+    >/dev/null 2>&1 &
+}
 
 run_memory_adapter_command() {
   action="$1"
   adapter="$2"
-  if command -v python3 >/dev/null 2>&1; then
-    python3 - "$MEMORY_BIN" "$action" "$adapter" "$AMH_ADAPTER_COMMAND_TIMEOUT" <<'PY'
+  if [ -n "$PYTHON_CMD" ]; then
+    "$PYTHON_CMD" - "$MEMORY_BIN" "$action" "$adapter" "$AMH_ADAPTER_COMMAND_TIMEOUT" <<'PY'
 import subprocess
 import sys
 
@@ -247,6 +273,7 @@ PY
   case "$action" in
     install) "$MEMORY_BIN" adapter install "$adapter" ;;
     uninstall) "$MEMORY_BIN" adapter uninstall "$adapter" ;;
+    doctor) "$MEMORY_BIN" adapter doctor "$adapter" ;;
     *) echo "unknown adapter action: $action" >&2; return 2 ;;
   esac
 }
@@ -263,9 +290,9 @@ if [ "$ACTION" = "uninstall" ]; then
   echo "  用户数据: ${USER_DATA}（保留，手动 rm -rf 删除）"
   echo ""
 
-  if [ -f "$SETTINGS" ] && command -v python3 >/dev/null 2>&1; then
+  if [ -f "$SETTINGS" ] && [ -n "$PYTHON_CMD" ]; then
     cp "$SETTINGS" "${SETTINGS}.bak.uninstall.$(date +%s)"
-    python3 - "$SETTINGS" "$CODE_DIR" <<'PY'
+    "$PYTHON_CMD" - "$SETTINGS" "$CODE_DIR" <<'PY'
 import json
 import shlex
 import sys
@@ -411,13 +438,13 @@ fi
 # ─── Step 2: Python core + Web ───
 echo ""
 echo "② 安装 Python 核心..."
-if command -v python3 >/dev/null 2>&1; then
-    PYVER=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
+if [ -n "$PYTHON_CMD" ]; then
+    PYVER=$("$PYTHON_CMD" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
     PY_MAJOR=$(echo "$PYVER" | cut -d. -f1)
     PY_MINOR=$(echo "$PYVER" | cut -d. -f2)
     if [ "$PY_MAJOR" -gt 3 ] || { [ "$PY_MAJOR" -eq 3 ] && [ "$PY_MINOR" -ge 11 ]; }; then
         if [ ! -x "$APP_PYTHON" ]; then
-            python3 -m venv "$APP_VENV"
+            "$PYTHON_CMD" -m venv "$APP_VENV"
             echo "   ✅ 项目 venv 已创建: $APP_VENV"
         else
             echo "   ✅ 项目 venv 已存在: $APP_VENV"
@@ -458,8 +485,10 @@ else
 fi
 
 if [ "$MINIMAL" = true ]; then
+    emit_install_telemetry
     echo ""
     echo "  最小安装完成。完整安装: ./install.sh"
+    echo "  匿名使用统计默认关闭；启用: AMH_TELEMETRY=1 ./install.sh --minimal"
     exit 0
 fi
 
@@ -471,8 +500,8 @@ if [ ! -f "$SETTINGS" ]; then
 fi
 cp "$SETTINGS" "${SETTINGS}.bak.$(date +%s)"
 
-if command -v python3 >/dev/null 2>&1; then
-  python3 - "$SETTINGS" "$CODE_DIR" <<'PY'
+if [ -n "$PYTHON_CMD" ]; then
+  "$PYTHON_CMD" - "$SETTINGS" "$CODE_DIR" <<'PY'
 import json
 import shlex
 import sys
@@ -602,8 +631,8 @@ else
   exit 1
 fi
 
-if [ -f "$SETTINGS" ] && command -v python3 >/dev/null 2>&1; then
-  python3 - "$SETTINGS" "$CODE_DIR/agent_runtime_kit/mcp/server.sh" <<'PY'
+if [ -f "$SETTINGS" ] && [ -n "$PYTHON_CMD" ]; then
+  "$PYTHON_CMD" - "$SETTINGS" "$CODE_DIR/agent_runtime_kit/mcp/server.sh" <<'PY'
 import json
 import sys
 from pathlib import Path
@@ -655,6 +684,44 @@ else
   echo "   ✅ 所有可用 adapter 已配置完成"
 fi
 
+echo ""
+echo "   验证已配置 Agent 接入..."
+ADAPTER_DOCTOR_OK=""
+ADAPTER_DOCTOR_FAILED=""
+for adapter in $ADAPTER_INSTALL_OK; do
+  printf "   • %-16s " "$adapter"
+  set +e
+  ADAPTER_OUTPUT=$(run_memory_adapter_command doctor "$adapter" 2>&1)
+  ADAPTER_RC=$?
+  set -e
+  if [ "$ADAPTER_RC" -eq 0 ]; then
+    echo "✅"
+    ADAPTER_DOCTOR_OK="$ADAPTER_DOCTOR_OK $adapter"
+  else
+    echo "⚠️"
+    printf "%s\n" "$ADAPTER_OUTPUT" | sed 's/^/      /'
+    ADAPTER_DOCTOR_FAILED="$ADAPTER_DOCTOR_FAILED $adapter"
+  fi
+done
+
+CORE_ADAPTER_FAILED=""
+for adapter in $AMH_CORE_ADAPTERS; do
+  case " $ADAPTER_DOCTOR_OK " in
+    *" $adapter "*) ;;
+    *) CORE_ADAPTER_FAILED="$CORE_ADAPTER_FAILED $adapter" ;;
+  esac
+done
+if [ -n "$CORE_ADAPTER_FAILED" ]; then
+  echo "   ❌ 核心 adapter 安装后验证失败:$CORE_ADAPTER_FAILED" >&2
+  echo "      修复后重跑 ./install.sh；诊断: memory adapter doctor <adapter>" >&2
+  exit 1
+fi
+if [ -n "$ADAPTER_DOCTOR_FAILED" ]; then
+  echo "   optional_adapter_doctor_failures:$ADAPTER_DOCTOR_FAILED"
+else
+  echo "   ✅ 已配置 adapter 全部通过安装后 doctor"
+fi
+
 ADAPTER_CONFIGURED_COPY="$ADAPTER_INSTALL_OK"
 if [ -z "$ADAPTER_CONFIGURED_COPY" ]; then
   ADAPTER_CONFIGURED_COPY=" 无"
@@ -697,6 +764,8 @@ echo "    3. 打开 http://localhost:8765 点 Init Admin 创建管理员"
 echo ""
 echo "  常用命令:"
 echo "    memory search \"关键词\"      搜索记忆"
+echo "    memory handoff ...          写入结构化跨 Agent 交接"
+echo "    memory resume              恢复最新有效交接"
 echo "    memory stats                统计总览"
 echo "    memory health               健康检查"
 echo "    memory doctor               安装诊断"
@@ -707,3 +776,6 @@ echo "    memory gc --dry-run         预览 GC 清理"
 echo "    memory decay-status         衰减状态"
 echo ""
 echo "  卸载: ./install.sh --uninstall"
+echo "  匿名使用统计默认关闭；启用: AMH_TELEMETRY=1 ./install.sh"
+
+emit_install_telemetry

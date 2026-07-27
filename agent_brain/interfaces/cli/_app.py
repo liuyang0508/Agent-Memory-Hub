@@ -56,3 +56,9 @@ app.add_typer(codegraph_app, name="codegraph")
 
 hook_app = typer.Typer(help="Hook runtime diagnostics")
 app.add_typer(hook_app, name="hook")
+
+telemetry_app = typer.Typer(help="Opt-in anonymous product telemetry")
+app.add_typer(telemetry_app, name="telemetry")
+
+sync_app = typer.Typer(help="End-to-end encrypted multi-device sync")
+app.add_typer(sync_app, name="sync")

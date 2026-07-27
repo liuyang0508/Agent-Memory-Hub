@@ -36,7 +36,7 @@ from agent_brain.memory.context.context_firewall_rules import (
     temporal_conflict_anchors,
     temporal_conflict_winner_key,
     temporal_scope_signature,
-    topic_recency_terms,
+    topic_recency_matches,
     topic_recency_winner_key,
 )
 from agent_brain.memory.context.context_firewall_types import (
@@ -193,7 +193,11 @@ class ContextFirewall:
             included=included,
             excluded=excluded,
             decisions=decisions,
-            cohort_reasons=(*temporal_conflicts.reasons, *cohort.reasons),
+            cohort_reasons=(
+                *temporal_conflicts.reasons,
+                *topic_conflicts.reasons,
+                *cohort.reasons,
+            ),
         )
 
     def validate_cohort(
@@ -279,9 +283,16 @@ class ContextFirewall:
             return CohortGateResult(included=included, excluded=[], reasons=())
 
         excluded_ids: set[str] = set()
+        durable_conflict = False
         for left_index, left in enumerate(included):
             for right in included[left_index + 1:]:
                 if not self._is_topic_recency_conflict(left, right, signal=signal):
+                    continue
+                if {
+                    str(left.candidate.item.type),
+                    str(right.candidate.item.type),
+                } <= SOURCE_REQUIRED_TYPES:
+                    durable_conflict = True
                     continue
                 winner = max((left, right), key=topic_recency_winner_key)
                 loser = right if winner.candidate.item.id == left.candidate.item.id else left
@@ -289,8 +300,13 @@ class ContextFirewall:
                     continue
                 excluded_ids.add(loser.candidate.item.id)
 
+        reasons = (
+            ("topic_conflict_requires_verification",)
+            if durable_conflict
+            else ()
+        )
         if not excluded_ids:
-            return CohortGateResult(included=included, excluded=[], reasons=())
+            return CohortGateResult(included=included, excluded=[], reasons=reasons)
 
         kept: list[FirewallDecision] = []
         excluded: list[FirewallDecision] = []
@@ -302,7 +318,7 @@ class ContextFirewall:
         return CohortGateResult(
             included=kept,
             excluded=excluded,
-            reasons=("topic_recency_newer",),
+            reasons=(*reasons, "topic_recency_newer"),
         )
 
     def _is_topic_recency_conflict(
@@ -314,20 +330,23 @@ class ContextFirewall:
     ) -> bool:
         left_item = left.candidate.item
         right_item = right.candidate.item
-        if str(left_item.type) != str(right_item.type):
+        left_type = str(left_item.type)
+        right_type = str(right_item.type)
+        durable_pair = {left_type, right_type} <= SOURCE_REQUIRED_TYPES
+        if not durable_pair and left_type != right_type:
             return False
-        if str(left_item.type) not in TOPIC_RECENCY_TYPES:
+        if not {left_type, right_type} <= TOPIC_RECENCY_TYPES:
             return False
         if temporal_scope_signature(left_item) != temporal_scope_signature(right_item):
             return False
         if not matches_query(left.candidate, signal) or not matches_query(right.candidate, signal):
             return False
 
-        shared_terms = (
-            topic_recency_terms(left.candidate)
-            & topic_recency_terms(right.candidate)
+        return topic_recency_matches(
+            left.candidate,
+            right.candidate,
+            min_shared_terms=self.config.topic_recency_min_shared_terms,
         )
-        return len(shared_terms) >= self.config.topic_recency_min_shared_terms
 
     def _apply_cohort_gate(
         self,

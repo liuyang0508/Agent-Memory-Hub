@@ -595,6 +595,298 @@ def test_write_marks_unbounded_harvested_memory_as_review_candidate(tmp_brain):
     )
 
 
+@pytest.mark.parametrize("item_type", [MemoryType.fact, MemoryType.decision])
+def test_write_marks_unsourced_manual_durable_memory_for_review(tmp_brain, item_type):
+    svc = WriteService.for_brain(tmp_brain)
+    item = _item(title=f"manual {item_type} without evidence", type=item_type)
+
+    res = svc.write(item=item, body="unverified durable claim", allow_unsafe=True)
+
+    stored, _body = svc._store.get(item.id)
+    assert res.status == "written"
+    assert {"needs-review", "unverified-boundary"} <= set(stored.tags)
+    assert stored.confidence <= 0.35
+    assert (
+        "durable memory item has no explicit source refs; marked needs-review"
+        in res.warnings
+    )
+
+
+def test_write_normalizes_preexisting_review_boundary(tmp_brain):
+    item = _item(
+        title="operator supplied review candidate",
+        type=MemoryType.fact,
+    ).model_copy(
+        update={
+            "tags": ["needs-review"],
+            "confidence": 0.9,
+        }
+    )
+
+    res = WriteService.for_brain(tmp_brain).write(
+        item=item,
+        body="operator supplied review candidate",
+        allow_unsafe=True,
+    )
+
+    stored, _body = ItemsStore(tmp_brain / "items").get(item.id)
+    assert res.status == "written"
+    assert {"needs-review", "unverified-boundary"} <= set(stored.tags)
+    assert stored.confidence == 0.35
+
+
+@pytest.mark.parametrize(
+    ("role", "summary"),
+    [
+        ("operations", "本周活动转化率已经达到目标"),
+        ("product", "灰度实验支持发布新入口"),
+        ("legal", "该合同条款适用于当前法域"),
+        ("finance", "本季度收入已经完成审计"),
+    ],
+)
+def test_write_uses_same_source_rule_for_every_profession(tmp_brain, role, summary):
+    svc = WriteService.for_brain(tmp_brain)
+    item = _item(title=f"{role} verified conclusion", type=MemoryType.fact).model_copy(
+        update={
+            "summary": summary,
+            "project": "shared-business-scope",
+            "refs": Refs(urls=[f"https://example.test/{role}/evidence"]),
+        }
+    )
+
+    res = svc.write(item=item, body=summary, allow_unsafe=True)
+
+    stored, _body = svc._store.get(item.id)
+    assert res.status == "written"
+    assert "needs-review" not in stored.tags
+    assert "unverified-boundary" not in stored.tags
+
+
+def test_write_quarantines_unacknowledged_same_scope_topic_candidate(tmp_brain):
+    store = ItemsStore(tmp_brain / "items")
+    existing = _item(
+        title="客户评分配置权限仍需按分析方案核验",
+        type=MemoryType.fact,
+    ).model_copy(
+        update={
+            "project": "customer-operations",
+            "summary": "客户评分配置权限尚未覆盖当前分析方案口径",
+            "refs": Refs(urls=["https://example.test/product/permission-review"]),
+        }
+    )
+    store.write(existing, "verified product review")
+    candidate = _item(
+        title="客户评分配置权限无需再次调整",
+        type=MemoryType.decision,
+    ).model_copy(
+        update={
+            "project": "customer-operations",
+            "summary": "客户评分配置权限已经覆盖当前分析方案口径",
+            "refs": Refs(urls=["https://example.test/meeting/decision"]),
+        }
+    )
+
+    res = WriteService.for_brain(tmp_brain).write(
+        item=candidate,
+        body="new decision without acknowledging the existing fact",
+        allow_unsafe=True,
+    )
+
+    stored, _body = store.get(candidate.id)
+    assert res.status == "written"
+    assert {"needs-review", "unverified-boundary"} <= set(stored.tags)
+    assert (
+        "memory item has an unacknowledged same-scope topic candidate; "
+        "marked needs-review"
+    ) in res.warnings
+
+
+def test_write_accepts_acknowledged_same_scope_topic_candidate(tmp_brain):
+    store = ItemsStore(tmp_brain / "items")
+    existing = _item(
+        title="客户评分配置权限仍需按分析方案核验",
+        type=MemoryType.fact,
+    ).model_copy(
+        update={
+            "project": "customer-operations",
+            "summary": "客户评分配置权限尚未覆盖当前分析方案口径",
+            "refs": Refs(urls=["https://example.test/product/permission-review"]),
+        }
+    )
+    store.write(existing, "verified product review")
+    candidate = _item(
+        title="客户评分配置权限调整结论",
+        type=MemoryType.decision,
+    ).model_copy(
+        update={
+            "project": "customer-operations",
+            "summary": "客户评分配置权限已按当前分析方案口径调整",
+            "refs": Refs(
+                urls=["https://example.test/meeting/approved-decision"],
+                mems=[existing.id],
+            ),
+        }
+    )
+
+    res = WriteService.for_brain(tmp_brain).write(
+        item=candidate,
+        body="decision explicitly considers the existing fact",
+        allow_unsafe=True,
+    )
+
+    stored, _body = store.get(candidate.id)
+    assert res.status == "written"
+    assert "needs-review" not in stored.tags
+    assert "unverified-boundary" not in stored.tags
+
+
+def test_existing_write_match_replays_same_topic_review_normalization(tmp_brain):
+    from agent_brain.memory.store.write_service import _matches_existing_write
+
+    store = ItemsStore(tmp_brain / "items")
+    prior = _item(
+        title="客户评分配置权限仍需按分析方案核验",
+        type=MemoryType.fact,
+    ).model_copy(
+        update={
+            "project": "customer-operations",
+            "summary": "客户评分配置权限尚未覆盖当前分析方案口径",
+            "refs": Refs(urls=["https://example.test/product/review"]),
+        }
+    )
+    store.write(prior, "verified product review")
+    candidate = _item(
+        title="客户评分配置权限无需再次调整",
+        type=MemoryType.decision,
+    ).model_copy(
+        update={
+            "project": "customer-operations",
+            "summary": "客户评分配置权限已经覆盖当前分析方案口径",
+            "refs": Refs(urls=["https://example.test/operations/meeting"]),
+        }
+    )
+    body = "new sourced decision"
+    WriteService.for_brain(tmp_brain).write(
+        item=candidate,
+        body=body,
+        allow_unsafe=True,
+    )
+    existing, existing_body = store.get(candidate.id)
+
+    assert _matches_existing_write(
+        candidate,
+        body,
+        existing,
+        existing_body,
+        brain=tmp_brain,
+        now=datetime.now(timezone.utc),
+    )
+
+
+def test_write_checks_unacknowledged_topic_candidate_in_global_scope(tmp_brain):
+    store = ItemsStore(tmp_brain / "items")
+    existing = _item(
+        title="供应商合同付款条件仍需法务确认",
+        type=MemoryType.fact,
+    ).model_copy(
+        update={
+            "summary": "供应商合同付款条件尚未完成法务确认",
+            "refs": Refs(urls=["https://example.test/legal/review"]),
+        }
+    )
+    store.write(existing, "verified legal review")
+    candidate = _item(
+        title="供应商合同付款条件无需再次确认",
+        type=MemoryType.decision,
+    ).model_copy(
+        update={
+            "summary": "供应商合同付款条件已经完成法务确认",
+            "refs": Refs(urls=["https://example.test/operations/meeting"]),
+        }
+    )
+
+    result = WriteService.for_brain(tmp_brain).write(
+        item=candidate,
+        body="global pool decision",
+        allow_unsafe=True,
+    )
+
+    stored, _body = store.get(candidate.id)
+    assert result.status == "written"
+    assert {"needs-review", "unverified-boundary"} <= set(stored.tags)
+
+
+def test_write_does_not_confuse_unrelated_chinese_completion_phrases(tmp_brain):
+    store = ItemsStore(tmp_brain / "items")
+    finance = _item(
+        title="季度收入审计状态",
+        type=MemoryType.fact,
+    ).model_copy(
+        update={
+            "project": "company-operations",
+            "summary": "本季度收入已经完成审计",
+            "refs": Refs(urls=["https://example.test/finance/audit"]),
+        }
+    )
+    store.write(finance, "finance evidence")
+    legal = _item(
+        title="合同审批复核状态",
+        type=MemoryType.decision,
+    ).model_copy(
+        update={
+            "project": "company-operations",
+            "summary": "合同审批已经完成复核",
+            "refs": Refs(urls=["https://example.test/legal/approval"]),
+        }
+    )
+
+    result = WriteService.for_brain(tmp_brain).write(
+        item=legal,
+        body="legal evidence",
+        allow_unsafe=True,
+    )
+
+    stored, _body = store.get(legal.id)
+    assert result.status == "written"
+    assert "needs-review" not in stored.tags
+    assert "unverified-boundary" not in stored.tags
+
+
+def test_write_matches_two_non_overlapping_chinese_topic_anchors(tmp_brain):
+    store = ItemsStore(tmp_brain / "items")
+    existing = _item(
+        title="评分权限复核权限口径",
+        type=MemoryType.fact,
+    ).model_copy(
+        update={
+            "project": "customer-operations",
+            "summary": "仍需产品确认",
+            "refs": Refs(urls=["https://example.test/product/permission"]),
+        }
+    )
+    store.write(existing, "verified product review")
+    candidate = _item(
+        title="评分权限调整权限口径",
+        type=MemoryType.decision,
+    ).model_copy(
+        update={
+            "project": "customer-operations",
+            "summary": "运营已经确认",
+            "refs": Refs(urls=["https://example.test/operations/permission"]),
+        }
+    )
+
+    result = WriteService.for_brain(tmp_brain).write(
+        item=candidate,
+        body="operations decision",
+        allow_unsafe=True,
+    )
+
+    stored, _body = store.get(candidate.id)
+    assert result.status == "written"
+    assert {"needs-review", "unverified-boundary"} <= set(stored.tags)
+
+
 def test_write_keeps_sourced_harvested_memory_in_normal_pool(tmp_brain):
     svc = WriteService.for_brain(tmp_brain)
     item = _item(title="sourced harvested workflow", type=MemoryType.episode).model_copy(

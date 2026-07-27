@@ -33,6 +33,13 @@ from pathlib import Path
 import re
 
 from agent_brain.memory.governance.audit.scanner import audit_memory_text
+from agent_brain.memory.context.context_firewall_rules import (
+    REVIEW_REQUIRED_TAGS,
+    SOURCE_REQUIRED_TYPES,
+    has_source_refs,
+    topic_recency_matches,
+)
+from agent_brain.memory.context.context_firewall_types import ContextCandidate
 from agent_brain.memory.recall.embedding_text import embedding_text_for_item
 from agent_brain.memory.evidence.resource_store import ResourceStore
 from agent_brain.memory.store.field_enrichment import enrich_memory_item
@@ -73,6 +80,14 @@ _REVIEW_SOURCE_TAGS = {"harvested", "conversation", "transcript"}
 _REVIEW_TAGS = ("needs-review", "unverified-boundary")
 _REVIEW_CONFIDENCE_CEILING = 0.35
 _REVIEW_WARNING = "memory item lacks explicit validity/source boundary; marked needs-review"
+_MISSING_SOURCE_REVIEW_WARNING = (
+    "durable memory item has no explicit source refs; marked needs-review"
+)
+_TOPIC_REVIEW_WARNING = (
+    "memory item has an unacknowledged same-scope topic candidate; "
+    "marked needs-review"
+)
+_WRITE_TOPIC_MIN_SHARED_TERMS = 3
 _MULTIMODAL_PLACEHOLDER_RE = re.compile(
     r"\[(?:Image|Audio|Video|PDF|Document)\s+#\d+\]",
     re.IGNORECASE,
@@ -224,7 +239,12 @@ class WriteService:
             )
         if _commit_guard is not None:
             _commit_guard("precommit")
-        item, review_warning = _mark_boundary_review_candidate(item)
+        item, review_warning = _mark_boundary_review_candidate(
+            item,
+            body=body,
+            store=self._store,
+        )
+        item = _normalize_review_boundary(item)
         item = enrich_memory_item(item)
         evidence_sidecar_degraded = (
             _evidence_sidecar_requested(item, body)
@@ -385,22 +405,84 @@ def get_write_service() -> WriteService:
     return WriteService.for_brain()
 
 
-def _mark_boundary_review_candidate(item: MemoryItem) -> tuple[MemoryItem, str | None]:
-    if not _needs_boundary_review(item):
+def _mark_boundary_review_candidate(
+    item: MemoryItem,
+    *,
+    body: str = "",
+    store: ItemsStore | None = None,
+) -> tuple[MemoryItem, str | None]:
+    tags_lower = {tag.strip().lower() for tag in item.tags}
+    if tags_lower & REVIEW_REQUIRED_TAGS:
+        return item, None
+    warning = _boundary_review_warning(item, body=body, store=store)
+    if warning is None:
         return item, None
     tags = sorted({*item.tags, *_REVIEW_TAGS})
     confidence = min(item.confidence, _REVIEW_CONFIDENCE_CEILING)
-    return item.model_copy(update={"tags": tags, "confidence": confidence}), _REVIEW_WARNING
+    return item.model_copy(update={"tags": tags, "confidence": confidence}), warning
 
 
-def _needs_boundary_review(item: MemoryItem) -> bool:
+def _normalize_review_boundary(item: MemoryItem) -> MemoryItem:
+    tags_lower = {tag.strip().lower() for tag in item.tags}
+    if not tags_lower & REVIEW_REQUIRED_TAGS:
+        return item
+    tags = sorted({*item.tags, *_REVIEW_TAGS})
+    confidence = min(item.confidence, _REVIEW_CONFIDENCE_CEILING)
+    return item.model_copy(update={"tags": tags, "confidence": confidence})
+
+
+def _boundary_review_warning(
+    item: MemoryItem,
+    *,
+    body: str = "",
+    store: ItemsStore | None = None,
+) -> str | None:
     tags = {tag.strip().lower() for tag in item.tags}
-    if tags & set(_REVIEW_TAGS):
-        return False
+    item_type = str(getattr(item.type, "value", item.type))
+    if item_type in SOURCE_REQUIRED_TYPES:
+        if not has_source_refs(item):
+            return _MISSING_SOURCE_REVIEW_WARNING
+        if store is not None and _has_unacknowledged_topic_candidate(
+            item,
+            body=body,
+            store=store,
+        ):
+            return _TOPIC_REVIEW_WARNING
+        return None
     source_kind = str(getattr(item.source, "kind", "") or "").strip().lower()
     if source_kind not in _REVIEW_SOURCE_KINDS and not (tags & _REVIEW_SOURCE_TAGS):
-        return False
-    return not _has_explicit_boundary(item)
+        return None
+    return None if _has_explicit_boundary(item) else _REVIEW_WARNING
+
+
+def _has_unacknowledged_topic_candidate(
+    item: MemoryItem,
+    *,
+    body: str,
+    store: ItemsStore,
+) -> bool:
+    scope = (item.tenant_id or "", item.project or "")
+    candidate = ContextCandidate(item, body=body)
+    # ponytail: source-of-truth scan is simplest; move to an index only if
+    # measured write latency becomes a problem for large catalogs.
+    for existing, existing_body in store.iter_all():
+        if (
+            existing.id == item.id
+            or existing.id in item.refs.mems
+            or existing.superseded_by
+            or str(getattr(existing.type, "value", existing.type))
+            not in SOURCE_REQUIRED_TYPES
+            or REVIEW_REQUIRED_TAGS & {tag.strip().lower() for tag in existing.tags}
+            or (existing.tenant_id or "", existing.project or "") != scope
+        ):
+            continue
+        if topic_recency_matches(
+            candidate,
+            ContextCandidate(existing, body=existing_body),
+            min_shared_terms=_WRITE_TOPIC_MIN_SHARED_TERMS,
+        ):
+            return True
+    return False
 
 
 def _has_explicit_boundary(item: MemoryItem) -> bool:
@@ -936,9 +1018,20 @@ def _matches_existing_write(
         or len(existing.refs.extractions) > _MAX_WRITE_EVIDENCE_REFS
     ):
         return False
-    expected, _warning = _mark_boundary_review_candidate(item)
+    store = ItemsStore(brain / "items")
+    expected, _warning = _mark_boundary_review_candidate(
+        item,
+        body=body,
+        store=store,
+    )
+    expected = _normalize_review_boundary(expected)
     expected = enrich_memory_item(expected)
-    if _matches_degraded_evidence_write(item, body, existing):
+    if _matches_degraded_evidence_write(
+        item,
+        body,
+        existing,
+        store=store,
+    ):
         return True
     if not secure_dir_fd_mutation_supported():
         return existing == expected
@@ -1081,8 +1174,16 @@ def _matches_degraded_evidence_write(
     item: MemoryItem,
     body: str,
     existing: MemoryItem,
+    *,
+    store: ItemsStore | None = None,
 ) -> bool:
-    expected, _warning = _mark_boundary_review_candidate(item)
+    expected, _warning = _mark_boundary_review_candidate(
+        item,
+        body=body,
+        store=store,
+    )
+    if store is not None:
+        expected = _normalize_review_boundary(expected)
     expected = enrich_memory_item(expected)
     return _evidence_sidecar_requested(expected, body) and existing == expected
 

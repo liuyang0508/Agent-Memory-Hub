@@ -329,3 +329,166 @@ def test_auto_governance_repairs_index_drift_only_when_apply_is_true(
     )
     assert index.deleted == ["ghost"]
     assert item.id in index.upserted
+
+
+def test_auto_governance_supersedes_only_exact_scoped_duplicates(
+    tmp_brain_dir: Path,
+) -> None:
+    from agent_brain.memory.governance.auto_governance import AutoGovernanceCycle
+
+    store = ItemsStore(tmp_brain_dir / "items")
+    first = MemoryItem(
+        id="mem-20260701-000001-exact-first",
+        type=MemoryType.fact,
+        created_at=datetime(2026, 7, 1, tzinfo=timezone.utc),
+        title="Exact duplicate",
+        summary="Same locator",
+        project="p",
+        support_count=2,
+    )
+    second = first.model_copy(
+        update={
+            "id": "mem-20260702-000001-exact-second",
+            "created_at": datetime(2026, 7, 2, tzinfo=timezone.utc),
+            "support_count": 0,
+        }
+    )
+    other_tenant = first.model_copy(
+        update={
+            "id": "mem-20260703-000001-exact-other-tenant",
+            "tenant_id": "other",
+        }
+    )
+    for item in (first, second, other_tenant):
+        store.write(item, "identical body")
+
+    report = AutoGovernanceCycle(
+        brain_dir=tmp_brain_dir,
+        items_store=store,
+        include_evolve=False,
+        include_index=False,
+        include_conversations=False,
+    ).run(apply=True)
+
+    action = next(
+        action for action in report.actions
+        if action.action == "supersede_exact_duplicate"
+    )
+    assert action.applied is True
+    assert store.get(second.id)[0].superseded_by == first.id
+    assert store.get(other_tenant.id)[0].superseded_by is None
+
+
+def test_auto_governance_archives_only_explicit_ttl_expiration(
+    tmp_brain_dir: Path,
+) -> None:
+    from agent_brain.memory.governance.auto_governance import AutoGovernanceCycle
+
+    store = ItemsStore(tmp_brain_dir / "items")
+    expired = MemoryItem(
+        id="mem-20260701-000002-expired-ttl",
+        type=MemoryType.handoff,
+        created_at=datetime(2026, 7, 1, tzinfo=timezone.utc),
+        title="Expired handoff",
+        summary="Explicitly expired transient state",
+        validity={"observed_at": "2026-07-01T00:00:00+00:00", "ttl_hours": 24},
+    )
+    protected = expired.model_copy(
+        update={
+            "id": "mem-20260701-000003-protected-expired-ttl",
+            "tags": ["blocker"],
+        }
+    )
+    store.write(expired, "old state")
+    store.write(protected, "protected state")
+
+    report = AutoGovernanceCycle(
+        brain_dir=tmp_brain_dir,
+        items_store=store,
+        now=datetime(2026, 7, 10, tzinfo=timezone.utc),
+        include_evolve=False,
+        include_index=False,
+        include_conversations=False,
+    ).run(apply=True)
+
+    action = next(
+        action for action in report.actions
+        if action.action == "archive_expired_ttl"
+    )
+    assert action.applied is True
+    assert not (store.items_dir / f"{expired.id}.md").exists()
+    assert (store.items_dir / "archived" / f"{expired.id}.md").exists()
+    assert (store.items_dir / f"{protected.id}.md").exists()
+
+
+def test_auto_governance_contains_conflicts_once(tmp_brain_dir: Path) -> None:
+    from agent_brain.memory.governance.auto_governance import AutoGovernanceCycle
+
+    store = ItemsStore(tmp_brain_dir / "items")
+    first = MemoryItem(
+        id="mem-20260701-000004-redis-choice",
+        type=MemoryType.decision,
+        created_at=datetime(2026, 7, 1, tzinfo=timezone.utc),
+        title="Caching choice Redis",
+        summary="Use Redis",
+        project="p",
+        tags=["caching"],
+        confidence=0.8,
+    )
+    second = first.model_copy(
+        update={
+            "id": "mem-20260702-000004-memcached-choice",
+            "created_at": datetime(2026, 7, 2, tzinfo=timezone.utc),
+            "title": "Caching choice Memcached",
+            "summary": "Use Memcached",
+        }
+    )
+    store.write(first, "We decided to use Redis for caching.")
+    store.write(second, "We chose Memcached instead of Redis for caching.")
+    cycle = AutoGovernanceCycle(
+        brain_dir=tmp_brain_dir,
+        items_store=store,
+        include_evolve=False,
+        include_index=False,
+        include_conversations=False,
+    )
+
+    first_run = cycle.run(apply=True)
+    second_run = cycle.run(apply=True)
+
+    assert any(
+        action.action == "contain_conflict" and action.applied
+        for action in first_run.actions
+    )
+    assert "contested" in store.get(first.id)[0].tags
+    assert "needs-review" in store.get(second.id)[0].tags
+    assert not any(action.action == "contain_conflict" for action in second_run.actions)
+
+
+def test_daily_maintenance_runs_once_and_archives_explicit_ttl(
+    tmp_brain_dir: Path,
+) -> None:
+    from agent_brain.memory.governance.daily_maintenance import run_daily_maintenance
+
+    store = ItemsStore(tmp_brain_dir / "items")
+    item = MemoryItem(
+        id="mem-20260701-000005-daily-expired",
+        type=MemoryType.signal,
+        created_at=datetime.now(timezone.utc) - timedelta(days=3),
+        title="Daily maintenance expired signal",
+        summary="A short-lived signal with an explicit expired TTL",
+        validity={
+            "observed_at": datetime.now(timezone.utc) - timedelta(days=3),
+            "ttl_hours": 1,
+        },
+    )
+    store.write(item, "expired")
+
+    first = run_daily_maintenance(tmp_brain_dir)
+    second = run_daily_maintenance(tmp_brain_dir)
+
+    assert first["status"] == "completed"
+    assert first["applied_count"] >= 1
+    assert second["status"] == "already_completed"
+    assert not (tmp_brain_dir / "items" / f"{item.id}.md").exists()
+    assert (tmp_brain_dir / "items" / "archived" / f"{item.id}.md").exists()

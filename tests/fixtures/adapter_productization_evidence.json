@@ -34,7 +34,7 @@
     "evaluated_at": "2026-07-19T05:45:00+08:00",
     "evidence_commit": "bf10a302305b06511953e6b0c31ebf6072008b0c",
     "platform": "darwin-arm64",
-    "hook_sha256": "sha256:a716eda7ad90a0a0a645d5e15171d3fdfd73d793269c74aed840119f2ba584bc",
+    "hook_sha256": "sha256:86546a3b4e73d7f32ab2f956d85985a24168be58558f38db86c00e4d80e1737e",
     "cli_shim_status": "stable-checkout-restored",
     "adapters": {
       "codex": {

@@ -2371,6 +2371,7 @@ class PendingQueue:
                 intent.item,
                 intent.body,
                 existing,
+                store=store,
             ):
                 return _resolution_result(
                     action,
@@ -2802,6 +2803,7 @@ class PendingQueue:
                                 pending_item,
                                 pending_body,
                                 existing,
+                                store=store,
                             ):
                                 return _failed_apply_result(
                                     record,

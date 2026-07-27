@@ -136,6 +136,23 @@ If you installed a shell package through Homebrew or npm, run the AMH uninstall
 first to clean managed config, then remove the package with that package
 manager.
 
+### Optional anonymous adoption telemetry
+
+Product telemetry is off by default. Users who want to appear in the public
+adoption dashboard can explicitly opt in; the payload contains only a random
+instance ID, OS/architecture, AMH version, install channel, agent type, and an
+`install` or `active` event. It never includes usernames, IPs, paths, prompts,
+conversations, or memory content.
+
+```bash
+memory telemetry enable
+memory telemetry status
+memory telemetry disable
+```
+
+The public dashboard and server deployment contract are documented in
+[Product Telemetry](./docs/product-telemetry.zh.md).
+
 ### 3. Verify the install
 
 ```bash
@@ -148,12 +165,18 @@ memory sync-pending --summary-only --limit 100 --format json
 memory verify --format json
 memory search "project decision"
 memory hook recent --limit 5
+memory hook summary --days 7
+memory review status --format json
 ```
 
 `memory hook recent` shows whether a prompt injected memory, produced a recall
 gap, timed out, or later received outcome feedback with adopted / rejected /
 ignored item counts. It is the first check when an agent UI shows no
-`<agent_brain>` block. `memory govern readiness` also runs the packaged
+`<agent_brain>` block. `memory hook summary` aggregates injection volume,
+feedback coverage, adopted/rejected/unrated item rates, gap reasons, timeouts,
+and privacy-safe keywords over a chosen window. `memory review status` adds
+oldest-item age and SLA alerts for review and pending queues.
+`memory govern readiness` also runs the packaged
 query-signal adversarial cases for long Chinese tasks, JSON/config prompts,
 OCR/log/code snippets, and weak follow-ups.
 `memory govern plan --category lifecycle` lists stale `signal` / `handoff`
@@ -186,6 +209,31 @@ memory verify --repair --format json
 
 Repair is category-scoped, closes its write connection before the final
 read-only verification, and succeeds only when the `after` report is clean.
+
+### Cross-agent handoff and resume
+
+Before switching agents or stopping an unfinished task, persist one complete
+checkpoint. Git state is captured automatically; task state, next actions, and
+verification are required so an incomplete handoff cannot be written:
+
+```bash
+memory handoff \
+  --objective "Finish the recall quality gate" \
+  --done "Added the real-prompt fixture" \
+  --pending "Wire the fixture into readiness" \
+  --decision "Reuse ContextFirewall | keeps policy parity | avoids split behavior" \
+  --next "Add the fixture to the release gate" \
+  --verify "pytest tests/unit/test_query_signal.py -q" \
+  --project agent-memory-hub \
+  --agent codex \
+  --target-agent claude_code
+
+memory resume --project agent-memory-hub --fail-empty
+```
+
+Both commands use the same Markdown source of truth, `WriteService`, sensitivity
+audit, validity TTL, injection gateway, and `memory brief` ranking already used
+by the rest of AMH. No separate handoff database is introduced.
 
 ### Adapter lifecycle truth model
 
@@ -547,6 +595,7 @@ The HTML map carries larger diagrams, sequences, and flow expansions.
 | Resource and extraction sidecar | Shipping / product surface in progress | `ResourceStore` supports `resources/*.json` and `extractions/*.json`; `memory resource promote-extraction` can promote trusted OCR/ASR/VLM/PDF extraction text into a normal `MemoryItem` while preserving `refs.resources` and `refs.extractions`. |
 | Derived index projection | Shipping | `index.db` maintains `items_meta`, `items_fts`, `items_vec`, and `refs_graph`; projections rebuild from Markdown. |
 | Retrieval scoring pipeline | Shipping | BM25 + vector recall uses RRF, then rerank, decay, feedback, runtime evidence, freshness, and supersession filters. |
+| Automatic feedback tuning | Shipping | The next user turn can safely classify the immediately preceding injection cohort as adopted or rejected; raw prompt text is never persisted, ambiguous feedback is ignored, and retrieval trust weights update exactly once. |
 | Optional retrieval trace | Shipping | CLI/MCP search can opt into explainable retrieval traces: initial BM25/vector ranks, stage effects, final rank, and compact signals, without changing default hook injection. |
 | Layered context loading | Shipping | Locator is default, overview is optional, detail reads body on demand; vector features use locator + overview only. |
 | Reversible `context_pack` | Shipping | `context_pack` is the compressed prompt view plus `detail_uri` and retrieve hints; automatic injection avoids body dumps and agents fetch evidence with `read_memory(..., head=2000, view='detail')` only when needed. |
@@ -556,8 +605,11 @@ The HTML map carries larger diagrams, sequences, and flow expansions.
 | Semantic memory candidates | Shipping | Semantic proactive v2 extracts reusable review candidates into `review/proactive-candidates.jsonl`; approvals still write through WriteService. |
 | L2/L3 hierarchy sidecar | Shipping | `memory govern hierarchy --apply` builds `derived/hierarchical-memory.json` by topic/project without mutating `items/`. |
 | Maturity and forgetting governance | Shipping | `memory govern maturity` recommends raw/consolidated/skill; decay considers more than time, including access, importance, feedback, and evidence shape. |
-| Auto-governance cycle | Shipping | `memory govern auto` builds one dry-run/apply plan across maturity, drift, quality, index drift, and conversation tiering; apply only executes safe actions. |
-| Loop Contract governance | Shipping | `memory loop run --contract`, `memory loop contract validate`, `memory loop create --contract`, `memory loop verify`, `memory loop feedback`, and `memory loop gate open/approve/reject` bind goals, state, actions, verifiers, budgets, stop conditions, and human gates to LoopRun evidence. AMH is the multi-agent loop fact layer, verification layer, and governance layer; it is not an unattended runner. |
+| Auto-governance cycle | Shipping | `memory govern auto` builds one dry-run/apply plan across maturity, drift, quality, index drift, and conversation tiering. Exact scoped duplicates and explicitly expired short-lived records are handled reversibly; semantic conflicts are contained for review, not silently merged. |
+| Persistent task state machine | Shipping | Loop runs persist dependency-aware steps, blockers, completion and verification evidence. `memory handoff --loop <id>` renders that shared state so another agent resumes from the same ledger. |
+| End-to-end encrypted device sync | Shipping | `memory sync init/run` encrypts every object with AES-256-GCM on-device, stores only opaque append-only objects in the cloud, and deterministically preserves equal-version conflicts until devices converge. |
+| Organization RBAC and operations console | Shipping | Live `owner/admin/member/viewer` authorization governs tenant-scoped sync and membership. Web Admin shows organization memory, devices, heartbeats, and ciphertext-object counts without exposing plaintext or recovery keys. |
+| Loop Contract governance | Shipping | `memory loop run --contract`, `memory loop contract validate`, `memory loop create --contract`, `memory loop step add/set/list`, `memory loop verify`, `memory loop feedback`, and `memory loop gate open/approve/reject` bind goals, state, actions, verifiers, budgets, stop conditions, and human gates to LoopRun evidence. AMH is the multi-agent loop fact layer, verification layer, and governance layer; it is not an unattended runner. |
 | Associative-memory expansion | Experimental | Explicit `refs_graph` is shipping; graph expansion, MMR, and Hopfield expansion are switchable enhancements gated by benchmarks. |
 | Retrieval benchmark gate | Shipping | `memory benchmark retrieval --cases ...` and Web `/api/retrieval-gate` evaluate recall@1, recall@k, and MRR against the real index; failing thresholds fail the gate. |
 
@@ -578,13 +630,13 @@ deliberate diagnostics; broad explicit-detail search is warned but not blocked.
 | Layer | Audience | Status | Shape |
 |---|---|---:|---|
 | **L1 Personal brain** | One developer using many agents | Shipping | Local Markdown pool + CLI/MCP/hooks. |
-| **L2 Team shared brain** | Small teams | Planned | Shared repo/sync model once L1 usage proves demand. |
-| **L3 Enterprise memory infra** | Organizations | Reserved | Multi-tenant, RBAC, private cloud/SaaS, dashboards. |
+| **L2 Team shared brain** | Small teams | Shipping baseline | End-to-end encrypted device sync, deterministic conflict preservation, tenant isolation, persistent task state, and handoff resume. |
+| **L3 Enterprise memory infra** | Organizations | Shipping baseline | Live organization RBAC and an operations console are shipped; managed SaaS, external identity providers, billing, and region controls remain future deployment work. |
 
 Near-term product work:
 
 - Improve recall drift controls and feedback loops.
-- Harden `memory govern auto` with provenance-aware review queues while keeping archive, delete, consolidate, and skill synthesis review-required.
+- Harden `memory govern auto` with provenance-aware review queues while keeping semantic merges, broad deletion, consolidation, and skill synthesis review-required.
 - Tighten adapter verification from `install-ready` to real-client `verified`.
 - Extend raw conversation evidence governance: hot/warm/cold policy, extraction provenance, and bounded replay into MemoryItem candidates.
 - Extend Loop Contract cockpit views and `memory loop gate open` lifecycle reporting while keeping execution outside AMH's default responsibilities.
@@ -716,9 +768,16 @@ memory search "browser permission" --context-firewall --format text
 memory read mem-YYYYMMDD-HHMMSS-slug --view detail
 memory read mem-YYYYMMDD-HHMMSS-slug --view detail --head 2000
 memory brief
+memory handoff --help
+memory resume --project <project> --fail-empty
+memory hook summary --days 7
+memory review status --format json
 memory conversation ingest ~/.claude/projects/<project>/<session>.jsonl --agent claude-code
 memory conversation list --agent claude-code
 memory conversation rebalance
+memory sync init --server https://memory.example.com --api-key <key>
+memory sync run
+memory sync heartbeat
 memory benchmark system --max-cases 240 --format summary
 memory loop run --contract loop.yaml --format json
 memory doctor

@@ -106,7 +106,10 @@ broad explicit-detail searches receive a non-blocking governance warning.
 ## Loop Contract — `agent_brain/memory/loops/`
 
 Loop Engineering uses a contract plus runtime ledger instead of prompt-only
-control. `LoopContract` defines goal / state / action / feedback / verifier / budget / stop condition / human gate. `LoopRun` stores contract metadata, required verifiers, structured feedback, and readiness evidence.
+control. `LoopContract` defines goal / state / action / feedback / verifier / budget / stop condition / human gate.
+`LoopRun` additionally persists
+dependency-aware steps, blockers, completion evidence, and verification evidence.
+`memory handoff --loop` derives the task-state section from this same ledger.
 `LoopOrchestrator` is the high-level non-LLM controller behind `memory loop run --contract`:
 it validates the contract, creates the runtime ledger, runs allowlisted verifiers,
 opens required human gates, and completes or blocks the loop from evidence.
@@ -115,6 +118,27 @@ Invariant: **AMH is the loop fact layer, verification layer, and governance
 layer, not an automatic runner.** High-risk actions remain human-gated, verifier
 commands stay allowlisted, and long-term memory writes still go through
 `WriteService` or review boundaries.
+
+## Encrypted device sync and organization control plane
+
+`agent_brain/product/encrypted_sync.py` encrypts canonical item records on the
+device with AES-256-GCM. The recovery key stays in the device brain directory;
+the server receives only a keyed opaque object id, nonce/ciphertext envelope,
+device id, and liveness metadata. Sync objects are immutable and tenant scoped.
+Equal-version divergence is resolved deterministically while the losing copy is
+preserved as a `sync-conflict` / `needs-review` item.
+
+The Web control plane reuses `tenant_id` as the organization boundary.
+`web_state.db` persists organizations, members, live
+`owner/admin/member/viewer` roles, encrypted objects, and device heartbeats.
+Organization authorization reads the current SQLite role on every request, so
+a downgrade takes effect even while an older JWT remains valid. Operations
+summaries expose counts and device liveness, never ciphertext payloads,
+recovery keys, or memory plaintext.
+
+Invariant: **the cloud is a ciphertext relay and authorization plane, not a key
+holder.** Possession of a Web admin credential does not decrypt synchronized
+memory.
 
 ## Retrieval trace — `agent_brain/memory/recall/retrieval_trace.py`
 
@@ -326,9 +350,11 @@ write signal / candidate / raw transcript / task outcome
   -> .index-dirty / pending repair through verify, reindex, sync-pending
   -> raw conversation harvest, watermarking, span dedup, tier rebalance
   -> runtime ledgers: adapter events, injection cohorts, recall gaps, task outcomes
-  -> feedback: adopted/rejected only; ignored injected ids stay unchanged
+  -> next-turn feedback classifier: explicit adopted/rejected only, no user-text persistence
+  -> feedback applies once; ignored or ambiguous injected ids stay unchanged
   -> governance scans: duplicate, noise, TTL, quality, drift, maturity, index drift
-  -> AutoGovernance safe_apply or review_required / blocked actions
+  -> daily AutoGovernance: exact scoped duplicate supersession, explicit TTL archive
+  -> semantic conflict containment; ambiguous/high-risk actions stay review_required
   -> evolve / dream proposals behind audit gates
   -> approved candidates or audited execution paths update the truth layer
   -> data-flow and memory-lineage read models expose redacted observability
@@ -346,8 +372,10 @@ Maintenance invariants:
   mutation, `WriteService` keeps the Markdown success but reports
   `evidence-sidecar` / `source-ledger` degraded and creates neither sidecar;
   non-POSIX secure sidecar writes are currently unavailable.
-- **Feedback is explicit.** `InjectionFeedback` reinforces adopted ids and
-  penalizes rejected ids. Injected-but-unmentioned ids stay unchanged, so
+- **Feedback is explicit and bounded.** `InjectionFeedback` reinforces adopted
+  ids and penalizes rejected ids. The automatic classifier only reads the next
+  turn for explicit cohort-level signals, stores no user message text, and applies a
+  cohort once. Injected-but-unmentioned or ambiguous ids stay unchanged, so
   exposure alone cannot make an item hotter.
 - **Safe apply is narrow.** `AutoGovernanceCycle` can apply low-risk maturity,
   index repair, and conversation-tier changes. Archive, delete, consolidate,

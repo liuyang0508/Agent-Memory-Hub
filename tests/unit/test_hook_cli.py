@@ -138,3 +138,66 @@ def test_hook_recent_json_reports_injection_outcome_usage(tmp_path):
         assert outcome["ignored_ids"] == ["mem-b"]
     finally:
         os.environ.pop("BRAIN_DIR", None)
+
+
+def test_hook_summary_aggregates_keywords_gaps_feedback_and_timeouts(tmp_path):
+    os.environ["BRAIN_DIR"] = str(tmp_path)
+    try:
+        now = datetime.now(timezone.utc)
+        cohort = record_injection_cohort(
+            tmp_path,
+            item_ids=["mem-a", "mem-b", "mem-c"],
+            adapter="codex",
+            session_id="s1",
+            query_terms=["handoff", "召回"],
+            now=now,
+        )
+        record_gap(
+            tmp_path,
+            query="handoff|召回",
+            reason="all_candidates_rejected",
+            adapter="codex",
+            now=now,
+        )
+        record_task_outcome(
+            tmp_path,
+            task_id=f"injection-feedback:{cohort.cohort_id}",
+            question=f"injection cohort {cohort.cohort_id}",
+            outcome="corrected",
+            injected_ids=["mem-a", "mem-b", "mem-c"],
+            adopted_ids=["mem-a"],
+            rejected_ids=["mem-c"],
+            adapter="codex",
+            now=now,
+        )
+        runtime = tmp_path / "runtime"
+        runtime.mkdir(exist_ok=True)
+        with (runtime / "hook-latency.jsonl").open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps({
+                "timestamp": now.isoformat(),
+                "adapter": "codex",
+                "status": "timeout",
+                "stage": "search_memory",
+            }) + "\n")
+
+        result = runner.invoke(app, ["hook", "summary", "--days", "1", "--format", "json"])
+
+        assert result.exit_code == 0, result.output
+        report = json.loads(result.output)
+        assert report["records"] == {
+            "injections": 1,
+            "gaps": 1,
+            "outcomes": 1,
+            "timeouts": 1,
+        }
+        assert report["feedback"]["cohort_coverage_rate"] == 1.0
+        assert report["feedback"]["adopted_item_rate"] == 0.3333
+        assert report["feedback"]["rejected_item_rate"] == 0.3333
+        assert report["feedback"]["unrated_item_rate"] == 0.3333
+        assert report["gap_reasons"] == {"all_candidates_rejected": 1}
+        assert report["top_keywords"] == [
+            {"keyword": "handoff", "count": 1},
+            {"keyword": "召回", "count": 1},
+        ]
+    finally:
+        os.environ.pop("BRAIN_DIR", None)

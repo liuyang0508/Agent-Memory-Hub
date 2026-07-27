@@ -4138,6 +4138,304 @@
       text-decoration: none;
     }
 
+    .adoption-section {
+      background:
+        linear-gradient(90deg, rgba(89,184,255,0.10) 1px, transparent 1px),
+        linear-gradient(180deg, rgba(89,184,255,0.09) 1px, transparent 1px),
+        radial-gradient(circle at 12% 12%, rgba(232,121,180,0.18), transparent 30rem),
+        radial-gradient(circle at 88% 8%, rgba(85,185,255,0.30), transparent 34rem),
+        radial-gradient(circle at 58% 92%, rgba(132,231,168,0.24), transparent 36rem),
+        linear-gradient(135deg, #dff5ff 0%, #edf7ff 46%, #e8fbea 100%);
+      background-size: 54px 54px, 54px 54px, auto, auto, auto, auto;
+    }
+
+    .adoption-heading {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 28px;
+      align-items: end;
+    }
+
+    .adoption-heading h2 {
+      color: #050505;
+    }
+
+    .adoption-status {
+      display: inline-flex;
+      align-items: center;
+      gap: 9px;
+      min-height: 40px;
+      padding: 0 14px;
+      border: 1px solid rgba(85,185,255,0.20);
+      border-radius: 999px;
+      background: rgba(255,255,255,0.84);
+      color: rgba(18,42,62,0.62);
+      font: 700 0.78rem var(--qw-mono);
+      white-space: nowrap;
+    }
+
+    .adoption-status i {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: #f3b84b;
+      box-shadow: 0 0 0 5px rgba(243,184,75,0.13);
+    }
+
+    .adoption-status.live i {
+      background: #28b884;
+      box-shadow: 0 0 0 5px rgba(40,184,132,0.13);
+    }
+
+    .adoption-status.error i {
+      background: #e879b4;
+      box-shadow: 0 0 0 5px rgba(232,121,180,0.13);
+    }
+
+    .adoption-metrics {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 28px;
+    }
+
+    .adoption-metrics article,
+    .adoption-panel,
+    .adoption-consent {
+      border: 1px solid rgba(85,185,255,0.26);
+      background: linear-gradient(145deg, rgba(232,247,255,0.94), rgba(229,249,240,0.88));
+      box-shadow: 0 22px 54px rgba(45,103,148,0.11), inset 0 1px 0 rgba(255,255,255,0.86);
+    }
+
+    .adoption-metrics article {
+      min-height: 168px;
+      padding: 20px;
+      border-radius: 22px;
+    }
+
+    .adoption-metrics article:first-child {
+      background: linear-gradient(135deg, rgba(198,237,255,0.96), rgba(229,241,255,0.90));
+    }
+
+    .adoption-metrics article:last-child {
+      background: linear-gradient(135deg, rgba(211,249,231,0.94), rgba(229,242,255,0.90));
+    }
+
+    .adoption-metrics span,
+    .adoption-panel-head span {
+      color: rgba(18,42,62,0.62);
+      font-size: 0.86rem;
+      font-weight: 720;
+    }
+
+    .adoption-metrics strong {
+      display: block;
+      margin: 16px 0 9px;
+      color: #050505;
+      font: 760 clamp(2.25rem, 4vw, 4.2rem)/0.9 var(--qw-mono);
+    }
+
+    .adoption-metrics small,
+    .adoption-panel-head small {
+      color: rgba(18,42,62,0.45);
+      font-size: 0.76rem;
+    }
+
+    .adoption-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.45fr) minmax(300px, 0.55fr);
+      gap: 12px;
+      margin-top: 12px;
+    }
+
+    .adoption-panel {
+      min-height: 320px;
+      padding: 20px;
+      border-radius: 24px;
+    }
+
+    .recent-panel {
+      grid-column: 1 / -1;
+      min-height: 0;
+    }
+
+    .adoption-panel-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 18px;
+    }
+
+    .adoption-panel-head span,
+    .adoption-panel-head small {
+      display: block;
+    }
+
+    .adoption-panel-head span {
+      margin-bottom: 4px;
+      color: #050505;
+      font-size: 1.04rem;
+    }
+
+    .adoption-panel-head time,
+    .trend-legend {
+      color: rgba(18,42,62,0.45);
+      font: 650 0.7rem var(--qw-mono);
+    }
+
+    .trend-legend {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+    }
+
+    .trend-legend i {
+      width: 9px;
+      height: 9px;
+      border-radius: 3px;
+    }
+
+    .trend-legend i.install { background: #55b9ff; }
+    .trend-legend i.history {
+      margin-left: 7px;
+      background: linear-gradient(135deg, #e879b4, #55b9ff);
+    }
+
+    .adoption-trend {
+      min-height: 238px;
+      display: grid;
+      grid-template-columns: repeat(14, minmax(14px, 1fr));
+      gap: 7px;
+      align-items: end;
+      padding: 18px 2px 0;
+      border-top: 1px solid rgba(85,185,255,0.13);
+      background: repeating-linear-gradient(0deg, transparent 0 54px, rgba(85,185,255,0.07) 54px 55px);
+    }
+
+    .trend-day {
+      height: 210px;
+      display: grid;
+      grid-template-rows: minmax(0, 1fr) auto;
+      gap: 8px;
+      align-items: end;
+    }
+
+    .trend-bars {
+      height: 180px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 6px;
+    }
+
+    .trend-bars b {
+      color: rgba(18,42,62,0.66);
+      font: 720 0.66rem var(--qw-mono);
+    }
+
+    .trend-bars i {
+      width: min(18px, 72%);
+      flex: 0 0 auto;
+      min-height: 3px;
+      border-radius: 5px 5px 2px 2px;
+      background: linear-gradient(180deg, #8ed1ff, #55b9ff);
+    }
+
+    .trend-bars i.history {
+      background: linear-gradient(180deg, #e879b4, #6ec7ff);
+      box-shadow: 0 8px 18px rgba(85,185,255,0.20);
+    }
+
+    .trend-day small {
+      color: rgba(18,42,62,0.38);
+      font: 600 0.6rem var(--qw-mono);
+      text-align: center;
+    }
+
+    .breakdown-groups {
+      display: grid;
+      gap: 17px;
+    }
+
+    .breakdown-groups b {
+      display: block;
+      margin-bottom: 8px;
+      color: rgba(18,42,62,0.48);
+      font-size: 0.72rem;
+    }
+
+    .breakdown-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 7px;
+    }
+
+    .breakdown-list span {
+      padding: 7px 9px;
+      border: 1px solid rgba(85,185,255,0.16);
+      border-radius: 10px;
+      background: linear-gradient(135deg, rgba(232,247,255,0.78), rgba(255,255,255,0.9));
+      color: #18364a;
+      font: 680 0.7rem var(--qw-mono);
+    }
+
+    .adoption-table-wrap { overflow-x: auto; }
+    .adoption-table {
+      width: 100%;
+      border-collapse: collapse;
+      color: #18364a;
+      font: 650 0.74rem var(--qw-mono);
+      text-align: left;
+    }
+
+    .adoption-table th,
+    .adoption-table td {
+      padding: 12px 10px;
+      border-bottom: 1px solid rgba(85,185,255,0.13);
+      white-space: nowrap;
+    }
+
+    .adoption-table th {
+      color: rgba(18,42,62,0.42);
+      font-size: 0.66rem;
+      text-transform: uppercase;
+    }
+
+    .adoption-table td:first-child { color: #1291c9; }
+    .adoption-table tbody tr:last-child td { border-bottom: 0; }
+
+    .adoption-consent {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px;
+      margin-top: 12px;
+      padding: 16px 18px;
+      border-radius: 20px;
+    }
+
+    .adoption-consent div {
+      min-width: min(100%, 360px);
+      flex: 1;
+    }
+
+    .adoption-consent strong,
+    .adoption-consent span {
+      display: block;
+    }
+
+    .adoption-consent strong { color: #050505; font-size: 0.9rem; }
+    .adoption-consent span { margin-top: 4px; color: rgba(18,42,62,0.5); font-size: 0.76rem; }
+    .adoption-consent code {
+      padding: 9px 11px;
+      border-radius: 10px;
+      background: #18364a;
+      color: #d9f7ff;
+      font: 650 0.7rem var(--qw-mono);
+    }
+
     .welcome-panel {
       position: relative;
       overflow: hidden;
@@ -4627,6 +4925,7 @@
       .cap-result-grid,
       .contribution-grid,
       .eval-grid,
+      .adoption-metrics,
       .welcome-panel,
       .footer-columns {
         grid-template-columns: 1fr 1fr;
@@ -4725,10 +5024,20 @@
       .cap-result-grid,
       .contribution-grid,
       .eval-grid,
+      .adoption-metrics,
+      .adoption-grid,
       .welcome-panel,
       .footer-columns {
         grid-template-columns: 1fr;
       }
+      .adoption-heading {
+        grid-template-columns: 1fr;
+        align-items: start;
+      }
+      .adoption-status { width: fit-content; }
+      .recent-panel { grid-column: auto; }
+      .adoption-trend { min-width: 620px; }
+      .trend-panel { overflow-x: auto; }
       .footer-columns > div:first-child {
         grid-column: auto;
       }
@@ -4844,10 +5153,10 @@
         </a>
         <nav class="redesign-links" aria-label="Page sections">
           <a href="#quick-access">快速接入</a>
+          <a href="#adoption">使用数据</a>
           <a href="#capabilities">核心能力</a>
           <a href="#benchmark">评测报告</a>
           <a href="https://gitee.com/liuyang0508/Agent-Memory-Hub">Gitee 镜像</a>
-          <a href="#community">技术共创群</a>
         </nav>
         <a class="redesign-cta" href="#quick-access">Start</a>
       </div>
@@ -5011,6 +5320,56 @@
         </div>
       </section>
 
+      <section class="redesign-section adoption-section" id="adoption">
+        <div class="redesign-wrap">
+          <div class="adoption-heading">
+            <div>
+              <p class="section-label">Live adoption</p>
+              <h2>匿名安装趋势</h2>
+              <p class="section-copy">累计安装以 369 个历史安装实例为上线基线，最近 24 小时、趋势和分布来自后续主动加入的匿名统计，不代表全部用户，也不是实名用户清单。只统计随机 ID、系统、架构、版本、安装渠道和 Agent 类型；不采集姓名、账号、IP、目录、提示词或记忆内容。</p>
+            </div>
+            <div class="adoption-status" id="adoption-status" role="status"><i></i><span>正在连接数据服务</span></div>
+          </div>
+
+          <div class="adoption-metrics" aria-label="Anonymous adoption metrics">
+            <article><span>累计安装实例</span><strong id="metric-total">369</strong><small>历史安装基线 + 上线后匿名实例</small></article>
+            <article><span>最近 24h 新安装</span><strong id="metric-installed-24h">0</strong><small>匿名安装事件去重</small></article>
+          </div>
+
+          <div class="adoption-grid">
+            <article class="adoption-panel trend-panel">
+              <div class="adoption-panel-head"><div><span>14 天安装趋势</span><small>07/14–07/20 历史基线 236 · 其余为实时新增</small></div><div class="trend-legend"><i class="install"></i>实时<i class="history"></i>历史</div></div>
+              <div class="adoption-trend" id="adoption-trend" aria-label="14-day install trend"></div>
+            </article>
+            <article class="adoption-panel">
+              <div class="adoption-panel-head"><div><span>使用分布</span><small>Top categories</small></div></div>
+              <div class="breakdown-groups">
+                <div><b>平台</b><div id="breakdown-platform" class="breakdown-list"><span>等待数据</span></div></div>
+                <div><b>Agent</b><div id="breakdown-adapter" class="breakdown-list"><span>等待数据</span></div></div>
+                <div><b>版本</b><div id="breakdown-version" class="breakdown-list"><span>等待数据</span></div></div>
+                <div><b>渠道</b><div id="breakdown-channel" class="breakdown-list"><span>等待数据</span></div></div>
+              </div>
+            </article>
+            <article class="adoption-panel recent-panel">
+              <div class="adoption-panel-head"><div><span>最近加入</span><small>匿名 ID 由服务端二次摘要</small></div><time id="adoption-updated">—</time></div>
+              <div class="adoption-table-wrap">
+                <table class="adoption-table">
+                  <thead><tr><th>实例</th><th>平台</th><th>Agent</th><th>版本</th><th>渠道</th><th>首次安装</th></tr></thead>
+                  <tbody id="adoption-recent"><tr><td colspan="6">正在读取匿名使用数据…</td></tr></tbody>
+                </table>
+              </div>
+            </article>
+          </div>
+
+          <div class="adoption-consent">
+            <div><strong>默认关闭，用户自己决定。</strong><span>官网当前只展示匿名安装数据；运行活跃能力保留在后端，待数据规模足够后再开放。所有出站请求写入本机 audit log。</span></div>
+            <code>memory telemetry enable</code>
+            <code>memory telemetry status</code>
+            <code>memory telemetry disable</code>
+          </div>
+        </div>
+      </section>
+
       <section class="redesign-section" id="capabilities">
         <div class="redesign-wrap">
           <p class="section-label">Core capabilities</p>
@@ -5075,64 +5434,6 @@
         </div>
       </section>
 
-      <section class="redesign-section" id="community">
-        <div class="redesign-wrap welcome-panel">
-          <div class="co-create-copy">
-            <p class="section-label">Co-create</p>
-            <h2><span>欢迎把它用坏</span><span class="co-title-second">也欢迎一起把它修好</span></h2>
-            <p>Agent Memory Hub 还不是“万能记忆答案”，它更像一套本地优先、证据优先的上下文基础设施。技术交流群统一命名为 Agent Memory Hub 技术共创群，用来承接真实工作流、失败案例、评测样本、adapter 证据和治理建议。</p>
-            <div class="co-create-loop" aria-label="Co-create feedback loop">
-              <div class="loop-step"><b>collect</b><span>保留真实失败样本、链路日志、adapter 证据。</span></div>
-              <div class="loop-step"><b>verify</b><span>复现问题，写进 recall gap、benchmark 和 doctor。</span></div>
-              <div class="loop-step"><b>ship</b><span>把修复沉淀成可回归的策略、报告和能力边界。</span></div>
-            </div>
-          </div>
-          <div class="co-create-board">
-            <div class="contribution-grid" aria-label="Contribution input channels">
-              <article class="contribution-card">
-                <i>01</i>
-                <strong>真实工作流</strong>
-                <p>多 Agent 接力、历史同步、弱 prompt、跨窗口承接和本地文件证据。</p>
-              </article>
-              <article class="contribution-card">
-                <i>02</i>
-                <strong>失败案例</strong>
-                <p>误召回、漏召回、噪声注入、过期事实和无法解释的链路输出。</p>
-              </article>
-              <article class="contribution-card">
-                <i>03</i>
-                <strong>评测样本</strong>
-                <p>可以复跑的 query、期望 memory、source 边界和判定理由。</p>
-              </article>
-              <article class="contribution-card">
-                <i>04</i>
-                <strong>技术共创群</strong>
-                <p>Agent Memory Hub 技术共创群，长期讨论安装、适配器、召回、治理和路线建议。</p>
-              </article>
-            </div>
-            <figure class="community-qr-card" aria-label="Agent Memory Hub 技术共创群微信群二维码">
-              <figcaption>
-                <strong>扫码加入 Agent Memory Hub 技术共创群</strong>
-                <p>用于安装支持、适配器接入、召回问题反馈、评测样本共创和路线讨论。官网社区入口会展示当前可用的微信群二维码；如果微信群二维码过期，请刷新官网或在 GitHub / Gitee issue 留言获取新入口。</p>
-              </figcaption>
-              <img src="../assets/agent-memory-hub-wechat-community-qr-current.jpg" data-refresh-src="../assets/agent-memory-hub-wechat-community-qr-current.jpg" alt="Agent Memory Hub 技术共创群当前微信群二维码">
-            </figure>
-            <div class="governance-card" aria-label="Co-create governance output">
-              <div>
-                <strong>每个问题都应该回到证据账本，而不是停在感觉上。</strong>
-                <p>AMH 会把共创反馈落到运行事件、recall gap、task outcome、文档真值和 benchmark 报告里，后续改动必须能被重新验证。微信群二维码过期后，也可以在 GitHub / Gitee issue 留言获取新入口。</p>
-              </div>
-              <div class="governance-meter" aria-hidden="true"><span>feedback<br>loop</span></div>
-            </div>
-            <div class="welcome-actions">
-              <a href="#quick-access">快速接入</a>
-              <a class="secondary" href="https://gitee.com/liuyang0508/Agent-Memory-Hub">Gitee 镜像</a>
-              <a class="secondary" href="https://gitee.com/liuyang0508/Agent-Memory-Hub/blob/main/README.zh.md">阅读 README</a>
-              <a class="secondary" href="https://github.com/liuyang0508/agent-memory-hub/blob/main/docs/evaluation/amh-full-ranking-optimized-full/latest-memory-benchmark-report.zh.md">评测报告</a>
-            </div>
-          </div>
-        </div>
-      </section>
     </main>
 
     <footer class="redesign-footer">
@@ -5152,12 +5453,12 @@
           <div>
             <h3>资源</h3>
             <a href="#quick-access">快速接入</a>
+            <a href="#adoption">匿名使用数据</a>
             <a href="https://github.com/liuyang0508/agent-memory-hub/blob/main/docs/evaluation/amh-full-ranking-optimized-full/latest-memory-benchmark-report.zh.md">评测报告</a>
             <a href="#capabilities">Obsidian / Wiki</a>
           </div>
           <div>
-            <h3>社区与入口</h3>
-            <a href="#community">Agent Memory Hub 技术共创群</a>
+            <h3>项目入口</h3>
             <a href="https://github.com/liuyang0508/agent-memory-hub/">GitHub 主仓库</a>
             <a href="https://gitee.com/liuyang0508/Agent-Memory-Hub">Gitee 国内镜像</a>
             <div class="footer-social">
@@ -5482,12 +5783,6 @@
   </footer>
 
   <script>
-    document.querySelectorAll('[data-refresh-src]').forEach((image) => {
-      const src = image.getAttribute('data-refresh-src');
-      if (!src) return;
-      image.src = `${src}?t=${Date.now()}`;
-    });
-
     document.querySelectorAll('[data-copy]').forEach((button) => {
       button.addEventListener('click', async () => {
         const text = button.getAttribute('data-copy') || '';
@@ -5526,6 +5821,90 @@
         window.setTimeout(() => { button.textContent = old; }, 1200);
       });
     });
+
+    const telemetryInstallBaseline = 369;
+    const telemetryInstallHistory = Object.freeze({
+      '2026-07-14': 18,
+      '2026-07-15': 24,
+      '2026-07-16': 29,
+      '2026-07-17': 37,
+      '2026-07-18': 41,
+      '2026-07-19': 46,
+      '2026-07-20': 41
+    });
+    const telemetryNumber = new Intl.NumberFormat('zh-CN');
+    const telemetryText = (value) => String(value || 'unknown')
+      .replace(/[<>&"'`]/g, (character) => ({
+        '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;',
+        "'": '&#39;', '`': '&#96;'
+      })[character]);
+
+    function renderTelemetryBreakdown(id, rows) {
+      const target = document.getElementById(id);
+      target.innerHTML = rows && rows.length
+        ? rows.map((row) => `<span>${telemetryText(row.name)} · ${telemetryNumber.format(row.count)}</span>`).join('')
+        : '<span>等待新增数据</span>';
+    }
+
+    function renderTelemetryTrend(rows) {
+      const target = document.getElementById('adoption-trend');
+      const displayRows = rows.map((row) => ({
+        ...row,
+        historical: Object.hasOwn(telemetryInstallHistory, row.day),
+        installs: telemetryInstallHistory[row.day] ?? row.installs
+      }));
+      const maximum = Math.max(1, ...displayRows.map((row) => row.installs));
+      target.innerHTML = displayRows.map((row) => {
+        const installHeight = Math.max(3, Math.round(row.installs / maximum * 142));
+        const label = row.day.slice(5).replace('-', '/');
+        return `<div class="trend-day" title="${telemetryText(row.day)} · 安装 ${row.installs}">
+          <div class="trend-bars"><b>${telemetryNumber.format(row.installs)}</b><i class="${row.historical ? 'history' : ''}" style="height:${installHeight}px"></i></div>
+          <small>${label}</small>
+        </div>`;
+      }).join('');
+    }
+
+    function relativeTelemetryTime(value) {
+      if (!value) return '尚无';
+      const seconds = Math.max(0, Math.round((Date.now() - new Date(value).getTime()) / 1000));
+      if (seconds < 60) return '刚刚';
+      if (seconds < 3600) return `${Math.floor(seconds / 60)} 分钟前`;
+      if (seconds < 86400) return `${Math.floor(seconds / 3600)} 小时前`;
+      return `${Math.floor(seconds / 86400)} 天前`;
+    }
+
+    async function loadTelemetryDashboard() {
+      const status = document.getElementById('adoption-status');
+      try {
+        const response = await fetch('/api/v1/telemetry/summary', {cache: 'no-store'});
+        const contentType = response.headers.get('content-type') || '';
+        if (!response.ok || !contentType.includes('application/json')) throw new Error('telemetry API unavailable');
+        const data = await response.json();
+        document.getElementById('metric-total').textContent = telemetryNumber.format(telemetryInstallBaseline + data.total_instances);
+        document.getElementById('metric-installed-24h').textContent = telemetryNumber.format(data.installed_24h);
+        renderTelemetryTrend(data.trend || []);
+        renderTelemetryBreakdown('breakdown-platform', data.breakdowns && data.breakdowns.platform);
+        renderTelemetryBreakdown('breakdown-adapter', data.breakdowns && data.breakdowns.adapter);
+        renderTelemetryBreakdown('breakdown-version', data.breakdowns && data.breakdowns.product_version);
+        renderTelemetryBreakdown('breakdown-channel', data.breakdowns && data.breakdowns.channel);
+        const recent = data.recent || [];
+        document.getElementById('adoption-recent').innerHTML = recent.length
+          ? recent.map((row) => `<tr><td>${telemetryText(row.id)}</td><td>${telemetryText(row.platform)}</td><td>${telemetryText(row.adapter)}</td><td>${telemetryText(row.product_version)}</td><td>${telemetryText(row.channel)}</td><td>${relativeTelemetryTime(row.first_seen)}</td></tr>`).join('')
+          : '<tr><td colspan="6">累计安装采用历史基线；等待新的匿名 opt-in 安装事件。</td></tr>';
+        document.getElementById('adoption-updated').textContent = `更新于 ${new Date(data.generated_at).toLocaleTimeString('zh-CN', {hour12: false})}`;
+        status.className = 'adoption-status live';
+        status.querySelector('span').textContent = '实时数据 · 每 15 秒刷新';
+      } catch (_error) {
+        status.className = 'adoption-status error';
+        status.querySelector('span').textContent = '数据服务尚未接通';
+        document.getElementById('adoption-recent').innerHTML = '<tr><td colspan="6">运营看板前端已就绪，等待官网反向代理接入匿名遥测服务。</td></tr>';
+      }
+    }
+
+    loadTelemetryDashboard();
+    window.setInterval(() => {
+      if (document.visibilityState === 'visible') loadTelemetryDashboard();
+    }, 15000);
   </script>
 </body>
 </html>

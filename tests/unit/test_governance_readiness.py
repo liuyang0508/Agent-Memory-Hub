@@ -334,6 +334,11 @@ def test_govern_readiness_json_reports_release_query_and_lifecycle_lanes(tmp_pat
     assert set(by_lane) == {"release", "query_signal", "memory_lifecycle"}
     assert payload["overall_status"] in {"pass", "warn"}
     assert any(check["id"] == "install_sh" for check in by_lane["release"]["checks"])
+    npm_check = next(
+        check for check in by_lane["release"]["checks"] if check["id"] == "npm_package_json"
+    )
+    assert npm_check["status"] == "pass"
+    assert npm_check["detail"].endswith("/package.json")
     assert by_lane["query_signal"]["metrics"]["case_count"] >= 4
     assert by_lane["query_signal"]["metrics"]["under_extracted_cases"] == 0
     lifecycle = by_lane["memory_lifecycle"]["metrics"]

@@ -2,7 +2,7 @@
 
 日期：2026-07-28（Asia/Shanghai）
 
-状态：方案 2 已确认，规格待复核
+状态：方案 2 已确认并复核
 
 ## 1. 问题
 
@@ -66,7 +66,8 @@
 - 未引用疑似同主题候选时，沿用相同 review 隔离；
 - 不自动创建 `superseded_by`，不自动删除旧条目。
 
-固定阈值留在既有 topic helper 中，不引入 LLM 裁决服务或行业专用分词器。
+固定阈值留在既有 topic helper 中；中文使用有界、非重叠的连续共享锚点，避免通用状态短语
+因滑动窗口重叠被重复计数。不引入 LLM 裁决服务或行业专用分词器。
 
 ## 5. 召回冲突治理
 
@@ -100,7 +101,8 @@
 - snapshot、ledger、索引同步与失败恢复。
 
 通用 CLI `memory link --label supersedes` 不得直接写普通边。最小安全行为是 fail closed，并提示
-使用 `memory govern apply-lifecycle --supersede replacement:obsolete`。其他 link label 不变。
+使用 `memory govern apply-lifecycle --supersede OLD:NEW`，其中 `OLD` 是待失效条目，
+`NEW` 是替代条目。其他 link label 不变。
 
 ## 7. 当前错误数据修复
 

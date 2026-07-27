@@ -1044,12 +1044,12 @@ def test_routed_topic_recency_uses_admission_not_signal_injectability() -> None:
         query_context=context,
     )
 
-    assert [decision.candidate.item.id for decision in result.included] == [new.id]
-    old_decision = next(
-        decision for decision in result.excluded
-        if decision.candidate.item.id == old.id
-    )
-    assert "topic_recency_newer" in old_decision.reasons
+    assert [decision.candidate.item.id for decision in result.included] == [
+        old.id,
+        new.id,
+    ]
+    assert result.excluded == []
+    assert result.cohort_reasons == ("topic_conflict_requires_verification",)
 
 
 def test_semantic_verifier_cannot_override_route_deterministic_failure() -> None:

@@ -14,6 +14,13 @@ REQUIRED_BODY_SECTIONS: dict[str, tuple[str, ...]] = {
     "signal": ("**当前状态**", "**影响**", "**期望操作**"),
     "episode": ("**情境**", "**做了什么**", "**结果**", "**学到**"),
     "artifact": ("**产出物**", "**用途**"),
+    "handoff": (
+        "## 1. Objective",
+        "## 2. Current State",
+        "## 3. Decisions",
+        "## 4. Next Actions",
+        "## 5. Verification Expectations",
+    ),
 }
 
 _SOURCE_TYPES = {"fact", "decision"}

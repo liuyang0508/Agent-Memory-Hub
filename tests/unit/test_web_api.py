@@ -617,7 +617,7 @@ class TestApiDocsRoutes:
         data = resp.json()
         paths = {route["path"] for route in data["routes"]}
         assert data["total"] == len(data["routes"])
-        assert data["total"] == 105
+        assert data["total"] == 116
         assert "/api/data-flow" in paths
         assert "/api/chain-logs" in paths
         assert "/api/chain-logs/{chain_id}" in paths

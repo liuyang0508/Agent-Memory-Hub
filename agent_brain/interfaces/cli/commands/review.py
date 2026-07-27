@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 
 from agent_brain.interfaces.cli._app import review_app
 from agent_brain.interfaces.cli._shared import HubIndex, Table, _brain_dir, _resolve_id, _store_only, console, typer
@@ -21,22 +22,40 @@ def review_status(
     from agent_brain.memory.store.pending import PendingQueue
 
     review = list_review_candidates(_store_only())
-    queue = PendingQueue()
+    queue = PendingQueue(brain=_brain_dir())
+    pending_depth = queue.depth()
+    pending_preview = queue.preview(limit=max(pending_depth, 1))
+    pending_ages = [
+        record.age_seconds
+        for record in pending_preview.records
+        if record.age_seconds is not None
+    ]
+    pending_oldest_age_seconds = max(pending_ages, default=None)
+    review_oldest_age_seconds = _review_oldest_age_seconds(review)
     pending_dead_dir = _brain_dir() / "pending" / "dead"
     pending_dead = len(list(pending_dead_dir.glob("*.jsonl"))) if pending_dead_dir.exists() else 0
+    alerts = _review_alerts(
+        review_oldest_age_seconds=review_oldest_age_seconds,
+        pending_oldest_age_seconds=pending_oldest_age_seconds,
+        pending_dead=pending_dead,
+    )
     recommended_next = (
         "review list --format json"
         if review.total
         else (
             "memory sync-pending --format json"
-            if queue.depth() or pending_dead
+            if pending_depth or pending_dead
             else "none"
         )
     )
     data = {
+        "status": "warn" if alerts else "ok",
         "review_total": review.total,
-        "pending_depth": queue.depth(),
+        "review_oldest_age_seconds": review_oldest_age_seconds,
+        "pending_depth": pending_depth,
+        "pending_oldest_age_seconds": pending_oldest_age_seconds,
         "pending_dead": pending_dead,
+        "alerts": alerts,
         "recommended_next": recommended_next,
     }
     if output_format == "json":
@@ -47,10 +66,15 @@ def review_status(
     table.add_column("metric")
     table.add_column("value", justify="right")
     table.add_row("review_total", str(data["review_total"]))
+    table.add_row("review_oldest_age", _format_age(review_oldest_age_seconds))
     table.add_row("pending_depth", str(data["pending_depth"]))
+    table.add_row("pending_oldest_age", _format_age(pending_oldest_age_seconds))
     table.add_row("pending_dead", str(data["pending_dead"]))
+    table.add_row("status", str(data["status"]))
     table.add_row("recommended_next", str(data["recommended_next"]))
     console.print(table)
+    for alert in alerts:
+        typer.echo(f"alert: {alert}")
 
 
 @review_app.command(name="list")
@@ -115,6 +139,92 @@ def review_reject(
     typer.echo(f"rejected: {item_id} confidence={updated.confidence:.2f}")
 
 
+@review_app.command(name="approve-many")
+def review_approve_many(
+    item_ids: list[str] = typer.Argument(..., help="Memory item IDs or prefixes"),
+    confidence: float = typer.Option(0.7, "--confidence", help="Confidence after approval"),
+) -> None:
+    """Approve an explicit batch after resolving every ID before mutation."""
+
+    _review_many(item_ids, action="approve", confidence=confidence)
+
+
+@review_app.command(name="reject-many")
+def review_reject_many(
+    item_ids: list[str] = typer.Argument(..., help="Memory item IDs or prefixes"),
+    confidence: float = typer.Option(0.1, "--confidence", help="Confidence after rejection"),
+) -> None:
+    """Reject an explicit batch after resolving every ID before mutation."""
+
+    _review_many(item_ids, action="reject", confidence=confidence)
+
+
+def _review_many(item_ids: list[str], *, action: str, confidence: float) -> None:
+    from agent_brain.memory.governance.review_queue import (
+        approve_review_candidate,
+        reject_review_candidate,
+    )
+
+    store = _store_only()
+    resolved = list(dict.fromkeys(_resolve_id(store, item_id) for item_id in item_ids))
+    mutate = approve_review_candidate if action == "approve" else reject_review_candidate
+    for item_id in resolved:
+        item, _body = store.get(item_id)
+        if "needs-review" not in {tag.lower() for tag in item.tags} and not {
+            "requires-review",
+            "unverified-boundary",
+        } & {tag.lower() for tag in item.tags}:
+            typer.echo(f"not an active review candidate: {item_id}", err=True)
+            raise typer.Exit(2)
+    for item_id in resolved:
+        updated = mutate(store, item_id, confidence=confidence)
+        _update_index_confidence(item_id, updated.confidence)
+    typer.echo(f"{action}d={len(resolved)}")
+    for item_id in resolved:
+        typer.echo(item_id)
+
+
+def _review_oldest_age_seconds(review: object) -> int | None:
+    candidates = getattr(review, "candidates", ())
+    now = datetime.now(timezone.utc)
+    ages: list[int] = []
+    for candidate in candidates:
+        try:
+            created = datetime.fromisoformat(candidate.created_at.replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=timezone.utc)
+        ages.append(max(0, int((now - created.astimezone(timezone.utc)).total_seconds())))
+    return max(ages, default=None)
+
+
+def _review_alerts(
+    *,
+    review_oldest_age_seconds: int | None,
+    pending_oldest_age_seconds: int | None,
+    pending_dead: int,
+) -> list[str]:
+    alerts: list[str] = []
+    if review_oldest_age_seconds is not None and review_oldest_age_seconds >= 7 * 86400:
+        alerts.append("review queue oldest candidate exceeds 7d SLA")
+    if pending_oldest_age_seconds is not None and pending_oldest_age_seconds >= 24 * 3600:
+        alerts.append("pending queue oldest record exceeds 24h SLA")
+    if pending_dead:
+        alerts.append(f"pending dead-letter queue contains {pending_dead} record(s)")
+    return alerts
+
+
+def _format_age(age_seconds: int | None) -> str:
+    if age_seconds is None:
+        return "-"
+    if age_seconds >= 86400:
+        return f"{age_seconds / 86400:.1f}d"
+    if age_seconds >= 3600:
+        return f"{age_seconds / 3600:.1f}h"
+    return f"{age_seconds}s"
+
+
 def _update_index_confidence(item_id: str, confidence: float) -> None:
     try:
         idx = HubIndex(db_path=_brain_dir() / "index.db")
@@ -126,7 +236,14 @@ def _update_index_confidence(item_id: str, confidence: float) -> None:
         pass
 
 
-__all__ = ["review_approve", "review_list", "review_reject", "review_status"]
+__all__ = [
+    "review_approve",
+    "review_approve_many",
+    "review_list",
+    "review_reject",
+    "review_reject_many",
+    "review_status",
+]
 
 
 @review_app.command(name="generate-semantic")
