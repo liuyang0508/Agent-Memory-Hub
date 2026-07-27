@@ -55,3 +55,4 @@ from agent_brain.interfaces.cli.commands.wiki import *  # noqa: F401,F403
 from agent_brain.interfaces.cli.commands.codegraph import *  # noqa: F401,F403
 from agent_brain.interfaces.cli.commands.hook import *  # noqa: F401,F403
 from agent_brain.interfaces.cli.commands.telemetry import *  # noqa: F401,F403
+from agent_brain.interfaces.cli.commands.sync import *  # noqa: F401,F403

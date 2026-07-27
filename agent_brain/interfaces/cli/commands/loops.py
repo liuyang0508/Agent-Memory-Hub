@@ -21,6 +21,8 @@ loop_contract_app = typer.Typer(help="Loop Contract commands")
 loop_app.add_typer(loop_contract_app, name="contract")
 loop_gate_app = typer.Typer(help="Loop human gate commands")
 loop_app.add_typer(loop_gate_app, name="gate")
+loop_step_app = typer.Typer(help="Durable task step state machine")
+loop_app.add_typer(loop_step_app, name="step")
 
 
 def _store() -> LoopStore:
@@ -338,6 +340,87 @@ def loop_feedback(
         typer.echo("format must be text or json", err=True)
         raise typer.Exit(2)
     typer.echo(format_feedback_view(loop_id, loop.verification_results, limit=limit, metadata=loop.metadata))
+
+
+@loop_step_app.command("add")
+def loop_step_add(
+    loop_id: str = typer.Argument(..., help="Loop id"),
+    title: str = typer.Option(..., "--title", help="Step objective"),
+    depends_on: list[str] = typer.Option([], "--depends-on", help="Verified prerequisite step"),
+    assignee: str | None = typer.Option(None, "--assignee", help="Agent or human owner"),
+    format: str = typer.Option("table", "--format"),
+) -> None:
+    """Add a pending task step."""
+    try:
+        loop = _store().add_step(
+            loop_id,
+            title=title,
+            depends_on=depends_on,
+            assignee=assignee,
+        )
+    except (LoopNotFoundError, LoopTransitionError) as exc:
+        _exit_for_loop_error(exc)
+    _print_loop(loop, format=format)
+
+
+@loop_step_app.command("set")
+def loop_step_set(
+    loop_id: str = typer.Argument(..., help="Loop id"),
+    step_id: str = typer.Argument(..., help="Task step id"),
+    status: str = typer.Option(..., "--status", help="running|blocked|completed|verified|cancelled"),
+    evidence: str | None = typer.Option(None, "--evidence"),
+    blocker: str | None = typer.Option(None, "--blocker"),
+    assignee: str | None = typer.Option(None, "--assignee"),
+    format: str = typer.Option("table", "--format"),
+) -> None:
+    """Transition one task step with dependency and evidence checks."""
+    try:
+        loop = _store().transition_step(
+            loop_id,
+            step_id=step_id,
+            status=status,
+            evidence=evidence,
+            blocker=blocker,
+            assignee=assignee,
+        )
+    except (LoopNotFoundError, LoopTransitionError) as exc:
+        _exit_for_loop_error(exc)
+    _print_loop(loop, format=format)
+
+
+@loop_step_app.command("list")
+def loop_step_list(
+    loop_id: str = typer.Argument(..., help="Loop id"),
+    format: str = typer.Option("table", "--format"),
+) -> None:
+    """Show steps, dependencies, assignees, evidence, and blockers."""
+    try:
+        loop = _store().get(loop_id)
+    except LoopNotFoundError as exc:
+        _exit_for_loop_error(exc)
+    if format == "json":
+        typer.echo(
+            json.dumps(
+                {"loop_id": loop.loop_id, "steps": loop.steps, "blockers": loop.blockers},
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return
+    if format != "table":
+        raise typer.BadParameter("format must be table or json")
+    table = Table(title=f"Task steps: {loop.loop_id}")
+    for column in ("id", "status", "assignee", "title", "depends_on"):
+        table.add_column(column)
+    for step in loop.steps:
+        table.add_row(
+            str(step.get("id") or ""),
+            str(step.get("status") or ""),
+            str(step.get("assignee") or "-"),
+            str(step.get("title") or ""),
+            ",".join(str(value) for value in step.get("depends_on") or []) or "-",
+        )
+    console.print(table)
 
 
 @loop_gate_app.command("list")

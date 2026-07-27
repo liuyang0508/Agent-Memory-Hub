@@ -6,6 +6,7 @@ from agent_brain.memory.loops.loop_types import LoopStatus, LoopTransitionError
 ALLOWED_TRANSITIONS: dict[str, set[str]] = {
     LoopStatus.created.value: {
         LoopStatus.running.value,
+        LoopStatus.blocked.value,
         LoopStatus.failed.value,
         LoopStatus.cancelled.value,
     },

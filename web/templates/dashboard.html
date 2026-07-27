@@ -1506,7 +1506,7 @@ const I18N = {
     username: '用户名', password: '密码', logout: '退出',
     loginUserRequired: '请输入用户名', loginPassRequired: '请输入密码', loginPassShort: '密码至少 4 个字符',
     loginFailed: '用户名或密码错误',
-    nav: { dashboard: '仪表盘', cockpit: '可信接力', agents: 'Agent 管理', lineage: '链路追踪', items: '记忆列表', search: '搜索', gc: '清理', decay: '衰减', graph: '图谱', health: '健康', timeline: '时间线', evolve: '自进化', tags: '标签管理', users: '用户', audit: '审计日志', apidocs: 'API 文档', obsidian: 'Obsidian 同步', backups: '备份管理', settings: '设置' },
+    nav: { dashboard: '仪表盘', cockpit: '可信接力', agents: 'Agent 管理', lineage: '链路追踪', items: '记忆列表', search: '搜索', gc: '清理', decay: '衰减', graph: '图谱', health: '健康', timeline: '时间线', evolve: '自进化', tags: '标签管理', operations: '组织运营', users: '用户', audit: '审计日志', apidocs: 'API 文档', obsidian: 'Obsidian 同步', backups: '备份管理', settings: '设置' },
     dashboard: { title: '总览', total: '总记忆数', byProject: '按项目', topTags: '热门标签', export: '导出 JSON', import: '导入 JSON', newItem: '新建记忆' },
     items: { allTypes: '全部类型', project: '项目...', batchDel: '批量删除', batchConfirm: '批量确认', selected: '已选', view: '查看', edit: '编辑', del: '删除' },
     search: { placeholder: '输入关键词搜索...', allTypes: '全部类型', search: '搜索', typing: '输入关键词开始搜索...', noResults: '无结果', results: '条结果' },
@@ -1557,7 +1557,7 @@ const I18N = {
     username: 'Username', password: 'Password', logout: 'Logout',
     loginUserRequired: 'Username is required', loginPassRequired: 'Password is required', loginPassShort: 'Password must be at least 4 characters',
     loginFailed: 'Invalid username or password',
-    nav: { dashboard: 'Dashboard', cockpit: 'Cockpit', agents: 'Agents', lineage: 'Lineage', items: 'Items', search: 'Search', gc: 'GC', decay: 'Decay', graph: 'Graph', health: 'Health', timeline: 'Timeline', evolve: 'Evolve', tags: 'Tags', users: 'Users', audit: 'Audit Log', apidocs: 'API Docs', obsidian: 'Obsidian Sync', backups: 'Backups', settings: 'Settings' },
+    nav: { dashboard: 'Dashboard', cockpit: 'Cockpit', agents: 'Agents', lineage: 'Lineage', items: 'Items', search: 'Search', gc: 'GC', decay: 'Decay', graph: 'Graph', health: 'Health', timeline: 'Timeline', evolve: 'Evolve', tags: 'Tags', operations: 'Organization', users: 'Users', audit: 'Audit Log', apidocs: 'API Docs', obsidian: 'Obsidian Sync', backups: 'Backups', settings: 'Settings' },
     dashboard: { title: 'Overview', total: 'Total Items', byProject: 'By Project', topTags: 'Top Tags', export: 'Export JSON', import: 'Import JSON', newItem: 'New Item' },
     items: { allTypes: 'All Types', project: 'Project...', batchDel: 'Batch Delete', batchConfirm: 'Batch Confirm', selected: 'selected', view: 'View', edit: 'Edit', del: 'Del' },
     search: { placeholder: 'Search memories...', allTypes: 'All Types', search: 'Search', typing: 'Type to search...', noResults: 'No results', results: 'results' },
@@ -1843,6 +1843,7 @@ function loadFailedHtml() { return `<div class="empty-state empty-state-error" r
     <a href="#" onclick="showPage('timeline')"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14"/></svg><span data-i18n="nav.timeline"></span></a>
     <a href="#" onclick="showPage('evolve')"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="21 4 21 10 15 10"/><polyline points="3 20 3 14 9 14"/><path d="M3 14a9 9 0 0 0 14.85 4.36L21 14"/><path d="M21 10a9 9 0 0 0-14.85-4.36L3 10"/></svg><span data-i18n="nav.evolve"></span></a>
     <a href="#" onclick="showPage('tags')"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L3 12.99V3h9.99l8.6 8.6a2 2 0 0 1 0 2.81z"/><circle cx="7.5" cy="7.5" r="1.3"/></svg><span data-i18n="nav.tags"></span></a>
+    <a href="#" onclick="showPage('operations')"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg><span data-i18n="nav.operations"></span></a>
     <a href="#" onclick="showPage('users')"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg><span data-i18n="nav.users"></span></a>
     <a href="#" onclick="showPage('audit')"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2.5l8.5 3.5v6c0 5-3.6 9.2-8.5 10-4.9-.8-8.5-5-8.5-10v-6L12 2.5z"/><polyline points="8.8 12 11.2 14.4 15.4 10.2"/></svg><span data-i18n="nav.audit"></span></a>
     <a href="#" onclick="showPage('apidocs')"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 8 5 12 9 16"/><polyline points="15 8 19 12 15 16"/><line x1="13.5" y1="6" x2="10.5" y2="18"/></svg><span data-i18n="nav.apidocs"></span></a>
@@ -2563,7 +2564,7 @@ function closeMobileSidebar() {
 
 const ROUTABLE_PAGES = new Set([
   'dashboard', 'cockpit', 'agents', 'lineage', 'items', 'search', 'gc', 'decay', 'graph',
-  'health', 'timeline', 'evolve', 'tags', 'users', 'audit', 'apidocs',
+  'health', 'timeline', 'evolve', 'tags', 'operations', 'users', 'audit', 'apidocs',
   'obsidian', 'backups', 'settings'
 ]);
 
@@ -2612,6 +2613,7 @@ function showPage(page, opts = {}) {
   else if (page === 'timeline') loadTimeline(m);
   else if (page === 'evolve') loadEvolve(m);
   else if (page === 'tags') loadTags(m);
+  else if (page === 'operations') loadOperations(m);
   else if (page === 'users') loadUsers(m);
   else if (page === 'audit') loadAudit(m);
   else if (page === 'apidocs') loadApiDocs(m);
@@ -7192,6 +7194,128 @@ async function _doDeleteTag(tagName) {
     toast(`${LANG==='zh'?'已移除':'Removed'}: ${tagName} (${data.removed} ${LANG==='zh'?'条':'items'})`);
     loadTags(document.getElementById('mainContent'));
   } catch(e) { toast(LANG==='zh'?'删除失败':'Delete failed'); }
+}
+
+// ─── Organization Operations ───
+
+async function loadOperations(el) {
+  try {
+    const [summary, deviceData, memberData] = await Promise.all([
+      api('/api/operations/summary'),
+      api('/api/operations/devices'),
+      api('/api/organization/members'),
+    ]);
+    const org = summary.organization || {};
+    const sync = summary.sync || {};
+    const memory = summary.memory || {};
+    const members = memberData.members || [];
+    const devices = deviceData.devices || [];
+    const role = memberData.current_role || org.current_role || 'viewer';
+    const canInvite = role === 'owner' || role === 'admin';
+    const canRename = role === 'owner' || role === 'admin';
+    const roleColor = {
+      owner:'var(--purple)', admin:'var(--accent)', member:'var(--green)', viewer:'var(--blue)'
+    };
+    const memberRows = members.length ? members.map(member => {
+      const canRemove = role === 'owner' || (role === 'admin' && ['member','viewer'].includes(member.role));
+      const roleControl = role === 'owner'
+        ? `<select aria-label="${LANG==='zh'?'组织角色':'Organization role'}" onchange="setOrganizationRole('${jsString(member.username)}',this.value)" style="padding:0.35rem 0.55rem;background:var(--bg-flat);border:1px solid var(--border2);border-radius:var(--radius-sm);color:var(--text)">
+            ${['owner','admin','member','viewer'].map(value => `<option value="${value}"${value===member.role?' selected':''}>${value}</option>`).join('')}
+          </select>`
+        : `<span style="display:inline-block;background:${roleColor[member.role]||'var(--gray)'};color:#fff;padding:3px 9px;border-radius:999px;font-size:0.68rem;font-weight:600">${escHtml(member.role)}</span>`;
+      return `<tr>
+        <td style="font-family:var(--font-mono);font-weight:600">${escHtml(member.username)}</td>
+        <td>${roleControl}</td>
+        <td style="color:var(--text3)">${cockpitTime(member.updated_at)}</td>
+        <td style="text-align:right">${canRemove ? `<button class="btn-sm btn-danger" onclick="removeOrganizationMember('${jsString(member.username)}')">${LANG==='zh'?'移除':'Remove'}</button>` : ''}</td>
+      </tr>`;
+    }).join('') : `<tr><td colspan="4" style="color:var(--text3);text-align:center">${LANG==='zh'?'暂无成员':'No members'}</td></tr>`;
+    const deviceRows = devices.length ? devices.map(device => `<tr>
+      <td><div style="font-weight:600">${escHtml(device.device_name || device.device_id)}</div><div style="color:var(--text3);font-size:0.72rem;font-family:var(--font-mono)">${escHtml(device.device_id)}</div></td>
+      <td style="font-family:var(--font-mono)">${device.object_count || 0}</td>
+      <td>${escHtml(device.client_version || '-')}</td>
+      <td style="color:var(--text3)">${cockpitTime(device.last_seen)}</td>
+    </tr>`).join('') : `<tr><td colspan="4" style="color:var(--text3);text-align:center">${LANG==='zh'?'还没有设备心跳；首次执行 memory sync run 后会出现':'No device heartbeat yet. Run memory sync run once.'}</td></tr>`;
+    const invite = canInvite ? `<div class="detail-panel" style="margin-top:1.2rem">
+      <div style="font-weight:600;margin-bottom:0.8rem">${LANG==='zh'?'添加已有账户到组织':'Add an existing account'}</div>
+      <div style="display:flex;gap:0.65rem;flex-wrap:wrap">
+        <input id="orgMemberUsername" placeholder="${LANG==='zh'?'用户名':'Username'}" style="flex:1;min-width:180px;padding:0.55rem 0.75rem;background:var(--bg-flat);border:1px solid var(--border2);color:var(--text);border-radius:var(--radius-sm)">
+        <select id="orgMemberRole" style="padding:0.55rem 0.75rem;background:var(--bg-flat);border:1px solid var(--border2);color:var(--text);border-radius:var(--radius-sm)">
+          ${role === 'owner' ? '<option value="admin">admin</option>' : ''}
+          <option value="member">member</option><option value="viewer">viewer</option>
+          ${role === 'owner' ? '<option value="owner">owner</option>' : ''}
+        </select>
+        <button class="btn-sm btn-accent" onclick="addOrganizationMember()">${LANG==='zh'?'添加成员':'Add member'}</button>
+      </div>
+      <div style="color:var(--text3);font-size:0.75rem;margin-top:0.55rem">${LANG==='zh'?'账户需先在“用户”页面创建，且租户必须一致。':'Create the account under Users first; its tenant must match.'}</div>
+    </div>` : '';
+    el.innerHTML = `<div style="max-width:1120px;margin:0 auto;padding:0 1rem 2rem">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;flex-wrap:wrap;margin-bottom:1.25rem">
+        <div>
+          <div style="display:flex;align-items:center;gap:0.65rem;flex-wrap:wrap">
+            <h2 style="margin:0;font-family:var(--font-serif);font-size:1.45rem;font-weight:500">${escHtml(org.name || org.id || 'Organization')}</h2>
+            <span style="background:${roleColor[role]||'var(--gray)'};color:#fff;padding:3px 10px;border-radius:999px;font-size:0.68rem;font-weight:700">${escHtml(role)}</span>
+          </div>
+          <div style="color:var(--text3);font-size:0.8rem;margin-top:0.35rem">${LANG==='zh'?'组织运营与端到端加密同步概览':'Organization operations and end-to-end encrypted sync overview'} · ${escHtml(org.id || '')}</div>
+        </div>
+        <div style="display:flex;gap:0.5rem;align-items:center">
+          <span style="color:var(--green);background:var(--green-bg);border:1px solid var(--border2);padding:0.45rem 0.75rem;border-radius:999px;font-size:0.75rem">${LANG==='zh'?'云端仅存密文':'Ciphertext only'} · AES-256-GCM</span>
+          ${canRename ? `<button class="btn-sm" onclick="renameOrganization('${jsString(org.name || org.id || '')}')">${LANG==='zh'?'重命名':'Rename'}</button>` : ''}
+        </div>
+      </div>
+      <div class="stats-grid">
+        <div class="stat-card"><div class="label">${LANG==='zh'?'组织记忆':'Organization memories'}</div><div class="value">${memory.items || 0}</div><div style="color:var(--text3);font-size:0.72rem;margin-top:0.35rem">${memory.needs_review || 0} ${LANG==='zh'?'条待复核':'need review'}</div></div>
+        <div class="stat-card"><div class="label">${LANG==='zh'?'成员':'Members'}</div><div class="value">${summary.members?.total || 0}</div><div style="color:var(--text3);font-size:0.72rem;margin-top:0.35rem">${summary.members?.by_role?.owner || 0} owner · ${summary.members?.by_role?.admin || 0} admin</div></div>
+        <div class="stat-card"><div class="label">${LANG==='zh'?'同步设备':'Sync devices'}</div><div class="value">${sync.devices || 0}</div><div style="color:var(--text3);font-size:0.72rem;margin-top:0.35rem">${sync.active_24h || 0} ${LANG==='zh'?'台 24h 活跃':'active in 24h'}</div></div>
+        <div class="stat-card"><div class="label">${LANG==='zh'?'密文对象':'Encrypted objects'}</div><div class="value">${sync.objects || 0}</div><div style="color:var(--text3);font-size:0.72rem;margin-top:0.35rem">${LANG==='zh'?'服务端不可解密':'Server cannot decrypt'}</div></div>
+      </div>
+      <div class="section-title">${LANG==='zh'?'成员与权限':'Members and permissions'}</div>
+      <div style="overflow-x:auto"><table><thead><tr><th>${LANG==='zh'?'账户':'Account'}</th><th>${LANG==='zh'?'组织角色':'Org role'}</th><th>${LANG==='zh'?'更新时间':'Updated'}</th><th></th></tr></thead><tbody>${memberRows}</tbody></table></div>
+      ${invite}
+      <div class="section-title" style="margin-top:1.6rem">${LANG==='zh'?'设备在线状态':'Device activity'}</div>
+      <div style="overflow-x:auto"><table><thead><tr><th>${LANG==='zh'?'设备':'Device'}</th><th>${LANG==='zh'?'对象数':'Objects'}</th><th>${LANG==='zh'?'版本':'Version'}</th><th>${LANG==='zh'?'最后心跳':'Last heartbeat'}</th></tr></thead><tbody>${deviceRows}</tbody></table></div>
+    </div>`;
+  } catch(e) {
+    el.innerHTML = loadFailedHtml();
+  }
+}
+
+async function renameOrganization(currentName) {
+  const name = prompt(LANG==='zh'?'新的组织名称':'New organization name', currentName);
+  if (!name || name.trim() === currentName) return;
+  try {
+    await api('/api/organization', {method:'PATCH', body:JSON.stringify({name:name.trim()})});
+    loadOperations(document.getElementById('mainContent'));
+  } catch(e) { toast(LANG==='zh'?'重命名失败':'Rename failed'); }
+}
+
+async function addOrganizationMember() {
+  const username = document.getElementById('orgMemberUsername')?.value.trim();
+  const role = document.getElementById('orgMemberRole')?.value || 'member';
+  if (!username) return;
+  try {
+    await api('/api/organization/members', {method:'POST', body:JSON.stringify({username, role})});
+    toast(LANG==='zh'?'组织成员已更新':'Organization member updated');
+    loadOperations(document.getElementById('mainContent'));
+  } catch(e) { toast(LANG==='zh'?'添加失败，请确认账户与租户':'Add failed; check account and tenant'); }
+}
+
+async function setOrganizationRole(username, role) {
+  try {
+    await api('/api/organization/members/'+encodeURIComponent(username), {method:'PATCH', body:JSON.stringify({role})});
+    loadOperations(document.getElementById('mainContent'));
+  } catch(e) {
+    toast(LANG==='zh'?'角色更新失败，组织至少需要一名 owner':'Role update failed; one owner is required');
+    loadOperations(document.getElementById('mainContent'));
+  }
+}
+
+async function removeOrganizationMember(username) {
+  if (!confirm((LANG==='zh'?'确认移除组织成员 ':'Remove organization member ')+username+'?')) return;
+  try {
+    await api('/api/organization/members/'+encodeURIComponent(username), {method:'DELETE'});
+    loadOperations(document.getElementById('mainContent'));
+  } catch(e) { toast(LANG==='zh'?'移除失败，组织至少需要一名 owner':'Remove failed; one owner is required'); }
 }
 
 // ─── Users ───

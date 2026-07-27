@@ -26,7 +26,7 @@ from agent_brain.product.handoff import (
 
 @app.command()
 def handoff(
-    objective: str = typer.Option(..., "--objective", help="One-sentence task objective"),
+    objective: str | None = typer.Option(None, "--objective", help="One-sentence task objective"),
     next_action: list[str] = typer.Option([], "--next", help="Required next action; repeatable"),
     verify: list[str] = typer.Option([], "--verify", help="Verification command/outcome; repeatable"),
     completed: list[str] = typer.Option([], "--done", help="Completed task state; repeatable"),
@@ -39,10 +39,59 @@ def handoff(
     target_agent: str = typer.Option("any", "--target-agent"),
     session: str | None = typer.Option(None, "--session"),
     sensitivity: str = typer.Option("internal", "--sensitivity"),
+    loop_id: str | None = typer.Option(None, "--loop", help="Derive state from a LoopRun"),
 ) -> None:
     """Persist one complete, resumable cross-agent checkpoint."""
 
+    task_state: list[str] = []
+    if loop_id:
+        from agent_brain.memory.loops.loop_store import LoopStore
+        from agent_brain.memory.loops.loop_types import LoopNotFoundError
+
+        try:
+            loop = LoopStore(_brain_dir()).get(loop_id)
+        except LoopNotFoundError as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(2)
+        objective = objective or loop.goal
+        derived_done = [
+            str(step.get("title") or step.get("id"))
+            for step in loop.steps
+            if step.get("status") in {"completed", "verified"}
+        ]
+        derived_pending = [
+            f"{step.get('title') or step.get('id')} [{step.get('status')}]"
+            for step in loop.steps
+            if step.get("status") not in {"completed", "verified", "cancelled"}
+        ]
+        completed = [*completed, *derived_done]
+        pending = [*pending, *derived_pending]
+        blocker = [
+            *blocker,
+            *[
+                str(row.get("reason") or row.get("id"))
+                for row in loop.blockers
+                if row.get("status") == "open"
+            ],
+        ]
+        if not next_action:
+            next_action = [
+                str(step.get("title") or step.get("id"))
+                for step in loop.steps
+                if step.get("status") in {"pending", "running", "blocked"}
+            ][:1]
+        if not verify:
+            verify = list(loop.verification_plan)
+        task_state = [
+            f"`{step.get('id')}` {step.get('status')}: {step.get('title')}"
+            for step in loop.steps
+        ]
+        if not task_state:
+            task_state = [f"`{loop.loop_id}` has no steps"]
+
     missing: list[str] = []
+    if not objective:
+        missing.append("--objective or --loop")
     if not completed and not pending:
         missing.append("--done or --pending")
     if not next_action:
@@ -67,6 +116,7 @@ def handoff(
         blockers=blocker,
         source_agent=source_agent,
         target_agent=target_agent,
+        task_state=task_state,
     )
     title = f"Handoff: {objective}"
     next_summary = next_action[0]

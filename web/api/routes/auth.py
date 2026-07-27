@@ -74,6 +74,10 @@ async def register(
         raise HTTPException(status_code=403, detail="admin only")
     try:
         info = create_user(req.username, req.password, req.tenant_id)
+        state = _state_store()
+        state.ensure_organization(req.tenant_id, created_by=req.username)
+        org_role = "owner" if not state.list_org_members(req.tenant_id) else "member"
+        state.set_org_member(req.tenant_id, req.username, org_role)
         return info
     except ValueError as e:
         raise HTTPException(status_code=409, detail=str(e))
@@ -110,7 +114,13 @@ async def rotate_api_key(user: CurrentUser = Depends(get_current_user)) -> dict[
 @router.get("/api/auth/me")
 async def get_me(user: CurrentUser = Depends(get_current_user)) -> dict[str, Any]:
     """Get current user info."""
-    return {"username": user.username, "tenant_id": user.tenant_id, "role": user.role, "is_admin": user.is_admin}
+    return {
+        "username": user.username,
+        "tenant_id": user.tenant_id,
+        "role": user.role,
+        "organization_role": user.organization_role,
+        "is_admin": user.is_admin,
+    }
 
 @router.post("/api/auth/init")
 async def init_admin(
@@ -123,6 +133,9 @@ async def init_admin(
     if _load_users():
         raise HTTPException(status_code=409, detail="admin already exists; use /api/auth/login")
     info = create_user(req.username, req.password, tenant_id="default", role="admin")
+    state = _state_store()
+    state.ensure_organization("default", created_by=req.username)
+    state.set_org_member("default", req.username, "owner")
     user = authenticate(req.username, req.password)
     if user is None:
         raise HTTPException(status_code=500, detail="initial admin authentication failed")

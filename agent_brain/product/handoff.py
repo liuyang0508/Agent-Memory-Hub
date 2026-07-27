@@ -49,6 +49,7 @@ def render_code_handoff(
     blockers: list[str],
     source_agent: str,
     target_agent: str,
+    task_state: list[str] | None = None,
 ) -> str:
     """Render the canonical, bounded code-resume handoff body."""
 
@@ -77,6 +78,9 @@ def render_code_handoff(
             "",
             "**未完成**",
             *_numbered(pending),
+            "",
+            "**任务状态机**",
+            *_bulleted(task_state or ["未关联 LoopRun"]),
             "",
             "## 3. Decisions",
             "",

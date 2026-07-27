@@ -19,8 +19,18 @@ from agent_brain.memory.loops.loop_types import (
     bounded_trigger,
     make_event_id,
     make_loop_id,
+    make_step_id,
     timestamp,
 )
+
+STEP_TRANSITIONS: dict[str, set[str]] = {
+    "pending": {"running", "blocked", "cancelled"},
+    "running": {"blocked", "completed", "cancelled"},
+    "blocked": {"running", "cancelled"},
+    "completed": {"verified", "running"},
+    "verified": set(),
+    "cancelled": set(),
+}
 
 
 class LoopStore:
@@ -187,6 +197,16 @@ class LoopStore:
         now: datetime | None = None,
     ) -> LoopRun:
         loop = self.get(loop_id)
+        unfinished_steps = [
+            str(step.get("id") or "")
+            for step in loop.steps
+            if step.get("status") not in {"verified", "cancelled"}
+        ]
+        if unfinished_steps:
+            raise LoopTransitionError(
+                "loop completion requires every task step verified or cancelled: "
+                + ", ".join(unfinished_steps)
+            )
         require_completion_evidence(loop.verification_results, evidence)
         validate_transition(loop.status, LoopStatus.completed.value)
         verification_results = list(loop.verification_results)
@@ -336,6 +356,182 @@ class LoopStore:
             payload=payload,
             now=now,
         )
+        return updated
+
+    def add_step(
+        self,
+        loop_id: str,
+        *,
+        title: str,
+        depends_on: list[str] | None = None,
+        assignee: str | None = None,
+        actor: str = "cli",
+        now: datetime | None = None,
+    ) -> LoopRun:
+        title = _require_text(title, "task step title")
+        loop = self.get(loop_id)
+        if loop.status in {LoopStatus.completed.value, LoopStatus.cancelled.value}:
+            raise LoopTransitionError("cannot add a step to a terminal loop")
+        dependencies = list(dict.fromkeys(depends_on or []))
+        known = {str(step.get("id")) for step in loop.steps}
+        missing = [step_id for step_id in dependencies if step_id not in known]
+        if missing:
+            raise LoopTransitionError(
+                "unknown step dependencies: " + ", ".join(missing)
+            )
+        current_time = timestamp(now)
+        step = {
+            "id": make_step_id(),
+            "title": title,
+            "status": "pending",
+            "depends_on": dependencies,
+            "assignee": assignee or None,
+            "created_at": current_time,
+            "updated_at": current_time,
+            "evidence": [],
+        }
+        updated = replace(
+            loop,
+            updated_at=current_time,
+            steps=[*loop.steps, step],
+        )
+        self._write(updated)
+        self._event(
+            updated,
+            LoopEventType.step_added.value,
+            actor,
+            title,
+            payload=step,
+            now=now,
+        )
+        return updated
+
+    def transition_step(
+        self,
+        loop_id: str,
+        *,
+        step_id: str,
+        status: str,
+        evidence: str | None = None,
+        blocker: str | None = None,
+        assignee: str | None = None,
+        actor: str = "cli",
+        now: datetime | None = None,
+    ) -> LoopRun:
+        loop = self.get(loop_id)
+        steps = [dict(step) for step in loop.steps]
+        position = next(
+            (index for index, step in enumerate(steps) if step.get("id") == step_id),
+            None,
+        )
+        if position is None:
+            raise LoopTransitionError(f"task step not found: {step_id}")
+        step = steps[position]
+        current = str(step.get("status") or "pending")
+        if status not in STEP_TRANSITIONS.get(current, set()):
+            allowed = ", ".join(sorted(STEP_TRANSITIONS.get(current, set()))) or "none"
+            raise LoopTransitionError(
+                f"illegal task step transition {current!r} -> {status!r}; allowed: {allowed}"
+            )
+        if status == "running":
+            incomplete = [
+                dependency
+                for dependency in step.get("depends_on") or []
+                if _step_status(steps, str(dependency)) != "verified"
+            ]
+            if incomplete:
+                raise LoopTransitionError(
+                    "step dependencies are not verified: " + ", ".join(incomplete)
+                )
+        if status == "blocked" and not str(blocker or "").strip():
+            raise LoopTransitionError("blocked task step requires --blocker")
+        if status == "verified" and not str(evidence or "").strip():
+            raise LoopTransitionError("verified task step requires --evidence")
+
+        current_time = timestamp(now)
+        evidence_rows = list(step.get("evidence") or [])
+        if evidence:
+            evidence_rows.append(
+                {"timestamp": current_time, "value": evidence, "actor": actor}
+            )
+        step.update(
+            {
+                "status": status,
+                "updated_at": current_time,
+                "evidence": evidence_rows,
+            }
+        )
+        if assignee is not None:
+            step["assignee"] = assignee or None
+        steps[position] = step
+        blockers = [dict(row) for row in loop.blockers]
+        blocker_event: tuple[str, dict[str, Any]] | None = None
+        if status == "blocked":
+            row = {
+                "id": f"blocker-{make_step_id().removeprefix('step-')}",
+                "step_id": step_id,
+                "reason": str(blocker).strip(),
+                "status": "open",
+                "opened_at": current_time,
+                "opened_by": actor,
+            }
+            blockers.append(row)
+            blocker_event = (LoopEventType.blocker_opened.value, row)
+        elif current == "blocked":
+            for row in blockers:
+                if row.get("step_id") == step_id and row.get("status") == "open":
+                    row["status"] = "resolved"
+                    row["resolved_at"] = current_time
+                    row["resolved_by"] = actor
+                    blocker_event = (LoopEventType.blocker_resolved.value, row)
+
+        loop_status = loop.status
+        if status == "blocked" and loop.status in {
+            LoopStatus.created.value,
+            LoopStatus.running.value,
+        }:
+            loop_status = LoopStatus.blocked.value
+        elif status == "running" and loop.status in {
+            LoopStatus.created.value,
+            LoopStatus.blocked.value,
+        }:
+            other_open = any(
+                row.get("status") == "open" and row.get("step_id") != step_id
+                for row in blockers
+            )
+            if not other_open:
+                loop_status = LoopStatus.running.value
+        updated = replace(
+            loop,
+            status=loop_status,
+            updated_at=current_time,
+            steps=steps,
+            blockers=blockers,
+        )
+        self._write(updated)
+        self._event(
+            updated,
+            LoopEventType.step_changed.value,
+            actor,
+            f"{step_id}: {current} -> {status}",
+            payload={
+                "step_id": step_id,
+                "from": current,
+                "to": status,
+                "evidence": evidence or None,
+            },
+            now=now,
+        )
+        if blocker_event is not None:
+            event_type, payload = blocker_event
+            self._event(
+                updated,
+                event_type,
+                actor,
+                str(payload.get("reason") or f"{step_id} blocker resolved"),
+                payload=payload,
+                now=now,
+            )
         return updated
 
     def open_human_gate(
@@ -522,6 +718,13 @@ def _resolved_human_gates(loop: LoopRun) -> list[dict[str, Any]]:
     if not isinstance(rows, list):
         return []
     return [dict(row) for row in rows if isinstance(row, dict)]
+
+
+def _step_status(steps: list[dict[str, Any]], step_id: str) -> str | None:
+    for step in steps:
+        if step.get("id") == step_id:
+            return str(step.get("status") or "pending")
+    return None
 
 
 def _contract_human_gates(loop: LoopRun) -> list[dict[str, Any]]:

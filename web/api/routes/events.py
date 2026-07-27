@@ -10,6 +10,7 @@ import asyncio
 import json as _json
 import os
 from collections.abc import AsyncIterator
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -18,11 +19,14 @@ from fastapi.responses import StreamingResponse
 
 from web._base import _sse_subscribers, _ws_subscribers
 from web.auth import (
+    CurrentUser,
     JWTError,
     SESSION_COOKIE,
     consume_realtime_ticket,
     decode_token,
 )
+from web.organization_access import ensure_organization_principal
+from web.state_store import get_state_store
 
 router = APIRouter()
 
@@ -33,13 +37,28 @@ def _realtime_payload(
     ticket: str | None,
 ) -> dict[str, Any]:
     if ticket:
-        return consume_realtime_ticket(ticket)
+        payload = consume_realtime_ticket(ticket)
+        _require_live_membership(payload)
+        return payload
     if cookie_token:
         payload = decode_token(cookie_token)
         if payload.get("purpose"):
             raise JWTError("session token required")
+        _require_live_membership(payload)
         return payload
     raise JWTError("missing realtime credential")
+
+
+def _require_live_membership(payload: dict[str, Any]) -> None:
+    user = CurrentUser(
+        str(payload["sub"]),
+        str(payload.get("tenant_id", "default")),
+        str(payload.get("role", "user")),
+    )
+    brain = Path(os.environ.get("BRAIN_DIR", os.path.expanduser("~/.agent-memory-hub")))
+    principal = ensure_organization_principal(get_state_store(brain), user)
+    if principal.role == "revoked":
+        raise JWTError("organization membership revoked")
 
 
 def _realtime_origin_allowed(origin: str | None, host: str | None) -> bool:

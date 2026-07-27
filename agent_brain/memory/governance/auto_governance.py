@@ -1,15 +1,17 @@
 """Safe auto-governance orchestration for memory maintenance.
 
-This module coordinates existing governance primitives. It does not make
-high-risk edits automatically: archive, delete, consolidate, supersede, and
-skill synthesis stay review-required.
+This module coordinates existing governance primitives. Exact duplicates and
+explicitly TTL-expired transient items use snapshot-backed reversible actions;
+ambiguous merges, deletes, semantic consolidation, and skill synthesis remain
+review-required.
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterator, Mapping
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+import hashlib
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Literal
@@ -20,9 +22,11 @@ from agent_brain.memory.evidence.conversation_governance import classify_tier
 from agent_brain.memory.evidence.conversation_store import ConversationStore
 from agent_brain.memory.governance.drift import DriftDetector
 from agent_brain.memory.governance.evolve.engine import EvolveEngine
+from agent_brain.memory.governance.lifecycle_archive import archive_reviewed_item
 from agent_brain.memory.governance.maturity_scoring import score_maturity
 from agent_brain.memory.governance.pipeline import GovernancePipeline
 from agent_brain.memory.governance.summary_rewrite import preview_summary_rewrite
+from agent_brain.memory.governance.supersession import SupersessionService
 from agent_brain.memory.store.items_store import ItemsStore
 
 
@@ -153,9 +157,25 @@ class AutoGovernanceCycle:
         items = list(self.items_store.iter_all())
         actions: list[AutoGovernanceAction] = []
         actions.extend(self._maturity_actions(apply=apply))
-        actions.extend(self._lifecycle_actions(items))
-        actions.extend(self._governance_actions())
-        actions.extend(self._drift_actions())
+        automatic = [
+            *self._exact_duplicate_actions(items, apply=apply),
+            *self._expired_ttl_actions(items, apply=apply),
+        ]
+        current_items = list(self.items_store.iter_all()) if apply else items
+        automatic.extend(
+            self._conflict_containment_actions(current_items, apply=apply)
+        )
+        actions.extend(automatic)
+        automatically_managed = {
+            item_id
+            for action in automatic
+            for item_id in action.item_ids
+        }
+        actions.extend(
+            self._lifecycle_actions(items, skip_item_ids=automatically_managed)
+        )
+        actions.extend(self._governance_actions(skip_item_ids=automatically_managed))
+        actions.extend(self._drift_actions(skip_item_ids=automatically_managed))
         if self.include_evolve:
             actions.extend(self._evolve_actions())
         if self.include_conversations:
@@ -213,12 +233,189 @@ class AutoGovernanceCycle:
             ))
         return actions
 
+    def _exact_duplicate_actions(
+        self,
+        items: list[tuple[MemoryItem, str]],
+        *,
+        apply: bool,
+    ) -> list[AutoGovernanceAction]:
+        groups: dict[tuple[object, ...], list[MemoryItem]] = {}
+        for item, body in items:
+            if item.superseded_by:
+                continue
+            digest = hashlib.sha256(
+                (
+                    item.title.strip().casefold()
+                    + "\n"
+                    + item.summary.strip().casefold()
+                    + "\n"
+                    + body.strip()
+                ).encode("utf-8")
+            ).hexdigest()
+            key = (
+                item.tenant_id,
+                item.project,
+                str(memory_enum_value(item.type)),
+                str(memory_enum_value(item.sensitivity)),
+                digest,
+            )
+            groups.setdefault(key, []).append(item)
+
+        service = SupersessionService(
+            self.brain_dir,
+            self.items_store,
+            index=self.index,
+        )
+        actions: list[AutoGovernanceAction] = []
+        for duplicates in groups.values():
+            if len(duplicates) < 2:
+                continue
+            canonical = max(duplicates, key=_canonical_duplicate_key)
+            for duplicate in duplicates:
+                if duplicate.id == canonical.id:
+                    continue
+                result = service.apply(
+                    canonical.id,
+                    duplicate.id,
+                    apply=apply,
+                )
+                accepted = {"ready", "applied", "already_applied"}
+                actions.append(AutoGovernanceAction(
+                    action="supersede_exact_duplicate",
+                    risk="safe_apply" if result.status in accepted else "blocked",
+                    title=f"Collapse exact duplicate: {duplicate.title}",
+                    reason="same_scope_title_summary_and_body_sha256",
+                    item_ids=[duplicate.id, canonical.id],
+                    details={
+                        "canonical_id": canonical.id,
+                        "duplicate_id": duplicate.id,
+                        "transaction_status": result.status,
+                        "snapshot": result.snapshot,
+                        "index_repair_required": result.index_repair_required,
+                    },
+                    applied=result.status in {"applied", "already_applied"},
+                ))
+        return actions
+
+    def _expired_ttl_actions(
+        self,
+        items: list[tuple[MemoryItem, str]],
+        *,
+        apply: bool,
+    ) -> list[AutoGovernanceAction]:
+        actions: list[AutoGovernanceAction] = []
+        protected = {"blocker", "keep-active", "needs-review", "contested"}
+        for item, _body in items:
+            item_type = str(memory_enum_value(item.type))
+            ttl = item.validity.ttl_hours
+            observed = item.validity.observed_at or item.created_at
+            if (
+                item_type not in {"signal", "handoff"}
+                or ttl is None
+                or protected.intersection(item.tags)
+                or self.now <= observed + timedelta(hours=ttl)
+            ):
+                continue
+            status = "ready"
+            reason = "explicit_ttl_expired"
+            index_repair_required = False
+            if apply:
+                result = archive_reviewed_item(
+                    brain_dir=self.brain_dir,
+                    items_store=self.items_store,
+                    item_id=item.id,
+                    eligible=lambda candidate, expected=item.id: (
+                        candidate.id == expected
+                        and candidate.validity.ttl_hours is not None
+                        and self.now
+                        > (candidate.validity.observed_at or candidate.created_at)
+                        + timedelta(hours=candidate.validity.ttl_hours)
+                    ),
+                    index=self.index,
+                )
+                status = result.status
+                reason = result.reason
+                index_repair_required = result.index_repair_required
+            accepted = {"ready", "applied", "already_applied"}
+            actions.append(AutoGovernanceAction(
+                action="archive_expired_ttl",
+                risk="safe_apply" if status in accepted else "blocked",
+                title=f"Archive expired {item_type}: {item.title}",
+                reason=reason,
+                item_ids=[item.id],
+                details={
+                    "ttl_hours": ttl,
+                    "observed_at": observed.isoformat(),
+                    "transaction_status": status,
+                    "index_repair_required": index_repair_required,
+                },
+                applied=status in {"applied", "already_applied"},
+            ))
+        return actions
+
+    def _conflict_containment_actions(
+        self,
+        items: list[tuple[MemoryItem, str]],
+        *,
+        apply: bool,
+    ) -> list[AutoGovernanceAction]:
+        findings = DriftDetector(self.items_store).detect().findings
+        items_by_id = {item.id: (item, body) for item, body in items}
+        actions: list[AutoGovernanceAction] = []
+        seen: set[tuple[str, ...]] = set()
+        for finding in findings:
+            if finding.drift_type.value != "contradiction" or len(finding.item_ids) < 2:
+                continue
+            pair = tuple(sorted(finding.item_ids[:2]))
+            if pair in seen:
+                continue
+            seen.add(pair)
+            scoped = [items_by_id.get(item_id) for item_id in pair]
+            if any(value is None for value in scoped):
+                continue
+            loaded = [value for value in scoped if value is not None]
+            if any(item.superseded_by for item, _body in loaded):
+                continue
+            if len({(item.tenant_id, item.project) for item, _body in loaded}) != 1:
+                continue
+            if all("contested" in item.tags for item, _body in loaded):
+                continue
+            applied = False
+            if apply:
+                for item, body in loaded:
+                    updated = self.items_store.update_frontmatter(
+                        item.id,
+                        tags=sorted({*item.tags, "contested", "needs-review"}),
+                        confidence=max(0.3, item.confidence - 0.15),
+                    )
+                    if self.index is not None:
+                        self.index.upsert(updated, body, embedding=None)
+                applied = True
+            actions.append(AutoGovernanceAction(
+                action="contain_conflict",
+                risk="safe_apply",
+                title="Contain conflicting memories",
+                reason="exclude_contested_pair_until_review",
+                item_ids=list(pair),
+                details={
+                    "confidence": finding.confidence,
+                    "evidence": finding.evidence,
+                    "reversible": "remove contested/needs-review tags after review",
+                },
+                applied=applied,
+            ))
+        return actions
+
     def _lifecycle_actions(
         self,
         items: list[tuple[Any, str]],
+        *,
+        skip_item_ids: set[str] | None = None,
     ) -> list[AutoGovernanceAction]:
         actions: list[AutoGovernanceAction] = []
         for item, _body in items:
+            if item.id in (skip_item_ids or set()):
+                continue
             item_type = memory_enum_value(item.type)
             stale_after_days = _LIFECYCLE_STALE_DAYS.get(item_type)
             if stale_after_days is None:
@@ -243,13 +440,22 @@ class AutoGovernanceCycle:
             ))
         return actions
 
-    def _governance_actions(self) -> list[AutoGovernanceAction]:
+    def _governance_actions(
+        self,
+        *,
+        skip_item_ids: set[str] | None = None,
+    ) -> list[AutoGovernanceAction]:
         report = GovernancePipeline(items_store=self.items_store).run()
         items_by_id = {
             item.id: item for item, _body in self.items_store.iter_all()
         }
         actions: list[AutoGovernanceAction] = []
         for issue in report.issues:
+            if (
+                issue.item_id in (skip_item_ids or set())
+                and issue.issue_type in {"duplicate", "expired"}
+            ):
+                continue
             action_name = "review_archive" if issue.issue_type == "expired" else "review_quality"
             details = {
                 "issue_type": issue.issue_type,
@@ -269,7 +475,11 @@ class AutoGovernanceCycle:
             ))
         return actions
 
-    def _drift_actions(self) -> list[AutoGovernanceAction]:
+    def _drift_actions(
+        self,
+        *,
+        skip_item_ids: set[str] | None = None,
+    ) -> list[AutoGovernanceAction]:
         report = DriftDetector(self.items_store).detect()
         return [
             AutoGovernanceAction(
@@ -284,6 +494,10 @@ class AutoGovernanceCycle:
                 },
             )
             for finding in report.findings
+            if not (
+                finding.drift_type.value == "contradiction"
+                and set(finding.item_ids).issubset(skip_item_ids or set())
+            )
         ]
 
     def _evolve_actions(self) -> list[AutoGovernanceAction]:
@@ -383,6 +597,17 @@ def _distribution(values) -> dict[str, int]:
     for value in values:
         distribution[value] = distribution.get(value, 0) + 1
     return distribution
+
+
+def _canonical_duplicate_key(item: MemoryItem) -> tuple[object, ...]:
+    return (
+        item.support_count - item.contradict_count,
+        item.gain_score,
+        item.confidence,
+        item.version,
+        item.created_at,
+        item.id,
+    )
 
 
 __all__ = [

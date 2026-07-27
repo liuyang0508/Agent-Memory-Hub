@@ -33,6 +33,44 @@ CREATE TABLE IF NOT EXISTS item_links (
     created_at TEXT NOT NULL,
     PRIMARY KEY (source, target)
 );
+CREATE TABLE IF NOT EXISTS encrypted_sync_objects (
+    tenant_id TEXT NOT NULL,
+    object_key TEXT NOT NULL,
+    payload TEXT NOT NULL,
+    device_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (tenant_id, object_key)
+);
+CREATE INDEX IF NOT EXISTS idx_sync_objects_tenant
+ON encrypted_sync_objects(tenant_id, created_at, object_key);
+CREATE TABLE IF NOT EXISTS organizations (
+    tenant_id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    created_by TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS organization_members (
+    tenant_id TEXT NOT NULL,
+    username TEXT NOT NULL,
+    role TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (tenant_id, username)
+);
+CREATE INDEX IF NOT EXISTS idx_org_members_tenant_role
+ON organization_members(tenant_id, role, username);
+CREATE TABLE IF NOT EXISTS sync_devices (
+    tenant_id TEXT NOT NULL,
+    device_id TEXT NOT NULL,
+    device_name TEXT NOT NULL DEFAULT '',
+    client_version TEXT NOT NULL DEFAULT '',
+    object_count INTEGER NOT NULL DEFAULT 0,
+    last_seen TEXT NOT NULL,
+    PRIMARY KEY (tenant_id, device_id)
+);
+CREATE INDEX IF NOT EXISTS idx_sync_devices_tenant_seen
+ON sync_devices(tenant_id, last_seen DESC);
 """
 
 

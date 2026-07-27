@@ -37,9 +37,32 @@ CAPABILITIES: tuple[PlatformCapability, ...] = (
     PlatformCapability(
         name="team_sync_contract",
         level="L2",
-        status="foundation",
-        summary="Tenant/auth fields and Web state exist; multi-user sync server remains gated.",
-        evidence=("agent_brain/contracts/memory_item.py", "web/auth.py"),
+        status="shipped",
+        summary="End-to-end encrypted, tenant-isolated device sync preserves conflicts and keeps keys off the server.",
+        evidence=(
+            "agent_brain/product/encrypted_sync.py",
+            "web/api/routes/sync.py",
+        ),
+    ),
+    PlatformCapability(
+        name="automatic_feedback_loop",
+        level="L1",
+        status="shipped",
+        summary="Privacy-safe next-turn feedback updates retrieval trust signals without storing prompt text.",
+        evidence=(
+            "agent_brain/memory/governance/auto_feedback.py",
+            "agent_runtime_kit/hooks/inject-context.sh",
+        ),
+    ),
+    PlatformCapability(
+        name="persistent_task_state_machine",
+        level="L2",
+        status="shipped",
+        summary="Loop steps, dependencies, blockers, verification evidence, and handoff state persist across agents.",
+        evidence=(
+            "agent_brain/memory/loops/loop_store.py",
+            "agent_brain/product/handoff.py",
+        ),
     ),
     PlatformCapability(
         name="semantic_contradiction_baseline",
@@ -57,6 +80,16 @@ CAPABILITIES: tuple[PlatformCapability, ...] = (
         status="foundation",
         summary="Benchmark and release gates are executable; enterprise policy plane remains planned.",
         evidence=("benchmarks/release_gate.py", "benchmarks/benchmark_relevance.py"),
+    ),
+    PlatformCapability(
+        name="organization_rbac_console",
+        level="L3",
+        status="shipped",
+        summary="Live organization RBAC and tenant-scoped operations views govern members and encrypted-sync devices.",
+        evidence=(
+            "web/organization_access.py",
+            "web/api/routes/organizations.py",
+        ),
     ),
 )
 

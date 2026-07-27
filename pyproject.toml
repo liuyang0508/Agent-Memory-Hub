@@ -23,6 +23,7 @@ dependencies = [
     "sqlite-vec>=0.1.6",
     "pyyaml>=6.0",
     "rich>=13.7",
+    "cryptography>=42,<50",
 ]
 
 [project.optional-dependencies]

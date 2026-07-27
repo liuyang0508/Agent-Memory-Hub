@@ -183,6 +183,9 @@ def _loop_governance_row(loop: LoopRun) -> dict[str, Any]:
         "contract_id": loop.metadata.get("contract_id"),
         "completion_readiness": readiness,
         "open_human_gates": len(_open_human_gates(loop)),
+        "steps": len(loop.steps),
+        "verified_steps": sum(1 for step in loop.steps if step.get("status") == "verified"),
+        "open_blockers": sum(1 for row in loop.blockers if row.get("status") == "open"),
     }
 
 
