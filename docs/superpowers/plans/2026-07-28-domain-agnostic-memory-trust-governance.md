@@ -23,8 +23,8 @@
    extraction 或 mem ref 时不因缺来源隔离。
 3. 增加失败测试：同 project/tenant 的已核验同主题条目存在时，新条目若未在 `refs.mems`
    确认关联则进入 review；已确认关联不误隔离。
-4. 给既有 `topic_recency_terms()` 补确定性的 CJK n-gram，解决中文连续文本被当成单个词的问题；
-   不引入分词依赖。
+4. 给既有 topic helper 补确定性的 CJK 非重叠锚点：折叠连续共享片段中的重叠窗口，
+   避免把通用状态短语重复计数；不引入分词依赖。
 5. 在 `WriteService` 的 sidecar 生成前检查显式 ref，并复用 topic helper 对 source-of-truth
    items 做同范围候选预检。
 6. 运行：

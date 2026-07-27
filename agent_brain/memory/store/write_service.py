@@ -37,7 +37,7 @@ from agent_brain.memory.context.context_firewall_rules import (
     REVIEW_REQUIRED_TAGS,
     SOURCE_REQUIRED_TYPES,
     has_source_refs,
-    topic_recency_terms,
+    topic_recency_matches,
 )
 from agent_brain.memory.context.context_firewall_types import ContextCandidate
 from agent_brain.memory.recall.embedding_text import embedding_text_for_item
@@ -244,6 +244,7 @@ class WriteService:
             body=body,
             store=self._store,
         )
+        item = _normalize_review_boundary(item)
         item = enrich_memory_item(item)
         evidence_sidecar_degraded = (
             _evidence_sidecar_requested(item, body)
@@ -421,6 +422,15 @@ def _mark_boundary_review_candidate(
     return item.model_copy(update={"tags": tags, "confidence": confidence}), warning
 
 
+def _normalize_review_boundary(item: MemoryItem) -> MemoryItem:
+    tags_lower = {tag.strip().lower() for tag in item.tags}
+    if not tags_lower & REVIEW_REQUIRED_TAGS:
+        return item
+    tags = sorted({*item.tags, *_REVIEW_TAGS})
+    confidence = min(item.confidence, _REVIEW_CONFIDENCE_CEILING)
+    return item.model_copy(update={"tags": tags, "confidence": confidence})
+
+
 def _boundary_review_warning(
     item: MemoryItem,
     *,
@@ -452,7 +462,7 @@ def _has_unacknowledged_topic_candidate(
     store: ItemsStore,
 ) -> bool:
     scope = (item.tenant_id or "", item.project or "")
-    candidate_terms = topic_recency_terms(ContextCandidate(item, body=body))
+    candidate = ContextCandidate(item, body=body)
     # ponytail: source-of-truth scan is simplest; move to an index only if
     # measured write latency becomes a problem for large catalogs.
     for existing, existing_body in store.iter_all():
@@ -466,10 +476,11 @@ def _has_unacknowledged_topic_candidate(
             or (existing.tenant_id or "", existing.project or "") != scope
         ):
             continue
-        existing_terms = topic_recency_terms(
-            ContextCandidate(existing, body=existing_body)
-        )
-        if len(candidate_terms & existing_terms) >= _WRITE_TOPIC_MIN_SHARED_TERMS:
+        if topic_recency_matches(
+            candidate,
+            ContextCandidate(existing, body=existing_body),
+            min_shared_terms=_WRITE_TOPIC_MIN_SHARED_TERMS,
+        ):
             return True
     return False
 
@@ -1013,6 +1024,7 @@ def _matches_existing_write(
         body=body,
         store=store,
     )
+    expected = _normalize_review_boundary(expected)
     expected = enrich_memory_item(expected)
     if _matches_degraded_evidence_write(
         item,
@@ -1170,6 +1182,8 @@ def _matches_degraded_evidence_write(
         body=body,
         store=store,
     )
+    if store is not None:
+        expected = _normalize_review_boundary(expected)
     expected = enrich_memory_item(expected)
     return _evidence_sidecar_requested(expected, body) and existing == expected
 

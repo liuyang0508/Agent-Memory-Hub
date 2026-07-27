@@ -1242,6 +1242,57 @@ def test_apply_evidence_degraded_stays_pending_after_capability_recovers(
     }
 
 
+def test_apply_same_topic_evidence_degraded_stays_pending_after_recovery(
+    tmp_brain: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from agent_brain.memory.store import write_service as write_service_module
+
+    _freeze_now(monkeypatch)
+    prior = MemoryItem(
+        id="mem-20260630-100000-prior-permission-review",
+        type="fact",
+        created_at=datetime(2026, 6, 30, 10, 0, tzinfo=timezone.utc),
+        title="客户评分配置权限仍需按分析方案核验",
+        summary="客户评分配置权限尚未覆盖当前分析方案口径",
+        project="amh",
+        tenant_id="tenant-a",
+        refs={"urls": ["https://example.test/product/review"]},
+    )
+    ItemsStore(tmp_brain / "items").write(prior, "verified product review")
+    record_id = "apply-same-topic-evidence-degraded-retry"
+    record = _v2_record(record_id=record_id)
+    item = record["item"]
+    assert isinstance(item, dict)
+    item.update(
+        {
+            "title": "客户评分配置权限无需再次调整",
+            "summary": "客户评分配置权限已经覆盖当前分析方案口径",
+            "refs": {"urls": ["https://example.test/operations/meeting"]},
+        }
+    )
+    path = enqueue_write_record(record)
+    capability = [False]
+    monkeypatch.setattr(
+        write_service_module,
+        "secure_dir_fd_mutation_supported",
+        lambda: capability[0],
+    )
+    monkeypatch.setattr(
+        write_service_module,
+        "_write_source_record",
+        lambda **_kwargs: tmp_brain / "sources" / "writes" / "ignored.json",
+    )
+
+    first = PendingQueue().apply(record_ids=[record_id])
+    capability[0] = True
+    second = PendingQueue().apply(record_ids=[record_id])
+
+    assert first.results[0].reason == "EVIDENCE_SIDECAR_REPAIR_REQUIRED"
+    assert second.results[0].reason == "EVIDENCE_SIDECAR_REPAIR_REQUIRED"
+    assert path.exists()
+
+
 def test_apply_degraded_recovery_rejects_existing_body_mismatch(
     tmp_brain: Path,
     monkeypatch: pytest.MonkeyPatch,

@@ -36,7 +36,7 @@ from agent_brain.memory.context.context_firewall_rules import (
     temporal_conflict_anchors,
     temporal_conflict_winner_key,
     temporal_scope_signature,
-    topic_recency_terms,
+    topic_recency_matches,
     topic_recency_winner_key,
 )
 from agent_brain.memory.context.context_firewall_types import (
@@ -342,11 +342,11 @@ class ContextFirewall:
         if not matches_query(left.candidate, signal) or not matches_query(right.candidate, signal):
             return False
 
-        shared_terms = (
-            topic_recency_terms(left.candidate)
-            & topic_recency_terms(right.candidate)
+        return topic_recency_matches(
+            left.candidate,
+            right.candidate,
+            min_shared_terms=self.config.topic_recency_min_shared_terms,
         )
-        return len(shared_terms) >= self.config.topic_recency_min_shared_terms
 
     def _apply_cohort_gate(
         self,

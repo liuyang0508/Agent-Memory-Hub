@@ -612,6 +612,29 @@ def test_write_marks_unsourced_manual_durable_memory_for_review(tmp_brain, item_
     )
 
 
+def test_write_normalizes_preexisting_review_boundary(tmp_brain):
+    item = _item(
+        title="operator supplied review candidate",
+        type=MemoryType.fact,
+    ).model_copy(
+        update={
+            "tags": ["needs-review"],
+            "confidence": 0.9,
+        }
+    )
+
+    res = WriteService.for_brain(tmp_brain).write(
+        item=item,
+        body="operator supplied review candidate",
+        allow_unsafe=True,
+    )
+
+    stored, _body = ItemsStore(tmp_brain / "items").get(item.id)
+    assert res.status == "written"
+    assert {"needs-review", "unverified-boundary"} <= set(stored.tags)
+    assert stored.confidence == 0.35
+
+
 @pytest.mark.parametrize(
     ("role", "summary"),
     [
@@ -827,6 +850,41 @@ def test_write_does_not_confuse_unrelated_chinese_completion_phrases(tmp_brain):
     assert result.status == "written"
     assert "needs-review" not in stored.tags
     assert "unverified-boundary" not in stored.tags
+
+
+def test_write_matches_two_non_overlapping_chinese_topic_anchors(tmp_brain):
+    store = ItemsStore(tmp_brain / "items")
+    existing = _item(
+        title="评分权限复核权限口径",
+        type=MemoryType.fact,
+    ).model_copy(
+        update={
+            "project": "customer-operations",
+            "summary": "仍需产品确认",
+            "refs": Refs(urls=["https://example.test/product/permission"]),
+        }
+    )
+    store.write(existing, "verified product review")
+    candidate = _item(
+        title="评分权限调整权限口径",
+        type=MemoryType.decision,
+    ).model_copy(
+        update={
+            "project": "customer-operations",
+            "summary": "运营已经确认",
+            "refs": Refs(urls=["https://example.test/operations/permission"]),
+        }
+    )
+
+    result = WriteService.for_brain(tmp_brain).write(
+        item=candidate,
+        body="operations decision",
+        allow_unsafe=True,
+    )
+
+    stored, _body = store.get(candidate.id)
+    assert result.status == "written"
+    assert {"needs-review", "unverified-boundary"} <= set(stored.tags)
 
 
 def test_write_keeps_sourced_harvested_memory_in_normal_pool(tmp_brain):

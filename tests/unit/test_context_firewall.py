@@ -363,6 +363,88 @@ def test_topic_conflict_ignores_common_chinese_completion_phrase() -> None:
     assert "topic_conflict_requires_verification" not in result.cohort_reasons
 
 
+def test_topic_conflict_ignores_six_character_chinese_state_phrase() -> None:
+    from agent_brain.memory.context.context_firewall import ContextCandidate, ContextFirewall
+    from agent_brain.memory.context.query_signal import QuerySignal
+
+    finance = _item(
+        "finance-review-complete",
+        "fact",
+        "季度收入审计状态",
+        "本季度收入已经完成审核",
+        refs={"urls": ["https://example.test/finance/review"]},
+        tags=["status"],
+    )
+    legal = _item(
+        "legal-review-complete",
+        "decision",
+        "供应商合同审批状态",
+        "供应商合同已经完成审核",
+        refs={"urls": ["https://example.test/legal/review"]},
+        tags=["status"],
+    )
+    signal = QuerySignal(
+        terms=("status",),
+        strong_terms=("status",),
+        weak_terms=(),
+        injectable=True,
+        reason="ok",
+        specificity=1.0,
+        decision="inject_allowed",
+    )
+
+    result = ContextFirewall(now=NOW).filter(
+        [
+            ContextCandidate(finance, score=10.0),
+            ContextCandidate(legal, score=3.0),
+        ],
+        query_signal=signal,
+    )
+
+    assert "topic_conflict_requires_verification" not in result.cohort_reasons
+
+
+def test_topic_conflict_accepts_two_non_overlapping_chinese_anchors() -> None:
+    from agent_brain.memory.context.context_firewall import ContextCandidate, ContextFirewall
+    from agent_brain.memory.context.query_signal import QuerySignal
+
+    product = _item(
+        "product-short-anchors",
+        "fact",
+        "评分权限复核权限口径",
+        "仍需产品确认",
+        refs={"urls": ["https://example.test/product/permission"]},
+        tags=["status"],
+    )
+    operations = _item(
+        "operations-short-anchors",
+        "decision",
+        "评分权限调整权限口径",
+        "运营已经确认",
+        refs={"urls": ["https://example.test/operations/permission"]},
+        tags=["status"],
+    )
+    signal = QuerySignal(
+        terms=("status",),
+        strong_terms=("status",),
+        weak_terms=(),
+        injectable=True,
+        reason="ok",
+        specificity=1.0,
+        decision="inject_allowed",
+    )
+
+    result = ContextFirewall(now=NOW).filter(
+        [
+            ContextCandidate(product, score=10.0),
+            ContextCandidate(operations, score=3.0),
+        ],
+        query_signal=signal,
+    )
+
+    assert result.cohort_reasons == ("topic_conflict_requires_verification",)
+
+
 def test_topic_conflict_scope_includes_tenant() -> None:
     from agent_brain.memory.context.context_firewall import ContextCandidate, ContextFirewall
 
