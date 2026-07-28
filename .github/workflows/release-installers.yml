@@ -13,7 +13,7 @@ jobs:
   publish-installers:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Prepare release installer assets
         env:
@@ -48,7 +48,7 @@ jobs:
           (cd dist && sha256sum install.sh install.ps1 > checksums.txt)
 
       - name: Upload installers to GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
         with:
           files: |
             dist/install.sh

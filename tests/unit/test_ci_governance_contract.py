@@ -6,17 +6,17 @@ import pytest
 import yaml
 
 
-CHECKOUT_SHA = "11bd71901bbe5b1630ceea73d27597364c9af683"
-SETUP_PYTHON_SHA = "a26af69be951a213d495a4c3e4e4022e16d87065"
-UPLOAD_ARTIFACT_SHA = "ea165f8d65b6e75b540449e92b4886f43607fa02"
+CHECKOUT_SHA = "de0fac2e4500dabe0009e67214ff5f5447ce83dd"
+SETUP_PYTHON_SHA = "a309ff8b426b58ec0e2a45f0f869d46889d02405"
+UPLOAD_ARTIFACT_SHA = "b7c566a772e6b6bfb58ed0dc250532a479d7789f"
 
 
-def _assert_all_official_actions_are_pinned(workflow: dict[str, object]) -> None:
+def _assert_all_actions_are_pinned(workflow: dict[str, object]) -> None:
     for configured_job in workflow["jobs"].values():
         for step in configured_job["steps"]:
             uses = str(step.get("uses", ""))
-            if uses.startswith("actions/"):
-                assert re.fullmatch(r"actions/[^@]+@[0-9a-f]{40}", uses)
+            if uses and not uses.startswith("./"):
+                assert re.fullmatch(r"[^@\s]+@[0-9a-f]{40}", uses)
 
 
 def _assert_lifecycle_job_fail_closed(job: dict[str, object]) -> None:
@@ -47,6 +47,19 @@ def test_core_ci_does_not_silence_type_failures() -> None:
     assert "continue-on-error: true" not in workflow
     assert "check_mypy_baseline.py" in workflow
     assert "Strict type check for governance-critical modules" in workflow
+
+
+def test_all_workflow_actions_are_pinned_to_full_commit_sha() -> None:
+    for path in sorted(Path(".github/workflows").glob("*.y*ml")):
+        workflow = yaml.safe_load(path.read_text(encoding="utf-8"))
+        _assert_all_actions_are_pinned(workflow)
+
+
+def test_all_workflows_declare_least_privilege_permissions() -> None:
+    for path in sorted(Path(".github/workflows").glob("*.y*ml")):
+        workflow = yaml.safe_load(path.read_text(encoding="utf-8"))
+        expected = {"contents": "write" if path.name == "release-installers.yml" else "read"}
+        assert workflow["permissions"] == expected
 
 
 def test_governance_workflow_has_stable_required_job_names() -> None:
@@ -168,7 +181,7 @@ def test_lifecycle_governance_workflow_contract_is_exact_and_least_privilege() -
         "name": "Verify committed lifecycle governance evidence",
         "run": "python scripts/generate-lifecycle-governance-report.py --check",
     }
-    _assert_all_official_actions_are_pinned(workflow)
+    _assert_all_actions_are_pinned(workflow)
 
 
 def test_governance_workflow_rejects_mutable_upload_artifact_tag() -> None:
@@ -184,7 +197,7 @@ def test_governance_workflow_rejects_mutable_upload_artifact_tag() -> None:
     upload["uses"] = "actions/upload-artifact@v4"
 
     with pytest.raises(AssertionError):
-        _assert_all_official_actions_are_pinned(mutated)
+        _assert_all_actions_are_pinned(mutated)
 
 
 @pytest.mark.parametrize(

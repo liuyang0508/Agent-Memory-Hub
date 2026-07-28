@@ -97,7 +97,10 @@ def test_release_installers_are_published_from_github_release_assets():
     assert "__AMH_GITHUB_REPOSITORY__" in powershell
     assert "__AMH_GITHUB_REF_NAME__" in powershell
 
-    assert "softprops/action-gh-release@v2" in workflow
+    assert (
+        "softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228"
+        in workflow
+    )
     assert "dist/install.sh" in workflow
     assert "dist/install.ps1" in workflow
     assert "dist/checksums.txt" in workflow
@@ -147,7 +150,7 @@ def test_npm_publish_workflow_uses_npm_token_and_public_package():
         encoding="utf-8"
     )
 
-    assert "actions/setup-node@v4" in workflow
+    assert "actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444" in workflow
     assert 'registry-url: "https://registry.npmjs.org"' in workflow
     assert "npm pack --dry-run" in workflow
     assert "npm publish --access public" in workflow

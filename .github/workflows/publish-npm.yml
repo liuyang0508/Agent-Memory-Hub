@@ -13,7 +13,7 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Preflight npm distribution secret
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
@@ -22,7 +22,7 @@ jobs:
             echo "::error title=AMH_DISTRIBUTION_SECRET_MISSING::reason=missing_secret secret=NPM_TOKEN workflow=publish-npm"
             exit 1
           fi
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version: "20"
           registry-url: "https://registry.npmjs.org"
