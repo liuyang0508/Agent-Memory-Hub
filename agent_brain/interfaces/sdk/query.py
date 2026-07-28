@@ -33,6 +33,7 @@ def search_items(
     default_project: str | None,
     retriever: Any,
     store: Any,
+    adapter: str = "unknown",
     brain_dir: Path | None = None,
     verbosity: str = "locator",
     include_trace: bool = False,
@@ -74,6 +75,8 @@ def search_items(
         "filters": search_filter if not search_filter.is_empty else None,
         "explain": include_trace,
     }
+    if adapter != "unknown":
+        search_kwargs["adapter"] = adapter
     if context_firewall:
         search_kwargs["record_access"] = False
     hits = retriever.search(query, **search_kwargs)

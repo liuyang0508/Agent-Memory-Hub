@@ -98,6 +98,8 @@ class TaskOutcome:
     adapter: str = "unknown"
     session_id: str | None = None
     cwd: str | None = None
+    project: str | None = None
+    cohort_id: str | None = None
 
     def to_dict(self) -> dict[str, object]:
         data = asdict(self)
@@ -187,6 +189,8 @@ def record_task_outcome(
     adapter: str = "unknown",
     session_id: str | None = None,
     cwd: str | None = None,
+    project: str | None = None,
+    cohort_id: str | None = None,
     now: datetime | None = None,
 ) -> TaskOutcome:
     timestamp = _timestamp(now)
@@ -206,6 +210,8 @@ def record_task_outcome(
         adapter=adapter or "unknown",
         session_id=session_id or None,
         cwd=cwd or None,
+        project=_safe_project(project),
+        cohort_id=_safe_cohort_id(cohort_id),
     )
     _append_jsonl(task_outcomes_path(brain_dir), record.to_dict())
     return record
@@ -310,6 +316,8 @@ def iter_task_outcomes(brain_dir: Path) -> Iterator[TaskOutcome]:
                 adapter=str(data.get("adapter") or "unknown"),
                 session_id=sanitize_session_id(data.get("session_id")),
                 cwd=sanitize_cwd(data.get("cwd")),
+                project=_safe_project(data.get("project")),
+                cohort_id=_safe_cohort_id(data.get("cohort_id")),
             )
         except (KeyError, TypeError, ValueError, OverflowError):
             continue
@@ -450,6 +458,21 @@ def _safe_adapter(value: object) -> str:
     if isinstance(value, str) and re.fullmatch(r"[a-z0-9_.-]{1,32}", value.lower()):
         return value.lower()
     return "unknown"
+
+
+def _safe_project(value: object) -> str | None:
+    if value is None:
+        return None
+    text = " ".join(str(value).strip().split())
+    return text[:80] or None
+
+
+def _safe_cohort_id(value: object) -> str | None:
+    if value is None:
+        return None
+    from agent_brain.memory.context.injection_metrics import sanitize_cohort_id
+
+    return sanitize_cohort_id(value)
 
 
 def _dedupe(values: list[str] | tuple[str, ...]) -> tuple[str, ...]:

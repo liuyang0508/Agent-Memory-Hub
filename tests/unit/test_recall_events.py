@@ -96,6 +96,8 @@ def test_record_task_outcome_round_trips_low_confidence_implicit_signal(
         injected_ids=["mem-a"],
         adopted_ids=[],
         rejected_ids=[],
+        project="memory-hub",
+        cohort_id="inj-20260728T100000-abcdef12",
     )
 
     rows = list(iter_task_outcomes(tmp_path))
@@ -103,6 +105,8 @@ def test_record_task_outcome_round_trips_low_confidence_implicit_signal(
     assert rows == [outcome]
     assert outcome.normalized_question == "继续修复 recall drift"
     assert outcome.confidence == 0.35
+    assert outcome.project == "memory-hub"
+    assert outcome.cohort_id == "inj-20260728T100000-abcdef12"
 
 
 def test_record_task_outcome_feedback_application_round_trips(tmp_path: Path) -> None:

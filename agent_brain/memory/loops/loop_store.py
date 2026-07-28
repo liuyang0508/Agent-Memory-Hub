@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import json
+import logging
+import re
 from collections.abc import Sequence
 from dataclasses import replace
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from agent_brain.memory.context.injection_cohorts import latest_injection_cohort
 from agent_brain.memory.loops.loop_events import append_loop_event
 from agent_brain.memory.loops.loop_feedback import LoopFeedback
 from agent_brain.memory.loops.loop_state import require_completion_evidence, validate_transition
@@ -32,6 +35,8 @@ STEP_TRANSITIONS: dict[str, set[str]] = {
     "verified": set(),
     "cancelled": set(),
 }
+_MEMORY_ITEM_ID = re.compile(r"mem-[a-z0-9][a-z0-9-]{0,127}")
+logger = logging.getLogger(__name__)
 
 
 class LoopStore:
@@ -76,6 +81,13 @@ class LoopStore:
             context=dict(context or {}),
             metadata=dict(metadata or {}),
             verification_plan=list(verification_plan or []),
+            memory_candidates=_recent_injection_candidates(
+                self.brain_dir,
+                adapter=adapter,
+                session_id=session_id,
+                cwd=cwd,
+                now=now,
+            ),
             sensitivity=sensitivity or "internal",
         )
         self._write(loop)
@@ -246,6 +258,7 @@ class LoopStore:
                 now=now,
             )
         self._event(updated, LoopEventType.completed.value, actor, "loop completed", now=now)
+        self._record_learning_outcome(updated, success=True, now=now)
         return updated
 
     def fail(
@@ -289,6 +302,7 @@ class LoopStore:
             payload={"reason": reason},
             now=now,
         )
+        self._record_learning_outcome(updated, success=False, now=now)
         return updated
 
     def block(
@@ -699,12 +713,131 @@ class LoopStore:
             ),
         )
 
+    def _record_learning_outcome(
+        self,
+        loop: LoopRun,
+        *,
+        success: bool,
+        now: datetime | None,
+    ) -> None:
+        """Persist best-effort learning evidence after the loop state is durable."""
+
+        try:
+            from agent_brain.memory.governance.outcome_feedback import (
+                apply_task_outcome_feedback,
+            )
+            from agent_brain.memory.governance.recall_events import record_task_outcome
+            from agent_brain.memory.recall.adaptive_learning import refresh_learning_profile
+            from agent_brain.memory.store.items_store import ItemsStore
+            from agent_brain.platform.indexing.index import HubIndex
+
+            injected_ids = tuple(
+                str(candidate["id"])
+                for candidate in loop.memory_candidates
+                if isinstance(candidate, dict) and candidate.get("id")
+            )
+            cohort_id = next(
+                (
+                    str(candidate["cohort_id"])
+                    for candidate in loop.memory_candidates
+                    if isinstance(candidate, dict) and candidate.get("cohort_id")
+                ),
+                None,
+            )
+            outcome = record_task_outcome(
+                self.brain_dir,
+                task_id=f"loop:{loop.loop_id}",
+                question=loop.goal,
+                outcome="success" if success else "failed",
+                feedback_signals=(
+                    ("loop_verified", "implicit_task_success")
+                    if success
+                    else ("loop_failed",)
+                ),
+                confidence=0.95 if success else 0.8,
+                injected_ids=injected_ids,
+                adapter=loop.adapter or "unknown",
+                session_id=loop.session_id,
+                cwd=loop.cwd,
+                project=loop.project,
+                cohort_id=cohort_id,
+                now=now,
+            )
+            if not success:
+                return
+
+            index_path = self.brain_dir / "index.db"
+            index = HubIndex(index_path) if index_path.exists() else None
+            try:
+                apply_task_outcome_feedback(
+                    self.brain_dir,
+                    items_store=ItemsStore(self.brain_dir / "items"),
+                    index=index,
+                    outcome=outcome,
+                )
+            finally:
+                if index is not None:
+                    index.close()
+            refresh_learning_profile(self.brain_dir)
+        except Exception:
+            # Learning is derived state and must never invalidate a durable loop result.
+            logger.warning("loop learning sidecar failed for %s", loop.loop_id, exc_info=True)
+            return
+
 
 def _require_text(value: str, label: str) -> str:
     text = str(value or "").strip()
     if not text:
         raise LoopTransitionError(f"{label} is required")
     return text
+
+
+def _recent_injection_candidates(
+    brain_dir: Path,
+    *,
+    adapter: str | None,
+    session_id: str | None,
+    cwd: str | None,
+    now: datetime | None,
+) -> list[dict[str, Any]]:
+    """Attach only a fresh cohort from the exact task session and working tree."""
+
+    if not adapter or not session_id or not cwd:
+        return []
+    cohort = latest_injection_cohort(
+        brain_dir,
+        adapter=adapter,
+        session_id=session_id,
+    )
+    if cohort is None or not cohort.cwd or not _same_path(cwd, cohort.cwd):
+        return []
+    try:
+        observed_at = datetime.fromisoformat(cohort.timestamp)
+    except ValueError:
+        return []
+    if observed_at.tzinfo is None:
+        observed_at = observed_at.replace(tzinfo=timezone.utc)
+    current = now or datetime.now(timezone.utc)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=timezone.utc)
+    age = current.astimezone(timezone.utc) - observed_at.astimezone(timezone.utc)
+    if age < timedelta(0) or age > timedelta(minutes=30):
+        return []
+    return [
+        {
+            "id": item_id,
+            "source": "injection_cohort",
+            "cohort_id": cohort.cohort_id,
+        }
+        for item_id in cohort.item_ids
+        if _MEMORY_ITEM_ID.fullmatch(item_id)
+    ]
+
+
+def _same_path(left: str, right: str) -> bool:
+    return Path(left).expanduser().resolve(strict=False) == Path(right).expanduser().resolve(
+        strict=False
+    )
 
 
 def _open_human_gates(loop: LoopRun) -> list[dict[str, Any]]:

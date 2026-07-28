@@ -6,6 +6,7 @@ import io
 import json
 import os
 from contextlib import redirect_stderr, redirect_stdout
+from typing import Any
 
 from agent_brain.interfaces.cli._app import app
 from agent_brain.interfaces.cli._shared import *  # noqa: F401,F403
@@ -254,11 +255,13 @@ def search(
         if query_signal.injectable and query_signal.terms:
             effective_query = "|".join(query_signal.terms[:6])
     retrieval_top_k = injection_retrieval_top_k(top_k) if context_firewall else top_k
-    search_kwargs = {
+    search_kwargs: dict[str, Any] = {
         "top_k": retrieval_top_k,
         "filters": sf,
         "explain": explain or record_injection_cohort,
     }
+    if adapter != "unknown":
+        search_kwargs["adapter"] = adapter
     if context_firewall:
         # Retrieval candidates are not final prompt context. Only Gateway
         # inclusions are allowed to affect access accounting.

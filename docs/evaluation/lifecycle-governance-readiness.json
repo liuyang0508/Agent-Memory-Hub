@@ -14,7 +14,7 @@
     "observed_drift_count": 1,
     "status": "pass"
   },
-  "implementation_hash": "sha256:8ab84b5a09ac47f8cf15b76e25f4d54b5462894e4e54f4886041d784f137da21",
+  "implementation_hash": "sha256:dce3515778d67ec1ae1063936aa6cd367ea83c6c43d094a01dd5925446da096b",
   "implementation_manifest": [
     {
       "path": "agent_brain/agent_integrations/hermes/import_export_tools.py",
@@ -30,7 +30,7 @@
     },
     {
       "path": "agent_brain/interfaces/cli/commands/crud.py",
-      "sha256": "sha256:1025e3efdc27f34422901d0a729e07e499c613ecb764d01e444e1d40d495b4f9"
+      "sha256": "sha256:ffae195ec170f981661e354af86615c44bf0fd6d67f70d0be8ed6ae12fc1396d"
     },
     {
       "path": "agent_brain/interfaces/cli/commands/gc.py",

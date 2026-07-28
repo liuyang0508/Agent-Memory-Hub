@@ -16,6 +16,7 @@ def test_platform_capability_registry_separates_l1_l2_l3_statuses() -> None:
         "local_shared_brain",
         "team_sync_contract",
         "automatic_feedback_loop",
+        "replay_gated_adaptive_recall",
         "persistent_task_state_machine",
         "semantic_contradiction_baseline",
         "enterprise_release_gate",

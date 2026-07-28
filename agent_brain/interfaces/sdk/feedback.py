@@ -49,6 +49,12 @@ def apply_task_outcome_feedback(
         index=index,
         force=force,
     )
+    from agent_brain.memory.recall.adaptive_learning import refresh_learning_profile
+
+    try:
+        refresh_learning_profile(brain_dir)
+    except OSError:
+        pass
     return report.to_dict()
 
 

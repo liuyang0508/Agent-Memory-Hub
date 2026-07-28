@@ -115,6 +115,7 @@ def observe_prompt_feedback(
         adapter=adapter,
         session_id=session_id,
         cwd=cohort.cwd,
+        cohort_id=cohort.cohort_id,
     )
 
     store = items_store or ItemsStore(Path(brain_dir) / "items")
@@ -132,6 +133,12 @@ def observe_prompt_feedback(
     finally:
         if owns_index and live_index is not None:
             live_index.close()
+    from agent_brain.memory.recall.adaptive_learning import refresh_learning_profile
+
+    try:
+        refresh_learning_profile(brain_dir)
+    except OSError:
+        pass
     return _observation(cohort, decision, report)
 
 

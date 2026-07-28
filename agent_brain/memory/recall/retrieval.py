@@ -8,6 +8,7 @@ import re
 import time
 from dataclasses import dataclass, field, replace
 from datetime import datetime
+from pathlib import Path
 from typing import TYPE_CHECKING, Callable, SupportsIndex, cast
 
 from agent_brain.platform.embedding import Embedder
@@ -19,6 +20,7 @@ from agent_brain.memory.recall.query_expansion import (
     _tokenize_mixed as _tokenize_mixed,
     expand_query,
 )
+from agent_brain.memory.recall.adaptive_learning import apply_learning_profile_weight
 from agent_brain.memory.recall.retrieval_access import RetrievalAccessRecorder
 from agent_brain.memory.recall.retrieval_budget import (
     estimate_tokens as estimate_tokens,
@@ -117,6 +119,8 @@ class _SearchPipelineOptions:
     include_superseded: bool
     include_stale_state: bool
     temporal_now: datetime | None
+    adapter: str
+    project: str | None
 
 
 @dataclass(frozen=True)
@@ -212,6 +216,23 @@ class Retriever:
 
     def _apply_value_weight(self, candidates: list[RetrievedItem]) -> list[RetrievedItem]:
         return apply_feedback_value_weight(self.index, candidates)
+
+    def _apply_adaptive_learning(
+        self,
+        candidates: list[RetrievedItem],
+        *,
+        adapter: str,
+        project: str | None,
+    ) -> list[RetrievedItem]:
+        db_path = getattr(self.index, "db_path", None)
+        if db_path is None:
+            return candidates
+        return apply_learning_profile_weight(
+            candidates,
+            brain_dir=Path(db_path).parent,
+            adapter=adapter,
+            project=project,
+        )
 
     def _apply_metadata_phrase_boost(
         self,
@@ -343,6 +364,14 @@ class Retriever:
         stages.extend(
             (
                 _NamedCandidateStage("feedback_value", self._apply_value_weight),
+                _NamedCandidateStage(
+                    "adaptive_learning",
+                    lambda candidates: self._apply_adaptive_learning(
+                        candidates,
+                        adapter=options.adapter,
+                        project=options.project,
+                    ),
+                ),
                 _NamedCandidateStage(
                     "status_handoff_boost",
                     lambda candidates: apply_status_handoff_boost(
@@ -479,6 +508,7 @@ class Retriever:
         *,
         explain: bool = False,
         record_access: bool | None = None,
+        adapter: str = "unknown",
     ) -> list[RetrievedItem]:
         """Return the top matching memory IDs after retrieval policy stages.
 
@@ -503,6 +533,8 @@ class Retriever:
             include_superseded=filters.include_superseded,
             include_stale_state=filters.include_stale_state,
             temporal_now=self.temporal_now,
+            adapter=adapter,
+            project=filters.project,
         )
         stage_traces: dict[str, list[RetrievalStageTrace]] = {}
         if explain:
@@ -810,6 +842,8 @@ class Retriever:
             include_superseded=filters.include_superseded,
             include_stale_state=filters.include_stale_state,
             temporal_now=self.temporal_now,
+            adapter=request.adapter,
+            project=scope.value if scope is not None else filters.project,
         )
         stage_traces: dict[str, list[RetrievalStageTrace]] = {}
         if explain:

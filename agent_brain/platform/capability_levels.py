@@ -55,6 +55,17 @@ CAPABILITIES: tuple[PlatformCapability, ...] = (
         ),
     ),
     PlatformCapability(
+        name="replay_gated_adaptive_recall",
+        level="L2",
+        status="shipped",
+        summary="Task outcomes derive bounded adapter/project ranking profiles that activate only after saved-trace replay and support rollback.",
+        evidence=(
+            "agent_brain/memory/recall/adaptive_learning.py",
+            "agent_brain/memory/loops/loop_store.py",
+            "tests/unit/test_adaptive_learning.py",
+        ),
+    ),
+    PlatformCapability(
         name="persistent_task_state_machine",
         level="L2",
         status="shipped",

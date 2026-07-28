@@ -298,6 +298,7 @@ def _record_injection_feedback_outcome(report, *, cohort=None, adapter=None, ses
         adapter=(cohort.adapter if cohort is not None else adapter) or "unknown",
         session_id=(cohort.session_id if cohort is not None else session),
         cwd=(cohort.cwd if cohort is not None else None),
+        cohort_id=(cohort.cohort_id if cohort is not None else None),
     )
     record_task_outcome_feedback_application(
         _brain_dir(),
@@ -308,6 +309,12 @@ def _record_injection_feedback_outcome(report, *, cohort=None, adapter=None, ses
         adapter=(cohort.adapter if cohort is not None else adapter) or "unknown",
         session_id=(cohort.session_id if cohort is not None else session),
     )
+    from agent_brain.memory.recall.adaptive_learning import refresh_learning_profile
+
+    try:
+        refresh_learning_profile(_brain_dir())
+    except OSError:
+        pass
 
 
 def _record_only_rejected_gap_if_needed(report, *, cohort=None, adapter=None, session=None) -> None:

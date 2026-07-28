@@ -1249,7 +1249,7 @@ CLI 升级后的风险也可以逐项定位：
 | 本地事实源 | `items/mem-*.md` 是长期记忆事实源。 | `ItemsStore`、`WriteService`、`agent_runtime_kit/schema/memory-item.md` | SQLite、向量和图索引是派生投影。 |
 | 原始证据 | live prompt、transcript、resource、extraction、write source、runtime event 分层保存。 | `hook_capture.py`、`conversation_store.py`、`resource_store.py`、`sources/*` | 原始 transcript 默认不注入。 |
 | 写入治理 | 审计 gate、质量 warning、sidecar、pending、dirty index repair。 | `write_service.py`、`pending.py` | critical/high audit finding 默认阻断。 |
-| 召回 | SearchFilter、FTS/BM25、vector、RRF、metadata phrase、rerank、decay、feedback、runtime/status、temporal、supersession、MMR、Hopfield、graph。 | `agent_brain/memory/recall/` | rerank、MMR、Hopfield、graph 是可选阶段。 |
+| 召回 | SearchFilter、FTS/BM25、vector、RRF、metadata phrase、rerank、decay、feedback、回放门禁自适应权重、runtime/status、temporal、supersession、MMR、Hopfield、graph。 | `agent_brain/memory/recall/` | 自适应画像来自本地 task outcome 并可回滚；rerank、MMR、Hopfield、graph 是可选阶段。 |
 | 注入治理 | ContextFirewall 和 context_pack。 | `context_firewall.py`、`context_packing.py` | 搜到不等于注入。 |
 | 反馈闭环 | injection cohort、adopt/reject/ignored、support/contradict/gain。 | `injection_cohorts.py`、`outcome_feedback.py`、`retrieval_value.py` | ignored 不应被误当负反馈。 |
 | 维护治理 | drift、duplicates、review、maturity、tiering、auto governance、evolve。 | `agent_brain/memory/governance/` | 高风险动作需要复核。 |
@@ -2019,6 +2019,7 @@ memory adapter uninstall <adapter>
 | 能力 | 已落地边界 |
 |---|---|
 | 自动反馈调优 | 下一轮用户输入只在出现明确“上一批都有效/都错误”等信号时评价刚注入的 cohort；不保存原始 prompt，模糊反馈不改权重，同一 cohort 只应用一次。 |
+| 回放门禁自适应召回 | Loop 完成时只归因同 session、同工作目录、30 分钟内的召回 cohort；任务结果生成 adapter/project 有界权重画像，只有历史 trace 回放的 Recall@1 和 MRR 都不退化才激活，并保留上一版用于回滚。 |
 | 端到端加密同步 | `memory sync init/run/heartbeat` 在设备端用 AES-256-GCM 加密；服务端只存租户隔离的不可读对象和最小设备心跳，恢复密钥不上云。 |
 | 持久任务状态机 | LoopRun 持久化步骤依赖、阻塞项、完成与验证证据；`memory handoff --loop` 直接从同一账本生成交接状态。 |
 | 自动记忆治理 | 精确重复项可逆 supersede，明确 TTL 到期的短生命周期记录自动归档，语义冲突只做隔离降权并进入复核。 |
@@ -2033,10 +2034,11 @@ AMH 的自进化不是“无人值守自动改记忆”。当前实现是分层�
 | `EvolveEngine` | 扫描记忆池，生成 consolidate、promote、archive、generate_skill、crystallize、synthesize_skill、version_up 等提案；执行前过审计门禁。 | 不绕过审计直接改高风险事实源。 |
 | `AutoGovernanceCycle` | 汇总成熟度、漂移、冲突、索引漂移、原始对话冷热分层；同租户同范围的精确重复项可逆 supersede，明确 TTL 已过期的短生命周期记录可归档，冲突项自动降置信并进入复核。 | 不自动做语义合并、批量删除、技能合成等高风险动作。 |
 | `DreamingWorker` | 做离线式 harvest、模式发现、结晶、技能候选、归档衰减、容量控制和分层再平衡。 | 不把候选技能或抽象结论直接当用户事实写入。 |
+| `adaptive_learning` | 从已应用的 task outcome 派生 adapter/project 排序画像；用注入 cohort 保存的 retrieval trace 做回放门禁，支持 `memory learning status/refresh/rollback`。 | 不训练黑盒模型，不上传 prompt，不让失败自动惩罚记忆；多条候选的隐式成功也不自动分功。 |
 | `evolution_control` | Web `/api/evolve` 返回高阶控制面：shadow/apply 模式、写入边界、近三天数据流转缺口、审计门禁、发布门禁和建议动作。 | 不执行自动修复；建议仍需转成 review、benchmark 或 `WriteService` 写入。 |
 | Loop Engineering Ledger | 记录目标、依赖步骤、阻塞项、检查点、完成/验证证据、失败原因和产物；handoff 可直接从同一 LoopRun 生成。 | 不是默认自动 runner；它提供账本和门禁，不替用户批准高风险变更。 |
 
-更高阶自进化的方向是：让 P1 数据流转账本成为观测层，让 `EvolveEngine` / `DreamingWorker` 只产出提案，让检索、压缩、ML/DL、adapter doctor/runtime、Loop 验证共同作为门禁，最后才允许低风险策略进入 safe-apply。高风险写入仍必须进复核或 `WriteService`。
+更高阶自进化的方向是：继续扩大隐私安全的结果样本和回放覆盖率，让 `EvolveEngine` / `DreamingWorker` 只产出提案，让检索、压缩、ML/DL、adapter doctor/runtime、Loop 验证共同作为门禁，最后才允许低风险策略进入 safe-apply。高风险写入仍必须进复核或 `WriteService`。
 
 <a id="roadmap"></a>
 
@@ -2057,7 +2059,7 @@ AMH 的自进化不是“无人值守自动改记忆”。当前实现是分层�
 - 继续让 `memory api-docs`、README、架构图谱和 Web surface lock 保持一致；路由变化必须和测试、文档同步。
 - 强化资源旁路到搜索、上下文、读取提示的完整链路。
 - 继续打磨网页管理面的检索轨迹、上下文包、防火墙、资源证据和复核队列诊断体验。
-- 在三日数据流转基础上继续建设 P2 高阶自进化：shadow mode、回放评估、可解释提案、发布门禁和人工复核。
+- 在已落地的 trace 回放门禁上继续建设 P2 高阶自进化：扩大评测样本、增加 shadow 对照、完善可解释提案、发布门禁和人工复核。
 - 用基准门禁管住重排、GraphRAG、Headroom 压缩、机器学习/深度学习建议能力等增强，不让实验能力直接改变默认注入路径。
 - 让 README、Web 管理台和架构图谱成为主要入门入口。
 

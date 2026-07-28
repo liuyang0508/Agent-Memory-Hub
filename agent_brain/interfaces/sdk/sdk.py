@@ -188,6 +188,7 @@ class MemoryClient:
             default_project=self._default_project,
             retriever=self._components.get_retriever(),
             store=self._components.get_store(),
+            adapter=self._default_agent or "unknown",
             brain_dir=self._brain_dir,
             verbosity=verbosity,
             include_trace=include_trace,

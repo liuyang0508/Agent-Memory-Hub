@@ -62,3 +62,6 @@ app.add_typer(telemetry_app, name="telemetry")
 
 sync_app = typer.Typer(help="End-to-end encrypted multi-device sync")
 app.add_typer(sync_app, name="sync")
+
+learning_app = typer.Typer(help="Replay-gated adaptive recall learning")
+app.add_typer(learning_app, name="learning")

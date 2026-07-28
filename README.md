@@ -594,8 +594,9 @@ The HTML map carries larger diagrams, sequences, and flow expansions.
 | Write audit and enrichment | Shipping | Writes pass schema validation, risk audit, source-boundary checks, runtime enrichment, and quality scoring. |
 | Resource and extraction sidecar | Shipping / product surface in progress | `ResourceStore` supports `resources/*.json` and `extractions/*.json`; `memory resource promote-extraction` can promote trusted OCR/ASR/VLM/PDF extraction text into a normal `MemoryItem` while preserving `refs.resources` and `refs.extractions`. |
 | Derived index projection | Shipping | `index.db` maintains `items_meta`, `items_fts`, `items_vec`, and `refs_graph`; projections rebuild from Markdown. |
-| Retrieval scoring pipeline | Shipping | BM25 + vector recall uses RRF, then rerank, decay, feedback, runtime evidence, freshness, and supersession filters. |
+| Retrieval scoring pipeline | Shipping | BM25 + vector recall uses RRF, then rerank, decay, feedback, replay-gated adaptive weights, runtime evidence, freshness, and supersession filters. |
 | Automatic feedback tuning | Shipping | The next user turn can safely classify the immediately preceding injection cohort as adopted or rejected; raw prompt text is never persisted, ambiguous feedback is ignored, and retrieval trust weights update exactly once. |
+| Replay-gated adaptive recall | Shipping | Verified Loop outcomes are attributed only to a fresh same-session/same-worktree cohort. Bounded adapter/project profiles activate only when saved retrieval-trace replay preserves Recall@1 and MRR; the previous profile remains rollbackable. Failures and ambiguous multi-item success never auto-penalize or auto-credit memories. |
 | Optional retrieval trace | Shipping | CLI/MCP search can opt into explainable retrieval traces: initial BM25/vector ranks, stage effects, final rank, and compact signals, without changing default hook injection. |
 | Layered context loading | Shipping | Locator is default, overview is optional, detail reads body on demand; vector features use locator + overview only. |
 | Reversible `context_pack` | Shipping | `context_pack` is the compressed prompt view plus `detail_uri` and retrieve hints; automatic injection avoids body dumps and agents fetch evidence with `read_memory(..., head=2000, view='detail')` only when needed. |
@@ -635,7 +636,7 @@ deliberate diagnostics; broad explicit-detail search is warned but not blocked.
 
 Near-term product work:
 
-- Improve recall drift controls and feedback loops.
+- Expand privacy-safe outcome coverage and shadow evaluation on top of the shipped replay-gated adaptive recall loop.
 - Harden `memory govern auto` with provenance-aware review queues while keeping semantic merges, broad deletion, consolidation, and skill synthesis review-required.
 - Tighten adapter verification from `install-ready` to real-client `verified`.
 - Extend raw conversation evidence governance: hot/warm/cold policy, extraction provenance, and bounded replay into MemoryItem candidates.

@@ -335,6 +335,7 @@ def _generate_candidates(
         filters=filters,
         explain=False,
         record_access=False,
+        adapter=request.adapter,
     )
     evidence = {
         hit.id: RouteEvidence(
