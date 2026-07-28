@@ -1,8 +1,8 @@
-"""P3-2: reindex --prune drops orphan index rows; verify diffs md vs index.
+"""P3-2: reindex converges to Markdown truth; verify diffs md vs index.
 
-Before the fix `reindex` only upserts md items and never removes index rows
-whose md file is gone, so deleted/archived items linger as ghost search hits
-and there is no reconcile/verify capability.
+`reindex` defaults to pruning index rows whose Markdown is gone so deleted or
+archived items cannot linger as ghost search hits. Operators can explicitly
+disable pruning for a diagnostic upsert-only pass.
 """
 from __future__ import annotations
 
@@ -69,20 +69,35 @@ def test_index_maintenance_helpers_are_split():
     assert maintenance.inspect_index_drift is inspect_index_drift
 
 
-def test_reindex_without_prune_keeps_ghost(brain_with_ghost: Path):
+def test_reindex_defaults_to_pruning_ghost(brain_with_ghost: Path):
     result = runner.invoke(app, ["reindex"])
+    assert result.exit_code == 0, result.output
+    assert result.output.strip() == "reindexed 1 items, pruned 1"
+    ids = _all_ids(brain_with_ghost)
+    assert GHOST_ID not in ids
+    assert LIVE_ID in ids
+
+
+def test_reindex_no_prune_keeps_ghost(brain_with_ghost: Path):
+    result = runner.invoke(app, ["reindex", "--no-prune"])
     assert result.exit_code == 0, result.output
     assert result.output.strip() == "reindexed 1 items"
     assert GHOST_ID in _all_ids(brain_with_ghost)
 
 
-def test_reindex_prune_drops_ghost(brain_with_ghost: Path):
-    result = runner.invoke(app, ["reindex", "--prune"])
-    assert result.exit_code == 0, result.output
-    assert "pruned 1" in result.output
-    ids = _all_ids(brain_with_ghost)
-    assert GHOST_ID not in ids
-    assert LIVE_ID in ids
+def test_reindex_skips_prune_and_fails_when_source_scan_is_incomplete(
+    brain_with_ghost: Path,
+):
+    (brain_with_ghost / "items" / "malformed.md").write_text(
+        "not frontmatter",
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(app, ["reindex"])
+
+    assert result.exit_code == 1
+    assert "source scan incomplete; prune skipped" in result.output
+    assert GHOST_ID in _all_ids(brain_with_ghost)
 
 
 def test_verify_reports_orphan_and_exits_nonzero(brain_with_ghost: Path):

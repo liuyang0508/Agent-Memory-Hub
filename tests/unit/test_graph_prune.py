@@ -212,6 +212,8 @@ def test_full_reindex_does_not_clear_marker_after_incomplete_item_scan(
     index.close()
 
     assert result.indexed == 1
+    assert result.pruned == 0
+    assert result.source_scan_complete is False
     assert store.last_scan.skipped_count == 1
     assert marker.read_text(encoding="utf-8") == f"{item.id}\n"
 

@@ -86,6 +86,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `memory verify` 的默认 text 输出继续保留原有 item 数量与 missing/orphan
   明细，并新增 marker/graph 聚合；additive JSON 输出只包含数量和闭集 reason，
   不输出 item id、路径或正文。退出码从“ID 集合一致”收紧为三维状态全部 clean。
+- `memory reindex` 现在默认清理 Markdown 真相层不存在的派生索引孤儿；
+  诊断性 upsert-only 需显式使用 `--no-prune`。Markdown 扫描不完整时
+  CLI 以非零状态退出、Web API 返回 409，并且都不会执行 prune。
 
 - Realtime browser clients now use an HttpOnly session cookie; non-cookie clients
   exchange Bearer credentials for a short-lived, one-use realtime ticket instead

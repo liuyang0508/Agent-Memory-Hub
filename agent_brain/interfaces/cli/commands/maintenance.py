@@ -32,9 +32,9 @@ import agent_brain.interfaces.cli as _cli  # noqa: E402  late binding for test-p
 @app.command()
 def reindex(
     prune: bool = typer.Option(
-        False,
-        "--prune",
-        help="Drop index rows whose md file no longer exists (removes ghost hits).",
+        True,
+        "--prune/--no-prune",
+        help="Converge to Markdown truth by dropping orphan index rows.",
     ),
 ) -> None:
     """Rebuild the SQLite index from items dir (md is source of truth)."""
@@ -43,6 +43,12 @@ def reindex(
         result = reindex_store(store, idx, embedder, prune=prune)
     if prune:
         typer.echo(f"reindexed {result.indexed} items, pruned {result.pruned}")
+        if not result.source_scan_complete:
+            typer.echo(
+                "source scan incomplete; prune skipped and dirty marker preserved",
+                err=True,
+            )
+            raise typer.Exit(1)
     else:
         typer.echo(f"reindexed {result.indexed} items")
 

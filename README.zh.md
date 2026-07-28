@@ -1426,8 +1426,11 @@ memory conversation rebalance
 memory harvest
 memory sync-pending
 memory verify --repair
-memory reindex --prune
+memory reindex
 ```
+
+`memory reindex` 默认以 active Markdown 为真相层清理孤儿索引；只有诊断性
+upsert 才显式使用 `--no-prune`。Markdown 扫描不完整时不会执行 prune。
 
 ### 6. 本地管理台
 
@@ -1955,7 +1958,7 @@ memory govern readiness --format markdown
 memory govern maturity
 memory sync-pending
 memory verify --repair
-memory reindex --prune
+memory reindex
 
 memory sync init --server https://memory.example.com --api-key <key>
 memory sync run

@@ -2349,10 +2349,56 @@ class TestMaintenanceRoutes:
         assert "effective" in data["items"][0]
 
     def test_reindex(self, client: TestClient, admin_token: str, seed_items):
+        from web._base import _components
+
+        ghost = MemoryItem(
+            id="mem-20260101-000099-web-reindex-ghost",
+            type=MemoryType.fact,
+            title="Web reindex ghost",
+            summary="Derived row without Markdown truth",
+            created_at=datetime.now(timezone.utc),
+        )
+        _, index, _, _ = _components()
+        index.upsert(ghost, ghost.summary, embedding=None)
         headers = {"Authorization": f"Bearer {admin_token}"}
         resp = client.post("/api/reindex", headers=headers)
         assert resp.status_code == 200
         assert resp.json()["reindexed"] == 3
+        assert resp.json()["pruned"] == 1
+        assert ghost.id not in index.all_ids()
+
+    def test_reindex_rejects_incomplete_source_scan_without_pruning(
+        self,
+        client: TestClient,
+        admin_token: str,
+        seed_items,
+        brain_dir: Path,
+    ):
+        from web._base import _components
+
+        ghost = MemoryItem(
+            id="mem-20260101-000098-web-incomplete-ghost",
+            type=MemoryType.fact,
+            title="Web incomplete ghost",
+            summary="Must survive an untrusted source scan",
+            created_at=datetime.now(timezone.utc),
+        )
+        _, index, _, _ = _components()
+        index.upsert(ghost, ghost.summary, embedding=None)
+        (brain_dir / "items" / "malformed.md").write_text(
+            "not frontmatter",
+            encoding="utf-8",
+        )
+
+        resp = client.post(
+            "/api/reindex",
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+
+        assert resp.status_code == 409
+        assert resp.json()["detail"]["code"] == "INDEX_SOURCE_SCAN_INCOMPLETE"
+        assert resp.json()["detail"]["pruned"] == 0
+        assert ghost.id in index.all_ids()
 
     def test_obsidian_export(self, client: TestClient, admin_token: str, seed_items, tmp_path: Path):
         headers = {"Authorization": f"Bearer {admin_token}"}

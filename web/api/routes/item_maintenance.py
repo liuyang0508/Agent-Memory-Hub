@@ -8,6 +8,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
+from agent_brain.interfaces.cli.commands.index_maintenance import reindex_store
 from web._base import _audit, _components, _visible
 from web.auth import CurrentUser, get_current_user
 
@@ -121,14 +122,28 @@ async def obsidian_import(
 
 @router.post("/api/reindex")
 async def reindex(user: CurrentUser = Depends(get_current_user)):
-    """Rebuild the vector search index from all items. Admin only."""
+    """Converge the derived search index to active Markdown truth. Admin only."""
     if not user.is_admin:
         raise HTTPException(status_code=403, detail="admin only")
     store, idx, _, embedder = _components()
-    count = 0
-    for item, body in store.iter_all():
-        embedding = embedder.embed(item.context_views.locator)
-        idx.upsert(item, body, embedding=embedding)
-        count += 1
-    _audit(user.username, "reindex", f"{count} items reindexed")
-    return {"reindexed": count}
+    result = reindex_store(store, idx, embedder, prune=True)
+    if not result.source_scan_complete:
+        _audit(
+            user.username,
+            "reindex_incomplete",
+            f"{result.indexed} items reindexed; prune skipped",
+        )
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "INDEX_SOURCE_SCAN_INCOMPLETE",
+                "reindexed": result.indexed,
+                "pruned": 0,
+            },
+        )
+    _audit(
+        user.username,
+        "reindex",
+        f"{result.indexed} items reindexed; {result.pruned} orphans pruned",
+    )
+    return {"reindexed": result.indexed, "pruned": result.pruned}
