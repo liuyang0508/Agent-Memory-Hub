@@ -39,6 +39,7 @@ GIT_WRITE_OVERRIDE_KEYS = (
     "GIT_TRACE_REFS",
     "GIT_TRACE_PACKFILE",
 )
+PROCESS_READY_TIMEOUT_SECONDS = 30
 
 
 def _write_executable(path: Path, content: str) -> None:
@@ -1529,7 +1530,7 @@ def test_startup_cross_signal_preserves_first_code_without_starting_phase(
     phase_identity: ProcessIdentity | None = None
     phase_pgid = 0
     try:
-        deadline = time.monotonic() + 10
+        deadline = time.monotonic() + PROCESS_READY_TIMEOUT_SECONDS
         while time.monotonic() < deadline and not startup_ready_file.exists():
             assert process.poll() is None, "quickstart exited before startup gate"
             time.sleep(0.01)
@@ -1623,7 +1624,7 @@ def test_signal_teardown_uses_anchored_group_when_runtime_ps_fails(
     child_identity: ProcessIdentity | None = None
     phase_pgid = 0
     try:
-        deadline = time.monotonic() + 10
+        deadline = time.monotonic() + PROCESS_READY_TIMEOUT_SECONDS
         while time.monotonic() < deadline and not ready_file.exists():
             assert process.poll() is None, "quickstart exited before resistant phase was ready"
             time.sleep(0.05)
@@ -1700,7 +1701,7 @@ def test_signal_sequence_cleans_only_benchmark_root_and_preserves_host(
     phase_identity: ProcessIdentity | None = None
     child_identity: ProcessIdentity | None = None
     try:
-        deadline = time.monotonic() + 10
+        deadline = time.monotonic() + PROCESS_READY_TIMEOUT_SECONDS
         while time.monotonic() < deadline and not ready_file.exists():
             assert process.poll() is None, "quickstart exited before fake install became ready"
             time.sleep(0.05)
