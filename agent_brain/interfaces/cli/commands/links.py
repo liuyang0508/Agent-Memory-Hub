@@ -5,6 +5,7 @@ import typer
 
 from agent_brain.interfaces.cli._app import app
 from agent_brain.interfaces.cli._shared import *  # noqa: F401,F403
+from agent_brain.memory.governance.graph_links import link_memory_ref
 import agent_brain.interfaces.cli as _cli  # noqa: E402  late binding for test-patched helpers
 
 
@@ -24,8 +25,13 @@ def link(
         )
         raise typer.Exit(2)
     with _cli._managed_components() as (store, idx, _):
-        idx.add_ref(source, target, label)
-        store.link_mem(source, target)
+        result = link_memory_ref(store, idx, source, target, label)
+    if not result.linked:
+        typer.echo(f"link blocked: {result.reason}", err=True)
+        raise typer.Exit(2)
+    if result.index_repair_required:
+        typer.echo("link persisted; index repair required", err=True)
+        raise typer.Exit(1)
     typer.echo(f"linked: {source} --[{label}]--> {target}")
 
 

@@ -7,6 +7,7 @@ from agent_brain.contracts.memory_item import is_valid_memory_item_id
 from agent_brain.interfaces.mcp.tools._shared import *  # noqa: F401,F403
 from agent_brain.interfaces.mcp.tools._shared import _brain_dir, _components
 from agent_brain.memory.governance.lifecycle_ledger import lifecycle_transaction_lock
+from agent_brain.memory.governance.graph_links import link_memory_ref
 from agent_brain.memory.governance.supersession import SupersessionService
 from agent_brain.memory.store.durable_fs import lifecycle_mutation_capability
 
@@ -98,7 +99,7 @@ def link_memories(
     store, idx, _ = _components()
     if relation == "supersedes":
         should_apply = apply is True
-        result = SupersessionService(_brain_dir(), store, idx).apply(
+        supersession_result = SupersessionService(_brain_dir(), store, idx).apply(
             replacement_id=source_id,
             obsolete_id=target_id,
             apply=should_apply,
@@ -107,25 +108,26 @@ def link_memories(
             "source": source_id,
             "target": target_id,
             "relation": relation,
-            "linked": result.status in {"applied", "already_applied"},
-            "status": result.status,
-            "reason": result.reason,
-            "index_repair_required": result.index_repair_required,
-            "dry_run": result.dry_run,
+            "linked": supersession_result.status
+            in {"applied", "already_applied"},
+            "status": supersession_result.status,
+            "reason": supersession_result.reason,
+            "index_repair_required": (
+                supersession_result.index_repair_required
+            ),
+            "dry_run": supersession_result.dry_run,
         }
-    idx.add_ref(source_id, target_id, relation)
-    try:
-        store.link_mem(source_id, target_id)
-    except Exception:
-        pass
+    ordinary_result = link_memory_ref(
+        store, idx, source_id, target_id, relation
+    )
     return {
         "source": source_id,
         "target": target_id,
         "relation": relation,
-        "linked": True,
-        "status": "linked",
-        "reason": "OK",
-        "index_repair_required": False,
+        "linked": ordinary_result.linked,
+        "status": ordinary_result.status,
+        "reason": ordinary_result.reason,
+        "index_repair_required": ordinary_result.index_repair_required,
         "dry_run": False,
     }
 

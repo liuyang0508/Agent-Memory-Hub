@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -791,6 +792,19 @@ class TestUpdateCLI:
 
 
 class TestLinkUnlinkCLI:
+    def test_link_rejects_prefix_before_graph_mutation(self, populated_brain):
+        tmp, _store, item = populated_brain
+
+        result = runner.invoke(app, ["link", "mem-20260528", item.id])
+
+        assert result.exit_code == 2
+        assert "INVALID_ITEM_ID" in result.output
+        with sqlite3.connect(tmp / "index.db") as connection:
+            assert connection.execute(
+                "SELECT COUNT(*) FROM refs_graph WHERE source_id = ?",
+                ("mem-20260528",),
+            ).fetchone() == (0,)
+
     def test_link_and_unlink(self, populated_brain):
         tmp, store, item = populated_brain
         item2 = MemoryItem(

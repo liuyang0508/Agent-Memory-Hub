@@ -272,6 +272,77 @@ class TestIndexLinkUnlink:
 
 
 class TestMcpLinkUnlink:
+    def test_generic_link_rejects_missing_target_without_mutation(
+        self, tmp_brain_dir: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        source = _item("mcp-missing-target-source")
+        missing_target = _item("mcp-missing-target")
+        idx = _seed(tmp_brain_dir, [(source, "source")])
+        idx.close()
+        monkeypatch.setenv("BRAIN_DIR", str(tmp_brain_dir))
+        monkeypatch.setenv("MEMORY_HUB_TEST_EMBEDDING", "1")
+
+        result = link_memories(source.id, missing_target.id)
+
+        assert result["linked"] is False
+        assert result["status"] == "blocked"
+        assert result["reason"] == "ITEM_MISSING"
+        store = ItemsStore(tmp_brain_dir / "items")
+        assert store.get(source.id)[0].refs.mems == []
+        _store, mcp_index, _retriever = next(iter(_components_cache.values()))
+        assert mcp_index.get_refs(source.id) == []
+
+    def test_generic_link_fails_closed_before_index_when_markdown_write_fails(
+        self, tmp_brain_dir: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        source = _item("mcp-markdown-failure-source")
+        target = _item("mcp-markdown-failure-target")
+        idx = _seed(tmp_brain_dir, [(source, "source"), (target, "target")])
+        idx.close()
+        monkeypatch.setenv("BRAIN_DIR", str(tmp_brain_dir))
+        monkeypatch.setenv("MEMORY_HUB_TEST_EMBEDDING", "1")
+        store, mcp_index, _retriever = _components()
+
+        def fail_markdown_link(*_args, **_kwargs):
+            raise OSError("raw markdown failure")
+
+        monkeypatch.setattr(store, "link_mem", fail_markdown_link)
+
+        result = link_memories(source.id, target.id)
+
+        assert result["linked"] is False
+        assert result["status"] == "blocked"
+        assert result["reason"] == "MARKDOWN_UPDATE_FAILED"
+        assert "raw markdown" not in str(result)
+        assert mcp_index.get_refs(source.id) == []
+
+    def test_generic_link_reports_index_repair_after_durable_markdown(
+        self, tmp_brain_dir: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        source = _item("mcp-index-failure-source")
+        target = _item("mcp-index-failure-target")
+        idx = _seed(tmp_brain_dir, [(source, "source"), (target, "target")])
+        idx.close()
+        monkeypatch.setenv("BRAIN_DIR", str(tmp_brain_dir))
+        monkeypatch.setenv("MEMORY_HUB_TEST_EMBEDDING", "1")
+        store, mcp_index, _retriever = _components()
+        original_get_refs = mcp_index.get_refs
+
+        def fail_index_link(*_args, **_kwargs):
+            raise OSError("raw index failure")
+
+        monkeypatch.setattr(mcp_index, "add_ref", fail_index_link)
+
+        result = link_memories(source.id, target.id)
+
+        assert result["linked"] is True
+        assert result["status"] == "partial"
+        assert result["reason"] == "INDEX_UPDATE_FAILED"
+        assert result["index_repair_required"] is True
+        assert "raw index" not in str(result)
+        assert store.get(source.id)[0].refs.mems == [target.id]
+        assert original_get_refs(source.id) == []
+
     def test_generic_relation_keeps_immediate_link_behavior_when_apply_is_false(
         self, tmp_brain_dir: Path, monkeypatch: pytest.MonkeyPatch
     ):
@@ -561,6 +632,20 @@ class TestHermesLinkUnlink:
             result = hub_link(a.id, b.id, relation="depends_on")
         assert result["linked"] is True
         assert result["relation"] == "depends_on"
+        assert ItemsStore(tmp_brain_dir / "items").get(a.id)[0].refs.mems == [b.id]
+
+    def test_hub_link_rejects_missing_target(self, tmp_brain_dir: Path):
+        a = _item("hl-missing-source")
+        missing = _item("hl-missing-target")
+        _seed(tmp_brain_dir, [(a, "a")])
+        from agent_brain.agent_integrations.hermes.provider import hub_link
+
+        with _patch_hermes(tmp_brain_dir):
+            result = hub_link(a.id, missing.id)
+
+        assert result["linked"] is False
+        assert result["reason"] == "ITEM_MISSING"
+        assert ItemsStore(tmp_brain_dir / "items").get(a.id)[0].refs.mems == []
 
     def test_hub_unlink(self, tmp_brain_dir: Path):
         a = _item("hu-a")
