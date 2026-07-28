@@ -14,7 +14,7 @@
     "observed_drift_count": 1,
     "status": "pass"
   },
-  "implementation_hash": "sha256:dce3515778d67ec1ae1063936aa6cd367ea83c6c43d094a01dd5925446da096b",
+  "implementation_hash": "sha256:a3a781cbe9e4b453e5e7f31eb9a0bb8a4fa6c89714ccb89c57e07f0fdb1d7fb8",
   "implementation_manifest": [
     {
       "path": "agent_brain/agent_integrations/hermes/import_export_tools.py",
@@ -22,7 +22,7 @@
     },
     {
       "path": "agent_brain/agent_integrations/hermes/item_tools.py",
-      "sha256": "sha256:a42cff92a19dae123f41e80fc6abd1e800acc0ceed6320e0657fd7bdc6306487"
+      "sha256": "sha256:0ca8070f30de9320fb957318df7f6ab45c69b3e2967351104962f774cea8268e"
     },
     {
       "path": "agent_brain/contracts/resource.py",
@@ -39,6 +39,10 @@
     {
       "path": "agent_brain/interfaces/cli/commands/index_maintenance.py",
       "sha256": "sha256:ceec333276eb2671fd2246e70027214034e7037831b013fd1958d01431058910"
+    },
+    {
+      "path": "agent_brain/interfaces/cli/commands/links.py",
+      "sha256": "sha256:bd4a45ba6fd340e66f232f76aa2ff46344ccfb8d8b294cde5cdd251aee17c00c"
     },
     {
       "path": "agent_brain/interfaces/cli/commands/maintenance.py",
@@ -62,7 +66,7 @@
     },
     {
       "path": "agent_brain/interfaces/mcp/tools/graph.py",
-      "sha256": "sha256:85499f73ef425af6146808d8cf7fceefae2b8bfaf55b6db4ed3ceb125ebac1a5"
+      "sha256": "sha256:c53c9ef0e4df1456f4fa57e30731ec157cc47937b628afd4cf1d66185207dc16"
     },
     {
       "path": "agent_brain/interfaces/mcp/tools/io.py",
@@ -91,6 +95,10 @@
     {
       "path": "agent_brain/memory/governance/git_fd_exec.py",
       "sha256": "sha256:123e6d49b8add848e908d465913451b284672287c1e380639c55b87c5f70d3b9"
+    },
+    {
+      "path": "agent_brain/memory/governance/graph_links.py",
+      "sha256": "sha256:7a30a4f12c43913dbd314855c2ae9daf0fc1c6fd3791b3cd4a3e32c951888da2"
     },
     {
       "path": "agent_brain/memory/governance/lifecycle_action_parsing.py",
@@ -170,7 +178,7 @@
     },
     {
       "path": "scripts/generate-lifecycle-governance-report.py",
-      "sha256": "sha256:4d55de20c5d7a8d53aebb85d6306f8f297b44da19f4f09577f427c3096ea2938"
+      "sha256": "sha256:3a211ce2c3885fc77672528da224e95f35bfc749c6a4acd664439585a981ccfd"
     }
   ],
   "overall_status": "pending",
