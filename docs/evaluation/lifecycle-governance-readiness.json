@@ -14,7 +14,7 @@
     "observed_drift_count": 1,
     "status": "pass"
   },
-  "implementation_hash": "sha256:a68fde175beda35de2f4ef244ae8102b5285734dca5ec721d79c07afb79cf095",
+  "implementation_hash": "sha256:f37ad84e0449650e6679e340bd91b57959b65f6c1831fd5bb2fa420426b3c0e4",
   "implementation_manifest": [
     {
       "path": "agent_brain/agent_integrations/hermes/import_export_tools.py",
@@ -50,7 +50,7 @@
     },
     {
       "path": "agent_brain/interfaces/cli/commands/review.py",
-      "sha256": "sha256:620bdc7b6dbe3e947e286f6d362e5b2a2b242ce69faa9d1b16c3a05cccb480aa"
+      "sha256": "sha256:45a3336f92984baad4255029175a60049847d63ea5436f44370355cc66e60829"
     },
     {
       "path": "agent_brain/interfaces/cli/commands/subapps.py",
@@ -90,11 +90,15 @@
     },
     {
       "path": "agent_brain/memory/governance/auto_governance.py",
-      "sha256": "sha256:7aa14d91bdd95de58baf8c606bc43e9f73ddd460444f1acaa94835c5ab85c805"
+      "sha256": "sha256:7915f2514777dd8764ec62a378c1ba378498a4f2cdf28ba5af8260ed85ad98fa"
     },
     {
       "path": "agent_brain/memory/governance/confidence_review.py",
       "sha256": "sha256:88cfbafefb1924cefc1a21b8f9b9e81ad130a5e5c8f54249e67ffb6583f19b57"
+    },
+    {
+      "path": "agent_brain/memory/governance/contradiction_cases.py",
+      "sha256": "sha256:474648951cab91ed921e7d1b897cb6293cafd5dd51a3a315bf1f48b1a05d3181"
     },
     {
       "path": "agent_brain/memory/governance/git_fd_exec.py",
@@ -130,7 +134,7 @@
     },
     {
       "path": "agent_brain/memory/governance/maintenance_plan.py",
-      "sha256": "sha256:1e0df193538a3102fbe1df05c5da6ffae0924acb3d12c61abe90d36ffc207690"
+      "sha256": "sha256:0ff6cf3156a5ebd14fa09270d4dc2d3a27e56bc8d76ca58c603793b98cde2320"
     },
     {
       "path": "agent_brain/memory/governance/pending_receipts.py",
@@ -139,6 +143,10 @@
     {
       "path": "agent_brain/memory/governance/review_queue.py",
       "sha256": "sha256:a72f6d9d606f72900fffcef5c741f4655c8aa1a2646c441f375d9c5aa45065fe"
+    },
+    {
+      "path": "agent_brain/memory/governance/review_transactions.py",
+      "sha256": "sha256:ee178e5caa885565a7ec3ab565c3a4b483101b890d7d91ab57893b6287b410e3"
     },
     {
       "path": "agent_brain/memory/governance/signal_state.py",
@@ -186,7 +194,7 @@
     },
     {
       "path": "agent_brain/product/governance_readiness.py",
-      "sha256": "sha256:9194ff8e983f6b99254bc45b34bd0542d8d06717945f9955a2696cb0f95c3c38"
+      "sha256": "sha256:e84ac3b23cf26e2e447c55bb3beb884406c8392619d4bf6e0688bf712238b088"
     },
     {
       "path": "web/api/routes/governance.py",
@@ -194,7 +202,7 @@
     },
     {
       "path": "scripts/generate-lifecycle-governance-report.py",
-      "sha256": "sha256:09de1257876698451ee903056a1f78bab57b58a60b2b7b2a6b77559ab2ffac3b"
+      "sha256": "sha256:1a4fafb8ffcc92e3992d579b26f7ac51414679fd3c7fc01fb8bcb4dc850250fa"
     }
   ],
   "overall_status": "pending",

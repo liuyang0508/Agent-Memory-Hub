@@ -551,6 +551,10 @@ record/item ID 或正文；standalone GC 不生成 receipt。完整恢复步骤�
 全部保持 `review_required`。`memory review attach-source <id> --commit <sha>` 只补充
 文件、HTTPS URL、commit 或 memory 来源，不会自动提高 confidence 或移除 review 标签；
 核对证据后仍需显式 approve/reject。
+需要可审计终态时，先执行 `memory review resolve <id> --action approve` 获取当前
+Markdown SHA-256，再带 `--expected-sha256 <digest> --apply`；apply 会在 item 锁内
+重新校验，并在变更前后追加 prepared/completed receipt。矛盾 finding 会按重叠 item
+聚成稳定 Case，`memory govern plan --category contradiction` 不再要求逐个处理重复 pair。
 
 <a id="recall-flow"></a>
 

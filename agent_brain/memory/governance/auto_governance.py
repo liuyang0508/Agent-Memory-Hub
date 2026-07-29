@@ -21,6 +21,9 @@ from agent_brain.contracts.memory_enums import memory_enum_value
 from agent_brain.memory.evidence.conversation_governance import classify_tier
 from agent_brain.memory.evidence.conversation_store import ConversationStore
 from agent_brain.memory.governance.confidence_review import assess_low_confidence
+from agent_brain.memory.governance.contradiction_cases import (
+    build_contradiction_cases,
+)
 from agent_brain.memory.governance.drift import DriftDetector
 from agent_brain.memory.governance.evolve.engine import EvolveEngine
 from agent_brain.memory.governance.lifecycle_archive import archive_reviewed_item
@@ -567,7 +570,27 @@ class AutoGovernanceCycle:
         skip_item_ids: set[str] | None = None,
     ) -> list[AutoGovernanceAction]:
         report = DriftDetector(self.items_store).detect()
-        return [
+        contradiction_cases = build_contradiction_cases(report.findings)
+        actions = [
+            AutoGovernanceAction(
+                action="review_contradiction_case",
+                risk="review_required",
+                title=f"Review contradiction case: {case.case_id}",
+                reason="overlapping_contradictions_grouped_for_review",
+                item_ids=list(case.item_ids),
+                details={
+                    "case_id": case.case_id,
+                    "pair_count": case.pair_count,
+                    "item_count": len(case.item_ids),
+                    "confidence": case.confidence,
+                    "evidence": list(case.evidence),
+                    "recommended_action": "classify_supersession_or_true_conflict",
+                },
+            )
+            for case in contradiction_cases
+            if not set(case.item_ids).issubset(skip_item_ids or set())
+        ]
+        actions.extend([
             AutoGovernanceAction(
                 action=f"review_{finding.drift_type.value}",
                 risk="review_required",
@@ -580,11 +603,9 @@ class AutoGovernanceCycle:
                 },
             )
             for finding in report.findings
-            if not (
-                finding.drift_type.value == "contradiction"
-                and set(finding.item_ids).issubset(skip_item_ids or set())
-            )
-        ]
+            if finding.drift_type.value != "contradiction"
+        ])
+        return actions
 
     def _evolve_actions(self) -> list[AutoGovernanceAction]:
         report = EvolveEngine(

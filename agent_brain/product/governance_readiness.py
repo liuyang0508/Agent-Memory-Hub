@@ -38,6 +38,9 @@ from agent_brain.memory.governance.pending_receipts import (
 )
 from agent_brain.memory.governance.confidence_review import assess_low_confidence
 from agent_brain.memory.governance.signal_state import assess_signal_state
+from agent_brain.memory.governance.review_transactions import (
+    read_review_receipt_health,
+)
 from agent_brain.memory.store.item_markdown import parse_item_markdown
 from agent_brain.memory.store.pending import (
     MAX_PENDING_QUEUE_ENTRIES,
@@ -508,6 +511,7 @@ def _memory_lifecycle_lane_once(brain_dir: Path) -> ReadinessLane:
     ]
 
     pending_metrics = _pending_truth_readonly(brain, item_catalog=item_snapshot.catalog)
+    review_receipt_health = read_review_receipt_health(brain)
     index_projection = _read_index_projection_readonly(brain / "index.db")
     index_health = _build_index_health_from_snapshots(
         brain,
@@ -544,6 +548,9 @@ def _memory_lifecycle_lane_once(brain_dir: Path) -> ReadinessLane:
         "low_confidence_dispositions": dict(
             sorted(low_confidence_dispositions.items())
         ),
+        "review_receipt_ledger_status": review_receipt_health.status,
+        "review_receipt_record_count": review_receipt_health.record_count,
+        "review_receipt_incomplete_count": review_receipt_health.incomplete_count,
         "signal_state_inconsistent_count": signal_state_inconsistent_count,
         "untagged_count": untagged_count,
         "raw_count": raw_count,
@@ -612,6 +619,7 @@ def _memory_lifecycle_lane_once(brain_dir: Path) -> ReadinessLane:
         _pending_integrity_check(pending_metrics),
         _pending_lock_hygiene_check(pending_metrics),
         _pending_receipt_ledger_check(pending_metrics),
+        _review_receipt_ledger_check(metrics),
         _pending_age_check(pending_metrics["pending_oldest_age_seconds"]),
         _aggregate_check(
             "item_scan",
@@ -663,6 +671,11 @@ def _memory_lifecycle_lane_once(brain_dir: Path) -> ReadinessLane:
         in {"corrupt", "unavailable"}
     ):
         next_actions.append("memory sync-pending --summary-only --format json")
+    if (
+        review_receipt_health.incomplete_count
+        or review_receipt_health.status in {"corrupt", "unavailable"}
+    ):
+        next_actions.append("memory review status --format json")
     if index_repair_required:
         next_actions.append("memory verify")
         if index_dirty_status == "repair_required":
@@ -1754,6 +1767,27 @@ def _pending_receipt_ledger_check(metrics: dict[str, Any]) -> ReadinessCheck:
         f"status={ledger_status} incomplete={incomplete}",
         evidence={
             "record_count": metrics["pending_receipt_record_count"],
+            "incomplete_count": incomplete,
+        },
+    )
+
+
+def _review_receipt_ledger_check(metrics: dict[str, Any]) -> ReadinessCheck:
+    ledger_status = str(metrics["review_receipt_ledger_status"])
+    incomplete = int(metrics["review_receipt_incomplete_count"])
+    if ledger_status in {"corrupt", "unavailable"}:
+        status = "fail"
+    elif incomplete:
+        status = "warn"
+    else:
+        status = "pass"
+    return ReadinessCheck(
+        "review_receipt_ledger",
+        status,
+        "review resolution receipt ledger",
+        f"status={ledger_status} incomplete={incomplete}",
+        evidence={
+            "record_count": metrics["review_receipt_record_count"],
             "incomplete_count": incomplete,
         },
     )

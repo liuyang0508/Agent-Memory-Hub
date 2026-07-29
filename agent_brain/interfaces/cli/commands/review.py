@@ -171,6 +171,55 @@ def review_attach_source(
     )
 
 
+@review_app.command(name="resolve")
+def review_resolve(
+    item_id: str = typer.Argument(..., help="Memory item ID or prefix"),
+    action: str = typer.Option(..., "--action", help="approve or reject"),
+    confidence: float | None = typer.Option(None, "--confidence"),
+    apply: bool = typer.Option(False, "--apply", help="Apply exact preview digest"),
+    expected_sha256: str | None = typer.Option(
+        None,
+        "--expected-sha256",
+        help="Exact digest emitted by preview; required with --apply",
+    ),
+) -> None:
+    """Preview or apply one digest-bound, receipted review resolution."""
+    from agent_brain.memory.governance.review_transactions import (
+        ReviewResolutionAction,
+        resolve_review_candidate,
+    )
+
+    if action not in {"approve", "reject"}:
+        typer.echo("--action must be approve or reject", err=True)
+        raise typer.Exit(2)
+    if apply and (
+        expected_sha256 is None
+        or re.fullmatch(r"[0-9a-f]{64}", expected_sha256) is None
+    ):
+        typer.echo("--apply requires --expected-sha256 from preview", err=True)
+        raise typer.Exit(2)
+    typed_action: ReviewResolutionAction = (
+        "approve" if action == "approve" else "reject"
+    )
+    store = _store_only()
+    item_id = _resolve_id(store, item_id)
+    target_confidence = confidence
+    if target_confidence is None:
+        target_confidence = 0.7 if action == "approve" else 0.1
+    result = resolve_review_candidate(
+        brain_dir=_brain_dir(),
+        store=store,
+        item_id=item_id,
+        action=typed_action,
+        confidence=target_confidence,
+        apply=apply,
+        expected_sha256=expected_sha256,
+    )
+    typer.echo(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
+    if result.status in {"blocked", "failed"}:
+        raise typer.Exit(1)
+
+
 @review_app.command(name="approve")
 def review_approve(
     item_id: str = typer.Argument(..., help="Memory item ID or prefix"),
@@ -336,6 +385,7 @@ __all__ = [
     "review_list",
     "review_reject",
     "review_reject_many",
+    "review_resolve",
     "review_status",
 ]
 

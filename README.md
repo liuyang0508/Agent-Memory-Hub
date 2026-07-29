@@ -194,6 +194,12 @@ items missing an explicit file/URL/commit/memory source, and source-backed
 candidates. These rows are always review-required. Use
 `memory review attach-source ID --commit SHA` to add evidence without changing
 confidence, then explicitly approve or reject the candidate.
+For an audited resolution, use `memory review resolve ID --action approve` to
+preview the exact item digest, then repeat with `--expected-sha256 DIGEST
+--apply`. Prepared/completed receipts surround the locked mutation. Contradiction
+findings are grouped into stable cases, so
+`memory govern plan --category contradiction` shows one review unit per
+connected conflict set rather than every overlapping pair.
 
 `memory sync-pending` also defaults to preview. Use `--summary-only` when you
 only need classification, blocker reason, lock-hygiene, or batch counts and do

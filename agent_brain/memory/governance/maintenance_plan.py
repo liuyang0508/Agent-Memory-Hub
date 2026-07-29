@@ -271,6 +271,10 @@ def _compact_details(details: dict[str, object]) -> dict[str, Any]:
         "disposition",
         "explicit_source_ref_count",
         "provenance_ref_count",
+        "case_id",
+        "pair_count",
+        "item_count",
+        "evidence",
     }
     return {key: value for key, value in details.items() if key in keep_keys}
 
@@ -405,7 +409,7 @@ def _category_for_action(action: AutoGovernanceAction) -> str:
         return "lifecycle"
     if action.action == "review_low_confidence":
         return "low_confidence"
-    if action.action == "review_contradiction":
+    if action.action in {"review_contradiction", "review_contradiction_case"}:
         return "contradiction"
     if action.action == "review_drift_cluster":
         return "drift_cluster"

@@ -114,6 +114,23 @@ memory review attach-source <memory-id> --file <path> --url <https-url>
 补证只合并去重后的 refs，保留原 confidence 和 review 标签。`review-approved` /
 `review-rejected` 终态条目仍计入低置信度总量审计，但不再制造待复核告警。
 
+### digest-bound 复核终态
+
+推荐使用 preview-first 的事务命令，而不是直接批量提升 confidence：
+
+```bash
+memory review resolve <memory-id> --action approve
+memory review resolve <memory-id> --action approve \
+  --expected-sha256 <preview-digest> --apply
+```
+
+apply 缺少 digest、item 在预览后变化、或已退出 active review queue 时都会阻断。
+通过重校验后，系统在同一 item 锁内追加 prepared receipt、修改 Markdown、再追加
+completed receipt。receipt 位于 `runtime/review-resolution-receipts.jsonl`。
+
+矛盾检测的多个 pair 若共享 item，会合并为稳定的 connected-component Case；
+Case ID 由排序后的 item ID 集合派生，计划保留 pair 数、item 数、最高置信度与有界证据。
+
 CLI 退出码：
 
 | 退出码 | 含义 |

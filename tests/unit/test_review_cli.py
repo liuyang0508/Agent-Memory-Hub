@@ -79,3 +79,33 @@ def test_review_many_rejects_non_candidate_without_partial_mutation(tmp_brain):
     assert result.exit_code == 2
     unchanged, _body = store.get(candidate.id)
     assert "needs-review" in unchanged.tags
+
+
+def test_review_resolve_requires_preview_digest_and_writes_receipt(tmp_brain):
+    store = ItemsStore(tmp_brain / "items")
+    candidate = _candidate(store, "receipted")
+
+    preview = runner.invoke(
+        app,
+        ["review", "resolve", candidate.id, "--action", "approve"],
+    )
+    preview_payload = json.loads(preview.output)
+    applied = runner.invoke(
+        app,
+        [
+            "review",
+            "resolve",
+            candidate.id,
+            "--action",
+            "approve",
+            "--expected-sha256",
+            preview_payload["expected_sha256"],
+            "--apply",
+        ],
+    )
+
+    assert preview.exit_code == 0
+    assert preview_payload["status"] == "ready"
+    assert applied.exit_code == 0, applied.output
+    assert json.loads(applied.output)["status"] == "applied"
+    assert (tmp_brain / "runtime" / "review-resolution-receipts.jsonl").exists()

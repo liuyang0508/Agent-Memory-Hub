@@ -82,6 +82,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   low-confidence memories. `memory review attach-source` adds bounded file,
   HTTPS URL, commit, or memory references without changing confidence or
   bypassing explicit approve/reject.
+- **Digest-bound review resolution receipts** — `memory review resolve`
+  previews an exact Markdown SHA-256 and requires that digest on apply. The
+  mutation revalidates under the item lock and appends prepared/completed
+  receipts around the review decision.
+- **Contradiction cases** — overlapping pair findings are collapsed into
+  deterministic connected-component case IDs, preserving pair/item counts and
+  bounded evidence while avoiding duplicate per-pair review work.
 - **Index operational truth** — `memory verify --format json` now compares
   Markdown and `items_meta` IDs, `.index-dirty` repair debt, and Markdown-derived
   supersession against `refs_graph` through an external read-only SQLite
