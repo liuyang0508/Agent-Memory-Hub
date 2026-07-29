@@ -286,6 +286,7 @@ def sync_pending(
     from agent_brain.memory.store.pending import (
         PendingQueue,
         PendingResolutionAction,
+        PendingResolutionName,
         PendingResolutionStats,
         is_valid_pending_record_id,
     )
@@ -326,10 +327,11 @@ def sync_pending(
         resolution_actions.append(
             PendingResolutionAction("convert_type", record_id, "decision")
         )
-    for option, action_name in (
+    terminal_options: tuple[tuple[list[str], PendingResolutionName], ...] = (
         (reject, "reject"),
         (quarantine, "quarantine"),
-    ):
+    )
+    for option, action_name in terminal_options:
         for value in option:
             candidates = [
                 (value[:index], value[index + 1 :])
