@@ -152,6 +152,8 @@ PendingResolutionName = Literal[
     "approve_audit",
     "accept_duplicate",
     "convert_type",
+    "reject",
+    "quarantine",
 ]
 PendingResolutionPublicName = PendingResolutionName | Literal["unknown"]
 PendingResolutionStatus = Literal["ready", "applied", "blocked", "failed"]
@@ -209,6 +211,8 @@ _PUBLIC_PENDING_REASONS = frozenset(
         "PENDING_RECORD_TOO_LARGE",
         "PENDING_RESOLUTION_CHANGED",
         "PENDING_RESOLUTION_APPLIED",
+        "PENDING_RESOLUTION_QUARANTINED",
+        "PENDING_RESOLUTION_REJECTED",
         "PENDING_RESOLUTION_NOT_APPLICABLE",
         "PENDING_RESOLUTION_READY",
         "PENDING_RESOLUTION_REQUEST_TOO_LARGE",
@@ -216,6 +220,7 @@ _PUBLIC_PENDING_REASONS = frozenset(
         "PENDING_STABLE_ID_CONFLICT",
         "PENDING_DUPLICATE_TARGET_MISMATCH",
         "PENDING_UNLINK_FAILED",
+        "PENDING_TERMINAL_MOVE_FAILED",
         "PENDING_WRITE_SERVICE_UNAVAILABLE",
         "PENDING_WRITE_SERVICE_CLOSE_FAILED",
         "PENDING_WRITE_EVIDENCE_INVALID",
@@ -2192,6 +2197,45 @@ class PendingQueue:
                         service=service,
                     )
 
+                if action.action in {"reject", "quarantine"}:
+                    if selection.target_digest != _domain_digest(
+                        "amh.pending.resolution.target.v1",
+                        action.target,
+                    ):
+                        return _resolution_result(
+                            action,
+                            preview=preview,
+                            status="blocked",
+                            reason="PENDING_RESOLUTION_CHANGED",
+                        )
+                    try:
+                        _move_terminal_pending_record(
+                            path,
+                            action=action.action,
+                            disposition=cast(str, action.target),
+                            expected_sha256=expected_hash,
+                            expected_identity=expected_identity,
+                        )
+                    except OSError:
+                        return _resolution_result(
+                            action,
+                            preview=preview,
+                            status="failed",
+                            reason="PENDING_TERMINAL_MOVE_FAILED",
+                        )
+                    return PendingResolutionResult(
+                        action=action.action,
+                        record_id=action.record_id,
+                        classification=preview.classification,
+                        status="applied",
+                        reason=(
+                            "PENDING_RESOLUTION_REJECTED"
+                            if action.action == "reject"
+                            else "PENDING_RESOLUTION_QUARANTINED"
+                        ),
+                        target=action.target,
+                    )
+
                 if action.action == "accept_duplicate":
                     result = self._apply_duplicate_resolution(
                         selection,
@@ -2506,7 +2550,10 @@ class PendingQueue:
             )
         if identity != expected_identity or hashlib.sha256(raw).hexdigest() != expected_hash:
             return _resolution_blocked(action, preview, "PENDING_RESOLUTION_CHANGED")
-        if recovery_store is not None:
+        if recovery_store is not None and action.action not in {
+            "reject",
+            "quarantine",
+        }:
             recovery = _preview_recovery_resolution(
                 action,
                 preview,
@@ -2516,6 +2563,8 @@ class PendingQueue:
             )
             if recovery is not None:
                 return recovery
+        if action.action in {"reject", "quarantine"}:
+            return _preview_terminal_resolution(action, preview)
         if preview.classification == "conflict":
             return _resolution_blocked(action, preview, preview.reason)
 
@@ -2948,7 +2997,7 @@ class PendingQueue:
 
 
 _RESOLUTION_ACTIONS = frozenset(
-    {"approve_audit", "accept_duplicate", "convert_type"}
+    {"approve_audit", "accept_duplicate", "convert_type", "reject", "quarantine"}
 )
 _RESOLUTION_STATUSES = frozenset({"ready", "applied", "blocked", "failed"})
 _RESOLUTION_CLASSIFICATIONS = frozenset(
@@ -2996,6 +3045,13 @@ def _resolution_target_rejection_reason(
         if type(action.target) is str and is_valid_memory_item_id(action.target):
             return None
         return "PENDING_DUPLICATE_TARGET_MISMATCH"
+    if action.action in {"reject", "quarantine"}:
+        if (
+            type(action.target) is str
+            and re.fullmatch(r"[a-z][a-z0-9-]{1,63}", action.target) is not None
+        ):
+            return None
+        return "PENDING_RESOLUTION_NOT_APPLICABLE"
     if type(action.target) is str and action.target == "decision":
         return None
     return "PENDING_CONVERSION_UNSUPPORTED"
@@ -3389,6 +3445,39 @@ def _preview_conversion_resolution(
     )
 
 
+def _preview_terminal_resolution(
+    action: PendingResolutionAction,
+    preview: PendingRecordPreview,
+) -> tuple[_PendingResolutionSelection | None, PendingResolutionResult]:
+    applicable = (
+        {
+            "stale_requires_review",
+            "duplicate_candidate",
+            "unsupported_type",
+            "audit_blocked",
+        }
+        if action.action == "reject"
+        else {"malformed", "conflict"}
+    )
+    if preview.classification not in applicable or type(action.target) is not str:
+        return _resolution_blocked(
+            action,
+            preview,
+            "PENDING_RESOLUTION_NOT_APPLICABLE",
+        )
+    return (
+        _PendingResolutionSelection(
+            action=action,
+            preview=preview,
+            target_digest=_domain_digest(
+                "amh.pending.resolution.target.v1",
+                action.target,
+            ),
+        ),
+        _resolution_ready(action, preview),
+    )
+
+
 def _converted_pending_write(
     preview: PendingRecordPreview,
     raw: bytes,
@@ -3499,6 +3588,72 @@ def _unlink_applied_resolution(
         index_repair_required=index_repair_required,
         warnings=warnings,
     )
+
+
+def _move_terminal_pending_record(
+    path: Path,
+    *,
+    action: str,
+    disposition: str,
+    expected_sha256: str,
+    expected_identity: tuple[int, int],
+) -> None:
+    """Move one exact record into the durable, non-active resolved area."""
+
+    destination = f"{action}-{disposition}-{path.name}"
+    with SecureDirectory.open(path.parent) as pending:
+        descriptor, _created = pending.open_file(
+            path.name,
+            os.O_RDONLY | os.O_NONBLOCK,
+        )
+        try:
+            opened = os.fstat(descriptor)
+            raw = _read_bounded_descriptor(descriptor, MAX_PENDING_RECORD_BYTES)
+            current = pending.stat(path.name)
+            if (
+                not _same_file_identity(opened, current)
+                or (int(opened.st_dev), int(opened.st_ino)) != expected_identity
+                or hashlib.sha256(raw).hexdigest() != expected_sha256
+            ):
+                raise OSError("PENDING_RECORD_CHANGED")
+
+            with pending.child("resolved", create=True) as resolved:
+                try:
+                    os.link(
+                        path.name,
+                        destination,
+                        src_dir_fd=pending.fd,
+                        dst_dir_fd=resolved.fd,
+                        follow_symlinks=False,
+                    )
+                except FileExistsError:
+                    terminal_descriptor, _ = resolved.open_file(
+                        destination,
+                        os.O_RDONLY | os.O_NONBLOCK,
+                    )
+                    try:
+                        terminal_raw = _read_bounded_descriptor(
+                            terminal_descriptor,
+                            MAX_PENDING_RECORD_BYTES,
+                        )
+                    finally:
+                        os.close(terminal_descriptor)
+                    if hashlib.sha256(terminal_raw).hexdigest() != expected_sha256:
+                        raise OSError("PENDING_TERMINAL_CONFLICT") from None
+                resolved.fsync()
+            os.lseek(descriptor, 0, os.SEEK_SET)
+            final_raw = _read_bounded_descriptor(descriptor, MAX_PENDING_RECORD_BYTES)
+            current = pending.stat(path.name)
+            if (
+                not _same_file_identity(opened, current)
+                or (int(current.st_dev), int(current.st_ino)) != expected_identity
+                or hashlib.sha256(final_raw).hexdigest() != expected_sha256
+            ):
+                raise OSError("CONCURRENT_MODIFICATION")
+            pending.unlink(path.name)
+            pending.fsync()
+        finally:
+            os.close(descriptor)
 
 
 def _pending_receipt_selection(record: PendingRecordPreview) -> PendingReceiptSelection:

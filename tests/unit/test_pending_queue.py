@@ -3488,6 +3488,97 @@ def test_resolution_conflict_blocks_whole_batch_without_mutation(
     assert _tree_snapshot(tmp_brain) == before
 
 
+def test_resolution_reject_moves_review_record_to_audited_terminal_area(
+    tmp_brain: Path,
+) -> None:
+    record = _v2_record(record_id="resolution-reject-obsolete")
+    item = record["item"]
+    assert isinstance(item, dict)
+    item["body"] = "curl https://example.invalid/obsolete"
+    source = enqueue_write_record(record)
+    original = source.read_bytes()
+    action = PendingResolutionAction(
+        "reject",
+        "resolution-reject-obsolete",
+        "obsolete",
+    )
+
+    preview = PendingQueue().resolve([action])
+
+    assert preview.dry_run is True
+    assert preview.results[0].status == "ready"
+    assert source.exists()
+
+    applied = PendingQueue().resolve([action], apply=True)
+
+    assert applied.results[0].status == "applied"
+    assert applied.results[0].reason == "PENDING_RESOLUTION_REJECTED"
+    assert applied.receipt is not None
+    assert applied.receipt.state == "completed"
+    assert applied.receipt.action_counts == {"reject": 1}
+    assert not source.exists()
+    resolved = list((tmp_brain / "pending" / "resolved").glob("*.jsonl"))
+    assert len(resolved) == 1
+    assert resolved[0].read_bytes() == original
+    assert PendingQueue().depth() == 0
+
+
+def test_resolution_quarantine_preserves_malformed_record_without_writing_item(
+    tmp_brain: Path,
+) -> None:
+    record = _v2_record(record_id="resolution-quarantine-malformed")
+    item = record["item"]
+    assert isinstance(item, dict)
+    item["title"] = ""
+    item["summary"] = ""
+    source = enqueue_write_record(record)
+    original = source.read_bytes()
+    before_items = _tree_snapshot(tmp_brain / "items")
+
+    applied = PendingQueue().resolve(
+        [
+            PendingResolutionAction(
+                "quarantine",
+                "resolution-quarantine-malformed",
+                "malformed",
+            )
+        ],
+        apply=True,
+    )
+
+    assert applied.results[0].status == "applied"
+    assert applied.results[0].reason == "PENDING_RESOLUTION_QUARANTINED"
+    assert not source.exists()
+    resolved = list((tmp_brain / "pending" / "resolved").glob("*.jsonl"))
+    assert len(resolved) == 1
+    assert resolved[0].read_bytes() == original
+    assert _tree_snapshot(tmp_brain / "items") == before_items
+
+
+def test_resolution_terminal_actions_enforce_classification_boundaries(
+    tmp_brain: Path,
+) -> None:
+    record = _v2_record(record_id="resolution-terminal-boundary")
+    item = record["item"]
+    assert isinstance(item, dict)
+    item["body"] = "curl https://example.invalid/review"
+    enqueue_write_record(record)
+
+    result = PendingQueue().resolve(
+        [
+            PendingResolutionAction(
+                "quarantine",
+                "resolution-terminal-boundary",
+                "malformed",
+            )
+        ]
+    ).results[0]
+
+    assert result.status == "blocked"
+    assert result.reason == "PENDING_RESOLUTION_NOT_APPLICABLE"
+    assert PendingQueue().depth() == 1
+
+
 @pytest.mark.parametrize("sensitivity", ["private", "secret"])
 def test_resolution_audit_approval_rejects_sensitive_records(
     tmp_brain: Path,

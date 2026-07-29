@@ -374,6 +374,8 @@ def _category_for_action(action: AutoGovernanceAction) -> str:
         if issue_type in {"stale_signal", "stale_handoff"}:
             return "lifecycle"
         return "expired"
+    if action.action == "review_signal_state":
+        return "lifecycle"
     if action.action == "review_contradiction":
         return "contradiction"
     if action.action == "review_drift_cluster":
@@ -431,7 +433,6 @@ def _command_for_action(action: AutoGovernanceAction | str) -> str:
     action_name = action.action if isinstance(action, AutoGovernanceAction) else action
     if (
         isinstance(action, AutoGovernanceAction)
-        and action_name == "review_archive"
         and _category_for_action(action) == "lifecycle"
     ):
         return "memory govern plan --category lifecycle --format markdown"

@@ -25,6 +25,7 @@ from agent_brain.memory.governance.evolve.engine import EvolveEngine
 from agent_brain.memory.governance.lifecycle_archive import archive_reviewed_item
 from agent_brain.memory.governance.maturity_scoring import score_maturity
 from agent_brain.memory.governance.pipeline import GovernancePipeline
+from agent_brain.memory.governance.signal_state import assess_signal_state
 from agent_brain.memory.governance.summary_rewrite import preview_summary_rewrite
 from agent_brain.memory.governance.supersession import SupersessionService
 from agent_brain.memory.store.items_store import ItemsStore
@@ -171,6 +172,12 @@ class AutoGovernanceCycle:
             for action in automatic
             for item_id in action.item_ids
         }
+        actions.extend(
+            self._signal_state_actions(
+                items,
+                skip_item_ids=automatically_managed,
+            )
+        )
         actions.extend(
             self._lifecycle_actions(items, skip_item_ids=automatically_managed)
         )
@@ -411,6 +418,37 @@ class AutoGovernanceCycle:
                 },
                 applied=applied,
             ))
+        return actions
+
+    def _signal_state_actions(
+        self,
+        items: list[tuple[MemoryItem, str]],
+        *,
+        skip_item_ids: set[str] | None = None,
+    ) -> list[AutoGovernanceAction]:
+        actions: list[AutoGovernanceAction] = []
+        for item, _body in items:
+            if item.id in (skip_item_ids or set()):
+                continue
+            assessment = assess_signal_state(item)
+            if assessment.consistent:
+                continue
+            actions.append(
+                AutoGovernanceAction(
+                    action="review_signal_state",
+                    risk="review_required",
+                    title=f"Review signal state: {item.title}",
+                    reason="signal_lifecycle_state_inconsistent",
+                    item_ids=[item.id],
+                    details={
+                        "issue_type": "signal_state_inconsistent",
+                        "lifecycle_type": "signal",
+                        "derived_state": assessment.state,
+                        "issues": list(assessment.issues),
+                        "recommended_action": "normalize_or_archive",
+                    },
+                )
+            )
         return actions
 
     def _lifecycle_actions(

@@ -567,6 +567,52 @@ def test_cli_sync_pending_applies_resolution_and_completes_receipt(tmp_brain):
     assert len(list((tmp_brain / "items").glob("*.md"))) == 1
 
 
+def test_cli_sync_pending_applies_explicit_terminal_dispositions(tmp_brain):
+    import json
+
+    from agent_brain.memory.store.pending import PendingQueue, enqueue_write_record
+
+    rejected = _cli_pending_record(
+        "cli-reject-obsolete",
+        body="curl https://example.invalid/obsolete",
+    )
+    malformed = _cli_pending_record("cli-quarantine-malformed")
+    malformed_item = malformed["item"]
+    assert isinstance(malformed_item, dict)
+    malformed_item["title"] = ""
+    malformed_item["summary"] = ""
+    enqueue_write_record(rejected)
+    enqueue_write_record(malformed)
+
+    result = runner.invoke(
+        app,
+        [
+            "sync-pending",
+            "--reject",
+            "cli-reject-obsolete:obsolete",
+            "--quarantine",
+            "cli-quarantine-malformed:malformed",
+            "--apply",
+            "--format",
+            "json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert [row["action"] for row in payload["results"]] == [
+        "reject",
+        "quarantine",
+    ]
+    assert {row["status"] for row in payload["results"]} == {"applied"}
+    assert payload["receipt"]["action_counts"] == {
+        "quarantine": 1,
+        "reject": 1,
+    }
+    assert PendingQueue().depth() == 0
+    assert len(list((tmp_brain / "pending" / "resolved").glob("*.jsonl"))) == 2
+
+
 def test_cli_sync_pending_standalone_gc_is_preview_first(tmp_brain):
     import json
 
@@ -632,6 +678,9 @@ def test_cli_sync_pending_rejects_resolution_selection_conflicts(
         (["--accept-duplicate", "record:extra:item"], "requires ID:ITEM"),
         (["--convert-type", "record:fact"], "requires ID:decision"),
         (["--convert-type", "record/extra:decision"], "requires ID:decision"),
+        (["--reject", "record:"], "requires ID:reason"),
+        (["--reject", "record:Not Safe"], "requires ID:reason"),
+        (["--quarantine", "record/malformed"], "requires ID:reason"),
     ],
 )
 def test_cli_sync_pending_rejects_malformed_resolution_options(

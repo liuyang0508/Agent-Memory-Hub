@@ -47,6 +47,8 @@ EXPECTED_LIFECYCLE_IMPLEMENTATION_PATHS = (
     "agent_brain/memory/governance/lifecycle_review.py",
     "agent_brain/memory/governance/lifecycle_snapshot.py",
     "agent_brain/memory/governance/maintenance_plan.py",
+    "agent_brain/memory/governance/pending_receipts.py",
+    "agent_brain/memory/governance/signal_state.py",
     "agent_brain/memory/governance/supersession.py",
     "agent_brain/memory/store/durable_fs.py",
     "agent_brain/memory/store/item_ids.py",
@@ -540,6 +542,8 @@ def test_pending_resolution_docs_are_preview_first_and_secret_safe() -> None:
     assert "sync-pending --approve-audit" in combined
     assert "sync-pending --accept-duplicate" in combined
     assert "sync-pending --convert-type" in combined
+    assert "sync-pending --reject" in combined
+    assert "sync-pending --quarantine" in combined
     assert "sync-pending --gc-orphan-locks" in combined
     assert "默认预览" in combined
     assert "secrets" in combined
@@ -556,6 +560,12 @@ def test_pending_resolution_docs_preserve_receipt_and_lock_gc_boundaries() -> No
         "memory sync-pending --convert-type <record-id>:decision --format json"
         in lifecycle
     )
+    assert "memory sync-pending --reject <record-id>:obsolete --format json" in lifecycle
+    assert (
+        "memory sync-pending --quarantine <record-id>:malformed --format json"
+        in lifecycle
+    )
+    assert "`pending/resolved/`" in lifecycle
     assert (
         "memory sync-pending --gc-orphan-locks --format json\n"
         "memory sync-pending --gc-orphan-locks --apply --format json"

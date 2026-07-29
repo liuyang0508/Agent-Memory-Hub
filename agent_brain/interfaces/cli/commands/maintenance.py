@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 from types import SimpleNamespace
 
@@ -253,6 +254,16 @@ def sync_pending(
         "--convert-type",
         help="Convert legacy feedback as ID:decision; repeatable.",
     ),
+    reject: list[str] = typer.Option(
+        [],
+        "--reject",
+        help="Reject a review-only record as ID:reason; repeatable.",
+    ),
+    quarantine: list[str] = typer.Option(
+        [],
+        "--quarantine",
+        help="Quarantine a malformed/conflicting record as ID:reason; repeatable.",
+    ),
     gc_orphan_locks: bool = typer.Option(
         False,
         "--gc-orphan-locks",
@@ -315,6 +326,29 @@ def sync_pending(
         resolution_actions.append(
             PendingResolutionAction("convert_type", record_id, "decision")
         )
+    for option, action_name in (
+        (reject, "reject"),
+        (quarantine, "quarantine"),
+    ):
+        for value in option:
+            candidates = [
+                (value[:index], value[index + 1 :])
+                for index, character in enumerate(value)
+                if character == ":"
+                and is_valid_pending_record_id(value[:index])
+                and re.fullmatch(
+                    r"[a-z][a-z0-9-]{1,63}",
+                    value[index + 1 :],
+                )
+                is not None
+            ]
+            if len(candidates) != 1:
+                typer.echo(f"--{action_name} requires ID:reason", err=True)
+                raise typer.Exit(2)
+            record_id, reason = candidates[0]
+            resolution_actions.append(
+                PendingResolutionAction(action_name, record_id, reason)
+            )
 
     selection_groups = sum(
         (bool(record_ids), safe_only, bool(resolution_actions))

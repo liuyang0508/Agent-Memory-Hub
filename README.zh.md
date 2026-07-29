@@ -520,10 +520,13 @@ AMH 把维护分成十一段：
 
 `memory sync-pending` 默认预览；`--approve-audit <record-id>`、
 `--accept-duplicate <record-id>:<item-id>` 和
-`--convert-type <record-id>:decision` 都要求显式指定 pending record，只有再加
+`--convert-type <record-id>:decision`、`--reject <record-id>:<reason>`、
+`--quarantine <record-id>:<reason>` 都要求显式指定 pending record，只有再加
 `--apply` 才会变更。audit approval 只适用于 public/internal 内容，不能绕过
 secrets；接受 exact duplicate 只移除 pending record，不写新 item；类型转换当前只支持
-`feedback -> decision`。`memory sync-pending --gc-orphan-locks` 也默认预览，
+`feedback -> decision`。reject 只收口需要复核但决定不写入的记录，quarantine
+只隔离 malformed/conflict；二者都把原始字节保留到 `pending/resolved/`，不再计入活跃
+pending，并在 receipt 中留下终态动作。`memory sync-pending --gc-orphan-locks` 也默认预览，
 只有 `--apply` 才删除能证明已 orphan 且未持锁的 record lock；held lock 安全保留，本身不导致
 失败。pending record/resolution apply 的 receipt 只保存计数和 digest，不公开原始
 record/item ID 或正文；standalone GC 不生成 receipt。完整恢复步骤与退出码见
@@ -535,6 +538,7 @@ record/item ID 或正文；standalone GC 不生成 receipt。完整恢复步骤�
 
 - 低置信、缺来源、需要复核。
 - stale signal、stale handoff、过期状态。
+- signal 的终态与活跃态矛盾，例如 `resolved` 同时带 `pending` / `blocked`。
 - 冲突事实、重复记忆、superseded item。
 - maturity 从 raw 到 consolidated 或 skill 的建议。
 - conversation hot/warm/cold/frozen 分层。

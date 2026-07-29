@@ -1070,6 +1070,28 @@ def test_lifecycle_readiness_fails_closed_on_unsafe_dead_queue_entry(
     assert lane.status == "fail"
 
 
+def test_lifecycle_readiness_reports_resolved_pending_without_reopening_blocker(
+    tmp_path,
+) -> None:
+    brain = tmp_path / "brain"
+    (brain / "items").mkdir(parents=True)
+    resolved = brain / "pending" / "resolved"
+    resolved.mkdir(parents=True)
+    (resolved / "reject-obsolete-record.jsonl").write_text(
+        '{"v":2}\n',
+        encoding="utf-8",
+    )
+
+    lane = build_memory_lifecycle_readiness(brain)
+    checks = {check.id: check for check in lane.checks}
+
+    assert lane.metrics["pending_total"] == 0
+    assert lane.metrics["pending_dead_count"] == 0
+    assert lane.metrics["pending_resolved_count"] == 1
+    assert checks["pending_integrity"].status == "pass"
+    assert checks["pending_integrity"].evidence["resolved_count"] == 1
+
+
 def test_lifecycle_readiness_reads_pending_from_explicit_brain_not_environment(
     tmp_path,
     monkeypatch,

@@ -58,9 +58,18 @@ PendingReceiptAction = Literal[
     "approve_audit",
     "accept_duplicate",
     "convert_type",
+    "reject",
+    "quarantine",
 ]
 _ALLOWED_ACTIONS = frozenset(
-    {"apply", "approve_audit", "accept_duplicate", "convert_type"}
+    {
+        "apply",
+        "approve_audit",
+        "accept_duplicate",
+        "convert_type",
+        "reject",
+        "quarantine",
+    }
 )
 _ALLOWED_STATUSES = frozenset(
     {
@@ -120,9 +129,12 @@ _ALLOWED_REASONS = frozenset(
         "PENDING_RESOLUTION_APPLIED",
         "PENDING_RESOLUTION_CHANGED",
         "PENDING_RESOLUTION_NOT_APPLICABLE",
+        "PENDING_RESOLUTION_QUARANTINED",
+        "PENDING_RESOLUTION_REJECTED",
         "PENDING_RESOLUTION_READY",
         "PENDING_SCAN_UNAVAILABLE",
         "PENDING_UNLINK_FAILED",
+        "PENDING_TERMINAL_MOVE_FAILED",
         "PENDING_WRITE_SERVICE_UNAVAILABLE",
         "PENDING_WRITE_SERVICE_CLOSE_FAILED",
         "PENDING_WRITE_EVIDENCE_INVALID",

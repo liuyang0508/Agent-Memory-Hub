@@ -77,6 +77,8 @@ IMPLEMENTATION_PATHS = (
     "agent_brain/memory/governance/lifecycle_review.py",
     "agent_brain/memory/governance/lifecycle_snapshot.py",
     "agent_brain/memory/governance/maintenance_plan.py",
+    "agent_brain/memory/governance/pending_receipts.py",
+    "agent_brain/memory/governance/signal_state.py",
     "agent_brain/memory/governance/supersession.py",
     "agent_brain/memory/store/durable_fs.py",
     "agent_brain/memory/store/item_ids.py",

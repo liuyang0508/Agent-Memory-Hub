@@ -47,12 +47,14 @@ sidecar 的安全写入；`WriteService` 仍可写入 Markdown 事实源，但�
 ## pending resolution 治理
 
 `memory sync-pending` 默认预览，不加 `--apply` 不会写 item、移除 pending record
-或删除 lock。三类 resolution 都必须显式给出 pending record：
+或删除 lock。所有 resolution 都必须显式给出 pending record：
 
 ```bash
 memory sync-pending --approve-audit <record-id> --format json
 memory sync-pending --accept-duplicate <record-id>:<existing-item-id> --format json
 memory sync-pending --convert-type <record-id>:decision --format json
+memory sync-pending --reject <record-id>:obsolete --format json
+memory sync-pending --quarantine <record-id>:malformed --format json
 ```
 
 - `--approve-audit` 只处理 public/internal 的 audit-blocked record；secrets finding
@@ -61,6 +63,10 @@ memory sync-pending --convert-type <record-id>:decision --format json
   record，不写新 item。
 - `--convert-type` 当前只支持旧 `feedback -> decision`；其他目标类型属于参数错误，
   其他源类型不会转换。
+- `--reject` 只处理 stale/review、duplicate、unsupported 或 audit-blocked 等需要复核的
+  记录；`--quarantine` 只处理 malformed/conflict。reason 必须是有界的小写 slug。
+- 两种终态都保留原始 JSONL 字节到 `pending/resolved/`，从活跃队列移除，并通过
+  prepared/completed receipt 留痕；不会写入 MemoryItem，也不会静默删除证据。
 
 预览全部为 `ready` 后，把同一组参数加上 `--apply` 才执行。例如：
 

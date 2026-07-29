@@ -23,6 +23,7 @@ from agent_brain.memory.governance.maintenance_plan import (
     MaintenancePlan,
     build_maintenance_plan,
 )
+from agent_brain.memory.governance.signal_state import assess_signal_state
 from agent_brain.memory.governance.supersession import SupersessionService
 from agent_brain.memory.store.durable_fs import lifecycle_mutation_capability
 from agent_brain.memory.store.items_store import ItemsStore
@@ -93,8 +94,7 @@ def build_lifecycle_review_plan(
                 action
                 for action in report.actions
                 if not (
-                    action.action == "review_archive"
-                    and str(action.details.get("issue_type", "")).startswith("stale_")
+                    action.action in {"review_archive", "review_signal_state"}
                     and any(item_id in deferred for item_id in action.item_ids)
                 )
             ],
@@ -465,7 +465,10 @@ def _archive_action(
         eligible=lambda item: (
             action.item_id
             not in active_lifecycle_deferrals(brain_dir, now=current)
-            and lifecycle_review_due(item, now=current)
+            and (
+                lifecycle_review_due(item, now=current)
+                or not assess_signal_state(item).consistent
+            )
         ),
         index=index,
     )

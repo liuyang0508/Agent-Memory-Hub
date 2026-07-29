@@ -67,6 +67,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is required to mutate; audit approval never bypasses secrets, duplicate
   acceptance writes no new item, and low-sensitivity record/resolution receipts
   expose digests and counts instead of raw record/item IDs or bodies.
+- **Audited pending terminal dispositions** — explicit `--reject ID:reason`
+  and `--quarantine ID:reason` resolve review-only or malformed/conflicting
+  records without writing memory. Exact JSONL bytes move to
+  `pending/resolved/`, active queue age clears, and prepared/completed receipts
+  retain the bounded terminal action.
+- **Signal-state consistency gate** — lifecycle readiness now fails when an
+  active signal mixes terminal tags (`resolved` / `closed`) with active tags
+  (`pending` / `blocked`) or closure text lacks a terminal tag. The same finding
+  appears as a review-required lifecycle plan action; no semantic rewrite is
+  auto-applied.
 - **Index operational truth** — `memory verify --format json` now compares
   Markdown and `items_meta` IDs, `.index-dirty` repair debt, and Markdown-derived
   supersession against `refs_graph` through an external read-only SQLite

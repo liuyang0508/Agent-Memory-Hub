@@ -36,6 +36,7 @@ from agent_brain.memory.governance.pending_receipts import (
     MAX_PENDING_RECEIPT_LEDGER_BYTES,
     read_pending_receipt_ledger_health,
 )
+from agent_brain.memory.governance.signal_state import assess_signal_state
 from agent_brain.memory.store.item_markdown import parse_item_markdown
 from agent_brain.memory.store.pending import (
     MAX_PENDING_QUEUE_ENTRIES,
@@ -447,6 +448,7 @@ def _memory_lifecycle_lane_once(brain_dir: Path) -> ReadinessLane:
     stale_items: list[tuple[MemoryItem, int]] = []
     legacy_stale_signal_count = 0
     low_confidence_count = 0
+    signal_state_inconsistent_count = 0
     untagged_count = 0
     raw_count = 0
     private_or_secret_count = 0
@@ -470,6 +472,8 @@ def _memory_lifecycle_lane_once(brain_dir: Path) -> ReadinessLane:
             item_scan_unavailable = True
         if item.confidence < 0.5:
             low_confidence_count += 1
+        if item_type == "signal" and not assess_signal_state(item).consistent:
+            signal_state_inconsistent_count += 1
         if not item.tags:
             untagged_count += 1
         if (
@@ -525,6 +529,7 @@ def _memory_lifecycle_lane_once(brain_dir: Path) -> ReadinessLane:
             max(age for _item, age in review_items) if review_items else None
         ),
         "low_confidence_count": low_confidence_count,
+        "signal_state_inconsistent_count": signal_state_inconsistent_count,
         "untagged_count": untagged_count,
         "raw_count": raw_count,
         "private_or_secret_count": private_or_secret_count,
@@ -581,6 +586,13 @@ def _memory_lifecycle_lane_once(brain_dir: Path) -> ReadinessLane:
             status="fail" if broken_superseded_count else "pass",
             detail=f"{broken_superseded_count} broken chain(s)",
             count=broken_superseded_count,
+        ),
+        _aggregate_check(
+            "signal_state_consistency",
+            "signal state consistency",
+            status="fail" if signal_state_inconsistent_count else "pass",
+            detail=f"{signal_state_inconsistent_count} inconsistent signal(s)",
+            count=signal_state_inconsistent_count,
         ),
         _pending_integrity_check(pending_metrics),
         _pending_lock_hygiene_check(pending_metrics),
@@ -1123,11 +1135,17 @@ def _pending_truth_readonly(
     reason_counts = summary.get("reason_counts", {})
     if not isinstance(reason_counts, dict):
         reason_counts = {}
-    dead_count, dead_scan_unavailable = _count_dead_pending_readonly(brain_dir / "pending" / "dead")
+    dead_count, dead_scan_unavailable = _count_pending_terminal_records_readonly(
+        brain_dir / "pending" / "dead"
+    )
+    resolved_count, resolved_scan_unavailable = _count_pending_terminal_records_readonly(
+        brain_dir / "pending" / "resolved"
+    )
     pending_scan_unavailable = (
         preview is None
         or bool(preview.scan_unavailable if preview is not None else True)
         or dead_scan_unavailable
+        or resolved_scan_unavailable
     )
     total = preview.total if preview is not None else 0
     returned = preview.returned if preview is not None else 0
@@ -1160,6 +1178,7 @@ def _pending_truth_readonly(
         "pending_classifications": classifications,
         "pending_reason_counts": dict(sorted(reason_counts.items())),
         "pending_dead_count": dead_count,
+        "pending_resolved_count": resolved_count,
         "pending_lock_files": lock_report.total,
         "pending_orphan_lock_files": lock_report.orphan,
         "pending_unsafe_lock_files": lock_report.unsafe,
@@ -1176,22 +1195,24 @@ def _pending_truth_readonly(
     }
 
 
-def _count_dead_pending_readonly(dead_dir: Path) -> tuple[int, bool]:
+def _count_pending_terminal_records_readonly(
+    terminal_dir: Path,
+) -> tuple[int, bool]:
     started = time.monotonic()
     try:
-        opened = os.lstat(dead_dir)
+        opened = os.lstat(terminal_dir)
     except FileNotFoundError:
         return 0, False
     except OSError:
         return 0, True
-    if not os.path.isdir(dead_dir) or os.path.islink(dead_dir):
+    if not os.path.isdir(terminal_dir) or os.path.islink(terminal_dir):
         return 0, True
     if not opened.st_ino or not opened.st_dev:
         return 0, True
     count = 0
     scanned_entries = 0
     try:
-        with os.scandir(dead_dir) as entries:
+        with os.scandir(terminal_dir) as entries:
             for entry in entries:
                 try:
                     scanned_entries += 1
@@ -1673,6 +1694,7 @@ def _pending_integrity_check(metrics: dict[str, Any]) -> ReadinessCheck:
             "malformed_count": classifications["malformed"],
             "audit_blocked_count": classifications["audit_blocked"],
             "dead_count": metrics["pending_dead_count"],
+            "resolved_count": metrics["pending_resolved_count"],
         },
     )
 

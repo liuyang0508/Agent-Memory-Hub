@@ -180,7 +180,8 @@ oldest-item age and SLA alerts for review and pending queues.
 query-signal adversarial cases for long Chinese tasks, JSON/config prompts,
 OCR/log/code snippets, and weak follow-ups.
 `memory govern plan --category lifecycle` lists stale `signal` / `handoff`
-review items with age, threshold, and an `archive_or_supersede` recommendation;
+review items and contradictory signal states such as `resolved` together with
+`pending` / `blocked`;
 it is a dry-run plan and does not archive items by itself. The JSON output also
 contains a `review_queue` with item IDs, bounded `memory read` commands, and
 `can_auto_apply=false` for Web Admin or script-driven human review.
@@ -495,12 +496,16 @@ native implementation or an explicit migration handles that repair.
 
 ### Pending resolution governance
 
-`memory sync-pending` is preview-first. The three governed resolutions require an
-explicit pending record: `--approve-audit ID`, `--accept-duplicate ID:ITEM`, or
-`--convert-type ID:decision`; only `--apply` mutates state. Audit approval is
+`memory sync-pending` is preview-first. Governed resolutions require an explicit
+pending record: `--approve-audit ID`, `--accept-duplicate ID:ITEM`,
+`--convert-type ID:decision`, `--reject ID:reason`, or
+`--quarantine ID:reason`; only `--apply` mutates state. Audit approval is
 limited to public/internal findings and never bypasses secrets. Exact-duplicate
 acceptance removes the pending record without writing a new item, and conversion
-currently supports only `feedback -> decision`.
+currently supports only `feedback -> decision`. Reject is limited to
+review-only records; quarantine is limited to malformed/conflicting records.
+Both preserve the exact original bytes under `pending/resolved/`, outside the
+active queue, and record the terminal action in the append-only receipt ledger.
 
 Standalone `--gc-orphan-locks` also previews by default and deletes only proven
 orphan locks that are not held. Held locks are safely preserved and do not fail
