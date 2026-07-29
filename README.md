@@ -160,6 +160,7 @@ memory doctor
 memory govern readiness --format markdown
 memory govern plan --category lifecycle --format markdown
 memory govern plan --category lifecycle --format json
+memory govern plan --category low_confidence --format markdown
 memory govern apply-lifecycle <memory-id> --dry-run --format json
 memory sync-pending --summary-only --limit 100 --format json
 memory verify --format json
@@ -188,6 +189,11 @@ contains a `review_queue` with item IDs, bounded `memory read` commands, and
 `memory govern apply-lifecycle` rechecks selected IDs against the current
 `review_queue`; it defaults to `--dry-run` and only archives matched items when
 you pass `--apply`.
+`memory govern plan --category low_confidence` separates contested memories,
+items missing an explicit file/URL/commit/memory source, and source-backed
+candidates. These rows are always review-required. Use
+`memory review attach-source ID --commit SHA` to add evidence without changing
+confidence, then explicitly approve or reject the candidate.
 
 `memory sync-pending` also defaults to preview. Use `--summary-only` when you
 only need classification, blocker reason, lock-hygiene, or batch counts and do

@@ -268,6 +268,9 @@ def _compact_details(details: dict[str, object]) -> dict[str, Any]:
         "age_days",
         "stale_after_days",
         "recommended_action",
+        "disposition",
+        "explicit_source_ref_count",
+        "provenance_ref_count",
     }
     return {key: value for key, value in details.items() if key in keep_keys}
 
@@ -303,12 +306,36 @@ def _build_review_queue(
         if lane.risk != "review_required":
             continue
         for action in lane.actions:
-            if action.category != "lifecycle":
+            if action.category not in {"lifecycle", "low_confidence"}:
                 continue
             for item_id in action.item_ids:
                 if item_id in seen:
                     continue
                 seen.add(item_id)
+                if action.category == "low_confidence":
+                    rows.append(
+                        MaintenanceReviewQueueItem(
+                            item_id=item_id,
+                            action=action.action,
+                            category=action.category,
+                            title=action.title,
+                            read_command=(
+                                f"memory read {item_id} --head 2000 --view detail"
+                            ),
+                            recommended_next=str(
+                                action.details.get(
+                                    "recommended_action",
+                                    "approve_or_reject",
+                                )
+                            ),
+                            can_auto_apply=False,
+                            boundary=(
+                                "先核对独立来源或解决 contested，再显式 approve/reject；"
+                                "不得自动提升 confidence"
+                            ),
+                        )
+                    )
+                    continue
                 obsolete = items_by_id.get(item_id)
                 candidates = (
                     candidate_ranker.rank(obsolete)
@@ -376,6 +403,8 @@ def _category_for_action(action: AutoGovernanceAction) -> str:
         return "expired"
     if action.action == "review_signal_state":
         return "lifecycle"
+    if action.action == "review_low_confidence":
+        return "low_confidence"
     if action.action == "review_contradiction":
         return "contradiction"
     if action.action == "review_drift_cluster":
@@ -440,6 +469,8 @@ def _command_for_action(action: AutoGovernanceAction | str) -> str:
         return "memory govern auto --apply"
     if action_name in {"review_archive", "review_quality"}:
         return "memory govern run --format json"
+    if action_name == "review_low_confidence":
+        return "memory review list --format json"
     if action_name.startswith("review_evolve_"):
         return "memory evolve --format json"
     if action_name.startswith("review_"):

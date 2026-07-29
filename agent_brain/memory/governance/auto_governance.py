@@ -20,6 +20,7 @@ from agent_brain.contracts.memory_item import MemoryItem
 from agent_brain.contracts.memory_enums import memory_enum_value
 from agent_brain.memory.evidence.conversation_governance import classify_tier
 from agent_brain.memory.evidence.conversation_store import ConversationStore
+from agent_brain.memory.governance.confidence_review import assess_low_confidence
 from agent_brain.memory.governance.drift import DriftDetector
 from agent_brain.memory.governance.evolve.engine import EvolveEngine
 from agent_brain.memory.governance.lifecycle_archive import archive_reviewed_item
@@ -172,6 +173,12 @@ class AutoGovernanceCycle:
             for action in automatic
             for item_id in action.item_ids
         }
+        actions.extend(
+            self._low_confidence_actions(
+                items,
+                skip_item_ids=automatically_managed,
+            )
+        )
         actions.extend(
             self._signal_state_actions(
                 items,
@@ -418,6 +425,40 @@ class AutoGovernanceCycle:
                 },
                 applied=applied,
             ))
+        return actions
+
+    def _low_confidence_actions(
+        self,
+        items: list[tuple[MemoryItem, str]],
+        *,
+        skip_item_ids: set[str] | None = None,
+    ) -> list[AutoGovernanceAction]:
+        actions: list[AutoGovernanceAction] = []
+        for item, _body in items:
+            if item.id in (skip_item_ids or set()):
+                continue
+            assessment = assess_low_confidence(item)
+            if assessment is None or not assessment.actionable:
+                continue
+            actions.append(
+                AutoGovernanceAction(
+                    action="review_low_confidence",
+                    risk="review_required",
+                    title=f"Review low confidence: {item.title}",
+                    reason=f"low_confidence_{assessment.disposition}",
+                    item_ids=[item.id],
+                    details={
+                        "issue_type": "low_confidence",
+                        "disposition": assessment.disposition,
+                        "confidence": item.confidence,
+                        "explicit_source_ref_count": (
+                            assessment.explicit_source_ref_count
+                        ),
+                        "provenance_ref_count": assessment.provenance_ref_count,
+                        "recommended_action": assessment.recommended_action,
+                    },
+                )
+            )
         return actions
 
     def _signal_state_actions(

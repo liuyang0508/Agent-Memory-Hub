@@ -546,6 +546,11 @@ record/item ID 或正文；standalone GC 不生成 receipt。完整恢复步骤�
 
 高风险动作不会悄悄改事实源。`memory govern plan` 会把动作分成 `safe_apply`、`review_required`、`blocked` 三条 lane；`memory evolve` 产生提案和候选，是否采用仍要经过明确命令或人工复核。
 只看短生命周期欠账时，用 `memory govern plan --category lifecycle --format markdown`；它会列出超过 30 天的 `signal` / `handoff`，并给出 `archive_or_supersede` 建议，但不会直接移动或删除 item。需要接 Web Admin 或脚本时用 `--format json`，读取 `review_queue`，其中每条都显式标记 `can_auto_apply=false`。确认某个 ID 可归档后，再运行 `memory govern apply-lifecycle <id> --apply`；这个命令仍会重新校验 ID 是否还在当前 lifecycle 队列里。
+低置信度欠账使用 `memory govern plan --category low_confidence --format markdown`；
+计划会区分 `contested`、缺显式来源的 `source_gap` 和已有来源的 `source_backed`，
+全部保持 `review_required`。`memory review attach-source <id> --commit <sha>` 只补充
+文件、HTTPS URL、commit 或 memory 来源，不会自动提高 confidence 或移除 review 标签；
+核对证据后仍需显式 approve/reject。
 
 <a id="recall-flow"></a>
 

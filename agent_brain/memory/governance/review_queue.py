@@ -22,6 +22,10 @@ class ReviewCandidate:
     tags: tuple[str, ...]
     confidence: float
     created_at: str
+    explicit_source_ref_count: int
+    provenance_ref_count: int
+    review_reason: str
+    recommended_action: str
 
     def to_dict(self) -> dict[str, object]:
         data = asdict(self)
@@ -48,7 +52,7 @@ def list_review_candidates(store: ItemsStore) -> ReviewQueueReport:
     candidates = [
         _candidate(item)
         for item, _body in store.iter_all()
-        if _is_active_review_candidate(item)
+        if is_active_review_candidate(item)
     ]
     candidates.sort(key=lambda candidate: (candidate.created_at, candidate.id))
     return ReviewQueueReport(candidates=tuple(candidates))
@@ -89,6 +93,9 @@ def reject_review_candidate(
 
 
 def _candidate(item: MemoryItem) -> ReviewCandidate:
+    from agent_brain.memory.governance.confidence_review import assess_low_confidence
+
+    assessment = assess_low_confidence(item)
     return ReviewCandidate(
         id=item.id,
         type=str(item.type),
@@ -97,12 +104,30 @@ def _candidate(item: MemoryItem) -> ReviewCandidate:
         tags=tuple(item.tags),
         confidence=item.confidence,
         created_at=item.created_at.isoformat(),
+        explicit_source_ref_count=(
+            assessment.explicit_source_ref_count if assessment is not None else 0
+        ),
+        provenance_ref_count=(
+            assessment.provenance_ref_count if assessment is not None else 0
+        ),
+        review_reason=(
+            assessment.disposition
+            if assessment is not None
+            else "explicit_review_tag"
+        ),
+        recommended_action=(
+            assessment.recommended_action
+            if assessment is not None
+            else "approve_or_reject"
+        ),
     )
 
 
-def _is_active_review_candidate(item: MemoryItem) -> bool:
+def is_active_review_candidate(item: MemoryItem) -> bool:
     tags = {tag.lower() for tag in item.tags}
-    return bool(tags & ACTIVE_REVIEW_TAGS) and not bool(tags & TERMINAL_REVIEW_TAGS)
+    return (
+        bool(tags & ACTIVE_REVIEW_TAGS) or item.confidence < 0.5
+    ) and not bool(tags & TERMINAL_REVIEW_TAGS)
 
 
 def _without_review_tags(tags: list[str]) -> set[str]:
@@ -121,6 +146,7 @@ __all__ = [
     "ReviewCandidate",
     "ReviewQueueReport",
     "approve_review_candidate",
+    "is_active_review_candidate",
     "list_review_candidates",
     "reject_review_candidate",
 ]

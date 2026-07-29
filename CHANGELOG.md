@@ -77,6 +77,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`pending` / `blocked`) or closure text lacks a terminal tag. The same finding
   appears as a review-required lifecycle plan action; no semantic rewrite is
   auto-applied.
+- **Low-confidence review cohorts** — readiness and maintenance planning now
+  separate contested, explicit-source-gap, source-backed, and terminal
+  low-confidence memories. `memory review attach-source` adds bounded file,
+  HTTPS URL, commit, or memory references without changing confidence or
+  bypassing explicit approve/reject.
 - **Index operational truth** — `memory verify --format json` now compares
   Markdown and `items_meta` IDs, `.index-dirty` repair debt, and Markdown-derived
   supersession against `refs_graph` through an external read-only SQLite

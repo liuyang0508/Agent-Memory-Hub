@@ -69,6 +69,7 @@ def test_review_many_rejects_non_candidate_without_partial_mutation(tmp_brain):
             "id": "mem-20260701-130000-normal",
             "title": "Normal",
             "tags": ["normal"],
+            "confidence": 0.7,
         }
     )
     store.write(normal, "normal body")

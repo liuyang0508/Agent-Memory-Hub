@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
+import re
+from urllib.parse import urlsplit
 
+from agent_brain.contracts.memory_item import is_valid_memory_item_id
 from agent_brain.interfaces.cli._app import review_app
 from agent_brain.interfaces.cli._shared import HubIndex, Table, _brain_dir, _resolve_id, _store_only, console, typer
 
@@ -98,15 +101,74 @@ def review_list(
     table.add_column("id")
     table.add_column("confidence", justify="right")
     table.add_column("tags")
+    table.add_column("reason")
+    table.add_column("next")
     table.add_column("title")
     for candidate in report.candidates:
         table.add_row(
             candidate.id,
             f"{candidate.confidence:.2f}",
             ",".join(candidate.tags),
+            candidate.review_reason,
+            candidate.recommended_action,
             candidate.title,
         )
     console.print(table)
+
+
+@review_app.command(name="attach-source")
+def review_attach_source(
+    item_id: str = typer.Argument(..., help="Memory item ID or prefix"),
+    source_files: list[str] = typer.Option([], "--file", help="Source file; repeatable"),
+    source_urls: list[str] = typer.Option([], "--url", help="HTTPS source URL; repeatable"),
+    source_commits: list[str] = typer.Option(
+        [],
+        "--commit",
+        help="Git commit SHA; repeatable",
+    ),
+    source_mems: list[str] = typer.Option(
+        [],
+        "--memory",
+        help="Source memory ID; repeatable",
+    ),
+) -> None:
+    """Attach explicit source references without changing review state."""
+    from agent_brain.memory.governance.review_queue import is_active_review_candidate
+
+    store = _store_only()
+    item_id = _resolve_id(store, item_id)
+    item, _body = store.get(item_id)
+    if not is_active_review_candidate(item):
+        typer.echo(f"not an active review candidate: {item_id}", err=True)
+        raise typer.Exit(2)
+    if not any((source_files, source_urls, source_commits, source_mems)):
+        typer.echo("attach-source requires at least one source", err=True)
+        raise typer.Exit(2)
+    if any(not _bounded_source(value) for value in source_files):
+        typer.echo("--file contains an invalid source", err=True)
+        raise typer.Exit(2)
+    if any(not _valid_source_url(value) for value in source_urls):
+        typer.echo("--url requires a bounded https URL", err=True)
+        raise typer.Exit(2)
+    if any(re.fullmatch(r"[0-9a-fA-F]{7,64}", value) is None for value in source_commits):
+        typer.echo("--commit requires a 7-64 character hexadecimal SHA", err=True)
+        raise typer.Exit(2)
+    if any(not is_valid_memory_item_id(value) for value in source_mems):
+        typer.echo("--memory requires a canonical memory ID", err=True)
+        raise typer.Exit(2)
+    refs = item.refs.model_copy(
+        update={
+            "files": _merge_sources(item.refs.files, source_files),
+            "urls": _merge_sources(item.refs.urls, source_urls),
+            "commits": _merge_sources(item.refs.commits, source_commits),
+            "mems": _merge_sources(item.refs.mems, source_mems),
+        }
+    )
+    store.update_frontmatter(item_id, refs=refs)
+    typer.echo(
+        f"attached sources: {item_id} "
+        f"(explicit={len(refs.files) + len(refs.urls) + len(refs.commits) + len(refs.mems)})"
+    )
 
 
 @review_app.command(name="approve")
@@ -115,10 +177,17 @@ def review_approve(
     confidence: float = typer.Option(0.7, "--confidence", help="Confidence after approval"),
 ) -> None:
     """Approve a needs-review candidate so it can participate in normal recall."""
-    from agent_brain.memory.governance.review_queue import approve_review_candidate
+    from agent_brain.memory.governance.review_queue import (
+        approve_review_candidate,
+        is_active_review_candidate,
+    )
 
     store = _store_only()
     item_id = _resolve_id(store, item_id)
+    item, _body = store.get(item_id)
+    if not is_active_review_candidate(item):
+        typer.echo(f"not an active review candidate: {item_id}", err=True)
+        raise typer.Exit(2)
     updated = approve_review_candidate(store, item_id, confidence=confidence)
     _update_index_confidence(item_id, updated.confidence)
     typer.echo(f"approved: {item_id} confidence={updated.confidence:.2f}")
@@ -130,10 +199,17 @@ def review_reject(
     confidence: float = typer.Option(0.1, "--confidence", help="Confidence after rejection"),
 ) -> None:
     """Reject a needs-review candidate and keep it quarantined from injection."""
-    from agent_brain.memory.governance.review_queue import reject_review_candidate
+    from agent_brain.memory.governance.review_queue import (
+        is_active_review_candidate,
+        reject_review_candidate,
+    )
 
     store = _store_only()
     item_id = _resolve_id(store, item_id)
+    item, _body = store.get(item_id)
+    if not is_active_review_candidate(item):
+        typer.echo(f"not an active review candidate: {item_id}", err=True)
+        raise typer.Exit(2)
     updated = reject_review_candidate(store, item_id, confidence=confidence)
     _update_index_confidence(item_id, updated.confidence)
     typer.echo(f"rejected: {item_id} confidence={updated.confidence:.2f}")
@@ -162,6 +238,7 @@ def review_reject_many(
 def _review_many(item_ids: list[str], *, action: str, confidence: float) -> None:
     from agent_brain.memory.governance.review_queue import (
         approve_review_candidate,
+        is_active_review_candidate,
         reject_review_candidate,
     )
 
@@ -170,10 +247,7 @@ def _review_many(item_ids: list[str], *, action: str, confidence: float) -> None
     mutate = approve_review_candidate if action == "approve" else reject_review_candidate
     for item_id in resolved:
         item, _body = store.get(item_id)
-        if "needs-review" not in {tag.lower() for tag in item.tags} and not {
-            "requires-review",
-            "unverified-boundary",
-        } & {tag.lower() for tag in item.tags}:
+        if not is_active_review_candidate(item):
             typer.echo(f"not an active review candidate: {item_id}", err=True)
             raise typer.Exit(2)
     for item_id in resolved:
@@ -225,6 +299,25 @@ def _format_age(age_seconds: int | None) -> str:
     return f"{age_seconds}s"
 
 
+def _bounded_source(value: str) -> bool:
+    return (
+        bool(value.strip())
+        and len(value.encode("utf-8")) <= 2048
+        and not any(ord(character) < 32 for character in value)
+    )
+
+
+def _valid_source_url(value: str) -> bool:
+    if not _bounded_source(value):
+        return False
+    parsed = urlsplit(value)
+    return parsed.scheme == "https" and bool(parsed.netloc) and not parsed.username
+
+
+def _merge_sources(existing: list[str], added: list[str]) -> list[str]:
+    return list(dict.fromkeys([*existing, *(value.strip() for value in added)]))
+
+
 def _update_index_confidence(item_id: str, confidence: float) -> None:
     try:
         idx = HubIndex(db_path=_brain_dir() / "index.db")
@@ -239,6 +332,7 @@ def _update_index_confidence(item_id: str, confidence: float) -> None:
 __all__ = [
     "review_approve",
     "review_approve_many",
+    "review_attach_source",
     "review_list",
     "review_reject",
     "review_reject_many",

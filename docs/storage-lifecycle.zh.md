@@ -94,6 +94,26 @@ ledger 追加 incomplete。receipt 只序列化批次 digest、结果 digest、�
 `--summary-only --format json`；普通 JSON 结果用于操作者核对显式选择，可能包含 record ID，
 不要把它当作公开 receipt。
 
+## 低置信度复核治理
+
+`memory govern plan --category low_confidence --format markdown` 会把低于 `0.5`
+且尚未终态复核的 item 分成三类：
+
+- `contested`：存在争议标记，必须先解决冲突；
+- `source_gap`：只有内部 resource/extraction 证据，没有显式 file、HTTPS URL、commit
+  或 memory 来源；
+- `source_backed`：已有至少一个显式来源，可以进入人工 approve/reject。
+
+这三类都不会自动提高 confidence。补证使用：
+
+```bash
+memory review attach-source <memory-id> --commit <git-sha>
+memory review attach-source <memory-id> --file <path> --url <https-url>
+```
+
+补证只合并去重后的 refs，保留原 confidence 和 review 标签。`review-approved` /
+`review-rejected` 终态条目仍计入低置信度总量审计，但不再制造待复核告警。
+
 CLI 退出码：
 
 | 退出码 | 含义 |

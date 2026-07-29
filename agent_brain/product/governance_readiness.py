@@ -36,6 +36,7 @@ from agent_brain.memory.governance.pending_receipts import (
     MAX_PENDING_RECEIPT_LEDGER_BYTES,
     read_pending_receipt_ledger_health,
 )
+from agent_brain.memory.governance.confidence_review import assess_low_confidence
 from agent_brain.memory.governance.signal_state import assess_signal_state
 from agent_brain.memory.store.item_markdown import parse_item_markdown
 from agent_brain.memory.store.pending import (
@@ -448,6 +449,9 @@ def _memory_lifecycle_lane_once(brain_dir: Path) -> ReadinessLane:
     stale_items: list[tuple[MemoryItem, int]] = []
     legacy_stale_signal_count = 0
     low_confidence_count = 0
+    low_confidence_total_count = 0
+    low_confidence_terminal_count = 0
+    low_confidence_dispositions: Counter[str] = Counter()
     signal_state_inconsistent_count = 0
     untagged_count = 0
     raw_count = 0
@@ -470,8 +474,14 @@ def _memory_lifecycle_lane_once(brain_dir: Path) -> ReadinessLane:
                     stale_items.append((item, age_seconds))
         except (OverflowError, TypeError, ValueError):
             item_scan_unavailable = True
-        if item.confidence < 0.5:
-            low_confidence_count += 1
+        confidence_assessment = assess_low_confidence(item)
+        if confidence_assessment is not None:
+            low_confidence_total_count += 1
+            low_confidence_dispositions[confidence_assessment.disposition] += 1
+            if confidence_assessment.actionable:
+                low_confidence_count += 1
+            else:
+                low_confidence_terminal_count += 1
         if item_type == "signal" and not assess_signal_state(item).consistent:
             signal_state_inconsistent_count += 1
         if not item.tags:
@@ -529,6 +539,11 @@ def _memory_lifecycle_lane_once(brain_dir: Path) -> ReadinessLane:
             max(age for _item, age in review_items) if review_items else None
         ),
         "low_confidence_count": low_confidence_count,
+        "low_confidence_total_count": low_confidence_total_count,
+        "low_confidence_terminal_count": low_confidence_terminal_count,
+        "low_confidence_dispositions": dict(
+            sorted(low_confidence_dispositions.items())
+        ),
         "signal_state_inconsistent_count": signal_state_inconsistent_count,
         "untagged_count": untagged_count,
         "raw_count": raw_count,
@@ -566,7 +581,7 @@ def _memory_lifecycle_lane_once(brain_dir: Path) -> ReadinessLane:
             "low_confidence_count",
             "low confidence",
             low_confidence_count,
-            "memory govern maturity --format table",
+            "memory govern plan --category low_confidence --format markdown",
         ),
         _threshold_check(
             "untagged_count",
