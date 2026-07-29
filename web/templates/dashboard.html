@@ -3584,11 +3584,90 @@ function cockpitLoopGovernanceHtml(loopGovernance) {
     <div class="cockpit-priority">${rows || `<div class="cockpit-kicker">${isZh ? '暂无 Loop Contract 运行记录。' : 'No Loop Contract runs yet.'}</div>`}</div>`;
 }
 
+function contradictionCasesHtml(payload) {
+  const isZh = LANG === 'zh';
+  const cases = payload?.cases || [];
+  const header = `
+    <div class="cockpit-chips" style="margin-top:0;margin-bottom:10px">
+      <span class="cockpit-chip">${isZh ? '开放' : 'open'} ${escHtml(payload?.open_count || 0)}</span>
+      <span class="cockpit-chip">${isZh ? '已裁决' : 'resolved'} ${escHtml(payload?.resolved_count || 0)}</span>
+      <span class="cockpit-chip">${isZh ? '暂缓' : 'deferred'} ${escHtml(payload?.deferred_count || 0)}</span>
+      <span class="cockpit-chip ${payload?.status === 'healthy' ? '' : 'risk'}">ledger ${escHtml(payload?.status || 'unknown')}</span>
+    </div>`;
+  if (!cases.length) {
+    return `${header}<div class="empty-state"><div class="empty-state-title">${isZh ? '暂无开放矛盾 Case' : 'No open contradiction cases'}</div></div>`;
+  }
+  const rows = cases.slice(0, 4).map(row => {
+    const caseId = jsString(row.case_id || '');
+    const items = (row.items || []).map(item => `
+      <div class="memory-candidate-row">
+        <div class="cockpit-title">${escHtml(item.title || item.id)}</div>
+        <div class="cockpit-meta">${escHtml(item.id)} · confidence ${escHtml(item.confidence ?? '-')}</div>
+        <div class="cockpit-summary">${escHtml(item.summary || '')}</div>
+        <div class="cockpit-actions" style="margin-top:8px">
+          <button class="btn-sm btn-accent" onclick="resolveContradictionCase('${caseId}', 'select_authority', '${jsString(item.id)}')">${isZh ? '设为权威' : 'Select authority'}</button>
+        </div>
+      </div>`).join('');
+    return `
+      <div style="margin-bottom:16px">
+        <div class="cockpit-title">${escHtml(row.case_id)} · ${escHtml(row.item_ids?.length || 0)} items · ${escHtml(row.pair_count || 0)} pairs</div>
+        <div class="cockpit-meta">${escHtml((row.evidence || []).join(' · '))}</div>
+        <div style="margin-top:8px">${items}</div>
+        <div class="cockpit-actions" style="margin-top:8px">
+          <button class="btn-sm btn-green" onclick="resolveContradictionCase('${caseId}', 'coexist')">${isZh ? '允许并存' : 'Allow coexistence'}</button>
+          <button class="btn-sm" onclick="mergeContradictionCase('${caseId}')">${isZh ? '合并到新条目' : 'Merge into item'}</button>
+          <button class="btn-sm" onclick="resolveContradictionCase('${caseId}', 'defer', '', 7)">${isZh ? '暂缓 7 天' : 'Defer 7 days'}</button>
+        </div>
+      </div>`;
+  }).join('');
+  return `${header}${rows}`;
+}
+
+function mergeContradictionCase(caseId) {
+  const message = LANG === 'zh'
+    ? '请输入已人工整理、且不属于当前 Case 的目标 Memory Item ID：'
+    : 'Enter the reviewed target Memory Item ID outside this case:';
+  const targetItemId = (window.prompt(message) || '').trim();
+  if (targetItemId) resolveContradictionCase(caseId, 'merge', targetItemId);
+}
+
+async function resolveContradictionCase(caseId, action, targetItemId = '', deferDays = null) {
+  const body = { action };
+  if (targetItemId) body.target_item_id = targetItemId;
+  if (deferDays) body.defer_days = deferDays;
+  try {
+    const preview = await api(`/api/governance/contradiction-cases/${encodeURIComponent(caseId)}/resolve`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+    if (preview.status !== 'ready') {
+      toast(`${caseId}: ${preview.reason || preview.status}`);
+      return;
+    }
+    const message = LANG === 'zh'
+      ? `确认执行 ${action}？该操作将绑定当前全部条目的内容摘要。`
+      : `Apply ${action}? This is bound to the current digest of every case item.`;
+    if (!window.confirm(message)) return;
+    const applied = await api(`/api/governance/contradiction-cases/${encodeURIComponent(caseId)}/resolve`, {
+      method: 'POST',
+      body: JSON.stringify({
+        ...body,
+        apply: true,
+        expected_intent_sha256: preview.expected_intent_sha256,
+      }),
+    });
+    toast(`${caseId}: ${applied.status || applied.reason}`);
+    await loadCockpit(document.getElementById('mainContent'));
+  } catch (e) {
+    toast(LANG === 'zh' ? '矛盾 Case 裁决失败' : 'Contradiction case resolution failed');
+  }
+}
+
 async function loadCockpit(el) {
   const isZh = LANG === 'zh';
   el.innerHTML = `<div class="empty-state"><div class="empty-state-title">${isZh ? '正在加载可信接力 Cockpit' : 'Loading Cockpit'}</div></div>`;
   try {
-    const [data, onboarding, candidates, headroom, hierarchy, mlAdvisory, dataFlow, localHistory, localHistoryDrafts] = await Promise.all([
+    const [data, onboarding, candidates, headroom, hierarchy, mlAdvisory, dataFlow, localHistory, localHistoryDrafts, contradictionCases] = await Promise.all([
       api('/api/cockpit/summary'),
       api('/api/adapters/onboarding').catch(() => null),
       api('/api/memory-candidates').catch(() => null),
@@ -3598,6 +3677,7 @@ async function loadCockpit(el) {
       api('/api/data-flow?hours=72&limit=20').catch(() => null),
       api('/api/agents/local-history').catch(() => null),
       api('/api/agents/local-history/drafts').catch(() => null),
+      api('/api/governance/contradiction-cases').catch(() => null),
     ]);
     const health = { ...(data.adapter_health || {}) };
     if (onboarding) {
@@ -3654,6 +3734,11 @@ async function loadCockpit(el) {
           <h2>${isZh ? 'Loop Contract 治理' : 'Loop Contract Governance'}</h2>
           <p class="cockpit-kicker">${isZh ? '按 contract readiness、verifier 结果和 human gate 展示循环是否可收口。' : 'Shows whether loops can close based on contract readiness, verifier results, and human gates.'}</p>
           ${cockpitLoopGovernanceHtml(data.loop_governance)}
+        </section>
+        <section class="cockpit-panel wide">
+          <h2>${isZh ? '矛盾 Case 治理' : 'Contradiction Case Governance'}</h2>
+          <p class="cockpit-kicker">${isZh ? '按整组摘要绑定裁决；任一条记忆变化都会自动重新打开 Case。' : 'Resolutions bind the entire digest set; any item change automatically reopens the case.'}</p>
+          ${contradictionCasesHtml(contradictionCases)}
         </section>
         <section class="cockpit-panel">
           <h2>Key Decisions</h2>

@@ -24,6 +24,9 @@ from agent_brain.memory.governance.confidence_review import assess_low_confidenc
 from agent_brain.memory.governance.contradiction_cases import (
     build_contradiction_cases,
 )
+from agent_brain.memory.governance.contradiction_resolution import (
+    build_contradiction_case_inventory,
+)
 from agent_brain.memory.governance.drift import DriftDetector
 from agent_brain.memory.governance.evolve.engine import EvolveEngine
 from agent_brain.memory.governance.lifecycle_archive import archive_reviewed_item
@@ -571,6 +574,17 @@ class AutoGovernanceCycle:
     ) -> list[AutoGovernanceAction]:
         report = DriftDetector(self.items_store).detect()
         contradiction_cases = build_contradiction_cases(report.findings)
+        contradiction_inventory = build_contradiction_case_inventory(
+            brain_dir=self.brain_dir,
+            store=self.items_store,
+            cases=contradiction_cases,
+            now=self.now,
+        )
+        open_case_ids = {
+            case.case_id
+            for case in contradiction_inventory.cases
+            if case.status == "open"
+        }
         actions = [
             AutoGovernanceAction(
                 action="review_contradiction_case",
@@ -588,6 +602,7 @@ class AutoGovernanceCycle:
                 },
             )
             for case in contradiction_cases
+            if case.case_id in open_case_ids
             if not set(case.item_ids).issubset(skip_item_ids or set())
         ]
         actions.extend([

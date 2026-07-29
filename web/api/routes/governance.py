@@ -7,6 +7,7 @@ binding is unchanged. Infra (helpers/state) comes from web._base.
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import re
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -138,6 +139,156 @@ class LifecycleApplyRequest(BaseModel):
         if any(not is_valid_memory_item_id(item_id) for item_id in self.item_ids):
             raise ValueError("item_ids must contain canonical memory item ids")
         return self
+
+
+class ContradictionCaseResolutionRequest(BaseModel):
+    action: Literal["select_authority", "merge", "coexist", "defer"]
+    target_item_id: str | None = None
+    defer_days: int | None = None
+    apply: bool = False
+    expected_intent_sha256: str | None = None
+
+    @model_validator(mode="after")
+    def validate_resolution_arguments(
+        self,
+    ) -> ContradictionCaseResolutionRequest:
+        from agent_brain.contracts.memory_item import is_valid_memory_item_id
+
+        if (
+            self.target_item_id is not None
+            and not is_valid_memory_item_id(self.target_item_id)
+        ):
+            raise ValueError("target_item_id must be a canonical memory item id")
+        if self.action == "defer":
+            if type(self.defer_days) is not int or not 1 <= self.defer_days <= 365:
+                raise ValueError("defer_days must be between 1 and 365")
+        elif self.defer_days is not None:
+            raise ValueError("defer_days is only valid for defer")
+        if self.apply and (
+            self.expected_intent_sha256 is None
+            or re.fullmatch(r"[0-9a-f]{64}", self.expected_intent_sha256) is None
+        ):
+            raise ValueError(
+                "apply requires expected_intent_sha256 from preview"
+            )
+        return self
+
+
+class ContradictionCaseRecoveryRequest(BaseModel):
+    transaction_id: str
+    apply: bool = False
+
+    @model_validator(mode="after")
+    def validate_transaction_id(self) -> ContradictionCaseRecoveryRequest:
+        if re.fullmatch(r"[0-9a-f]{32}", self.transaction_id) is None:
+            raise ValueError(
+                "transaction_id must be 32 lowercase hexadecimal characters"
+            )
+        return self
+
+
+@router.get("/api/governance/contradiction-cases")
+async def contradiction_cases(
+    include_resolved: bool = Query(False),
+    user: CurrentUser = Depends(get_current_user),
+) -> dict[str, object]:
+    """Return digest-aware contradiction cases. Admin only."""
+    if not user.is_admin:
+        raise HTTPException(status_code=403, detail="admin only")
+
+    from agent_brain.memory.governance.contradiction_resolution import (
+        build_contradiction_case_inventory,
+    )
+
+    store, _, _, _ = _components()
+    payload = build_contradiction_case_inventory(
+        brain_dir=_brain_dir(),
+        store=store,
+    ).to_dict()
+    rows = payload["cases"]
+    if not isinstance(rows, list):
+        rows = []
+    visible_rows = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        if not include_resolved and row.get("status") != "open":
+            continue
+        item_previews = []
+        for item_id in row.get("item_ids", []):
+            try:
+                item, _body = store.get_nofollow(str(item_id))
+            except (FileNotFoundError, OSError, UnicodeError, ValueError):
+                continue
+            item_previews.append(
+                {
+                    "id": item.id,
+                    "title": item.title,
+                    "summary": item.summary,
+                    "project": item.project,
+                    "confidence": item.confidence,
+                    "tags": item.tags,
+                    "sensitivity": str(item.sensitivity),
+                    "superseded_by": item.superseded_by,
+                }
+            )
+        visible_rows.append({**row, "items": item_previews})
+    payload["cases"] = visible_rows
+    payload["returned_count"] = len(visible_rows)
+    return payload
+
+
+@router.post("/api/governance/contradiction-cases/{case_id}/resolve")
+async def contradiction_case_resolve(
+    case_id: str,
+    req: ContradictionCaseResolutionRequest,
+    user: CurrentUser = Depends(get_current_user),
+) -> dict[str, object]:
+    """Preview or apply one contradiction-case resolution. Admin only."""
+    if not user.is_admin:
+        raise HTTPException(status_code=403, detail="admin only")
+    if re.fullmatch(r"contradiction-[0-9a-f]{16}", case_id) is None:
+        raise HTTPException(status_code=400, detail="invalid contradiction case id")
+
+    from agent_brain.memory.governance.contradiction_resolution import (
+        resolve_contradiction_case,
+    )
+
+    store, index, _, _ = _components()
+    result = resolve_contradiction_case(
+        brain_dir=_brain_dir(),
+        store=store,
+        case_id=case_id,
+        action=req.action,
+        target_item_id=req.target_item_id,
+        defer_days=req.defer_days,
+        apply=req.apply,
+        expected_intent_sha256=req.expected_intent_sha256,
+        index=index if req.apply else None,
+    )
+    return result.to_dict()
+
+
+@router.post("/api/governance/contradiction-cases/recover")
+async def contradiction_case_recover(
+    req: ContradictionCaseRecoveryRequest,
+    user: CurrentUser = Depends(get_current_user),
+) -> dict[str, object]:
+    """Preview or recover one incomplete Case transaction. Admin only."""
+    if not user.is_admin:
+        raise HTTPException(status_code=403, detail="admin only")
+
+    from agent_brain.memory.governance.contradiction_resolution import (
+        recover_contradiction_case_transaction,
+    )
+
+    store, _, _, _ = _components()
+    return recover_contradiction_case_transaction(
+        brain_dir=_brain_dir(),
+        store=store,
+        transaction_id=req.transaction_id,
+        apply=req.apply,
+    ).to_dict()
 
 
 @router.get("/api/governance/lifecycle-review")

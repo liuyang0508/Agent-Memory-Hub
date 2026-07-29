@@ -27,6 +27,30 @@ def _candidate(store: ItemsStore, suffix: str, *, days_ago: int = 0) -> MemoryIt
     return item
 
 
+def _contradictory_decisions(
+    store: ItemsStore,
+) -> tuple[MemoryItem, MemoryItem]:
+    first = MemoryItem(
+        id="mem-20260701-140001-cli-react",
+        type=MemoryType.decision,
+        created_at=datetime.now(timezone.utc),
+        project="review-cli-case",
+        title="Frontend Framework Choice",
+        summary="Use React",
+        tags=["framework-choice"],
+    )
+    second = first.model_copy(
+        update={
+            "id": "mem-20260701-140002-cli-vue",
+            "title": "Frontend Framework Choice Updated",
+            "summary": "Use Vue",
+        }
+    )
+    store.write(first, "We decided to use React for the frontend framework.")
+    store.write(second, "After evaluation, we chose Vue instead of React.")
+    return first, second
+
+
 def test_review_status_reports_oldest_age_and_sla_alert(tmp_brain):
     store = ItemsStore(tmp_brain / "items")
     _candidate(store, "old", days_ago=8)
@@ -109,3 +133,40 @@ def test_review_resolve_requires_preview_digest_and_writes_receipt(tmp_brain):
     assert applied.exit_code == 0, applied.output
     assert json.loads(applied.output)["status"] == "applied"
     assert (tmp_brain / "runtime" / "review-resolution-receipts.jsonl").exists()
+
+
+def test_review_case_cli_lists_previews_and_applies_coexistence(tmp_brain):
+    store = ItemsStore(tmp_brain / "items")
+    _contradictory_decisions(store)
+
+    listed = runner.invoke(app, ["review", "cases", "--format", "json"])
+    listed_payload = json.loads(listed.output)
+    case_id = listed_payload["cases"][0]["case_id"]
+    preview = runner.invoke(
+        app,
+        ["review", "resolve-case", case_id, "--action", "coexist"],
+    )
+    preview_payload = json.loads(preview.output)
+    applied = runner.invoke(
+        app,
+        [
+            "review",
+            "resolve-case",
+            case_id,
+            "--action",
+            "coexist",
+            "--expected-intent-sha256",
+            preview_payload["expected_intent_sha256"],
+            "--apply",
+        ],
+    )
+
+    assert listed.exit_code == 0, listed.output
+    assert listed_payload["open_count"] == 1
+    assert preview.exit_code == 0, preview.output
+    assert preview_payload["status"] == "ready"
+    assert applied.exit_code == 0, applied.output
+    assert json.loads(applied.output)["status"] == "applied"
+    assert (
+        tmp_brain / "runtime" / "contradiction-case-receipts.jsonl"
+    ).exists()

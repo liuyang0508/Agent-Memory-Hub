@@ -14,6 +14,7 @@ from agent_brain.memory.governance.lifecycle_snapshot import (
 
 OLD_ID = "mem-20260719-100000-snapshot-old"
 NEW_ID = "mem-20260719-110000-snapshot-new"
+THIRD_ID = "mem-20260719-120000-snapshot-third"
 
 
 def _git(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
@@ -56,6 +57,33 @@ def test_snapshot_uses_private_two_file_tree_without_touching_outer_git(
     ).stdout.splitlines()
     assert tree == [f"items/{OLD_ID}.md", f"items/{NEW_ID}.md"]
     assert stat.S_IMODE(repo.stat().st_mode) == 0o700
+
+
+def test_snapshot_and_restore_support_bounded_multi_item_sets(
+    tmp_brain_dir: Path,
+) -> None:
+    items = tmp_brain_dir / "items"
+    paths = {
+        item_id: items / f"{item_id}.md"
+        for item_id in (OLD_ID, NEW_ID, THIRD_ID)
+    }
+    before = {
+        OLD_ID: b"old before",
+        NEW_ID: b"new before",
+        THIRD_ID: b"third before",
+    }
+    for item_id, data in before.items():
+        paths[item_id].write_bytes(data)
+    store = LifecycleSnapshotStore(tmp_brain_dir)
+
+    snapshot = store.snapshot_items(before)
+    for path in paths.values():
+        path.write_bytes(b"changed")
+    store.restore_items(snapshot, tuple(reversed(before)))
+
+    assert {
+        item_id: path.read_bytes() for item_id, path in paths.items()
+    } == before
 
 
 def test_snapshot_fsyncs_object_and_ref_files_and_directories_bottom_up(

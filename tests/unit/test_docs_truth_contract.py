@@ -40,6 +40,7 @@ EXPECTED_LIFECYCLE_IMPLEMENTATION_PATHS = (
     "agent_brain/memory/governance/auto_governance.py",
     "agent_brain/memory/governance/confidence_review.py",
     "agent_brain/memory/governance/contradiction_cases.py",
+    "agent_brain/memory/governance/contradiction_resolution.py",
     "agent_brain/memory/governance/git_fd_exec.py",
     "agent_brain/memory/governance/graph_links.py",
     "agent_brain/memory/governance/lifecycle_action_parsing.py",

@@ -89,6 +89,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Contradiction cases** — overlapping pair findings are collapsed into
   deterministic connected-component case IDs, preserving pair/item counts and
   bounded evidence while avoiding duplicate per-pair review work.
+- **Recoverable Case adjudication** — `memory review cases` and
+  `memory review resolve-case` support digest-bound `select-authority`, `merge`,
+  `coexist`, and `defer` decisions across a whole contradiction Case. Multi-item
+  Git snapshots and prepared/completed/rolled-back receipts make interruption
+  explicit; changed items reopen the Case, and an unhealthy receipt ledger
+  blocks new decisions. The same workflow is available to Web Admins.
 - **Index operational truth** — `memory verify --format json` now compares
   Markdown and `items_meta` IDs, `.index-dirty` repair debt, and Markdown-derived
   supersession against `refs_graph` through an external read-only SQLite

@@ -555,6 +555,11 @@ record/item ID 或正文；standalone GC 不生成 receipt。完整恢复步骤�
 Markdown SHA-256，再带 `--expected-sha256 <digest> --apply`；apply 会在 item 锁内
 重新校验，并在变更前后追加 prepared/completed receipt。矛盾 finding 会按重叠 item
 聚成稳定 Case，`memory govern plan --category contradiction` 不再要求逐个处理重复 pair。
+用 `memory review cases` 查看 Case，再以 `memory review resolve-case <case-id>
+--action coexist`（或 `select-authority`、`merge`、`defer`）先预览；apply 必须携带
+预览返回的 `--expected-intent-sha256`。裁决绑定 Case 全部条目的当前摘要，任一条目变化
+都会重新开放 Case。多条目 Git 快照与追加式收据支持用
+`memory review recover-case <transaction-id>` 显式恢复中断事务；收据账本异常时禁止新裁决。
 
 <a id="recall-flow"></a>
 

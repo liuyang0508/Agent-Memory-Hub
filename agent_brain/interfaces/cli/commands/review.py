@@ -220,6 +220,160 @@ def review_resolve(
         raise typer.Exit(1)
 
 
+@review_app.command(name="cases")
+def review_cases(
+    output_format: str = typer.Option(
+        "table",
+        "--format",
+        help="Output format: table or json",
+    ),
+    include_resolved: bool = typer.Option(
+        False,
+        "--include-resolved",
+        help="Include digest-matched resolved and deferred cases",
+    ),
+) -> None:
+    """List current contradiction cases and their adjudication state."""
+    from agent_brain.memory.governance.contradiction_resolution import (
+        build_contradiction_case_inventory,
+    )
+
+    inventory = build_contradiction_case_inventory(
+        brain_dir=_brain_dir(),
+        store=_store_only(),
+    )
+    visible_cases = [
+        case for case in inventory.cases
+        if include_resolved or case.status == "open"
+    ]
+    data = inventory.to_dict()
+    data["cases"] = [case.to_dict() for case in visible_cases]
+    if output_format == "json":
+        typer.echo(json.dumps(data, ensure_ascii=False, indent=2, sort_keys=True))
+        return
+    table = Table(title="Contradiction Cases")
+    table.add_column("case")
+    table.add_column("status")
+    table.add_column("items", justify="right")
+    table.add_column("pairs", justify="right")
+    table.add_column("confidence", justify="right")
+    table.add_column("resolution")
+    for case in visible_cases:
+        table.add_row(
+            case.case_id,
+            case.status,
+            str(len(case.item_ids)),
+            str(case.pair_count),
+            f"{case.confidence:.2f}",
+            case.resolution_action or "-",
+        )
+    console.print(table)
+
+
+@review_app.command(name="resolve-case")
+def review_resolve_case(
+    case_id: str = typer.Argument(..., help="Stable contradiction case ID"),
+    action: str = typer.Option(
+        ...,
+        "--action",
+        help="select-authority, merge, coexist, or defer",
+    ),
+    target_item_id: str | None = typer.Option(
+        None,
+        "--target-item-id",
+        help="Authority item or approved merged item",
+    ),
+    defer_days: int | None = typer.Option(None, "--defer-days"),
+    apply: bool = typer.Option(False, "--apply", help="Apply exact preview intent"),
+    expected_intent_sha256: str | None = typer.Option(
+        None,
+        "--expected-intent-sha256",
+        help="Exact intent digest emitted by preview; required with --apply",
+    ),
+) -> None:
+    """Preview or apply one recoverable contradiction-case resolution."""
+    from agent_brain.memory.governance.contradiction_resolution import (
+        ContradictionResolutionAction,
+        resolve_contradiction_case,
+    )
+
+    action_aliases = {
+        "select-authority": "select_authority",
+        "select_authority": "select_authority",
+        "merge": "merge",
+        "coexist": "coexist",
+        "defer": "defer",
+    }
+    normalized_action = action_aliases.get(action)
+    if normalized_action is None:
+        typer.echo(
+            "--action must be select-authority, merge, coexist, or defer",
+            err=True,
+        )
+        raise typer.Exit(2)
+    if apply and (
+        expected_intent_sha256 is None
+        or re.fullmatch(r"[0-9a-f]{64}", expected_intent_sha256) is None
+    ):
+        typer.echo(
+            "--apply requires --expected-intent-sha256 from preview",
+            err=True,
+        )
+        raise typer.Exit(2)
+    typed_action: ContradictionResolutionAction
+    if normalized_action == "select_authority":
+        typed_action = "select_authority"
+    elif normalized_action == "merge":
+        typed_action = "merge"
+    elif normalized_action == "coexist":
+        typed_action = "coexist"
+    else:
+        typed_action = "defer"
+    index = HubIndex(db_path=_brain_dir() / "index.db") if apply else None
+    try:
+        result = resolve_contradiction_case(
+            brain_dir=_brain_dir(),
+            store=_store_only(),
+            case_id=case_id,
+            action=typed_action,
+            target_item_id=target_item_id,
+            defer_days=defer_days,
+            apply=apply,
+            expected_intent_sha256=expected_intent_sha256,
+            index=index,
+        )
+    finally:
+        if index is not None:
+            index.close()
+    typer.echo(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
+    if result.status in {"blocked", "failed"}:
+        raise typer.Exit(1)
+
+
+@review_app.command(name="recover-case")
+def review_recover_case(
+    transaction_id: str = typer.Argument(..., help="Incomplete transaction ID"),
+    apply: bool = typer.Option(False, "--apply"),
+) -> None:
+    """Preview or restore one incomplete contradiction-case transaction."""
+    from agent_brain.memory.governance.contradiction_resolution import (
+        recover_contradiction_case_transaction,
+    )
+
+    if re.fullmatch(r"[0-9a-f]{32}", transaction_id) is None:
+        typer.echo("transaction_id must be 32 lowercase hexadecimal characters", err=True)
+        raise typer.Exit(2)
+    result = recover_contradiction_case_transaction(
+        brain_dir=_brain_dir(),
+        store=_store_only(),
+        transaction_id=transaction_id,
+        apply=apply,
+    )
+    typer.echo(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
+    if result.status == "blocked":
+        raise typer.Exit(1)
+
+
 @review_app.command(name="approve")
 def review_approve(
     item_id: str = typer.Argument(..., help="Memory item ID or prefix"),
@@ -382,10 +536,13 @@ __all__ = [
     "review_approve",
     "review_approve_many",
     "review_attach_source",
+    "review_cases",
     "review_list",
+    "review_recover_case",
     "review_reject",
     "review_reject_many",
     "review_resolve",
+    "review_resolve_case",
     "review_status",
 ]
 

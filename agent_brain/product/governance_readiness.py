@@ -37,6 +37,9 @@ from agent_brain.memory.governance.pending_receipts import (
     read_pending_receipt_ledger_health,
 )
 from agent_brain.memory.governance.confidence_review import assess_low_confidence
+from agent_brain.memory.governance.contradiction_resolution import (
+    read_contradiction_receipt_health,
+)
 from agent_brain.memory.governance.signal_state import assess_signal_state
 from agent_brain.memory.governance.review_transactions import (
     read_review_receipt_health,
@@ -512,6 +515,7 @@ def _memory_lifecycle_lane_once(brain_dir: Path) -> ReadinessLane:
 
     pending_metrics = _pending_truth_readonly(brain, item_catalog=item_snapshot.catalog)
     review_receipt_health = read_review_receipt_health(brain)
+    contradiction_receipt_health = read_contradiction_receipt_health(brain)
     index_projection = _read_index_projection_readonly(brain / "index.db")
     index_health = _build_index_health_from_snapshots(
         brain,
@@ -551,6 +555,17 @@ def _memory_lifecycle_lane_once(brain_dir: Path) -> ReadinessLane:
         "review_receipt_ledger_status": review_receipt_health.status,
         "review_receipt_record_count": review_receipt_health.record_count,
         "review_receipt_incomplete_count": review_receipt_health.incomplete_count,
+        "contradiction_receipt_ledger_status": contradiction_receipt_health.status,
+        "contradiction_receipt_record_count": contradiction_receipt_health.record_count,
+        "contradiction_receipt_incomplete_count": (
+            contradiction_receipt_health.incomplete_count
+        ),
+        "contradiction_receipt_completed_count": (
+            contradiction_receipt_health.completed_count
+        ),
+        "contradiction_receipt_rolled_back_count": (
+            contradiction_receipt_health.rolled_back_count
+        ),
         "signal_state_inconsistent_count": signal_state_inconsistent_count,
         "untagged_count": untagged_count,
         "raw_count": raw_count,
@@ -620,6 +635,7 @@ def _memory_lifecycle_lane_once(brain_dir: Path) -> ReadinessLane:
         _pending_lock_hygiene_check(pending_metrics),
         _pending_receipt_ledger_check(pending_metrics),
         _review_receipt_ledger_check(metrics),
+        _contradiction_receipt_ledger_check(metrics),
         _pending_age_check(pending_metrics["pending_oldest_age_seconds"]),
         _aggregate_check(
             "item_scan",
@@ -676,6 +692,11 @@ def _memory_lifecycle_lane_once(brain_dir: Path) -> ReadinessLane:
         or review_receipt_health.status in {"corrupt", "unavailable"}
     ):
         next_actions.append("memory review status --format json")
+    if (
+        contradiction_receipt_health.incomplete_count
+        or contradiction_receipt_health.status in {"corrupt", "unavailable"}
+    ):
+        next_actions.append("memory review cases --include-resolved --format json")
     if index_repair_required:
         next_actions.append("memory verify")
         if index_dirty_status == "repair_required":
@@ -802,6 +823,18 @@ def _lifecycle_generation_token(
             "runtime/pending-apply-receipts.jsonl",
             recursive=False,
             file_limit=MAX_PENDING_RECEIPT_LEDGER_BYTES,
+        )
+        add(
+            brain / "runtime" / "review-resolution-receipts.jsonl",
+            "runtime/review-resolution-receipts.jsonl",
+            recursive=False,
+            file_limit=16 * 1024 * 1024,
+        )
+        add(
+            brain / "runtime" / "contradiction-case-receipts.jsonl",
+            "runtime/contradiction-case-receipts.jsonl",
+            recursive=False,
+            file_limit=16 * 1024 * 1024,
         )
         add(brain / ".index-dirty", ".index-dirty", recursive=False)
         for suffix in _INDEX_COMPONENT_LIMITS:
@@ -1789,6 +1822,33 @@ def _review_receipt_ledger_check(metrics: dict[str, Any]) -> ReadinessCheck:
         evidence={
             "record_count": metrics["review_receipt_record_count"],
             "incomplete_count": incomplete,
+        },
+    )
+
+
+def _contradiction_receipt_ledger_check(
+    metrics: dict[str, Any],
+) -> ReadinessCheck:
+    ledger_status = str(metrics["contradiction_receipt_ledger_status"])
+    incomplete = int(metrics["contradiction_receipt_incomplete_count"])
+    if ledger_status in {"corrupt", "unavailable"}:
+        status = "fail"
+    elif incomplete:
+        status = "warn"
+    else:
+        status = "pass"
+    return ReadinessCheck(
+        "contradiction_receipt_ledger",
+        status,
+        "contradiction case receipt ledger",
+        f"status={ledger_status} incomplete={incomplete}",
+        evidence={
+            "record_count": metrics["contradiction_receipt_record_count"],
+            "incomplete_count": incomplete,
+            "completed_count": metrics["contradiction_receipt_completed_count"],
+            "rolled_back_count": metrics[
+                "contradiction_receipt_rolled_back_count"
+            ],
         },
     )
 

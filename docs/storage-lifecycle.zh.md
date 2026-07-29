@@ -131,6 +131,31 @@ completed receipt。receipt 位于 `runtime/review-resolution-receipts.jsonl`。
 矛盾检测的多个 pair 若共享 item，会合并为稳定的 connected-component Case；
 Case ID 由排序后的 item ID 集合派生，计划保留 pair 数、item 数、最高置信度与有界证据。
 
+### Case 级矛盾裁决
+
+先查看 Case，再对完整 Case 做一次裁决：
+
+```bash
+memory review cases --format json
+memory review resolve-case <case-id> --action coexist
+memory review resolve-case <case-id> --action coexist \
+  --expected-intent-sha256 <preview-intent> --apply
+```
+
+支持四种动作：
+
+- `select-authority --target-item-id <case-item>`：保留 Case 内一条权威记忆，其余条目指向它。
+- `merge --target-item-id <new-item>`：将 Case 全部条目替换为人工整理且位于 Case 外的新条目。
+- `coexist`：明确记录多个结论在其各自条件下允许并存。
+- `defer --defer-days <1..365>`：不改 Markdown，只把当前摘要集合暂缓到指定日期。
+
+preview intent 同时绑定动作、目标和 Case 涉及的全部 Markdown SHA-256。预览后任一条目
+变化都会阻断 apply；已裁决 Case 若内容变化也会自动重新开放。apply 前创建私有多条目
+Git 快照，并向 `runtime/contradiction-case-receipts.jsonl` 追加 prepared 与 terminal
+收据。若进程在 prepared 后中断，readiness 会告警，使用
+`memory review recover-case <transaction-id>` 预览，再加 `--apply` 恢复快照。账本损坏、
+不可读或含未恢复事务时，新 Case 裁决失败关闭。
+
 CLI 退出码：
 
 | 退出码 | 含义 |

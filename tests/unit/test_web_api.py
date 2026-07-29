@@ -617,7 +617,7 @@ class TestApiDocsRoutes:
         data = resp.json()
         paths = {route["path"] for route in data["routes"]}
         assert data["total"] == len(data["routes"])
-        assert data["total"] == 116
+        assert data["total"] == 119
         assert "/api/data-flow" in paths
         assert "/api/chain-logs" in paths
         assert "/api/chain-logs/{chain_id}" in paths
@@ -629,6 +629,9 @@ class TestApiDocsRoutes:
         assert "/api/adapters/{name}/release" in paths
         assert "/api/governance/lifecycle-review" in paths
         assert "/api/governance/lifecycle-apply" in paths
+        assert "/api/governance/contradiction-cases" in paths
+        assert "/api/governance/contradiction-cases/{case_id}/resolve" in paths
+        assert "/api/governance/contradiction-cases/recover" in paths
         assert "/api/memory-lineage" in paths
         assert "/api/auth/realtime-ticket" in paths
         assert "/ws/events" in paths
@@ -1902,6 +1905,87 @@ class TestGC:
 class TestLifecycleGovernanceAPI:
     def test_lifecycle_review_requires_admin(self, client: TestClient):
         assert client.get("/api/governance/lifecycle-review").status_code == 401
+
+    def test_contradiction_case_routes_preview_and_apply(
+        self,
+        client: TestClient,
+        admin_token: str,
+        brain_dir: Path,
+    ):
+        from agent_brain.memory.store.items_store import ItemsStore
+
+        store = ItemsStore(items_dir=brain_dir / "items")
+        first = MemoryItem(
+            id="mem-20260101-170001-web-react-case",
+            type=MemoryType.decision,
+            created_at=datetime.now(timezone.utc),
+            project="web-case-governance",
+            title="Frontend Framework Choice",
+            summary="Use React",
+            tags=["framework-choice"],
+        )
+        second = first.model_copy(
+            update={
+                "id": "mem-20260101-170002-web-vue-case",
+                "title": "Frontend Framework Choice Updated",
+                "summary": "Use Vue",
+            }
+        )
+        store.write(first, "We decided to use React for the frontend framework.")
+        store.write(second, "After evaluation, we chose Vue instead of React.")
+        headers = {"Authorization": f"Bearer {admin_token}"}
+
+        listed = client.get(
+            "/api/governance/contradiction-cases",
+            headers=headers,
+        )
+        case = listed.json()["cases"][0]
+        preview = client.post(
+            f"/api/governance/contradiction-cases/{case['case_id']}/resolve",
+            json={"action": "coexist"},
+            headers=headers,
+        )
+        applied = client.post(
+            f"/api/governance/contradiction-cases/{case['case_id']}/resolve",
+            json={
+                "action": "coexist",
+                "apply": True,
+                "expected_intent_sha256": preview.json()[
+                    "expected_intent_sha256"
+                ],
+            },
+            headers=headers,
+        )
+        resolved = client.get(
+            "/api/governance/contradiction-cases?include_resolved=true",
+            headers=headers,
+        )
+
+        assert listed.status_code == 200, listed.text
+        assert case["status"] == "open"
+        assert [item["id"] for item in case["items"]] == [first.id, second.id]
+        assert preview.status_code == 200, preview.text
+        assert preview.json()["status"] == "ready"
+        assert applied.status_code == 200, applied.text
+        assert applied.json()["status"] == "applied"
+        assert resolved.status_code == 200, resolved.text
+        assert resolved.json()["cases"][0]["status"] == "resolved"
+
+    def test_contradiction_case_routes_require_admin(
+        self,
+        client: TestClient,
+        admin_token: str,
+        user_token: str,
+    ):
+        assert (
+            client.get("/api/governance/contradiction-cases").status_code
+            == 401
+        )
+        response = client.get(
+            "/api/governance/contradiction-cases",
+            headers={"Authorization": f"Bearer {user_token}"},
+        )
+        assert response.status_code == 403
 
     def test_lifecycle_review_lists_read_only_queue(
         self,

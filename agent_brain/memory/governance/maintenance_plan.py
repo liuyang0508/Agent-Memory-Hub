@@ -475,6 +475,8 @@ def _command_for_action(action: AutoGovernanceAction | str) -> str:
         return "memory govern run --format json"
     if action_name == "review_low_confidence":
         return "memory review list --format json"
+    if action_name == "review_contradiction_case":
+        return "memory review cases --format json"
     if action_name.startswith("review_evolve_"):
         return "memory evolve --format json"
     if action_name.startswith("review_"):
