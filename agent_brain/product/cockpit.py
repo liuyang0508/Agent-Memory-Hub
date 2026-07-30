@@ -9,6 +9,7 @@ from typing import Any
 from agent_brain.agent_integrations.capabilities import AdapterCapability, capabilities_for_all
 from agent_brain.agent_integrations.runtime_events import iter_runtime_events
 from agent_brain.contracts.memory_item import MemoryItem
+from agent_brain.memory.governance.signal_state import assess_signal_state
 from agent_brain.memory.loops.loop_store import LoopStore
 from agent_brain.memory.loops.loop_types import LoopRun
 from agent_brain.memory.store.items_store import ItemsStore
@@ -58,10 +59,16 @@ def _handoff_pack(items: list[tuple[MemoryItem, str]], now: datetime) -> list[di
     candidates = [
         (item, body)
         for item, body in items
-        if _type(item) in {"signal", "handoff"}
-        or "handoff" in item.tags
-        or "blocker" in item.tags
-        or (_type(item) == "decision" and _age_days(item, now) <= 30)
+        if (
+            _type(item) != "signal"
+            or assess_signal_state(item, now=now).state == "open"
+        )
+        and (
+            _type(item) in {"signal", "handoff"}
+            or "handoff" in item.tags
+            or "blocker" in item.tags
+            or (_type(item) == "decision" and _age_days(item, now) <= 30)
+        )
     ]
     ranked = sorted(
         candidates,
@@ -82,7 +89,15 @@ def _key_decisions(items: list[tuple[MemoryItem, str]], now: datetime) -> list[d
 
 
 def _open_signals(items: list[tuple[MemoryItem, str]], now: datetime) -> list[dict[str, Any]]:
-    signals = [(item, body) for item, body in items if _type(item) in {"signal", "handoff"}]
+    signals = [
+        (item, body)
+        for item, body in items
+        if _type(item) == "handoff"
+        or (
+            _type(item) == "signal"
+            and assess_signal_state(item, now=now).state == "open"
+        )
+    ]
     ranked = sorted(
         signals,
         key=lambda pair: (_score_handoff(pair[0], pair[1], now), pair[0].created_at),
@@ -92,7 +107,12 @@ def _open_signals(items: list[tuple[MemoryItem, str]], now: datetime) -> list[di
 
 
 def _trust_risks(items: list[tuple[MemoryItem, str]], now: datetime) -> list[dict[str, Any]]:
-    cards = [_memory_card(item, body, now) for item, body in items]
+    cards = [
+        _memory_card(item, body, now)
+        for item, body in items
+        if _type(item) != "signal"
+        or assess_signal_state(item, now=now).state in {"open", "ambiguous"}
+    ]
     risks = [card for card in cards if card["risk_reasons"]]
     return sorted(
         risks,
@@ -246,6 +266,11 @@ def _timeline(brain_dir: Path) -> list[dict[str, str | None]]:
 
 
 def _memory_card(item: MemoryItem, body: str, now: datetime) -> dict[str, Any]:
+    signal_state = (
+        assess_signal_state(item, now=now).state
+        if _type(item) == "signal"
+        else None
+    )
     return {
         "id": item.id,
         "type": _type(item),
@@ -256,6 +281,7 @@ def _memory_card(item: MemoryItem, body: str, now: datetime) -> dict[str, Any]:
         "project": item.project,
         "tags": list(item.tags),
         "confidence": item.confidence,
+        "signal_state": signal_state,
         "detail_uri": item.context_views.detail_uri or f"memory://items/{item.id}/body",
         "retrieve_hint": item.context_views.locator or item.summary,
         "trust_reasons": _trust_reasons(item, body, now),
@@ -266,7 +292,10 @@ def _memory_card(item: MemoryItem, body: str, now: datetime) -> dict[str, Any]:
 def _trust_reasons(item: MemoryItem, body: str, now: datetime) -> list[str]:
     reasons: list[str] = []
     item_type = _type(item)
-    if item_type in {"signal", "handoff"}:
+    if item_type == "handoff" or (
+        item_type == "signal"
+        and assess_signal_state(item, now=now).state == "open"
+    ):
         reasons.append("open_signal")
     if item_type == "decision":
         reasons.append("decision")
@@ -300,6 +329,10 @@ def _risk_reasons(item: MemoryItem, body: str, now: datetime) -> list[str]:
         reasons.append("firewall_excluded")
     if item.superseded_by:
         reasons.append("superseded")
+    if _type(item) == "signal":
+        state = assess_signal_state(item, now=now)
+        if state.state == "ambiguous":
+            reasons.append("ambiguous_signal_state")
     return reasons
 
 

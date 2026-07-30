@@ -170,3 +170,55 @@ def test_review_case_cli_lists_previews_and_applies_coexistence(tmp_brain):
     assert (
         tmp_brain / "runtime" / "contradiction-case-receipts.jsonl"
     ).exists()
+
+
+def test_review_signal_cli_previews_and_applies_terminal_state(tmp_brain):
+    store = ItemsStore(tmp_brain / "items")
+    signal = MemoryItem(
+        id="mem-20260730-032000-cli-signal",
+        type=MemoryType.signal,
+        created_at=datetime.now(timezone.utc),
+        project="review-cli-signal",
+        title="CLI open blocker",
+        summary="Waiting for operator",
+        tags=["blocked", "pending"],
+    )
+    store.write(signal, "waiting")
+
+    preview = runner.invoke(
+        app,
+        [
+            "review",
+            "resolve-signal",
+            signal.id,
+            "--action",
+            "obsolete",
+            "--reason",
+            "test environment retired",
+        ],
+    )
+    preview_payload = json.loads(preview.output)
+    applied = runner.invoke(
+        app,
+        [
+            "review",
+            "resolve-signal",
+            signal.id,
+            "--action",
+            "obsolete",
+            "--reason",
+            "test environment retired",
+            "--expected-intent-sha256",
+            preview_payload["intent_sha256"],
+            "--apply",
+        ],
+    )
+    updated, _body = store.get(signal.id)
+
+    assert preview.exit_code == 0, preview.output
+    assert preview_payload["status"] == "ready"
+    assert applied.exit_code == 0, applied.output
+    assert json.loads(applied.output)["status"] == "applied"
+    assert updated.signal_state is not None
+    assert updated.signal_state.status == "obsolete"
+    assert (tmp_brain / "runtime" / "signal-state-receipts.jsonl").exists()

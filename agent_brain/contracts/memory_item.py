@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -92,6 +92,59 @@ class ContextViews(BaseModel):
     detail_uri: str = ""
 
 
+class SignalLifecycleState(BaseModel):
+    """Explicit operator-governed lifecycle state for a signal memory."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["open", "resolved", "obsolete", "deferred"] = "open"
+    changed_at: datetime | None = None
+    deferred_until: datetime | None = None
+    resolution_item_id: str | None = None
+    reason: str | None = Field(default=None, max_length=240)
+
+    @field_validator("changed_at", "deferred_until")
+    @classmethod
+    def _ensure_signal_state_tz_aware(cls, value: datetime | None) -> datetime | None:
+        if value is not None and value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value
+
+    @field_validator("resolution_item_id")
+    @classmethod
+    def _validate_resolution_item_id(cls, value: str | None) -> str | None:
+        if value is not None and not is_valid_memory_item_id(value):
+            raise ValueError("resolution_item_id must be a canonical MemoryItem ID")
+        return value
+
+    @field_validator("reason")
+    @classmethod
+    def _normalize_reason(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = " ".join(value.split())
+        if not normalized:
+            return None
+        if any(ord(char) < 32 for char in normalized):
+            raise ValueError("reason must not contain control characters")
+        return normalized
+
+    @model_validator(mode="after")
+    def _validate_signal_lifecycle(self) -> "SignalLifecycleState":
+        if self.status != "open" and self.changed_at is None:
+            raise ValueError("non-open signal state requires changed_at")
+        if self.status == "deferred":
+            if self.deferred_until is None:
+                raise ValueError("deferred signal state requires deferred_until")
+            if self.changed_at is not None and self.deferred_until <= self.changed_at:
+                raise ValueError("deferred_until must be later than changed_at")
+        elif self.deferred_until is not None:
+            raise ValueError("deferred_until is only allowed for deferred signal state")
+        if self.status != "resolved" and self.resolution_item_id is not None:
+            raise ValueError("resolution_item_id is only allowed for resolved signal state")
+        return self
+
+
 _ID_PATTERN = re.compile(r"^mem-\d{8}-\d{6}-[^\s/\\]{1,200}$")
 _ABSTRACTION_TO_MATURITY = {
     "L0": Maturity.raw,
@@ -137,6 +190,7 @@ class MemoryItem(BaseModel):
     context_views: ContextViews = Field(default_factory=ContextViews)
     source: Source = Field(default_factory=Source)
     validity: Validity = Field(default_factory=Validity)
+    signal_state: SignalLifecycleState | None = None
 
     # Reflect2Evolve: maturity counters
     support_count: int = 0
@@ -229,3 +283,10 @@ class MemoryItem(BaseModel):
                 context_views.setdefault("detail_uri", f"memory://items/{data['id']}/body")
             data["context_views"] = context_views
         return data
+
+    @model_validator(mode="after")
+    def _validate_signal_state_scope(self) -> "MemoryItem":
+        item_type = getattr(self.type, "value", self.type)
+        if self.signal_state is not None and str(item_type) != "signal":
+            raise ValueError("signal_state is only allowed on signal memories")
+        return self

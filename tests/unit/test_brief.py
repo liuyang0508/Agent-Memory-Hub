@@ -43,6 +43,35 @@ def test_brief_excludes_session_noise(tmp_path):
     assert brief.total_withheld == 0
 
 
+def test_brief_excludes_terminal_and_deferred_signals(tmp_path):
+    store = ItemsStore(items_dir=tmp_path / "items")
+    active = _seed(store, "signal", "active signal", "waiting")
+    now = datetime.now(timezone.utc)
+    for status in ("resolved", "obsolete", "deferred"):
+        item = MemoryItem(
+            id=make_item_id(f"{status} signal", when=now),
+            type=MemoryType.signal,
+            created_at=now,
+            title=f"{status} signal",
+            summary="governed state",
+            tags=[f"signal-{status}"],
+            signal_state={
+                "status": status,
+                "changed_at": now,
+                "deferred_until": (
+                    now + timedelta(days=7) if status == "deferred" else None
+                ),
+            },
+        )
+        store.write(item, "governed")
+
+    brief = build_brief(store, budget_tokens=1500)
+    ids = [item.id for tier in brief.tiers for item in tier.shown]
+
+    assert ids == [active.id]
+    assert brief.total_withheld == 3
+
+
 def test_brief_filters_gateway_forbidden_items_and_counts_withheld(tmp_path):
     store = ItemsStore(items_dir=tmp_path / "items")
     safe = _seed(store, "signal", "safe gateway signal", "safe summary")

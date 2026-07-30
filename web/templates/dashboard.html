@@ -2657,6 +2657,21 @@ function cockpitListHtml(items, emptyText, chipsKey = 'trust_reasons') {
   return items.map(item => cockpitItemHtml(item, chipsKey)).join('');
 }
 
+function cockpitSignalListHtml(items, emptyText) {
+  if (!items || !items.length) {
+    return `<div class="empty-state"><div class="empty-state-title">${escHtml(emptyText)}</div></div>`;
+  }
+  const isZh = LANG === 'zh';
+  return items.map(item => `
+    ${cockpitItemHtml(item)}
+    <div class="cockpit-actions" style="margin:-8px 0 14px 0">
+      <button class="btn-sm btn-green" onclick="transitionSignal('${jsString(item.id)}', 'resolve')">${isZh ? '标记已解决' : 'Resolve'}</button>
+      <button class="btn-sm" onclick="transitionSignal('${jsString(item.id)}', 'obsolete')">${isZh ? '标记已失效' : 'Obsolete'}</button>
+      <button class="btn-sm" onclick="transitionSignal('${jsString(item.id)}', 'defer', 7)">${isZh ? '暂缓 7 天' : 'Defer 7 days'}</button>
+    </div>
+  `).join('');
+}
+
 function adapterActionLabel(action) {
   const labels = {
     doctor: LANG === 'zh' ? 'Doctor' : 'Doctor',
@@ -3664,6 +3679,46 @@ async function resolveContradictionCase(caseId, action, targetItemId = '', defer
   }
 }
 
+async function transitionSignal(itemId, action, deferDays = null) {
+  const isZh = LANG === 'zh';
+  const body = { action };
+  if (deferDays) body.defer_days = deferDays;
+  if (action === 'resolve') {
+    const message = isZh
+      ? '可选：输入证明该问题已解决的 decision / artifact / fact / episode Memory ID；没有可留空。'
+      : 'Optional: enter a decision/artifact/fact/episode Memory ID that proves resolution.';
+    const resolutionItemId = (window.prompt(message) || '').trim();
+    if (resolutionItemId) body.resolution_item_id = resolutionItemId;
+  }
+  try {
+    const path = `/api/governance/signals/${encodeURIComponent(itemId)}/transition`;
+    const preview = await api(path, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+    if (preview.status !== 'ready') {
+      toast(`${itemId}: ${preview.reason || preview.status}`);
+      return;
+    }
+    const confirmText = isZh
+      ? `确认执行 ${action}？该操作绑定当前 Signal${body.resolution_item_id ? '及证明条目' : ''}的内容摘要，并保留可恢复回执。`
+      : `Apply ${action}? The current Signal${body.resolution_item_id ? ' and evidence item' : ''} digests will be bound to a recoverable receipt.`;
+    if (!window.confirm(confirmText)) return;
+    const applied = await api(path, {
+      method: 'POST',
+      body: JSON.stringify({
+        ...body,
+        apply: true,
+        expected_intent_sha256: preview.intent_sha256,
+      }),
+    });
+    toast(`${itemId}: ${applied.status || applied.reason}`);
+    await loadCockpit(document.getElementById('mainContent'));
+  } catch (e) {
+    toast(isZh ? 'Signal 状态治理失败' : 'Signal transition failed');
+  }
+}
+
 async function loadCockpit(el) {
   const isZh = LANG === 'zh';
   el.innerHTML = `<div class="empty-state"><div class="empty-state-title">${isZh ? '正在加载可信接力 Cockpit' : 'Loading Cockpit'}</div></div>`;
@@ -3765,7 +3820,8 @@ async function loadCockpit(el) {
         </section>
         <section class="cockpit-panel">
           <h2>Open Signals</h2>
-          ${cockpitListHtml(data.open_signals, isZh ? '暂无开放信号' : 'No open signals')}
+          <p class="cockpit-kicker">${isZh ? '终态会退出 brief 与接力上下文；暂缓到期后自动重新进入治理。' : 'Terminal states leave brief/handoff context; expired deferrals re-enter governance.'}</p>
+          ${cockpitSignalListHtml(data.open_signals, isZh ? '暂无开放信号' : 'No open signals')}
         </section>
         <section class="cockpit-panel">
           <h2>Trust & Risk Queue</h2>

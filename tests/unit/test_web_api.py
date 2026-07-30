@@ -614,7 +614,7 @@ class TestApiDocsRoutes:
         data = resp.json()
         paths = {route["path"] for route in data["routes"]}
         assert data["total"] == len(data["routes"])
-        assert data["total"] == 120
+        assert data["total"] == 122
         assert "/api/data-flow" in paths
         assert "/api/chain-logs" in paths
         assert "/api/chain-logs/{chain_id}" in paths
@@ -630,6 +630,8 @@ class TestApiDocsRoutes:
         assert "/api/governance/contradiction-cases/{case_id}/resolve" in paths
         assert "/api/governance/contradiction-cases/recover" in paths
         assert "/api/governance/contradiction-containment/recover" in paths
+        assert "/api/governance/signals/{item_id}/transition" in paths
+        assert "/api/governance/signals/recover" in paths
         assert "/api/memory-lineage" in paths
         assert "/api/auth/realtime-ticket" in paths
         assert "/ws/events" in paths
@@ -1981,6 +1983,71 @@ class TestLifecycleGovernanceAPI:
         )
         response = client.get(
             "/api/governance/contradiction-cases",
+            headers={"Authorization": f"Bearer {user_token}"},
+        )
+        assert response.status_code == 403
+
+    def test_signal_transition_route_preview_and_apply(
+        self,
+        client: TestClient,
+        admin_token: str,
+        brain_dir: Path,
+    ):
+        from agent_brain.memory.store.items_store import ItemsStore
+
+        store = ItemsStore(items_dir=brain_dir / "items")
+        signal = MemoryItem(
+            id="mem-20260730-031000-web-signal-transition",
+            type=MemoryType.signal,
+            created_at=datetime.now(timezone.utc),
+            project="web-signal-governance",
+            title="Open production blocker",
+            summary="Waiting for operator action",
+            tags=["blocked", "pending"],
+        )
+        store.write(signal, "waiting")
+        headers = {"Authorization": f"Bearer {admin_token}"}
+        path = f"/api/governance/signals/{signal.id}/transition"
+
+        preview = client.post(
+            path,
+            json={"action": "obsolete", "reason": "environment retired"},
+            headers=headers,
+        )
+        applied = client.post(
+            path,
+            json={
+                "action": "obsolete",
+                "reason": "environment retired",
+                "apply": True,
+                "expected_intent_sha256": preview.json()["intent_sha256"],
+            },
+            headers=headers,
+        )
+        updated, _body = store.get(signal.id)
+
+        assert preview.status_code == 200, preview.text
+        assert preview.json()["status"] == "ready"
+        assert applied.status_code == 200, applied.text
+        assert applied.json()["status"] == "applied"
+        assert applied.json()["signal_state"] == "obsolete"
+        assert updated.signal_state is not None
+        assert updated.signal_state.status == "obsolete"
+
+    def test_signal_transition_route_requires_admin(
+        self,
+        client: TestClient,
+        user_token: str,
+    ):
+        path = (
+            "/api/governance/signals/"
+            "mem-20260730-031001-web-signal-admin/transition"
+        )
+
+        assert client.post(path, json={"action": "obsolete"}).status_code == 401
+        response = client.post(
+            path,
+            json={"action": "obsolete"},
             headers={"Authorization": f"Bearer {user_token}"},
         )
         assert response.status_code == 403

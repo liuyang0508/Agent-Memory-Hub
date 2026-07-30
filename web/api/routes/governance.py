@@ -193,6 +193,92 @@ class ContradictionCaseRecoveryRequest(BaseModel):
         return self
 
 
+class SignalTransitionRequest(BaseModel):
+    action: Literal["resolve", "obsolete", "defer", "reopen"]
+    resolution_item_id: str | None = None
+    defer_days: int | None = None
+    reason: str | None = Field(default=None, max_length=240)
+    apply: bool = False
+    expected_intent_sha256: str | None = None
+
+    @model_validator(mode="after")
+    def validate_transition_arguments(self) -> SignalTransitionRequest:
+        from agent_brain.contracts.memory_item import is_valid_memory_item_id
+
+        if self.resolution_item_id is not None and (
+            self.action != "resolve"
+            or not is_valid_memory_item_id(self.resolution_item_id)
+        ):
+            raise ValueError(
+                "resolution_item_id is only valid for resolve and must be canonical"
+            )
+        if self.action == "defer":
+            if type(self.defer_days) is not int or not 1 <= self.defer_days <= 365:
+                raise ValueError("defer_days must be between 1 and 365")
+        elif self.defer_days is not None:
+            raise ValueError("defer_days is only valid for defer")
+        if self.apply and (
+            self.expected_intent_sha256 is None
+            or re.fullmatch(r"[0-9a-f]{64}", self.expected_intent_sha256) is None
+        ):
+            raise ValueError("apply requires expected_intent_sha256 from preview")
+        return self
+
+
+@router.post("/api/governance/signals/{item_id}/transition")
+async def signal_transition(
+    item_id: str,
+    req: SignalTransitionRequest,
+    user: CurrentUser = Depends(get_current_user),
+) -> dict[str, object]:
+    """Preview or apply one Signal lifecycle transition. Admin only."""
+    if not user.is_admin:
+        raise HTTPException(status_code=403, detail="admin only")
+
+    from agent_brain.contracts.memory_item import is_valid_memory_item_id
+    from agent_brain.memory.governance.signal_resolution import (
+        transition_signal_state,
+    )
+
+    if not is_valid_memory_item_id(item_id):
+        raise HTTPException(status_code=400, detail="invalid signal item id")
+    store, index, _, _ = _components()
+    return transition_signal_state(
+        brain_dir=_brain_dir(),
+        store=store,
+        item_id=item_id,
+        action=req.action,
+        apply=req.apply,
+        expected_intent_sha256=req.expected_intent_sha256,
+        resolution_item_id=req.resolution_item_id,
+        defer_days=req.defer_days,
+        reason=req.reason,
+        index=index if req.apply else None,
+    ).to_dict()
+
+
+@router.post("/api/governance/signals/recover")
+async def signal_transition_recover(
+    req: ContradictionCaseRecoveryRequest,
+    user: CurrentUser = Depends(get_current_user),
+) -> dict[str, object]:
+    """Preview or recover one incomplete Signal transition. Admin only."""
+    if not user.is_admin:
+        raise HTTPException(status_code=403, detail="admin only")
+
+    from agent_brain.memory.governance.signal_resolution import (
+        recover_signal_transaction,
+    )
+
+    store, _, _, _ = _components()
+    return recover_signal_transaction(
+        brain_dir=_brain_dir(),
+        store=store,
+        transaction_id=req.transaction_id,
+        apply=req.apply,
+    ).to_dict()
+
+
 @router.get("/api/governance/contradiction-cases")
 async def contradiction_cases(
     include_resolved: bool = Query(False),

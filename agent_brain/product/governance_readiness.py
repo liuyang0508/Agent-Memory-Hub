@@ -44,6 +44,9 @@ from agent_brain.memory.governance.contradiction_resolution import (
     read_contradiction_receipt_health,
 )
 from agent_brain.memory.governance.signal_state import assess_signal_state
+from agent_brain.memory.governance.signal_resolution import (
+    read_signal_receipt_health,
+)
 from agent_brain.memory.governance.review_transactions import (
     read_review_receipt_health,
 )
@@ -462,6 +465,7 @@ def _memory_lifecycle_lane_once(brain_dir: Path) -> ReadinessLane:
     low_confidence_terminal_count = 0
     low_confidence_dispositions: Counter[str] = Counter()
     signal_state_inconsistent_count = 0
+    signal_state_counts: Counter[str] = Counter()
     untagged_count = 0
     raw_count = 0
     private_or_secret_count = 0
@@ -469,7 +473,11 @@ def _memory_lifecycle_lane_once(brain_dir: Path) -> ReadinessLane:
         item_type = str(memory_enum_value(item.type))
         by_type[item_type] = by_type.get(item_type, 0) + 1
         try:
-            if item_type in {"signal", "handoff"} and (now - item.created_at).days > 30:
+            active_lifecycle_item = item_type == "handoff" or (
+                item_type == "signal"
+                and assess_signal_state(item, now=now).state == "open"
+            )
+            if active_lifecycle_item and (now - item.created_at).days > 30:
                 legacy_stale_signal_count += 1
         except (OverflowError, TypeError, ValueError):
             item_scan_unavailable = True
@@ -491,8 +499,11 @@ def _memory_lifecycle_lane_once(brain_dir: Path) -> ReadinessLane:
                 low_confidence_count += 1
             else:
                 low_confidence_terminal_count += 1
-        if item_type == "signal" and not assess_signal_state(item).consistent:
-            signal_state_inconsistent_count += 1
+        if item_type == "signal":
+            signal_assessment = assess_signal_state(item, now=now)
+            signal_state_counts[signal_assessment.state] += 1
+            if not signal_assessment.consistent:
+                signal_state_inconsistent_count += 1
         if not item.tags:
             untagged_count += 1
         if (
@@ -520,6 +531,7 @@ def _memory_lifecycle_lane_once(brain_dir: Path) -> ReadinessLane:
     review_receipt_health = read_review_receipt_health(brain)
     contradiction_receipt_health = read_contradiction_receipt_health(brain)
     containment_receipt_health = read_containment_receipt_health(brain)
+    signal_receipt_health = read_signal_receipt_health(brain)
     index_projection = _read_index_projection_readonly(brain / "index.db")
     index_health = _build_index_health_from_snapshots(
         brain,
@@ -581,6 +593,12 @@ def _memory_lifecycle_lane_once(brain_dir: Path) -> ReadinessLane:
         "containment_receipt_rolled_back_count": (
             containment_receipt_health.rolled_back_count
         ),
+        "signal_receipt_ledger_status": signal_receipt_health.status,
+        "signal_receipt_record_count": signal_receipt_health.record_count,
+        "signal_receipt_incomplete_count": signal_receipt_health.incomplete_count,
+        "signal_receipt_completed_count": signal_receipt_health.completed_count,
+        "signal_receipt_rolled_back_count": signal_receipt_health.rolled_back_count,
+        "signal_state_counts": dict(sorted(signal_state_counts.items())),
         "signal_state_inconsistent_count": signal_state_inconsistent_count,
         "untagged_count": untagged_count,
         "raw_count": raw_count,
@@ -652,6 +670,7 @@ def _memory_lifecycle_lane_once(brain_dir: Path) -> ReadinessLane:
         _review_receipt_ledger_check(metrics),
         _contradiction_receipt_ledger_check(metrics),
         _containment_receipt_ledger_check(metrics),
+        _signal_receipt_ledger_check(metrics),
         _pending_age_check(pending_metrics["pending_oldest_age_seconds"]),
         _aggregate_check(
             "item_scan",
@@ -718,6 +737,11 @@ def _memory_lifecycle_lane_once(brain_dir: Path) -> ReadinessLane:
         or containment_receipt_health.status in {"corrupt", "unavailable"}
     ):
         next_actions.append("memory review recover-containment <transaction-id>")
+    if (
+        signal_receipt_health.incomplete_count
+        or signal_receipt_health.status in {"corrupt", "unavailable"}
+    ):
+        next_actions.append("memory review recover-signal <transaction-id>")
     if index_repair_required:
         next_actions.append("memory verify")
         if index_dirty_status == "repair_required":
@@ -860,6 +884,12 @@ def _lifecycle_generation_token(
         add(
             brain / "runtime" / "contradiction-containment-receipts.jsonl",
             "runtime/contradiction-containment-receipts.jsonl",
+            recursive=False,
+            file_limit=16 * 1024 * 1024,
+        )
+        add(
+            brain / "runtime" / "signal-state-receipts.jsonl",
+            "runtime/signal-state-receipts.jsonl",
             recursive=False,
             file_limit=16 * 1024 * 1024,
         )
@@ -1903,6 +1933,29 @@ def _containment_receipt_ledger_check(
             "rolled_back_count": metrics[
                 "containment_receipt_rolled_back_count"
             ],
+        },
+    )
+
+
+def _signal_receipt_ledger_check(metrics: dict[str, Any]) -> ReadinessCheck:
+    ledger_status = str(metrics["signal_receipt_ledger_status"])
+    incomplete = int(metrics["signal_receipt_incomplete_count"])
+    if ledger_status in {"corrupt", "unavailable"}:
+        status = "fail"
+    elif incomplete:
+        status = "warn"
+    else:
+        status = "pass"
+    return ReadinessCheck(
+        "signal_receipt_ledger",
+        status,
+        "signal state receipt ledger",
+        f"status={ledger_status} incomplete={incomplete}",
+        evidence={
+            "record_count": metrics["signal_receipt_record_count"],
+            "incomplete_count": incomplete,
+            "completed_count": metrics["signal_receipt_completed_count"],
+            "rolled_back_count": metrics["signal_receipt_rolled_back_count"],
         },
     )
 

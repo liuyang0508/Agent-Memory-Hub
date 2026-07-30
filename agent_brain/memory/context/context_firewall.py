@@ -50,6 +50,7 @@ from agent_brain.memory.context.context_firewall_types import (
 from agent_brain.memory.context.context_packing import pack_decisions
 from agent_brain.memory.context.injection_query_context import InjectionQueryContext
 from agent_brain.memory.context.query_signal import QuerySignal, analyze_injection_query
+from agent_brain.memory.governance.signal_state import assess_signal_state
 from agent_brain.memory.governance.temporal_state import TemporalStateGate
 from agent_brain.platform.bounded_jsonl import MAX_SAFE_INTEGER
 
@@ -409,6 +410,18 @@ class ContextFirewall:
         if item.superseded_by:
             reasons.append("superseded")
             return FirewallDecision(candidate, "exclude", tuple(reasons), base_score, 0.0)
+
+        if item_type == "signal":
+            signal_state = assess_signal_state(item, now=self.now).state
+            if signal_state in {"resolved", "obsolete", "deferred"}:
+                reasons.append(f"{signal_state}_signal")
+                return FirewallDecision(
+                    candidate,
+                    "exclude",
+                    tuple(reasons),
+                    base_score,
+                    0.0,
+                )
 
         if REVIEW_REQUIRED_TAGS & {tag.lower() for tag in item.tags}:
             reasons.append("requires_review")

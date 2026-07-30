@@ -211,6 +211,21 @@ append-only receipt ledger support explicit recovery with
 `memory review recover-case TRANSACTION`; interrupted containment uses
 `memory review recover-containment TRANSACTION`.
 
+Open `signal` memories have a separate terminal-state transaction instead of
+being archived or edited by hand. Preview
+`memory review resolve-signal ID --action resolve` (or `obsolete`, `defer`,
+`reopen`), then apply with the emitted `--expected-intent-sha256`. `resolve`
+may bind a same-project decision/artifact/fact/episode via
+`--resolution-item-id`; `defer` requires `--defer-days 1..365`. The item and
+optional resolution evidence digests are locked into a private snapshot plus
+prepared/completed receipt in `runtime/signal-state-receipts.jsonl`. Explicitly
+resolved, obsolete, and not-yet-expired deferred signals leave brief, context
+injection, and Cockpit handoff queues; an expired deferral becomes open again
+and is flagged for lifecycle normalization. Recover interrupted transitions
+with `memory review recover-signal TRANSACTION`. Web Admin exposes the same
+preview/apply contract at
+`POST /api/governance/signals/{item_id}/transition`.
+
 `memory sync-pending` also defaults to preview. Use `--summary-only` when you
 only need classification, blocker reason, lock-hygiene, or batch counts and do
 not want titles, summaries, paths, or record IDs in the output. Record replay

@@ -51,6 +51,7 @@ EXIT_INVALID_INPUT = 3
 IMPLEMENTATION_PATHS = (
     "agent_brain/agent_integrations/hermes/import_export_tools.py",
     "agent_brain/agent_integrations/hermes/item_tools.py",
+    "agent_brain/contracts/memory_item.py",
     "agent_brain/contracts/resource.py",
     "agent_brain/interfaces/cli/commands/crud.py",
     "agent_brain/interfaces/cli/commands/gc.py",
@@ -67,6 +68,7 @@ IMPLEMENTATION_PATHS = (
     "agent_brain/memory/evidence/import_service.py",
     "agent_brain/memory/evidence/integrations/obsidian.py",
     "agent_brain/memory/evidence/resource_store.py",
+    "agent_brain/memory/context/context_firewall.py",
     "agent_brain/memory/governance/auto_governance.py",
     "agent_brain/memory/governance/confidence_review.py",
     "agent_brain/memory/governance/contradiction_cases.py",
@@ -84,6 +86,7 @@ IMPLEMENTATION_PATHS = (
     "agent_brain/memory/governance/pending_receipts.py",
     "agent_brain/memory/governance/review_queue.py",
     "agent_brain/memory/governance/review_transactions.py",
+    "agent_brain/memory/governance/signal_resolution.py",
     "agent_brain/memory/governance/signal_state.py",
     "agent_brain/memory/governance/supersession.py",
     "agent_brain/memory/store/durable_fs.py",
@@ -96,7 +99,9 @@ IMPLEMENTATION_PATHS = (
     "agent_brain/platform/indexing/index_schema.py",
     "agent_brain/platform/indexing/index_writer.py",
     "agent_brain/product/governance_readiness.py",
+    "agent_brain/product/cockpit.py",
     "web/api/routes/governance.py",
+    "web/templates/dashboard.html",
     "scripts/generate-lifecycle-governance-report.py",
 )
 REQUIRED_SUPERSESSION_CASES = {

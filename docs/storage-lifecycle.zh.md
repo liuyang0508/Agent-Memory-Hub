@@ -162,6 +162,42 @@ Git 快照，并向 `runtime/contradiction-case-receipts.jsonl` 追加 prepared 
 `memory review recover-case <transaction-id>` 预览，再加 `--apply` 恢复快照。账本损坏、
 不可读或含未恢复事务时，新 Case 裁决失败关闭。
 
+### Signal 终态治理
+
+开放 Signal 不再通过直接改标签或归档来“消失”。先预览，再绑定当前摘要应用：
+
+```bash
+memory review resolve-signal <signal-id> --action resolve
+memory review resolve-signal <signal-id> --action resolve \
+  --resolution-item-id <decision-or-artifact-id> \
+  --expected-intent-sha256 <preview-intent> --apply
+```
+
+动作语义：
+
+- `resolve`：问题已解决；可绑定同 tenant、同 project 的
+  decision / artifact / fact / episode 作为证明。
+- `obsolete`：信号已失效，不代表问题被解决。
+- `defer --defer-days <1..365>`：在期限内退出接力上下文，到期自动重新开放并进入一致性治理。
+- `reopen`：把 resolved / obsolete / deferred Signal 重新置为开放。
+
+显式 resolved、obsolete 和未到期 deferred Signal 会退出 brief、上下文注入、Cockpit
+开放信号与 handoff pack。历史标签仍可读取；正文与标签冲突的模糊状态不会被猜测性关闭，
+而是继续可见并进入 readiness 告警。
+
+事务 intent 绑定 Signal Markdown SHA-256、动作、理由、暂缓天数，以及可选证明条目的
+ID 与 SHA-256。apply 创建私有快照，并在
+`runtime/signal-state-receipts.jsonl` 追加 prepared / completed 或 rolled_back 回执。
+预览后任一绑定内容变化都会阻断 apply；中断事务使用：
+
+```bash
+memory review recover-signal <transaction-id>
+memory review recover-signal <transaction-id> --apply
+```
+
+Web Admin 使用相同的 preview/apply 合约：
+`POST /api/governance/signals/{item_id}/transition`。
+
 CLI 退出码：
 
 | 退出码 | 含义 |

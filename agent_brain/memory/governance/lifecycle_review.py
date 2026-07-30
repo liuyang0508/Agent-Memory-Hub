@@ -467,7 +467,7 @@ def _archive_action(
             not in active_lifecycle_deferrals(brain_dir, now=current)
             and (
                 lifecycle_review_due(item, now=current)
-                or not assess_signal_state(item).consistent
+                or not assess_signal_state(item, now=current).consistent
             )
         ),
         index=index,

@@ -171,6 +171,31 @@ def test_cockpit_summary_buckets_items_and_keeps_traceability(tmp_path: Path) ->
     )
 
 
+def test_cockpit_excludes_governed_terminal_signal(tmp_path: Path) -> None:
+    from agent_brain.product.cockpit import build_cockpit_summary
+
+    now = datetime(2026, 6, 21, 8, 0, tzinfo=timezone.utc)
+    store = ItemsStore(tmp_path / "items")
+    terminal = MemoryItem(
+        id="mem-20260621-080000-terminal-signal",
+        type=MemoryType.signal,
+        title="Resolved blocker",
+        summary="No longer active",
+        created_at=now,
+        tags=["signal-resolved", "blocker"],
+        signal_state={
+            "status": "resolved",
+            "changed_at": now,
+        },
+    )
+    _write(store, terminal, "resolved")
+
+    payload = build_cockpit_summary(tmp_path, now=now)
+
+    assert payload["open_signals"] == []
+    assert payload["handoff_pack"] == []
+
+
 def test_cockpit_summary_includes_runtime_timeline(tmp_path: Path) -> None:
     from agent_brain.agent_integrations.runtime_events import record_runtime_event
     from agent_brain.product.cockpit import build_cockpit_summary

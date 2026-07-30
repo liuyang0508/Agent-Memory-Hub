@@ -270,6 +270,84 @@ def review_cases(
     console.print(table)
 
 
+@review_app.command(name="resolve-signal")
+def review_resolve_signal(
+    item_id: str = typer.Argument(..., help="Signal memory ID or prefix"),
+    action: str = typer.Option(
+        ...,
+        "--action",
+        help="resolve, obsolete, defer, or reopen",
+    ),
+    resolution_item_id: str | None = typer.Option(
+        None,
+        "--resolution-item-id",
+        help="Decision/artifact/fact/episode memory proving resolution",
+    ),
+    defer_days: int | None = typer.Option(None, "--defer-days"),
+    reason: str | None = typer.Option(None, "--reason"),
+    apply: bool = typer.Option(False, "--apply", help="Apply exact preview intent"),
+    expected_intent_sha256: str | None = typer.Option(
+        None,
+        "--expected-intent-sha256",
+        help="Exact intent digest emitted by preview; required with --apply",
+    ),
+) -> None:
+    """Preview or apply one recoverable Signal lifecycle transition."""
+    from agent_brain.memory.governance.signal_resolution import (
+        SignalTransitionAction,
+        transition_signal_state,
+    )
+
+    if action not in {"resolve", "obsolete", "defer", "reopen"}:
+        typer.echo(
+            "--action must be resolve, obsolete, defer, or reopen",
+            err=True,
+        )
+        raise typer.Exit(2)
+    if apply and (
+        expected_intent_sha256 is None
+        or re.fullmatch(r"[0-9a-f]{64}", expected_intent_sha256) is None
+    ):
+        typer.echo(
+            "--apply requires --expected-intent-sha256 from preview",
+            err=True,
+        )
+        raise typer.Exit(2)
+    store = _store_only()
+    item_id = _resolve_id(store, item_id)
+    if resolution_item_id is not None:
+        resolution_item_id = _resolve_id(store, resolution_item_id)
+    typed_action: SignalTransitionAction
+    if action == "resolve":
+        typed_action = "resolve"
+    elif action == "obsolete":
+        typed_action = "obsolete"
+    elif action == "defer":
+        typed_action = "defer"
+    else:
+        typed_action = "reopen"
+    index = HubIndex(db_path=_brain_dir() / "index.db") if apply else None
+    try:
+        result = transition_signal_state(
+            brain_dir=_brain_dir(),
+            store=store,
+            item_id=item_id,
+            action=typed_action,
+            apply=apply,
+            expected_intent_sha256=expected_intent_sha256,
+            resolution_item_id=resolution_item_id,
+            defer_days=defer_days,
+            reason=reason,
+            index=index,
+        )
+    finally:
+        if index is not None:
+            index.close()
+    typer.echo(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
+    if result.status in {"blocked", "failed"}:
+        raise typer.Exit(1)
+
+
 @review_app.command(name="resolve-case")
 def review_resolve_case(
     case_id: str = typer.Argument(..., help="Stable contradiction case ID"),
@@ -397,6 +475,35 @@ def review_recover_containment(
         )
         raise typer.Exit(2)
     result = recover_containment_transaction(
+        brain_dir=_brain_dir(),
+        store=_store_only(),
+        transaction_id=transaction_id,
+        apply=apply,
+    )
+    typer.echo(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
+    if result.status == "blocked":
+        raise typer.Exit(1)
+
+
+@review_app.command(name="recover-signal")
+def review_recover_signal(
+    transaction_id: str = typer.Argument(
+        ..., help="Incomplete Signal transition transaction ID"
+    ),
+    apply: bool = typer.Option(False, "--apply"),
+) -> None:
+    """Preview or restore one incomplete Signal transition."""
+    from agent_brain.memory.governance.signal_resolution import (
+        recover_signal_transaction,
+    )
+
+    if re.fullmatch(r"[0-9a-f]{32}", transaction_id) is None:
+        typer.echo(
+            "transaction_id must be 32 lowercase hexadecimal characters",
+            err=True,
+        )
+        raise typer.Exit(2)
+    result = recover_signal_transaction(
         brain_dir=_brain_dir(),
         store=_store_only(),
         transaction_id=transaction_id,
@@ -572,10 +679,13 @@ __all__ = [
     "review_cases",
     "review_list",
     "review_recover_case",
+    "review_recover_containment",
+    "review_recover_signal",
     "review_reject",
     "review_reject_many",
     "review_resolve",
     "review_resolve_case",
+    "review_resolve_signal",
     "review_status",
 ]
 

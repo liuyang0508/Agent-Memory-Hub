@@ -4,6 +4,7 @@ from agent_brain.contracts.memory_item import (
     MemoryItem,
     MemoryType,
     Sensitivity,
+    SignalLifecycleState,
     Validity,
     is_valid_memory_item_id,
 )
@@ -40,6 +41,7 @@ __all__ = [
     "ResourceKind",
     "ResourceRecord",
     "Sensitivity",
+    "SignalLifecycleState",
     "Validity",
     "is_valid_memory_item_id",
     "make_extraction_id",

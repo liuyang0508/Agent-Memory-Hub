@@ -96,6 +96,8 @@ EXPECTED_ROUTES = {
     "POST /api/governance/contradiction-cases/{case_id}/resolve",
     "POST /api/governance/contradiction-cases/recover",
     "POST /api/governance/contradiction-containment/recover",
+    "POST /api/governance/signals/{item_id}/transition",
+    "POST /api/governance/signals/recover",
     "POST /api/import",
     "POST /api/headroom/compress",
     "POST /api/hierarchical-memory/build",

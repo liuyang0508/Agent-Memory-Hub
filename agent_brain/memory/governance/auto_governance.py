@@ -72,6 +72,10 @@ def lifecycle_review_due(item: MemoryItem, *, now: datetime) -> bool:
     stale_after_days = _LIFECYCLE_STALE_DAYS.get(item_type)
     if stale_after_days is None or item.superseded_by:
         return False
+    if item_type == "signal":
+        assessment = assess_signal_state(item, now=now)
+        if assessment.state in {"resolved", "obsolete", "deferred"}:
+            return False
     observed_at = item.validity.observed_at or item.created_at
     return bool(max(0, (now - observed_at).days) > stale_after_days)
 
@@ -477,7 +481,7 @@ class AutoGovernanceCycle:
         for item, _body in items:
             if item.id in (skip_item_ids or set()):
                 continue
-            assessment = assess_signal_state(item)
+            assessment = assess_signal_state(item, now=self.now)
             if assessment.consistent:
                 continue
             actions.append(

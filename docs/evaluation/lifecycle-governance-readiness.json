@@ -14,7 +14,7 @@
     "observed_drift_count": 1,
     "status": "pass"
   },
-  "implementation_hash": "sha256:dfdca116b63770875432adc30a855012177b5aacc64fa5e4db6d66e5f8062f11",
+  "implementation_hash": "sha256:67b393f7fbfadc43321eff67e21ad1ef5e58f06ab67152601fae4e2c5073aff8",
   "implementation_manifest": [
     {
       "path": "agent_brain/agent_integrations/hermes/import_export_tools.py",
@@ -23,6 +23,10 @@
     {
       "path": "agent_brain/agent_integrations/hermes/item_tools.py",
       "sha256": "sha256:0ca8070f30de9320fb957318df7f6ab45c69b3e2967351104962f774cea8268e"
+    },
+    {
+      "path": "agent_brain/contracts/memory_item.py",
+      "sha256": "sha256:b2ad0d2579e67539b3e965bab0ed509a37e4704718dfc0c6fe2ce9abf248d837"
     },
     {
       "path": "agent_brain/contracts/resource.py",
@@ -50,7 +54,7 @@
     },
     {
       "path": "agent_brain/interfaces/cli/commands/review.py",
-      "sha256": "sha256:5a9bbb52cf90f4edb91a1904124f3792cb4d8c3ef5bdd48620438dd108125292"
+      "sha256": "sha256:e413b1faa7c2559a39a8ad6d2eee79b0c58e50dfa254c3a997139384a91a05aa"
     },
     {
       "path": "agent_brain/interfaces/cli/commands/subapps.py",
@@ -89,8 +93,12 @@
       "sha256": "sha256:b743521762449a81e70b996d82d910c10df27dea06cd763b66efd1845c34117d"
     },
     {
+      "path": "agent_brain/memory/context/context_firewall.py",
+      "sha256": "sha256:9a97c000282f97f8b4d0ecce6cf35d8442ab2c56e693f2a8b84963038725256c"
+    },
+    {
       "path": "agent_brain/memory/governance/auto_governance.py",
-      "sha256": "sha256:11d62ff520f5bd06ce138f69f0f863b8d51313796b54ed366338085a2067aa6b"
+      "sha256": "sha256:4eccc1e8cd734f8c86269b9e02272c1b89a2f74985c870ff4586ba25ee0f3c84"
     },
     {
       "path": "agent_brain/memory/governance/confidence_review.py",
@@ -134,7 +142,7 @@
     },
     {
       "path": "agent_brain/memory/governance/lifecycle_review.py",
-      "sha256": "sha256:a834f3dc8aac4f785a357923b9a384bedccceb80f3b539b23c74c44971b3624e"
+      "sha256": "sha256:d5969713f5c4706ea5b41b9b969a7844bc05c26c7c91a1c5e3232a535aebd56c"
     },
     {
       "path": "agent_brain/memory/governance/lifecycle_snapshot.py",
@@ -157,8 +165,12 @@
       "sha256": "sha256:ee178e5caa885565a7ec3ab565c3a4b483101b890d7d91ab57893b6287b410e3"
     },
     {
+      "path": "agent_brain/memory/governance/signal_resolution.py",
+      "sha256": "sha256:c341baf61feb0e98fbcaf5fef05d4cb94c293977c64cac10bd81c205dd099047"
+    },
+    {
       "path": "agent_brain/memory/governance/signal_state.py",
-      "sha256": "sha256:d7e801bfba7daf5b6219c4c1f7989f0899a98562af124c39a42291abc854ab60"
+      "sha256": "sha256:b9d3ce33cc0b4aa5c432649c581922e9d88dcdb9bfc7f9b7c07009169fc02675"
     },
     {
       "path": "agent_brain/memory/governance/supersession.py",
@@ -202,15 +214,23 @@
     },
     {
       "path": "agent_brain/product/governance_readiness.py",
-      "sha256": "sha256:dd4d5f444eb1cc39bf9a0df836303147fd02376951831c88f488078ac80312c5"
+      "sha256": "sha256:5a70416fce2388a9ac2c2549ee0da406ff87fd1900dee3f3b8da9200c2d067cf"
+    },
+    {
+      "path": "agent_brain/product/cockpit.py",
+      "sha256": "sha256:ddb77069b510af642ae20fe96a8996f8a82cae427c24857a6ccab2b8c4f8d57a"
     },
     {
       "path": "web/api/routes/governance.py",
-      "sha256": "sha256:6ea30b243d2f36e13845752982119c3dd8eb98efbdec6db1e6cb8e00f272640b"
+      "sha256": "sha256:61d8a377d4d66dc1228d7310c0b0d21f856544981aaa8a27a30bf2767c4106e5"
+    },
+    {
+      "path": "web/templates/dashboard.html",
+      "sha256": "sha256:501fe08468d2a20181fd760883b743bca4992183febd1b71da62e2bd17db6879"
     },
     {
       "path": "scripts/generate-lifecycle-governance-report.py",
-      "sha256": "sha256:86f7858200705880fb048721c74d50877aebdcd872087b8f4c6639c027896605"
+      "sha256": "sha256:cb50dd963181a136903ca8d9488b597cfb1491712a7fb9b2e4f740cc2f1fa190"
     }
   ],
   "overall_status": "pending",

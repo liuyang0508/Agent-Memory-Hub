@@ -185,6 +185,12 @@ def test_dashboard_wires_cockpit_actions():
     assert "Generate Candidates" in text
     assert "Approve" in text
     assert "Reject" in text
+    assert "function cockpitSignalListHtml" in text
+    assert "function transitionSignal" in text
+    assert "/api/governance/signals/" in text
+    assert "expected_intent_sha256: preview.intent_sha256" in text
+    assert "标记已解决" in text
+    assert "暂缓 7 天" in text
 
 
 def test_dashboard_exposes_local_history_sync_panel():
