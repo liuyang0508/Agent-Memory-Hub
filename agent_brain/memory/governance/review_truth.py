@@ -37,6 +37,8 @@ class ReviewTruthSnapshot:
     active_review_candidate_sla_breach_count: int
     active_review_reason_counts: dict[str, int]
     active_review_type_counts: dict[str, int]
+    active_review_contested_count: int
+    active_review_contested_outside_low_confidence_count: int
     lifecycle_due_count: int
     lifecycle_due_oldest_age_seconds: int | None
     lifecycle_ledger_unavailable: bool
@@ -72,6 +74,11 @@ def build_review_truth_snapshot(
         ledger_unavailable = loaded_unavailable
 
     by_id = {item.id: item for item in item_snapshot}
+    contested_review_count = sum(
+        "contested" in {tag.casefold() for tag in item.tags}
+        for candidate in review.candidates
+        if (item := by_id.get(candidate.id)) is not None
+    )
     review_ages = [
         age
         for candidate in review.candidates
@@ -135,6 +142,11 @@ def build_review_truth_snapshot(
         ),
         active_review_reason_counts=dict(sorted(reason_counts.items())),
         active_review_type_counts=dict(sorted(type_counts.items())),
+        active_review_contested_count=contested_review_count,
+        active_review_contested_outside_low_confidence_count=max(
+            0,
+            contested_review_count - reason_counts.get("contested", 0),
+        ),
         lifecycle_due_count=len(lifecycle_ages),
         lifecycle_due_oldest_age_seconds=(
             max(lifecycle_ages) if lifecycle_ages else None

@@ -86,6 +86,18 @@ def test_dashboard_exposes_loop_contract_governance_panel():
     assert "data.loop_governance" in text
 
 
+def test_dashboard_exposes_content_free_review_evidence_closure():
+    text = DASH.read_text(encoding="utf-8")
+
+    assert "function cockpitReviewEvidenceHtml" in text
+    assert "/api/governance/review-evidence-plan?limit=100" in text
+    assert "provenance_recoverable_count" in text
+    assert "traceability_only_count" in text
+    assert "contested_unpaired_count" in text
+    assert "item_scan_unavailable_count" in text
+    assert "never locators, titles, summaries, or bodies" in text
+
+
 def test_dashboard_exposes_chain_log_workbench():
     text = DASH.read_text(encoding="utf-8")
 

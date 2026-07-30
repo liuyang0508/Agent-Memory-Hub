@@ -443,6 +443,27 @@ def review_truth(
     return build_review_truth_from_brain(_brain_dir()).to_dict()
 
 
+@router.get("/api/governance/review-evidence-plan")
+def review_evidence_plan(
+    limit: int = Query(100, ge=1, le=500),
+    user: CurrentUser = Depends(get_current_user),
+) -> dict[str, object]:
+    """Return a content-free evidence-closure plan for active review items."""
+    if not user.is_admin:
+        raise HTTPException(status_code=403, detail="admin only")
+
+    from agent_brain.memory.governance.review_evidence import (
+        build_review_evidence_plan,
+    )
+
+    store, _, _, _ = _components()
+    return build_review_evidence_plan(
+        _brain_dir(),
+        store=store,
+        limit=limit,
+    ).to_dict(include_locators=False)
+
+
 @router.post("/api/governance/lifecycle-apply")
 async def lifecycle_apply(
     req: LifecycleApplyRequest,

@@ -551,6 +551,18 @@ record/item ID 或正文；standalone GC 不生成 receipt。完整恢复步骤�
 全部保持 `review_required`。`memory review attach-source <id> --commit <sha>` 只补充
 文件、HTTPS URL、commit 或 memory 来源，不会自动提高 confidence 或移除 review 标签；
 核对证据后仍需显式 approve/reject。
+`memory review evidence-plan [id] --format json` 提供只读的
+`amh-review-evidence-plan/v1` 证据闭环预览：把当前 MemoryItem Markdown SHA-256
+与不含正文的来源元数据和 digest 绑定；本地核验 file、memory、resource、extraction
+和 commit，但不会联网抓 URL。计划会区分显式来源缺口、WriteService 已捕获且可修复的
+provenance，以及真正不可用的证据；同一 provenance root 的 resource/extraction
+只计一个独立来源。`write_input` sidecar 只能证明“当时提交过这些内容”，不能证明内容为真，
+因此会标为 `traceability_only`，绝不计入独立支持证据。带 `contested` 标记的活跃复核项会进入现有 contradiction Case，
+否则明确进入 `contested_unpaired`，不再因为 Case 数为 0 而隐形。预览不会修改记忆或
+confidence；管理员可从 `GET /api/governance/review-evidence-plan` 获取隐藏 locator
+的版本，Cockpit 只展示聚合数据。
+Review Truth 另外暴露独立的 `active_review_contested_count`，因此高于低置信阈值、
+但仍带 `contested` 标记的候选不会被 `explicit_review_tag` 单一原因桶遮住。
 需要可审计终态时，先执行 `memory review resolve <id> --action approve` 获取当前
 Markdown SHA-256，再带 `--expected-sha256 <digest> --apply`；apply 会在 item 锁内
 重新校验，并在变更前后追加 prepared/completed receipt。矛盾 finding 会按重叠 item

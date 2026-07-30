@@ -38,6 +38,7 @@ EXPECTED_ROUTES = {
     "GET /api/graph",
     "GET /api/graph/{item_id}",
     "GET /api/governance/lifecycle-review",
+    "GET /api/governance/review-evidence-plan",
     "GET /api/governance/review-truth",
     "GET /api/governance/contradiction-cases",
     "GET /api/health",

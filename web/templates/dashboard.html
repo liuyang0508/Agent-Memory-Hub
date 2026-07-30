@@ -3618,9 +3618,33 @@ function cockpitReviewTruthHtml(reviewTruth) {
     </div>
     <div class="cockpit-chips">
       ${reasons || `<span class="cockpit-chip">${isZh ? '暂无复核候选' : 'No review candidates'}</span>`}
+      <span class="cockpit-chip ${(reviewTruth.active_review_contested_count || 0) ? 'risk' : ''}">${isZh ? '争议标记' : 'contested tags'} ${escHtml(reviewTruth.active_review_contested_count || 0)}</span>
+      <span class="cockpit-chip">${isZh ? '高置信争议' : 'contested outside low-confidence'} ${escHtml(reviewTruth.active_review_contested_outside_low_confidence_count || 0)}</span>
       <span class="cockpit-chip ${statusClass}">${escHtml(reviewTruth.schema_version || 'amh-review-truth/v1')}</span>
     </div>
     <p class="cockpit-kicker" style="margin-top:12px">${isZh ? '复核候选与生命周期到期分别统计，CLI、API、Cockpit 与 readiness 共用同一判定规则。' : 'Review candidates and lifecycle-due items are separate metrics shared by CLI, API, Cockpit, and readiness.'}</p>`;
+}
+
+function cockpitReviewEvidenceHtml(evidencePlan) {
+  const isZh = LANG === 'zh';
+  if (!evidencePlan) {
+    return `<div class="cockpit-kicker" style="margin-top:12px">${isZh ? '证据闭环计划暂不可用。' : 'Evidence-closure plan is unavailable.'}</div>`;
+  }
+  const routingClass = evidencePlan.routing_status === 'healthy' ? '' : 'risk';
+  return `
+    <div class="cockpit-chips" style="margin-top:12px">
+      <span class="cockpit-chip">${isZh ? '证据可核验' : 'evidence available'} ${escHtml(evidencePlan.evidence_available_count || 0)}</span>
+      <span class="cockpit-chip ${(evidencePlan.source_gap_count || 0) ? 'risk' : ''}">${isZh ? '显式来源缺口' : 'explicit source gap'} ${escHtml(evidencePlan.source_gap_count || 0)}</span>
+      <span class="cockpit-chip">${isZh ? 'provenance 可修复' : 'provenance recoverable'} ${escHtml(evidencePlan.provenance_recoverable_count || 0)}</span>
+      <span class="cockpit-chip ${(evidencePlan.unresolved_source_gap_count || 0) ? 'risk' : ''}">${isZh ? '缺独立证据' : 'unresolved source gap'} ${escHtml(evidencePlan.unresolved_source_gap_count || 0)}</span>
+      <span class="cockpit-chip ${(evidencePlan.traceability_only_count || 0) ? 'risk' : ''}">${isZh ? '仅可追溯自证' : 'traceability only'} ${escHtml(evidencePlan.traceability_only_count || 0)}</span>
+      <span class="cockpit-chip ${(evidencePlan.evidence_unavailable_count || 0) ? 'risk' : ''}">${isZh ? '来源不可用' : 'unavailable'} ${escHtml(evidencePlan.evidence_unavailable_count || 0)}</span>
+      <span class="cockpit-chip ${(evidencePlan.item_scan_unavailable_count || 0) ? 'risk' : ''}">${isZh ? '条目读取异常' : 'item scan unavailable'} ${escHtml(evidencePlan.item_scan_unavailable_count || 0)}</span>
+      <span class="cockpit-chip">${isZh ? '已进 Case' : 'routed to case'} ${escHtml(evidencePlan.contested_case_count || 0)}</span>
+      <span class="cockpit-chip ${(evidencePlan.contested_unpaired_count || 0) ? 'risk' : ''}">${isZh ? '未配对争议' : 'unpaired contested'} ${escHtml(evidencePlan.contested_unpaired_count || 0)}</span>
+      <span class="cockpit-chip ${routingClass}">${escHtml(evidencePlan.schema_version || 'amh-review-evidence-plan/v1')}</span>
+    </div>
+    <p class="cockpit-kicker" style="margin-top:12px">${isZh ? '只展示来源状态与条目绑定 digest，不展示路径、URL、标题、摘要或正文；预览不会修改记忆和置信度。' : 'Shows only source status and binding digests, never locators, titles, summaries, or bodies; preview does not mutate memory or confidence.'}</p>`;
 }
 
 function contradictionCasesHtml(payload) {
@@ -3747,7 +3771,7 @@ async function loadCockpit(el) {
   const isZh = LANG === 'zh';
   el.innerHTML = `<div class="empty-state"><div class="empty-state-title">${isZh ? '正在加载可信接力 Cockpit' : 'Loading Cockpit'}</div></div>`;
   try {
-    const [data, onboarding, candidates, headroom, hierarchy, mlAdvisory, dataFlow, localHistory, localHistoryDrafts, contradictionCases] = await Promise.all([
+    const [data, onboarding, candidates, headroom, hierarchy, mlAdvisory, dataFlow, localHistory, localHistoryDrafts, contradictionCases, reviewEvidencePlan] = await Promise.all([
       api('/api/cockpit/summary'),
       api('/api/adapters/onboarding').catch(() => null),
       api('/api/memory-candidates').catch(() => null),
@@ -3758,6 +3782,7 @@ async function loadCockpit(el) {
       api('/api/agents/local-history').catch(() => null),
       api('/api/agents/local-history/drafts').catch(() => null),
       api('/api/governance/contradiction-cases').catch(() => null),
+      api('/api/governance/review-evidence-plan?limit=100').catch(() => null),
     ]);
     const health = { ...(data.adapter_health || {}) };
     if (onboarding) {
@@ -3819,6 +3844,7 @@ async function loadCockpit(el) {
           <h2>${isZh ? '复核真相' : 'Review Truth'}</h2>
           <p class="cockpit-kicker">${isZh ? '把低置信度/待复核候选与生命周期到期分开，避免“看板为 0、队列有数据”。' : 'Separates active review candidates from lifecycle-due items to prevent metric drift.'}</p>
           ${cockpitReviewTruthHtml(data.review_truth)}
+          ${cockpitReviewEvidenceHtml(reviewEvidencePlan)}
         </section>
         <section class="cockpit-panel wide">
           <h2>${isZh ? '矛盾 Case 治理' : 'Contradiction Case Governance'}</h2>

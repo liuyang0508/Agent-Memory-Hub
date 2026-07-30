@@ -574,6 +574,12 @@ def _memory_lifecycle_lane_once(brain_dir: Path) -> ReadinessLane:
         ),
         "active_review_reason_counts": review_truth.active_review_reason_counts,
         "active_review_type_counts": review_truth.active_review_type_counts,
+        "active_review_contested_count": (
+            review_truth.active_review_contested_count
+        ),
+        "active_review_contested_outside_low_confidence_count": (
+            review_truth.active_review_contested_outside_low_confidence_count
+        ),
         "lifecycle_due_count": review_truth.lifecycle_due_count,
         "lifecycle_due_oldest_age_seconds": (
             review_truth.lifecycle_due_oldest_age_seconds

@@ -14,7 +14,7 @@
     "observed_drift_count": 1,
     "status": "pass"
   },
-  "implementation_hash": "sha256:3c98d273fef663b42400f3f91c023a5099e2f490fdb65d1f8279755b951e0573",
+  "implementation_hash": "sha256:8b1ea59a9e62299cc739c1aa7ee690a8d05459b1c9a1b3ec0a71a7786808958d",
   "implementation_manifest": [
     {
       "path": "agent_brain/agent_integrations/hermes/import_export_tools.py",
@@ -54,7 +54,7 @@
     },
     {
       "path": "agent_brain/interfaces/cli/commands/review.py",
-      "sha256": "sha256:55253cd102c4672e3027bc99b2e0cc98679b2a1944f6b367584ea3511843701a"
+      "sha256": "sha256:19de3d8b6f3705f8208c3efa65b47d765e0f2cc8874bf535b0b7ae91503ffcf8"
     },
     {
       "path": "agent_brain/interfaces/cli/commands/subapps.py",
@@ -157,12 +157,16 @@
       "sha256": "sha256:5746d029bc9f95715a6aa837a80fc827a9a301d87ee07d2cf5ba4da14a054338"
     },
     {
+      "path": "agent_brain/memory/governance/review_evidence.py",
+      "sha256": "sha256:80a7625cb6f5084d0a20d18a7c63232dd548e19de8f21353ba68ca664cae5903"
+    },
+    {
       "path": "agent_brain/memory/governance/review_queue.py",
       "sha256": "sha256:ef27f12695f8d4cc5a18a533ba41f044dad0d636d1b654c0f1e37064f01be998"
     },
     {
       "path": "agent_brain/memory/governance/review_truth.py",
-      "sha256": "sha256:2cd44dc8a13966149f63ccd598084098e369e76ef94b3701788c76ef764cc38d"
+      "sha256": "sha256:f9169bae5f2086cc88f44a476ce663ff198c1f27e0c380661a615b0439420707"
     },
     {
       "path": "agent_brain/memory/governance/review_transactions.py",
@@ -190,7 +194,7 @@
     },
     {
       "path": "agent_brain/memory/store/items_store.py",
-      "sha256": "sha256:d77508a2c4b06f17996a2397e555414be03e57be332e3ab1ef9b288b174f2b02"
+      "sha256": "sha256:b66e78fc3385546f8f8843f3fd4d278e1c9fae0cd5b0fa01f9e5ef75c85bc4a9"
     },
     {
       "path": "agent_brain/memory/store/pending.py",
@@ -218,7 +222,7 @@
     },
     {
       "path": "agent_brain/product/governance_readiness.py",
-      "sha256": "sha256:2d37ec4c543b8a900a91edecd20b43f5d218a022f8ed8c94f48508a992eeca00"
+      "sha256": "sha256:63cbc58301232e72810112b193e3f6986e067b58e1ae4b80e1d38ae4f38c6401"
     },
     {
       "path": "agent_brain/product/cockpit.py",
@@ -226,15 +230,15 @@
     },
     {
       "path": "web/api/routes/governance.py",
-      "sha256": "sha256:8066e7c719f0ccd17a76b0984199275c9955e43b2c42701f30a21cc148364abf"
+      "sha256": "sha256:b909331f44116023d6037a5a10270a16cc22087018bd2f3e006cee8c86ec83c1"
     },
     {
       "path": "web/templates/dashboard.html",
-      "sha256": "sha256:19bc66553d0e63e357ba114acc5fd056fe1e665a00d548fbd51c8ad49706f5d1"
+      "sha256": "sha256:8cf1bd2f60181a8adb80a6cc51d30e94df9e1e8c2f83b9b4bbd44978af84e47a"
     },
     {
       "path": "scripts/generate-lifecycle-governance-report.py",
-      "sha256": "sha256:67b5fd74ce3e49a7d6fffcd4cfdbf801367f6b40e890c2dce473487f542b8e81"
+      "sha256": "sha256:bffaafb3a3f2afb564d6c8806a40b9c141d22459c63c05c7f8253a30f148e9d5"
     }
   ],
   "overall_status": "pending",

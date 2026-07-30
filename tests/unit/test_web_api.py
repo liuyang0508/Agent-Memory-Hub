@@ -233,6 +233,7 @@ def user_token(client: TestClient, admin_token: str) -> str:
     ("method", "path", "payload"),
     [
         ("GET", "/api/cockpit/summary", None),
+        ("GET", "/api/governance/review-evidence-plan", None),
         ("GET", "/api/governance/review-truth", None),
         ("GET", "/api/data-flow", None),
         ("GET", "/api/memory-lineage", None),
@@ -374,11 +375,73 @@ class TestReviewTruthAPI:
         assert payload["active_review_candidate_sla_breach_count"] == 1
         assert payload["active_review_reason_counts"] == {"source_gap": 1}
         assert payload["active_review_type_counts"] == {"decision": 1}
+        assert payload["active_review_contested_count"] == 0
+        assert (
+            payload["active_review_contested_outside_low_confidence_count"]
+            == 0
+        )
         assert payload["lifecycle_due_count"] == 1
         serialized = response.text
         assert "PRIVATE_REVIEW_TITLE_CANARY" not in serialized
         assert "PRIVATE_REVIEW_SUMMARY_CANARY" not in serialized
         assert "PRIVATE_REVIEW_BODY_CANARY" not in serialized
+
+
+class TestReviewEvidencePlanAPI:
+    def test_review_evidence_plan_requires_auth(self, client: TestClient):
+        assert (
+            client.get("/api/governance/review-evidence-plan").status_code
+            == 401
+        )
+
+    def test_review_evidence_plan_is_content_and_locator_free(
+        self,
+        client: TestClient,
+        admin_token: str,
+        brain_dir: Path,
+    ):
+        from agent_brain.contracts.memory_item import Refs, Validity
+        from agent_brain.memory.store.items_store import ItemsStore
+
+        source = brain_dir / "PRIVATE_SOURCE_LOCATOR_CANARY.md"
+        source.write_text("PRIVATE_SOURCE_CONTENT_CANARY", encoding="utf-8")
+        item = MemoryItem(
+            id="mem-20260730-160003-review-evidence-private",
+            type=MemoryType.decision,
+            created_at=datetime.now(timezone.utc),
+            project="review-evidence-api",
+            title="PRIVATE_EVIDENCE_TITLE_CANARY",
+            summary="PRIVATE_EVIDENCE_SUMMARY_CANARY",
+            confidence=0.35,
+            tags=["needs-review"],
+            sensitivity="private",
+            refs=Refs(files=[source.name]),
+            validity=Validity(repo=str(brain_dir)),
+        )
+        ItemsStore(brain_dir / "items").write(
+            item,
+            "PRIVATE_EVIDENCE_BODY_CANARY",
+        )
+
+        response = client.get(
+            "/api/governance/review-evidence-plan",
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["schema_version"] == "amh-review-evidence-plan/v1"
+        assert payload["evidence_available_count"] == 1
+        assert payload["mutates_memory"] is False
+        assert payload["mutates_confidence"] is False
+        assert payload["items"][0]["sources"][0]["availability"] == "verified"
+        assert "locator" not in payload["items"][0]["sources"][0]
+        serialized = response.text
+        assert "PRIVATE_SOURCE_LOCATOR_CANARY" not in serialized
+        assert "PRIVATE_SOURCE_CONTENT_CANARY" not in serialized
+        assert "PRIVATE_EVIDENCE_TITLE_CANARY" not in serialized
+        assert "PRIVATE_EVIDENCE_SUMMARY_CANARY" not in serialized
+        assert "PRIVATE_EVIDENCE_BODY_CANARY" not in serialized
 
 
 class TestAdapterOnboardingAPI:
@@ -675,7 +738,7 @@ class TestApiDocsRoutes:
         data = resp.json()
         paths = {route["path"] for route in data["routes"]}
         assert data["total"] == len(data["routes"])
-        assert data["total"] == 123
+        assert data["total"] == 124
         assert "/api/data-flow" in paths
         assert "/api/chain-logs" in paths
         assert "/api/chain-logs/{chain_id}" in paths
@@ -687,6 +750,7 @@ class TestApiDocsRoutes:
         assert "/api/adapters/{name}/release" in paths
         assert "/api/governance/lifecycle-review" in paths
         assert "/api/governance/review-truth" in paths
+        assert "/api/governance/review-evidence-plan" in paths
         assert "/api/governance/lifecycle-apply" in paths
         assert "/api/governance/contradiction-cases" in paths
         assert "/api/governance/contradiction-cases/{case_id}/resolve" in paths

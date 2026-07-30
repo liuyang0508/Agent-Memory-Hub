@@ -82,6 +82,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   low-confidence memories. `memory review attach-source` adds bounded file,
   HTTPS URL, commit, or memory references without changing confidence or
   bypassing explicit approve/reject.
+- **Review evidence closure v1** — `memory review evidence-plan` binds exact
+  MemoryItem Markdown digests to content-free source verification, distinguishes
+  explicit source gaps from recoverable WriteService provenance, deduplicates
+  resource/extraction evidence by provenance root, and routes every contested
+  active review item to a contradiction Case or `contested_unpaired`. The
+  self-authored `write_input` sidecar remains `traceability_only` and never
+  counts as independent truth support. The
+  locator-free aggregate is available to admins through Web API and Cockpit;
+  preview never fetches URLs or changes confidence.
 - **Digest-bound review resolution receipts** — `memory review resolve`
   previews an exact Markdown SHA-256 and requires that digest on apply. The
   mutation revalidates under the item lock and appends prepared/completed

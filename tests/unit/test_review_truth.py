@@ -60,7 +60,7 @@ def test_review_truth_separates_review_candidates_from_lifecycle_due() -> None:
             confidence=0.35,
             refs=Refs(commits=["2658675"]),
         ),
-        _item("explicit", now=now, tags=["needs-review"]),
+        _item("explicit", now=now, tags=["needs-review", "contested"]),
         _item(
             "lifecycle-due",
             now=now,
@@ -82,6 +82,8 @@ def test_review_truth_separates_review_candidates_from_lifecycle_due() -> None:
         "source_gap": 1,
     }
     assert truth.active_review_type_counts == {"decision": 4}
+    assert truth.active_review_contested_count == 2
+    assert truth.active_review_contested_outside_low_confidence_count == 1
     assert truth.lifecycle_due_count == 1
 
 
@@ -196,3 +198,9 @@ def test_review_truth_counts_match_cli_readiness_cockpit_and_queue(
     )
     assert readiness.metrics["review_queue_count"] == queue.total
     assert readiness.metrics["review_truth_consistency_status"] == "consistent"
+    assert (
+        readiness.metrics["active_review_contested_count"]
+        == cockpit["active_review_contested_count"]
+        == cli["active_review_contested_count"]
+        == 0
+    )

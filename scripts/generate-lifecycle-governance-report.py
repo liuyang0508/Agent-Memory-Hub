@@ -84,6 +84,7 @@ IMPLEMENTATION_PATHS = (
     "agent_brain/memory/governance/lifecycle_snapshot.py",
     "agent_brain/memory/governance/maintenance_plan.py",
     "agent_brain/memory/governance/pending_receipts.py",
+    "agent_brain/memory/governance/review_evidence.py",
     "agent_brain/memory/governance/review_queue.py",
     "agent_brain/memory/governance/review_truth.py",
     "agent_brain/memory/governance/review_transactions.py",

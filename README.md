@@ -168,6 +168,7 @@ memory search "project decision"
 memory hook recent --limit 5
 memory hook summary --days 7
 memory review status --format json
+memory review evidence-plan --format json
 ```
 
 `memory hook recent` shows whether a prompt injected memory, produced a recall
@@ -180,6 +181,9 @@ the content-free `amh-review-truth/v1` contract: `active_review_candidate_count`
 uses the exact same predicate as `memory review list`, while
 `lifecycle_due_count` independently measures TTL/lifecycle work. The legacy
 `review_total` field remains an alias of the active candidate count.
+`active_review_contested_count` is an independent tag axis, so contested items
+above the low-confidence threshold do not disappear into the
+`explicit_review_tag` reason bucket.
 `memory govern readiness` also runs the packaged
 query-signal adversarial cases for long Chinese tasks, JSON/config prompts,
 OCR/log/code snippets, and weak follow-ups.
@@ -200,6 +204,18 @@ items missing an explicit file/URL/commit/memory source, and source-backed
 candidates. These rows are always review-required. Use
 `memory review attach-source ID --commit SHA` to add evidence without changing
 confidence, then explicitly approve or reject the candidate.
+`memory review evidence-plan [ID] --format json` is a read-only
+`amh-review-evidence-plan/v1` preview. It binds the exact MemoryItem Markdown
+SHA-256 to content-free source metadata and digests, validates local
+file/memory/resource/extraction/commit availability without fetching URLs, and
+separates explicit source gaps from provenance that WriteService already
+captured. Resource plus extraction records from the same provenance root count
+once for independence. A `write_input` sidecar proves what was submitted, not
+that the assertion is true, so it is reported as `traceability_only` and never
+counts as independent support. Contested review items route either to an existing
+contradiction Case or to an explicit `contested_unpaired` queue; the preview
+never changes memory or confidence. Admins receive the locator-free form at
+`GET /api/governance/review-evidence-plan`, and Cockpit renders aggregates only.
 For an audited resolution, use `memory review resolve ID --action approve` to
 preview the exact item digest, then repeat with `--expected-sha256 DIGEST
 --apply`. Prepared/completed receipts surround the locked mutation. Contradiction

@@ -390,6 +390,13 @@ class ItemsStore:
 
     def get_nofollow(self, item_id: str) -> tuple[MemoryItem, str]:
         """Read one canonical active item without following filesystem links."""
+        data = self.read_bytes_nofollow(item_id)
+        text = data.decode("utf-8-sig")
+        text = text.replace("\r\n", "\n").replace("\r", "\n")
+        return parse_item_markdown(text)
+
+    def read_bytes_nofollow(self, item_id: str) -> bytes:
+        """Read exact active-item bytes without following filesystem links."""
         if not is_valid_memory_item_id(item_id):
             raise ValueError("invalid memory item id")
         if secure_dir_fd_io_supported():
@@ -404,9 +411,7 @@ class ItemsStore:
                 close_descriptor(directory_fd)
         else:
             data = _read_regular_file_fallback(self.items_dir / f"{item_id}.md")
-        text = data.decode("utf-8-sig")
-        text = text.replace("\r\n", "\n").replace("\r", "\n")
-        return parse_item_markdown(text)
+        return data
 
     def write(self, item: MemoryItem, body: str) -> Path:
         """Write item + body to a md file. Returns the file path."""

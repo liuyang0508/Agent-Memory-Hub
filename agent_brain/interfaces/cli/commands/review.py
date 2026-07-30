@@ -78,6 +78,12 @@ def review_status(
         ),
         "active_review_reason_counts": review_truth.active_review_reason_counts,
         "active_review_type_counts": review_truth.active_review_type_counts,
+        "active_review_contested_count": (
+            review_truth.active_review_contested_count
+        ),
+        "active_review_contested_outside_low_confidence_count": (
+            review_truth.active_review_contested_outside_low_confidence_count
+        ),
         "lifecycle_due_count": review_truth.lifecycle_due_count,
         "lifecycle_due_oldest_age_seconds": (
             review_truth.lifecycle_due_oldest_age_seconds
@@ -105,6 +111,10 @@ def review_status(
     table.add_row(
         "active_review_oldest_age",
         _format_age(review_oldest_age_seconds),
+    )
+    table.add_row(
+        "active_review_contested",
+        str(data["active_review_contested_count"]),
     )
     table.add_row("lifecycle_due", str(data["lifecycle_due_count"]))
     table.add_row(
@@ -155,6 +165,92 @@ def review_list(
             candidate.title,
         )
     console.print(table)
+
+
+@review_app.command(name="evidence-plan")
+def review_evidence_plan(
+    item_id: str | None = typer.Argument(
+        None,
+        help="Optional active review Memory Item ID or prefix",
+    ),
+    output_format: str = typer.Option(
+        "table",
+        "--format",
+        help="Output format: table or json",
+    ),
+    limit: int = typer.Option(
+        100,
+        "--limit",
+        min=1,
+        max=500,
+        help="Maximum active review candidates to inspect",
+    ),
+) -> None:
+    """Build a read-only, digest-bound evidence and contestation plan."""
+    from agent_brain.memory.governance.review_evidence import (
+        build_review_evidence_plan,
+    )
+    from agent_brain.memory.governance.review_queue import (
+        is_active_review_candidate,
+    )
+
+    store = _store_only()
+    selected: list[str] | None = None
+    if item_id is not None:
+        resolved = _resolve_id(store, item_id)
+        item, _body = store.get(resolved)
+        if not is_active_review_candidate(item):
+            typer.echo(f"not an active review candidate: {resolved}", err=True)
+            raise typer.Exit(2)
+        selected = [resolved]
+    plan = build_review_evidence_plan(
+        _brain_dir(),
+        store=store,
+        item_ids=selected,
+        limit=limit,
+    )
+    if output_format == "json":
+        typer.echo(
+            json.dumps(
+                plan.to_dict(include_locators=True),
+                ensure_ascii=False,
+                indent=2,
+                sort_keys=True,
+            )
+        )
+        return
+    table = Table(title="Review Evidence Closure Plan")
+    table.add_column("id")
+    table.add_column("evidence")
+    table.add_column("verified", justify="right")
+    table.add_column("supporting", justify="right")
+    table.add_column("independent", justify="right")
+    table.add_column("contestation")
+    table.add_column("next")
+    for row in plan.items:
+        table.add_row(
+            row.item_id,
+            row.evidence_status,
+            str(row.verified_source_count),
+            str(row.supporting_verified_source_count),
+            str(row.independent_verified_source_count),
+            row.contestation_route,
+            row.recommended_action,
+        )
+    console.print(table)
+    typer.echo(
+        "summary: "
+        f"total={plan.total} "
+        f"evidence_available={plan.evidence_available_count} "
+        f"source_gap={plan.source_gap_count} "
+        f"provenance_recoverable={plan.provenance_recoverable_count} "
+        f"unresolved_source_gap={plan.unresolved_source_gap_count} "
+        f"traceability_only={plan.traceability_only_count} "
+        f"evidence_unavailable={plan.evidence_unavailable_count} "
+        f"contested_case={plan.contested_case_count} "
+        f"contested_unpaired={plan.contested_unpaired_count} "
+        f"item_scan_unavailable={plan.item_scan_unavailable_count}"
+    )
 
 
 @review_app.command(name="attach-source")
@@ -706,6 +802,7 @@ __all__ = [
     "review_approve_many",
     "review_attach_source",
     "review_cases",
+    "review_evidence_plan",
     "review_list",
     "review_recover_case",
     "review_recover_containment",
