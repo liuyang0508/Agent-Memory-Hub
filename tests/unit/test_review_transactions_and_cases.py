@@ -9,6 +9,11 @@ from agent_brain.contracts.memory_item import MemoryItem
 from agent_brain.memory.governance.contradiction_cases import (
     build_contradiction_cases,
 )
+from agent_brain.memory.governance.contradiction_containment import (
+    contain_contradiction_case,
+    read_containment_receipt_health,
+    recover_containment_transaction,
+)
 from agent_brain.memory.governance.contradiction_resolution import (
     build_contradiction_case_inventory,
     read_contradiction_receipt_health,
@@ -211,6 +216,206 @@ def test_contradiction_case_coexist_is_digest_bound_and_reopens_on_change(
 
     reopened = build_contradiction_case_inventory(brain_dir=brain, store=store)
     assert reopened.cases[0].status == "open"
+
+
+def test_dismiss_restores_exact_containment_baseline_and_recall(
+    tmp_path,
+) -> None:
+    from agent_brain.memory.context.context_firewall import (
+        ContextCandidate,
+        ContextFirewall,
+    )
+    from agent_brain.memory.context.context_firewall_types import (
+        ContextFirewallConfig,
+    )
+
+    brain, store, first, second = _contradiction_store(tmp_path)
+    original = {
+        item_id: store.get(item_id)[0]
+        for item_id in (first.id, second.id)
+    }
+    case = build_contradiction_case_inventory(
+        brain_dir=brain,
+        store=store,
+    ).cases[0]
+    detected = build_contradiction_cases([
+        _finding(first.id, second.id),
+    ])[0]
+
+    contained = contain_contradiction_case(
+        brain_dir=brain,
+        store=store,
+        case=detected,
+        apply=True,
+    )
+
+    assert contained.status == "applied"
+    assert read_containment_receipt_health(brain).status == "healthy"
+    quarantined, body = store.get(first.id)
+    assert {"contested", "needs-review"}.issubset(quarantined.tags)
+    assert quarantined.confidence == original[first.id].confidence - 0.15
+    firewall = ContextFirewall(
+        ContextFirewallConfig(require_source_for_fact_decision=False)
+    )
+    blocked = firewall.filter([
+        ContextCandidate(quarantined, body, score=1.0),
+    ])
+    assert blocked.included == []
+    assert "requires_review" in blocked.excluded[0].reasons
+
+    preview = resolve_contradiction_case(
+        brain_dir=brain,
+        store=store,
+        case_id=case.case_id,
+        action="dismiss",
+    )
+    applied = resolve_contradiction_case(
+        brain_dir=brain,
+        store=store,
+        case_id=case.case_id,
+        action="dismiss",
+        apply=True,
+        expected_intent_sha256=preview.expected_intent_sha256,
+    )
+
+    assert preview.status == "ready"
+    assert preview.containment_restored_count == 2
+    assert applied.status == "applied"
+    assert applied.containment_restored_count == 2
+    for item_id in (first.id, second.id):
+        restored, restored_body = store.get(item_id)
+        assert restored.confidence == original[item_id].confidence
+        assert "contested" not in restored.tags
+        assert "needs-review" not in restored.tags
+        assert "contradiction-dismissed" in restored.tags
+        recalled = firewall.filter([
+            ContextCandidate(restored, restored_body, score=1.0),
+        ])
+        assert recalled.included
+    resolved = build_contradiction_case_inventory(
+        brain_dir=brain,
+        store=store,
+    )
+    assert resolved.cases[0].resolution_action == "dismiss"
+
+
+def test_case_resolution_fails_closed_for_legacy_containment_without_receipt(
+    tmp_path,
+) -> None:
+    brain, store, first, second = _contradiction_store(tmp_path)
+    for item_id in (first.id, second.id):
+        item, _body = store.get(item_id)
+        store.update_frontmatter(
+            item_id,
+            tags=sorted({*item.tags, "contested", "needs-review"}),
+            confidence=item.confidence - 0.15,
+        )
+    case = build_contradiction_case_inventory(
+        brain_dir=brain,
+        store=store,
+    ).cases[0]
+
+    result = resolve_contradiction_case(
+        brain_dir=brain,
+        store=store,
+        case_id=case.case_id,
+        action="dismiss",
+    )
+
+    assert result.status == "blocked"
+    assert result.reason == "CONTAINMENT_PROVENANCE_MISSING"
+
+
+def test_incomplete_containment_transaction_is_recoverable(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    from agent_brain.memory.governance import contradiction_containment
+
+    brain, store, first, second = _contradiction_store(tmp_path)
+    before = {
+        item_id: (store.items_dir / f"{item_id}.md").read_bytes()
+        for item_id in (first.id, second.id)
+    }
+    case = build_contradiction_cases([
+        _finding(first.id, second.id),
+    ])[0]
+    append = contradiction_containment._append_receipt
+    append_terminal = contradiction_containment._append_receipt_from_prepared
+
+    def interrupt_completed(*args, **kwargs):
+        if kwargs["state"] == "completed":
+            raise OSError("simulated containment interruption")
+        return append(*args, **kwargs)
+
+    def interrupt_rollback(*args, **kwargs):
+        raise OSError("simulated containment rollback interruption")
+
+    monkeypatch.setattr(
+        contradiction_containment,
+        "_append_receipt",
+        interrupt_completed,
+    )
+    monkeypatch.setattr(
+        contradiction_containment,
+        "_append_receipt_from_prepared",
+        interrupt_rollback,
+    )
+    interrupted = contain_contradiction_case(
+        brain_dir=brain,
+        store=store,
+        case=case,
+        apply=True,
+    )
+    monkeypatch.setattr(
+        contradiction_containment,
+        "_append_receipt",
+        append,
+    )
+    monkeypatch.setattr(
+        contradiction_containment,
+        "_append_receipt_from_prepared",
+        append_terminal,
+    )
+
+    assert interrupted.reason == "CONTAINMENT_ROLLBACK_FAILED"
+    assert interrupted.transaction_id
+    assert read_containment_receipt_health(brain).status == "incomplete"
+    recovery = recover_containment_transaction(
+        brain_dir=brain,
+        store=store,
+        transaction_id=interrupted.transaction_id,
+        apply=True,
+    )
+
+    assert recovery.status == "recovered"
+    assert read_containment_receipt_health(brain).status == "healthy"
+    for item_id, raw in before.items():
+        assert (store.items_dir / f"{item_id}.md").read_bytes() == raw
+
+
+def test_corrupt_containment_ledger_blocks_new_containment(tmp_path) -> None:
+    brain, store, first, second = _contradiction_store(tmp_path)
+    runtime = brain / "runtime"
+    runtime.mkdir(exist_ok=True)
+    (runtime / "contradiction-containment-receipts.jsonl").write_text(
+        "{not-json}\n",
+        encoding="utf-8",
+    )
+    case = build_contradiction_cases([
+        _finding(first.id, second.id),
+    ])[0]
+
+    result = contain_contradiction_case(
+        brain_dir=brain,
+        store=store,
+        case=case,
+        apply=True,
+    )
+
+    assert result.status == "blocked"
+    assert result.reason == "CONTAINMENT_LEDGER_UNAVAILABLE"
+    assert read_containment_receipt_health(brain).status == "corrupt"
 
 
 def test_contradiction_case_select_authority_supersedes_case_atomically(

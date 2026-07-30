@@ -16,6 +16,10 @@ from typing import Any, Iterator, Literal
 
 from agent_brain.contracts.memory_item import MemoryItem, is_valid_memory_item_id
 from agent_brain.memory.governance.contradiction_cases import ContradictionCase
+from agent_brain.memory.governance.contradiction_containment import (
+    ContainmentBaseline,
+    containment_baselines_for_case,
+)
 from agent_brain.memory.governance.drift import DriftDetector
 from agent_brain.memory.governance.lifecycle_ledger import lifecycle_transaction_lock
 from agent_brain.memory.governance.lifecycle_snapshot import (
@@ -35,6 +39,7 @@ ContradictionResolutionAction = Literal[
     "select_authority",
     "merge",
     "coexist",
+    "dismiss",
     "defer",
 ]
 _CASE_ID = re.compile(r"contradiction-[0-9a-f]{16}\Z")
@@ -97,6 +102,7 @@ class ContradictionResolutionResult:
     transaction_id: str | None = None
     snapshot: str | None = None
     index_repair_required: bool = False
+    containment_restored_count: int = 0
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -221,6 +227,20 @@ def resolve_contradiction_case(
     )
     item_ids = _transaction_item_ids(case, action, target_item_id)
     before = _read_item_digests(store, item_ids) if item_ids else {}
+    containment_baselines: dict[str, ContainmentBaseline] = {}
+    containment_status = "healthy"
+    if case is not None and action != "defer":
+        containment_baselines, containment_status = (
+            containment_baselines_for_case(
+                brain_dir=brain_dir,
+                store=store,
+                item_ids=case.item_ids,
+            )
+        )
+    containment_binding = {
+        item_id: baseline.binding_sha256
+        for item_id, baseline in containment_baselines.items()
+    }
     intent = _intent_sha256(
         case_id=case_id,
         action=action,
@@ -228,6 +248,7 @@ def resolve_contradiction_case(
         target_item_id=target_item_id,
         defer_days=defer_days,
         item_sha256=before,
+        containment_sha256=containment_binding,
     )
     if validation_reason != "OK":
         return ContradictionResolutionResult(
@@ -242,6 +263,18 @@ def resolve_contradiction_case(
             defer_days,
         )
     assert case is not None
+    if containment_status != "healthy":
+        return ContradictionResolutionResult(
+            case_id=case_id,
+            action=action,
+            status="blocked",
+            reason=f"CONTAINMENT_PROVENANCE_{containment_status.upper()}",
+            dry_run=not apply,
+            expected_intent_sha256=intent,
+            item_sha256=before,
+            target_item_id=target_item_id,
+            defer_days=defer_days,
+        )
     inventory = build_contradiction_case_inventory(
         brain_dir=brain_dir,
         store=store,
@@ -302,6 +335,7 @@ def resolve_contradiction_case(
             before,
             target_item_id,
             defer_days,
+            containment_restored_count=len(containment_baselines),
         )
     if expected_intent_sha256 != intent:
         return ContradictionResolutionResult(
@@ -386,6 +420,31 @@ def resolve_contradiction_case(
                 item_id: locked.read_bytes(item_id) for item_id in item_ids
             }
             locked_digests = _sha256_map(locked_before)
+            locked_baselines: dict[str, ContainmentBaseline] = {}
+            locked_containment_status = "healthy"
+            if action != "defer":
+                locked_baselines, locked_containment_status = (
+                    containment_baselines_for_case(
+                        brain_dir=brain_dir,
+                        store=store,
+                        item_ids=locked_case.item_ids,
+                    )
+                )
+            if locked_containment_status != "healthy":
+                return ContradictionResolutionResult(
+                    case_id=case_id,
+                    action=action,
+                    status="blocked",
+                    reason=(
+                        "CONTAINMENT_PROVENANCE_"
+                        f"{locked_containment_status.upper()}"
+                    ),
+                    dry_run=False,
+                    expected_intent_sha256=intent,
+                    item_sha256=locked_digests,
+                    target_item_id=target_item_id,
+                    defer_days=defer_days,
+                )
             locked_intent = _intent_sha256(
                 case_id=case_id,
                 action=action,
@@ -393,6 +452,10 @@ def resolve_contradiction_case(
                 target_item_id=target_item_id,
                 defer_days=defer_days,
                 item_sha256=locked_digests,
+                containment_sha256={
+                    item_id: baseline.binding_sha256
+                    for item_id, baseline in locked_baselines.items()
+                },
             )
             if locked_intent != expected_intent_sha256:
                 return ContradictionResolutionResult(
@@ -436,6 +499,7 @@ def resolve_contradiction_case(
                 locked_case,
                 action=action,
                 target_item_id=target_item_id,
+                containment_baselines=locked_baselines,
             )
             _append_case_receipt(
                 brain_dir,
@@ -530,6 +594,7 @@ def resolve_contradiction_case(
         transaction_id=transaction_id,
         snapshot=snapshot,
         index_repair_required=index_repair_required,
+        containment_restored_count=len(locked_baselines),
     )
 
 
@@ -718,7 +783,13 @@ def _validate_resolution_request(
 ) -> str:
     if case is None:
         return "CASE_NOT_FOUND"
-    if action not in {"select_authority", "merge", "coexist", "defer"}:
+    if action not in {
+        "select_authority",
+        "merge",
+        "coexist",
+        "dismiss",
+        "defer",
+    }:
         return "INVALID_ACTION"
     transaction_size = len(case.item_ids) + (
         1
@@ -791,15 +862,27 @@ def _prepare_case_mutations(
     *,
     action: str,
     target_item_id: str | None,
+    containment_baselines: Mapping[str, ContainmentBaseline],
 ) -> list[PreparedItemMutation]:
     if action == "defer":
         return []
-    if action == "coexist":
+    if action in {"coexist", "dismiss"}:
         prepared = []
         for item_id in case.item_ids:
             item, _body = locked.get(item_id)
-            tags = sorted({*item.tags, "contradiction-coexists"})
-            prepared.append(locked.prepare_update_frontmatter(item_id, tags=tags))
+            baseline = containment_baselines.get(item_id)
+            tags = set(baseline.tags if baseline is not None else item.tags)
+            tags.add(
+                "contradiction-coexists"
+                if action == "coexist"
+                else "contradiction-dismissed"
+            )
+            updates: dict[str, object] = {"tags": sorted(tags)}
+            if baseline is not None:
+                updates["confidence"] = baseline.confidence
+            prepared.append(
+                locked.prepare_update_frontmatter(item_id, **updates)
+            )
         return prepared
     assert target_item_id is not None
     target, _body = locked.get(target_item_id)
@@ -808,6 +891,11 @@ def _prepare_case_mutations(
         if action == "select_authority"
         else "contradiction-merged"
     )
+    target_baseline = containment_baselines.get(target.id)
+    target_tags = set(
+        target_baseline.tags if target_baseline is not None else target.tags
+    )
+    target_tags.add(target_tag)
     target_refs = target.refs.model_copy(
         update={
             "mems": list(
@@ -820,23 +908,30 @@ def _prepare_case_mutations(
             )
         }
     )
+    target_updates: dict[str, object] = {
+        "tags": sorted(target_tags),
+        "refs": target_refs,
+    }
+    if target_baseline is not None:
+        target_updates["confidence"] = target_baseline.confidence
     prepared = [
-        locked.prepare_update_frontmatter(
-            target.id,
-            tags=sorted({*target.tags, target_tag}),
-            refs=target_refs,
-        )
+        locked.prepare_update_frontmatter(target.id, **target_updates)
     ]
     for item_id in case.item_ids:
         if item_id == target.id:
             continue
         item, _body = locked.get(item_id)
+        baseline = containment_baselines.get(item_id)
+        tags = set(baseline.tags if baseline is not None else item.tags)
+        tags.add("contradiction-resolved")
+        updates = {
+            "tags": sorted(tags),
+            "superseded_by": target.id,
+        }
+        if baseline is not None:
+            updates["confidence"] = baseline.confidence
         prepared.append(
-            locked.prepare_update_frontmatter(
-                item_id,
-                tags=sorted({*item.tags, "contradiction-resolved"}),
-                superseded_by=target.id,
-            )
+            locked.prepare_update_frontmatter(item_id, **updates)
         )
     return sorted(prepared, key=lambda mutation: mutation.item_id)
 
@@ -942,6 +1037,7 @@ def _intent_sha256(
     target_item_id: str | None,
     defer_days: int | None,
     item_sha256: Mapping[str, str],
+    containment_sha256: Mapping[str, str] | None = None,
 ) -> str:
     payload = json.dumps(
         {
@@ -951,6 +1047,9 @@ def _intent_sha256(
             "target_item_id": target_item_id,
             "defer_days": defer_days,
             "item_sha256": dict(sorted(item_sha256.items())),
+            "containment_sha256": dict(
+                sorted((containment_sha256 or {}).items())
+            ),
         },
         ensure_ascii=True,
         separators=(",", ":"),
@@ -1214,7 +1313,14 @@ def _valid_receipt_record(record: object) -> bool:
         or _TRANSACTION_ID.fullmatch(str(record["transaction_id"])) is None
         or record["state"] not in {"prepared", "completed", "rolled_back"}
         or _CASE_ID.fullmatch(str(record["case_id"])) is None
-        or action not in {"select_authority", "merge", "coexist", "defer"}
+        or action
+        not in {
+            "select_authority",
+            "merge",
+            "coexist",
+            "dismiss",
+            "defer",
+        }
         or not isinstance(item_ids, list)
         or not 2 <= len(item_ids) <= 500
         or item_ids != sorted(set(item_ids))

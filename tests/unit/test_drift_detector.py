@@ -276,6 +276,58 @@ class TestDetectContradiction:
         ]
         assert contradiction_findings == []
 
+    def test_project_scope_terms_and_entity_sets_do_not_create_false_conflict(
+        self,
+    ):
+        """The real archive/context false positive remains outside Cases."""
+        now = datetime.now(timezone.utc)
+        archive = create_memory_item(
+            item_id="mem-20260728-020338-thread-archive",
+            mem_type=MemoryType.decision,
+            created_at=now - timedelta(hours=1),
+            project="Y-Harness",
+            title="Portable integrity-bound Thread archive semantics",
+            tags=[
+                "contested",
+                "needs-review",
+                "thread-archive",
+                "y-harness",
+            ],
+        )
+        context = create_memory_item(
+            item_id="mem-20260728-023308-turn-context",
+            mem_type=MemoryType.decision,
+            created_at=now,
+            project="Y-Harness",
+            title="Y-Harness uses attributed per-Turn Context instead of Pi mutable entry DAG",
+            tags=[
+                "contested",
+                "needs-review",
+                "turncontext",
+                "y-harness",
+            ],
+        )
+        store = MockItemsStore([
+            (
+                archive,
+                "Y-Harness portable Thread archive uses a bounded StoredEvent "
+                "journal and preserves import provenance.",
+            ),
+            (
+                context,
+                "Y-Harness uses attributed TurnContextInput instead of a "
+                "mutable entry DAG.",
+            ),
+        ])
+
+        report = DriftDetector(store).detect()
+
+        assert [
+            finding
+            for finding in report.findings
+            if finding.drift_type == DriftType.CONTRADICTION
+        ] == []
+
 
 class TestDetectStaleness:
     """Test staleness detection."""

@@ -16,16 +16,13 @@ from agent_brain.contracts.memory_item import MemoryItem, MemoryType
 
 
 @pytest.fixture()
-def brain_dir(tmp_path: Path):
+def brain_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     items_dir = tmp_path / "items"
     items_dir.mkdir()
-    os.environ["BRAIN_DIR"] = str(tmp_path)
-    os.environ["MEMORY_HUB_TEST_EMBEDDING"] = "1"
-    os.environ["MEMORY_HUB_RATE_LIMIT"] = "0"
+    monkeypatch.setenv("BRAIN_DIR", str(tmp_path))
+    monkeypatch.setenv("MEMORY_HUB_TEST_EMBEDDING", "1")
+    monkeypatch.setenv("MEMORY_HUB_RATE_LIMIT", "0")
     yield tmp_path
-    os.environ.pop("BRAIN_DIR", None)
-    os.environ.pop("MEMORY_HUB_TEST_EMBEDDING", None)
-    os.environ.pop("MEMORY_HUB_RATE_LIMIT", None)
 
 
 @pytest.fixture()
@@ -617,7 +614,7 @@ class TestApiDocsRoutes:
         data = resp.json()
         paths = {route["path"] for route in data["routes"]}
         assert data["total"] == len(data["routes"])
-        assert data["total"] == 119
+        assert data["total"] == 120
         assert "/api/data-flow" in paths
         assert "/api/chain-logs" in paths
         assert "/api/chain-logs/{chain_id}" in paths
@@ -632,6 +629,7 @@ class TestApiDocsRoutes:
         assert "/api/governance/contradiction-cases" in paths
         assert "/api/governance/contradiction-cases/{case_id}/resolve" in paths
         assert "/api/governance/contradiction-cases/recover" in paths
+        assert "/api/governance/contradiction-containment/recover" in paths
         assert "/api/memory-lineage" in paths
         assert "/api/auth/realtime-ticket" in paths
         assert "/ws/events" in paths
@@ -1942,13 +1940,13 @@ class TestLifecycleGovernanceAPI:
         case = listed.json()["cases"][0]
         preview = client.post(
             f"/api/governance/contradiction-cases/{case['case_id']}/resolve",
-            json={"action": "coexist"},
+            json={"action": "dismiss"},
             headers=headers,
         )
         applied = client.post(
             f"/api/governance/contradiction-cases/{case['case_id']}/resolve",
             json={
-                "action": "coexist",
+                "action": "dismiss",
                 "apply": True,
                 "expected_intent_sha256": preview.json()[
                     "expected_intent_sha256"

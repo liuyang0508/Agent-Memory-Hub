@@ -3614,6 +3614,7 @@ function contradictionCasesHtml(payload) {
         <div class="cockpit-meta">${escHtml((row.evidence || []).join(' · '))}</div>
         <div style="margin-top:8px">${items}</div>
         <div class="cockpit-actions" style="margin-top:8px">
+          <button class="btn-sm btn-accent" onclick="resolveContradictionCase('${caseId}', 'dismiss')">${isZh ? '判定为误报' : 'Dismiss false positive'}</button>
           <button class="btn-sm btn-green" onclick="resolveContradictionCase('${caseId}', 'coexist')">${isZh ? '允许并存' : 'Allow coexistence'}</button>
           <button class="btn-sm" onclick="mergeContradictionCase('${caseId}')">${isZh ? '合并到新条目' : 'Merge into item'}</button>
           <button class="btn-sm" onclick="resolveContradictionCase('${caseId}', 'defer', '', 7)">${isZh ? '暂缓 7 天' : 'Defer 7 days'}</button>

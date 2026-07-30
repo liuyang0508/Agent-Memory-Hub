@@ -16,6 +16,13 @@ class DecisionPatternExtractor:
         "If", "Then", "Else", "And", "Or", "But", "Not",
         "Memory", "Memories", "Item", "Items",
     })
+    _CHOICE_PATTERN = re.compile(
+        r"\b(?i:"
+        r"use|uses|using|chose|choose|selected|select|adopted|adopt|"
+        r"decided\s+(?:to\s+use|on)|switched\s+to"
+        r")\s+(?i:a\s+|an\s+|the\s+)?"
+        r"([A-Z][A-Za-z0-9_.+/-]{1,63})\b",
+    )
 
     def extract_decision_patterns(self, body: str) -> list[str]:
         """Extract decision patterns like 'use X', 'chose Y', etc."""
@@ -31,14 +38,27 @@ class DecisionPatternExtractor:
         return patterns
 
     def check_contradiction(self, patterns_a: list[str], patterns_b: list[str]) -> str | None:
-        """Check if two sets of patterns contradict each other."""
-        tools_a = self.extract_tool_names(' '.join(patterns_a))
-        tools_b = self.extract_tool_names(' '.join(patterns_b))
+        """Return an exclusive-choice conflict, not mere entity-set difference."""
+        choices_a = self.extract_selected_choices(" ".join(patterns_a))
+        choices_b = self.extract_selected_choices(" ".join(patterns_b))
 
-        if tools_a and tools_b and tools_a != tools_b:
-            return f"Decision A suggests {', '.join(tools_a)}, Decision B suggests {', '.join(tools_b)}"
+        if choices_a and choices_b and set(choices_a).isdisjoint(choices_b):
+            return (
+                f"Decision A selects {', '.join(choices_a)}, "
+                f"Decision B selects {', '.join(choices_b)}"
+            )
 
         return None
+
+    def extract_selected_choices(self, text: str) -> list[str]:
+        """Extract the asserted choice immediately governed by a decision verb."""
+
+        choices = {
+            match.group(1)
+            for match in self._CHOICE_PATTERN.finditer(text)
+            if match.group(1).title() not in self.CAPITALIZED_STOPWORDS
+        }
+        return sorted(choices, key=str.casefold)
 
     def extract_tool_names(self, text: str) -> list[str]:
         """Extract candidate tool/framework names from decision text."""

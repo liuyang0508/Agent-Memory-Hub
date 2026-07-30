@@ -142,7 +142,13 @@ class LifecycleApplyRequest(BaseModel):
 
 
 class ContradictionCaseResolutionRequest(BaseModel):
-    action: Literal["select_authority", "merge", "coexist", "defer"]
+    action: Literal[
+        "select_authority",
+        "merge",
+        "coexist",
+        "dismiss",
+        "defer",
+    ]
     target_item_id: str | None = None
     defer_days: int | None = None
     apply: bool = False
@@ -284,6 +290,28 @@ async def contradiction_case_recover(
 
     store, _, _, _ = _components()
     return recover_contradiction_case_transaction(
+        brain_dir=_brain_dir(),
+        store=store,
+        transaction_id=req.transaction_id,
+        apply=req.apply,
+    ).to_dict()
+
+
+@router.post("/api/governance/contradiction-containment/recover")
+async def contradiction_containment_recover(
+    req: ContradictionCaseRecoveryRequest,
+    user: CurrentUser = Depends(get_current_user),
+) -> dict[str, object]:
+    """Preview or recover one incomplete containment transaction. Admin only."""
+    if not user.is_admin:
+        raise HTTPException(status_code=403, detail="admin only")
+
+    from agent_brain.memory.governance.contradiction_containment import (
+        recover_containment_transaction,
+    )
+
+    store, _, _, _ = _components()
+    return recover_containment_transaction(
         brain_dir=_brain_dir(),
         store=store,
         transaction_id=req.transaction_id,

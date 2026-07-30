@@ -201,11 +201,15 @@ findings are grouped into stable cases, so
 `memory govern plan --category contradiction` shows one review unit per
 connected conflict set rather than every overlapping pair. Inspect those units
 with `memory review cases`. Then preview `memory review resolve-case CASE
---action coexist` (or `select-authority`, `merge`, `defer`) and apply only with
+--action coexist` (or `select-authority`, `merge`, `dismiss`, `defer`) and apply only with
 the emitted `--expected-intent-sha256`. Every decision is bound to all current
-item digests; later edits reopen the Case. Multi-item snapshots and an
+item digests and the exact pre-containment baseline; later edits reopen the
+Case. Case-level containment records original tags/confidence in a separate
+append-only receipt ledger, so `dismiss` and accepted resolutions restore recall
+without guessing. Multi-item snapshots and an
 append-only receipt ledger support explicit recovery with
-`memory review recover-case TRANSACTION`.
+`memory review recover-case TRANSACTION`; interrupted containment uses
+`memory review recover-containment TRANSACTION`.
 
 `memory sync-pending` also defaults to preview. Use `--summary-only` when you
 only need classification, blocker reason, lock-hygiene, or batch counts and do

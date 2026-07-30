@@ -60,8 +60,8 @@ class TestSemanticContradiction:
         assert len(boosted) >= 1
         assert "semantic sim=" in boosted[0].evidence
 
-    def test_semantic_only_flags_similar_decisions(self):
-        """High similarity without heuristic contradiction → confidence 0.6 advisory."""
+    def test_semantic_similarity_alone_does_not_claim_contradiction(self):
+        """Shared subject matter without incompatible choices is not a conflict."""
         emb = HashingEmbedder(dim=8)
         a = _item("so-a", title="Database Choice")
         b = _item("so-b", title="Database Choice")
@@ -72,10 +72,7 @@ class TestSemanticContradiction:
         detector = DriftDetector(store, embedder=emb, semantic_threshold=0.0)
         report = detector.detect()
         contradictions = [f for f in report.findings if f.drift_type == DriftType.CONTRADICTION]
-        assert len(contradictions) >= 1
-        advisory = [c for c in contradictions if c.confidence == 0.6]
-        assert len(advisory) >= 1
-        assert "Cosine similarity" in advisory[0].evidence
+        assert contradictions == []
 
     def test_no_semantic_for_different_projects(self):
         """Items in different projects are not compared."""

@@ -40,6 +40,8 @@ jobs:
           agent_brain/evaluation/memorydata_runner.py
           agent_brain/platform/indexing/index.py
           agent_brain/memory/store/write_service.py
+          agent_brain/memory/governance/contradiction_containment.py
+          agent_brain/memory/governance/contradiction_resolution.py
           agent_brain/interfaces/sdk/components.py
           agent_brain/interfaces/sdk/sdk.py
           web/auth.py

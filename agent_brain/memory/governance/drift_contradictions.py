@@ -25,6 +25,14 @@ _BROAD_TAGS = {
     "test",
     "tests",
     "needs-review",
+    "contested",
+    "contradiction",
+    "conflict",
+    "contradiction-coexists",
+    "contradiction-dismissed",
+    "contradiction-authority",
+    "contradiction-resolved",
+    "contradiction-merged",
     "auto-captured",
 }
 _TITLE_STOPWORDS = {
@@ -126,17 +134,9 @@ def detect_contradictions(
                         description=f"Contradictory decisions in project {project}",
                         evidence=evidence,
                     ))
-                elif sim is not None and sim >= semantic_threshold:
-                    findings.append(DriftFinding(
-                        drift_type=DriftType.CONTRADICTION,
-                        item_ids=[item_a.id, item_b.id],
-                        confidence=0.6,
-                        description=(
-                            f"Semantically similar decisions in project {project} "
-                            "— review for potential conflict"
-                        ),
-                        evidence=f"Cosine similarity {sim:.2f} >= threshold {semantic_threshold}",
-                    ))
+                # Similarity establishes shared subject matter, not incompatible
+                # conclusions. Without directional contradiction evidence it must
+                # not create a contradiction Case.
 
     return findings
 
@@ -145,26 +145,46 @@ def _same_decision_topic(item_a: Any, item_b: Any) -> bool:
     shared_tags = _meaningful_tags(item_a) & _meaningful_tags(item_b)
     if shared_tags:
         return True
-    title_overlap = _title_terms(getattr(item_a, "title", "")) & _title_terms(
-        getattr(item_b, "title", "")
-    )
+    title_overlap = _title_terms(item_a) & _title_terms(item_b)
     return len(title_overlap) >= 1
 
 
+def _scope_terms(item: Any) -> set[str]:
+    project = str(getattr(item, "project", "") or "").strip().lower()
+    if not project:
+        return set()
+    return {
+        project,
+        *(
+            term
+            for term in re.findall(r"[\w\u4e00-\u9fff]+", project)
+            if len(term) >= 3
+        ),
+    }
+
+
 def _meaningful_tags(item: Any) -> set[str]:
+    scope_terms = _scope_terms(item)
     tags = set()
     for tag in getattr(item, "tags", ()) or ():
         value = str(tag).strip().lower()
-        if not value or value in _BROAD_TAGS or value.startswith("session-"):
+        if (
+            not value
+            or value in _BROAD_TAGS
+            or value in scope_terms
+            or value.startswith("session-")
+        ):
             continue
         tags.add(value)
     return tags
 
 
-def _title_terms(title: object) -> set[str]:
+def _title_terms(item: Any) -> set[str]:
+    title = getattr(item, "title", "")
+    excluded = {*_TITLE_STOPWORDS, *_scope_terms(item)}
     terms = set()
     for term in re.findall(r"[\w\u4e00-\u9fff]+", str(title).lower()):
-        if len(term) < 3 or term.isdigit() or term in _TITLE_STOPWORDS:
+        if len(term) < 3 or term.isdigit() or term in excluded:
             continue
         terms.add(term)
     return terms

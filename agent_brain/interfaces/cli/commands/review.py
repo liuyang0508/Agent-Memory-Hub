@@ -276,7 +276,7 @@ def review_resolve_case(
     action: str = typer.Option(
         ...,
         "--action",
-        help="select-authority, merge, coexist, or defer",
+        help="select-authority, merge, coexist, dismiss/not-conflict, or defer",
     ),
     target_item_id: str | None = typer.Option(
         None,
@@ -302,12 +302,16 @@ def review_resolve_case(
         "select_authority": "select_authority",
         "merge": "merge",
         "coexist": "coexist",
+        "dismiss": "dismiss",
+        "not-conflict": "dismiss",
+        "not_conflict": "dismiss",
         "defer": "defer",
     }
     normalized_action = action_aliases.get(action)
     if normalized_action is None:
         typer.echo(
-            "--action must be select-authority, merge, coexist, or defer",
+            "--action must be select-authority, merge, coexist, "
+            "dismiss/not-conflict, or defer",
             err=True,
         )
         raise typer.Exit(2)
@@ -327,6 +331,8 @@ def review_resolve_case(
         typed_action = "merge"
     elif normalized_action == "coexist":
         typed_action = "coexist"
+    elif normalized_action == "dismiss":
+        typed_action = "dismiss"
     else:
         typed_action = "defer"
     index = HubIndex(db_path=_brain_dir() / "index.db") if apply else None
@@ -364,6 +370,33 @@ def review_recover_case(
         typer.echo("transaction_id must be 32 lowercase hexadecimal characters", err=True)
         raise typer.Exit(2)
     result = recover_contradiction_case_transaction(
+        brain_dir=_brain_dir(),
+        store=_store_only(),
+        transaction_id=transaction_id,
+        apply=apply,
+    )
+    typer.echo(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
+    if result.status == "blocked":
+        raise typer.Exit(1)
+
+
+@review_app.command(name="recover-containment")
+def review_recover_containment(
+    transaction_id: str = typer.Argument(..., help="Incomplete containment transaction ID"),
+    apply: bool = typer.Option(False, "--apply"),
+) -> None:
+    """Preview or restore one incomplete contradiction containment."""
+    from agent_brain.memory.governance.contradiction_containment import (
+        recover_containment_transaction,
+    )
+
+    if re.fullmatch(r"[0-9a-f]{32}", transaction_id) is None:
+        typer.echo(
+            "transaction_id must be 32 lowercase hexadecimal characters",
+            err=True,
+        )
+        raise typer.Exit(2)
+    result = recover_containment_transaction(
         brain_dir=_brain_dir(),
         store=_store_only(),
         transaction_id=transaction_id,

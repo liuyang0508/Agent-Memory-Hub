@@ -37,6 +37,9 @@ from agent_brain.memory.governance.pending_receipts import (
     read_pending_receipt_ledger_health,
 )
 from agent_brain.memory.governance.confidence_review import assess_low_confidence
+from agent_brain.memory.governance.contradiction_containment import (
+    read_containment_receipt_health,
+)
 from agent_brain.memory.governance.contradiction_resolution import (
     read_contradiction_receipt_health,
 )
@@ -516,6 +519,7 @@ def _memory_lifecycle_lane_once(brain_dir: Path) -> ReadinessLane:
     pending_metrics = _pending_truth_readonly(brain, item_catalog=item_snapshot.catalog)
     review_receipt_health = read_review_receipt_health(brain)
     contradiction_receipt_health = read_contradiction_receipt_health(brain)
+    containment_receipt_health = read_containment_receipt_health(brain)
     index_projection = _read_index_projection_readonly(brain / "index.db")
     index_health = _build_index_health_from_snapshots(
         brain,
@@ -565,6 +569,17 @@ def _memory_lifecycle_lane_once(brain_dir: Path) -> ReadinessLane:
         ),
         "contradiction_receipt_rolled_back_count": (
             contradiction_receipt_health.rolled_back_count
+        ),
+        "containment_receipt_ledger_status": containment_receipt_health.status,
+        "containment_receipt_record_count": containment_receipt_health.record_count,
+        "containment_receipt_incomplete_count": (
+            containment_receipt_health.incomplete_count
+        ),
+        "containment_receipt_completed_count": (
+            containment_receipt_health.completed_count
+        ),
+        "containment_receipt_rolled_back_count": (
+            containment_receipt_health.rolled_back_count
         ),
         "signal_state_inconsistent_count": signal_state_inconsistent_count,
         "untagged_count": untagged_count,
@@ -636,6 +651,7 @@ def _memory_lifecycle_lane_once(brain_dir: Path) -> ReadinessLane:
         _pending_receipt_ledger_check(pending_metrics),
         _review_receipt_ledger_check(metrics),
         _contradiction_receipt_ledger_check(metrics),
+        _containment_receipt_ledger_check(metrics),
         _pending_age_check(pending_metrics["pending_oldest_age_seconds"]),
         _aggregate_check(
             "item_scan",
@@ -697,6 +713,11 @@ def _memory_lifecycle_lane_once(brain_dir: Path) -> ReadinessLane:
         or contradiction_receipt_health.status in {"corrupt", "unavailable"}
     ):
         next_actions.append("memory review cases --include-resolved --format json")
+    if (
+        containment_receipt_health.incomplete_count
+        or containment_receipt_health.status in {"corrupt", "unavailable"}
+    ):
+        next_actions.append("memory review recover-containment <transaction-id>")
     if index_repair_required:
         next_actions.append("memory verify")
         if index_dirty_status == "repair_required":
@@ -833,6 +854,12 @@ def _lifecycle_generation_token(
         add(
             brain / "runtime" / "contradiction-case-receipts.jsonl",
             "runtime/contradiction-case-receipts.jsonl",
+            recursive=False,
+            file_limit=16 * 1024 * 1024,
+        )
+        add(
+            brain / "runtime" / "contradiction-containment-receipts.jsonl",
+            "runtime/contradiction-containment-receipts.jsonl",
             recursive=False,
             file_limit=16 * 1024 * 1024,
         )
@@ -1848,6 +1875,33 @@ def _contradiction_receipt_ledger_check(
             "completed_count": metrics["contradiction_receipt_completed_count"],
             "rolled_back_count": metrics[
                 "contradiction_receipt_rolled_back_count"
+            ],
+        },
+    )
+
+
+def _containment_receipt_ledger_check(
+    metrics: dict[str, Any],
+) -> ReadinessCheck:
+    ledger_status = str(metrics["containment_receipt_ledger_status"])
+    incomplete = int(metrics["containment_receipt_incomplete_count"])
+    if ledger_status in {"corrupt", "unavailable"}:
+        status = "fail"
+    elif incomplete:
+        status = "warn"
+    else:
+        status = "pass"
+    return ReadinessCheck(
+        "containment_receipt_ledger",
+        status,
+        "contradiction containment receipt ledger",
+        f"status={ledger_status} incomplete={incomplete}",
+        evidence={
+            "record_count": metrics["containment_receipt_record_count"],
+            "incomplete_count": incomplete,
+            "completed_count": metrics["containment_receipt_completed_count"],
+            "rolled_back_count": metrics[
+                "containment_receipt_rolled_back_count"
             ],
         },
     )

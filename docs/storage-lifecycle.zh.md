@@ -142,14 +142,20 @@ memory review resolve-case <case-id> --action coexist \
   --expected-intent-sha256 <preview-intent> --apply
 ```
 
-支持四种动作：
+支持五种动作：
 
 - `select-authority --target-item-id <case-item>`：保留 Case 内一条权威记忆，其余条目指向它。
 - `merge --target-item-id <new-item>`：将 Case 全部条目替换为人工整理且位于 Case 外的新条目。
 - `coexist`：明确记录多个结论在其各自条件下允许并存。
+- `dismiss` / `not-conflict`：确认检测误报，恢复 containment 前的 tags/confidence。
 - `defer --defer-days <1..365>`：不改 Markdown，只把当前摘要集合暂缓到指定日期。
 
-preview intent 同时绑定动作、目标和 Case 涉及的全部 Markdown SHA-256。预览后任一条目
+自动 containment 以完整 Case 为单位创建私有快照，并在
+`runtime/contradiction-containment-receipts.jsonl` 保存每条记忆原始 tags、confidence
+和前后摘要。无凭证的历史 containment 不会被猜测性还原；裁决会失败关闭。
+`memory review recover-containment <transaction-id>` 可恢复 prepared 后中断的隔离事务。
+
+preview intent 同时绑定动作、目标、containment 基线和 Case 涉及的全部 Markdown SHA-256。预览后任一条目
 变化都会阻断 apply；已裁决 Case 若内容变化也会自动重新开放。apply 前创建私有多条目
 Git 快照，并向 `runtime/contradiction-case-receipts.jsonl` 追加 prepared 与 terminal
 收据。若进程在 prepared 后中断，readiness 会告警，使用

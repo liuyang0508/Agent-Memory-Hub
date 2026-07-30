@@ -24,6 +24,9 @@ from agent_brain.memory.governance.confidence_review import assess_low_confidenc
 from agent_brain.memory.governance.contradiction_cases import (
     build_contradiction_cases,
 )
+from agent_brain.memory.governance.contradiction_containment import (
+    contain_contradiction_case,
+)
 from agent_brain.memory.governance.contradiction_resolution import (
     build_contradiction_case_inventory,
 )
@@ -389,15 +392,8 @@ class AutoGovernanceCycle:
         findings = DriftDetector(self.items_store).detect().findings
         items_by_id = {item.id: (item, body) for item, body in items}
         actions: list[AutoGovernanceAction] = []
-        seen: set[tuple[str, ...]] = set()
-        for finding in findings:
-            if finding.drift_type.value != "contradiction" or len(finding.item_ids) < 2:
-                continue
-            pair = tuple(sorted(finding.item_ids[:2]))
-            if pair in seen:
-                continue
-            seen.add(pair)
-            scoped = [items_by_id.get(item_id) for item_id in pair]
+        for case in build_contradiction_cases(findings):
+            scoped = [items_by_id.get(item_id) for item_id in case.item_ids]
             if any(value is None for value in scoped):
                 continue
             loaded = [value for value in scoped if value is not None]
@@ -405,31 +401,35 @@ class AutoGovernanceCycle:
                 continue
             if len({(item.tenant_id, item.project) for item, _body in loaded}) != 1:
                 continue
-            if all("contested" in item.tags for item, _body in loaded):
+            result = contain_contradiction_case(
+                brain_dir=self.brain_dir,
+                store=self.items_store,
+                case=case,
+                apply=apply,
+                index=self.index if apply else None,
+            )
+            if result.status == "already_contained":
                 continue
-            applied = False
-            if apply:
-                for item, body in loaded:
-                    updated = self.items_store.update_frontmatter(
-                        item.id,
-                        tags=sorted({*item.tags, "contested", "needs-review"}),
-                        confidence=max(0.3, item.confidence - 0.15),
-                    )
-                    if self.index is not None:
-                        self.index.upsert(updated, body, embedding=None)
-                applied = True
+            accepted = {"ready", "applied"}
             actions.append(AutoGovernanceAction(
                 action="contain_conflict",
-                risk="safe_apply",
+                risk="safe_apply" if result.status in accepted else "blocked",
                 title="Contain conflicting memories",
-                reason="exclude_contested_pair_until_review",
-                item_ids=list(pair),
+                reason=result.reason,
+                item_ids=list(case.item_ids),
                 details={
-                    "confidence": finding.confidence,
-                    "evidence": finding.evidence,
-                    "reversible": "remove contested/needs-review tags after review",
+                    "case_id": case.case_id,
+                    "confidence": case.confidence,
+                    "evidence": list(case.evidence),
+                    "transaction_status": result.status,
+                    "transaction_id": result.transaction_id,
+                    "snapshot": result.snapshot,
+                    "index_repair_required": result.index_repair_required,
+                    "reversible": (
+                        "restore exact pre-containment tags/confidence from receipt"
+                    ),
                 },
-                applied=applied,
+                applied=result.status == "applied",
             ))
         return actions
 

@@ -91,7 +91,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   bounded evidence while avoiding duplicate per-pair review work.
 - **Recoverable Case adjudication** — `memory review cases` and
   `memory review resolve-case` support digest-bound `select-authority`, `merge`,
-  `coexist`, and `defer` decisions across a whole contradiction Case. Multi-item
+  `coexist`, `dismiss`, and `defer` decisions across a whole contradiction Case.
+  Containment now runs as a Case-level snapshot transaction with an append-only
+  baseline ledger, so accepted resolutions restore the exact pre-containment
+  tags/confidence and interrupted containment can be recovered explicitly.
+  Semantic similarity alone no longer claims contradiction, project-scope
+  terms are excluded from topic matching, and false positives can be dismissed.
+  Multi-item
   Git snapshots and prepared/completed/rolled-back receipts make interruption
   explicit; changed items reopen the Case, and an unhealthy receipt ledger
   blocks new decisions. The same workflow is available to Web Admins.
