@@ -3599,6 +3599,30 @@ function cockpitLoopGovernanceHtml(loopGovernance) {
     <div class="cockpit-priority">${rows || `<div class="cockpit-kicker">${isZh ? '暂无 Loop Contract 运行记录。' : 'No Loop Contract runs yet.'}</div>`}</div>`;
 }
 
+function cockpitReviewTruthHtml(reviewTruth) {
+  const isZh = LANG === 'zh';
+  if (!reviewTruth) {
+    return `<div class="cockpit-kicker">${isZh ? '复核真相视图暂不可用。' : 'Review truth is unavailable.'}</div>`;
+  }
+  const reasons = Object.entries(reviewTruth.active_review_reason_counts || {})
+    .map(([reason, count]) => `<span class="cockpit-chip">${escHtml(reason)} ${escHtml(count)}</span>`)
+    .join('');
+  const consistency = reviewTruth.consistency_status || 'unavailable';
+  const statusClass = consistency === 'consistent' ? '' : 'risk';
+  return `
+    <div class="cockpit-health capability-grid">
+      <div class="cockpit-health-cell"><div class="cockpit-health-value">${escHtml(reviewTruth.active_review_candidate_count || 0)}</div><div class="cockpit-health-label">${isZh ? '活跃复核候选' : 'active review'}</div></div>
+      <div class="cockpit-health-cell"><div class="cockpit-health-value">${escHtml(reviewTruth.active_review_candidate_sla_breach_count || 0)}</div><div class="cockpit-health-label">${isZh ? '超过 7 天' : 'over 7d SLA'}</div></div>
+      <div class="cockpit-health-cell"><div class="cockpit-health-value">${escHtml(reviewTruth.lifecycle_due_count || 0)}</div><div class="cockpit-health-label">${isZh ? '生命周期到期' : 'lifecycle due'}</div></div>
+      <div class="cockpit-health-cell"><div class="cockpit-health-value" style="font-size:0.95rem">${escHtml(consistency)}</div><div class="cockpit-health-label">${isZh ? '口径一致性' : 'consistency'}</div></div>
+    </div>
+    <div class="cockpit-chips">
+      ${reasons || `<span class="cockpit-chip">${isZh ? '暂无复核候选' : 'No review candidates'}</span>`}
+      <span class="cockpit-chip ${statusClass}">${escHtml(reviewTruth.schema_version || 'amh-review-truth/v1')}</span>
+    </div>
+    <p class="cockpit-kicker" style="margin-top:12px">${isZh ? '复核候选与生命周期到期分别统计，CLI、API、Cockpit 与 readiness 共用同一判定规则。' : 'Review candidates and lifecycle-due items are separate metrics shared by CLI, API, Cockpit, and readiness.'}</p>`;
+}
+
 function contradictionCasesHtml(payload) {
   const isZh = LANG === 'zh';
   const cases = payload?.cases || [];
@@ -3790,6 +3814,11 @@ async function loadCockpit(el) {
           <h2>${isZh ? 'Loop Contract 治理' : 'Loop Contract Governance'}</h2>
           <p class="cockpit-kicker">${isZh ? '按 contract readiness、verifier 结果和 human gate 展示循环是否可收口。' : 'Shows whether loops can close based on contract readiness, verifier results, and human gates.'}</p>
           ${cockpitLoopGovernanceHtml(data.loop_governance)}
+        </section>
+        <section class="cockpit-panel">
+          <h2>${isZh ? '复核真相' : 'Review Truth'}</h2>
+          <p class="cockpit-kicker">${isZh ? '把低置信度/待复核候选与生命周期到期分开，避免“看板为 0、队列有数据”。' : 'Separates active review candidates from lifecycle-due items to prevent metric drift.'}</p>
+          ${cockpitReviewTruthHtml(data.review_truth)}
         </section>
         <section class="cockpit-panel wide">
           <h2>${isZh ? '矛盾 Case 治理' : 'Contradiction Case Governance'}</h2>

@@ -63,7 +63,7 @@ def test_review_status_reports_oldest_age_and_sla_alert(tmp_brain):
     assert payload["review_total"] == 1
     assert payload["review_oldest_age_seconds"] >= 8 * 86400
     assert "review queue oldest candidate exceeds 7d SLA" in payload["alerts"]
-    assert payload["recommended_next"] == "review list --format json"
+    assert payload["recommended_next"] == "memory review list --format json"
 
 
 def test_review_approve_many_resolves_all_before_mutating(tmp_brain):

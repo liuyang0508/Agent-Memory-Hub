@@ -50,6 +50,7 @@ from agent_brain.memory.governance.signal_resolution import (
 from agent_brain.memory.governance.review_transactions import (
     read_review_receipt_health,
 )
+from agent_brain.memory.governance.review_truth import build_review_truth_snapshot
 from agent_brain.memory.store.item_markdown import parse_item_markdown
 from agent_brain.memory.store.pending import (
     MAX_PENDING_QUEUE_ENTRIES,
@@ -523,9 +524,13 @@ def _memory_lifecycle_lane_once(brain_dir: Path) -> ReadinessLane:
         brain,
         now=now,
     )
-    review_items = [
-        (item, age_seconds) for item, age_seconds in stale_items if item.id not in deferrals
-    ]
+    review_truth = build_review_truth_snapshot(
+        items,
+        now=now,
+        active_deferrals=set(deferrals),
+        lifecycle_ledger_unavailable=lifecycle_ledger_unavailable,
+        item_scan_unavailable=item_scan_unavailable,
+    )
 
     pending_metrics = _pending_truth_readonly(brain, item_catalog=item_snapshot.catalog)
     review_receipt_health = read_review_receipt_health(brain)
@@ -558,9 +563,28 @@ def _memory_lifecycle_lane_once(brain_dir: Path) -> ReadinessLane:
         "superseded_count": len(superseded_items),
         "archived_count": archived_count,
         "broken_superseded_count": broken_superseded_count,
-        "review_queue_count": len(review_items),
+        "active_review_candidate_count": (
+            review_truth.active_review_candidate_count
+        ),
+        "active_review_candidate_oldest_age_seconds": (
+            review_truth.active_review_candidate_oldest_age_seconds
+        ),
+        "active_review_candidate_sla_breach_count": (
+            review_truth.active_review_candidate_sla_breach_count
+        ),
+        "active_review_reason_counts": review_truth.active_review_reason_counts,
+        "active_review_type_counts": review_truth.active_review_type_counts,
+        "lifecycle_due_count": review_truth.lifecycle_due_count,
+        "lifecycle_due_oldest_age_seconds": (
+            review_truth.lifecycle_due_oldest_age_seconds
+        ),
+        "review_truth_status": review_truth.status,
+        "review_truth_consistency_status": review_truth.consistency_status,
+        # Compatibility aliases now use the canonical review-candidate
+        # definition exposed by `memory review list`.
+        "review_queue_count": review_truth.active_review_candidate_count,
         "review_queue_oldest_age_seconds": (
-            max(age for _item, age in review_items) if review_items else None
+            review_truth.active_review_candidate_oldest_age_seconds
         ),
         "low_confidence_count": low_confidence_count,
         "low_confidence_total_count": low_confidence_total_count,
@@ -620,6 +644,24 @@ def _memory_lifecycle_lane_once(brain_dir: Path) -> ReadinessLane:
         "index_dirty_retired": len(index_health.retired_dirty_ids),
     }
     checks = [
+        ReadinessCheck(
+            id="review_truth_consistency",
+            status=(
+                "pass"
+                if review_truth.consistency_status == "consistent"
+                else "fail"
+            ),
+            title="review truth consistency",
+            detail=(
+                f"status={review_truth.consistency_status}; "
+                f"active_review={review_truth.active_review_candidate_count}; "
+                f"lifecycle_due={review_truth.lifecycle_due_count}"
+            ),
+            evidence={
+                "schema_version": review_truth.schema_version,
+                "consistency_status": review_truth.consistency_status,
+            },
+        ),
         _threshold_check(
             "stale_signal_count",
             "stale signal / handoff",
@@ -627,10 +669,16 @@ def _memory_lifecycle_lane_once(brain_dir: Path) -> ReadinessLane:
             "memory govern plan --category lifecycle",
         ),
         _threshold_check(
-            "review_queue_count",
-            "lifecycle review backlog",
-            len(review_items),
+            "lifecycle_due_count",
+            "lifecycle due backlog",
+            review_truth.lifecycle_due_count,
             "memory govern plan --category lifecycle",
+        ),
+        _threshold_check(
+            "active_review_candidate_count",
+            "active review candidates",
+            review_truth.active_review_candidate_count,
+            "memory review list --format json",
         ),
         _threshold_check(
             "low_confidence_count",
@@ -710,8 +758,14 @@ def _memory_lifecycle_lane_once(brain_dir: Path) -> ReadinessLane:
     ]
     status = _worst_status(check.status for check in checks)
     next_actions: list[str] = []
-    if review_items or broken_superseded_count or supersession_drift_count:
+    if (
+        review_truth.lifecycle_due_count
+        or broken_superseded_count
+        or supersession_drift_count
+    ):
         next_actions.append("memory govern plan --category lifecycle --format markdown")
+    if review_truth.active_review_candidate_count:
+        next_actions.append("memory review list --format json")
     if (
         pending_metrics["pending_total"]
         or pending_metrics["pending_dead_count"]

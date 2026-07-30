@@ -175,8 +175,11 @@ gap, timed out, or later received outcome feedback with adopted / rejected /
 ignored item counts. It is the first check when an agent UI shows no
 `<agent_brain>` block. `memory hook summary` aggregates injection volume,
 feedback coverage, adopted/rejected/unrated item rates, gap reasons, timeouts,
-and privacy-safe keywords over a chosen window. `memory review status` adds
-oldest-item age and SLA alerts for review and pending queues.
+and privacy-safe keywords over a chosen window. `memory review status` exposes
+the content-free `amh-review-truth/v1` contract: `active_review_candidate_count`
+uses the exact same predicate as `memory review list`, while
+`lifecycle_due_count` independently measures TTL/lifecycle work. The legacy
+`review_total` field remains an alias of the active candidate count.
 `memory govern readiness` also runs the packaged
 query-signal adversarial cases for long Chinese tasks, JSON/config prompts,
 OCR/log/code snippets, and weak follow-ups.
@@ -186,6 +189,9 @@ review items and contradictory signal states such as `resolved` together with
 it is a dry-run plan and does not archive items by itself. The JSON output also
 contains a `review_queue` with item IDs, bounded `memory read` commands, and
 `can_auto_apply=false` for Web Admin or script-driven human review.
+Cockpit includes the same aggregate `review_truth` object, and admins can read
+it directly from `GET /api/governance/review-truth`. The aggregate never
+returns item IDs, titles, summaries, bodies, or brain paths.
 `memory govern apply-lifecycle` rechecks selected IDs against the current
 `review_queue`; it defaults to `--dry-run` and only archives matched items when
 you pass `--apply`.

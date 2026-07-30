@@ -428,6 +428,21 @@ async def lifecycle_review(
     return plan.to_dict()
 
 
+@router.get("/api/governance/review-truth")
+def review_truth(
+    user: CurrentUser = Depends(get_current_user),
+) -> dict[str, object]:
+    """Return canonical aggregate review and lifecycle-due metrics. Admin only."""
+    if not user.is_admin:
+        raise HTTPException(status_code=403, detail="admin only")
+
+    from agent_brain.memory.governance.review_truth import (
+        build_review_truth_from_brain,
+    )
+
+    return build_review_truth_from_brain(_brain_dir()).to_dict()
+
+
 @router.post("/api/governance/lifecycle-apply")
 async def lifecycle_apply(
     req: LifecycleApplyRequest,

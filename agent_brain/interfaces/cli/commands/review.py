@@ -21,10 +21,10 @@ def review_status(
     ),
 ) -> None:
     """Summarize review and pending queue backlog without changing data."""
-    from agent_brain.memory.governance.review_queue import list_review_candidates
+    from agent_brain.memory.governance.review_truth import build_review_truth_from_brain
     from agent_brain.memory.store.pending import PendingQueue
 
-    review = list_review_candidates(_store_only())
+    review_truth = build_review_truth_from_brain(_brain_dir())
     queue = PendingQueue(brain=_brain_dir())
     pending_depth = queue.depth()
     pending_preview = queue.preview(limit=max(pending_depth, 1))
@@ -34,26 +34,56 @@ def review_status(
         if record.age_seconds is not None
     ]
     pending_oldest_age_seconds = max(pending_ages, default=None)
-    review_oldest_age_seconds = _review_oldest_age_seconds(review)
+    review_oldest_age_seconds = (
+        review_truth.active_review_candidate_oldest_age_seconds
+    )
     pending_dead_dir = _brain_dir() / "pending" / "dead"
     pending_dead = len(list(pending_dead_dir.glob("*.jsonl"))) if pending_dead_dir.exists() else 0
     alerts = _review_alerts(
         review_oldest_age_seconds=review_oldest_age_seconds,
+        lifecycle_due_count=review_truth.lifecycle_due_count,
         pending_oldest_age_seconds=pending_oldest_age_seconds,
         pending_dead=pending_dead,
     )
     recommended_next = (
-        "review list --format json"
-        if review.total
+        "memory review list --format json"
+        if review_truth.active_review_candidate_count
         else (
-            "memory sync-pending --format json"
-            if pending_depth or pending_dead
-            else "none"
+            "memory govern plan --category lifecycle --format markdown"
+            if review_truth.lifecycle_due_count
+            else (
+                "memory sync-pending --format json"
+                if pending_depth or pending_dead
+                else "none"
+            )
         )
     )
+    status = (
+        "fail"
+        if review_truth.status == "fail"
+        else ("warn" if review_truth.status == "warn" or alerts else "ok")
+    )
     data = {
-        "status": "warn" if alerts else "ok",
-        "review_total": review.total,
+        "schema_version": review_truth.schema_version,
+        "status": status,
+        "consistency_status": review_truth.consistency_status,
+        "active_review_candidate_count": (
+            review_truth.active_review_candidate_count
+        ),
+        "active_review_candidate_oldest_age_seconds": (
+            review_truth.active_review_candidate_oldest_age_seconds
+        ),
+        "active_review_candidate_sla_breach_count": (
+            review_truth.active_review_candidate_sla_breach_count
+        ),
+        "active_review_reason_counts": review_truth.active_review_reason_counts,
+        "active_review_type_counts": review_truth.active_review_type_counts,
+        "lifecycle_due_count": review_truth.lifecycle_due_count,
+        "lifecycle_due_oldest_age_seconds": (
+            review_truth.lifecycle_due_oldest_age_seconds
+        ),
+        # Backward-compatible CLI aliases.
+        "review_total": review_truth.active_review_candidate_count,
         "review_oldest_age_seconds": review_oldest_age_seconds,
         "pending_depth": pending_depth,
         "pending_oldest_age_seconds": pending_oldest_age_seconds,
@@ -68,8 +98,19 @@ def review_status(
     table = Table(title="Memory Review Status")
     table.add_column("metric")
     table.add_column("value", justify="right")
-    table.add_row("review_total", str(data["review_total"]))
-    table.add_row("review_oldest_age", _format_age(review_oldest_age_seconds))
+    table.add_row(
+        "active_review_candidates",
+        str(data["active_review_candidate_count"]),
+    )
+    table.add_row(
+        "active_review_oldest_age",
+        _format_age(review_oldest_age_seconds),
+    )
+    table.add_row("lifecycle_due", str(data["lifecycle_due_count"]))
+    table.add_row(
+        "lifecycle_due_oldest_age",
+        _format_age(review_truth.lifecycle_due_oldest_age_seconds),
+    )
     table.add_row("pending_depth", str(data["pending_depth"]))
     table.add_row("pending_oldest_age", _format_age(pending_oldest_age_seconds))
     table.add_row("pending_dead", str(data["pending_dead"]))
@@ -601,30 +642,18 @@ def _review_many(item_ids: list[str], *, action: str, confidence: float) -> None
         typer.echo(item_id)
 
 
-def _review_oldest_age_seconds(review: object) -> int | None:
-    candidates = getattr(review, "candidates", ())
-    now = datetime.now(timezone.utc)
-    ages: list[int] = []
-    for candidate in candidates:
-        try:
-            created = datetime.fromisoformat(candidate.created_at.replace("Z", "+00:00"))
-        except ValueError:
-            continue
-        if created.tzinfo is None:
-            created = created.replace(tzinfo=timezone.utc)
-        ages.append(max(0, int((now - created.astimezone(timezone.utc)).total_seconds())))
-    return max(ages, default=None)
-
-
 def _review_alerts(
     *,
     review_oldest_age_seconds: int | None,
+    lifecycle_due_count: int,
     pending_oldest_age_seconds: int | None,
     pending_dead: int,
 ) -> list[str]:
     alerts: list[str] = []
     if review_oldest_age_seconds is not None and review_oldest_age_seconds >= 7 * 86400:
         alerts.append("review queue oldest candidate exceeds 7d SLA")
+    if lifecycle_due_count:
+        alerts.append(f"lifecycle due queue contains {lifecycle_due_count} item(s)")
     if pending_oldest_age_seconds is not None and pending_oldest_age_seconds >= 24 * 3600:
         alerts.append("pending queue oldest record exceeds 24h SLA")
     if pending_dead:

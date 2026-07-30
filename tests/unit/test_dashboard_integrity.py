@@ -191,6 +191,11 @@ def test_dashboard_wires_cockpit_actions():
     assert "expected_intent_sha256: preview.intent_sha256" in text
     assert "标记已解决" in text
     assert "暂缓 7 天" in text
+    assert "function cockpitReviewTruthHtml" in text
+    assert "data.review_truth" in text
+    assert "active_review_candidate_count" in text
+    assert "lifecycle_due_count" in text
+    assert "复核真相" in text
 
 
 def test_dashboard_exposes_local_history_sync_panel():

@@ -10,6 +10,7 @@ from agent_brain.agent_integrations.capabilities import AdapterCapability, capab
 from agent_brain.agent_integrations.runtime_events import iter_runtime_events
 from agent_brain.contracts.memory_item import MemoryItem
 from agent_brain.memory.governance.signal_state import assess_signal_state
+from agent_brain.memory.governance.review_truth import build_review_truth_snapshot
 from agent_brain.memory.loops.loop_store import LoopStore
 from agent_brain.memory.loops.loop_types import LoopRun
 from agent_brain.memory.store.items_store import ItemsStore
@@ -29,6 +30,11 @@ def build_cockpit_summary(brain_dir: Path, *, now: datetime | None = None) -> di
         "handoff_pack": _handoff_pack(items, generated_at),
         "key_decisions": _key_decisions(items, generated_at),
         "open_signals": _open_signals(items, generated_at),
+        "review_truth": build_review_truth_snapshot(
+            (item for item, _body in items),
+            brain_dir=root,
+            now=generated_at,
+        ).to_dict(),
         "trust_risks": _trust_risks(items, generated_at),
         "adapter_health": _adapter_health(capabilities, adapter_status),
         "loop_governance": _loop_governance(root),

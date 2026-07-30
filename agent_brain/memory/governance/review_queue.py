@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass
 
 from agent_brain.memory.store.items_store import ItemsStore
@@ -49,9 +50,17 @@ class ReviewQueueReport:
 
 
 def list_review_candidates(store: ItemsStore) -> ReviewQueueReport:
+    return list_review_candidates_from_items(item for item, _body in store.iter_all())
+
+
+def list_review_candidates_from_items(
+    items: Iterable[MemoryItem],
+) -> ReviewQueueReport:
+    """Build the canonical active-review queue from one item snapshot."""
+
     candidates = [
         _candidate(item)
-        for item, _body in store.iter_all()
+        for item in items
         if is_active_review_candidate(item)
     ]
     candidates.sort(key=lambda candidate: (candidate.created_at, candidate.id))
@@ -148,5 +157,6 @@ __all__ = [
     "approve_review_candidate",
     "is_active_review_candidate",
     "list_review_candidates",
+    "list_review_candidates_from_items",
     "reject_review_candidate",
 ]

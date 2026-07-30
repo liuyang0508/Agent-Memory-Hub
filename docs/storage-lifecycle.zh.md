@@ -427,6 +427,35 @@ memory doctor --offline
 - 过期或低价值：提出 archive proposal，或移到 `items/archived/`。
 - L2/L3 层级摘要：写 `derived/hierarchical-memory.json`，不改原 item。
 
+#### Review Truth v1：复核候选与生命周期到期分开
+
+`review queue` 曾经同时被用于描述“需要人工判断的候选”和“生命周期到期的条目”，容易
+造成 readiness 显示 `0`，而 `memory review list` 仍有候选的口径漂移。现在统一使用
+`amh-review-truth/v1`：
+
+- `active_review_candidate_count`：与 `memory review list` 使用完全相同的
+  `needs-review` / 低置信度判定；
+- `active_review_reason_counts`：按 `source_gap`、`source_backed`、`contested`、
+  `explicit_review_tag` 聚合；
+- `active_review_candidate_sla_breach_count`：超过 7 天仍未终结的候选；
+- `lifecycle_due_count`：只统计 TTL / 生命周期复核到期且没有有效 defer 的条目；
+- `review_queue_count`：兼容字段，现已明确等同
+  `active_review_candidate_count`，不再表示生命周期到期数量。
+
+CLI、readiness、Cockpit 和 Web API 都从同一候选判定器生成这些指标：
+
+```bash
+memory review status --format json
+memory review list --format json
+memory govern readiness --format json
+curl -H "Authorization: Bearer <admin-token>" \
+  http://localhost:8765/api/governance/review-truth
+```
+
+Web/Cockpit 只返回聚合值，不返回 item ID、标题、摘要、正文或 brain 路径。扫描或
+lifecycle ledger 不可信时，`consistency_status` 不会显示 `consistent`，readiness 会
+fail-close。
+
 ## 用户最常用的检查命令
 
 ```bash

@@ -233,6 +233,7 @@ def user_token(client: TestClient, admin_token: str) -> str:
     ("method", "path", "payload"),
     [
         ("GET", "/api/cockpit/summary", None),
+        ("GET", "/api/governance/review-truth", None),
         ("GET", "/api/data-flow", None),
         ("GET", "/api/memory-lineage", None),
         ("GET", "/api/memory-candidates", None),
@@ -305,6 +306,7 @@ class TestCockpitSummaryAPI:
             "handoff_pack",
             "key_decisions",
             "open_signals",
+            "review_truth",
             "trust_risks",
             "adapter_health",
             "loop_governance",
@@ -316,8 +318,67 @@ class TestCockpitSummaryAPI:
         assert data["adapter_health"]["wip"] == 1
         assert data["adapter_health"]["verified"] == 0
         assert data["loop_governance"]["status"] == "ok"
+        assert data["review_truth"]["schema_version"] == "amh-review-truth/v1"
+        assert data["review_truth"]["consistency_status"] == "consistent"
         assert "recent" in data["loop_governance"]
         assert any(item["title"] == "Use SSE over WebSocket" for item in data["key_decisions"])
+
+
+class TestReviewTruthAPI:
+    def test_review_truth_requires_auth(self, client: TestClient):
+        assert client.get("/api/governance/review-truth").status_code == 401
+
+    def test_review_truth_returns_content_free_canonical_counts(
+        self,
+        client: TestClient,
+        admin_token: str,
+        brain_dir: Path,
+    ):
+        from datetime import timedelta
+
+        from agent_brain.memory.store.items_store import ItemsStore
+
+        store = ItemsStore(brain_dir / "items")
+        now = datetime.now(timezone.utc)
+        review = MemoryItem(
+            id="mem-20260730-160001-review-truth-private",
+            type=MemoryType.decision,
+            created_at=now - timedelta(days=8),
+            title="PRIVATE_REVIEW_TITLE_CANARY",
+            summary="PRIVATE_REVIEW_SUMMARY_CANARY",
+            confidence=0.35,
+            tags=["needs-review"],
+            sensitivity="private",
+        )
+        lifecycle_due = MemoryItem(
+            id="mem-20260101-160002-review-truth-lifecycle",
+            type=MemoryType.signal,
+            created_at=now - timedelta(days=90),
+            title="Lifecycle due signal",
+            summary="Old signal requiring lifecycle review",
+            confidence=0.9,
+        )
+        store.write(review, "PRIVATE_REVIEW_BODY_CANARY")
+        store.write(lifecycle_due, "Lifecycle due body")
+
+        response = client.get(
+            "/api/governance/review-truth",
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["schema_version"] == "amh-review-truth/v1"
+        assert payload["consistency_status"] == "consistent"
+        assert payload["active_review_candidate_count"] == 1
+        assert payload["active_review_candidate_sla_breach_count"] == 1
+        assert payload["active_review_reason_counts"] == {"source_gap": 1}
+        assert payload["active_review_type_counts"] == {"decision": 1}
+        assert payload["lifecycle_due_count"] == 1
+        serialized = response.text
+        assert "PRIVATE_REVIEW_TITLE_CANARY" not in serialized
+        assert "PRIVATE_REVIEW_SUMMARY_CANARY" not in serialized
+        assert "PRIVATE_REVIEW_BODY_CANARY" not in serialized
 
 
 class TestAdapterOnboardingAPI:
@@ -614,7 +675,7 @@ class TestApiDocsRoutes:
         data = resp.json()
         paths = {route["path"] for route in data["routes"]}
         assert data["total"] == len(data["routes"])
-        assert data["total"] == 122
+        assert data["total"] == 123
         assert "/api/data-flow" in paths
         assert "/api/chain-logs" in paths
         assert "/api/chain-logs/{chain_id}" in paths
@@ -625,6 +686,7 @@ class TestApiDocsRoutes:
         assert "/api/adapters/{name}/upgrade" in paths
         assert "/api/adapters/{name}/release" in paths
         assert "/api/governance/lifecycle-review" in paths
+        assert "/api/governance/review-truth" in paths
         assert "/api/governance/lifecycle-apply" in paths
         assert "/api/governance/contradiction-cases" in paths
         assert "/api/governance/contradiction-cases/{case_id}/resolve" in paths

@@ -1409,7 +1409,8 @@ def test_lifecycle_readiness_preserves_legacy_stale_signal_check_schema(
     assert lane.metrics["stale_signal_count"] == 1
     assert checks["stale_signal_count"].status == "warn"
     assert checks["stale_signal_count"].evidence["count"] == 1
-    assert checks["review_queue_count"].status == "warn"
+    assert checks["lifecycle_due_count"].status == "warn"
+    assert checks["active_review_candidate_count"].status == "pass"
 
 
 def test_lifecycle_readiness_rejects_duplicate_or_non_unique_graph_schema(

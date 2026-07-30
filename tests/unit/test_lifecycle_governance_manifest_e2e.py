@@ -185,6 +185,9 @@ def test_lifecycle_238_plus_80_manifest_preview_apply_and_reopen(
     assert readiness.metrics["superseded_count"] == 20
     assert readiness.metrics["active_count"] == 60
     assert readiness.metrics["review_queue_count"] == 0
+    assert readiness.metrics["active_review_candidate_count"] == 0
+    assert readiness.metrics["lifecycle_due_count"] == 0
+    assert readiness.metrics["review_truth_consistency_status"] == "consistent"
     assert readiness.metrics["index_health_status"] == "clean"
     assert readiness.metrics["supersession_drift_count"] == 0
     assert readiness.metrics["lifecycle_ledger_unavailable"] is False

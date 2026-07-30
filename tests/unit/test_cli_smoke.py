@@ -2347,7 +2347,7 @@ def test_cli_anti_drift_semantic_runs(seeded_brain):
 def test_api_docs_endpoint_rows_are_split():
     from agent_brain.interfaces.cli.commands.api_docs import API_ENDPOINTS
 
-    assert len(API_ENDPOINTS) == 122
+    assert len(API_ENDPOINTS) == 123
     assert any(method == "GET" and path == "/api/chain-logs" for method, path, _desc in API_ENDPOINTS)
     assert any(method == "GET" and path == "/api/chain-logs/{chain_id}" for method, path, _desc in API_ENDPOINTS)
     assert any(method == "GET" and path == "/api/health" for method, path, _desc in API_ENDPOINTS)
@@ -2355,6 +2355,7 @@ def test_api_docs_endpoint_rows_are_split():
     assert any(method == "GET" and path == "/api/data-flow" for method, path, _desc in API_ENDPOINTS)
     assert any(method == "GET" and path == "/api/memory-lineage" for method, path, _desc in API_ENDPOINTS)
     assert any(method == "GET" and path == "/api/governance/lifecycle-review" for method, path, _desc in API_ENDPOINTS)
+    assert any(method == "GET" and path == "/api/governance/review-truth" for method, path, _desc in API_ENDPOINTS)
     assert any(method == "GET" and path == "/api/governance/contradiction-cases" for method, path, _desc in API_ENDPOINTS)
     assert any(method == "GET" and path == "/api/agents/local-history" for method, path, _desc in API_ENDPOINTS)
     assert any(method == "POST" and path == "/api/agents/{agent}/local-history/sync" for method, path, _desc in API_ENDPOINTS)
@@ -2380,12 +2381,13 @@ def test_api_docs_cli_uses_current_web_route_count():
     result = runner.invoke(app, ["api-docs"])
 
     assert result.exit_code == 0, result.output
-    assert "Total: 122 endpoints" in result.output
+    assert "Total: 123 endpoints" in result.output
     assert "/api/chain-logs" in result.output
     assert "/api/chain-logs/{chain_id}" in result.output
     assert "/api/data-flow" in result.output
     assert "/api/memory-lineage" in result.output
     assert "/api/governance/lifecycle-review" in result.output
+    assert "/api/governance/review-truth" in result.output
     assert "/api/governance/lifecycle-apply" in result.output
     assert "/api/governance/contradiction-cases" in result.output
     assert "/api/governance/signals/{item_id}/transition" in result.output

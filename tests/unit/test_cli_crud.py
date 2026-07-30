@@ -654,7 +654,7 @@ class TestReviewCLI:
         assert data["review_total"] == 1
         assert data["pending_depth"] == 1
         assert data["pending_dead"] == 0
-        assert data["recommended_next"] == "review list --format json"
+        assert data["recommended_next"] == "memory review list --format json"
 
     def test_review_status_pending_next_action_is_preview_only(self, tmp_brain_dir, monkeypatch):
         monkeypatch.setenv("BRAIN_DIR", str(tmp_brain_dir))
