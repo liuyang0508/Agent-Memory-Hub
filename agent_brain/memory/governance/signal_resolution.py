@@ -549,12 +549,15 @@ def _target_state(
         if action == "defer" and defer_days is not None
         else None
     )
-    status = {
-        "resolve": "resolved",
-        "obsolete": "obsolete",
-        "defer": "deferred",
-        "reopen": "open",
-    }[action]
+    status: Literal["open", "resolved", "obsolete", "deferred"]
+    if action == "resolve":
+        status = "resolved"
+    elif action == "obsolete":
+        status = "obsolete"
+    elif action == "defer":
+        status = "deferred"
+    else:
+        status = "open"
     return (
         SignalLifecycleState(
             status=status,

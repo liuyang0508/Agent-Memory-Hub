@@ -14,7 +14,7 @@
     "observed_drift_count": 1,
     "status": "pass"
   },
-  "implementation_hash": "sha256:67b393f7fbfadc43321eff67e21ad1ef5e58f06ab67152601fae4e2c5073aff8",
+  "implementation_hash": "sha256:cd4bde8dd921a6c9ff8d4a16e06cd0d3c8a9a44d37a981a8cdce98c8431943e2",
   "implementation_manifest": [
     {
       "path": "agent_brain/agent_integrations/hermes/import_export_tools.py",
@@ -166,7 +166,7 @@
     },
     {
       "path": "agent_brain/memory/governance/signal_resolution.py",
-      "sha256": "sha256:c341baf61feb0e98fbcaf5fef05d4cb94c293977c64cac10bd81c205dd099047"
+      "sha256": "sha256:a1125810c063af57d9eb99de4c7389228ae89b03e13560ec4cb3829923cca898"
     },
     {
       "path": "agent_brain/memory/governance/signal_state.py",
