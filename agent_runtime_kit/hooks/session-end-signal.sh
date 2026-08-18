@@ -70,6 +70,15 @@ if [ -n "${MEMORY_PYTHON:-}" ]; then
     >/dev/null 2>&1 || true
 fi
 
+# Close silent injection cohorts whose observation window elapsed. Idempotent;
+# daily_maintenance repeats the same sweep as a fallback. Fail-open.
+if [ -n "${MEMORY_PYTHON:-}" ]; then
+  "$MEMORY_PYTHON" -m agent_brain.memory.context.injection_closures \
+    --brain-dir "${BRAIN_DIR:-$HOME/.agent-memory-hub}" \
+    --closed-by session_end \
+    >/dev/null 2>&1 || true
+fi
+
 [ -x "$WRITE_TOOL" ] || exit 0
 
 # === DEDUPE: 同一 session_id 只在第一次 turn end 时写 signal ===

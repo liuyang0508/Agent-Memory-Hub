@@ -26,16 +26,23 @@ from agent_brain.platform.indexing.index import HubIndex
 
 _NEGATIVE = re.compile(
     r"(?:刚才|上次|之前|这些|全部|都).{0,20}"
-    r"(?:不对|错了|错误|没用|无用|无关|答非所问)"
+    r"(?:不对|错了|错误|没用|没有用|无用|不正确|不准确|无关|不相关|答非所问|误导|没帮到)"
     r"|(?:previous|last|those|all).{0,30}"
-    r"(?:wrong|incorrect|unhelpful|irrelevant)",
+    r"(?:wrong|incorrect|inaccurate|unhelpful|irrelevant|misleading"
+    r"|not.{0,12}(?:correct|accurate|helpful|useful|relevant)"
+    r"|(?:never|didn'?t).{0,12}help(?:s|ed)?)",
     re.IGNORECASE,
 )
+# Lookbehinds exclude negated spellings (不正确 / inaccurate / not relevant) so
+# they resolve as negative instead of tieing with the positive pattern into a
+# miss. Longer negation gaps still tie into a miss on purpose.
 _POSITIVE = re.compile(
     r"(?:刚才|上次|之前|这些|全部|都).{0,20}"
-    r"(?:对了|正确|有用|有效|帮到了)"
+    r"(?:(?<!不)对了|(?<!不)正确|(?<!不)准确|(?<!没)有用|有效|(?<!没)帮到了|帮了大忙)"
     r"|(?:previous|last|those|all).{0,30}"
-    r"(?:correct|helpful|useful|relevant)",
+    r"(?:(?<!in)(?<!not )correct|(?<!in)(?<!not )accurate"
+    r"|(?<!un)(?<!not )helpful|(?<!not )useful"
+    r"|(?<!ir)(?<!not )(?<!n't )relevant|spot[ -]on)",
     re.IGNORECASE,
 )
 _CONTINUE = re.compile(

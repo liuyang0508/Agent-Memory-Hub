@@ -8,6 +8,10 @@ import os
 from datetime import datetime, timezone
 from pathlib import Path
 
+from agent_brain.memory.context.injection_closures import (
+    CLOSED_BY_DAILY_MAINTENANCE,
+    close_stale_cohorts,
+)
 from agent_brain.memory.governance.auto_governance import AutoGovernanceCycle
 from agent_brain.memory.governance.outcome_feedback import (
     apply_task_outcome_feedback_batch,
@@ -42,6 +46,7 @@ def run_daily_maintenance(brain_dir: Path) -> dict[str, object]:
             items_store=items_store,
             index=index,
         )
+        closures = close_stale_cohorts(brain, closed_by=CLOSED_BY_DAILY_MAINTENANCE)
         learning = refresh_learning_profile(brain)
         report = AutoGovernanceCycle(
             brain_dir=brain,
@@ -55,6 +60,7 @@ def run_daily_maintenance(brain_dir: Path) -> dict[str, object]:
             "day": day,
             "applied_count": report.applied_count,
             "feedback_applied_count": feedback.applied_count,
+            "cohort_closures": closures.to_dict(),
             "learning": learning.to_dict(),
             "blocked_count": report.blocked_count,
             "review_required_count": report.review_required_count,

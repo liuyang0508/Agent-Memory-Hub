@@ -65,3 +65,6 @@ app.add_typer(sync_app, name="sync")
 
 learning_app = typer.Typer(help="Replay-gated adaptive recall learning")
 app.add_typer(learning_app, name="learning")
+
+measure_app = typer.Typer(help="Injection-effectiveness measurement commands")
+app.add_typer(measure_app, name="measure")

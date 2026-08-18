@@ -3,8 +3,10 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from pathlib import Path
 
+import pytest
+
 from agent_brain.contracts.memory_item import MemoryItem, MemoryType
-from agent_brain.memory.context.injection_cohorts import record_injection_cohort
+from agent_brain.memory.context.injection_cohorts import InjectionCohort, record_injection_cohort
 from agent_brain.memory.store.items_store import ItemsStore
 from agent_brain.platform.embedding import HashingEmbedder
 from agent_brain.platform.indexing.index import HubIndex
@@ -131,3 +133,67 @@ def test_single_item_continue_and_explicit_rejection_are_safe(tmp_path: Path) ->
     assert negative.rejected == (rejected,)
     assert store.get(adopted)[0].gain_score > 0
     assert store.get(rejected)[0].gain_score < 0
+
+
+def _cohort(item_ids: tuple[str, ...]) -> InjectionCohort:
+    return InjectionCohort(
+        cohort_id="c1",
+        timestamp=datetime(2026, 8, 19, tzinfo=timezone.utc).isoformat(),
+        item_ids=item_ids,
+        adapter="claude_code",
+    )
+
+
+_NEGATIVE_PROMPTS = [
+    "刚才的回答不准确",
+    "上次的建议误导了我",
+    "之前的内容没有用",
+    "之前的内容没帮到我",
+    "这些回答都不正确",
+    "the last answer is inaccurate",
+    "all of those were misleading",
+    "those notes were not relevant",
+    "the previous answer didn't help",
+]
+
+_POSITIVE_PROMPTS = [
+    "刚才的回答准确",
+    "上次的建议帮了大忙",
+    "the previous answer was spot on",
+    "those notes are still relevant",
+    "the last answer was accurate",
+]
+
+_AMBIGUOUS_PROMPTS = [
+    "the last answer was correct but the previous one was wrong",
+    "刚才的回答 incorrect, but useful",
+    "今天天气怎么样",
+]
+
+
+@pytest.mark.parametrize("prompt", _NEGATIVE_PROMPTS)
+def test_expanded_negative_wording_classifies_rejected(prompt: str) -> None:
+    from agent_brain.memory.governance.auto_feedback import _classify
+
+    assert _classify(prompt, _cohort(("mem-1", "mem-2"))) == "rejected"
+
+
+@pytest.mark.parametrize("prompt", _POSITIVE_PROMPTS)
+def test_expanded_positive_wording_classifies_adopted(prompt: str) -> None:
+    from agent_brain.memory.governance.auto_feedback import _classify
+
+    assert _classify(prompt, _cohort(("mem-1", "mem-2"))) == "adopted"
+
+
+@pytest.mark.parametrize("prompt", _AMBIGUOUS_PROMPTS)
+def test_ambiguous_wording_stays_none(prompt: str) -> None:
+    from agent_brain.memory.governance.auto_feedback import _classify
+
+    assert _classify(prompt, _cohort(("mem-1", "mem-2"))) == "none"
+
+
+def test_single_item_continue_still_adopted() -> None:
+    from agent_brain.memory.governance.auto_feedback import _classify
+
+    assert _classify("继续", _cohort(("mem-1",))) == "adopted"
+    assert _classify("继续", _cohort(("mem-1", "mem-2"))) == "none"
