@@ -541,8 +541,15 @@ def analyze_injection_query(
         *trailing_task_anchor_terms,
     ] or known_entity_terms
     _promote_terms(terms, precise_anchor_terms)
-    _focus_terms_on_precise_anchor(terms, precise_anchor_terms)
-    _focus_strong_terms_on_precise_anchor(strong_terms, strong_focus_terms)
+    has_structural_ascii_anchor = bool(
+        runtime_ascii_terms or file_terms or json_field_terms
+    )
+    _focus_terms_on_precise_anchor(
+        terms, precise_anchor_terms, has_structural_ascii_anchor
+    )
+    _focus_strong_terms_on_precise_anchor(
+        strong_terms, strong_focus_terms, has_structural_ascii_anchor
+    )
     _focus_unanchored_terms_on_ascii_scope(terms, strong_terms, anchors)
     if keyphrase_terms:
         _prune_ascii_terms_after_keyphrases(terms, keyphrase_terms, protected_terms=task_anchor_terms)
@@ -1414,29 +1421,109 @@ def _promote_terms(values: list[str], preferred: list[str]) -> None:
 def _focus_terms_on_precise_anchor(
     terms: list[str],
     precise_anchor_terms: list[str],
+    has_structural_ascii_anchor: bool = False,
 ) -> None:
     precise = {term for term in precise_anchor_terms if term in terms}
     if not precise:
         return
+    keep_cjk = _keep_cjk_terms_beside_anchor(
+        precise, has_structural_ascii_anchor=has_structural_ascii_anchor
+    )
     terms[:] = [
         term
         for term in terms
-        if term in precise or _is_explicit_ascii_scope_term(term)
+        if term in precise
+        or _is_explicit_ascii_scope_term(term)
+        or (keep_cjk and _is_topical_cjk_recall_phrase(term))
     ]
 
 
 def _focus_strong_terms_on_precise_anchor(
     strong_terms: list[str],
     precise_anchor_terms: list[str],
+    has_structural_ascii_anchor: bool = False,
 ) -> None:
     precise = {term for term in precise_anchor_terms if term in strong_terms}
     if not precise:
         return
+    keep_cjk = _keep_cjk_terms_beside_anchor(
+        precise, has_structural_ascii_anchor=has_structural_ascii_anchor
+    )
     strong_terms[:] = [
         term
         for term in strong_terms
-        if term in precise or _is_explicit_ascii_scope_term(term)
+        if term in precise
+        or _is_explicit_ascii_scope_term(term)
+        or (keep_cjk and _is_anchor_cjk_recall_phrase(term))
     ]
+
+
+def _keep_cjk_terms_beside_anchor(
+    precise: set[str],
+    *,
+    has_structural_ascii_anchor: bool,
+) -> bool:
+    """Decide whether non-anchored CJK recall phrases may stay in the query.
+
+    A structural ASCII anchor (file path, runtime identifier, JSON field)
+    names the topic precisely on its own, so surrounding CJK clauses are
+    complaint/question noise and stay pruned.  When the only anchor is a
+    weak ASCII word matched from metadata (e.g. "mock"), it carries no
+    evidence about the Chinese topic; pruning every CJK phrase then collapses
+    a mixed-language question into one generic word and recall drifts to
+    whatever memories happen to contain that word.  Keep topical CJK recall
+    phrases only in that weaker case, and never keep question/quantity
+    clauses as strong anchors.
+    """
+    if has_structural_ascii_anchor:
+        return False
+    return not any(not _is_ascii(term) for term in precise)
+
+
+# Speaker framing, direct requests, anaphoric situation references, leading
+# discourse connectives, and question particles are not topics.  Keeping them
+# beside an ASCII-only anchor drags recall toward whatever memories happen to
+# share the anchor word, and lets a filler like "针对当前情况" or
+# "所以我现在是可以正常通过" win the primary-answerability slot.
+_CJK_NON_TOPICAL_RECALL_RE = re.compile(
+    r"^(?:我们|咱们|我|你们|你)|帮我|帮忙|替我|给我|请你|请帮|麻烦|辛苦|"
+    r"针对当前|当前情况|针对(?:这个|那个|此)|目前情况|上述情况|前面提到|综上|总的来|"
+    r"^(?:所以|于是|那么|另外|此外|对了|好了|总之|反正|毕竟|既然|虽然|即使|只是|"
+    r"不过|但是|而且|并且|首先|其次|再次|最后|接着|然后|现在|目前|眼下)|"
+    r"(?:吗|呢)$|"
+    r"^(?:优化|修改|修复|修正|检查|看看|试试|处理|调整|排查|分析|总结|回顾|确认|"
+    r"核对|验证|评估|对比|参考|整理|梳理|补充|完善|实现|编写|重构|更新|升级|"
+    r"配置|安装|部署|运行|执行|启动|测试|调试)(?:一下|下)?$"
+)
+
+
+def _is_topical_cjk_recall_phrase(term: str) -> bool:
+    """A CJK recall phrase worth keeping beside an ASCII-only anchor.
+
+    Shape validity alone admits speaker framing and requests ("先帮我配置",
+    "我没有在") and anaphoric fillers ("针对当前情况"), which pollute recall and
+    anchor selection. Keep a phrase only when it still reads like a topic.
+    """
+    if not _is_cjk_recall_phrase(term):
+        return False
+    return _CJK_NON_TOPICAL_RECALL_RE.search(term) is None
+
+
+# Question clauses and scale/quantity phrases are fine retrieval material but
+# must not count as strong anchors: they are about the ask, not the topic, and
+# letting them count makes cohort coverage mathematically unreachable.  The
+# interrogatives may sit inside the clause ("没有召回记忆该怎么排查"), so match
+# anywhere, not only at the start.
+_CJK_NON_ANCHOR_RECALL_RE = re.compile(
+    r"是否|是不是|有没有|为何|为什么|怎么|如何|哪些|多少|"
+    r"几十|上百|大几十|好几|很多|一些|若干"
+)
+
+
+def _is_anchor_cjk_recall_phrase(term: str) -> bool:
+    if not _is_topical_cjk_recall_phrase(term):
+        return False
+    return _CJK_NON_ANCHOR_RECALL_RE.search(term) is None
 
 
 def _focus_unanchored_terms_on_ascii_scope(

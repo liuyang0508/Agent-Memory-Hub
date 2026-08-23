@@ -132,6 +132,7 @@ def execute_routed_query(
             project_scope=scope,
             cwd=cwd,
             session_id=session_id,
+            brain_dir=brain_dir,
         )
         routed = _generate_candidates(
             request=request,

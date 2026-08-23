@@ -14,6 +14,7 @@ from agent_brain.memory.context.answerability import (
     AnswerabilityVerifier,
     answerability_verifier_from_env,
     preselect_routed_candidate_ids,
+    primary_answerability_terms,
     substantive_answerability_terms,
     verify_candidate_answerability,
     verify_routed_candidate_answerability,
@@ -373,7 +374,22 @@ class ContextFirewall:
             covered = covered_strong_terms(included, strong_terms)
             coverage = len(covered) / len(strong_terms)
             if coverage < self.config.min_strong_term_coverage:
-                return reject_cohort(included, "cohort_strong_anchor_undercovered")
+                # CJK strong terms paraphrase the ask ("遗留问题") and are
+                # often never stated verbatim, so full coverage stays out of
+                # reach.  Keep rejecting when the primary topic anchor or any
+                # ASCII term (which names topics precisely) is uncovered.
+                primary_terms = primary_answerability_terms(signal)
+                anchor_covered = (
+                    not primary_terms
+                    or any(term in covered for term in primary_terms)
+                )
+                ascii_uncovered = tuple(
+                    term
+                    for term in strong_terms
+                    if term.isascii() and term not in covered
+                )
+                if not anchor_covered or ascii_uncovered:
+                    return reject_cohort(included, "cohort_strong_anchor_undercovered")
 
         return CohortGateResult(included=included, excluded=[], reasons=())
 

@@ -164,6 +164,8 @@ def covered_strong_terms(
     for term in strong_terms:
         if any(_term_matches_haystack(term, haystack) for haystack in haystacks):
             covered.add(term)
+        elif any(cjk_term_fuzzy_matches(term, haystack) for haystack in haystacks):
+            covered.add(term)
     return covered
 
 
@@ -199,6 +201,60 @@ def _term_matches_haystack(term: str, haystack: str) -> bool:
     if len(compact_term) < 4:
         return False
     return compact_term in _compact_lookup_text(haystack)
+
+
+# 跟/同/对... are relation prepositions inside topic phrases, not topic
+# content; splitting on them isolates the real nouns of the term.
+_CJK_FUZZY_NOISE_CHARS = frozenset(
+    "的了吗呢吧啊呀我你他她它请把给在和与及是有跟同对到从被将并或等也都很还又再才只向朝"
+)
+_CJK_FUZZY_RUN_RE = re.compile(r"[一-鿿]+")
+_CJK_FUZZY_MIN_COVERAGE = 0.5
+
+
+def cjk_term_fuzzy_matches(term: str, haystack: str) -> bool:
+    """Whether a CJK topic term is well enough covered by fuzzy fragments.
+
+    Chinese topic phrases rephrase the same idea ("跟学员的仿真对话" vs an item
+    about "学员仿真"), so an exact-substring demand rejects the correct memory.
+    Split the term into substantive noun runs, score each run by how many of
+    its overlapping bigrams/trigrams appear anywhere in the haystack, and
+    accept when the runs on average are well enough covered.
+    """
+    if term.isascii() or len(term) < 4:
+        return False
+    runs = _cjk_fuzzy_runs(term.casefold())
+    if not runs:
+        return False
+    haystack = haystack.casefold()
+    total = 0.0
+    for run in runs:
+        units = _cjk_fuzzy_run_units(run)
+        if not units:
+            continue
+        covered = sum(1 for unit in units if unit in haystack)
+        total += covered / len(units)
+    return total / len(runs) >= _CJK_FUZZY_MIN_COVERAGE
+
+
+def _cjk_fuzzy_runs(term: str) -> list[str]:
+    runs: list[str] = []
+    for raw_run in _CJK_FUZZY_RUN_RE.findall(term):
+        chunks = re.split(
+            f"[{re.escape(''.join(sorted(_CJK_FUZZY_NOISE_CHARS)))}]+",
+            raw_run,
+        )
+        runs.extend(chunk for chunk in chunks if len(chunk) >= 2)
+    return runs
+
+
+def _cjk_fuzzy_run_units(run: str) -> tuple[str, ...]:
+    if len(run) == 2:
+        return (run,)
+    return tuple(dict.fromkeys([
+        *(run[index:index + 2] for index in range(len(run) - 1)),
+        *(run[index:index + 3] for index in range(len(run) - 2)),
+    ]))
 
 
 def _compact_lookup_text(text: str) -> str:

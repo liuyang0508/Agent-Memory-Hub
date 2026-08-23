@@ -73,6 +73,7 @@ def build_recall_request(
     project_scope: ProjectScope | None = None,
     cwd: str | None = None,
     session_id: str | None = None,
+    brain_dir: Path | None = None,
 ) -> RecallRequest:
     """Build the immutable input contract used by routed recall."""
 
@@ -84,6 +85,7 @@ def build_recall_request(
     signal = build_routed_query_signal(
         normalized_query,
         enable_technical_anchors=enable_technical_anchors,
+        brain_dir=brain_dir,
     )
     admission = analyze_recall_admission(raw_query)
     return RecallRequest(
