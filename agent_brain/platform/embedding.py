@@ -45,10 +45,10 @@ class SentenceTransformerEmbedder:
     previously gave poor CJK vector recall.
     """
 
-    def __init__(self, model_name: str = DEFAULT_PROD_MODEL) -> None:
+    def __init__(self, model_name: str = DEFAULT_PROD_MODEL, *, local_only: bool = False) -> None:
         from sentence_transformers import SentenceTransformer
 
-        self._model = SentenceTransformer(model_name)
+        self._model = SentenceTransformer(model_name, local_files_only=local_only)
         dimension = self._model.get_sentence_embedding_dimension()
         if dimension is None:
             raise ValueError("sentence-transformer did not report an embedding dimension")
@@ -80,18 +80,30 @@ def _build_prod_embedder() -> Embedder:
     retrieval degrades gracefully instead of hard-crashing when no model can
     be loaded (e.g. offline first run, sentence-transformers not installed).
     """
-    if os.environ.get("MEMORY_HUB_EMBEDDING_OFFLINE") == "1":
-        fallback = HashingEmbedder()
-        fallback.degraded = True
-        logger.info(
-            "MEMORY_HUB_EMBEDDING_OFFLINE=1; using HashingEmbedder without "
-            "probing sentence-transformer models"
-        )
-        return fallback
-
+    offline = os.environ.get("MEMORY_HUB_EMBEDDING_OFFLINE") == "1"
     candidates = [_resolve_model_name()]
     if FALLBACK_PROD_MODEL not in candidates:
         candidates.append(FALLBACK_PROD_MODEL)
+    if offline:
+        # Offline only forbids downloading; a model already in the local HF
+        # cache must still load, otherwise the query side hashes text into a
+        # space disjoint from the stored semantic vectors and vector recall
+        # silently dies.
+        for name in candidates:
+            try:
+                embedder = SentenceTransformerEmbedder(name, local_only=True)
+                logger.info("offline mode: loaded cached embedding model %r", name)
+                return embedder
+            except Exception as exc:
+                logger.warning("offline mode: cached model %r unavailable: %s", name, exc)
+        logger.error(
+            "MEMORY_HUB_EMBEDDING_OFFLINE=1 and no cached model; falling back "
+            "to HashingEmbedder (degraded semantic recall)"
+        )
+        fallback = HashingEmbedder()
+        fallback.degraded = True
+        return fallback
+
     for name in candidates:
         try:
             return SentenceTransformerEmbedder(name)

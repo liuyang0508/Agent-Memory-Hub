@@ -727,7 +727,7 @@ RRF 后的候选再依次经过：
 | status/handoff supplement | 对 stale/outdated/status/trust/current 这类问题补召或提升 handoff/status signal。 | 只在 status-risk query 触发。 |
 | cross-encoder rerank | `RERANK_ENABLED=1` 时用 `cross-encoder/ms-marco-MiniLM-L-6-v2` 重排 top pool。 | 默认不启用。 |
 | decay | `score * confidence * coefficient`。 | 置信度和遗忘系数会影响排名，但不等于注入许可。 |
-| feedback value | support、contradict、gain 形成 `[0.25, 2.0]` 有界 multiplier。 | 防止反馈完全压倒相关性。 |
+| feedback value | support、contradict、gain 形成 `[0.25, 2.0]` 原始 multiplier，排序时经 `rank_weight` 压缩到 ±5%。 | 防止反馈完全压倒相关性。 |
 | runtime/status boost | 对真实运行证据、状态类问题做有条件 boost。 | 必须有对应 query terms 和 tags。 |
 | temporal filter | 过滤 stale runtime-state。 | audit 模式可显式 include stale state。 |
 | supersession filter | 读 Markdown 源，过滤 `superseded_by` item。 | Markdown 优先于可能滞后的 index。 |
@@ -841,8 +841,8 @@ Query Signal
 | RRF Fusion | BM25 和向量召回的分数尺度不同。 | BM25 排名列表、向量排名列表、权重 `w_l`、`rrf_k`；`rrf_fusion()`。 | 用 reciprocal rank fusion 合并候选排名。 | `s_i=Σ_{l∈L} w_l/(k+r_l(d_i)+1)` | A 两路都靠前，S0 高；只在一路出现的 C 低一些。 | 字面命中和语义命中可以进入同一候选池。 | RRF 只是候选分，不是可信度，也不是注入许可。 |
 | Metadata Phrase Boost | 中文自然问题里的关键短语可能只在 metadata 中稳定出现。 | 候选、title/summary/project/tags、query phrase；`_metadata_phrase_hits()`。 | 用元数据覆盖度和精确命中提升候选。 | `s_i←max(s_i,1+φ(q,d_i))` | A 的标题/摘要包含 README、深度叙事、二次打磨，直接抬高候选分。 | 标题、摘要、标签强命中的候选不会被低 BM25 分淹没。 | 只使用 metadata 支撑的短语，不做开放式幻觉扩展。 |
 | Cross-Encoder Rerank | top pool 可能需要更细的 query-item 匹配判断。 | query、候选文本、`CrossEncoderReranker`。 | 对 top pool 打 logit 并 sigmoid 归一。 | `s_i←σ(f_θ(q,d_i))` | 默认关闭；样例不启用。 | 启用模型时能提升语义排序精度。 | `RERANK_ENABLED=1` 才运行。 |
-| Confidence Weight | 同样相关的记忆，来源可信度不同。 | 候选分 `s_i`、MemoryItem `confidence`、人工确认、治理或反馈。 | 把 item 自身置信度乘回排序分。 | `S_i=s_i·c_i` | A 置信度 0.70，E 只有 0.55。 | 低置信度候选不会和确认事实等价。 | confidence 不表示当前问题相关，只表示 item 自身可信程度。 |
-| Decay / Forgetting | 记忆会过期，但复用和支持会延长价值。 | 候选分 `s_i`、置信度 `c_i`、时间差 `Δt_i`、访问/支持/收益/反驳；`RetrievalDecay`、`decay_breakdown()`。 | 半衰期遗忘曲线乘有界强化因子。 | `ρ_i=2^{-Δt_i/h}`, `S_i=s_i·c_i·clip(ρ_i·a_i·u_i·g_i·r_i,0.01,1.35)` | E 是旧 preview signal，coefficient 低；A 近期且复用过，coefficient 高。 | 旧但反复有用的记忆还能保留，新但被否定的记忆会降权。 | decay 不能证明正确性，也不能绕过防火墙。 |
+| Confidence Weight | 同样相关的记忆，来源可信度不同。 | 候选分 `s_i`、MemoryItem `confidence`、人工确认、治理或反馈。 | 把 item 自身置信度乘回排序分（经 `rank_weight` 压缩到 ±5%）。 | `S_i=s_i·rank_weight(c_i·decay_i)` | A 置信度 0.70，E 只有 0.55。 | 低置信度候选不会和确认事实等价。 | confidence 不表示当前问题相关，只表示 item 自身可信程度。 |
+| Decay / Forgetting | 记忆会过期，但复用和支持会延长价值。 | 候选分 `s_i`、置信度 `c_i`、时间差 `Δt_i`、访问/支持/收益/反驳；`RetrievalDecay`、`decay_breakdown()`。 | 半衰期遗忘曲线乘有界强化因子。 | `ρ_i=2^{-Δt_i/h}`，原始 `decay_coefficient=clip(ρ_i·a_i·u_i·g_i·r_i,0.01,1.35)` 仅作诊断，排序权重 `S_i=s_i·rank_weight(c_i·decay_coefficient)` 压缩到 ±5% | E 是旧 preview signal，coefficient 低；A 近期且复用过，coefficient 高。 | 旧但反复有用的记忆还能保留，新但被否定的记忆会降权。 | decay 不能证明正确性，也不能绕过防火墙。 |
 | Feedback Value | 采用、拒绝和收益应该影响下一轮排序。 | `support_count`、`contradict_count`、`gain_score`；injection cohort、outcome feedback、`retrieval_value.py`。 | 形成有界 multiplier。 | `m_i=clip(1+0.03p_i-0.10n_i+0.50g_i,0.25,2.0)` | A 被采用过，乘子升到 1.12；E 被反驳过，乘子降到 0.90。 | 有用记忆升温，被反驳记忆降温。 | ignored 不是负反馈；反馈不能完全压倒相关性。 |
 | Runtime / Status Boost | 当前环境、adapter、handoff 或 signal 可能改变召回价值。 | adapter/runtime tags、handoff/status/signal metadata。 | 对匹配运行证据和状态风险的候选加权。 | `S_i'=S_i+b_rt(q,d_i)` | 安装、doctor、上下文有效性等运行证据只在相关问题中显性出现。 | 运行证据、状态风险和 handoff 能进入排序。 | 只在 runtime/status 查询里触发，不是全局加分。 |
 | Temporal / Supersession Gate | 旧状态和被替代结论不能污染新任务。 | 时间戳、state scope、`superseded_by`、include stale flag。 | 过滤 stale runtime state 和 superseded item。 | `K_i=1[fresh(d_i)∧¬superseded(d_i)]` | E 被后续 README 重建替代，移除或不注入。 | 旧 handoff、废止结论和过期状态不会默认注入。 | audit 模式可显式包含 stale state。 |

@@ -1698,7 +1698,7 @@ def retrieval_complete_flow(zh: bool) -> tuple[str, str, str, int, int]:
         formula_lines = [
             "time_retention = 0.5 ^ (days_since_reference / half_life)",
             "decay_coefficient = clamp(retention * access * support * gain * contradiction, 0.01, 1.35)",
-            "effective_score = candidate_score * confidence * decay_coefficient",
+            "effective_score = candidate_score * rank_weight(confidence * decay_coefficient), ±5% bound",
         ]
         policy = "读取起点是 MemoryItem + Index Projection + Runtime Ledger；最终注入由 ContextFirewall + context_loading 决定。"
     else:
@@ -1731,7 +1731,7 @@ def retrieval_complete_flow(zh: bool) -> tuple[str, str, str, int, int]:
         formula_lines = [
             "time_retention = 0.5 ^ (days_since_reference / half_life)",
             "decay_coefficient = clamp(retention * access * support * gain * contradiction, 0.01, 1.35)",
-            "effective_score = candidate_score * confidence * decay_coefficient",
+            "effective_score = candidate_score * rank_weight(confidence * decay_coefficient), ±5% bound",
         ]
         policy = "Read starts from MemoryItem + Index Projection + Runtime Ledger; injection is decided by ContextFirewall + context_loading."
 
@@ -1830,7 +1830,7 @@ def retrieval_score_waterfall(zh: bool) -> tuple[str, str, str, int, int]:
         formulas = [
             "RRF(d)=Σs ws/(k+rank_s(d)+1)",
             "S_effective=S_rrf×confidence×decay_coefficient",
-            "decay_coefficient=clamp(retention×access×support×gain×contradiction,0.01,1.35)",
+            "rank_weight=1±0.05·tanh(ln(confidence×decay_coefficient))",  # raw clamp [0.01,1.35] stays diagnostic
             "maturity 是治理/分层元数据，不是 SearchEngine 实时排序乘子",
         ]
         labels = ["S0 RRF", "置信度", "遗忘衰减", "反馈价值", "状态/运行时", "过滤门"]
@@ -1841,7 +1841,7 @@ def retrieval_score_waterfall(zh: bool) -> tuple[str, str, str, int, int]:
         formulas = [
             "RRF(d)=Σs ws/(k+rank_s(d)+1)",
             "S_effective=S_rrf×confidence×decay_coefficient",
-            "decay_coefficient=clamp(retention×access×support×gain×contradiction,0.01,1.35)",
+            "rank_weight=1±0.05·tanh(ln(confidence×decay_coefficient))",  # raw clamp [0.01,1.35] stays diagnostic
             "maturity is governance/context metadata, not a SearchEngine rank multiplier",
         ]
         labels = ["S0 RRF", "confidence", "decay", "feedback", "status/runtime", "filters"]

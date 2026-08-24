@@ -2,6 +2,14 @@
 from __future__ import annotations
 
 import math
+
+# Ranking weight bounds for confidence/decay adjustments. Fusion (RRF) score
+# gaps between candidates are typically a few percent, so a ±35% multiplier
+# let metadata (recency, access counts, confidence) override lexical/vector
+# relevance. Keep the ranking nudge inside ±5% so it breaks ties and near-ties
+# without flipping relevance order. The unbounded breakdown remains available
+# for diagnostics and governance (archival, lineage).
+_RANK_WEIGHT_MAX = 0.05
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
@@ -91,6 +99,17 @@ def decay_coefficient(
     ).coefficient
 
 
+def ranking_weight(multiplier: float) -> float:
+    """Compress an unbounded positive multiplier into [1-MAX, 1+MAX].
+
+    tanh(log(x)) is monotonic with x=1 -> 1.0, so direction (reinforce vs
+    demote) is preserved while the ranking effect stays bounded. Applied once
+    to the combined confidence*decay multiplier so the total ranking nudge
+    never exceeds ±MAX.
+    """
+    return 1.0 + _RANK_WEIGHT_MAX * math.tanh(math.log(max(multiplier, 0.01)))
+
+
 class RetrievalDecay:
     """Apply confidence and retention decay to retrieved candidates."""
 
@@ -138,7 +157,7 @@ class RetrievalDecay:
                     days = 0.0
             else:
                 days = 0.0
-            coefficient = decay_coefficient(
+            breakdown = decay_breakdown(
                 decay_class=decay_cls,
                 days_since_reference=days,
                 access_count=access_count,
@@ -146,7 +165,7 @@ class RetrievalDecay:
                 contradict_count=contradict_count,
                 gain_score=gain_score,
             )
-            effective = c.score * confidence * coefficient
+            effective = c.score * ranking_weight(confidence * breakdown.coefficient)
             result.append(RetrievedItem(
                 id=c.id,
                 score=effective,
@@ -162,5 +181,6 @@ __all__ = [
     "RetrievalDecay",
     "decay_breakdown",
     "decay_coefficient",
+    "ranking_weight",
     "retention_factor",
 ]

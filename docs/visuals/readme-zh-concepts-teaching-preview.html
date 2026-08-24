@@ -1627,7 +1627,8 @@ access    = 1 + min(0.35, log1p(access_count) * 0.08)
 support   = 1 + min(0.18, support_count * 0.03)
 gain      = 1 + clamp(gain_score * 0.12, -0.15, 0.15)
 contra    = 1 - min(0.45, contradict_count * 0.08)
-coefficient = clamp(retention * access * support * gain * contra, 0.01, 1.35)
+coefficient = clamp(retention * access * support * gain * contra, 0.01, 1.35)  # diagnostic
+rank_weight = 1 + 0.05 * tanh(ln(confidence * coefficient))  # ranking bound ±5%
 effective_score = score * confidence * coefficient</code></pre>
             </div>
 

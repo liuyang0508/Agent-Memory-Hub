@@ -245,7 +245,7 @@
   <text class="card-line" x="934" y="404">time_retention = 0.5 ^ (days_since_reference / half_life)</text>
   <text class="card-line" x="934" y="423">decay_coefficient = clamp(retention * access * support * gain *</text>
   <text class="card-line" x="934" y="442">contradiction, 0.01, 1.35)</text>
-  <text class="card-line" x="934" y="461">effective_score = candidate_score * confidence * decay_coefficient</text>
+  <text class="card-line" x="934" y="461">effective_score = candidate_score * rank_weight(confidence * decay_</text>
   </g>
   <g>
     <rect x="260" y="642" width="980" height="72" rx="18" fill="#f6f8fa" stroke="#c9d1d9" stroke-width="1.5"/>
