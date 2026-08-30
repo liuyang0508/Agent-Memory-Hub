@@ -169,9 +169,7 @@ def _resource_context_for_item(
     *,
     user: CurrentUser,
 ) -> list[dict[str, Any]]:
-    store = _resource_store_or_none()
-    if store is None:
-        return []
+    store = ResourceStore(_brain_dir())
     contexts: list[dict[str, Any]] = []
     for resource_id in item.refs.resources:
         try:
@@ -201,9 +199,7 @@ def _resource_results(
     top_k: int,
     user: CurrentUser,
 ) -> list[dict[str, Any]]:
-    store = _resource_store_or_none()
-    if store is None:
-        return []
+    store = ResourceStore(_brain_dir())
     hits = search_resource(
         store,
         query,
@@ -240,15 +236,6 @@ def _resource_results(
             "context": context,
         })
     return rows
-
-
-def _resource_store_or_none() -> ResourceStore | None:
-    try:
-        return ResourceStore(_brain_dir())
-    except OSError as exc:
-        if exc.args == ("SECURE_RESOURCE_STORE_UNAVAILABLE",):
-            return None
-        raise
 
 
 def _resource_visible_to(resource, user: CurrentUser) -> bool:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import shutil
+import tomllib
 from pathlib import Path
 
 from .codex_config import (
@@ -92,7 +93,7 @@ def _diagnose_mcp_server(config_toml: Path, mcp_server: Path) -> AdapterDiagnost
             detail=f"missing: {config_toml}",
             fix="run: memory adapter install codex",
         )
-    content = config_toml.read_text(encoding="utf-8")
+    content = config_toml.read_text(encoding="utf-8-sig")
     start, end = mcp_section_bounds(content)
     if start is None:
         return AdapterDiagnosticCheck(
@@ -101,8 +102,12 @@ def _diagnose_mcp_server(config_toml: Path, mcp_server: Path) -> AdapterDiagnost
             detail=f"missing section: {MCP_SECTION}",
             fix="run: memory adapter install codex",
         )
-    section = content[start:end]
-    if str(mcp_server) not in section:
+    try:
+        config = tomllib.loads(content)
+        registered_command = config["mcp_servers"]["agent-memory-hub"]["command"]
+    except (KeyError, TypeError, tomllib.TOMLDecodeError):
+        registered_command = None
+    if registered_command != str(mcp_server):
         return AdapterDiagnosticCheck(
             name="Codex MCP server",
             status="error",

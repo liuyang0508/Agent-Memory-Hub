@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
-import sys
 from pathlib import Path
 
 
@@ -16,6 +16,7 @@ NPM_PACKAGE = REPO_ROOT / "package.json"
 NPM_BIN = REPO_ROOT / "packaging/npm/bin/agent-memory-hub.js"
 NPM_POSTINSTALL = REPO_ROOT / "packaging/npm/scripts/postinstall.js"
 HOMEBREW_CASK = REPO_ROOT / "Casks/agent-memory-hub.rb"
+POWERSHELL = shutil.which("pwsh") or shutil.which("powershell") or shutil.which("powershell.exe")
 
 
 def _run_install(args: list[str], tmp_path: Path, *, script: Path = INSTALL_SH) -> subprocess.CompletedProcess[str]:
@@ -26,7 +27,6 @@ def _run_install(args: list[str], tmp_path: Path, *, script: Path = INSTALL_SH) 
         "LC_ALL": "C.UTF-8",
         "LANG": "C.UTF-8",
         "PYTHONUSERBASE": str(tmp_path / "pyuserbase"),
-        "AMH_PYTHON": sys.executable,
         "PATH": "/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin",
     }
     (tmp_path / "home").mkdir(exist_ok=True)
@@ -40,6 +40,106 @@ def _run_install(args: list[str], tmp_path: Path, *, script: Path = INSTALL_SH) 
         timeout=30,
         check=False,
     )
+
+
+def _run_windows_uninstall(
+    args: list[str],
+    tmp_path: Path,
+    *,
+    brain_dir: Path | None = None,
+    script: Path = INSTALL_PS1,
+    checkout_dir: Path = REPO_ROOT,
+) -> subprocess.CompletedProcess[str]:
+    if not POWERSHELL:
+        raise RuntimeError("PowerShell is unavailable")
+    env = os.environ.copy()
+    env.update(
+        {
+            "AMH_USER_HOME": str(tmp_path / "home"),
+            "BRAIN_DIR": str(brain_dir or (tmp_path / "brain")),
+            "AGENT_MEMORY_HUB_HOME": str(checkout_dir),
+        }
+    )
+    return subprocess.run(
+        [
+            POWERSHELL,
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(script),
+            "-Uninstall",
+            "-KeepPackage",
+            *args,
+        ],
+        cwd=REPO_ROOT,
+        env=env,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        timeout=30,
+        check=False,
+    )
+
+
+def _run_windows_install(
+    tmp_path: Path,
+    *,
+    fail_adapter: str = "",
+) -> tuple[subprocess.CompletedProcess[str], Path]:
+    if not POWERSHELL:
+        raise RuntimeError("PowerShell is unavailable")
+    fake_bin = tmp_path / "fake-bin"
+    fake_bin.mkdir(exist_ok=True)
+    adapter_log = tmp_path / "adapter-actions.log"
+    (fake_bin / "python.cmd").write_text(
+        "@echo off\r\n"
+        "if \"%1\"==\"-c\" exit /b 0\r\n"
+        "if \"%1\"==\"-m\" if \"%2\"==\"pip\" exit /b 0\r\n"
+        "if not \"%1\"==\"-m\" exit /b 1\r\n"
+        "if not \"%2\"==\"agent_brain.interfaces.cli\" exit /b 1\r\n"
+        "if \"%3\"==\"sync-pending\" echo %3 %4 %5>>\"%AMH_TEST_SYNC_LOG%\"\r\n"
+        "if \"%3\"==\"sync-pending\" exit /b 0\r\n"
+        "if not \"%3\"==\"adapter\" exit /b 0\r\n"
+        "echo %3 %4 %5>>\"%AMH_TEST_ADAPTER_LOG%\"\r\n"
+        "if \"%5\"==\"%AMH_TEST_FAIL_ADAPTER%\" exit /b 7\r\n"
+        "exit /b 0\r\n",
+        encoding="utf-8",
+    )
+    env = os.environ.copy()
+    env.update(
+        {
+            "AMH_USER_HOME": str(tmp_path / "home"),
+            "BRAIN_DIR": str(tmp_path / "brain"),
+            "AGENT_MEMORY_HUB_HOME": str(REPO_ROOT),
+            "AMH_INSTALL_ADAPTERS": "codex claude_code",
+            "AMH_TEST_ADAPTER_LOG": str(adapter_log),
+            "AMH_TEST_SYNC_LOG": str(tmp_path / "sync-actions.log"),
+            "AMH_TEST_FAIL_ADAPTER": fail_adapter,
+            "AGENT_MEMORY_HUB_PYTHON": str(fake_bin / "python.cmd"),
+            "AGENT_MEMORY_HUB_APP_PYTHON": str(fake_bin / "python.cmd"),
+            "AMH_SKIP_PATH_UPDATE": "1",
+            "PATH": str(fake_bin) + os.pathsep + env.get("PATH", ""),
+        }
+    )
+    result = subprocess.run(
+        [
+            POWERSHELL,
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(INSTALL_PS1),
+        ],
+        cwd=REPO_ROOT,
+        env=env,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        timeout=30,
+        check=False,
+    )
+    return result, adapter_log
 
 
 def test_install_script_syntax_is_portable_shell():
@@ -97,10 +197,7 @@ def test_release_installers_are_published_from_github_release_assets():
     assert "__AMH_GITHUB_REPOSITORY__" in powershell
     assert "__AMH_GITHUB_REF_NAME__" in powershell
 
-    assert (
-        "softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228"
-        in workflow
-    )
+    assert "softprops/action-gh-release@v2" in workflow
     assert "dist/install.sh" in workflow
     assert "dist/install.ps1" in workflow
     assert "dist/checksums.txt" in workflow
@@ -150,7 +247,7 @@ def test_npm_publish_workflow_uses_npm_token_and_public_package():
         encoding="utf-8"
     )
 
-    assert "actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444" in workflow
+    assert "actions/setup-node@v4" in workflow
     assert 'registry-url: "https://registry.npmjs.org"' in workflow
     assert "npm pack --dry-run" in workflow
     assert "npm publish --access public" in workflow
@@ -205,28 +302,9 @@ def test_install_script_wires_all_supported_adapters_through_single_entrypoint()
 
     assert '"$MEMORY_BIN" adapter install "$adapter"' in script
     assert '"$MEMORY_BIN" adapter uninstall "$adapter"' in script
-    assert '"$MEMORY_BIN" adapter doctor "$adapter"' in script
-    assert 'AMH_CORE_ADAPTERS="${AMH_CORE_ADAPTERS:-codex claude_code}"' in script
-    assert "CORE_ADAPTER_FAILED=" in script
-    assert "核心 adapter 安装后验证失败" in script
-    assert "optional_adapter_doctor_failures" in script
     assert "optional_adapter_not_configured" in script
     assert "adapter_install_partial_failures" not in script
     assert "adapter_uninstall_partial_failures" in script
-
-
-def test_powershell_installer_auto_configures_and_verifies_core_adapters():
-    script = INSTALL_PS1.read_text(encoding="utf-8")
-
-    assert "Get-CompatiblePython" in script
-    assert '"python3.13", "python3.12", "python3.11", "python", "python3"' in script
-    assert "$AdapterNames" in script
-    assert '$CoreAdapterNames' in script
-    assert "-m agent_brain.interfaces.cli adapter install $adapter" in script
-    assert "-m agent_brain.interfaces.cli adapter doctor $adapter" in script
-    assert "-m agent_brain.interfaces.cli adapter uninstall $adapter" in script
-    assert "Core adapter install verification failed" in script
-    assert "optional_adapter_not_configured" in script
 
 
 def test_install_script_completion_copy_is_adapter_failure_aware():
@@ -303,3 +381,255 @@ def test_install_uninstall_removes_only_hub_owned_config_and_keeps_user_data(tmp
         {"matcher": "", "hooks": [{"type": "command", "command": "/usr/bin/true"}]}
     ]
     assert updated["hooks"]["Stop"] == []
+
+
+def test_windows_uninstall_removes_owned_codex_config_and_is_idempotent(tmp_path: Path):
+    if not POWERSHELL:
+        return
+
+    home = tmp_path / "home"
+    codex_dir = home / ".codex"
+    claude_commands = home / ".claude" / "commands"
+    codex_dir.mkdir(parents=True)
+    claude_commands.mkdir(parents=True)
+    brain_dir = tmp_path / "brain"
+    brain_dir.mkdir()
+    (brain_dir / "keep.txt").write_text("keep", encoding="utf-8")
+
+    agents = codex_dir / "AGENTS.md"
+    agents.write_text(
+        "user-before\n\n"
+        "<!-- BEGIN agent-memory-hub -->\nmanaged\n<!-- END agent-memory-hub -->\n\n"
+        "user-after\n",
+        encoding="utf-8",
+    )
+
+    hooks_json = codex_dir / "hooks.json"
+    hub_hook = str(REPO_ROOT / "agent_runtime_kit/hooks/inject-context.sh")
+    hooks_json.write_text(
+        json.dumps(
+            {
+                "hooks": {
+                    "UserPromptSubmit": [
+                        {
+                            "hooks": [
+                                {"type": "command", "command": hub_hook},
+                                {"type": "command", "command": "echo user-hook"},
+                            ]
+                        }
+                    ]
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    hub_state_key = f"{hooks_json}:user_prompt_submit:0:0"
+    user_state_key = f"{hooks_json}:user_prompt_submit:0:1"
+    config = codex_dir / "config.toml"
+    config.write_text(
+        "model = \"keep-me\"\n\n"
+        "[hooks.state]\n\n"
+        f"[hooks.state.'{hub_state_key}']\ntrusted_hash = \"sha256:hub\"\n\n"
+        f"[hooks.state.'{user_state_key}']\ntrusted_hash = \"sha256:user\"\n\n"
+        "[mcp_servers.agent-memory-hub]\ncommand = \"amh\"\n\n"
+        "[mcp_servers.other]\ncommand = \"keep\"\n",
+        encoding="utf-8",
+    )
+    remember = claude_commands / "remember.md"
+    remember.write_text("use agent-memory-hub write-memory.sh", encoding="utf-8")
+
+    result = _run_windows_uninstall([], tmp_path)
+
+    assert result.returncode == 0, result.stdout
+    assert "Uninstall complete." in result.stdout
+    assert (brain_dir / "keep.txt").exists()
+    agents_text = agents.read_text(encoding="utf-8")
+    assert "BEGIN agent-memory-hub" not in agents_text
+    assert "user-before" in agents_text
+    assert "user-after" in agents_text
+    hooks = json.loads(hooks_json.read_text(encoding="utf-8"))
+    assert hooks["hooks"]["UserPromptSubmit"] == [
+        {"hooks": [{"type": "command", "command": "echo user-hook"}]}
+    ]
+    config_text = config.read_text(encoding="utf-8")
+    assert "mcp_servers.agent-memory-hub" not in config_text
+    assert hub_state_key not in config_text
+    assert user_state_key in config_text
+    assert "mcp_servers.other" in config_text
+    assert not remember.exists()
+
+    before_second_run = {
+        path: path.read_text(encoding="utf-8")
+        for path in (agents, hooks_json, config)
+    }
+    second = _run_windows_uninstall([], tmp_path)
+    assert second.returncode == 0, second.stdout
+    assert before_second_run == {
+        path: path.read_text(encoding="utf-8")
+        for path in (agents, hooks_json, config)
+    }
+
+
+def test_windows_uninstall_purge_data_requires_explicit_switch(tmp_path: Path):
+    if not POWERSHELL:
+        return
+
+    (tmp_path / "home").mkdir()
+    brain_dir = tmp_path / "brain"
+    brain_dir.mkdir()
+    (brain_dir / "memory.md").write_text("private memory", encoding="utf-8")
+
+    kept = _run_windows_uninstall([], tmp_path)
+    assert kept.returncode == 0, kept.stdout
+    assert brain_dir.exists()
+
+    purged = _run_windows_uninstall(["-PurgeData"], tmp_path)
+    assert purged.returncode == 0, purged.stdout
+    assert not brain_dir.exists()
+
+
+def test_windows_uninstall_refuses_to_purge_user_home(tmp_path: Path):
+    if not POWERSHELL:
+        return
+
+    home = tmp_path / "home"
+    home.mkdir()
+    marker = home / "keep.txt"
+    marker.write_text("must survive", encoding="utf-8")
+
+    result = _run_windows_uninstall(["-PurgeData"], tmp_path, brain_dir=home)
+
+    assert result.returncode == 1, result.stdout
+    assert "Refusing unsafe recursive deletion target" in result.stdout
+    assert marker.exists()
+
+
+def test_windows_uninstall_removes_only_validated_checkout(tmp_path: Path):
+    if not POWERSHELL:
+        return
+
+    home = tmp_path / "home"
+    home.mkdir()
+    checkout = tmp_path / "checkout"
+    checkout.mkdir()
+    shutil.copy2(INSTALL_PS1, checkout / "install.ps1")
+    (checkout / "pyproject.toml").write_text("[project]\nname='agent-memory-hub'\n")
+    (checkout / "agent_brain").mkdir()
+
+    result = _run_windows_uninstall(
+        ["-RemoveCheckout"],
+        tmp_path,
+        script=checkout / "install.ps1",
+        checkout_dir=checkout,
+    )
+
+    assert result.returncode == 0, result.stdout
+    assert not checkout.exists()
+    assert home.exists()
+
+
+def test_windows_uninstall_refuses_to_remove_user_home_as_checkout(tmp_path: Path):
+    if not POWERSHELL:
+        return
+
+    home = tmp_path / "home"
+    home.mkdir()
+    marker = home / "keep.txt"
+    marker.write_text("must survive", encoding="utf-8")
+
+    result = _run_windows_uninstall(
+        ["-RemoveCheckout"],
+        tmp_path,
+        checkout_dir=home,
+    )
+
+    assert result.returncode == 1, result.stdout
+    assert "Refusing unsafe or non-AMH checkout deletion target" in result.stdout
+    assert marker.exists()
+
+
+def test_windows_uninstall_then_reinstall_reconfigures_core_adapters(tmp_path: Path):
+    if not POWERSHELL:
+        return
+
+    codex_dir = tmp_path / "home" / ".codex"
+    codex_dir.mkdir(parents=True)
+    (codex_dir / "config.toml").write_text(
+        '[mcp_servers.agent-memory-hub]\ncommand = "bash"\n',
+        encoding="utf-8",
+    )
+    brain_item = tmp_path / "brain" / "items" / "remember.md"
+    brain_item.parent.mkdir(parents=True)
+    brain_item.write_text("keep this memory", encoding="utf-8")
+
+    removed = _run_windows_uninstall([], tmp_path)
+    assert removed.returncode == 0, removed.stdout
+    assert brain_item.exists()
+    assert not (codex_dir / "config.toml").exists()
+
+    first, adapter_log = _run_windows_install(tmp_path)
+    assert first.returncode == 0, first.stdout
+    assert "Agent Memory Hub installed." in first.stdout
+    assert adapter_log.read_text(encoding="utf-8").splitlines() == [
+        "adapter install codex",
+        "adapter install claude_code",
+    ]
+
+    second, adapter_log = _run_windows_install(tmp_path)
+    assert second.returncode == 0, second.stdout
+    assert adapter_log.read_text(encoding="utf-8").splitlines() == [
+        "adapter install codex",
+        "adapter install claude_code",
+        "adapter install codex",
+        "adapter install claude_code",
+    ]
+
+
+def test_windows_reinstall_fails_if_present_core_adapter_is_not_restored(tmp_path: Path):
+    if not POWERSHELL:
+        return
+
+    (tmp_path / "home" / ".codex").mkdir(parents=True)
+
+    result, adapter_log = _run_windows_install(tmp_path, fail_adapter="codex")
+
+    assert result.returncode == 1, result.stdout
+    assert "Required local adapters failed to reinstall: codex" in result.stdout
+    assert adapter_log.read_text(encoding="utf-8").splitlines() == [
+        "adapter install codex",
+        "adapter install claude_code",
+    ]
+
+
+def test_windows_install_replays_pending_and_installs_memory_shim(tmp_path: Path):
+    if not POWERSHELL:
+        return
+
+    pending = tmp_path / "brain" / "pending"
+    pending.mkdir(parents=True)
+    (pending / "pending-record.jsonl").write_text("{}\n", encoding="utf-8")
+
+    result, _adapter_log = _run_windows_install(tmp_path)
+
+    assert result.returncode == 0, result.stdout
+    assert "Replaying safe pending memories..." in result.stdout
+    sync_log = tmp_path / "sync-actions.log"
+    assert sync_log.read_text(encoding="utf-8").splitlines() == [
+        "sync-pending --apply --safe-only",
+    ]
+    shim = tmp_path / "home" / ".local" / "bin" / "memory.cmd"
+    assert shim.exists()
+    assert "agent_brain.interfaces.cli" in shim.read_text(encoding="utf-8")
+
+
+def test_python_resolver_checks_windows_project_venv():
+    resolver = (
+        REPO_ROOT / "agent_runtime_kit" / "tools" / "_resolve-python.sh"
+    ).read_text(encoding="utf-8")
+
+    assert '"$_PROJECT_ROOT/.venv/Scripts/python.exe"' in resolver
+    assert (
+        '_REQUIRED_IMPORTS="${AGENT_MEMORY_HUB_PYTHON_IMPORTS:-agent_brain.interfaces.cli}"'
+        in resolver
+    )

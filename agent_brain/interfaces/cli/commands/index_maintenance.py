@@ -18,7 +18,6 @@ from agent_brain.memory.store.pending import (
 class ReindexResult:
     indexed: int
     pruned: int = 0
-    source_scan_complete: bool = True
 
 
 @dataclass(frozen=True)
@@ -54,7 +53,7 @@ def reindex_store(store: Any, idx: Any, embedder: Any, *, prune: bool = False) -
     scan_complete = _store_scan_complete(store)
 
     pruned = 0
-    if prune and scan_complete:
+    if prune:
         pruned = idx.prune(md_ids)
     if items_dir is not None and scan_complete:
         if not clear_dirty_index_marker(
@@ -71,11 +70,7 @@ def reindex_store(store: Any, idx: Any, embedder: Any, *, prune: bool = False) -
             ),
         ):
             raise OSError("INDEX_DIRTY_MARKER_CLEAR_FAILED")
-    return ReindexResult(
-        indexed=indexed,
-        pruned=pruned,
-        source_scan_complete=scan_complete,
-    )
+    return ReindexResult(indexed=indexed, pruned=pruned)
 
 
 def inspect_index_drift(store: Any, idx: Any) -> IndexDrift:

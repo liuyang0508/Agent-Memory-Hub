@@ -9,7 +9,6 @@ from typing import Any
 
 
 PROTOCOL_VERSION = "amh-hook-payload-v1"
-MAX_JSON_NESTING = 64
 
 
 def _fail(message: str, *, code: int = 1) -> int:
@@ -34,30 +33,6 @@ def _contains_decoded_nul(value: Any) -> bool:
     return False
 
 
-def _within_json_nesting_limit(text: str) -> bool:
-    depth = 0
-    in_string = False
-    escaped = False
-    for char in text:
-        if in_string:
-            if escaped:
-                escaped = False
-            elif char == "\\":
-                escaped = True
-            elif char == '"':
-                in_string = False
-            continue
-        if char == '"':
-            in_string = True
-        elif char in "[{":
-            depth += 1
-            if depth > MAX_JSON_NESTING:
-                return False
-        elif char in "]}":
-            depth -= 1
-    return True
-
-
 def _metadata_string(payload: dict[str, Any], key: str, default: str = "") -> str:
     value = payload.get(key, default)
     rendered = value if isinstance(value, str) else str(value)
@@ -66,11 +41,7 @@ def _metadata_string(payload: dict[str, Any], key: str, default: str = "") -> st
 
 def main() -> int:
     try:
-        raw_payload = sys.stdin.buffer.read()
-        decoded_payload = raw_payload.decode("utf-8")
-        if not _within_json_nesting_limit(decoded_payload):
-            return _fail("invalid JSON")
-        payload = json.loads(decoded_payload)
+        payload = json.load(sys.stdin)
     except (json.JSONDecodeError, UnicodeDecodeError, ValueError, RecursionError, OSError):
         return _fail("invalid JSON")
 

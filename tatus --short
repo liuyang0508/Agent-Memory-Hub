@@ -1,0 +1,1154 @@
+warning: in the working copy of '.github/ISSUE_TEMPLATE/bug_report.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of '.github/ISSUE_TEMPLATE/feature_request.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of '.github/PULL_REQUEST_TEMPLATE.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of '.github/mypy-baseline.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of '.github/workflows/deploy-official-site.yml', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of '.github/workflows/governance-gates.yml', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of '.github/workflows/hook-tests.yml', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of '.github/workflows/publish-npm.yml', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of '.github/workflows/python-tests.yml', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of '.github/workflows/release-installers.yml', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of '.github/workflows/sync-gitee.yml', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of '.gitignore', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'CHANGELOG.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'CODE_OF_CONDUCT.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'CONTRIBUTING.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'Casks/agent-memory-hub.rb', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'LICENSE', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.zh.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'ROADMAP.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'SECURITY.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'STRATEGY.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/__init__.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/_version.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/agent_integrations/__init__.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/agent_integrations/aider.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/agent_integrations/aider_config.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/agent_integrations/aider_diagnostics.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/agent_integrations/aone_copilot.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/agent_integrations/awareness.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/agent_integrations/capabilities.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/agent_integrations/claude_code.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/agent_integrations/claude_code_diagnostics.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/agent_integrations/cline.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/agent_integrations/codex.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/agent_integrations/codex_agents.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/agent_integrations/codex_config.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/agent_integrations/codex_diagnostics.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/agent_integrations/codex_hook_commands.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/agent_integrations/codex_hook_diagnostics.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/agent_integrations/codex_hook_trust.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/agent_integrations/codex_hooks.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/agent_integrations/continue_dev.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/agent_integrations/cursor.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/agent_integrations/diagnostics.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/agent_integrations/evidence.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/agent_integrations/github_copilot.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/agent_integrations/hermes/__init__.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/agent_integrations/hermes/components.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/agent_integrations/hermes/context.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/agent_integrations/hermes/core_tools.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/agent_integrations/hermes/governance_tools.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/agent_integrations/hermes/import_export_tools.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/agent_integrations/hermes/item_tools.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/agent_integrations/hermes/profile.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/agent_integrations/hermes/provider.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/agent_integrations/hermes/provider_registry.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/agent_integrations/hermes/provider_server.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/agent_integrations/hermes/related.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/agent_integrations/hermes/remember.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/agent_integrations/hermes/search.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/agent_integrations/hermes_agent.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/agent_integrations/hook_config.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/agent_integrations/lifecycle_records.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/agent_integrations/manifests.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/agent_integrations/mcp_config_diagnostics.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/agent_integrations/mcp_diagnostics.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/agent_integrations/memory_boundary.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/agent_integrations/mulerun.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/agent_integrations/openclaw.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/agent_integrations/openhuman.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/agent_integrations/opensquilla.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/agent_integrations/python_runtime.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/agent_integrations/qoder.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/agent_integrations/qoder_diagnostics.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/agent_integrations/qoder_work.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/agent_integrations/registry.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/agent_integrations/release_controls.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/agent_integrations/runtime_authority.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/agent_integrations/runtime_events.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/agent_integrations/verifications.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/agent_integrations/wukong.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/codegraph/__init__.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/codegraph/provider.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/contracts/__init__.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/contracts/_generate_schemas.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/contracts/conversation.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/contracts/memory_enums.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/contracts/memory_item.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/contracts/resource.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/contracts/schemas/memory-item.schema.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/diagnostic_types.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/evaluation/__init__.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/evaluation/compression_gate.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/evaluation/dataset_provenance_audit.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/evaluation/external_memory_benchmark.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/evaluation/hook_recall_evidence.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/evaluation/hook_recall_runner.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/evaluation/longmemeval_generation.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/evaluation/longmemeval_retrieval.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/evaluation/memory_eval.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/evaluation/memory_eval_datasets.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/evaluation/memoryagentbench_matrix.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/evaluation/memorydata_amh.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/evaluation/memorydata_manifest.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/evaluation/memorydata_runner.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/evaluation/ml_advisory_gate.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/evaluation/professional_report.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/evaluation/public_hygiene.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/evaluation/recall_hallucination.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/evaluation/recall_quality.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/evaluation/recall_quality_corpus.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/evaluation/retrieval_gate.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/evaluation/system_benchmark.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/interfaces/__init__.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/interfaces/cli/__init__.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/interfaces/cli/__main__.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/interfaces/cli/_app.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/interfaces/cli/_shared.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/interfaces/cli/commands/__init__.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/interfaces/cli/commands/adapters.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/interfaces/cli/commands/api_docs.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/interfaces/cli/commands/audit.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/interfaces/cli/commands/batch.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/interfaces/cli/commands/codegraph.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/interfaces/cli/commands/conversation.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/interfaces/cli/commands/crud.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/interfaces/cli/commands/doctor.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/interfaces/cli/commands/eval.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/interfaces/cli/commands/evolution.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/interfaces/cli/commands/gc.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/interfaces/cli/commands/graph.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/interfaces/cli/commands/hook.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/interfaces/cli/commands/index_maintenance.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/interfaces/cli/commands/insight.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/interfaces/cli/commands/io.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/interfaces/cli/commands/lifecycle.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/interfaces/cli/commands/links.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/interfaces/cli/commands/lint.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/interfaces/cli/commands/loops.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/interfaces/cli/commands/maintenance.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/interfaces/cli/commands/product_capabilities.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/interfaces/cli/commands/query.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/interfaces/cli/commands/recall_drift.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/interfaces/cli/commands/resource.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/interfaces/cli/commands/review.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/interfaces/cli/commands/status.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/interfaces/cli/commands/subapps.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/interfaces/cli/commands/tier.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/interfaces/cli/commands/update.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/interfaces/cli/commands/wiki.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/interfaces/cli/crud_updates.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/interfaces/cli/doctor_offline.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/interfaces/cli/routed_query.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/interfaces/cli/status_payloads.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/interfaces/mcp/__init__.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/interfaces/mcp/onboarding.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/interfaces/mcp/prompts.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/interfaces/mcp/resources.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/interfaces/mcp/server.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/interfaces/mcp/tools/__init__.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/interfaces/mcp/tools/_shared.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/interfaces/mcp/tools/conversation.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/interfaces/mcp/tools/core.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/interfaces/mcp/tools/evolve.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/interfaces/mcp/tools/governance.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/interfaces/mcp/tools/governance_batch.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/interfaces/mcp/tools/graph.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/interfaces/mcp/tools/io.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/interfaces/mcp/tools/io_export.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/interfaces/mcp/tools/mutation_enrichment.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/interfaces/mcp/tools/mutation_tools.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/interfaces/mcp/tools/mutation_updates.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/interfaces/mcp/tools/read_tools.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/interfaces/mcp/tools/search_tools.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/interfaces/mcp/tools/status.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/interfaces/sdk/__init__.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/interfaces/sdk/components.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/interfaces/sdk/config.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/interfaces/sdk/feedback.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/interfaces/sdk/query.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/interfaces/sdk/sdk.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/interfaces/sdk/stats.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/interfaces/sdk/write.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/interfaces/sdk/write_index.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/__init__.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/context/adaptive_compression.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/context/answerability.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/context/context_firewall.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/context/context_firewall_rules.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/context/context_firewall_types.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/context/context_loading.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/context/context_packing.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/context/injection_cohorts.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/context/injection_contract.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/context/injection_feedback.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/context/injection_gateway.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/context/injection_metrics.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/context/injection_query_context.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/context/prompt_frame.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/context/prompt_normalization.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/context/query_intent.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/context/query_signal.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/context/recall_policy.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/evidence/conversation_governance.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/evidence/conversation_store.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/evidence/extraction_promotion.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/evidence/harvest/__init__.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/evidence/harvest/dedup.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/evidence/harvest/enricher.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/evidence/harvest/enrichment_updates.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/evidence/harvest/extractor.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/evidence/harvest/harvester.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/evidence/harvest/transcript_reader.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/evidence/harvest/watermark.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/evidence/hook_capture.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/evidence/hook_preflight.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/evidence/import_service.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/evidence/integrations/__init__.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/evidence/integrations/obsidian.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/evidence/integrations/obsidian_export.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/evidence/integrations/obsidian_import.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/evidence/integrations/obsidian_wiki.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/evidence/multimodal_capture.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/evidence/resource_reading.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/evidence/resource_store.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/governance/audit/__init__.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/governance/audit/custom_rules.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/governance/audit/outbound.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/governance/audit/report.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/governance/audit/rules.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/governance/audit/scanner.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/governance/audit/skill_rules.yaml', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/governance/auto_governance.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/governance/capacity.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/governance/compressor.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/governance/compressor_candidates.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/governance/compressor_types.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/governance/compressor_writeback.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/governance/conflict_actions.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/governance/conflict_resolver.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/governance/conflict_strategy.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/governance/conflict_types.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/governance/consolidation.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/governance/consolidation_builder.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/governance/consolidation_types.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/governance/drift.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/governance/drift_citations.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/governance/drift_clusters.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/governance/drift_contradictions.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/governance/drift_patterns.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/governance/drift_staleness.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/governance/drift_types.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/governance/duplicates.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/governance/entities.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/governance/evolve/active_recall.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/governance/evolve/analyzers.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/governance/evolve/archive_analysis.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/governance/evolve/crystallizer.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/governance/evolve/dream_phases.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/governance/evolve/dream_skill_synthesis.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/governance/evolve/dreaming.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/governance/evolve/engine.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/governance/evolve/executors.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/governance/evolve/pattern_detector.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/governance/evolve/preference.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/governance/evolve/preference_format.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/governance/evolve/preference_types.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/governance/evolve/promotion_analysis.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/governance/evolve/proposal_previews.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/governance/evolve/skill_generation_analysis.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/governance/feedback.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/governance/git_fd_exec.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/governance/index_health.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/governance/knowledge_lint.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/governance/lifecycle_action_parsing.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/governance/lifecycle_archive.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/governance/lifecycle_candidates.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/governance/lifecycle_ledger.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/governance/lifecycle_review.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/governance/lifecycle_snapshot.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/governance/maintenance_plan.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/governance/maturity_scoring.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/governance/outcome_feedback.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/governance/pending_lock_gc.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/governance/pending_receipts.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/governance/pipeline.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/governance/pipeline_types.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/governance/reasoning/__init__.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/governance/reasoning/causal_chain.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/governance/reasoning/causal_explicit.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/governance/reasoning/causal_inference.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/governance/reasoning/causal_related.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/governance/reasoning/causal_scoring.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/governance/reasoning/causal_types.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/governance/recall_drift_report.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/governance/recall_events.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/governance/recall_gap_clustering.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/governance/review_queue.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/governance/runtime_noise.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/governance/summary_rewrite.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/governance/summary_rewrite_apply.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/governance/supersession.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/governance/temporal_state.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/governance/tier_scan.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/governance/tiering.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/loops/__init__.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/loops/loop_contract.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/loops/loop_contract_validator.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/loops/loop_events.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/loops/loop_feedback.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/loops/loop_orchestrator.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/loops/loop_state.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/loops/loop_store.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/loops/loop_types.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/loops/loop_verifier.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/recall/admission.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/recall/brief.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/recall/embedding_text.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/recall/hopfield_memory.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/recall/query_expansion.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/recall/query_synonyms.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/recall/query_tokens.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/recall/retrieval.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/recall/retrieval_access.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/recall/retrieval_budget.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/recall/retrieval_decay.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/recall/retrieval_fusion.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/recall/retrieval_graph.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/recall/retrieval_hopfield.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/recall/retrieval_mmr.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/recall/retrieval_rerank.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/recall/retrieval_runtime.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/recall/retrieval_status.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/recall/retrieval_supersession.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/recall/retrieval_tags.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/recall/retrieval_temporal.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/recall/retrieval_trace.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/recall/retrieval_types.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/recall/retrieval_value.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/recall/routed_fusion.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/recall/routed_protocol.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/recall/routed_types.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/recall/scoring_model.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/recall/technical_anchors.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/scope.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/store/durable_fs.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/store/field_enrichment.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/store/item_ids.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/store/item_markdown.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/store/items_store.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/store/malformed_repair.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/store/pending.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/store/quality.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/store/write_service.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/store/write_types.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/validity/__init__.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/validity/evaluator.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/validity/policy.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/memory/validity/types.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/observability/__init__.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/observability/data_flow.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/observability/observability.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/platform/__init__.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/platform/adapter_health.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/platform/bounded_json.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/platform/bounded_jsonl.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/platform/capability_levels.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/platform/doctor.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/platform/embedding.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/platform/headroom_integration.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/platform/history.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/platform/indexing/__init__.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/platform/indexing/graph_index.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/platform/indexing/index.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/platform/indexing/index_schema.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/platform/indexing/index_types.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/platform/indexing/index_writer.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/platform/indexing/metadata_index.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/platform/indexing/text_scripts.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/platform/indexing/vector_index.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/platform/install_repair.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/platform/secure_io.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/platform/telemetry_safety.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/product/__init__.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/product/adapter_onboarding.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/product/chain_log.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/product/claude_history.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/product/cockpit.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/product/cursor_history.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/product/evolution_control.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/product/governance_readiness.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/product/hierarchical_memory.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/product/history_sync.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/product/local_history_sources.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/product/memory_drafts.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/product/memory_lineage.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/product/memory_profiles.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/product/proactive_memory.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_brain/product/query_signal_adversarial_cases.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_runtime_kit/AGENT_MEMORY_DISCIPLINE.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_runtime_kit/HONEST_REVISION_PLAYBOOK.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_runtime_kit/REFACTOR_DISCIPLINE.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_runtime_kit/__init__.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_runtime_kit/hooks/INSTALL.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_runtime_kit/hooks/inject-context.design.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_runtime_kit/hooks/inject-context.sh', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_runtime_kit/hooks/inject-discipline.sh', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_runtime_kit/hooks/lifecycle-event.sh', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_runtime_kit/hooks/session-end-signal.sh', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_runtime_kit/hooks/test-hook.sh', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_runtime_kit/items/README.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_runtime_kit/mcp/INSTALL.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_runtime_kit/mcp/example-configs.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_runtime_kit/mcp/server.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_runtime_kit/mcp/server.sh', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_runtime_kit/schema/memory-item.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_runtime_kit/schema/playbook-item.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_runtime_kit/templates/handoff-code.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_runtime_kit/templates/handoff-task.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_runtime_kit/templates/remember.md.template', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_runtime_kit/tools/_resolve-python.sh', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_runtime_kit/tools/gen-handoff.sh', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_runtime_kit/tools/harvest-daemon.sh', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_runtime_kit/tools/list-playbook.sh', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_runtime_kit/tools/obsidian-sync-daemon.sh', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_runtime_kit/tools/parse-hook-payload.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_runtime_kit/tools/record-runtime-event.sh', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_runtime_kit/tools/search-memory.sh', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent_runtime_kit/tools/write-memory.sh', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'benchmarks/__init__.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'benchmarks/benchmark_relevance.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'benchmarks/benchmark_retrieval.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'benchmarks/demo.sh', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'benchmarks/demo.tape', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'benchmarks/materialize_memory_eval_datasets.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'benchmarks/quickstart-60s.sh', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'benchmarks/release_gate.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'benchmarks/render_dataset_provenance_audit.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'benchmarks/render_memory_benchmark_dashboard.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'benchmarks/run_longmemeval_generation.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'benchmarks/run_longmemeval_retrieval_smoke.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'benchmarks/run_memory_benchmarks.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'deploy/Dockerfile', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'deploy/agent-memory-hub.service', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'deploy/docker-compose.yml', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'deploy/env.example', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/UPGRADE.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/__init__.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/architecture.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/audit/2026-06-09-current-state-gap-matrix.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/audit/2026-06-10-capability-map.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/audit/2026-06-21-codebase-capability-deep-analysis.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/audit/2026-06-21-ml-dl-enhancement-assessment.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/audit/2026-06-26-agent-memory-evaluation.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/audit/agent-native-memory-vs-amh-boundary-2026-07-10.zh.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/audit/memory-governance-backlog-2026-07-07.zh.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/blog/2026-05-17-your-ai-tools-are-coworkers.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/demo/00-scenario.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/demo/evaluations/eval-summary.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/demo/handoffs/02-cc-to-codex.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/demo/handoffs/04-codex-to-wukong.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/demo/snapshots/01-cc-before-handoff.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/demo/snapshots/03-codex-after-resume.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/demo/snapshots/05-wukong-final.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/evaluation/agentmemory-bench-loop-preview.html', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/evaluation/agentmemory-bench-loop.zh.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/evaluation/amh-evaluation-report.html', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/evaluation/amh-evaluation-report.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/evaluation/amh-evaluation-report.zh.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/evaluation/amh-full-ranking-optimized-full/all-memory-benchmark-report-preview.html', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/evaluation/amh-full-ranking-optimized-full/amh-evaluation-report.html', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/evaluation/amh-full-ranking-optimized-full/amh-evaluation-report.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/evaluation/amh-full-ranking-optimized-full/amh-evaluation-report.zh.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/evaluation/amh-full-ranking-optimized-full/amh-memorydata-report-chart.svg', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/evaluation/amh-full-ranking-optimized-full/latest-memory-benchmark-report.zh.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/evaluation/amh-full-ranking-optimized-full/longmemeval-amh-ranking-rk-full.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/evaluation/amh-full-ranking-optimized-full/longmemeval-generation-full-results.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/evaluation/amh-full-ranking-optimized-full/longmemeval-generation-full.longmemeval_judge.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/evaluation/amh-full-ranking-optimized-full/longmemeval-generation-probe10-results.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/evaluation/amh-full-ranking-optimized-full/longmemeval-generation-probe10-top1-results.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/evaluation/amh-full-ranking-optimized-full/longmemeval-generation-smoke-results.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/evaluation/amh-full-ranking-optimized-full/longmemeval-generation-smoke.longmemeval_judge.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/evaluation/amh-full-ranking-optimized-full/longmemeval-retrieval-rk-full.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/evaluation/amh-full-ranking-optimized-full/memorydata-external-benchmark-report.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/evaluation/amh-full-ranking-optimized-full/memorydata-external-benchmark-report.zh.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/evaluation/amh-full-ranking/amh-evaluation-report.html', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/evaluation/amh-full-ranking/amh-evaluation-report.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/evaluation/amh-full-ranking/amh-evaluation-report.zh.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/evaluation/amh-full-ranking/latest-memory-benchmark-report.zh.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/evaluation/amh-full-ranking/memorydata-external-benchmark-report.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/evaluation/amh-full-ranking/memorydata-external-benchmark-report.zh.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/evaluation/dataset-provenance-audit.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/evaluation/dataset-provenance-audit.zh.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/evaluation/dual-route-calibration-report.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/evaluation/dual-route-hook-benchmark-report.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/evaluation/dual-route-release-readiness.zh.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/evaluation/latest-memory-benchmark-report-preview.html', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/evaluation/latest-memory-benchmark-report.zh.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/evaluation/lifecycle-governance-readiness.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/evaluation/lifecycle-governance-readiness.zh.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/evaluation/longmemeval-amh-ranking-rk-full.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/evaluation/longmemeval-amh-ranking-smoke.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/evaluation/longmemeval-retrieval-rk-full.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/evaluation/longmemeval-retrieval-smoke.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/evaluation/memory-benchmark-phase1-dashboard.html', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/evaluation/memoryagentbench-capability-smoke.zh.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/evaluation/memorydata-external-benchmark-report.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/evaluation/memorydata-external-benchmark-report.zh.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/evaluation/recall-hallucination-gate.zh.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/evaluation/retrieval-research-eval-gate.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/evaluation/stage1-reliability-security-release-readiness.zh.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/evaluation/stage2-recall-quality-readiness.zh.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/evaluation/stage2-recall-quality-report.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/evaluation/stage3-adapter-productization-readiness.zh.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/evaluation/stage3-adapter-productization-report.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/examples/sample-output.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/experiments/v0.2-cua-research/00-input.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/experiments/v0.2-cua-research/01-attempt-handoff-code.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/experiments/v0.2-cua-research/02-schema-gaps.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/release-publishing.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/storage-lifecycle.zh.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/visuals/agent-memory-hub-architecture-map.html', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/visuals/agent-memory-hub-logo-lockup-a-plus-candidate.svg', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/visuals/agent-memory-hub-logo-lockup-a-plus-preview.html', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/visuals/agent-memory-hub-octopus-logo-a-plus-candidate.svg', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/visuals/agent-memory-hub-octopus-logo-a-plus-preview.html', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/visuals/agent-memory-hub-octopus-logo-official-candidate.svg', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/visuals/agent-memory-hub-octopus-logo-official-preview.html', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/visuals/agent-memory-hub-octopus-logo-variants-preview.html', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/visuals/agent-memory-hub-octopus-logo.svg', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/visuals/agent-memory-hub-official-site.html', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/visuals/agent-memory-hub-shared-brain-hero-preview.html', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/visuals/agent-memory-hub-shared-brain-hero.prompt.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/visuals/agent-memory-hub-shared-brain-hero.prompt.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/visuals/amh-adapter-capability-boundary.svg', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/visuals/amh-adapter-capability-boundary.zh.svg', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/visuals/amh-animated-diagrams-preview.html', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/visuals/amh-data-flow-mechanism.html', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/visuals/amh-dynamic-architecture.svg', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/visuals/amh-dynamic-architecture.zh.svg', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/visuals/amh-engineering-capability-map.svg', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/visuals/amh-engineering-capability-map.zh.svg', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/visuals/amh-loop-layered-architecture.svg', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/visuals/amh-loop-layered-architecture.zh.svg', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/visuals/amh-metrics-governance-collaboration-map.html', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/visuals/amh-operating-loop.svg', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/visuals/amh-operating-loop.zh.svg', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/visuals/amh-retrieval-context-pipeline.svg', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/visuals/amh-retrieval-context-pipeline.zh.svg', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/visuals/amh-storage-lifecycle.svg', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/visuals/amh-storage-lifecycle.zh.svg', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/visuals/competitor-flow-comparison.html', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/visuals/data-flow.svg', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/visuals/data-flow.zh.svg', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/visuals/generate_readme_diagrams.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/visuals/memory-lifecycle-sequence.svg', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/visuals/memory-lifecycle-sequence.zh.svg', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/visuals/memory-maintenance-sequence.svg', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/visuals/memory-maintenance-sequence.zh.svg', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/visuals/memory-retrieval-sequence.svg', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/visuals/memory-retrieval-sequence.zh.svg', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/visuals/product-architecture.svg', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/visuals/product-architecture.zh.svg', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/visuals/readme-handdrawn-zh.html', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/visuals/readme-preview.css', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/visuals/readme-structure-map.svg', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/visuals/readme-structure-map.zh.svg', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/visuals/readme-zh-article-preview.html', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/visuals/readme-zh-concepts-preview.html', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/visuals/readme-zh-concepts-teaching-preview.html', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/visuals/readme-zh-openviking-octopus-preview.html', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/visuals/readme-zh-preview.html', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/visuals/readme-zh-pro-preview.html', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/visuals/render_readme_preview.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/visuals/retrieval-ablation-matrix.svg', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/visuals/retrieval-ablation-matrix.zh.svg', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/visuals/retrieval-algorithm-stack.svg', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/visuals/retrieval-algorithm-stack.zh.svg', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/visuals/retrieval-complete-flow.svg', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/visuals/retrieval-complete-flow.zh.svg', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/visuals/retrieval-score-waterfall.svg', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/visuals/retrieval-score-waterfall.zh.svg', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/visuals/retrieval-scoring-pipeline.svg', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/visuals/retrieval-scoring-pipeline.zh.svg', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/visuals/retrieval-token-curve.svg', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/visuals/retrieval-token-curve.zh.svg', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/visuals/technical-architecture.svg', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/visuals/technical-architecture.zh.svg', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/wechat-assets/readme-zh-cdn/manifest.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/wechat-assets/readme-zh/manifest.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'install.ps1', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'install.sh', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'package.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'packaging/npm/bin/agent-memory-hub.js', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'packaging/npm/scripts/postinstall.js', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'pyproject.toml', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'scripts/benchmark-dual-route-hook.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'scripts/check-dual-route-calibration.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'scripts/check-hook-recall-evidence.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'scripts/check-recall-quality.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'scripts/check_mypy_baseline.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'scripts/docker-smoke.sh', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'scripts/dual-route-embedding-generator.lock.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'scripts/generate-adapter-governance.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'scripts/generate-dual-route-embedding-fixture.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'scripts/generate-lifecycle-governance-report.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'scripts/materialize-dual-route-hook-benchmark.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'scripts/run-hook-recall-evidence.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/conformance/conftest.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/conformance/test_audit_malicious.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/conformance/test_benchmark_smoke.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/conformance/test_cli_e2e.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/conformance/test_docker_contract.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/conformance/test_harvester_e2e.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/conformance/test_mcp_e2e.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/conformance/test_public_hygiene.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/conformance/test_public_surface_lock.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/conformance/test_reindex_real.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/conformance/test_v05_compat.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/conformance/test_web_surface_lock.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/conftest.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/fixtures/adapter_productization_evidence.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/fixtures/clean_skills/safe-01-greeting.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/fixtures/clean_skills/safe-02-documentation.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/fixtures/clean_skills/safe-03-formatting.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/fixtures/dual_route_answerability_audit.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/fixtures/dual_route_hook_benchmark_payload.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/fixtures/dual_route_precomputed_embeddings.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/fixtures/dual_route_precomputed_embeddings.sha256', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/fixtures/dual_route_recall_cases.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/fixtures/legacy_evidence/extractions/ext-20250101-010204-摘要_一-12345678.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/fixtures/legacy_evidence/extractions/ext-20250102-010204-摘要#A+@中文（旧版）！-12345678.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/fixtures/legacy_evidence/resources/res-20250101-010203-历史.证据-abcdef12.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/fixtures/legacy_evidence/resources/res-20250102-010203-旧版#A+官网@README，回填、审核！-abcdef12.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/fixtures/lifecycle_governance_evidence_v1.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/fixtures/malicious_skills/exec-01-eval-user-input.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/fixtures/malicious_skills/exec-02-subprocess-shell.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/fixtures/malicious_skills/exec-03-os-system.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/fixtures/malicious_skills/exec-04-exec-dynamic.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/fixtures/malicious_skills/exec-05-pickle-rce.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/fixtures/malicious_skills/filesystem-01-read-ssh-key.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/fixtures/malicious_skills/filesystem-02-delete-critical-files.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/fixtures/malicious_skills/filesystem-03-write-system-dir.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/fixtures/malicious_skills/filesystem-04-read-shadow.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/fixtures/malicious_skills/filesystem-05-enumerate-sensitive-files.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/fixtures/malicious_skills/injection-01-ignore-instructions.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/fixtures/malicious_skills/injection-02-role-play.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/fixtures/malicious_skills/injection-03-delimiter-escape.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/fixtures/malicious_skills/injection-04-base64-payload.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/fixtures/malicious_skills/injection-05-multilingual.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/fixtures/malicious_skills/outbound-01-curl-exfil.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/fixtures/malicious_skills/outbound-02-requests-post.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/fixtures/malicious_skills/outbound-03-wget-download.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/fixtures/malicious_skills/outbound-04-netcat-reverse-shell.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/fixtures/malicious_skills/outbound-05-dns-tunneling.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/fixtures/malicious_skills/resource-01-infinite-loop.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/fixtures/malicious_skills/resource-02-fork-bomb.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/fixtures/malicious_skills/resource-03-memory-exhaustion.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/fixtures/malicious_skills/resource-04-disk-exhaustion.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/fixtures/malicious_skills/resource-05-cpu-exhaustion.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/fixtures/malicious_skills/secrets-01-hardcoded-api-key.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/fixtures/malicious_skills/secrets-02-hardcoded-db-password.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/fixtures/malicious_skills/secrets-03-aws-credentials.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/fixtures/malicious_skills/secrets-04-embedded-private-key.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/fixtures/malicious_skills/secrets-05-env-dump.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/fixtures/memory_eval/p0_suite.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/fixtures/query_intent/fewshot_cases.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/fixtures/query_intent/real_prompt_cases.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/fixtures/recall_quality_production_replay_v1.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/fixtures/relevance/hand_labeled_queries.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/fixtures/sample_items/mem-20260101-120000-sample-fact.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/fixtures/sample_items/mem-20260102-090000-sample-episode.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/fixtures/sample_items/mem-20260103-100000-sample-decision.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/fixtures/sample_items/mem-20260104-110000-sample-artifact.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/fixtures/sample_items/mem-20260105-120000-sample-signal.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/fixtures/sample_items/mem-20260106-130000-sample-handoff.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/fixtures/sample_items/mem-20260107-140000-中文-id-fixture.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/fixtures/sample_items/mem-20260108-150000-id-with-plus-sign+fixture.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/fixtures/sample_items/mem-20260109-160000-quoted-title-fixture.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/fixtures/sample_items/mem-20260110-170000-v05-keycolon-bracket-quirk.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/fixtures/sample_items/mem-20260111-180000-utc-tz-aware.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/fixtures/sample_transcript.jsonl', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/perf/test_scale_benchmark.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/playbook-schema-test.sh', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/schema-auth-context-test.sh', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/schema-tenant-id-test.sh', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/system/test_adapter_core_isolation.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/system/test_adapter_lifecycle_contract.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/system/test_dual_route_recall_matrix.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/system/test_hook_recall_evidence.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/system/test_recall_quality_replay.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_active_recall.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_adapter_capabilities.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_adapter_governance_report.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_adapter_health.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_adapter_lifecycle_records.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_adapter_manifests.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_adapter_onboarding.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_adapter_release_controls.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_adapter_robustness_p36.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_adapter_runtime_events.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_adapters.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_agent_history_api.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_answerability_verifier.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_audit_cli.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_audit_rules.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_audit_scanner.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_auto_governance.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_batch_export.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_bom_crlf_tolerance.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_bounded_json.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_bounded_jsonl.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_brain_history.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_brief.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_brief_cli.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_brief_mcp.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_causal_chain.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_chain_log.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_chain_log_routes.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_ci_governance_contract.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_cjk_bm25.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_cli_adapter.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_cli_auto_governance.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_cli_codegraph.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_cli_conversation.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_cli_crud.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_cli_crud_updates.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_cli_delete_index.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_cli_doctor_adapters.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_cli_maturity.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_cli_migrate.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_cli_serve.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_cli_smoke.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_cli_status_payloads.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_cockpit_summary.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_codegraph_provider.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_compression_gate.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_compressor.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_confidence_decay.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_confidence_feedback.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_conflict_resolver.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_consolidation.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_context_firewall.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_context_loading_views.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_conversation_store.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_created_at_tz.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_crystallizer.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_custom_rules.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_dashboard_integrity.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_data_flow_ledger.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_docs_truth_contract.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_doctor_offline.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_dream_phases.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_dream_skill_synthesis.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_drift_citation_rot_schemeless.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_drift_detector.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_drift_mcp_tenant.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_durable_fs.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_embedding.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_embedding_multilingual.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_embedding_text.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_enricher_llm.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_entities.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_evolution_control.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_evolve_analyzers.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_evolve_consolidate.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_evolve_consolidate_audit_payload.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_evolve_engine.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_evolve_execute.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_export_injection.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_external_memory_benchmark.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_feedback_value_weight.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_gc.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_git_fd_exec.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_governance_mcp.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_governance_pipeline.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_governance_readiness.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_graceful_degradation.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_graph_prune.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_graph_wikilinks.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_harvest_dedup.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_harvest_enricher_offline.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_harvest_enrichment_updates.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_harvest_extractor.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_harvest_watermark.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_headroom_adaptive_compression.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_headroom_integration.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_hermes_provider.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_history_sync.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_hook_cli.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_hook_config.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_hook_payload_parser.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_hook_preflight.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_hook_recall_evidence.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_hook_recall_runner.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_hopfield_memory.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_import.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_import_malformed_jsonl.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_index.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_index_health.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_injection_cohorts.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_injection_feedback.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_injection_gateway.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_injection_metrics.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_install_script.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_item_ids.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_items_store.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_iter_all_archived.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_knowledge_graph.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_knowledge_lint.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_lifecycle_candidates.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_lifecycle_ledger_security.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_lifecycle_review_actions.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_lifecycle_snapshot.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_link_unlink.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_lint_cli.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_local_history_sources.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_longmemeval_retrieval.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_loop_cli.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_loop_contract.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_loop_contract_validator.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_loop_feedback.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_loop_orchestrator.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_loop_store.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_loop_verifier.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_m3_cli.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_maintenance_plan.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_make_item_id.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_maturity_scoring.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_mcp_conversation.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_mcp_hermes_v13.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_mcp_injection_gateway.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_mcp_io_export.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_mcp_mutation_updates.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_mcp_onboarding.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_mcp_path_traversal.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_mcp_unlink_governance.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_memory_drafts.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_memory_eval.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_memory_eval_cli.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_memory_eval_datasets.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_memory_lineage.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_memorydata_amh_adapter.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_ml_advisory_gate.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_mmr.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_multimodal_hook_capture.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_multimodal_promotion.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_needs_init.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_observability.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_obsidian_p2_8.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_obsidian_sync.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_obsidian_wiki.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_outcome_feedback.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_p3_5_lowsev_fixes.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_package_capability_layout.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_pattern_detector.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_pending_lock_gc.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_pending_queue.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_pending_receipts.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_platform_capabilities.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_preference.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_proactive_memory.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_product_hierarchical_memory.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_product_memory_profiles.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_product_semantic_memory.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_professional_evaluation_report.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_prompt_frame.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_prompt_injection_gateway_contract.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_prompt_normalization.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_prompt_surface_injection_parity.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_qoder_config_convergence.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_query_expansion.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_query_intent_fewshot.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_query_signal.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_query_synonyms.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_quickstart_isolation.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_read_head.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_realtime_auth.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_recall_admission.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_recall_events.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_recall_hallucination_gate.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_recall_quality_corpus.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_recall_quality_report.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_reindex_prune.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_relevance_benchmark.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_rerank_sigmoid.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_research_gate_docs.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_resource_lifecycle.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_resource_store.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_retrieval.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_retrieval_benchmark_gate.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_retrieval_metadata_phrase_boost.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_retrieval_scoring_model.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_retrieval_trace.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_review_hardening.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_routed_answerability.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_routed_cli.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_routed_retrieval.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_runtime_authority.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_schema.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_schema_source_provenance.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_sdk_client.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_search_filter.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_secure_io.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_semantic_contradiction.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_slug_enum_validation.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_smoke.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_summary_rewrite.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_summary_rewrite_apply.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_supersession.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_supersession_concurrency.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_supersession_index_repair.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_supersession_index_schema.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_system_benchmark.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_system_fewshot_matrix.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_tag_suggest.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_technical_anchors.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_temporal_state.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_tenant_isolation.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_tier_scan.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_tiering.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_token_budget.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_transcript_reader.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_unlink_durable.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_update_repair_cli.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_update_snippet_stats.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_validity_policy.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_web_admin_security.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_web_api.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_web_auth.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_web_auth_storage.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_web_cache_lifecycle.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_web_health_payloads.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_web_mutate_primitive.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_web_robustness_p3_8.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_web_sse_tenant_scope.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_web_state_persistence.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_web_tenant_isolation.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_wiki_cli.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_write_audit_gate.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_write_funnel_contract.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_write_funnel_dedup.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_write_related.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_write_service.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_write_shim_fallback.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'web/_base.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'web/api/__init__.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'web/api/routes/__init__.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'web/api/routes/adapters.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'web/api/routes/agent_history.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'web/api/routes/auth.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'web/api/routes/backups.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'web/api/routes/chain_logs.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'web/api/routes/cockpit.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'web/api/routes/data_flow.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'web/api/routes/events.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'web/api/routes/governance.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'web/api/routes/governance_activity.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'web/api/routes/governance_audit.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'web/api/routes/governance_webhooks.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'web/api/routes/graph.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'web/api/routes/health.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'web/api/routes/item_batch.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'web/api/routes/item_crud.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'web/api/routes/item_exports.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'web/api/routes/item_history.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'web/api/routes/item_imports.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'web/api/routes/item_listing.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'web/api/routes/item_maintenance.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'web/api/routes/item_metadata.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'web/api/routes/item_mutations.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'web/api/routes/item_payloads.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'web/api/routes/item_search.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'web/api/routes/items.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'web/api/routes/memory_candidates.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'web/api/routes/memory_lineage.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'web/api/routes/product_capabilities.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'web/app.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'web/auth.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'web/auth_storage.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'web/graph_payload.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'web/health_payloads.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'web/live_events.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'web/state_links.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'web/state_storage.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'web/state_store.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'web/state_webhooks.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'web/static/agent-logos/aider.svg', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'web/static/agent-logos/claude-code.svg', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'web/static/agent-logos/mulerun.svg', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'web/static/agent-logos/openclaw-readme.svg', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'web/static/agent-logos/openclaw.svg', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'web/static/agent-logos/qoder-work.svg', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'web/static/agent-memory-hub-octopus-logo.svg', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'web/templates/dashboard.html', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'web/visibility.py', LF will be replaced by CRLF the next time Git touches it
+ .github/workflows/deploy-official-site.yml         |   16 [32m+[m[31m-[m
+ .github/workflows/governance-gates.yml             |   26 [32m+[m[31m-[m
+ .github/workflows/hook-tests.yml                   |    5 [32m+[m[31m-[m
+ .github/workflows/publish-npm.yml                  |    4 [32m+[m[31m-[m
+ .github/workflows/python-tests.yml                 |    9 [32m+[m[31m-[m
+ .github/workflows/release-installers.yml           |    4 [32m+[m[31m-[m
+ .github/workflows/sync-gitee.yml                   |    2 [32m+[m[31m-[m
+ CHANGELOG.md                                       |   67 [32m+[m[31m-[m
+ README.md                                          |  248 [32m+[m[31m-[m
+ README.zh.md                                       |  203 [32m+[m[31m-[m
+ agent_brain/agent_integrations/codex.py            |   62 [32m+[m[31m-[m
+ agent_brain/agent_integrations/codex_config.py     |    7 [32m+[m[31m-[m
+ .../agent_integrations/codex_diagnostics.py        |   11 [32m+[m[31m-[m
+ agent_brain/agent_integrations/codex_hook_trust.py |   10 [32m+[m[31m-[m
+ .../agent_integrations/hermes/item_tools.py        |   15 [32m+[m[31m-[m
+ agent_brain/contracts/__init__.py                  |    2 [31m-[m
+ agent_brain/contracts/memory_item.py               |   63 [32m+[m[31m-[m
+ agent_brain/interfaces/cli/__init__.py             |    5 [31m-[m
+ agent_brain/interfaces/cli/_app.py                 |   12 [31m-[m
+ agent_brain/interfaces/cli/commands/crud.py        |    7 [31m-[m
+ agent_brain/interfaces/cli/commands/hook.py        |  143 [32m+[m[31m-[m
+ .../interfaces/cli/commands/index_maintenance.py   |    9 [32m+[m[31m-[m
+ agent_brain/interfaces/cli/commands/links.py       |   18 [32m+[m[31m-[m
+ agent_brain/interfaces/cli/commands/loops.py       |   83 [31m-[m
+ agent_brain/interfaces/cli/commands/maintenance.py |  325 [32m+[m[31m-[m
+ agent_brain/interfaces/cli/commands/query.py       |   13 [32m+[m[31m-[m
+ agent_brain/interfaces/cli/commands/review.py      |  715 [32m+[m[31m--[m
+ agent_brain/interfaces/cli/commands/subapps.py     |    6 [32m+[m[31m-[m
+ agent_brain/interfaces/cli/doctor_offline.py       |    8 [32m+[m[31m-[m
+ agent_brain/interfaces/cli/routed_query.py         |   39 [32m+[m[31m-[m
+ agent_brain/interfaces/mcp/tools/graph.py          |   32 [32m+[m[31m-[m
+ agent_brain/interfaces/sdk/feedback.py             |    6 [31m-[m
+ agent_brain/interfaces/sdk/query.py                |   10 [32m+[m[31m-[m
+ agent_brain/interfaces/sdk/sdk.py                  |    1 [31m-[m
+ agent_brain/memory/context/answerability.py        |   72 [32m+[m[31m-[m
+ agent_brain/memory/context/context_firewall.py     |   70 [32m+[m[31m-[m
+ .../memory/context/context_firewall_rules.py       |  137 [32m+[m[31m-[m
+ agent_brain/memory/context/injection_gateway.py    |   13 [32m+[m[31m-[m
+ agent_brain/memory/context/query_signal.py         |  219 [32m+[m[31m-[m
+ agent_brain/memory/evidence/hook_preflight.py      |   30 [32m+[m[31m-[m
+ agent_brain/memory/evidence/resource_store.py      |  105 [32m+[m[31m-[m
+ agent_brain/memory/governance/audit/outbound.py    |    3 [32m+[m[31m-[m
+ agent_brain/memory/governance/auto_governance.py   |  406 [32m+[m[31m-[m
+ .../memory/governance/drift_contradictions.py      |   54 [32m+[m[31m-[m
+ agent_brain/memory/governance/drift_patterns.py    |   30 [32m+[m[31m-[m
+ agent_brain/memory/governance/lifecycle_review.py  |    9 [32m+[m[31m-[m
+ .../memory/governance/lifecycle_snapshot.py        |   70 [32m+[m[31m-[m
+ agent_brain/memory/governance/maintenance_plan.py  |   48 [32m+[m[31m-[m
+ agent_brain/memory/governance/pending_lock_gc.py   |   90 [32m+[m[31m-[m
+ agent_brain/memory/governance/pending_receipts.py  |  370 [32m+[m[31m-[m
+ agent_brain/memory/governance/recall_events.py     |   23 [31m-[m
+ agent_brain/memory/governance/review_queue.py      |   44 [32m+[m[31m-[m
+ agent_brain/memory/loops/loop_state.py             |    1 [31m-[m
+ agent_brain/memory/loops/loop_store.py             |  339 [32m+[m[31m-[m
+ agent_brain/memory/loops/loop_types.py             |   12 [31m-[m
+ agent_brain/memory/recall/admission.py             |   42 [32m+[m[31m-[m
+ agent_brain/memory/recall/query_expansion.py       |   23 [32m+[m[31m-[m
+ agent_brain/memory/recall/retrieval.py             |  152 [32m+[m[31m-[m
+ agent_brain/memory/recall/retrieval_decay.py       |   24 [32m+[m[31m-[m
+ agent_brain/memory/recall/retrieval_value.py       |    3 [32m+[m[31m-[m
+ agent_brain/memory/store/items_store.py            |   11 [32m+[m[31m-[m
+ agent_brain/memory/store/pending.py                | 2868 [32m++[m[31m----------[m
+ agent_brain/memory/store/quality.py                |    7 [31m-[m
+ agent_brain/memory/store/write_service.py          |  964 [32m+[m[31m---[m
+ agent_brain/platform/capability_levels.py          |   50 [32m+[m[31m-[m
+ agent_brain/platform/doctor.py                     |   14 [32m+[m[31m-[m
+ agent_brain/platform/embedding.py                  |   32 [32m+[m[31m-[m
+ agent_brain/platform/install_repair.py             |   33 [32m+[m[31m-[m
+ agent_brain/platform/secure_io.py                  |   88 [32m+[m[31m-[m
+ agent_brain/product/cockpit.py                     |   56 [32m+[m[31m-[m
+ agent_brain/product/governance_readiness.py        |  338 [32m+[m[31m-[m
+ agent_runtime_kit/AGENT_MEMORY_DISCIPLINE.md       |  186 [32m+[m[31m-[m
+ agent_runtime_kit/hooks/inject-context.design.md   |   14 [32m+[m[31m-[m
+ agent_runtime_kit/hooks/inject-context.sh          |   13 [31m-[m
+ agent_runtime_kit/hooks/session-end-signal.sh      |   23 [32m+[m[31m-[m
+ agent_runtime_kit/schema/memory-item.md            |    4 [32m+[m[31m-[m
+ agent_runtime_kit/tools/_resolve-python.sh         |    2 [32m+[m
+ agent_runtime_kit/tools/parse-hook-payload.py      |   31 [32m+[m[31m-[m
+ agent_runtime_kit/tools/record-runtime-event.sh    |   20 [31m-[m
+ agent_runtime_kit/tools/search-memory.sh           |    4 [32m+[m[31m-[m
+ docs/architecture.md                               |   45 [32m+[m[31m-[m
+ .../memory-governance-backlog-2026-07-07.zh.md     |    4 [32m+[m[31m-[m
+ .../dual-route-hook-benchmark-report.json          |    4 [32m+[m[31m-[m
+ .../evaluation/lifecycle-governance-readiness.json |  109 [32m+[m[31m-[m
+ .../lifecycle-governance-readiness.zh.md           |    4 [32m+[m[31m-[m
+ docs/evaluation/stage2-recall-quality-report.json  |    2 [32m+[m[31m-[m
+ .../stage3-adapter-productization-readiness.zh.md  |    4 [32m+[m[31m-[m
+ .../stage3-adapter-productization-report.json      |    6 [32m+[m[31m-[m
+ docs/storage-lifecycle.zh.md                       |  228 [32m+[m[31m-[m
+ docs/visuals/agent-memory-hub-official-site.html   |  515 [32m+[m[31m--[m
+ docs/visuals/generate_readme_diagrams.py           |    8 [32m+[m[31m-[m
+ docs/visuals/readme-zh-concepts-preview.html       |    2 [32m+[m[31m-[m
+ .../readme-zh-concepts-teaching-preview.html       |    3 [32m+[m[31m-[m
+ docs/visuals/retrieval-complete-flow.svg           |    2 [32m+[m[31m-[m
+ docs/visuals/retrieval-complete-flow.zh.svg        |    2 [32m+[m[31m-[m
+ docs/visuals/retrieval-score-waterfall.svg         |    2 [32m+[m[31m-[m
+ docs/visuals/retrieval-score-waterfall.zh.svg      |    2 [32m+[m[31m-[m
+ install.ps1                                        |  926 [32m+++[m[31m-[m
+ install.sh                                         |  100 [32m+[m[31m-[m
+ pyproject.toml                                     |   11 [32m+[m[31m-[m
+ scripts/generate-lifecycle-governance-report.py    |   29 [32m+[m[31m-[m
+ tests/conformance/test_web_surface_lock.py         |   19 [31m-[m
+ .../fixtures/adapter_productization_evidence.json  |    2 [32m+[m[31m-[m
+ tests/unit/test_adapters.py                        |   71 [32m+[m[31m-[m
+ tests/unit/test_auto_governance.py                 |  188 [31m-[m
+ tests/unit/test_brief.py                           |   29 [31m-[m
+ tests/unit/test_ci_governance_contract.py          |   29 [32m+[m[31m-[m
+ tests/unit/test_cli_auto_governance.py             |   55 [31m-[m
+ tests/unit/test_cli_crud.py                        |   45 [32m+[m[31m-[m
+ tests/unit/test_cli_smoke.py                       |  706 [32m+[m[31m--[m
+ tests/unit/test_cockpit_summary.py                 |   25 [31m-[m
+ tests/unit/test_context_firewall.py                |  244 [32m+[m[31m-[m
+ tests/unit/test_context_loading_views.py           |    1 [31m-[m
+ tests/unit/test_dashboard_integrity.py             |   23 [31m-[m
+ tests/unit/test_docs_truth_contract.py             |   88 [32m+[m[31m-[m
+ tests/unit/test_doctor_offline.py                  |   20 [32m+[m[31m-[m
+ tests/unit/test_drift_detector.py                  |   52 [31m-[m
+ tests/unit/test_governance_readiness.py            |   30 [32m+[m[31m-[m
+ tests/unit/test_graph_prune.py                     |    2 [31m-[m
+ tests/unit/test_hook_cli.py                        |   63 [31m-[m
+ tests/unit/test_hook_payload_parser.py             |   53 [31m-[m
+ tests/unit/test_hook_preflight.py                  |   56 [31m-[m
+ tests/unit/test_install_script.py                  |  382 [32m+[m[31m-[m
+ tests/unit/test_lifecycle_review_actions.py        |  135 [31m-[m
+ tests/unit/test_lifecycle_snapshot.py              |   28 [31m-[m
+ tests/unit/test_link_unlink.py                     |   85 [31m-[m
+ tests/unit/test_mcp_hermes_v13.py                  |    6 [32m+[m[31m-[m
+ tests/unit/test_pending_lock_gc.py                 |   25 [31m-[m
+ tests/unit/test_pending_queue.py                   | 4720 [32m+[m[31m-------------------[m
+ tests/unit/test_pending_receipts.py                |  586 [32m+[m[31m--[m
+ tests/unit/test_platform_capabilities.py           |    8 [32m+[m[31m-[m
+ tests/unit/test_query_expansion.py                 |    4 [32m+[m[31m-[m
+ tests/unit/test_quickstart_isolation.py            |    7 [32m+[m[31m-[m
+ tests/unit/test_recall_events.py                   |    4 [31m-[m
+ tests/unit/test_reindex_prune.py                   |   39 [32m+[m[31m-[m
+ tests/unit/test_resource_store.py                  |  276 [31m--[m
+ tests/unit/test_routed_answerability.py            |   12 [32m+[m[31m-[m
+ tests/unit/test_routed_cli.py                      |   19 [31m-[m
+ tests/unit/test_routed_retrieval.py                |    4 [32m+[m[31m-[m
+ tests/unit/test_sdk_client.py                      |   62 [31m-[m
+ tests/unit/test_secure_io.py                       |   26 [31m-[m
+ tests/unit/test_semantic_contradiction.py          |    9 [32m+[m[31m-[m
+ tests/unit/test_update_repair_cli.py               |    5 [32m+[m[31m-[m
+ tests/unit/test_web_api.py                         |  428 [32m+[m[31m-[m
+ tests/unit/test_write_service.py                   |  671 [32m+[m[31m--[m
+ web/_base.py                                       |    2 [32m+[m[31m-[m
+ web/api/routes/auth.py                             |   15 [32m+[m[31m-[m
+ web/api/routes/events.py                           |   21 [32m+[m[31m-[m
+ web/api/routes/governance.py                       |  301 [31m--[m
+ web/api/routes/item_maintenance.py                 |   31 [32m+[m[31m-[m
+ web/api/routes/item_search.py                      |   17 [32m+[m[31m-[m
+ web/app.py                                         |    4 [32m+[m[31m-[m
+ web/auth.py                                        |   55 [32m+[m[31m-[m
+ web/state_storage.py                               |   38 [31m-[m
+ web/state_store.py                                 |  260 [32m+[m[31m-[m
+ web/templates/dashboard.html                       |  331 [32m+[m[31m-[m
+ 156 files changed, 3477 insertions(+), 18281 deletions(-)

@@ -21,12 +21,10 @@ ROOT = Path(__file__).resolve().parents[2]
 EXPECTED_LIFECYCLE_IMPLEMENTATION_PATHS = (
     "agent_brain/agent_integrations/hermes/import_export_tools.py",
     "agent_brain/agent_integrations/hermes/item_tools.py",
-    "agent_brain/contracts/memory_item.py",
     "agent_brain/contracts/resource.py",
     "agent_brain/interfaces/cli/commands/crud.py",
     "agent_brain/interfaces/cli/commands/gc.py",
     "agent_brain/interfaces/cli/commands/index_maintenance.py",
-    "agent_brain/interfaces/cli/commands/links.py",
     "agent_brain/interfaces/cli/commands/maintenance.py",
     "agent_brain/interfaces/cli/commands/review.py",
     "agent_brain/interfaces/cli/commands/subapps.py",
@@ -38,14 +36,8 @@ EXPECTED_LIFECYCLE_IMPLEMENTATION_PATHS = (
     "agent_brain/memory/evidence/import_service.py",
     "agent_brain/memory/evidence/integrations/obsidian.py",
     "agent_brain/memory/evidence/resource_store.py",
-    "agent_brain/memory/context/context_firewall.py",
     "agent_brain/memory/governance/auto_governance.py",
-    "agent_brain/memory/governance/confidence_review.py",
-    "agent_brain/memory/governance/contradiction_cases.py",
-    "agent_brain/memory/governance/contradiction_containment.py",
-    "agent_brain/memory/governance/contradiction_resolution.py",
     "agent_brain/memory/governance/git_fd_exec.py",
-    "agent_brain/memory/governance/graph_links.py",
     "agent_brain/memory/governance/lifecycle_action_parsing.py",
     "agent_brain/memory/governance/lifecycle_archive.py",
     "agent_brain/memory/governance/lifecycle_candidates.py",
@@ -53,13 +45,6 @@ EXPECTED_LIFECYCLE_IMPLEMENTATION_PATHS = (
     "agent_brain/memory/governance/lifecycle_review.py",
     "agent_brain/memory/governance/lifecycle_snapshot.py",
     "agent_brain/memory/governance/maintenance_plan.py",
-    "agent_brain/memory/governance/pending_receipts.py",
-    "agent_brain/memory/governance/review_evidence.py",
-    "agent_brain/memory/governance/review_queue.py",
-    "agent_brain/memory/governance/review_truth.py",
-    "agent_brain/memory/governance/review_transactions.py",
-    "agent_brain/memory/governance/signal_resolution.py",
-    "agent_brain/memory/governance/signal_state.py",
     "agent_brain/memory/governance/supersession.py",
     "agent_brain/memory/store/durable_fs.py",
     "agent_brain/memory/store/item_ids.py",
@@ -71,11 +56,11 @@ EXPECTED_LIFECYCLE_IMPLEMENTATION_PATHS = (
     "agent_brain/platform/indexing/index_schema.py",
     "agent_brain/platform/indexing/index_writer.py",
     "agent_brain/product/governance_readiness.py",
-    "agent_brain/product/cockpit.py",
     "web/api/routes/governance.py",
-    "web/templates/dashboard.html",
     "scripts/generate-lifecycle-governance-report.py",
 )
+
+
 def _load_lifecycle_governance_generator():
     path = ROOT / "scripts/generate-lifecycle-governance-report.py"
     assert path.is_file()
@@ -111,7 +96,6 @@ def test_lifecycle_governance_report_is_reproducible_and_fail_closed(tmp_path):
     assert report["fixture_hash"].startswith("sha256:")
     assert report["supersession_contract"]["status"] == "pass"
     assert report["pending_contract"]["status"] == "pass"
-    assert report["pending_contract"]["scope"] == "preview-classification-only"
     assert report["surface_parity"]["status"] == "pass"
     assert report["surface_parity"]["default_preview_zero_mutation"] is True
     assert report["surface_parity"]["explicit_apply_mutates"] is True
@@ -136,9 +120,6 @@ def test_lifecycle_governance_report_is_reproducible_and_fail_closed(tmp_path):
         encoding="utf-8"
     )
     assert generator.render_markdown(report) == markdown_path.read_text(encoding="utf-8")
-    assert "- Pending classification preview：`PASS`" in markdown_path.read_text(
-        encoding="utf-8"
-    )
 
     tampered_fixture = tmp_path / "fixture.json"
     fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
@@ -548,52 +529,6 @@ def test_lifecycle_governance_public_evidence_has_bounded_truth_claims():
         assert forbidden not in public_text
 
 
-def test_pending_resolution_docs_are_preview_first_and_secret_safe() -> None:
-    readme = Path("README.zh.md").read_text(encoding="utf-8")
-    lifecycle = Path("docs/storage-lifecycle.zh.md").read_text(encoding="utf-8")
-    combined = f"{readme}\n{lifecycle}"
-    assert "sync-pending --approve-audit" in combined
-    assert "sync-pending --accept-duplicate" in combined
-    assert "sync-pending --convert-type" in combined
-    assert "sync-pending --reject" in combined
-    assert "sync-pending --quarantine" in combined
-    assert "sync-pending --gc-orphan-locks" in combined
-    assert "默认预览" in combined
-    assert "secrets" in combined
-    assert "--apply" in combined
-
-
-def test_pending_resolution_docs_preserve_receipt_and_lock_gc_boundaries() -> None:
-    lifecycle = _read("docs/storage-lifecycle.zh.md")
-    normalized = " ".join(lifecycle.split())
-    assert (
-        "memory sync-pending --approve-audit <record-id> --format json\n"
-        "memory sync-pending --accept-duplicate "
-        "<record-id>:<existing-item-id> --format json\n"
-        "memory sync-pending --convert-type <record-id>:decision --format json"
-        in lifecycle
-    )
-    assert "memory sync-pending --reject <record-id>:obsolete --format json" in lifecycle
-    assert (
-        "memory sync-pending --quarantine <record-id>:malformed --format json"
-        in lifecycle
-    )
-    assert "`pending/resolved/`" in lifecycle
-    assert (
-        "memory sync-pending --gc-orphan-locks --format json\n"
-        "memory sync-pending --gc-orphan-locks --apply --format json"
-        in lifecycle
-    )
-    assert "standalone GC 不生成 receipt" in normalized
-    assert "只追加 prepared 和 completed" in normalized
-    assert "没有匹配 completed 的 prepared" in normalized
-    assert "派生为 incomplete" in normalized
-    assert "持锁的 orphan 会安全保留" in normalized
-    assert "持锁本身不会导致非零退出码" in normalized
-    assert "unsafe、truncated 或 unavailable" in normalized
-    assert "追加 completed 或 incomplete" not in lifecycle
-
-
 def _read(path: str) -> str:
     return (ROOT / path).read_text(encoding="utf-8")
 
@@ -803,10 +738,10 @@ def test_dual_route_hook_benchmark_report_is_reproducible_and_privacy_bounded(
         "sha256:5ae6cc31cdc5cee2b52c9a87789fd4008a0092671d94caf438e428fdcd64d440"
     )
     assert report["provenance"]["payload_parser_sha256"] == (
-        "sha256:64156ac93dcdc5c29c47b33e7fa32ed8a4c5629083ef23a0d2cf1da84dd22f33"
+        "sha256:8a27cab6c8da05ee29c75c2ec5651e969536a374f62798ca568d7f82508bd02e"
     )
     assert report["provenance"]["preflight_module_sha256"] == (
-        "sha256:4180ab543559361b440e66e38891c1292b5e8845968ad8be593da19882f4f5e3"
+        "sha256:a1072be7176e216f8c34cc57cb0e9e560ef5bd93eba147a6651add96547ae6aa"
     )
     assert len(report["provenance"]["candidate_commit"]) == 40
     subprocess.run(
@@ -1963,18 +1898,3 @@ def test_docs_describe_three_dimensional_verify_and_explicit_repair() -> None:
         assert "refs_graph" in text
         assert "memory verify --repair" in text
     assert "不会自动修复" in lifecycle
-
-
-def test_real_brain_governance_manifests_stay_local_and_private() -> None:
-    design = _read(
-        "docs/superpowers/specs/2026-07-23-governance-backlog-resolution-design.md"
-    )
-    plan = _read(
-        "docs/superpowers/plans/2026-07-23-governance-backlog-resolution.md"
-    )
-
-    assert "受版本控制的 operator-reviewed manifest" not in design
-    assert "mode `0600`" in design
-    assert "不得写入仓库" in design
-    assert "No repository code changes." in plan
-    assert "mode `0600`" in plan

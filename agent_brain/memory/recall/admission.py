@@ -16,6 +16,7 @@ from agent_brain.memory.recall.technical_anchors import (
 )
 
 if TYPE_CHECKING:
+    from agent_brain.memory.context.query_model_fallback import QueryConstraintModelResolver
     from agent_brain.memory.recall.routed_types import ProjectScope, RecallRequest
 
 AdmissionReason = Literal[
@@ -73,7 +74,7 @@ def build_recall_request(
     project_scope: ProjectScope | None = None,
     cwd: str | None = None,
     session_id: str | None = None,
-    brain_dir: Path | None = None,
+    constraint_model_resolver: QueryConstraintModelResolver | None = None,
 ) -> RecallRequest:
     """Build the immutable input contract used by routed recall."""
 
@@ -85,7 +86,7 @@ def build_recall_request(
     signal = build_routed_query_signal(
         normalized_query,
         enable_technical_anchors=enable_technical_anchors,
-        brain_dir=brain_dir,
+        constraint_model_resolver=constraint_model_resolver,
     )
     admission = analyze_recall_admission(raw_query)
     return RecallRequest(
@@ -106,6 +107,7 @@ def build_routed_query_signal(
     *,
     enable_technical_anchors: bool = True,
     brain_dir: Path | None = None,
+    constraint_model_resolver: QueryConstraintModelResolver | None = None,
 ) -> QuerySignal:
     """Build the query signal used by routed retrieval and diagnostics."""
 
@@ -114,6 +116,15 @@ def build_routed_query_signal(
         signal = analyze_injection_query(normalized_query)
     else:
         signal = analyze_injection_query(normalized_query, brain_dir=brain_dir)
+    from agent_brain.memory.context.query_model_fallback import (
+        apply_optional_query_model_fallback,
+    )
+
+    signal = apply_optional_query_model_fallback(
+        signal,
+        normalized_query,
+        resolver=constraint_model_resolver,
+    )
     if not enable_technical_anchors:
         return signal
     return _with_technical_aliases(signal, normalized_query)
@@ -125,8 +136,21 @@ def _with_technical_aliases(signal: QuerySignal, query: str) -> QuerySignal:
         return signal
     terms = tuple(dict.fromkeys((*anchors, *signal.terms)))
     strong_terms = tuple(dict.fromkeys((*anchors, *signal.strong_terms)))
-    trace = tuple(entry for entry in signal.trace if not entry.startswith("block:"))
     specificity = len(strong_terms) + max(0, len(terms) - len(strong_terms)) * 0.35
+    if signal.reason == "ambiguous_constraint":
+        return replace(
+            signal,
+            terms=terms,
+            strong_terms=strong_terms,
+            specificity=specificity,
+            anchors=tuple(dict.fromkeys(("technical_alias", *signal.anchors))),
+            trace=(
+                *signal.trace,
+                "technical_alias_set=" + TECHNICAL_ALIAS_SET_ID,
+                "technical_alias_terms=" + "|".join(anchors),
+            ),
+        )
+    trace = tuple(entry for entry in signal.trace if not entry.startswith("block:"))
     return replace(
         signal,
         terms=terms,
@@ -136,13 +160,11 @@ def _with_technical_aliases(signal: QuerySignal, query: str) -> QuerySignal:
         specificity=specificity,
         decision="inject_allowed",
         anchors=tuple(dict.fromkeys(("technical_alias", *signal.anchors))),
-        trace=tuple(
-            (
-                *trace,
-                "technical_alias_set=" + TECHNICAL_ALIAS_SET_ID,
-                "technical_alias_terms=" + "|".join(anchors),
-                "decision:inject_allowed",
-            )
+        trace=(
+            *trace,
+            "technical_alias_set=" + TECHNICAL_ALIAS_SET_ID,
+            "technical_alias_terms=" + "|".join(anchors),
+            "decision:inject_allowed",
         ),
     )
 

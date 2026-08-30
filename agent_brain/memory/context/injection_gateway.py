@@ -258,10 +258,19 @@ def build_injection_context(
 
 
 def _analyze_query(query: str, *, brain_dir: Path | None) -> QuerySignal:
+    from agent_brain.memory.context.query_model_fallback import (
+        apply_optional_query_model_fallback,
+    )
+
     normalized = query.replace("|", " ")
     if brain_dir is None:
-        return analyze_injection_query(normalized)
-    return analyze_injection_query(normalized, brain_dir=brain_dir)
+        signal = analyze_injection_query(normalized)
+    else:
+        signal = analyze_injection_query(normalized, brain_dir=brain_dir)
+    return apply_optional_query_model_fallback(
+        signal,
+        normalized,
+    )
 
 
 __all__ = [

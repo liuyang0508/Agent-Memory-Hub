@@ -5,7 +5,6 @@ import typer
 
 from agent_brain.interfaces.cli._app import app
 from agent_brain.interfaces.cli._shared import *  # noqa: F401,F403
-from agent_brain.memory.governance.graph_links import link_memory_ref
 import agent_brain.interfaces.cli as _cli  # noqa: E402  late binding for test-patched helpers
 
 
@@ -16,22 +15,9 @@ def link(
     label: str = typer.Option("related", "--label"),
 ) -> None:
     """Create a knowledge-graph link between two memory items."""
-    if label.strip().lower() == "supersedes":
-        typer.echo(
-            "supersedes requires governed lifecycle mutation; use "
-            "`memory govern apply-lifecycle --supersede OLD:NEW` "
-            "(obsolete:replacement; preview before --apply)",
-            err=True,
-        )
-        raise typer.Exit(2)
     with _cli._managed_components() as (store, idx, _):
-        result = link_memory_ref(store, idx, source, target, label)
-    if not result.linked:
-        typer.echo(f"link blocked: {result.reason}", err=True)
-        raise typer.Exit(2)
-    if result.index_repair_required:
-        typer.echo("link persisted; index repair required", err=True)
-        raise typer.Exit(1)
+        idx.add_ref(source, target, label)
+        store.link_mem(source, target)
     typer.echo(f"linked: {source} --[{label}]--> {target}")
 
 

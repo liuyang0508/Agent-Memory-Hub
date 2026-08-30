@@ -110,7 +110,7 @@ async def dashboard():
 
 from web.api.routes import (
     adapters, agent_history, auth, backups, chain_logs, cockpit, data_flow, events, governance, graph, health, items,
-    memory_candidates, memory_lineage, organizations, product_capabilities, sync,
+    memory_candidates, memory_lineage, product_capabilities,
 )
 for _r in (
     auth,
@@ -128,8 +128,6 @@ for _r in (
     memory_candidates,
     memory_lineage,
     product_capabilities,
-    organizations,
-    sync,
 ):
     app.include_router(_r.router)
 

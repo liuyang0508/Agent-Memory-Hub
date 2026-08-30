@@ -1,15 +1,11 @@
 from __future__ import annotations
 
 import json
-import logging
-import re
-from collections.abc import Sequence
 from dataclasses import replace
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from agent_brain.memory.context.injection_cohorts import latest_injection_cohort
 from agent_brain.memory.loops.loop_events import append_loop_event
 from agent_brain.memory.loops.loop_feedback import LoopFeedback
 from agent_brain.memory.loops.loop_state import require_completion_evidence, validate_transition
@@ -23,20 +19,8 @@ from agent_brain.memory.loops.loop_types import (
     bounded_trigger,
     make_event_id,
     make_loop_id,
-    make_step_id,
     timestamp,
 )
-
-STEP_TRANSITIONS: dict[str, set[str]] = {
-    "pending": {"running", "blocked", "cancelled"},
-    "running": {"blocked", "completed", "cancelled"},
-    "blocked": {"running", "cancelled"},
-    "completed": {"verified", "running"},
-    "verified": set(),
-    "cancelled": set(),
-}
-_MEMORY_ITEM_ID = re.compile(r"mem-[a-z0-9][a-z0-9-]{0,127}")
-logger = logging.getLogger(__name__)
 
 
 class LoopStore:
@@ -81,13 +65,6 @@ class LoopStore:
             context=dict(context or {}),
             metadata=dict(metadata or {}),
             verification_plan=list(verification_plan or []),
-            memory_candidates=_recent_injection_candidates(
-                self.brain_dir,
-                adapter=adapter,
-                session_id=session_id,
-                cwd=cwd,
-                now=now,
-            ),
             sensitivity=sensitivity or "internal",
         )
         self._write(loop)
@@ -210,16 +187,6 @@ class LoopStore:
         now: datetime | None = None,
     ) -> LoopRun:
         loop = self.get(loop_id)
-        unfinished_steps = [
-            str(step.get("id") or "")
-            for step in loop.steps
-            if step.get("status") not in {"verified", "cancelled"}
-        ]
-        if unfinished_steps:
-            raise LoopTransitionError(
-                "loop completion requires every task step verified or cancelled: "
-                + ", ".join(unfinished_steps)
-            )
         require_completion_evidence(loop.verification_results, evidence)
         validate_transition(loop.status, LoopStatus.completed.value)
         verification_results = list(loop.verification_results)
@@ -258,7 +225,6 @@ class LoopStore:
                 now=now,
             )
         self._event(updated, LoopEventType.completed.value, actor, "loop completed", now=now)
-        self._record_learning_outcome(updated, success=True, now=now)
         return updated
 
     def fail(
@@ -302,7 +268,6 @@ class LoopStore:
             payload={"reason": reason},
             now=now,
         )
-        self._record_learning_outcome(updated, success=False, now=now)
         return updated
 
     def block(
@@ -371,182 +336,6 @@ class LoopStore:
             payload=payload,
             now=now,
         )
-        return updated
-
-    def add_step(
-        self,
-        loop_id: str,
-        *,
-        title: str,
-        depends_on: Sequence[str] | None = None,
-        assignee: str | None = None,
-        actor: str = "cli",
-        now: datetime | None = None,
-    ) -> LoopRun:
-        title = _require_text(title, "task step title")
-        loop = self.get(loop_id)
-        if loop.status in {LoopStatus.completed.value, LoopStatus.cancelled.value}:
-            raise LoopTransitionError("cannot add a step to a terminal loop")
-        dependencies: list[str] = [*dict.fromkeys(depends_on or [])]
-        known = {str(step.get("id")) for step in loop.steps}
-        missing = [step_id for step_id in dependencies if step_id not in known]
-        if missing:
-            raise LoopTransitionError(
-                "unknown step dependencies: " + ", ".join(missing)
-            )
-        current_time = timestamp(now)
-        step = {
-            "id": make_step_id(),
-            "title": title,
-            "status": "pending",
-            "depends_on": dependencies,
-            "assignee": assignee or None,
-            "created_at": current_time,
-            "updated_at": current_time,
-            "evidence": [],
-        }
-        updated = replace(
-            loop,
-            updated_at=current_time,
-            steps=[*loop.steps, step],
-        )
-        self._write(updated)
-        self._event(
-            updated,
-            LoopEventType.step_added.value,
-            actor,
-            title,
-            payload=step,
-            now=now,
-        )
-        return updated
-
-    def transition_step(
-        self,
-        loop_id: str,
-        *,
-        step_id: str,
-        status: str,
-        evidence: str | None = None,
-        blocker: str | None = None,
-        assignee: str | None = None,
-        actor: str = "cli",
-        now: datetime | None = None,
-    ) -> LoopRun:
-        loop = self.get(loop_id)
-        steps = [dict(step) for step in loop.steps]
-        position = next(
-            (index for index, step in enumerate(steps) if step.get("id") == step_id),
-            None,
-        )
-        if position is None:
-            raise LoopTransitionError(f"task step not found: {step_id}")
-        step = steps[position]
-        current = str(step.get("status") or "pending")
-        if status not in STEP_TRANSITIONS.get(current, set()):
-            allowed = ", ".join(sorted(STEP_TRANSITIONS.get(current, set()))) or "none"
-            raise LoopTransitionError(
-                f"illegal task step transition {current!r} -> {status!r}; allowed: {allowed}"
-            )
-        if status == "running":
-            incomplete = [
-                dependency
-                for dependency in step.get("depends_on") or []
-                if _step_status(steps, str(dependency)) != "verified"
-            ]
-            if incomplete:
-                raise LoopTransitionError(
-                    "step dependencies are not verified: " + ", ".join(incomplete)
-                )
-        if status == "blocked" and not str(blocker or "").strip():
-            raise LoopTransitionError("blocked task step requires --blocker")
-        if status == "verified" and not str(evidence or "").strip():
-            raise LoopTransitionError("verified task step requires --evidence")
-
-        current_time = timestamp(now)
-        evidence_rows = list(step.get("evidence") or [])
-        if evidence:
-            evidence_rows.append(
-                {"timestamp": current_time, "value": evidence, "actor": actor}
-            )
-        step.update(
-            {
-                "status": status,
-                "updated_at": current_time,
-                "evidence": evidence_rows,
-            }
-        )
-        if assignee is not None:
-            step["assignee"] = assignee or None
-        steps[position] = step
-        blockers = [dict(row) for row in loop.blockers]
-        blocker_event: tuple[str, dict[str, Any]] | None = None
-        if status == "blocked":
-            row = {
-                "id": f"blocker-{make_step_id().removeprefix('step-')}",
-                "step_id": step_id,
-                "reason": str(blocker).strip(),
-                "status": "open",
-                "opened_at": current_time,
-                "opened_by": actor,
-            }
-            blockers.append(row)
-            blocker_event = (LoopEventType.blocker_opened.value, row)
-        elif current == "blocked":
-            for row in blockers:
-                if row.get("step_id") == step_id and row.get("status") == "open":
-                    row["status"] = "resolved"
-                    row["resolved_at"] = current_time
-                    row["resolved_by"] = actor
-                    blocker_event = (LoopEventType.blocker_resolved.value, row)
-
-        loop_status = loop.status
-        if status == "blocked" and loop.status in {
-            LoopStatus.created.value,
-            LoopStatus.running.value,
-        }:
-            loop_status = LoopStatus.blocked.value
-        elif status == "running" and loop.status in {
-            LoopStatus.created.value,
-            LoopStatus.blocked.value,
-        }:
-            other_open = any(
-                row.get("status") == "open" and row.get("step_id") != step_id
-                for row in blockers
-            )
-            if not other_open:
-                loop_status = LoopStatus.running.value
-        updated = replace(
-            loop,
-            status=loop_status,
-            updated_at=current_time,
-            steps=steps,
-            blockers=blockers,
-        )
-        self._write(updated)
-        self._event(
-            updated,
-            LoopEventType.step_changed.value,
-            actor,
-            f"{step_id}: {current} -> {status}",
-            payload={
-                "step_id": step_id,
-                "from": current,
-                "to": status,
-                "evidence": evidence or None,
-            },
-            now=now,
-        )
-        if blocker_event is not None:
-            event_type, payload = blocker_event
-            self._event(
-                updated,
-                event_type,
-                actor,
-                str(payload.get("reason") or f"{step_id} blocker resolved"),
-                payload=payload,
-                now=now,
-            )
         return updated
 
     def open_human_gate(
@@ -713,131 +502,12 @@ class LoopStore:
             ),
         )
 
-    def _record_learning_outcome(
-        self,
-        loop: LoopRun,
-        *,
-        success: bool,
-        now: datetime | None,
-    ) -> None:
-        """Persist best-effort learning evidence after the loop state is durable."""
-
-        try:
-            from agent_brain.memory.governance.outcome_feedback import (
-                apply_task_outcome_feedback,
-            )
-            from agent_brain.memory.governance.recall_events import record_task_outcome
-            from agent_brain.memory.recall.adaptive_learning import refresh_learning_profile
-            from agent_brain.memory.store.items_store import ItemsStore
-            from agent_brain.platform.indexing.index import HubIndex
-
-            injected_ids = tuple(
-                str(candidate["id"])
-                for candidate in loop.memory_candidates
-                if isinstance(candidate, dict) and candidate.get("id")
-            )
-            cohort_id = next(
-                (
-                    str(candidate["cohort_id"])
-                    for candidate in loop.memory_candidates
-                    if isinstance(candidate, dict) and candidate.get("cohort_id")
-                ),
-                None,
-            )
-            outcome = record_task_outcome(
-                self.brain_dir,
-                task_id=f"loop:{loop.loop_id}",
-                question=loop.goal,
-                outcome="success" if success else "failed",
-                feedback_signals=(
-                    ("loop_verified", "implicit_task_success")
-                    if success
-                    else ("loop_failed",)
-                ),
-                confidence=0.95 if success else 0.8,
-                injected_ids=injected_ids,
-                adapter=loop.adapter or "unknown",
-                session_id=loop.session_id,
-                cwd=loop.cwd,
-                project=loop.project,
-                cohort_id=cohort_id,
-                now=now,
-            )
-            if not success:
-                return
-
-            index_path = self.brain_dir / "index.db"
-            index = HubIndex(index_path) if index_path.exists() else None
-            try:
-                apply_task_outcome_feedback(
-                    self.brain_dir,
-                    items_store=ItemsStore(self.brain_dir / "items"),
-                    index=index,
-                    outcome=outcome,
-                )
-            finally:
-                if index is not None:
-                    index.close()
-            refresh_learning_profile(self.brain_dir)
-        except Exception:
-            # Learning is derived state and must never invalidate a durable loop result.
-            logger.warning("loop learning sidecar failed for %s", loop.loop_id, exc_info=True)
-            return
-
 
 def _require_text(value: str, label: str) -> str:
     text = str(value or "").strip()
     if not text:
         raise LoopTransitionError(f"{label} is required")
     return text
-
-
-def _recent_injection_candidates(
-    brain_dir: Path,
-    *,
-    adapter: str | None,
-    session_id: str | None,
-    cwd: str | None,
-    now: datetime | None,
-) -> list[dict[str, Any]]:
-    """Attach only a fresh cohort from the exact task session and working tree."""
-
-    if not adapter or not session_id or not cwd:
-        return []
-    cohort = latest_injection_cohort(
-        brain_dir,
-        adapter=adapter,
-        session_id=session_id,
-    )
-    if cohort is None or not cohort.cwd or not _same_path(cwd, cohort.cwd):
-        return []
-    try:
-        observed_at = datetime.fromisoformat(cohort.timestamp)
-    except ValueError:
-        return []
-    if observed_at.tzinfo is None:
-        observed_at = observed_at.replace(tzinfo=timezone.utc)
-    current = now or datetime.now(timezone.utc)
-    if current.tzinfo is None:
-        current = current.replace(tzinfo=timezone.utc)
-    age = current.astimezone(timezone.utc) - observed_at.astimezone(timezone.utc)
-    if age < timedelta(0) or age > timedelta(minutes=30):
-        return []
-    return [
-        {
-            "id": item_id,
-            "source": "injection_cohort",
-            "cohort_id": cohort.cohort_id,
-        }
-        for item_id in cohort.item_ids
-        if _MEMORY_ITEM_ID.fullmatch(item_id)
-    ]
-
-
-def _same_path(left: str, right: str) -> bool:
-    return Path(left).expanduser().resolve(strict=False) == Path(right).expanduser().resolve(
-        strict=False
-    )
 
 
 def _open_human_gates(loop: LoopRun) -> list[dict[str, Any]]:
@@ -852,13 +522,6 @@ def _resolved_human_gates(loop: LoopRun) -> list[dict[str, Any]]:
     if not isinstance(rows, list):
         return []
     return [dict(row) for row in rows if isinstance(row, dict)]
-
-
-def _step_status(steps: list[dict[str, Any]], step_id: str) -> str | None:
-    for step in steps:
-        if step.get("id") == step_id:
-            return str(step.get("status") or "pending")
-    return None
 
 
 def _contract_human_gates(loop: LoopRun) -> list[dict[str, Any]]:

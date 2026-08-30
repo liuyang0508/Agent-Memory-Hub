@@ -211,7 +211,7 @@ def _collect_fallback(
     limit: int,
 ) -> PendingLockGcReport:
     lock_dir = pending_dir / ".amh-record-locks"
-    total = orphan = preserved = unsafe = 0
+    total = orphan = deleted = preserved = unsafe = 0
     truncated = False
     try:
         opened_dir = os.lstat(lock_dir)
@@ -227,16 +227,26 @@ def _collect_fallback(
                     truncated = True
                     break
                 total += 1
-                preserved += 1
                 try:
-                    opened = os.lstat(lock_dir / entry.name)
+                    lock_path = lock_dir / entry.name
+                    opened = os.lstat(lock_path)
                     if not _safe_lock(entry.name, opened):
                         unsafe += 1
+                        preserved += 1
                         continue
-                    if entry.name not in live_lock_names:
-                        orphan += 1
+                    if entry.name in live_lock_names:
+                        preserved += 1
+                        continue
+                    orphan += 1
+                    if mutation_requested and os.name == "nt" and _delete_windows_orphan(
+                        lock_path, opened
+                    ):
+                        deleted += 1
+                    else:
+                        preserved += 1
                 except OSError:
                     unsafe += 1
+                    preserved += 1
     except FileNotFoundError:
         return PendingLockGcReport(
             reason="PENDING_LOCK_GC_UNAVAILABLE" if mutation_requested else None
@@ -251,18 +261,18 @@ def _collect_fallback(
             ),
         )
     reason = (
-        "PENDING_LOCK_GC_UNAVAILABLE"
-        if mutation_requested
-        else "PENDING_LOCK_GC_TRUNCATED"
+        "PENDING_LOCK_GC_TRUNCATED"
         if truncated
         else "PENDING_LOCK_GC_UNSAFE_ENTRY"
         if unsafe
+        else "PENDING_LOCK_GC_UNAVAILABLE"
+        if mutation_requested and os.name != "nt"
         else None
     )
     return PendingLockGcReport(
         total=total,
         orphan=orphan,
-        deleted=0,
+        deleted=deleted,
         preserved=preserved,
         unsafe=unsafe,
         truncated=truncated,
@@ -272,14 +282,72 @@ def _collect_fallback(
 
 def _safe_lock(name: str, opened: os.stat_result) -> bool:
     expected_uid = getattr(os, "geteuid", lambda: opened.st_uid)()
+    reparse_point = bool(
+        int(getattr(opened, "st_file_attributes", 0) or 0) & 0x0400
+    )
     return (
         _LOCK_NAME.fullmatch(name) is not None
         and stat.S_ISREG(opened.st_mode)
         and not stat.S_ISLNK(opened.st_mode)
-        and stat.S_IMODE(opened.st_mode) == 0o600
+        and not reparse_point
+        and (os.name == "nt" or stat.S_IMODE(opened.st_mode) == 0o600)
         and opened.st_size <= 1
-        and getattr(opened, "st_uid", expected_uid) == expected_uid
+        and (
+            os.name == "nt"
+            or getattr(opened, "st_uid", expected_uid) == expected_uid
+        )
     )
+
+
+def _delete_windows_orphan(path: Path, expected: os.stat_result) -> bool:
+    """Delete one verified, cooperatively unlocked Windows record-lock file."""
+
+    descriptor = -1
+    acquired = False
+    opened: os.stat_result | None = None
+    try:
+        descriptor = os.open(
+            path,
+            os.O_RDWR
+            | getattr(os, "O_BINARY", 0)
+            | getattr(os, "O_NOFOLLOW", 0),
+        )
+        opened = os.fstat(descriptor)
+        if not _safe_lock(path.name, opened) or not _same_identity(expected, opened):
+            return False
+        if opened.st_size == 0:
+            os.write(descriptor, b"\0")
+            os.fsync(descriptor)
+        import msvcrt
+
+        os.lseek(descriptor, 0, os.SEEK_SET)
+        try:
+            getattr(msvcrt, "locking")(descriptor, getattr(msvcrt, "LK_NBLCK"), 1)
+            acquired = True
+        except OSError:
+            return False
+        current = os.lstat(path)
+        if not _safe_lock(path.name, current) or not _same_identity(opened, current):
+            return False
+    finally:
+        if descriptor >= 0:
+            try:
+                if acquired:
+                    import msvcrt
+
+                    os.lseek(descriptor, 0, os.SEEK_SET)
+                    getattr(msvcrt, "locking")(
+                        descriptor, getattr(msvcrt, "LK_UNLCK"), 1
+                    )
+            finally:
+                os.close(descriptor)
+    if not acquired or opened is None:
+        return False
+    current = os.lstat(path)
+    if not _safe_lock(path.name, current) or not _same_identity(opened, current):
+        return False
+    os.unlink(path)
+    return True
 
 
 def _same_identity(left: os.stat_result, right: os.stat_result) -> bool:

@@ -159,8 +159,7 @@ class TestHermesRememberConfidence:
         store = ItemsStore(items_dir=tmp_brain_dir / "items")
         for item, _ in store.iter_all():
             if item.id == result["id"]:
-                assert item.confidence == 0.35
-                assert {"needs-review", "unverified-boundary"} <= set(item.tags)
+                assert item.confidence == 0.7
                 break
 
     def test_explicit_confidence(self, tmp_brain_dir: Path):
@@ -170,8 +169,7 @@ class TestHermesRememberConfidence:
         store = ItemsStore(items_dir=tmp_brain_dir / "items")
         for item, _ in store.iter_all():
             if item.id == result["id"]:
-                assert item.confidence == 0.35
-                assert {"needs-review", "unverified-boundary"} <= set(item.tags)
+                assert item.confidence == 0.95
                 break
 
 

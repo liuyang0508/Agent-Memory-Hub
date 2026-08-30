@@ -13,7 +13,7 @@ import threading
 from collections import Counter
 from collections.abc import Iterable, Mapping
 from contextlib import contextmanager
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import BinaryIO, Iterator, Literal
@@ -40,10 +40,8 @@ PENDING_RECEIPT_FIELDS = frozenset(
         "completed_at",
         "state",
         "result_digest",
-        "action_counts",
     }
 )
-PENDING_RECEIPT_V1_FIELDS = PENDING_RECEIPT_FIELDS - {"action_counts"}
 MAX_PENDING_RECEIPT_LEDGER_BYTES = 16 * 1024 * 1024
 MAX_PENDING_RECEIPT_LINE_BYTES = 64 * 1024
 MAX_PENDING_RECEIPT_RECORDS = 100_000
@@ -52,35 +50,8 @@ _HEX_64 = re.compile(r"[0-9a-f]{64}\Z")
 _PROCESS_LOCK = threading.RLock()
 _log = logging.getLogger(__name__)
 
-PendingSelectionMode = Literal["explicit", "safe_only", "resolution"]
-PendingReceiptAction = Literal[
-    "apply",
-    "approve_audit",
-    "accept_duplicate",
-    "convert_type",
-    "reject",
-    "quarantine",
-]
-_ALLOWED_ACTIONS = frozenset(
-    {
-        "apply",
-        "approve_audit",
-        "accept_duplicate",
-        "convert_type",
-        "reject",
-        "quarantine",
-    }
-)
 _ALLOWED_STATUSES = frozenset(
-    {
-        "written",
-        "already_written",
-        "review_required",
-        "skipped",
-        "failed",
-        "applied",
-        "blocked",
-    }
+    {"written", "already_written", "review_required", "skipped", "failed"}
 )
 _ALLOWED_CLASSIFICATIONS = frozenset(
     {
@@ -100,22 +71,14 @@ _ALLOWED_REASONS = frozenset(
         "AUDIT_BLOCKED",
         "AUDIT_SCAN_FAILED",
         "CONCURRENT_MODIFICATION",
-        "CONFLICTING_PENDING_RESOLUTIONS",
         "DUPLICATE_RECORD_ID_SELECTION",
-        "EVIDENCE_SIDECAR_REPAIR_REQUIRED",
         "EXISTING_ITEM_SCAN_UNAVAILABLE",
         "INVALID_ITEM_BODY",
         "INVALID_ITEM_SCHEMA",
         "INVALID_ITEM_TITLE",
         "PAYLOAD_HASH_MISMATCH",
         "PENDING_APPLY_FAILED",
-        "PENDING_AUDIT_APPROVAL_REQUIRED",
-        "PENDING_AUDIT_FINDINGS_CHANGED",
-        "PENDING_AUDIT_SECRET_BLOCKED",
-        "PENDING_CONVERSION_INVALID",
-        "PENDING_CONVERSION_UNSUPPORTED",
         "PENDING_DIRECTORY_FSYNC_UNAVAILABLE",
-        "PENDING_DUPLICATE_TARGET_MISMATCH",
         "PENDING_ITEM_SNAPSHOT_UNTRUSTED",
         "PENDING_LOCK_GC_TRUNCATED",
         "PENDING_LOCK_GC_UNAVAILABLE",
@@ -124,21 +87,9 @@ _ALLOWED_REASONS = frozenset(
         "PENDING_READINESS_BUDGET_EXCEEDED",
         "PENDING_RECORD_CHANGED",
         "PENDING_RECORD_ID_CONFLICT",
-        "PENDING_RECEIPT_COMPLETION_FAILED",
-        "PENDING_RECEIPT_PREPARE_FAILED",
-        "PENDING_RESOLUTION_APPLIED",
-        "PENDING_RESOLUTION_CHANGED",
-        "PENDING_RESOLUTION_NOT_APPLICABLE",
-        "PENDING_RESOLUTION_QUARANTINED",
-        "PENDING_RESOLUTION_REJECTED",
-        "PENDING_RESOLUTION_READY",
         "PENDING_SCAN_UNAVAILABLE",
         "PENDING_UNLINK_FAILED",
-        "PENDING_TERMINAL_MOVE_FAILED",
         "PENDING_WRITE_SERVICE_UNAVAILABLE",
-        "PENDING_WRITE_SERVICE_CLOSE_FAILED",
-        "PENDING_WRITE_EVIDENCE_INVALID",
-        "PENDING_WRITE_RECOVERY_REQUIRED",
         "PLATFORM_UNSUPPORTED",
         "READY",
         "RECORD_ID_NOT_FOUND",
@@ -149,7 +100,6 @@ _ALLOWED_REASONS = frozenset(
         "STABLE_ITEM_PAYLOAD_CONFLICT",
         "STABLE_ITEM_SCOPE_CONFLICT",
         "STALE_EPHEMERAL_MEMORY",
-        "SOURCE_LEDGER_REPAIR_REQUIRED",
         "UNSUPPORTED_MEMORY_TYPE",
         "UNKNOWN_PENDING_REASON",
         "WRITTEN",
@@ -164,8 +114,6 @@ class PendingReceiptSelection:
 
     record_id: str
     payload_sha256: str
-    action: PendingReceiptAction = "apply"
-    target_digest: str | None = None
 
 
 @dataclass(frozen=True)
@@ -185,7 +133,7 @@ class PendingBatchReceipt:
     schema_version: int
     batch_id: str
     batch_digest: str
-    selection_mode: PendingSelectionMode
+    selection_mode: Literal["explicit", "safe_only"]
     requested_count: int
     selected_count: int
     depth_before: int
@@ -199,7 +147,6 @@ class PendingBatchReceipt:
     completed_at: str | None
     state: Literal["prepared", "completed", "incomplete"]
     result_digest: str | None
-    action_counts: Mapping[str, int] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -220,7 +167,6 @@ class PendingBatchReceipt:
             "completed_at": self.completed_at,
             "state": self.state,
             "result_digest": self.result_digest,
-            "action_counts": dict(sorted(self.action_counts.items())),
         }
 
 
@@ -256,7 +202,7 @@ def _public_reason(reason: str) -> str:
 
 def prepare_pending_receipt(
     *,
-    selection_mode: PendingSelectionMode,
+    selection_mode: Literal["explicit", "safe_only"],
     requested_count: int,
     selected: Iterable[PendingReceiptSelection],
     depth_before: int,
@@ -264,61 +210,21 @@ def prepare_pending_receipt(
     prepared_at: str | None = None,
 ) -> PendingBatchReceipt:
     selections = tuple(selected)
-    canonical_selection: list[tuple[object, ...]] = []
-    action_counts: Counter[str] = Counter()
+    canonical_selection: list[tuple[str, str]] = []
     for selection in selections:
         if (
             type(selection) is not PendingReceiptSelection
-            or type(selection.record_id) is not str
             or not selection.record_id
-            or type(selection.payload_sha256) is not str
             or _HEX_64.fullmatch(selection.payload_sha256) is None
         ):
             raise TypeError("INVALID_PENDING_RECEIPT_SELECTION")
-        if selection_mode in {"explicit", "safe_only"}:
-            if selection.action != "apply" or selection.target_digest is not None:
-                raise TypeError("INVALID_PENDING_RECEIPT_SELECTION")
-            canonical_selection.append((selection.record_id, selection.payload_sha256))
-            continue
-        if (
-            selection_mode != "resolution"
-            or selection.action not in _ALLOWED_ACTIONS - {"apply"}
-            or (
-                selection.action == "approve_audit"
-                and selection.target_digest is not None
-            )
-            or (
-                selection.action in {"accept_duplicate", "convert_type"}
-                and (
-                    type(selection.target_digest) is not str
-                    or _HEX_64.fullmatch(selection.target_digest) is None
-                )
-            )
-        ):
-            raise TypeError("INVALID_PENDING_RECEIPT_SELECTION")
-        canonical_selection.append(
-            (
-                selection.record_id,
-                selection.payload_sha256,
-                selection.action,
-                selection.target_digest,
-            )
-        )
-        action_counts[selection.action] += 1
+        canonical_selection.append((selection.record_id, selection.payload_sha256))
     receipt = PendingBatchReceipt(
         schema_version=1,
         batch_id=batch_id or secrets.token_hex(16),
         batch_digest=_canonical_digest(
-            (
-                b"amh.pending.resolution.batch.v1"
-                if selection_mode == "resolution"
-                else b"amh.pending.batch.v1"
-            ),
-            (
-                canonical_selection
-                if selection_mode == "resolution"
-                else sorted(canonical_selection)
-            ),
+            b"amh.pending.batch.v1",
+            sorted(canonical_selection),
         ),
         selection_mode=selection_mode,
         requested_count=requested_count,
@@ -334,7 +240,6 @@ def prepare_pending_receipt(
         completed_at=None,
         state="prepared",
         result_digest=None,
-        action_counts=dict(sorted(action_counts.items())),
     )
     if not _valid_receipt(receipt):
         raise TypeError("INVALID_PENDING_BATCH_RECEIPT")
@@ -399,11 +304,7 @@ def complete_pending_receipt(
         result_digest=_canonical_digest(
             b"amh.pending.result.v1",
             {
-                "outcomes": (
-                    canonical_outcomes
-                    if prepared.selection_mode == "resolution"
-                    else sorted(canonical_outcomes)
-                ),
+                "outcomes": sorted(canonical_outcomes),
                 "batch_warnings": normalized_batch_warnings,
             },
         ),
@@ -436,6 +337,9 @@ def append_pending_receipt(brain_dir: Path, receipt: PendingBatchReceipt) -> Non
     ).encode("utf-8")
     if len(payload) > MAX_PENDING_RECEIPT_LINE_BYTES:
         raise OSError("PENDING_RECEIPT_LINE_TOO_LARGE")
+    if os.name == "nt":
+        _append_pending_receipt_windows(Path(brain_dir), receipt, payload)
+        return
     durable = False
     try:
         with SecureDirectory.open(Path(brain_dir)) as brain:
@@ -487,6 +391,8 @@ def append_pending_receipt(brain_dir: Path, receipt: PendingBatchReceipt) -> Non
 def read_pending_receipt_ledger_health(brain_dir: Path) -> PendingReceiptLedgerHealth:
     """Read ledger health without creating runtime state or exposing batch IDs."""
 
+    if os.name == "nt":
+        return _read_pending_receipt_ledger_health_windows(Path(brain_dir))
     receipts: list[PendingBatchReceipt] = []
     try:
         with SecureDirectory.open(Path(brain_dir)) as brain:
@@ -558,7 +464,6 @@ def _receipt_sequence_health(
             or receipt.selected_count != original.selected_count
             or receipt.depth_before != original.depth_before
             or receipt.prepared_at != original.prepared_at
-            or receipt.action_counts != original.action_counts
         ):
             return PendingReceiptLedgerHealth("corrupt")
         completed.add(receipt.batch_id)
@@ -574,15 +479,7 @@ def _parse_receipt(raw: bytes) -> PendingBatchReceipt | None:
         data = json.loads(raw.decode("utf-8"))
     except (UnicodeError, json.JSONDecodeError):
         return None
-    if not isinstance(data, dict):
-        return None
-    fields = set(data)
-    if fields == PENDING_RECEIPT_V1_FIELDS:
-        if data.get("selection_mode") not in ("explicit", "safe_only"):
-            return None
-        data = dict(data)
-        data["action_counts"] = {}
-    elif fields != PENDING_RECEIPT_FIELDS:
+    if not isinstance(data, dict) or set(data) != PENDING_RECEIPT_FIELDS:
         return None
     try:
         receipt = PendingBatchReceipt(**data)
@@ -634,31 +531,19 @@ def _valid_receipt(receipt: object) -> bool:
         return False
     assert isinstance(receipt, PendingBatchReceipt)
     if (
-        type(receipt.schema_version) is not int
-        or type(receipt.batch_id) is not str
-        or type(receipt.batch_digest) is not str
-        or type(receipt.selection_mode) is not str
-        or type(receipt.state) is not str
-        or (
-            receipt.result_digest is not None
-            and type(receipt.result_digest) is not str
-        )
-    ):
-        return False
-    counts = (
-        receipt.requested_count,
-        receipt.selected_count,
-        receipt.depth_before,
-        receipt.index_repair_required_count,
-    )
-    if any(type(value) is not int or value < 0 for value in counts):
-        return False
-    if (
         receipt.schema_version != 1
         or _HEX_32.fullmatch(receipt.batch_id) is None
         or _HEX_64.fullmatch(receipt.batch_digest) is None
-        or receipt.selection_mode not in {"explicit", "safe_only", "resolution"}
-        or receipt.selected_count > receipt.requested_count
+        or receipt.selection_mode not in {"explicit", "safe_only"}
+        or any(
+            type(value) is not int or value < 0
+            for value in (
+                receipt.requested_count,
+                receipt.selected_count,
+                receipt.depth_before,
+                receipt.index_repair_required_count,
+            )
+        )
         or (receipt.depth_after is not None and (type(receipt.depth_after) is not int or receipt.depth_after < 0))
         or not _valid_timestamp(receipt.prepared_at)
         or receipt.state not in {"prepared", "completed", "incomplete"}
@@ -672,19 +557,6 @@ def _valid_receipt(receipt: object) -> bool:
         return False
     if not _valid_counts(receipt.warning_counts, _ALLOWED_REASONS):
         return False
-    if not _valid_counts(receipt.action_counts, _ALLOWED_ACTIONS):
-        return False
-    if receipt.selection_mode == "resolution":
-        if (
-            receipt.selected_count == 0
-            or not receipt.action_counts
-            or "apply" in receipt.action_counts
-            or any(value == 0 for value in receipt.action_counts.values())
-            or sum(receipt.action_counts.values()) != receipt.selected_count
-        ):
-            return False
-    elif receipt.action_counts:
-        return False
     if receipt.state in {"prepared", "incomplete"}:
         return (
             receipt.depth_after is None
@@ -696,18 +568,6 @@ def _valid_receipt(receipt: object) -> bool:
             and receipt.completed_at is None
             and receipt.result_digest is None
         )
-    expected_outcomes = (
-        receipt.selected_count
-        if receipt.selection_mode == "resolution"
-        else receipt.requested_count
-    )
-    if (
-        sum(receipt.status_counts.values()) != expected_outcomes
-        or sum(receipt.classification_counts.values()) != expected_outcomes
-        or sum(receipt.reason_counts.values()) != expected_outcomes
-        or receipt.index_repair_required_count > expected_outcomes
-    ):
-        return False
     return (
         receipt.depth_after is not None
         and receipt.completed_at is not None
@@ -789,15 +649,189 @@ def _write_all(descriptor: int, payload: bytes) -> None:
         remaining = remaining[written:]
 
 
+_WINDOWS_REPARSE_POINT = 0x0400
+
+
+def _windows_safe_directory(opened: object) -> bool:
+    return stat.S_ISDIR(int(getattr(opened, "st_mode", 0))) and not bool(
+        int(getattr(opened, "st_file_attributes", 0) or 0) & _WINDOWS_REPARSE_POINT
+    )
+
+
+def _windows_safe_regular_file(opened: object) -> bool:
+    return stat.S_ISREG(int(getattr(opened, "st_mode", 0))) and not bool(
+        int(getattr(opened, "st_file_attributes", 0) or 0) & _WINDOWS_REPARSE_POINT
+    )
+
+
+def _same_windows_identity(left: object, right: object) -> bool:
+    left_key = (
+        int(getattr(left, "st_dev", 0) or 0),
+        int(getattr(left, "st_ino", 0) or 0),
+    )
+    right_key = (
+        int(getattr(right, "st_dev", 0) or 0),
+        int(getattr(right, "st_ino", 0) or 0),
+    )
+    return all(left_key) and left_key == right_key
+
+
+def _ensure_windows_directory(path: Path) -> None:
+    absolute = Path(os.path.abspath(os.fspath(path)))
+    if not absolute.is_absolute():
+        raise OSError("INVALID_PENDING_RECEIPT_DIRECTORY")
+    current = Path(absolute.anchor)
+    for component in absolute.parts[1:]:
+        if component in {"", ".", ".."}:
+            raise OSError("INVALID_PENDING_RECEIPT_DIRECTORY")
+        current /= component
+        try:
+            opened = os.lstat(current)
+        except FileNotFoundError:
+            try:
+                os.mkdir(current, 0o700)
+            except FileExistsError:
+                pass
+            opened = os.lstat(current)
+        if not _windows_safe_directory(opened):
+            raise OSError("UNSAFE_PENDING_RECEIPT_DIRECTORY")
+
+
+def _open_windows_regular(path: Path, flags: int, mode: int = 0o600) -> int:
+    descriptor = os.open(
+        path,
+        flags | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0),
+        mode,
+    )
+    try:
+        before = os.lstat(path)
+        opened = os.fstat(descriptor)
+        if (
+            not _windows_safe_regular_file(before)
+            or not _windows_safe_regular_file(opened)
+            or not _same_windows_identity(before, opened)
+        ):
+            raise OSError("UNSAFE_PENDING_RECEIPT_FILE")
+        return descriptor
+    except BaseException:
+        os.close(descriptor)
+        raise
+
+
+@contextmanager
+def _locked_windows_receipt_file(path: Path) -> Iterator[int]:
+    descriptor = _open_windows_regular(path, os.O_RDWR | os.O_CREAT)
+    locked = False
+    try:
+        if os.fstat(descriptor).st_size == 0:
+            os.write(descriptor, b"\0")
+            os.fsync(descriptor)
+        import msvcrt
+
+        os.lseek(descriptor, 0, os.SEEK_SET)
+        getattr(msvcrt, "locking")(descriptor, getattr(msvcrt, "LK_LOCK"), 1)
+        locked = True
+        yield descriptor
+    finally:
+        if locked:
+            try:
+                import msvcrt
+
+                os.lseek(descriptor, 0, os.SEEK_SET)
+                getattr(msvcrt, "locking")(descriptor, getattr(msvcrt, "LK_UNLCK"), 1)
+            except BaseException:
+                _log.warning("PENDING_RECEIPT_LOCK_HOUSEKEEPING_FAILED")
+        try:
+            os.close(descriptor)
+        except BaseException:
+            _log.warning("PENDING_RECEIPT_LOCK_HOUSEKEEPING_FAILED")
+
+
+def _append_pending_receipt_windows(
+    brain_dir: Path,
+    receipt: PendingBatchReceipt,
+    payload: bytes,
+) -> None:
+    """Windows fallback preserving append, flush, lock, and rollback semantics."""
+
+    runtime = brain_dir / "runtime"
+    _ensure_windows_directory(runtime)
+    ledger_path = runtime / "pending-apply-receipts.jsonl"
+    lock_path = runtime / ".pending-receipts.lock"
+    durable = False
+    with _PROCESS_LOCK, _locked_windows_receipt_file(lock_path):
+        descriptor = _open_windows_regular(
+            ledger_path,
+            os.O_RDWR | os.O_APPEND | os.O_CREAT,
+        )
+        try:
+            original_length = os.fstat(descriptor).st_size
+            if original_length + len(payload) > MAX_PENDING_RECEIPT_LEDGER_BYTES:
+                raise OSError("PENDING_RECEIPT_LEDGER_TOO_LARGE")
+            existing = _read_receipts_from_descriptor(descriptor)
+            if _receipt_sequence_health((*existing, receipt)).status != "healthy":
+                raise OSError("PENDING_RECEIPT_LEDGER_CORRUPT")
+            try:
+                _write_all(descriptor, payload)
+                os.fsync(descriptor)
+                durable = True
+            except BaseException as append_error:
+                try:
+                    os.ftruncate(descriptor, original_length)
+                    os.fsync(descriptor)
+                except BaseException as rollback_error:
+                    if not isinstance(append_error, Exception):
+                        append_error.add_note("PENDING_RECEIPT_ROLLBACK_FAILED")
+                        raise append_error
+                    raise PendingReceiptLedgerRollbackError(
+                        "PENDING_RECEIPT_ROLLBACK_FAILED"
+                    ) from rollback_error
+                raise
+        except BaseException:
+            if durable:
+                _log.warning("PENDING_RECEIPT_HOUSEKEEPING_FAILED")
+                return
+            raise
+        finally:
+            try:
+                os.close(descriptor)
+            except BaseException:
+                if durable:
+                    _log.warning("PENDING_RECEIPT_HOUSEKEEPING_FAILED")
+                else:
+                    raise
+
+
+def _read_pending_receipt_ledger_health_windows(
+    brain_dir: Path,
+) -> PendingReceiptLedgerHealth:
+    ledger_path = brain_dir / "runtime" / "pending-apply-receipts.jsonl"
+    descriptor = -1
+    try:
+        descriptor = _open_windows_regular(ledger_path, os.O_RDONLY)
+        opened = os.fstat(descriptor)
+        if opened.st_size > MAX_PENDING_RECEIPT_LEDGER_BYTES:
+            return PendingReceiptLedgerHealth("corrupt")
+        receipts = _read_receipts_from_descriptor(descriptor)
+        after = os.fstat(descriptor)
+        if not _same_file_state(opened, after):
+            return PendingReceiptLedgerHealth("unavailable")
+    except FileNotFoundError:
+        return PendingReceiptLedgerHealth("not_present")
+    except (OSError, UnicodeError):
+        return PendingReceiptLedgerHealth("unavailable")
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+    return _receipt_sequence_health(receipts)
+
+
 __all__ = [
     "PENDING_RECEIPT_FIELDS",
-    "PENDING_RECEIPT_V1_FIELDS",
     "PendingBatchReceipt",
-    "PendingReceiptAction",
     "PendingReceiptLedgerHealth",
     "PendingReceiptOutcome",
     "PendingReceiptSelection",
-    "PendingSelectionMode",
     "append_pending_receipt",
     "complete_pending_receipt",
     "incomplete_pending_receipt",

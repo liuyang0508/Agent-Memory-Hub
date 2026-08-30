@@ -144,6 +144,8 @@ _find_memory_python() {
   local candidates=(
     "${AGENT_MEMORY_HUB_PYTHON:-}"
     "${MEMORY_PYTHON:-}"
+    "$_PROJECT_ROOT/.venv/Scripts/python.exe"
+    "$_PROJECT_ROOT/.venv/Scripts/python"
     "$_PROJECT_ROOT/.venv/bin/python3"
     "$_PROJECT_ROOT/.venv/bin/python"
   )

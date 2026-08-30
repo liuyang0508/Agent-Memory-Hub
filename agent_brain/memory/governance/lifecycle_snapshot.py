@@ -1,4 +1,4 @@
-"""Private fd-bound, bounded Git snapshots for lifecycle rollback."""
+"""Private fd-bound two-item Git snapshots for lifecycle rollback."""
 
 from __future__ import annotations
 
@@ -9,7 +9,6 @@ import stat
 import subprocess
 import sys
 import uuid
-from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 from agent_brain.contracts.memory_item import is_valid_memory_item_id
@@ -50,33 +49,21 @@ class LifecycleSnapshotStore:
         replacement_id: str,
         replacement_bytes: bytes,
     ) -> str:
-        self._validate_ids(obsolete_id, replacement_id)
-        return self.snapshot_items(
-            {
-                obsolete_id: obsolete_bytes,
-                replacement_id: replacement_bytes,
-            }
-        )
-
-    def snapshot_items(self, items: Mapping[str, bytes]) -> str:
-        """Create one private snapshot for an exact, bounded item set."""
-
         try:
-            item_ids = tuple(sorted(items))
-            self._validate_roots_and_item_ids(item_ids)
+            self._validate_roots_and_ids(obsolete_id, replacement_id)
             with self._repository() as repo:
-                entries: list[tuple[str, str, str, str]] = []
-                for item_id in item_ids:
-                    item_bytes = items[item_id]
-                    if not isinstance(item_bytes, bytes):
-                        raise LifecycleSnapshotError("SNAPSHOT_FAILED")
-                    blob = self._object_id(
-                        self._git(repo, "hash-object", input=item_bytes).stdout
-                    )
-                    entries.append(("100644", "blob", blob, f"{item_id}.md"))
+                obsolete_blob = self._object_id(
+                    self._git(repo, "hash-object", input=obsolete_bytes).stdout
+                )
+                replacement_blob = self._object_id(
+                    self._git(repo, "hash-object", input=replacement_bytes).stdout
+                )
                 item_tree = self._make_tree(
                     repo,
-                    entries,
+                    [
+                        ("100644", "blob", obsolete_blob, f"{obsolete_id}.md"),
+                        ("100644", "blob", replacement_blob, f"{replacement_id}.md"),
+                    ],
                 )
                 root_tree = self._make_tree(
                     repo, [("040000", "tree", item_tree, "items")]
@@ -103,15 +90,8 @@ class LifecycleSnapshotStore:
     def restore_pair(
         self, snapshot: str, obsolete_id: str, replacement_id: str
     ) -> None:
-        self._validate_ids(obsolete_id, replacement_id)
-        self.restore_items(snapshot, (obsolete_id, replacement_id))
-
-    def restore_items(self, snapshot: str, item_ids: Sequence[str]) -> None:
-        """Restore an exact item set from a snapshot created by ``snapshot_items``."""
-
         try:
-            canonical_ids = tuple(sorted(set(item_ids)))
-            self._validate_item_ids(canonical_ids)
+            self._validate_ids(obsolete_id, replacement_id)
             if _OBJECT_ID.fullmatch(snapshot.encode("ascii")) is None:
                 raise LifecycleSnapshotError("SNAPSHOT_FAILED")
             with SecureDirectory.open(self.items_dir) as item_directory:
@@ -124,12 +104,13 @@ class LifecycleSnapshotStore:
                         repo, root[b"items"][1].decode("ascii")
                     )
                     expected = {
-                        f"{item_id}.md".encode() for item_id in canonical_ids
+                        f"{obsolete_id}.md".encode(),
+                        f"{replacement_id}.md".encode(),
                     }
                     if set(items) != expected:
                         raise LifecycleSnapshotError("SNAPSHOT_FAILED")
                     payloads: list[tuple[str, bytes]] = []
-                    for item_id in canonical_ids:
+                    for item_id in (obsolete_id, replacement_id):
                         kind, blob = items[f"{item_id}.md".encode()]
                         if kind != b"blob":
                             raise LifecycleSnapshotError("SNAPSHOT_FAILED")
@@ -346,10 +327,7 @@ class LifecycleSnapshotStore:
         return entries
 
     def _validate_roots_and_ids(self, obsolete_id: str, replacement_id: str) -> None:
-        self._validate_roots_and_item_ids((obsolete_id, replacement_id))
-
-    def _validate_roots_and_item_ids(self, item_ids: Sequence[str]) -> None:
-        self._validate_item_ids(item_ids)
+        self._validate_ids(obsolete_id, replacement_id)
         with SecureDirectory.open(self.items_dir) as items:
             self._validate_items_root(items)
 
@@ -362,21 +340,13 @@ class LifecycleSnapshotStore:
 
     @staticmethod
     def _validate_ids(obsolete_id: str, replacement_id: str) -> None:
-        LifecycleSnapshotStore._validate_item_ids(
-            (obsolete_id, replacement_id)
-        )
-        if obsolete_id == replacement_id:
-            raise LifecycleSnapshotError("SNAPSHOT_FAILED")
-
-    @staticmethod
-    def _validate_item_ids(item_ids: Sequence[str]) -> None:
-        if not 1 <= len(item_ids) <= 500 or len(set(item_ids)) != len(item_ids):
-            raise LifecycleSnapshotError("SNAPSHOT_FAILED")
-        for item_id in item_ids:
+        for item_id in (obsolete_id, replacement_id):
             if not is_valid_memory_item_id(item_id) or any(
                 ord(c) < 32 or ord(c) == 127 for c in item_id
             ):
                 raise LifecycleSnapshotError("SNAPSHOT_FAILED")
+        if obsolete_id == replacement_id:
+            raise LifecycleSnapshotError("SNAPSHOT_FAILED")
 
     @classmethod
     def _read_file(cls, directory: SecureDirectory, name: str) -> bytes:

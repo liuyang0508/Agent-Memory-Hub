@@ -138,7 +138,6 @@ class CurrentUser:
         self.username = username
         self.tenant_id = tenant_id
         self.role = role
-        self.organization_role: str | None = None
 
     @property
     def is_admin(self) -> bool:
@@ -220,38 +219,6 @@ def _find_user_by_api_key(key: str) -> dict[str, Any] | None:
     return None
 
 
-def _apply_live_organization_policy(
-    request: _FastAPIRequest,
-    user: CurrentUser,
-) -> CurrentUser:
-    """Attach the live org role and enforce viewer/revoked API boundaries."""
-
-    from web.organization_access import ensure_organization_principal
-    from web.state_store import get_state_store
-
-    principal = ensure_organization_principal(
-        get_state_store(_brain_dir()),
-        user,
-    )
-    user.organization_role = principal.role
-    auth_route = request.url.path.startswith("/api/auth/")
-    if principal.role == "revoked" and not auth_route:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="organization membership revoked",
-        )
-    if (
-        principal.role == "viewer"
-        and request.method in {"POST", "PATCH", "PUT", "DELETE"}
-        and not auth_route
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="organization viewer is read-only",
-        )
-    return user
-
-
 async def get_current_user(
     request: _FastAPIRequest,
     creds: HTTPAuthorizationCredentials | None = Depends(_bearer),
@@ -260,13 +227,10 @@ async def get_current_user(
     if api_key:
         user = _find_user_by_api_key(api_key)
         if user:
-            return _apply_live_organization_policy(
-                request,
-                CurrentUser(
-                    username=user["username"],
-                    tenant_id=user.get("tenant_id", "default"),
-                    role=user.get("role", "user"),
-                ),
+            return CurrentUser(
+                username=user["username"],
+                tenant_id=user.get("tenant_id", "default"),
+                role=user.get("role", "user"),
             )
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid api key")
     if creds is None:
@@ -275,13 +239,10 @@ async def get_current_user(
         payload = decode_token(creds.credentials)
         if payload.get("purpose") is not None:
             raise JWTError("purpose-restricted token")
-        return _apply_live_organization_policy(
-            request,
-            CurrentUser(
-                username=payload["sub"],
-                tenant_id=payload.get("tenant_id", "default"),
-                role=payload.get("role", "user"),
-            ),
+        return CurrentUser(
+            username=payload["sub"],
+            tenant_id=payload.get("tenant_id", "default"),
+            role=payload.get("role", "user"),
         )
     except (JWTError, KeyError):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid token")

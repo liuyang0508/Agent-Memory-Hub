@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import re
 import sqlite3
 from types import SimpleNamespace
 
@@ -33,9 +32,9 @@ import agent_brain.interfaces.cli as _cli  # noqa: E402  late binding for test-p
 @app.command()
 def reindex(
     prune: bool = typer.Option(
-        True,
-        "--prune/--no-prune",
-        help="Converge to Markdown truth by dropping orphan index rows.",
+        False,
+        "--prune",
+        help="Drop index rows whose md file no longer exists (removes ghost hits).",
     ),
 ) -> None:
     """Rebuild the SQLite index from items dir (md is source of truth)."""
@@ -44,12 +43,6 @@ def reindex(
         result = reindex_store(store, idx, embedder, prune=prune)
     if prune:
         typer.echo(f"reindexed {result.indexed} items, pruned {result.pruned}")
-        if not result.source_scan_complete:
-            typer.echo(
-                "source scan incomplete; prune skipped and dirty marker preserved",
-                err=True,
-            )
-            raise typer.Exit(1)
     else:
         typer.echo(f"reindexed {result.indexed} items")
 
@@ -208,20 +201,6 @@ def _emit_repair_report(
     _emit_verify_report(after, format="text")
 
 
-def _pending_resolution_key(
-    action: object,
-    record_id: object,
-    target: object,
-) -> tuple[str, str, str, str] | None:
-    if type(action) is not str or type(record_id) is not str:
-        return None
-    if target is None:
-        return action, record_id, "none", ""
-    if type(target) is not str:
-        return None
-    return action, record_id, "string", target
-
-
 @app.command("sync-pending")
 def sync_pending(
     apply: bool = typer.Option(
@@ -239,36 +218,6 @@ def sync_pending(
         "--safe-only",
         help="Apply all records classified ready.",
     ),
-    approve_audit: list[str] = typer.Option(
-        [],
-        "--approve-audit",
-        help="Approve one public/internal audit-blocked record; repeatable.",
-    ),
-    accept_duplicate: list[str] = typer.Option(
-        [],
-        "--accept-duplicate",
-        help="Accept an exact duplicate as ID:ITEM; repeatable.",
-    ),
-    convert_type: list[str] = typer.Option(
-        [],
-        "--convert-type",
-        help="Convert legacy feedback as ID:decision; repeatable.",
-    ),
-    reject: list[str] = typer.Option(
-        [],
-        "--reject",
-        help="Reject a review-only record as ID:reason; repeatable.",
-    ),
-    quarantine: list[str] = typer.Option(
-        [],
-        "--quarantine",
-        help="Quarantine a malformed/conflicting record as ID:reason; repeatable.",
-    ),
-    gc_orphan_locks: bool = typer.Option(
-        False,
-        "--gc-orphan-locks",
-        help="Preview orphan record locks; delete only with --apply.",
-    ),
     dry_run: bool = typer.Option(
         False,
         "--dry-run",
@@ -283,256 +232,66 @@ def sync_pending(
     ),
 ) -> None:
     """Preview pending writes by default; apply only an explicit selection."""
-    from agent_brain.memory.store.pending import (
-        PendingQueue,
-        PendingResolutionAction,
-        PendingResolutionName,
-        PendingResolutionStats,
-        is_valid_pending_record_id,
-    )
-    from agent_brain.contracts.memory_item import is_valid_memory_item_id
+    from agent_brain.memory.store.pending import PendingQueue
 
     if format not in {"text", "json"}:
         typer.echo("format must be text or json", err=True)
         raise typer.Exit(2)
-    resolution_actions = [
-        PendingResolutionAction("approve_audit", record_id)
-        for record_id in approve_audit
-        if record_id
-    ]
-    if len(resolution_actions) != len(approve_audit):
-        typer.echo("--approve-audit requires ID", err=True)
-        raise typer.Exit(2)
-    for value in accept_duplicate:
-        candidates = [
-            (value[:index], value[index + 1 :])
-            for index, character in enumerate(value)
-            if character == ":"
-            and is_valid_pending_record_id(value[:index])
-            and is_valid_memory_item_id(value[index + 1 :])
-        ]
-        if len(candidates) != 1:
-            typer.echo("--accept-duplicate requires ID:ITEM", err=True)
-            raise typer.Exit(2)
-        record_id, target_id = candidates[0]
-        resolution_actions.append(
-            PendingResolutionAction("accept_duplicate", record_id, target_id)
-        )
-    for value in convert_type:
-        suffix = ":decision"
-        record_id = value[: -len(suffix)] if value.endswith(suffix) else ""
-        if not is_valid_pending_record_id(record_id):
-            typer.echo("--convert-type requires ID:decision", err=True)
-            raise typer.Exit(2)
-        resolution_actions.append(
-            PendingResolutionAction("convert_type", record_id, "decision")
-        )
-    terminal_options: tuple[tuple[list[str], PendingResolutionName], ...] = (
-        (reject, "reject"),
-        (quarantine, "quarantine"),
-    )
-    for option, action_name in terminal_options:
-        for value in option:
-            candidates = [
-                (value[:index], value[index + 1 :])
-                for index, character in enumerate(value)
-                if character == ":"
-                and is_valid_pending_record_id(value[:index])
-                and re.fullmatch(
-                    r"[a-z][a-z0-9-]{1,63}",
-                    value[index + 1 :],
-                )
-                is not None
-            ]
-            if len(candidates) != 1:
-                typer.echo(f"--{action_name} requires ID:reason", err=True)
-                raise typer.Exit(2)
-            record_id, reason = candidates[0]
-            resolution_actions.append(
-                PendingResolutionAction(action_name, record_id, reason)
-            )
-
-    selection_groups = sum(
-        (bool(record_ids), safe_only, bool(resolution_actions))
-    )
-    if selection_groups > 1:
-        typer.echo(
-            "--record, --safe-only, and resolution options are mutually exclusive",
-            err=True,
-        )
-        raise typer.Exit(2)
-    if gc_orphan_locks and (record_ids or safe_only):
-        typer.echo(
-            "--gc-orphan-locks requires standalone or resolution mode",
-            err=True,
-        )
-        raise typer.Exit(2)
-
     queue = PendingQueue()
-    effective_apply = apply and not dry_run
-
-    if resolution_actions or gc_orphan_locks:
-        if resolution_actions:
-            resolution_stats = queue.resolve(
-                resolution_actions,
-                apply=effective_apply,
-                gc_orphan_locks=gc_orphan_locks,
-            )
-            if gc_orphan_locks and not effective_apply:
-                resolution_stats.lock_gc_report = queue.collect_orphan_locks(
-                    apply=False
-                )
-        else:
-            resolution_stats = PendingResolutionStats(dry_run=not effective_apply)
-            resolution_stats.lock_gc_report = queue.collect_orphan_locks(
-                apply=effective_apply
-            )
-
-        if format == "json":
-            payload = (
-                resolution_stats.to_summary_dict()
-                if summary_only
-                else resolution_stats.to_dict()
-            )
-            typer.echo(json.dumps(payload, ensure_ascii=False, indent=2))
-        elif summary_only:
-            summary = resolution_stats.to_summary_dict()
-            typer.echo(
-                f"dry_run={str(resolution_stats.dry_run).lower()} "
-                f"actions={summary['action_counts']} "
-                f"statuses={summary['status_counts']}"
-            )
-        else:
-            typer.echo(
-                f"dry_run={str(resolution_stats.dry_run).lower()} "
-                f"results={len(resolution_stats.results)}"
-            )
-            for resolution_result in resolution_stats.results:
-                typer.echo(
-                    f"  {resolution_result.record_id}: "
-                    f"action={resolution_result.action} "
-                    f"status={resolution_result.status} "
-                    f"reason={resolution_result.reason}"
-                )
-        lock_report = resolution_stats.lock_gc_report
-        if format == "text" and lock_report is not None:
-            typer.echo(
-                f"lock_gc total={lock_report.total} orphan={lock_report.orphan} "
-                f"deleted={lock_report.deleted} unsafe={lock_report.unsafe} "
-                f"truncated={str(lock_report.truncated).lower()}"
-            )
-        unsuccessful = resolution_stats.governance_reason is not None
-        if resolution_actions:
-            expected_keys: set[tuple[str, str, str, str]] = set()
-            coverage_valid = True
-            for resolution_action in resolution_actions:
-                expected_key = _pending_resolution_key(
-                    resolution_action.action,
-                    resolution_action.record_id,
-                    resolution_action.target,
-                )
-                if expected_key is None:
-                    coverage_valid = False
-                    continue
-                expected_keys.add(expected_key)
-            result_keys: set[tuple[str, str, str, str]] = set()
-            for resolution_result in resolution_stats.results:
-                result_key = _pending_resolution_key(
-                    resolution_result.action,
-                    resolution_result.record_id,
-                    resolution_result.target,
-                )
-                if result_key is None or result_key in result_keys:
-                    coverage_valid = False
-                    continue
-                result_keys.add(result_key)
-            coverage_valid = (
-                coverage_valid
-                and result_keys == expected_keys
-                and resolution_stats.dry_run is (not effective_apply)
-            )
-            unsuccessful = unsuccessful or not coverage_valid
-            expected_status = "applied" if effective_apply else "ready"
-            unsuccessful = unsuccessful or any(
-                resolution_result.status != expected_status
-                for resolution_result in resolution_stats.results
-            )
-            if effective_apply:
-                unsuccessful = unsuccessful or (
-                    resolution_stats.receipt is None
-                    or resolution_stats.receipt.state != "completed"
-                )
-        if lock_report is not None:
-            unsuccessful = unsuccessful or (
-                lock_report.unsafe > 0
-                or lock_report.truncated
-                or lock_report.reason is not None
-            )
-        if unsuccessful:
-            raise typer.Exit(1)
-        return
-
-    if not effective_apply:
+    if not apply or dry_run:
         preview = queue.preview(limit=limit)
         if summary_only:
             summary = preview.to_summary_dict()
             if format == "json":
                 typer.echo(json.dumps(summary, ensure_ascii=False, indent=2))
-            else:
-                groups = summary["groups"]
-                assert isinstance(groups, dict)
-                typer.echo(
-                    f"pending={summary['total']} returned={summary['returned']} "
-                    f"truncated={str(summary['truncated']).lower()} "
-                    f"ready={groups['ready']} review={groups['review']} "
-                    f"blocker={groups['blocker']}"
-                )
-                typer.echo("(summary-only preview — no pending records applied)")
-        elif format == "json":
-            payload = preview.to_dict()
-            typer.echo(json.dumps(payload, ensure_ascii=False, indent=2))
-        else:
+                return
+            groups = summary["groups"]
+            assert isinstance(groups, dict)
             typer.echo(
-                f"pending={preview.total} returned={preview.returned} "
-                f"truncated={str(preview.truncated).lower()}"
+                f"pending={summary['total']} returned={summary['returned']} "
+                f"truncated={str(summary['truncated']).lower()} "
+                f"ready={groups['ready']} review={groups['review']} "
+                f"blocker={groups['blocker']}"
             )
-            for record in preview.records:
-                if record.malformed:
-                    typer.echo(f"  malformed {record.path}: {record.error}")
-                    continue
-                typer.echo(
-                    f"  {record.path}: {record.type or 'unknown'} "
-                    f"{record.title or '(untitled)'} attempt={record.attempt}"
-                )
-            typer.echo("(preview — no pending records applied)")
+            typer.echo("(summary-only preview — no pending records applied)")
+            return
+        if format == "json":
+            typer.echo(json.dumps(preview.to_dict(), ensure_ascii=False, indent=2))
+            return
+        typer.echo(
+            f"pending={preview.total} returned={preview.returned} "
+            f"truncated={str(preview.truncated).lower()}"
+        )
+        for record in preview.records:
+            if record.malformed:
+                typer.echo(f"  malformed {record.path}: {record.error}")
+                continue
+            typer.echo(
+                f"  {record.path}: {record.type or 'unknown'} "
+                f"{record.title or '(untitled)'} attempt={record.attempt}"
+            )
+        typer.echo("(preview — no pending records applied)")
         return
 
     if not record_ids and not safe_only:
-        typer.echo(
-            "--apply requires --record or --safe-only, a resolution option, "
-            "or --gc-orphan-locks",
-            err=True,
-        )
+        typer.echo("--apply requires --record or --safe-only", err=True)
+        raise typer.Exit(2)
+    if record_ids and safe_only:
+        typer.echo("--record and --safe-only are mutually exclusive", err=True)
         raise typer.Exit(2)
 
     stats = queue.apply(record_ids=record_ids or None, safe_only=safe_only)
     if record_ids:
         unsuccessful = any(
-            apply_result.status not in {"written", "already_written"}
-            for apply_result in stats.results
+            result.status not in {"written", "already_written"}
+            for result in stats.results
         )
     else:
         unsuccessful = stats.failed > 0 or any(
-            apply_result.classification in {"audit_blocked", "conflict", "malformed"}
-            for apply_result in stats.results
+            result.classification in {"audit_blocked", "conflict", "malformed"}
+            for result in stats.results
         )
     unsuccessful = unsuccessful or stats.governance_reason is not None
-    if stats.lock_gc_report is not None:
-        unsuccessful = unsuccessful or (
-            stats.lock_gc_report.unsafe > 0
-            or stats.lock_gc_report.truncated
-            or stats.lock_gc_report.reason is not None
-        )
     if format == "json":
         payload = stats.to_summary_dict() if summary_only else stats.to_dict()
         typer.echo(json.dumps(payload, ensure_ascii=False, indent=2))
@@ -543,11 +302,11 @@ def sync_pending(
             f"failed={stats.failed} dead={stats.dead}"
         )
         if not summary_only:
-            for apply_result in stats.results:
+            for result in stats.results:
                 typer.echo(
-                    f"  {apply_result.record_id}: status={apply_result.status} "
-                    f"classification={apply_result.classification or 'unknown'} "
-                    f"reason={apply_result.reason}"
+                    f"  {result.record_id}: status={result.status} "
+                    f"classification={result.classification or 'unknown'} "
+                    f"reason={result.reason}"
                 )
     if unsuccessful:
         raise typer.Exit(1)

@@ -660,7 +660,11 @@ def auto_governance(
         help="Inspect and optionally repair derived index drift",
     ),
 ) -> None:
-    """Run reversible auto-governance plus review-required semantic actions."""
+    """Run a safe auto-governance cycle.
+
+    High-risk actions such as archive, delete, consolidate, supersede, and skill
+    synthesis are reported as review-required and are never auto-applied here.
+    """
     import json
 
     from agent_brain.memory.governance.auto_governance import AutoGovernanceCycle

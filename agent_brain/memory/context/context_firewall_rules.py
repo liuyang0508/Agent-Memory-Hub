@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import re
 from datetime import datetime, timezone
-from difflib import SequenceMatcher
 
 from agent_brain.memory.context.context_firewall_types import (
     CohortGateResult,
@@ -46,11 +45,6 @@ TEMPORAL_CONFLICT_ANCHORS = (
 TEMPORAL_SCOPE_FIELDS = ("cwd", "repo", "branch", "os", "adapter")
 TOPIC_RECENCY_TYPES = {"fact", "decision", "signal", "handoff"}
 TOPIC_TERM_RE = re.compile(r"[a-z0-9][a-z0-9_.-]{2,}|[\u4e00-\u9fff]{2,}")
-_CJK_RUN_RE = re.compile(r"[\u4e00-\u9fff]{2,}")
-_CJK_TOPIC_ANCHOR_WIDTH = 4
-_CJK_TOPIC_MIN_SHARED_ANCHORS = 2
-_CJK_TOPIC_MAX_RUNS = 16
-_CJK_TOPIC_MAX_RUN_LENGTH = 128
 TOPIC_RECENCY_STOPWORDS = {
     "after",
     "before",
@@ -164,8 +158,6 @@ def covered_strong_terms(
     for term in strong_terms:
         if any(_term_matches_haystack(term, haystack) for haystack in haystacks):
             covered.add(term)
-        elif any(cjk_term_fuzzy_matches(term, haystack) for haystack in haystacks):
-            covered.add(term)
     return covered
 
 
@@ -203,60 +195,6 @@ def _term_matches_haystack(term: str, haystack: str) -> bool:
     return compact_term in _compact_lookup_text(haystack)
 
 
-# 跟/同/对... are relation prepositions inside topic phrases, not topic
-# content; splitting on them isolates the real nouns of the term.
-_CJK_FUZZY_NOISE_CHARS = frozenset(
-    "的了吗呢吧啊呀我你他她它请把给在和与及是有跟同对到从被将并或等也都很还又再才只向朝"
-)
-_CJK_FUZZY_RUN_RE = re.compile(r"[一-鿿]+")
-_CJK_FUZZY_MIN_COVERAGE = 0.5
-
-
-def cjk_term_fuzzy_matches(term: str, haystack: str) -> bool:
-    """Whether a CJK topic term is well enough covered by fuzzy fragments.
-
-    Chinese topic phrases rephrase the same idea ("跟学员的仿真对话" vs an item
-    about "学员仿真"), so an exact-substring demand rejects the correct memory.
-    Split the term into substantive noun runs, score each run by how many of
-    its overlapping bigrams/trigrams appear anywhere in the haystack, and
-    accept when the runs on average are well enough covered.
-    """
-    if term.isascii() or len(term) < 4:
-        return False
-    runs = _cjk_fuzzy_runs(term.casefold())
-    if not runs:
-        return False
-    haystack = haystack.casefold()
-    total = 0.0
-    for run in runs:
-        units = _cjk_fuzzy_run_units(run)
-        if not units:
-            continue
-        covered = sum(1 for unit in units if unit in haystack)
-        total += covered / len(units)
-    return total / len(runs) >= _CJK_FUZZY_MIN_COVERAGE
-
-
-def _cjk_fuzzy_runs(term: str) -> list[str]:
-    runs: list[str] = []
-    for raw_run in _CJK_FUZZY_RUN_RE.findall(term):
-        chunks = re.split(
-            f"[{re.escape(''.join(sorted(_CJK_FUZZY_NOISE_CHARS)))}]+",
-            raw_run,
-        )
-        runs.extend(chunk for chunk in chunks if len(chunk) >= 2)
-    return runs
-
-
-def _cjk_fuzzy_run_units(run: str) -> tuple[str, ...]:
-    if len(run) == 2:
-        return (run,)
-    return tuple(dict.fromkeys([
-        *(run[index:index + 2] for index in range(len(run) - 1)),
-        *(run[index:index + 3] for index in range(len(run) - 2)),
-    ]))
-
-
 def _compact_lookup_text(text: str) -> str:
     return "".join(ch for ch in text.lower() if ch.isalnum())
 
@@ -271,7 +209,6 @@ def temporal_scope_signature(item: MemoryItem) -> tuple[str, ...]:
     """Return the scope key used to compare state memories."""
     validity = getattr(item, "validity", None)
     return tuple([
-        item.tenant_id or "",
         item.project or "",
         *(
             str(getattr(validity, field, "") or "")
@@ -297,87 +234,18 @@ def topic_recency_winner_key(decision: FirewallDecision) -> tuple[datetime, floa
 
 
 def topic_recency_terms(candidate: ContextCandidate) -> set[str]:
-    """Return content terms used to detect same-topic candidates."""
+    """Return content terms used to detect same-topic stale candidates."""
     item = candidate.item
     text = " ".join([
         item.title,
         item.summary,
         " ".join(item.tags),
     ]).lower()
-    terms = {
+    return {
         term.strip("._-")
         for term in TOPIC_TERM_RE.findall(text)
         if term.strip("._-") and term.strip("._-") not in TOPIC_RECENCY_STOPWORDS
     }
-    for run in _CJK_RUN_RE.findall(text):
-        bounded = run[:_CJK_TOPIC_MAX_RUN_LENGTH]
-        terms.update(
-            bounded[index:index + _CJK_TOPIC_ANCHOR_WIDTH]
-            for index in range(
-                max(0, len(bounded) - _CJK_TOPIC_ANCHOR_WIDTH + 1)
-            )
-            if bounded[index:index + _CJK_TOPIC_ANCHOR_WIDTH]
-            not in TOPIC_RECENCY_STOPWORDS
-        )
-    return terms
-
-
-def topic_recency_matches(
-    left: ContextCandidate,
-    right: ContextCandidate,
-    *,
-    min_shared_terms: int,
-) -> bool:
-    """Return whether candidates share enough independent topic anchors."""
-    shared_terms = {
-        term
-        for term in topic_recency_terms(left) & topic_recency_terms(right)
-        if _CJK_RUN_RE.fullmatch(term) is None
-    }
-    if len(shared_terms) >= min_shared_terms:
-        return True
-    shared_cjk_anchors = _shared_cjk_topic_anchors(left, right)
-    return (
-        len(shared_cjk_anchors) >= _CJK_TOPIC_MIN_SHARED_ANCHORS
-        or len(shared_terms) + len(shared_cjk_anchors) >= min_shared_terms
-    )
-
-
-def _shared_cjk_topic_anchors(
-    left: ContextCandidate,
-    right: ContextCandidate,
-) -> set[str]:
-    """Collapse overlapping CJK matches into bounded non-overlapping anchors."""
-    left_runs = _candidate_cjk_runs(left)
-    right_runs = _candidate_cjk_runs(right)
-    anchors: set[str] = set()
-    for left_run in left_runs:
-        for right_run in right_runs:
-            matcher = SequenceMatcher(None, left_run, right_run, autojunk=False)
-            for block in matcher.get_matching_blocks():
-                if block.size < _CJK_TOPIC_ANCHOR_WIDTH:
-                    continue
-                shared = left_run[block.a:block.a + block.size]
-                anchors.update(
-                    shared[index:index + _CJK_TOPIC_ANCHOR_WIDTH]
-                    for index in range(
-                        0,
-                        block.size - _CJK_TOPIC_ANCHOR_WIDTH + 1,
-                        _CJK_TOPIC_ANCHOR_WIDTH,
-                    )
-                    if shared[index:index + _CJK_TOPIC_ANCHOR_WIDTH]
-                    not in TOPIC_RECENCY_STOPWORDS
-                )
-    return anchors
-
-
-def _candidate_cjk_runs(candidate: ContextCandidate) -> tuple[str, ...]:
-    item = candidate.item
-    text = " ".join([item.title, item.summary, " ".join(item.tags)])
-    return tuple(
-        run[:_CJK_TOPIC_MAX_RUN_LENGTH]
-        for run in _CJK_RUN_RE.findall(text)[:_CJK_TOPIC_MAX_RUNS]
-    )
 
 
 def age_days(created_at: datetime, now: datetime) -> int:
@@ -435,6 +303,5 @@ __all__ = [
     "temporal_conflict_winner_key",
     "temporal_scope_signature",
     "topic_recency_terms",
-    "topic_recency_matches",
     "topic_recency_winner_key",
 ]

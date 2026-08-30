@@ -36,21 +36,6 @@ from agent_brain.memory.governance.pending_receipts import (
     MAX_PENDING_RECEIPT_LEDGER_BYTES,
     read_pending_receipt_ledger_health,
 )
-from agent_brain.memory.governance.confidence_review import assess_low_confidence
-from agent_brain.memory.governance.contradiction_containment import (
-    read_containment_receipt_health,
-)
-from agent_brain.memory.governance.contradiction_resolution import (
-    read_contradiction_receipt_health,
-)
-from agent_brain.memory.governance.signal_state import assess_signal_state
-from agent_brain.memory.governance.signal_resolution import (
-    read_signal_receipt_health,
-)
-from agent_brain.memory.governance.review_transactions import (
-    read_review_receipt_health,
-)
-from agent_brain.memory.governance.review_truth import build_review_truth_snapshot
 from agent_brain.memory.store.item_markdown import parse_item_markdown
 from agent_brain.memory.store.pending import (
     MAX_PENDING_QUEUE_ENTRIES,
@@ -198,7 +183,7 @@ def _release_lane(repo_root: Path) -> ReadinessLane:
         "install_sh": repo_root / "install.sh",
         "install_ps1": repo_root / "install.ps1",
         "homebrew_cask": repo_root / "Casks" / "agent-memory-hub.rb",
-        "npm_package_json": repo_root / "package.json",
+        "npm_package_json": repo_root / "packaging" / "npm" / "package.json",
         "release_publishing_doc": repo_root / "docs" / "release-publishing.md",
     }
     checks = [
@@ -220,7 +205,7 @@ def _release_lane(repo_root: Path) -> ReadinessLane:
     ]
     next_actions = []
     if not local_files["npm_package_json"].exists():
-        next_actions.append("prepare package.json before npm publish")
+        next_actions.append("prepare packaging/npm/package.json before npm publish")
     if any(check.status == "fail" for check in checks):
         next_actions.append("fix release readiness failures before tagging a release")
     return ReadinessLane(
@@ -462,11 +447,6 @@ def _memory_lifecycle_lane_once(brain_dir: Path) -> ReadinessLane:
     stale_items: list[tuple[MemoryItem, int]] = []
     legacy_stale_signal_count = 0
     low_confidence_count = 0
-    low_confidence_total_count = 0
-    low_confidence_terminal_count = 0
-    low_confidence_dispositions: Counter[str] = Counter()
-    signal_state_inconsistent_count = 0
-    signal_state_counts: Counter[str] = Counter()
     untagged_count = 0
     raw_count = 0
     private_or_secret_count = 0
@@ -474,11 +454,7 @@ def _memory_lifecycle_lane_once(brain_dir: Path) -> ReadinessLane:
         item_type = str(memory_enum_value(item.type))
         by_type[item_type] = by_type.get(item_type, 0) + 1
         try:
-            active_lifecycle_item = item_type == "handoff" or (
-                item_type == "signal"
-                and assess_signal_state(item, now=now).state == "open"
-            )
-            if active_lifecycle_item and (now - item.created_at).days > 30:
+            if item_type in {"signal", "handoff"} and (now - item.created_at).days > 30:
                 legacy_stale_signal_count += 1
         except (OverflowError, TypeError, ValueError):
             item_scan_unavailable = True
@@ -492,19 +468,8 @@ def _memory_lifecycle_lane_once(brain_dir: Path) -> ReadinessLane:
                     stale_items.append((item, age_seconds))
         except (OverflowError, TypeError, ValueError):
             item_scan_unavailable = True
-        confidence_assessment = assess_low_confidence(item)
-        if confidence_assessment is not None:
-            low_confidence_total_count += 1
-            low_confidence_dispositions[confidence_assessment.disposition] += 1
-            if confidence_assessment.actionable:
-                low_confidence_count += 1
-            else:
-                low_confidence_terminal_count += 1
-        if item_type == "signal":
-            signal_assessment = assess_signal_state(item, now=now)
-            signal_state_counts[signal_assessment.state] += 1
-            if not signal_assessment.consistent:
-                signal_state_inconsistent_count += 1
+        if item.confidence < 0.5:
+            low_confidence_count += 1
         if not item.tags:
             untagged_count += 1
         if (
@@ -524,19 +489,11 @@ def _memory_lifecycle_lane_once(brain_dir: Path) -> ReadinessLane:
         brain,
         now=now,
     )
-    review_truth = build_review_truth_snapshot(
-        items,
-        now=now,
-        active_deferrals=set(deferrals),
-        lifecycle_ledger_unavailable=lifecycle_ledger_unavailable,
-        item_scan_unavailable=item_scan_unavailable,
-    )
+    review_items = [
+        (item, age_seconds) for item, age_seconds in stale_items if item.id not in deferrals
+    ]
 
     pending_metrics = _pending_truth_readonly(brain, item_catalog=item_snapshot.catalog)
-    review_receipt_health = read_review_receipt_health(brain)
-    contradiction_receipt_health = read_contradiction_receipt_health(brain)
-    containment_receipt_health = read_containment_receipt_health(brain)
-    signal_receipt_health = read_signal_receipt_health(brain)
     index_projection = _read_index_projection_readonly(brain / "index.db")
     index_health = _build_index_health_from_snapshots(
         brain,
@@ -563,73 +520,11 @@ def _memory_lifecycle_lane_once(brain_dir: Path) -> ReadinessLane:
         "superseded_count": len(superseded_items),
         "archived_count": archived_count,
         "broken_superseded_count": broken_superseded_count,
-        "active_review_candidate_count": (
-            review_truth.active_review_candidate_count
-        ),
-        "active_review_candidate_oldest_age_seconds": (
-            review_truth.active_review_candidate_oldest_age_seconds
-        ),
-        "active_review_candidate_sla_breach_count": (
-            review_truth.active_review_candidate_sla_breach_count
-        ),
-        "active_review_reason_counts": review_truth.active_review_reason_counts,
-        "active_review_type_counts": review_truth.active_review_type_counts,
-        "active_review_contested_count": (
-            review_truth.active_review_contested_count
-        ),
-        "active_review_contested_outside_low_confidence_count": (
-            review_truth.active_review_contested_outside_low_confidence_count
-        ),
-        "lifecycle_due_count": review_truth.lifecycle_due_count,
-        "lifecycle_due_oldest_age_seconds": (
-            review_truth.lifecycle_due_oldest_age_seconds
-        ),
-        "review_truth_status": review_truth.status,
-        "review_truth_consistency_status": review_truth.consistency_status,
-        # Compatibility aliases now use the canonical review-candidate
-        # definition exposed by `memory review list`.
-        "review_queue_count": review_truth.active_review_candidate_count,
+        "review_queue_count": len(review_items),
         "review_queue_oldest_age_seconds": (
-            review_truth.active_review_candidate_oldest_age_seconds
+            max(age for _item, age in review_items) if review_items else None
         ),
         "low_confidence_count": low_confidence_count,
-        "low_confidence_total_count": low_confidence_total_count,
-        "low_confidence_terminal_count": low_confidence_terminal_count,
-        "low_confidence_dispositions": dict(
-            sorted(low_confidence_dispositions.items())
-        ),
-        "review_receipt_ledger_status": review_receipt_health.status,
-        "review_receipt_record_count": review_receipt_health.record_count,
-        "review_receipt_incomplete_count": review_receipt_health.incomplete_count,
-        "contradiction_receipt_ledger_status": contradiction_receipt_health.status,
-        "contradiction_receipt_record_count": contradiction_receipt_health.record_count,
-        "contradiction_receipt_incomplete_count": (
-            contradiction_receipt_health.incomplete_count
-        ),
-        "contradiction_receipt_completed_count": (
-            contradiction_receipt_health.completed_count
-        ),
-        "contradiction_receipt_rolled_back_count": (
-            contradiction_receipt_health.rolled_back_count
-        ),
-        "containment_receipt_ledger_status": containment_receipt_health.status,
-        "containment_receipt_record_count": containment_receipt_health.record_count,
-        "containment_receipt_incomplete_count": (
-            containment_receipt_health.incomplete_count
-        ),
-        "containment_receipt_completed_count": (
-            containment_receipt_health.completed_count
-        ),
-        "containment_receipt_rolled_back_count": (
-            containment_receipt_health.rolled_back_count
-        ),
-        "signal_receipt_ledger_status": signal_receipt_health.status,
-        "signal_receipt_record_count": signal_receipt_health.record_count,
-        "signal_receipt_incomplete_count": signal_receipt_health.incomplete_count,
-        "signal_receipt_completed_count": signal_receipt_health.completed_count,
-        "signal_receipt_rolled_back_count": signal_receipt_health.rolled_back_count,
-        "signal_state_counts": dict(sorted(signal_state_counts.items())),
-        "signal_state_inconsistent_count": signal_state_inconsistent_count,
         "untagged_count": untagged_count,
         "raw_count": raw_count,
         "private_or_secret_count": private_or_secret_count,
@@ -650,24 +545,6 @@ def _memory_lifecycle_lane_once(brain_dir: Path) -> ReadinessLane:
         "index_dirty_retired": len(index_health.retired_dirty_ids),
     }
     checks = [
-        ReadinessCheck(
-            id="review_truth_consistency",
-            status=(
-                "pass"
-                if review_truth.consistency_status == "consistent"
-                else "fail"
-            ),
-            title="review truth consistency",
-            detail=(
-                f"status={review_truth.consistency_status}; "
-                f"active_review={review_truth.active_review_candidate_count}; "
-                f"lifecycle_due={review_truth.lifecycle_due_count}"
-            ),
-            evidence={
-                "schema_version": review_truth.schema_version,
-                "consistency_status": review_truth.consistency_status,
-            },
-        ),
         _threshold_check(
             "stale_signal_count",
             "stale signal / handoff",
@@ -675,22 +552,16 @@ def _memory_lifecycle_lane_once(brain_dir: Path) -> ReadinessLane:
             "memory govern plan --category lifecycle",
         ),
         _threshold_check(
-            "lifecycle_due_count",
-            "lifecycle due backlog",
-            review_truth.lifecycle_due_count,
+            "review_queue_count",
+            "lifecycle review backlog",
+            len(review_items),
             "memory govern plan --category lifecycle",
-        ),
-        _threshold_check(
-            "active_review_candidate_count",
-            "active review candidates",
-            review_truth.active_review_candidate_count,
-            "memory review list --format json",
         ),
         _threshold_check(
             "low_confidence_count",
             "low confidence",
             low_confidence_count,
-            "memory govern plan --category low_confidence --format markdown",
+            "memory govern maturity --format table",
         ),
         _threshold_check(
             "untagged_count",
@@ -711,20 +582,9 @@ def _memory_lifecycle_lane_once(brain_dir: Path) -> ReadinessLane:
             detail=f"{broken_superseded_count} broken chain(s)",
             count=broken_superseded_count,
         ),
-        _aggregate_check(
-            "signal_state_consistency",
-            "signal state consistency",
-            status="fail" if signal_state_inconsistent_count else "pass",
-            detail=f"{signal_state_inconsistent_count} inconsistent signal(s)",
-            count=signal_state_inconsistent_count,
-        ),
         _pending_integrity_check(pending_metrics),
         _pending_lock_hygiene_check(pending_metrics),
         _pending_receipt_ledger_check(pending_metrics),
-        _review_receipt_ledger_check(metrics),
-        _contradiction_receipt_ledger_check(metrics),
-        _containment_receipt_ledger_check(metrics),
-        _signal_receipt_ledger_check(metrics),
         _pending_age_check(pending_metrics["pending_oldest_age_seconds"]),
         _aggregate_check(
             "item_scan",
@@ -764,14 +624,8 @@ def _memory_lifecycle_lane_once(brain_dir: Path) -> ReadinessLane:
     ]
     status = _worst_status(check.status for check in checks)
     next_actions: list[str] = []
-    if (
-        review_truth.lifecycle_due_count
-        or broken_superseded_count
-        or supersession_drift_count
-    ):
+    if review_items or broken_superseded_count or supersession_drift_count:
         next_actions.append("memory govern plan --category lifecycle --format markdown")
-    if review_truth.active_review_candidate_count:
-        next_actions.append("memory review list --format json")
     if (
         pending_metrics["pending_total"]
         or pending_metrics["pending_dead_count"]
@@ -782,26 +636,6 @@ def _memory_lifecycle_lane_once(brain_dir: Path) -> ReadinessLane:
         in {"corrupt", "unavailable"}
     ):
         next_actions.append("memory sync-pending --summary-only --format json")
-    if (
-        review_receipt_health.incomplete_count
-        or review_receipt_health.status in {"corrupt", "unavailable"}
-    ):
-        next_actions.append("memory review status --format json")
-    if (
-        contradiction_receipt_health.incomplete_count
-        or contradiction_receipt_health.status in {"corrupt", "unavailable"}
-    ):
-        next_actions.append("memory review cases --include-resolved --format json")
-    if (
-        containment_receipt_health.incomplete_count
-        or containment_receipt_health.status in {"corrupt", "unavailable"}
-    ):
-        next_actions.append("memory review recover-containment <transaction-id>")
-    if (
-        signal_receipt_health.incomplete_count
-        or signal_receipt_health.status in {"corrupt", "unavailable"}
-    ):
-        next_actions.append("memory review recover-signal <transaction-id>")
     if index_repair_required:
         next_actions.append("memory verify")
         if index_dirty_status == "repair_required":
@@ -928,30 +762,6 @@ def _lifecycle_generation_token(
             "runtime/pending-apply-receipts.jsonl",
             recursive=False,
             file_limit=MAX_PENDING_RECEIPT_LEDGER_BYTES,
-        )
-        add(
-            brain / "runtime" / "review-resolution-receipts.jsonl",
-            "runtime/review-resolution-receipts.jsonl",
-            recursive=False,
-            file_limit=16 * 1024 * 1024,
-        )
-        add(
-            brain / "runtime" / "contradiction-case-receipts.jsonl",
-            "runtime/contradiction-case-receipts.jsonl",
-            recursive=False,
-            file_limit=16 * 1024 * 1024,
-        )
-        add(
-            brain / "runtime" / "contradiction-containment-receipts.jsonl",
-            "runtime/contradiction-containment-receipts.jsonl",
-            recursive=False,
-            file_limit=16 * 1024 * 1024,
-        )
-        add(
-            brain / "runtime" / "signal-state-receipts.jsonl",
-            "runtime/signal-state-receipts.jsonl",
-            recursive=False,
-            file_limit=16 * 1024 * 1024,
         )
         add(brain / ".index-dirty", ".index-dirty", recursive=False)
         for suffix in _INDEX_COMPONENT_LIMITS:
@@ -1313,17 +1123,11 @@ def _pending_truth_readonly(
     reason_counts = summary.get("reason_counts", {})
     if not isinstance(reason_counts, dict):
         reason_counts = {}
-    dead_count, dead_scan_unavailable = _count_pending_terminal_records_readonly(
-        brain_dir / "pending" / "dead"
-    )
-    resolved_count, resolved_scan_unavailable = _count_pending_terminal_records_readonly(
-        brain_dir / "pending" / "resolved"
-    )
+    dead_count, dead_scan_unavailable = _count_dead_pending_readonly(brain_dir / "pending" / "dead")
     pending_scan_unavailable = (
         preview is None
         or bool(preview.scan_unavailable if preview is not None else True)
         or dead_scan_unavailable
-        or resolved_scan_unavailable
     )
     total = preview.total if preview is not None else 0
     returned = preview.returned if preview is not None else 0
@@ -1356,7 +1160,6 @@ def _pending_truth_readonly(
         "pending_classifications": classifications,
         "pending_reason_counts": dict(sorted(reason_counts.items())),
         "pending_dead_count": dead_count,
-        "pending_resolved_count": resolved_count,
         "pending_lock_files": lock_report.total,
         "pending_orphan_lock_files": lock_report.orphan,
         "pending_unsafe_lock_files": lock_report.unsafe,
@@ -1373,24 +1176,22 @@ def _pending_truth_readonly(
     }
 
 
-def _count_pending_terminal_records_readonly(
-    terminal_dir: Path,
-) -> tuple[int, bool]:
+def _count_dead_pending_readonly(dead_dir: Path) -> tuple[int, bool]:
     started = time.monotonic()
     try:
-        opened = os.lstat(terminal_dir)
+        opened = os.lstat(dead_dir)
     except FileNotFoundError:
         return 0, False
     except OSError:
         return 0, True
-    if not os.path.isdir(terminal_dir) or os.path.islink(terminal_dir):
+    if not os.path.isdir(dead_dir) or os.path.islink(dead_dir):
         return 0, True
     if not opened.st_ino or not opened.st_dev:
         return 0, True
     count = 0
     scanned_entries = 0
     try:
-        with os.scandir(terminal_dir) as entries:
+        with os.scandir(dead_dir) as entries:
             for entry in entries:
                 try:
                     scanned_entries += 1
@@ -1872,7 +1673,6 @@ def _pending_integrity_check(metrics: dict[str, Any]) -> ReadinessCheck:
             "malformed_count": classifications["malformed"],
             "audit_blocked_count": classifications["audit_blocked"],
             "dead_count": metrics["pending_dead_count"],
-            "resolved_count": metrics["pending_resolved_count"],
         },
     )
 
@@ -1918,104 +1718,6 @@ def _pending_receipt_ledger_check(metrics: dict[str, Any]) -> ReadinessCheck:
         evidence={
             "record_count": metrics["pending_receipt_record_count"],
             "incomplete_count": incomplete,
-        },
-    )
-
-
-def _review_receipt_ledger_check(metrics: dict[str, Any]) -> ReadinessCheck:
-    ledger_status = str(metrics["review_receipt_ledger_status"])
-    incomplete = int(metrics["review_receipt_incomplete_count"])
-    if ledger_status in {"corrupt", "unavailable"}:
-        status = "fail"
-    elif incomplete:
-        status = "warn"
-    else:
-        status = "pass"
-    return ReadinessCheck(
-        "review_receipt_ledger",
-        status,
-        "review resolution receipt ledger",
-        f"status={ledger_status} incomplete={incomplete}",
-        evidence={
-            "record_count": metrics["review_receipt_record_count"],
-            "incomplete_count": incomplete,
-        },
-    )
-
-
-def _contradiction_receipt_ledger_check(
-    metrics: dict[str, Any],
-) -> ReadinessCheck:
-    ledger_status = str(metrics["contradiction_receipt_ledger_status"])
-    incomplete = int(metrics["contradiction_receipt_incomplete_count"])
-    if ledger_status in {"corrupt", "unavailable"}:
-        status = "fail"
-    elif incomplete:
-        status = "warn"
-    else:
-        status = "pass"
-    return ReadinessCheck(
-        "contradiction_receipt_ledger",
-        status,
-        "contradiction case receipt ledger",
-        f"status={ledger_status} incomplete={incomplete}",
-        evidence={
-            "record_count": metrics["contradiction_receipt_record_count"],
-            "incomplete_count": incomplete,
-            "completed_count": metrics["contradiction_receipt_completed_count"],
-            "rolled_back_count": metrics[
-                "contradiction_receipt_rolled_back_count"
-            ],
-        },
-    )
-
-
-def _containment_receipt_ledger_check(
-    metrics: dict[str, Any],
-) -> ReadinessCheck:
-    ledger_status = str(metrics["containment_receipt_ledger_status"])
-    incomplete = int(metrics["containment_receipt_incomplete_count"])
-    if ledger_status in {"corrupt", "unavailable"}:
-        status = "fail"
-    elif incomplete:
-        status = "warn"
-    else:
-        status = "pass"
-    return ReadinessCheck(
-        "containment_receipt_ledger",
-        status,
-        "contradiction containment receipt ledger",
-        f"status={ledger_status} incomplete={incomplete}",
-        evidence={
-            "record_count": metrics["containment_receipt_record_count"],
-            "incomplete_count": incomplete,
-            "completed_count": metrics["containment_receipt_completed_count"],
-            "rolled_back_count": metrics[
-                "containment_receipt_rolled_back_count"
-            ],
-        },
-    )
-
-
-def _signal_receipt_ledger_check(metrics: dict[str, Any]) -> ReadinessCheck:
-    ledger_status = str(metrics["signal_receipt_ledger_status"])
-    incomplete = int(metrics["signal_receipt_incomplete_count"])
-    if ledger_status in {"corrupt", "unavailable"}:
-        status = "fail"
-    elif incomplete:
-        status = "warn"
-    else:
-        status = "pass"
-    return ReadinessCheck(
-        "signal_receipt_ledger",
-        status,
-        "signal state receipt ledger",
-        f"status={ledger_status} incomplete={incomplete}",
-        evidence={
-            "record_count": metrics["signal_receipt_record_count"],
-            "incomplete_count": incomplete,
-            "completed_count": metrics["signal_receipt_completed_count"],
-            "rolled_back_count": metrics["signal_receipt_rolled_back_count"],
         },
     )
 

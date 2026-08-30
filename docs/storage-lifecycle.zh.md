@@ -10,13 +10,6 @@
 
 一句话：**原始证据、长期知识、派生索引、运行账本分开存**。这样做的原因是：证据不能丢，长期记忆不能被 transcript 噪声污染，索引坏了可以重建，自动治理不能绕过审计。
 
-能力边界：`resources/`、`extractions/`、`sources/writes/` 当前只在运行时具备
-descriptor-relative secure mutation 能力时写入。非 POSIX 环境暂不提供这些
-sidecar 的安全写入；`WriteService` 仍可写入 Markdown 事实源，但会分别报告
-`evidence-sidecar` / `source-ledger` degraded 且不物化 sidecar。直接调用
-`ResourceStore` 会返回 `SECURE_RESOURCE_STORE_UNAVAILABLE`。因此当前不能宣称
-这些 sidecar 已实现跨平台安全写入。
-
 ## 目录地图
 
 | 路径 | 存什么 | 什么时候写入 | 什么时候读取 | 怎么读取 |
@@ -30,7 +23,7 @@ sidecar 的安全写入；`WriteService` 仍可写入 Markdown 事实源，但�
 | `index.db` | 派生索引：`items_meta` 元数据、全文索引、向量、`refs_graph` 引用图谱。 | `WriteService` best-effort upsert；`memory reindex` 重建；显式 repair 按类别修复。 | `memory search`、hook 自动注入、Web 搜索、MCP/SDK search。 | `memory search "query" --explain --format text`；`memory verify --format json` 检查投影健康；源码是 `HubIndex` + `Retriever`。 |
 | `.index-dirty` | index 更新失败后的待核销修复债，按行记录 item id。 | Markdown 已成功写入，但 index/embedder 不可用或 SQLite 写失败时。 | `memory verify` 与 readiness 只读检查；显式 repair 核销。 | `memory verify --format json` 先预览，确认后才运行 `memory verify --repair --format json`。 |
 | `pending/*.jsonl` | 写入口降级缓冲。Python 或完整写入链不可用时，先把待写 item 记录下来。 | hook shim 或写入入口无法调用 `WriteService` 时。 | `memory sync-pending` 默认只预览；显式 `--apply --record ...` 或 `--apply --safe-only` 才重放。 | 先用 `memory sync-pending --summary-only --format json` 看低敏聚合；源码是 `PendingQueue.preview()` / `apply()`。 |
-| `runtime/pending-apply-receipts.jsonl` | pending record/resolution apply 的低敏、append-only 两阶段回执；standalone GC 不写。 | 适用的显式 apply 在写 item 前追加 prepared，完成后追加 completed。 | prepared 没有对应 completed 表示批次证据不完整；不包含 title、summary、path、record id 或 item id。 | `memory govern readiness --format json` 查看 ledger status / incomplete count；不要手工改写。 |
+| `runtime/pending-apply-receipts.jsonl` | pending apply 的低敏、append-only 两阶段回执。 | 显式 apply 在写 item 前追加 prepared，完成后追加 completed。 | prepared 没有对应 completed 表示批次证据不完整；不包含 title、summary、path、record id 或 item id。 | `memory govern readiness --format json` 查看 ledger status / incomplete count；不要手工改写。 |
 | `runtime/adapter-events.jsonl` | hook 是否真实跑过的机械证据。只记录 adapter、event、session、cwd，不存 prompt/body。 | SessionStart、UserPromptSubmit、Stop、PreCompact、PostCompact、SubagentStart、SubagentStop hook 执行时。 | adapter doctor、verified gate、运行状态诊断。 | `memory adapter doctor <adapter> --format json`；源码是 `runtime_events.py`。 |
 | `runtime/injection-cohorts.jsonl` | 某次自动注入最终进入上下文的 item id 集合、pack metrics 和安全关键词 `query_terms`。不会存 prompt 正文。 | `inject-context.sh` 调 `memory search --record-injection-cohort` 且有结果时。 | 分析哪些关键词触发了哪些记忆、哪些被反馈采纳/拒绝。 | `memory hook recent --format json`、runtime 诊断、Web trace、`latest_injection_cohort()`。 |
 | `runtime/recall-gaps.jsonl` | 召回缺口：没有结果、query 太弱、候选被 firewall 拒绝、图片/音频缺少 OCR/ASR 文本等。 | hook/search 开启 `--record-recall-gap` 且没有可注入上下文时。 | 发现“为什么没召回”、训练 benchmark/治理候选。 | `memory hook recent --limit 5` 看最近 hook 结果；`memory recall-drift ...` 做批量治理；源码是 `recall_events.py`。 |
@@ -41,182 +34,6 @@ sidecar 的安全写入；`WriteService` 仍可写入 Markdown 事实源，但�
 | `derived/hierarchical-memory.json` | L2/L3 层级摘要 sidecar。可重建，不篡改 `items/`。 | `memory govern hierarchy --apply`。 | Web 层级视图、概览检索、主题导航。 | `memory govern hierarchy --format summary`；Web `/api/hierarchical-memory`。 |
 | `playbook/` | 纪律、hooks、rules、skills、SOP 等操作手册素材。 | 安装包或 playbook 导入时。 | onboarding、agent-facing discipline、工具说明。 | `agent_runtime_kit/tools/list-playbook.sh` 或 Web/安装器。 |
 | `items.backup-*` / `items.dogfood-*` | 备份、dogfood 快照或迁移前副本。 | 迁移、修复、实验前。 | 回滚、人工审计。 | 直接文件系统查看，不参与默认检索。 |
-
-<a id="pending-resolution-governance"></a>
-
-## pending resolution 治理
-
-`memory sync-pending` 默认预览，不加 `--apply` 不会写 item、移除 pending record
-或删除 lock。所有 resolution 都必须显式给出 pending record：
-
-```bash
-memory sync-pending --approve-audit <record-id> --format json
-memory sync-pending --accept-duplicate <record-id>:<existing-item-id> --format json
-memory sync-pending --convert-type <record-id>:decision --format json
-memory sync-pending --reject <record-id>:obsolete --format json
-memory sync-pending --quarantine <record-id>:malformed --format json
-```
-
-- `--approve-audit` 只处理 public/internal 的 audit-blocked record；secrets finding
-  始终阻断并留在 pending。
-- `--accept-duplicate` 只接受与目标 item 同 scope、同 type，且规范化 title/summary 一致的 duplicate；body 可以不同，成功后移除 pending
-  record，不写新 item。
-- `--convert-type` 当前只支持旧 `feedback -> decision`；其他目标类型属于参数错误，
-  其他源类型不会转换。
-- `--reject` 只处理 stale/review、duplicate、unsupported 或 audit-blocked 等需要复核的
-  记录；`--quarantine` 只处理 malformed/conflict。reason 必须是有界的小写 slug。
-- 两种终态都保留原始 JSONL 字节到 `pending/resolved/`，从活跃队列移除，并通过
-  prepared/completed receipt 留痕；不会写入 MemoryItem，也不会静默删除证据。
-
-预览全部为 `ready` 后，把同一组参数加上 `--apply` 才执行。例如：
-
-```bash
-memory sync-pending --approve-audit <record-id> --apply --format json
-```
-
-独立 lock GC 同样默认预览：
-
-```bash
-memory sync-pending --gc-orphan-locks --format json
-memory sync-pending --gc-orphan-locks --apply --format json
-```
-
-apply 只删除能证明对应 record 已不存在、路径安全、且能对同一 inode 取得非阻塞独占锁的
-orphan record lock。持锁的 orphan 会安全保留，不属于 unsafe；持锁本身不会导致非零退出码。
-只有 unsafe、truncated 或 unavailable 才会使 GC 返回失败。
-
-receipt 适用于 pending record/resolution apply；standalone GC 不生成 receipt。适用的
-apply 会先向 `runtime/pending-apply-receipts.jsonl` 追加 prepared，完成后追加 completed；
-ledger 只追加 prepared 和 completed。若 completion append 失败，ledger 保留没有匹配
-completed 的 prepared，readiness health 和 CLI 结果再把该批次派生为 incomplete，而不是向
-ledger 追加 incomplete。receipt 只序列化批次 digest、结果 digest、计数和闭集 reason，
-不公开原始 record/item ID、target 或正文。需要只看低敏聚合时使用
-`--summary-only --format json`；普通 JSON 结果用于操作者核对显式选择，可能包含 record ID，
-不要把它当作公开 receipt。
-
-## 低置信度复核治理
-
-`memory govern plan --category low_confidence --format markdown` 会把低于 `0.5`
-且尚未终态复核的 item 分成三类：
-
-- `contested`：存在争议标记，必须先解决冲突；
-- `source_gap`：只有内部 resource/extraction 证据，没有显式 file、HTTPS URL、commit
-  或 memory 来源；
-- `source_backed`：已有至少一个显式来源，可以进入人工 approve/reject。
-
-这三类都不会自动提高 confidence。补证使用：
-
-```bash
-memory review attach-source <memory-id> --commit <git-sha>
-memory review attach-source <memory-id> --file <path> --url <https-url>
-```
-
-补证只合并去重后的 refs，保留原 confidence 和 review 标签。`review-approved` /
-`review-rejected` 终态条目仍计入低置信度总量审计，但不再制造待复核告警。
-
-### digest-bound 复核终态
-
-推荐使用 preview-first 的事务命令，而不是直接批量提升 confidence：
-
-```bash
-memory review resolve <memory-id> --action approve
-memory review resolve <memory-id> --action approve \
-  --expected-sha256 <preview-digest> --apply
-```
-
-apply 缺少 digest、item 在预览后变化、或已退出 active review queue 时都会阻断。
-通过重校验后，系统在同一 item 锁内追加 prepared receipt、修改 Markdown、再追加
-completed receipt。receipt 位于 `runtime/review-resolution-receipts.jsonl`。
-
-矛盾检测的多个 pair 若共享 item，会合并为稳定的 connected-component Case；
-Case ID 由排序后的 item ID 集合派生，计划保留 pair 数、item 数、最高置信度与有界证据。
-
-### Case 级矛盾裁决
-
-先查看 Case，再对完整 Case 做一次裁决：
-
-```bash
-memory review cases --format json
-memory review resolve-case <case-id> --action coexist
-memory review resolve-case <case-id> --action coexist \
-  --expected-intent-sha256 <preview-intent> --apply
-```
-
-支持五种动作：
-
-- `select-authority --target-item-id <case-item>`：保留 Case 内一条权威记忆，其余条目指向它。
-- `merge --target-item-id <new-item>`：将 Case 全部条目替换为人工整理且位于 Case 外的新条目。
-- `coexist`：明确记录多个结论在其各自条件下允许并存。
-- `dismiss` / `not-conflict`：确认检测误报，恢复 containment 前的 tags/confidence。
-- `defer --defer-days <1..365>`：不改 Markdown，只把当前摘要集合暂缓到指定日期。
-
-自动 containment 以完整 Case 为单位创建私有快照，并在
-`runtime/contradiction-containment-receipts.jsonl` 保存每条记忆原始 tags、confidence
-和前后摘要。无凭证的历史 containment 不会被猜测性还原；裁决会失败关闭。
-`memory review recover-containment <transaction-id>` 可恢复 prepared 后中断的隔离事务。
-
-preview intent 同时绑定动作、目标、containment 基线和 Case 涉及的全部 Markdown SHA-256。预览后任一条目
-变化都会阻断 apply；已裁决 Case 若内容变化也会自动重新开放。apply 前创建私有多条目
-Git 快照，并向 `runtime/contradiction-case-receipts.jsonl` 追加 prepared 与 terminal
-收据。若进程在 prepared 后中断，readiness 会告警，使用
-`memory review recover-case <transaction-id>` 预览，再加 `--apply` 恢复快照。账本损坏、
-不可读或含未恢复事务时，新 Case 裁决失败关闭。
-
-### Signal 终态治理
-
-开放 Signal 不再通过直接改标签或归档来“消失”。先预览，再绑定当前摘要应用：
-
-```bash
-memory review resolve-signal <signal-id> --action resolve
-memory review resolve-signal <signal-id> --action resolve \
-  --resolution-item-id <decision-or-artifact-id> \
-  --expected-intent-sha256 <preview-intent> --apply
-```
-
-动作语义：
-
-- `resolve`：问题已解决；可绑定同 tenant、同 project 的
-  decision / artifact / fact / episode 作为证明。
-- `obsolete`：信号已失效，不代表问题被解决。
-- `defer --defer-days <1..365>`：在期限内退出接力上下文，到期自动重新开放并进入一致性治理。
-- `reopen`：把 resolved / obsolete / deferred Signal 重新置为开放。
-
-显式 resolved、obsolete 和未到期 deferred Signal 会退出 brief、上下文注入、Cockpit
-开放信号与 handoff pack。历史标签仍可读取；正文与标签冲突的模糊状态不会被猜测性关闭，
-而是继续可见并进入 readiness 告警。
-
-事务 intent 绑定 Signal Markdown SHA-256、动作、理由、暂缓天数，以及可选证明条目的
-ID 与 SHA-256。apply 创建私有快照，并在
-`runtime/signal-state-receipts.jsonl` 追加 prepared / completed 或 rolled_back 回执。
-预览后任一绑定内容变化都会阻断 apply；中断事务使用：
-
-```bash
-memory review recover-signal <transaction-id>
-memory review recover-signal <transaction-id> --apply
-```
-
-Web Admin 使用相同的 preview/apply 合约：
-`POST /api/governance/signals/{item_id}/transition`。
-
-CLI 退出码：
-
-| 退出码 | 含义 |
-|---:|---|
-| `0` | 每个显式 resolution 都 ready/applied，且 lock GC（若请求）安全完成。 |
-| `1` | record 缺失或阻断、apply/receipt 不完整、GC unsafe/truncated/unavailable 等治理失败；held lock 本身不是失败。 |
-| `2` | 参数格式或组合错误，例如缺少 `ID:ITEM`、非 `ID:decision`、或和 `--record` / `--safe-only` 冲突。 |
-
-apply 中断后不要猜测哪些步骤完成，也不要直接扩大选择范围。先用原参数去掉 `--apply`
-重跑 preview，再检查索引与 readiness：
-
-```bash
-memory sync-pending <原 resolution 参数> --format json
-memory verify --format json
-memory govern readiness --format json
-```
-
-只有 preview 重新变为 ready，且 index/readiness 没有相关 blocker 时，才用同一组显式
-record 再次 `--apply`。`memory verify` 和 readiness 都是只读检查，不会替操作者修复。
 
 ## 一条模拟对话串完整链路
 
@@ -282,9 +99,9 @@ echo "**决策**：CSV 导出统一使用 utf-8-sig。
 
 1. 跑 schema 和 audit gate。
 2. 补字段、质量 warning、边界 review tag。
-3. 安全 sidecar 能力可用时生成 resource/extraction sidecar；否则跳过并报告 `evidence-sidecar` degraded。
+3. 生成 resource/extraction sidecar：如果没有外部证据，至少把 write input 存成 `resources/` + `extractions/` 证据。
 4. 写 `items/mem-*.md`，这是长期知识事实源。
-5. 安全 sidecar 能力可用时写 `sources/writes/<item-id>.json`；否则报告 `source-ledger` degraded。
+5. 写 `sources/writes/<item-id>.json`，这是这次写入的账本。
 6. best-effort 写 `index.db`。失败不撤销 Markdown，只追加 `.index-dirty`。
 
 所以一次长期记忆写入后，通常会看到：
@@ -427,35 +244,6 @@ memory doctor --offline
 - 过期或低价值：提出 archive proposal，或移到 `items/archived/`。
 - L2/L3 层级摘要：写 `derived/hierarchical-memory.json`，不改原 item。
 
-#### Review Truth v1：复核候选与生命周期到期分开
-
-`review queue` 曾经同时被用于描述“需要人工判断的候选”和“生命周期到期的条目”，容易
-造成 readiness 显示 `0`，而 `memory review list` 仍有候选的口径漂移。现在统一使用
-`amh-review-truth/v1`：
-
-- `active_review_candidate_count`：与 `memory review list` 使用完全相同的
-  `needs-review` / 低置信度判定；
-- `active_review_reason_counts`：按 `source_gap`、`source_backed`、`contested`、
-  `explicit_review_tag` 聚合；
-- `active_review_candidate_sla_breach_count`：超过 7 天仍未终结的候选；
-- `lifecycle_due_count`：只统计 TTL / 生命周期复核到期且没有有效 defer 的条目；
-- `review_queue_count`：兼容字段，现已明确等同
-  `active_review_candidate_count`，不再表示生命周期到期数量。
-
-CLI、readiness、Cockpit 和 Web API 都从同一候选判定器生成这些指标：
-
-```bash
-memory review status --format json
-memory review list --format json
-memory govern readiness --format json
-curl -H "Authorization: Bearer <admin-token>" \
-  http://localhost:8765/api/governance/review-truth
-```
-
-Web/Cockpit 只返回聚合值，不返回 item ID、标题、摘要、正文或 brain 路径。扫描或
-lifecycle ledger 不可信时，`consistency_status` 不会显示 `consistent`，readiness 会
-fail-close。
-
 ## 用户最常用的检查命令
 
 ```bash
@@ -495,11 +283,9 @@ memory doctor --offline
 - **运行诊断**在 `runtime/`，它记录系统行为，不记录完整正文。
 - **失败兜底**在 `pending/` 和 `.index-dirty`，用于恢复，不是最终状态。
 
-pending record/resolution apply 的完整性边界是：先 durable append prepared receipt，再逐记录走
-`WriteService`，最后 append completed receipt；standalone GC 不走 receipt ledger。
-completed append 失败时，item 写入事实不回滚，ledger 保留 unmatched prepared，CLI 会返回
-`PENDING_RECEIPT_COMPLETION_FAILED` 并派生 `receipt.state=incomplete`。record lock 只会在持有
-全局 pending queue lock、确认对应 record 已不存在、且能对同一 inode 取得非阻塞独占锁后删除；
-无法取得锁的 orphan 保留。
+pending apply 的完整性边界是：先 durable append prepared receipt，再逐记录走
+`WriteService`，最后 append completed receipt。completed append 失败时，item 写入事实不回滚，
+但 CLI 会返回 `PENDING_RECEIPT_COMPLETION_FAILED` 和 incomplete receipt。record lock 只会在持有
+全局 pending queue lock、确认对应 record 已不存在、且能对同一 inode 取得非阻塞独占锁后删除。
 
 因此用户可以放心：AMH 不是把所有聊天粗暴塞进 prompt，而是把原始证据、可复用结论、索引投影和运行诊断分层管理。

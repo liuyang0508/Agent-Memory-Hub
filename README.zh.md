@@ -172,6 +172,21 @@ Windows PowerShell：
 powershell -ExecutionPolicy ByPass -c "irm https://github.com/liuyang0508/agent-memory-hub/releases/latest/download/install.ps1 | iex"
 ```
 
+同一条命令也可用于重新安装。Windows 安装器会在 Python 包安装完成后重新执行 Agent Adapter
+配置；如果本机已有 Codex 或 Claude Code，但对应的核心配置恢复失败，安装器会返回失败，
+不会把未恢复完整的状态误报成安装成功。
+
+重装 Codex 接入时，AMH 会校验最终的 `~/.codex/config.toml`。旧版本曾把 Windows MCP
+路径直接写进 TOML 双引号字符串，导致 `\U` 等内容被当成非法转义；现在路径会正确转义并
+自动原地修复。若配置还包含其他无法解析的旧内容，安装器会先保存
+`config.toml.bak.amh-incompatible.<时间戳>`，再生成可启动的最小有效配置，ChatGPT/Codex
+下次启动时可以补齐自己的默认项，无需手工删除配置文件。
+
+Windows 安装器不会再直接使用 PATH 中第一个名为 `python` 的程序。它会先验证 Python
+3.11+ 和 pip，再创建源码目录下的专用 `.venv`，并让 hooks、MCP 与 `memory.cmd` 统一使用
+这个环境。安装完成后还会自动执行 `sync-pending --apply --safe-only`，把因运行环境临时失效
+而进入 `pending` 的安全记录补写到 `items`；需要人工审查的记录仍会保留在队列中。
+
 Homebrew：
 
 ```bash
@@ -201,14 +216,11 @@ memory govern readiness --format markdown
 memory govern plan --category lifecycle --format markdown
 memory govern plan --category lifecycle --format json
 memory govern apply-lifecycle <memory-id> --dry-run --format json
-memory hook summary --days 7
-memory review status --format json
 ```
 
 `memory doctor` 用来确认 CLI、数据目录、索引、hook / MCP 依赖是否可用。`memory govern readiness` 用来把发布可用性、长任务召回入口和记忆生命周期风险汇总成一张待治理表。doctor 通过后，再继续写入和召回。
 `memory govern plan --category lifecycle` 只生成 stale signal / handoff 的复核队列，不会自动归档或改写事实源。Markdown 给人逐条读；JSON 会额外输出 `review_queue`，便于 Web Admin 或脚本接人工确认流程。
 `memory govern apply-lifecycle` 默认 dry-run，只处理当前 `review_queue` 里的指定 ID；必须显式加 `--apply` 才会把匹配项移动到 `items/archived/`，未进入队列的 ID 会被跳过。
-`memory hook summary` 汇总指定时间窗内的注入量、反馈覆盖率、采用/拒绝/未评价比例、gap 原因、超时和隐私安全关键词；`memory review status` 会同时给出 review / pending 最老年龄和 SLA 告警。
 
 AMH 不会在 hook 里静默联网更新。换版本、移动 checkout、重装 release，或者 doctor 提示 hook path / `memory` shim 指向旧目录时，用显式命令修复：
 
@@ -219,27 +231,6 @@ memory self-update --repair-hooks
 ```
 
 `doctor --fix` 只修安装态漂移：重写 `~/.local/bin/memory` shim，并重装 Codex / Claude Code 这类核心 hook adapter。`self-update --dry-run` 只展示计划；`self-update --repair-hooks` 会基于当前 checkout 刷新安装状态和核心 hook。
-
-### 跨 Agent / 跨窗口无损续做
-
-切换 Agent 或停止未完成任务前，写一个结构化检查点。Git 状态自动采集；任务状态、下一步和验证方式是硬约束，不完整的 handoff 会被拒绝：
-
-```bash
-memory handoff \
-  --objective "完成召回质量门禁" \
-  --done "已加入真实 prompt 样本" \
-  --pending "尚未接入 readiness" \
-  --decision "复用 ContextFirewall | 保持策略一致 | 避免两套行为" \
-  --next "把样本接入发布门禁" \
-  --verify "pytest tests/unit/test_query_signal.py -q" \
-  --project agent-memory-hub \
-  --agent codex \
-  --target-agent claude_code
-
-memory resume --project agent-memory-hub --fail-empty
-```
-
-两条命令复用现有 Markdown 事实源、`WriteService`、敏感信息审计、TTL、注入网关和 `brief` 排序，不引入第二套 handoff 数据库。
 
 ### 3. 写入一条可复用记忆
 
@@ -319,22 +310,13 @@ memory serve --port 8765 --open
 curl -fsSL https://github.com/liuyang0508/agent-memory-hub/releases/latest/download/install.sh | sh -s -- --uninstall
 ```
 
-卸载只移除 AMH 托管的 hooks、MCP 配置和 `/remember`，默认保留 `~/.agent-memory-hub` 里的用户记忆、证据和索引。确认要连本地大脑一起清空时，再手动删除 `~/.agent-memory-hub`。详细命令见 [命令手册](#command-manual)。
+Windows PowerShell 在源码目录中运行：
 
-### 5. 可选的官网匿名安装与活跃统计
-
-产品遥测默认关闭。愿意出现在官网匿名使用看板中的用户，可以主动开启：
-
-```bash
-memory telemetry enable
-memory telemetry status
-memory telemetry disable
+```powershell
+PowerShell -ExecutionPolicy Bypass -File .\install.ps1 -Uninstall
 ```
 
-只会上报随机匿名 ID、系统/架构、AMH 版本、安装渠道、Agent 类型以及
-`install` / `active` 事件；不采集姓名、账号、IP、目录、提示词、对话或
-MemoryItem 内容。完整数据边界、接口和官网部署步骤见
-[官网匿名安装与活跃看板](./docs/product-telemetry.zh.md)。
+卸载只移除 AMH 托管的 hooks、MCP 配置、`/remember` 和已安装的 Python 包，默认保留 `~/.agent-memory-hub` 里的用户记忆、证据和索引。Windows 上确认要连本地大脑一起清空时，显式增加 `-PurgeData`；还要删除安装 checkout 时，再增加 `-RemoveCheckout`。详细命令见 [命令手册](#command-manual)。
 
 <a id="running-example"></a>
 
@@ -518,27 +500,12 @@ AMH 把维护分成十一段：
 - 失败次数达到上限的毒性记录进入 `pending/dead/`，避免一个坏记录卡住整个队列。
 - `.index-dirty` 记录 Markdown 已落但索引没同步的 item。
 
-`memory sync-pending` 默认预览；`--approve-audit <record-id>`、
-`--accept-duplicate <record-id>:<item-id>` 和
-`--convert-type <record-id>:decision`、`--reject <record-id>:<reason>`、
-`--quarantine <record-id>:<reason>` 都要求显式指定 pending record，只有再加
-`--apply` 才会变更。audit approval 只适用于 public/internal 内容，不能绕过
-secrets；接受 exact duplicate 只移除 pending record，不写新 item；类型转换当前只支持
-`feedback -> decision`。reject 只收口需要复核但决定不写入的记录，quarantine
-只隔离 malformed/conflict；二者都把原始字节保留到 `pending/resolved/`，不再计入活跃
-pending，并在 receipt 中留下终态动作。`memory sync-pending --gc-orphan-locks` 也默认预览，
-只有 `--apply` 才删除能证明已 orphan 且未持锁的 record lock；held lock 安全保留，本身不导致
-失败。pending record/resolution apply 的 receipt 只保存计数和 digest，不公开原始
-record/item ID 或正文；standalone GC 不生成 receipt。完整恢复步骤与退出码见
-[存储生命周期](./docs/storage-lifecycle.zh.md#pending-resolution-governance)。
-
 ### 5. governance 和 evolution
 
 维护不是“写完就结束”。治理层会持续发现这些问题：
 
 - 低置信、缺来源、需要复核。
 - stale signal、stale handoff、过期状态。
-- signal 的终态与活跃态矛盾，例如 `resolved` 同时带 `pending` / `blocked`。
 - 冲突事实、重复记忆、superseded item。
 - maturity 从 raw 到 consolidated 或 skill 的建议。
 - conversation hot/warm/cold/frozen 分层。
@@ -546,35 +513,6 @@ record/item ID 或正文；standalone GC 不生成 receipt。完整恢复步骤�
 
 高风险动作不会悄悄改事实源。`memory govern plan` 会把动作分成 `safe_apply`、`review_required`、`blocked` 三条 lane；`memory evolve` 产生提案和候选，是否采用仍要经过明确命令或人工复核。
 只看短生命周期欠账时，用 `memory govern plan --category lifecycle --format markdown`；它会列出超过 30 天的 `signal` / `handoff`，并给出 `archive_or_supersede` 建议，但不会直接移动或删除 item。需要接 Web Admin 或脚本时用 `--format json`，读取 `review_queue`，其中每条都显式标记 `can_auto_apply=false`。确认某个 ID 可归档后，再运行 `memory govern apply-lifecycle <id> --apply`；这个命令仍会重新校验 ID 是否还在当前 lifecycle 队列里。
-低置信度欠账使用 `memory govern plan --category low_confidence --format markdown`；
-计划会区分 `contested`、缺显式来源的 `source_gap` 和已有来源的 `source_backed`，
-全部保持 `review_required`。`memory review attach-source <id> --commit <sha>` 只补充
-文件、HTTPS URL、commit 或 memory 来源，不会自动提高 confidence 或移除 review 标签；
-核对证据后仍需显式 approve/reject。
-`memory review evidence-plan [id] --format json` 提供只读的
-`amh-review-evidence-plan/v1` 证据闭环预览：把当前 MemoryItem Markdown SHA-256
-与不含正文的来源元数据和 digest 绑定；本地核验 file、memory、resource、extraction
-和 commit，但不会联网抓 URL。计划会区分显式来源缺口、WriteService 已捕获且可修复的
-provenance，以及真正不可用的证据；同一 provenance root 的 resource/extraction
-只计一个独立来源。`write_input` sidecar 只能证明“当时提交过这些内容”，不能证明内容为真，
-因此会标为 `traceability_only`，绝不计入独立支持证据。带 `contested` 标记的活跃复核项会进入现有 contradiction Case，
-否则明确进入 `contested_unpaired`，不再因为 Case 数为 0 而隐形。预览不会修改记忆或
-confidence；管理员可从 `GET /api/governance/review-evidence-plan` 获取隐藏 locator
-的版本，Cockpit 只展示聚合数据。
-Review Truth 另外暴露独立的 `active_review_contested_count`，因此高于低置信阈值、
-但仍带 `contested` 标记的候选不会被 `explicit_review_tag` 单一原因桶遮住。
-需要可审计终态时，先执行 `memory review resolve <id> --action approve` 获取当前
-Markdown SHA-256，再带 `--expected-sha256 <digest> --apply`；apply 会在 item 锁内
-重新校验，并在变更前后追加 prepared/completed receipt。矛盾 finding 会按重叠 item
-聚成稳定 Case，`memory govern plan --category contradiction` 不再要求逐个处理重复 pair。
-用 `memory review cases` 查看 Case，再以 `memory review resolve-case <case-id>
---action coexist`（或 `select-authority`、`merge`、`dismiss`、`defer`）先预览；apply 必须携带
-预览返回的 `--expected-intent-sha256`。Case 级 containment 会在独立追加式账本中保存
-原始 tags/confidence；`dismiss` 和正式裁决据此恢复召回，不猜测无凭证的历史状态。
-裁决绑定 containment 基线与 Case 全部条目的当前摘要，任一条目变化
-都会重新开放 Case。多条目 Git 快照与追加式收据支持用
-`memory review recover-case <transaction-id>` 显式恢复中断事务；containment 中断则用
-`memory review recover-containment <transaction-id>`；收据账本异常时禁止新裁决。
 
 <a id="recall-flow"></a>
 
@@ -586,11 +524,14 @@ Markdown SHA-256，再带 `--expected-sha256 <digest> --apply`；apply 会在 it
 用户问题
 -> hook prompt normalization
 -> query_signal 前置门禁
+-> 保留完整原句，提取带原文证据的精确短语与显式约束
+-> 仅对 ambiguous_constraint 可选执行有界 LLM 约束回退
 -> 元数据 / 记忆类型 / project / tags / tenant 过滤
 -> FTS/BM25 与向量并行召回
 -> RRF 融合
 -> metadata phrase boost
 -> status / handoff supplement
+-> constraint alignment（明确冲突过滤，一致候选小幅加权）
 -> optional cross-encoder rerank
 -> confidence 与 decay
 -> feedback value weight
@@ -641,6 +582,31 @@ Markdown SHA-256，再带 `--expected-sha256 <digest> --apply`；apply 会在 it
 - 只有泛词如 `memory`、`context`，阻断。
 - 弱意图且没有 metadata、file、domain 锚点，阻断。
 - 有文件名、模块名、已存在 metadata phrase、已知实体或召回领域锚点，允许进入搜索。
+- `不要停机`、`不能删除旧索引` 这类显式约束会绑定到后面的谓词，并保存原文 evidence；约束只细化已有主题，不会单独把弱对话提升为可注入查询。
+- 双重否定等低置信度结构默认阻断自动注入；显式开启模型回退后，只把当前查询交给有界约束解析器，校验失败时仍保持阻断。
+
+#### 可选模型约束回退（默认关闭）
+
+模型回退不是 query rewrite，也不会在每个 prompt 上运行。只有确定性门禁已经识别出稳定主题、且唯一问题是 `ambiguous_constraint` 时，路由召回才尝试一次模型解析。模型看不到已存记忆、候选正文或对话历史，只收到当前规范化查询；它只能返回带原文连续 `evidence` 的布尔约束。返回值还必须通过 JSON schema、原文证据、谓词落点、极性冲突和高置信度校验，才会解除门禁。缺少依赖、超时、非 JSON、低置信度或模型仍声明歧义时，系统继续 fail closed。
+
+安装可选依赖：
+
+```bash
+pip install -e ".[llm]"
+```
+
+| 环境变量 | 默认值 | 作用 |
+|---|---:|---|
+| `MEMORY_HUB_QUERY_MODEL_FALLBACK` | `off` | 设为 `1` / `true` / `on` / `llm` 才启用。 |
+| `MEMORY_HUB_QUERY_MODEL_FALLBACK_MODEL` | 继承 `MEMORY_HUB_LLM_MODEL`，再回退到 `gpt-4o-mini` | LiteLLM 模型字符串。 |
+| `MEMORY_HUB_QUERY_MODEL_FALLBACK_THRESHOLD` | `0.90` | 全局结果和每条约束都必须达到的最低置信度。 |
+| `MEMORY_HUB_QUERY_MODEL_FALLBACK_TIMEOUT_SECONDS` | `1.25` | 单次解析超时；范围被限制在 0.1～30 秒。 |
+| `MEMORY_HUB_QUERY_MODEL_FALLBACK_MAX_PROMPT_CHARS` | `1000` | 超长查询不截断、不发送，直接保持阻断。 |
+| `MEMORY_HUB_QUERY_MODEL_FALLBACK_MAX_TOKENS` | `256` | 模型输出上限；范围被限制在 64～512。 |
+| `MEMORY_HUB_LLM_BASE_URL` / `MEMORY_HUB_LLM_API_KEY` | 未设置 | 复用现有 LiteLLM endpoint 和凭据入口。 |
+| `MEMORY_HUB_NO_MODEL` | 未设置 | 设为 `1` 时覆盖其他配置，禁止所有可选模型调用。 |
+
+hook 的外层搜索预算仍由 `AGENT_MEMORY_HUB_SEARCH_TIMEOUT_SECONDS` 控制，生产默认值是 2 秒。云端模型无法稳定在短超时内返回时，应显式提高总预算，例如设为 5 秒；AMH 不会因为安装了 LiteLLM 就自动拉长所有用户请求。成功注入的 cohort `pack_metrics` 会记录回退状态、置信度和 provider 返回的 input/output token 计数；失败 gap 也只记录这些有界诊断，不记录模型响应正文。
 
 弱意图表只处理低信息控制词。一次 prompt 能不能进入搜索，主要看有没有锚点：
 
@@ -694,7 +660,7 @@ AGENT_MEMORY_HUB_HOOK_TRACE_EMPTY=1
 
 AMH 同时跑两路候选：
 
-- FTS/BM25：SQLite FTS5 表 `items_fts`，tokenizer 是 `unicode61`。写入索引前会对 CJK 搜索字符加空格，避免中文整段无法匹配。
+- FTS/BM25：SQLite FTS5 表 `items_fts`，tokenizer 是 `unicode61`。写入索引前会对 CJK 搜索字符加空格，查询端再把连续 CJK 还原为有序 FTS phrase；约束查询先跑不带同义词的核心短语，再用同义词扩展补召回，扩展命中不能越过核心命中。
 - Vector：用当前 embedder 对 query 编码，再查向量索引。若 embedder 处于 degraded 状态，代码会跳过 vector，避免把无意义 hashing 向量混入结果。
 
 FTS 负责“字面上说过”，向量负责“意思相近”。它们都只是候选来源。
@@ -727,7 +693,7 @@ RRF 后的候选再依次经过：
 | status/handoff supplement | 对 stale/outdated/status/trust/current 这类问题补召或提升 handoff/status signal。 | 只在 status-risk query 触发。 |
 | cross-encoder rerank | `RERANK_ENABLED=1` 时用 `cross-encoder/ms-marco-MiniLM-L-6-v2` 重排 top pool。 | 默认不启用。 |
 | decay | `score * confidence * coefficient`。 | 置信度和遗忘系数会影响排名，但不等于注入许可。 |
-| feedback value | support、contradict、gain 形成 `[0.25, 2.0]` 原始 multiplier，排序时经 `rank_weight` 压缩到 ±5%。 | 防止反馈完全压倒相关性。 |
+| feedback value | support、contradict、gain 形成 `[0.25, 2.0]` 有界 multiplier。 | 防止反馈完全压倒相关性。 |
 | runtime/status boost | 对真实运行证据、状态类问题做有条件 boost。 | 必须有对应 query terms 和 tags。 |
 | temporal filter | 过滤 stale runtime-state。 | audit 模式可显式 include stale state。 |
 | supersession filter | 读 Markdown 源，过滤 `superseded_by` item。 | Markdown 优先于可能滞后的 index。 |
@@ -840,9 +806,10 @@ Query Signal
 | Vector Recall | 用户可能换一种说法，不只靠关键词。 | query embedding、item embedding、`items_vec`。 | 查语义近邻，和 BM25 并行形成候选路。 | `s_V(d_i)=sim(e_q,e_i)` | B 可能没有完全相同字面，但语义上能补充查询意图和召回锚点。 | 同义、近义和语义相近记忆能进入候选池。 | embedder degraded 时跳过向量，不混入低质量邻居。 |
 | RRF Fusion | BM25 和向量召回的分数尺度不同。 | BM25 排名列表、向量排名列表、权重 `w_l`、`rrf_k`；`rrf_fusion()`。 | 用 reciprocal rank fusion 合并候选排名。 | `s_i=Σ_{l∈L} w_l/(k+r_l(d_i)+1)` | A 两路都靠前，S0 高；只在一路出现的 C 低一些。 | 字面命中和语义命中可以进入同一候选池。 | RRF 只是候选分，不是可信度，也不是注入许可。 |
 | Metadata Phrase Boost | 中文自然问题里的关键短语可能只在 metadata 中稳定出现。 | 候选、title/summary/project/tags、query phrase；`_metadata_phrase_hits()`。 | 用元数据覆盖度和精确命中提升候选。 | `s_i←max(s_i,1+φ(q,d_i))` | A 的标题/摘要包含 README、深度叙事、二次打磨，直接抬高候选分。 | 标题、摘要、标签强命中的候选不会被低 BM25 分淹没。 | 只使用 metadata 支撑的短语，不做开放式幻觉扩展。 |
+| Constraint Alignment | 关键词相同但否定方向相反的记忆不能注入。 | query constraint 的 `predicate/polarity/evidence`、候选 locator/overview；`constraint_alignment.py`。 | 仅过滤有明确相反断言的候选；明确一致者乘 `1.08`，普通提及保持 unknown。 | `K_i=0` if `polarity(q)≠polarity(d_i)` | “不要停机”过滤“需要停机”，但不删除只讨论“停机窗口”的候选。 | 降低“词面很像、含义相反”的误召回。 | 不把词面 `NOT` 当语义否定；同时讨论两种方案时保持 unknown，不硬过滤。 |
 | Cross-Encoder Rerank | top pool 可能需要更细的 query-item 匹配判断。 | query、候选文本、`CrossEncoderReranker`。 | 对 top pool 打 logit 并 sigmoid 归一。 | `s_i←σ(f_θ(q,d_i))` | 默认关闭；样例不启用。 | 启用模型时能提升语义排序精度。 | `RERANK_ENABLED=1` 才运行。 |
-| Confidence Weight | 同样相关的记忆，来源可信度不同。 | 候选分 `s_i`、MemoryItem `confidence`、人工确认、治理或反馈。 | 把 item 自身置信度乘回排序分（经 `rank_weight` 压缩到 ±5%）。 | `S_i=s_i·rank_weight(c_i·decay_i)` | A 置信度 0.70，E 只有 0.55。 | 低置信度候选不会和确认事实等价。 | confidence 不表示当前问题相关，只表示 item 自身可信程度。 |
-| Decay / Forgetting | 记忆会过期，但复用和支持会延长价值。 | 候选分 `s_i`、置信度 `c_i`、时间差 `Δt_i`、访问/支持/收益/反驳；`RetrievalDecay`、`decay_breakdown()`。 | 半衰期遗忘曲线乘有界强化因子。 | `ρ_i=2^{-Δt_i/h}`，原始 `decay_coefficient=clip(ρ_i·a_i·u_i·g_i·r_i,0.01,1.35)` 仅作诊断，排序权重 `S_i=s_i·rank_weight(c_i·decay_coefficient)` 压缩到 ±5% | E 是旧 preview signal，coefficient 低；A 近期且复用过，coefficient 高。 | 旧但反复有用的记忆还能保留，新但被否定的记忆会降权。 | decay 不能证明正确性，也不能绕过防火墙。 |
+| Confidence Weight | 同样相关的记忆，来源可信度不同。 | 候选分 `s_i`、MemoryItem `confidence`、人工确认、治理或反馈。 | 把 item 自身置信度乘回排序分。 | `S_i=s_i·c_i` | A 置信度 0.70，E 只有 0.55。 | 低置信度候选不会和确认事实等价。 | confidence 不表示当前问题相关，只表示 item 自身可信程度。 |
+| Decay / Forgetting | 记忆会过期，但复用和支持会延长价值。 | 候选分 `s_i`、置信度 `c_i`、时间差 `Δt_i`、访问/支持/收益/反驳；`RetrievalDecay`、`decay_breakdown()`。 | 半衰期遗忘曲线乘有界强化因子。 | `ρ_i=2^{-Δt_i/h}`, `S_i=s_i·c_i·clip(ρ_i·a_i·u_i·g_i·r_i,0.01,1.35)` | E 是旧 preview signal，coefficient 低；A 近期且复用过，coefficient 高。 | 旧但反复有用的记忆还能保留，新但被否定的记忆会降权。 | decay 不能证明正确性，也不能绕过防火墙。 |
 | Feedback Value | 采用、拒绝和收益应该影响下一轮排序。 | `support_count`、`contradict_count`、`gain_score`；injection cohort、outcome feedback、`retrieval_value.py`。 | 形成有界 multiplier。 | `m_i=clip(1+0.03p_i-0.10n_i+0.50g_i,0.25,2.0)` | A 被采用过，乘子升到 1.12；E 被反驳过，乘子降到 0.90。 | 有用记忆升温，被反驳记忆降温。 | ignored 不是负反馈；反馈不能完全压倒相关性。 |
 | Runtime / Status Boost | 当前环境、adapter、handoff 或 signal 可能改变召回价值。 | adapter/runtime tags、handoff/status/signal metadata。 | 对匹配运行证据和状态风险的候选加权。 | `S_i'=S_i+b_rt(q,d_i)` | 安装、doctor、上下文有效性等运行证据只在相关问题中显性出现。 | 运行证据、状态风险和 handoff 能进入排序。 | 只在 runtime/status 查询里触发，不是全局加分。 |
 | Temporal / Supersession Gate | 旧状态和被替代结论不能污染新任务。 | 时间戳、state scope、`superseded_by`、include stale flag。 | 过滤 stale runtime state 和 superseded item。 | `K_i=1[fresh(d_i)∧¬superseded(d_i)]` | E 被后续 README 重建替代，移除或不注入。 | 旧 handoff、废止结论和过期状态不会默认注入。 | audit 模式可显式包含 stale state。 |
@@ -1282,7 +1249,7 @@ CLI 升级后的风险也可以逐项定位：
 | 本地事实源 | `items/mem-*.md` 是长期记忆事实源。 | `ItemsStore`、`WriteService`、`agent_runtime_kit/schema/memory-item.md` | SQLite、向量和图索引是派生投影。 |
 | 原始证据 | live prompt、transcript、resource、extraction、write source、runtime event 分层保存。 | `hook_capture.py`、`conversation_store.py`、`resource_store.py`、`sources/*` | 原始 transcript 默认不注入。 |
 | 写入治理 | 审计 gate、质量 warning、sidecar、pending、dirty index repair。 | `write_service.py`、`pending.py` | critical/high audit finding 默认阻断。 |
-| 召回 | SearchFilter、FTS/BM25、vector、RRF、metadata phrase、rerank、decay、feedback、回放门禁自适应权重、runtime/status、temporal、supersession、MMR、Hopfield、graph。 | `agent_brain/memory/recall/` | 自适应画像来自本地 task outcome 并可回滚；rerank、MMR、Hopfield、graph 是可选阶段。 |
+| 召回 | SearchFilter、FTS/BM25、vector、RRF、metadata phrase、rerank、decay、feedback、runtime/status、temporal、supersession、MMR、Hopfield、graph。 | `agent_brain/memory/recall/` | rerank、MMR、Hopfield、graph 是可选阶段。 |
 | 注入治理 | ContextFirewall 和 context_pack。 | `context_firewall.py`、`context_packing.py` | 搜到不等于注入。 |
 | 反馈闭环 | injection cohort、adopt/reject/ignored、support/contradict/gain。 | `injection_cohorts.py`、`outcome_feedback.py`、`retrieval_value.py` | ignored 不应被误当负反馈。 |
 | 维护治理 | drift、duplicates、review、maturity、tiering、auto governance、evolve。 | `agent_brain/memory/governance/` | 高风险动作需要复核。 |
@@ -1459,11 +1426,8 @@ memory conversation rebalance
 memory harvest
 memory sync-pending
 memory verify --repair
-memory reindex
+memory reindex --prune
 ```
-
-`memory reindex` 默认以 active Markdown 为真相层清理孤儿索引；只有诊断性
-upsert 才显式使用 `--no-prune`。Markdown 扫描不完整时不会执行 prune。
 
 ### 6. 本地管理台
 
@@ -1494,11 +1458,36 @@ curl -fsSL https://github.com/liuyang0508/agent-memory-hub/releases/latest/downl
 ./install.sh --uninstall
 ```
 
-卸载只移除 AMH 托管的 hooks、MCP 配置和 `/remember`，保留 `~/.agent-memory-hub` 里的用户记忆、证据和索引。确认要清空本地大脑时，再手动执行：
+Windows PowerShell：
+
+```powershell
+PowerShell -ExecutionPolicy Bypass -File .\install.ps1 -Uninstall
+```
+
+卸载只移除 AMH 托管的 hooks、MCP 配置、`/remember`、Windows `memory.cmd` 和项目专用
+`.venv`，保留 `~/.agent-memory-hub` 里的用户记忆、证据和索引。确认要清空本地大脑时，
+再手动执行：
 
 ```bash
 rm -rf ~/.agent-memory-hub
 ```
+
+Windows 上彻底清空本地大脑：
+
+```powershell
+PowerShell -ExecutionPolicy Bypass -File .\install.ps1 -Uninstall -PurgeData
+```
+
+同时删除安装 checkout：
+
+```powershell
+PowerShell -ExecutionPolicy Bypass -File .\install.ps1 -Uninstall -PurgeData -RemoveCheckout
+```
+
+执行递归删除前，脚本会验证目标确实是 AMH 源码目录，并拒绝删除用户 HOME、磁盘根目录或记忆目录。
+默认卸载会保留 `~/.agent-memory-hub`，所以之后重新安装会继续使用原来的记忆；如果使用了
+`-PurgeData`，重新安装会创建一个新的空数据目录。若同时使用了 `-RemoveCheckout`，请用上面的
+远程 Windows 安装命令重新下载并安装。
 
 <a id="data-model"></a>
 
@@ -1976,8 +1965,6 @@ memory conversation list --agent claude-code
 memory conversation rebalance
 
 memory loop create --goal "整理跨会话任务" --project agent-memory-hub --start
-memory loop step add <loop-id> --title "完成接口实现"
-memory loop step set <loop-id> <step-id> running
 memory loop checkpoint <loop-id> --note "完成第一阶段验证"
 memory loop gate open <loop-id> --gate code_review --reason "需要人工复核"
 memory loop complete <loop-id> --evidence "tests passed"
@@ -1991,11 +1978,7 @@ memory govern readiness --format markdown
 memory govern maturity
 memory sync-pending
 memory verify --repair
-memory reindex
-
-memory sync init --server https://memory.example.com --api-key <key>
-memory sync run
-memory sync heartbeat
+memory reindex --prune
 
 memory benchmark retrieval --cases path/to/retrieval-cases.json
 memory benchmark compression
@@ -2050,17 +2033,6 @@ memory adapter uninstall <adapter>
 
 <a id="self-evolution"></a>
 
-## 新增核心能力
-
-| 能力 | 已落地边界 |
-|---|---|
-| 自动反馈调优 | 下一轮用户输入只在出现明确“上一批都有效/都错误”等信号时评价刚注入的 cohort；不保存原始 prompt，模糊反馈不改权重，同一 cohort 只应用一次。 |
-| 回放门禁自适应召回 | Loop 完成时只归因同 session、同工作目录、30 分钟内的召回 cohort；任务结果生成 adapter/project 有界权重画像，只有历史 trace 回放的 Recall@1 和 MRR 都不退化才激活，并保留上一版用于回滚。 |
-| 端到端加密同步 | `memory sync init/run/heartbeat` 在设备端用 AES-256-GCM 加密；服务端只存租户隔离的不可读对象和最小设备心跳，恢复密钥不上云。 |
-| 持久任务状态机 | LoopRun 持久化步骤依赖、阻塞项、完成与验证证据；`memory handoff --loop` 直接从同一账本生成交接状态。 |
-| 自动记忆治理 | 精确重复项可逆 supersede，明确 TTL 到期的短生命周期记录自动归档，语义冲突只做隔离降权并进入复核。 |
-| 组织运营与权限 | Web 管理台提供组织记忆、成员、设备、24 小时活跃和密文对象统计；`owner/admin/member/viewer` 权限按请求实时生效。 |
-
 ## 当前自进化能力
 
 AMH 的自进化不是“无人值守自动改记忆”。当前实现是分层治理系统：
@@ -2068,13 +2040,12 @@ AMH 的自进化不是“无人值守自动改记忆”。当前实现是分层�
 | 组件 | 当前做什么 | 不做什么 |
 |---|---|---|
 | `EvolveEngine` | 扫描记忆池，生成 consolidate、promote、archive、generate_skill、crystallize、synthesize_skill、version_up 等提案；执行前过审计门禁。 | 不绕过审计直接改高风险事实源。 |
-| `AutoGovernanceCycle` | 汇总成熟度、漂移、冲突、索引漂移、原始对话冷热分层；同租户同范围的精确重复项可逆 supersede，明确 TTL 已过期的短生命周期记录可归档，冲突项自动降置信并进入复核。 | 不自动做语义合并、批量删除、技能合成等高风险动作。 |
+| `AutoGovernanceCycle` | 汇总成熟度、漂移、冲突、索引漂移、原始对话冷热分层；`--apply` 只执行低风险 safe-apply。 | 不把 drift/evolve/governance 高风险动作自动落入长期记忆。 |
 | `DreamingWorker` | 做离线式 harvest、模式发现、结晶、技能候选、归档衰减、容量控制和分层再平衡。 | 不把候选技能或抽象结论直接当用户事实写入。 |
-| `adaptive_learning` | 从已应用的 task outcome 派生 adapter/project 排序画像；用注入 cohort 保存的 retrieval trace 做回放门禁，支持 `memory learning status/refresh/rollback`。 | 不训练黑盒模型，不上传 prompt，不让失败自动惩罚记忆；多条候选的隐式成功也不自动分功。 |
 | `evolution_control` | Web `/api/evolve` 返回高阶控制面：shadow/apply 模式、写入边界、近三天数据流转缺口、审计门禁、发布门禁和建议动作。 | 不执行自动修复；建议仍需转成 review、benchmark 或 `WriteService` 写入。 |
-| Loop Engineering Ledger | 记录目标、依赖步骤、阻塞项、检查点、完成/验证证据、失败原因和产物；handoff 可直接从同一 LoopRun 生成。 | 不是默认自动 runner；它提供账本和门禁，不替用户批准高风险变更。 |
+| Loop Engineering Ledger | 记录目标、上下文、检查点、验证证据、失败原因和产物。 | 不是默认自动 runner；它提供账本和门禁，不替用户批准高风险变更。 |
 
-更高阶自进化的方向是：继续扩大隐私安全的结果样本和回放覆盖率，让 `EvolveEngine` / `DreamingWorker` 只产出提案，让检索、压缩、ML/DL、adapter doctor/runtime、Loop 验证共同作为门禁，最后才允许低风险策略进入 safe-apply。高风险写入仍必须进复核或 `WriteService`。
+更高阶自进化的方向是：让 P1 数据流转账本成为观测层，让 `EvolveEngine` / `DreamingWorker` 只产出提案，让检索、压缩、ML/DL、adapter doctor/runtime、Loop 验证共同作为门禁，最后才允许低风险策略进入 safe-apply。高风险写入仍必须进复核或 `WriteService`。
 
 <a id="roadmap"></a>
 
@@ -2085,8 +2056,8 @@ AMH 的自进化不是“无人值守自动改记忆”。当前实现是分层�
 | 层级 | 面向谁 | 状态 | 形态 |
 |---|---|---:|---|
 | **L1 个人事实层** | 个人使用多个智能体工具 | 已落地 | 本地 Markdown 记忆池 + 命令行、模型上下文协议、会话钩子、SDK、网页管理台。 |
-| **L2 团队共享事实层** | 小团队 | 已落地基础版 | 端到端加密设备同步、冲突保留与收敛、租户隔离、持久任务步骤/阻塞状态和 handoff 续做。 |
-| **L3 企业记忆基础设施** | 组织级使用 | 已落地基础版 | `owner/admin/member/viewer` 实时 RBAC 与组织运营台已落地；托管 SaaS、外部身份源、计费和地域策略仍是后续部署能力。 |
+| **L2 团队共享事实层** | 小团队 | 基础能力 | 租户/认证字段、层级旁路和网页读模型已存在；多人同步、冲突和权限模型仍待建设。 |
+| **L3 企业记忆基础设施** | 组织级使用 | 基础能力 / 规划中 | 发布门禁、审计、策略字段已有底座；RBAC、管理策略面和部署模型仍是未来能力。 |
 
 近期重点：
 
@@ -2095,7 +2066,7 @@ AMH 的自进化不是“无人值守自动改记忆”。当前实现是分层�
 - 继续让 `memory api-docs`、README、架构图谱和 Web surface lock 保持一致；路由变化必须和测试、文档同步。
 - 强化资源旁路到搜索、上下文、读取提示的完整链路。
 - 继续打磨网页管理面的检索轨迹、上下文包、防火墙、资源证据和复核队列诊断体验。
-- 在已落地的 trace 回放门禁上继续建设 P2 高阶自进化：扩大评测样本、增加 shadow 对照、完善可解释提案、发布门禁和人工复核。
+- 在三日数据流转基础上继续建设 P2 高阶自进化：shadow mode、回放评估、可解释提案、发布门禁和人工复核。
 - 用基准门禁管住重排、GraphRAG、Headroom 压缩、机器学习/深度学习建议能力等增强，不让实验能力直接改变默认注入路径。
 - 让 README、Web 管理台和架构图谱成为主要入门入口。
 

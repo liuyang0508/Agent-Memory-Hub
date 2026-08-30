@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import operator
 import os
 import stat
 import subprocess
@@ -13,11 +12,6 @@ from pathlib import Path
 import pytest
 
 from agent_brain.contracts.memory_item import MemoryItem, MemoryType
-from agent_brain.memory.governance.auto_governance import (
-    AutoGovernanceAction,
-    AutoGovernanceCycle,
-    AutoGovernanceReport,
-)
 from agent_brain.memory.governance.lifecycle_ledger import (
     LifecycleLedgerRecord,
     append_lifecycle_record,
@@ -32,7 +26,6 @@ from agent_brain.memory.governance.lifecycle_review import (
     apply_lifecycle_review_items,
     build_lifecycle_review_plan,
 )
-from agent_brain.memory.governance.maintenance_plan import build_maintenance_plan
 from agent_brain.memory.governance.supersession import SupersessionService
 from agent_brain.memory.store.items_store import ItemsStore
 
@@ -162,134 +155,6 @@ def test_lifecycle_queue_hides_future_defer_and_restores_at_deadline(
 
     assert hidden.review_queue == []
     assert [row.item_id for row in restored.review_queue] == [item.id]
-
-
-def test_lifecycle_plan_ranks_newer_same_scope_replacement(
-    tmp_path: Path,
-) -> None:
-    now = datetime(2026, 7, 23, tzinfo=timezone.utc)
-    brain = tmp_path / "brain"
-    store = ItemsStore(brain / "items")
-    old = MemoryItem(
-        id="mem-20260524-180029-old-hooks-recall",
-        type=MemoryType.signal,
-        created_at=now - timedelta(days=60),
-        project="amh",
-        title="Hooks recall status",
-        summary="Hooks recall issue remains open",
-        tags=["hooks", "recall"],
-    )
-    newer = MemoryItem(
-        id="mem-20260722-180030-new-hooks-recall",
-        type=MemoryType.signal,
-        created_at=now - timedelta(days=1),
-        project="amh",
-        title="Hooks recall status",
-        summary="Hooks recall issue resolved and repaired",
-        tags=["hooks", "recall"],
-    )
-    store.write(old, "old body")
-    store.write(newer, "newer body")
-
-    plan = build_lifecycle_review_plan(
-        brain_dir=brain,
-        items_store=store,
-        now=now,
-    )
-
-    row = next(row for row in plan.review_queue if row.item_id == old.id)
-    assert row.candidates[0]["replacement_id"] == newer.id
-    assert row.can_auto_apply is False
-
-
-def test_auto_governance_report_owns_read_only_item_snapshot() -> None:
-    now = datetime(2026, 7, 23, tzinfo=timezone.utc)
-    obsolete = _stale_item("mem-20260524-180033-report-snapshot", now=now)
-    obsolete.refs.files.append("original.py")
-    obsolete.validity.repo = "original/repo"
-    replacement = obsolete.model_copy(deep=True)
-    replacement.id = "mem-20260722-180034-report-replacement"
-    replacement.created_at = now - timedelta(days=1)
-    replacement.title = "Runtime issue resolved"
-    replacement.summary = "Runtime issue resolved"
-    replacement.refs.mems = [obsolete.id]
-    caller_items = {obsolete.id: obsolete, replacement.id: replacement}
-
-    report = AutoGovernanceReport(
-        scanned_items=2,
-        actions=[
-            AutoGovernanceAction(
-                action="review_archive",
-                risk="review_required",
-                title="Review stale signal",
-                reason="stale_signal_older_than_30_days",
-                item_ids=[obsolete.id],
-                details={"issue_type": "stale_signal"},
-            )
-        ],
-        items_by_id=caller_items,
-    )
-    obsolete.title = "caller mutation"
-    obsolete.tags.append("caller-mutation")
-    obsolete.refs.files.append("caller.py")
-    obsolete.validity.repo = "caller/repo"
-    replacement.refs.mems.clear()
-    caller_items.clear()
-
-    first = report.items_by_id[obsolete.id]
-    first.title = "reader mutation"
-    first.tags.append("reader-mutation")
-    first.refs.files.append("reader.py")
-    first.validity.repo = "reader/repo"
-    second = report.items_by_id[obsolete.id]
-
-    assert second.title == f"Stale {obsolete.id}"
-    assert second.tags == ["runtime"]
-    assert second.refs.files == ["original.py"]
-    assert second.validity.repo == "original/repo"
-    assert second is not first
-    assert report.items_by_id[replacement.id].refs.mems == [obsolete.id]
-    row = build_maintenance_plan(report).to_dict()["review_queue"][0]
-    assert row["candidates"][0]["replacement_id"] == replacement.id
-    with pytest.raises(TypeError):
-        operator.setitem(report.items_by_id, obsolete.id, obsolete)
-    with pytest.raises(AttributeError):
-        getattr(report.items_by_id, "clear")()
-
-
-def test_explicit_empty_items_mapping_disables_lifecycle_candidates(
-    tmp_path: Path,
-) -> None:
-    now = datetime(2026, 7, 23, tzinfo=timezone.utc)
-    brain = tmp_path / "brain"
-    store = ItemsStore(brain / "items")
-    old = _stale_item("mem-20260524-180031-explicit-empty-old", now=now)
-    newer = old.model_copy(
-        update={
-            "id": "mem-20260722-180032-explicit-empty-new",
-            "created_at": now - timedelta(days=1),
-            "summary": "Runtime issue resolved",
-        }
-    )
-    store.write(old, "old body")
-    store.write(newer, "newer body")
-    report = AutoGovernanceCycle(
-        brain_dir=brain,
-        items_store=store,
-        include_index=False,
-        include_evolve=False,
-        include_conversations=False,
-        now=now,
-    ).run()
-
-    plan = build_maintenance_plan(
-        report,
-        category_filter="lifecycle",
-        items_by_id={},
-    )
-
-    row = next(row for row in plan.review_queue if row.item_id == old.id)
-    assert row.candidates == []
 
 
 def test_lifecycle_queue_later_successful_review_action_supersedes_defer(

@@ -111,11 +111,11 @@ class TestExpandQuery:
     def test_cjk_phrase_keeps_adjacent_chars_together(self):
         result = expand_query("浏览器", synonyms=False)
 
-        assert result == '"浏" "览" "器"'
+        assert result == '"浏 览 器"'
         assert " OR " not in result
 
     def test_pipe_separated_cjk_terms_are_grouped_as_or_phrases(self):
         result = expand_query("浏览器|权限", synonyms=False)
 
-        assert result == '("浏" "览" "器") OR ("权" "限")'
+        assert result == '("浏 览 器") OR ("权 限")'
         assert '"器" OR "权"' not in result

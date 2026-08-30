@@ -9,6 +9,11 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from agent_brain.memory.context.prompt_normalization import normalize_hook_prompt_for_recall
+from agent_brain.memory.context.query_constraints import (
+    QueryConstraint,
+    constraint_parse_confidence,
+    extract_query_constraints,
+)
 from agent_brain.memory.context.query_intent import (
     file_or_module_terms,
     weak_intent_without_anchor,
@@ -263,6 +268,15 @@ class QuerySignal:
     decision: str = "block"
     anchors: tuple[str, ...] = ()
     trace: tuple[str, ...] = ()
+    constraints: tuple[QueryConstraint, ...] = ()
+    exact_phrases: tuple[str, ...] = ()
+    dropped_spans: tuple[str, ...] = ()
+    parse_confidence: float = 1.0
+    constraint_resolution: str = "deterministic"
+    model_fallback_status: str = "not_attempted"
+    model_fallback_confidence: float | None = None
+    model_fallback_input_tokens: int | None = None
+    model_fallback_output_tokens: int | None = None
 
 
 @dataclass(frozen=True)
@@ -294,6 +308,15 @@ class QuerySignalDiagnostics:
     anchors: tuple[str, ...]
     specificity: float
     trace: tuple[str, ...]
+    constraints: tuple[QueryConstraint, ...]
+    exact_phrases: tuple[str, ...]
+    dropped_spans: tuple[str, ...]
+    parse_confidence: float
+    constraint_resolution: str
+    model_fallback_status: str
+    model_fallback_confidence: float | None
+    model_fallback_input_tokens: int | None
+    model_fallback_output_tokens: int | None
 
     @property
     def blocked(self) -> bool:
@@ -315,6 +338,15 @@ class QuerySignalDiagnostics:
             "anchors": list(self.anchors),
             "specificity": self.specificity,
             "trace": list(self.trace),
+            "constraints": [constraint.to_dict() for constraint in self.constraints],
+            "exact_phrases": list(self.exact_phrases),
+            "dropped_spans": list(self.dropped_spans),
+            "parse_confidence": self.parse_confidence,
+            "constraint_resolution": self.constraint_resolution,
+            "model_fallback_status": self.model_fallback_status,
+            "model_fallback_confidence": self.model_fallback_confidence,
+            "model_fallback_input_tokens": self.model_fallback_input_tokens,
+            "model_fallback_output_tokens": self.model_fallback_output_tokens,
         }
 
 
@@ -358,6 +390,15 @@ def diagnose_injection_query(
         anchors=signal.anchors,
         specificity=signal.specificity,
         trace=signal.trace,
+        constraints=signal.constraints,
+        exact_phrases=signal.exact_phrases,
+        dropped_spans=signal.dropped_spans,
+        parse_confidence=signal.parse_confidence,
+        constraint_resolution=signal.constraint_resolution,
+        model_fallback_status=signal.model_fallback_status,
+        model_fallback_confidence=signal.model_fallback_confidence,
+        model_fallback_input_tokens=signal.model_fallback_input_tokens,
+        model_fallback_output_tokens=signal.model_fallback_output_tokens,
     )
 
 
@@ -374,7 +415,7 @@ def query_gate_gap_evidence(
     signal = analyze_injection_query(prompt, brain_dir=brain_dir)
     if signal.injectable:
         return None
-    if signal.reason != "too_weak" or not signal.terms:
+    if signal.reason not in {"too_weak", "ambiguous_constraint"} or not signal.terms:
         return None
     return QueryGateGapEvidence(
         reason="query_not_injectable",
@@ -393,8 +434,12 @@ def analyze_injection_query(
 ) -> QuerySignal:
     prompt = normalize_hook_prompt_for_recall(prompt)
     terms, strong_terms, weak_terms = _candidate_terms(prompt)
+    constraints = extract_query_constraints(prompt)
+    constraint_terms = [constraint.evidence for constraint in constraints]
     anchors: list[str] = []
     trace: list[str] = []
+    if constraints:
+        trace.append(f"constraint_count={len(constraints)}")
     if _short_weak_prompt_without_terms(prompt, terms, weak_terms) and not _has_item_metadata(brain_dir):
         specificity = _specificity(terms, strong_terms)
         trace.extend(_weak_intent_traces(weak_terms))
@@ -402,6 +447,9 @@ def analyze_injection_query(
             tuple(terms), tuple(strong_terms), tuple(weak_terms),
             False, "too_weak", specificity,
             "block", (), tuple([*trace, "block:too_weak"]),
+            constraints=constraints,
+            exact_phrases=tuple(constraint_terms),
+            parse_confidence=constraint_parse_confidence(prompt, constraints),
         )
     metadata_terms = _metadata_supported_prompt_terms(prompt, brain_dir)
     for term in metadata_terms:
@@ -511,6 +559,12 @@ def analyze_injection_query(
     if task_anchor_terms:
         anchors.append("task_anchor")
         trace.append("task_anchor_terms=" + "|".join(task_anchor_terms))
+    # A constraint refines an existing topic; it must not turn a previously
+    # unanchored conversational clause into an injectable query by itself.
+    if terms or anchors:
+        for term in constraint_terms:
+            _append_unique(terms, term)
+            _append_unique(strong_terms, term)
     leading_task_anchor_terms = _leading_task_anchor_terms(task_anchor_terms, keyphrase_terms)
     trailing_task_anchor_terms = [
         term for term in task_anchor_terms if term not in leading_task_anchor_terms
@@ -527,6 +581,7 @@ def analyze_injection_query(
         *known_entity_terms,
         *cjk_question_focus_terms,
         *trailing_task_anchor_terms,
+        *constraint_terms,
     ]
     strong_focus_terms = [
         *structured_cjk_focus_terms,
@@ -539,21 +594,30 @@ def analyze_injection_query(
         *file_terms,
         *cjk_question_focus_terms,
         *trailing_task_anchor_terms,
+        *constraint_terms,
     ] or known_entity_terms
+    pre_focus_terms = tuple(terms)
     _promote_terms(terms, precise_anchor_terms)
-    has_structural_ascii_anchor = bool(
-        runtime_ascii_terms or file_terms or json_field_terms
-    )
-    _focus_terms_on_precise_anchor(
-        terms, precise_anchor_terms, has_structural_ascii_anchor
-    )
-    _focus_strong_terms_on_precise_anchor(
-        strong_terms, strong_focus_terms, has_structural_ascii_anchor
-    )
+    _focus_terms_on_precise_anchor(terms, precise_anchor_terms)
+    _focus_strong_terms_on_precise_anchor(strong_terms, strong_focus_terms)
     _focus_unanchored_terms_on_ascii_scope(terms, strong_terms, anchors)
     if keyphrase_terms:
         _prune_ascii_terms_after_keyphrases(terms, keyphrase_terms, protected_terms=task_anchor_terms)
         _prune_ascii_terms_after_keyphrases(strong_terms, keyphrase_terms, protected_terms=task_anchor_terms)
+    dropped_spans = tuple(
+        term
+        for term in pre_focus_terms
+        if not any(term in kept or kept in term for kept in terms)
+    )
+    exact_phrases = tuple(dict.fromkeys((*keyphrase_terms, *constraint_terms)))
+    parse_confidence = constraint_parse_confidence(
+        prompt,
+        constraints,
+        dropped_spans=dropped_spans,
+    )
+    if dropped_spans:
+        trace.append(f"dropped_span_count={len(dropped_spans)}")
+    trace.append(f"parse_confidence={parse_confidence:.2f}")
     trace.extend(_weak_intent_traces(weak_terms))
     specificity = _specificity(terms, strong_terms)
     anchors_tuple = tuple(dict.fromkeys(anchors))
@@ -562,59 +626,110 @@ def analyze_injection_query(
             (), (), tuple(weak_terms),
             False, "too_weak", specificity,
             "block", anchors_tuple, tuple([*trace, "block:too_weak"]),
+            constraints=constraints,
+            exact_phrases=exact_phrases,
+            dropped_spans=dropped_spans,
+            parse_confidence=parse_confidence,
         )
     if weak_intent_without_anchor(prompt, list(anchors_tuple)):
         return QuerySignal(
             tuple(terms), tuple(strong_terms), tuple(weak_terms),
             False, "weak_intent_without_anchor", specificity,
             "block", anchors_tuple, tuple([*trace, "block:weak_intent_without_anchor"]),
+            constraints=constraints,
+            exact_phrases=exact_phrases,
+            dropped_spans=dropped_spans,
+            parse_confidence=parse_confidence,
         )
     if _generic_format_without_topic(terms, keyphrase_terms, file_terms, known_entity_terms):
         return QuerySignal(
             tuple(terms), tuple(strong_terms), tuple(weak_terms),
             False, "generic_format_without_topic", specificity,
             "block", anchors_tuple, tuple([*trace, "block:generic_format_without_topic"]),
+            constraints=constraints,
+            exact_phrases=exact_phrases,
+            dropped_spans=dropped_spans,
+            parse_confidence=parse_confidence,
         )
     if _test_status_without_topic(prompt, terms, keyphrase_terms, file_terms, known_entity_terms):
         return QuerySignal(
             tuple(terms), tuple(strong_terms), tuple(weak_terms),
             False, "test_status_without_topic", specificity,
             "block", anchors_tuple, tuple([*trace, "block:test_status_without_topic"]),
+            constraints=constraints,
+            exact_phrases=exact_phrases,
+            dropped_spans=dropped_spans,
+            parse_confidence=parse_confidence,
         )
     if _generic_command_without_topic(prompt, terms, anchors_tuple):
         return QuerySignal(
             tuple(terms), tuple(strong_terms), tuple(weak_terms),
             False, "generic_command_without_topic", specificity,
             "block", anchors_tuple, tuple([*trace, "block:generic_command_without_topic"]),
+            constraints=constraints,
+            exact_phrases=exact_phrases,
+            dropped_spans=dropped_spans,
+            parse_confidence=parse_confidence,
         )
     if _unanchored_mixed_scope_without_semantic_anchor(prompt, terms, anchors_tuple, weak_terms):
         return QuerySignal(
             tuple(terms), tuple(strong_terms), tuple(weak_terms),
             False, "unanchored_mixed_scope", specificity,
             "block", anchors_tuple, tuple([*trace, "block:unanchored_mixed_scope"]),
+            constraints=constraints,
+            exact_phrases=exact_phrases,
+            dropped_spans=dropped_spans,
+            parse_confidence=parse_confidence,
         )
     if not anchors_tuple and _looks_like_unanchored_cjk_clause_prompt(prompt, terms):
         return QuerySignal(
             tuple(terms), tuple(strong_terms), tuple(weak_terms),
             False, "unanchored_cjk_clause", specificity,
             "block", anchors_tuple, tuple([*trace, "block:unanchored_cjk_clause"]),
+            constraints=constraints,
+            exact_phrases=exact_phrases,
+            dropped_spans=dropped_spans,
+            parse_confidence=parse_confidence,
         )
     if _single_unanchored_ascii_term(prompt, terms, anchors_tuple, weak_terms):
         return QuerySignal(
             tuple(terms), tuple(strong_terms), tuple(weak_terms),
             False, "single_unanchored_ascii", specificity,
             "block", anchors_tuple, tuple([*trace, "block:single_unanchored_ascii"]),
+            constraints=constraints,
+            exact_phrases=exact_phrases,
+            dropped_spans=dropped_spans,
+            parse_confidence=parse_confidence,
         )
     if not strong_terms and specificity < 1.0:
         return QuerySignal(
             tuple(terms), tuple(strong_terms), tuple(weak_terms),
             False, "too_weak", specificity,
             "block", anchors_tuple, tuple([*trace, "block:too_weak"]),
+            constraints=constraints,
+            exact_phrases=exact_phrases,
+            dropped_spans=dropped_spans,
+            parse_confidence=parse_confidence,
+        )
+    if parse_confidence < 0.7:
+        return QuerySignal(
+            tuple(terms), tuple(strong_terms), tuple(weak_terms),
+            False, "ambiguous_constraint", specificity,
+            "block", anchors_tuple, tuple([*trace, "block:ambiguous_constraint"]),
+            constraints=constraints,
+            exact_phrases=exact_phrases,
+            dropped_spans=dropped_spans,
+            parse_confidence=parse_confidence,
+            constraint_resolution="ambiguous",
         )
     return QuerySignal(
         tuple(terms), tuple(strong_terms), tuple(weak_terms),
         True, "ok", specificity,
         "inject_allowed", anchors_tuple, tuple([*trace, "decision:inject_allowed"]),
+        constraints=constraints,
+        exact_phrases=exact_phrases,
+        dropped_spans=dropped_spans,
+        parse_confidence=parse_confidence,
     )
 
 
@@ -1421,109 +1536,29 @@ def _promote_terms(values: list[str], preferred: list[str]) -> None:
 def _focus_terms_on_precise_anchor(
     terms: list[str],
     precise_anchor_terms: list[str],
-    has_structural_ascii_anchor: bool = False,
 ) -> None:
     precise = {term for term in precise_anchor_terms if term in terms}
     if not precise:
         return
-    keep_cjk = _keep_cjk_terms_beside_anchor(
-        precise, has_structural_ascii_anchor=has_structural_ascii_anchor
-    )
     terms[:] = [
         term
         for term in terms
-        if term in precise
-        or _is_explicit_ascii_scope_term(term)
-        or (keep_cjk and _is_topical_cjk_recall_phrase(term))
+        if term in precise or _is_explicit_ascii_scope_term(term)
     ]
 
 
 def _focus_strong_terms_on_precise_anchor(
     strong_terms: list[str],
     precise_anchor_terms: list[str],
-    has_structural_ascii_anchor: bool = False,
 ) -> None:
     precise = {term for term in precise_anchor_terms if term in strong_terms}
     if not precise:
         return
-    keep_cjk = _keep_cjk_terms_beside_anchor(
-        precise, has_structural_ascii_anchor=has_structural_ascii_anchor
-    )
     strong_terms[:] = [
         term
         for term in strong_terms
-        if term in precise
-        or _is_explicit_ascii_scope_term(term)
-        or (keep_cjk and _is_anchor_cjk_recall_phrase(term))
+        if term in precise or _is_explicit_ascii_scope_term(term)
     ]
-
-
-def _keep_cjk_terms_beside_anchor(
-    precise: set[str],
-    *,
-    has_structural_ascii_anchor: bool,
-) -> bool:
-    """Decide whether non-anchored CJK recall phrases may stay in the query.
-
-    A structural ASCII anchor (file path, runtime identifier, JSON field)
-    names the topic precisely on its own, so surrounding CJK clauses are
-    complaint/question noise and stay pruned.  When the only anchor is a
-    weak ASCII word matched from metadata (e.g. "mock"), it carries no
-    evidence about the Chinese topic; pruning every CJK phrase then collapses
-    a mixed-language question into one generic word and recall drifts to
-    whatever memories happen to contain that word.  Keep topical CJK recall
-    phrases only in that weaker case, and never keep question/quantity
-    clauses as strong anchors.
-    """
-    if has_structural_ascii_anchor:
-        return False
-    return not any(not _is_ascii(term) for term in precise)
-
-
-# Speaker framing, direct requests, anaphoric situation references, leading
-# discourse connectives, and question particles are not topics.  Keeping them
-# beside an ASCII-only anchor drags recall toward whatever memories happen to
-# share the anchor word, and lets a filler like "针对当前情况" or
-# "所以我现在是可以正常通过" win the primary-answerability slot.
-_CJK_NON_TOPICAL_RECALL_RE = re.compile(
-    r"^(?:我们|咱们|我|你们|你)|帮我|帮忙|替我|给我|请你|请帮|麻烦|辛苦|"
-    r"针对当前|当前情况|针对(?:这个|那个|此)|目前情况|上述情况|前面提到|综上|总的来|"
-    r"^(?:所以|于是|那么|另外|此外|对了|好了|总之|反正|毕竟|既然|虽然|即使|只是|"
-    r"不过|但是|而且|并且|首先|其次|再次|最后|接着|然后|现在|目前|眼下)|"
-    r"(?:吗|呢)$|"
-    r"^(?:优化|修改|修复|修正|检查|看看|试试|处理|调整|排查|分析|总结|回顾|确认|"
-    r"核对|验证|评估|对比|参考|整理|梳理|补充|完善|实现|编写|重构|更新|升级|"
-    r"配置|安装|部署|运行|执行|启动|测试|调试)(?:一下|下)?$"
-)
-
-
-def _is_topical_cjk_recall_phrase(term: str) -> bool:
-    """A CJK recall phrase worth keeping beside an ASCII-only anchor.
-
-    Shape validity alone admits speaker framing and requests ("先帮我配置",
-    "我没有在") and anaphoric fillers ("针对当前情况"), which pollute recall and
-    anchor selection. Keep a phrase only when it still reads like a topic.
-    """
-    if not _is_cjk_recall_phrase(term):
-        return False
-    return _CJK_NON_TOPICAL_RECALL_RE.search(term) is None
-
-
-# Question clauses and scale/quantity phrases are fine retrieval material but
-# must not count as strong anchors: they are about the ask, not the topic, and
-# letting them count makes cohort coverage mathematically unreachable.  The
-# interrogatives may sit inside the clause ("没有召回记忆该怎么排查"), so match
-# anywhere, not only at the start.
-_CJK_NON_ANCHOR_RECALL_RE = re.compile(
-    r"是否|是不是|有没有|为何|为什么|怎么|如何|哪些|多少|"
-    r"几十|上百|大几十|好几|很多|一些|若干"
-)
-
-
-def _is_anchor_cjk_recall_phrase(term: str) -> bool:
-    if not _is_topical_cjk_recall_phrase(term):
-        return False
-    return _CJK_NON_ANCHOR_RECALL_RE.search(term) is None
 
 
 def _focus_unanchored_terms_on_ascii_scope(

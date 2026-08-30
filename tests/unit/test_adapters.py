@@ -1201,9 +1201,10 @@ class TestCodexAdapterRealInstall:
             matcher=None,
             hook=hub_prompt,
         )
-        assert f'[hooks.state."{hooks_json}:user_prompt_submit:0:0"]' in trust
+        assert f"[hooks.state.'{hooks_json}:user_prompt_submit:0:0']" in trust
+        assert f"{hooks_json}:user_prompt_submit:0:0" in tomllib.loads(trust)["hooks"]["state"]
         assert f'trusted_hash = "{hub_prompt_hash}"' in trust
-        assert f'[hooks.state."{hooks_json}:user_prompt_submit:0:1"]' in trust
+        assert f"[hooks.state.'{hooks_json}:user_prompt_submit:0:1']" in trust
         assert f'trusted_hash = "{old_prompt_hash}"' in trust
 
     def test_install_codex_hooks_is_idempotent(self, tmp_path, monkeypatch):
@@ -2406,6 +2407,72 @@ class TestQoderAdapterRealInstall:
         config = (tmp_path / ".codex" / "config.toml").read_text()
         assert "[mcp_servers.agent-memory-hub]" in config
         assert "agent_runtime_kit/mcp/server.sh" in config
+        parsed = tomllib.loads(config)
+        assert parsed["mcp_servers"]["agent-memory-hub"]["command"].endswith(
+            "agent_runtime_kit/mcp/server.sh"
+        )
+
+    def test_codex_mcp_block_escapes_windows_path_for_toml(self):
+        from agent_brain.agent_integrations.codex_config import mcp_block
+
+        command = Path(r"C:\Users\32096\agent-memory-hub\server.sh")
+        block = mcp_block(command)
+
+        assert r"C:\\Users\\32096" in block
+        parsed = tomllib.loads(block)
+        assert parsed["mcp_servers"]["agent-memory-hub"]["command"] == str(command)
+
+    def test_install_repairs_legacy_unescaped_windows_mcp_path(self, tmp_path, monkeypatch):
+        from agent_brain.agent_integrations import codex as cx_mod
+
+        monkeypatch.setattr(cx_mod, "AGENTS_MD", tmp_path / ".codex" / "AGENTS.md")
+        monkeypatch.setattr(cx_mod, "CODEX_HOOKS_JSON", tmp_path / ".codex" / "hooks.json")
+        monkeypatch.setattr(cx_mod, "CODEX_CONFIG_TOML", tmp_path / ".codex" / "config.toml")
+        config = tmp_path / ".codex" / "config.toml"
+        config.parent.mkdir(parents=True)
+        legacy = (
+            "[windows]\n"
+            'sandbox = "elevated"\n\n'
+            "[mcp_servers.agent-memory-hub]\n"
+            r'command = "C:\Users\32096\agent-memory-hub\server.sh"'
+            "\n"
+        )
+        config.write_text(legacy, encoding="utf-8")
+
+        adapter = cx_mod.CodexAdapter(brain_dir=tmp_path / ".brain")
+        message = adapter.install()
+
+        parsed = tomllib.loads(config.read_text(encoding="utf-8"))
+        assert parsed["windows"]["sandbox"] == "elevated"
+        assert parsed["mcp_servers"]["agent-memory-hub"]["command"].endswith(
+            "agent_runtime_kit/mcp/server.sh"
+        )
+        backups = list(config.parent.glob("config.toml.bak.amh-incompatible.*"))
+        assert len(backups) == 1
+        assert backups[0].read_text(encoding="utf-8") == legacy
+        assert "repaired incompatible config" in message
+
+    def test_install_recovers_unrelated_malformed_codex_config(self, tmp_path, monkeypatch):
+        from agent_brain.agent_integrations import codex as cx_mod
+
+        monkeypatch.setattr(cx_mod, "AGENTS_MD", tmp_path / ".codex" / "AGENTS.md")
+        monkeypatch.setattr(cx_mod, "CODEX_HOOKS_JSON", tmp_path / ".codex" / "hooks.json")
+        monkeypatch.setattr(cx_mod, "CODEX_CONFIG_TOML", tmp_path / ".codex" / "config.toml")
+        config = tmp_path / ".codex" / "config.toml"
+        config.parent.mkdir(parents=True)
+        malformed = 'model = "unterminated\n'
+        config.write_text(malformed, encoding="utf-8")
+
+        adapter = cx_mod.CodexAdapter(brain_dir=tmp_path / ".brain")
+        message = adapter.install()
+
+        parsed = tomllib.loads(config.read_text(encoding="utf-8"))
+        assert "model" not in parsed
+        assert "agent-memory-hub" in parsed["mcp_servers"]
+        backups = list(config.parent.glob("config.toml.bak.amh-incompatible.*"))
+        assert len(backups) == 1
+        assert backups[0].read_text(encoding="utf-8") == malformed
+        assert "recovered incompatible config" in message
 
     def test_install_updates_existing_codex_mcp_server_section(self, tmp_path, monkeypatch):
         from agent_brain.agent_integrations import codex as cx_mod

@@ -6,9 +6,6 @@ on:
   pull_request:
     branches: [main]
 
-permissions:
-  contents: read
-
 jobs:
   unit:
     runs-on: ubuntu-latest
@@ -16,13 +13,13 @@ jobs:
       matrix:
         python-version: ["3.11", "3.12"]
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@v4
         with:
           # Provenance tests verify frozen candidate commits that precede the
           # documentation-only PR head, so the default shallow checkout is
           # insufficient.
           fetch-depth: 0
-      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+      - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install
@@ -40,8 +37,6 @@ jobs:
           agent_brain/evaluation/memorydata_runner.py
           agent_brain/platform/indexing/index.py
           agent_brain/memory/store/write_service.py
-          agent_brain/memory/governance/contradiction_containment.py
-          agent_brain/memory/governance/contradiction_resolution.py
           agent_brain/interfaces/sdk/components.py
           agent_brain/interfaces/sdk/sdk.py
           web/auth.py

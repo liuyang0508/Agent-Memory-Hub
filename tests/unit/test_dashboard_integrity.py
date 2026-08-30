@@ -86,18 +86,6 @@ def test_dashboard_exposes_loop_contract_governance_panel():
     assert "data.loop_governance" in text
 
 
-def test_dashboard_exposes_content_free_review_evidence_closure():
-    text = DASH.read_text(encoding="utf-8")
-
-    assert "function cockpitReviewEvidenceHtml" in text
-    assert "/api/governance/review-evidence-plan?limit=100" in text
-    assert "provenance_recoverable_count" in text
-    assert "traceability_only_count" in text
-    assert "contested_unpaired_count" in text
-    assert "item_scan_unavailable_count" in text
-    assert "never locators, titles, summaries, or bodies" in text
-
-
 def test_dashboard_exposes_chain_log_workbench():
     text = DASH.read_text(encoding="utf-8")
 
@@ -197,17 +185,6 @@ def test_dashboard_wires_cockpit_actions():
     assert "Generate Candidates" in text
     assert "Approve" in text
     assert "Reject" in text
-    assert "function cockpitSignalListHtml" in text
-    assert "function transitionSignal" in text
-    assert "/api/governance/signals/" in text
-    assert "expected_intent_sha256: preview.intent_sha256" in text
-    assert "标记已解决" in text
-    assert "暂缓 7 天" in text
-    assert "function cockpitReviewTruthHtml" in text
-    assert "data.review_truth" in text
-    assert "active_review_candidate_count" in text
-    assert "lifecycle_due_count" in text
-    assert "复核真相" in text
 
 
 def test_dashboard_exposes_local_history_sync_panel():

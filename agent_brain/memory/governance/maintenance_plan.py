@@ -173,9 +173,7 @@ def build_maintenance_plan(
         _build_lane(risk, actions_by_risk[risk], limit_per_lane=limit_per_lane)
         for risk in _LANE_ORDER
     ]
-    normalized_items = dict(
-        report.items_by_id if items_by_id is None else items_by_id
-    )
+    normalized_items = dict(items_by_id or {})
     normalized_edges = set(supersedes_edges or ())
     normalized_edges.update(
         (item.superseded_by, item.id)
@@ -268,13 +266,6 @@ def _compact_details(details: dict[str, object]) -> dict[str, Any]:
         "age_days",
         "stale_after_days",
         "recommended_action",
-        "disposition",
-        "explicit_source_ref_count",
-        "provenance_ref_count",
-        "case_id",
-        "pair_count",
-        "item_count",
-        "evidence",
     }
     return {key: value for key, value in details.items() if key in keep_keys}
 
@@ -310,36 +301,12 @@ def _build_review_queue(
         if lane.risk != "review_required":
             continue
         for action in lane.actions:
-            if action.category not in {"lifecycle", "low_confidence"}:
+            if action.category != "lifecycle":
                 continue
             for item_id in action.item_ids:
                 if item_id in seen:
                     continue
                 seen.add(item_id)
-                if action.category == "low_confidence":
-                    rows.append(
-                        MaintenanceReviewQueueItem(
-                            item_id=item_id,
-                            action=action.action,
-                            category=action.category,
-                            title=action.title,
-                            read_command=(
-                                f"memory read {item_id} --head 2000 --view detail"
-                            ),
-                            recommended_next=str(
-                                action.details.get(
-                                    "recommended_action",
-                                    "approve_or_reject",
-                                )
-                            ),
-                            can_auto_apply=False,
-                            boundary=(
-                                "先核对独立来源或解决 contested，再显式 approve/reject；"
-                                "不得自动提升 confidence"
-                            ),
-                        )
-                    )
-                    continue
                 obsolete = items_by_id.get(item_id)
                 candidates = (
                     candidate_ranker.rank(obsolete)
@@ -405,11 +372,7 @@ def _category_for_action(action: AutoGovernanceAction) -> str:
         if issue_type in {"stale_signal", "stale_handoff"}:
             return "lifecycle"
         return "expired"
-    if action.action == "review_signal_state":
-        return "lifecycle"
-    if action.action == "review_low_confidence":
-        return "low_confidence"
-    if action.action in {"review_contradiction", "review_contradiction_case"}:
+    if action.action == "review_contradiction":
         return "contradiction"
     if action.action == "review_drift_cluster":
         return "drift_cluster"
@@ -466,6 +429,7 @@ def _command_for_action(action: AutoGovernanceAction | str) -> str:
     action_name = action.action if isinstance(action, AutoGovernanceAction) else action
     if (
         isinstance(action, AutoGovernanceAction)
+        and action_name == "review_archive"
         and _category_for_action(action) == "lifecycle"
     ):
         return "memory govern plan --category lifecycle --format markdown"
@@ -473,10 +437,6 @@ def _command_for_action(action: AutoGovernanceAction | str) -> str:
         return "memory govern auto --apply"
     if action_name in {"review_archive", "review_quality"}:
         return "memory govern run --format json"
-    if action_name == "review_low_confidence":
-        return "memory review list --format json"
-    if action_name == "review_contradiction_case":
-        return "memory review cases --format json"
     if action_name.startswith("review_evolve_"):
         return "memory evolve --format json"
     if action_name.startswith("review_"):

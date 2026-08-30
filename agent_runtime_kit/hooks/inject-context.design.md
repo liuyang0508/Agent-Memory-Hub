@@ -76,11 +76,15 @@ Codex 通过 MCP server 暴露 `search_memory` 工具——Codex 自己决定是
 - **本地**（v0.2.1 起步）：split + stopword + named entity 简单规则
   - 优点：快、零成本、无外部依赖
   - 缺点：抽不准复杂语义
-- **LLM**（v0.3+）：调一个 small model 做意图抽取
-  - 优点：准
-  - 缺点：每个 prompt 多 200ms / API 成本
+- **可选 LLM 约束回退**：确定性门禁先处理所有 prompt；只有结果为
+  `ambiguous_constraint` 时，才允许显式启用的 small model 解析一次。
+  - 优点：明确 prompt 保持零模型 token；复杂否定可以恢复正确召回。
+  - 缺点：触发的 prompt 会增加 provider 延迟和 API 成本。
+  - 安全边界：模型只看当前查询，不看 memory；输出必须绑定原文 evidence，
+    失败、低置信度或仍歧义时继续阻断。
 
-先做本地版本，发现召回不行再加 LLM 层。
+当前实现默认关闭，通过 `MEMORY_HUB_QUERY_MODEL_FALLBACK=1` 显式启用；不再把
+“每个 prompt 都做 LLM 意图抽取”作为目标架构。
 
 ### 2. 注入数量：top-3 vs top-N
 

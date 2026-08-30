@@ -14,7 +14,7 @@
     "observed_drift_count": 1,
     "status": "pass"
   },
-  "implementation_hash": "sha256:7753661df5ce827d89c0567cb68c0c904f865c1768723c83eaf0f4c7417e2d65",
+  "implementation_hash": "sha256:b34cd38868273ed5cee19b670233a2432ac11160b3a509436e2cabab663f39af",
   "implementation_manifest": [
     {
       "path": "agent_brain/agent_integrations/hermes/import_export_tools.py",
@@ -22,11 +22,7 @@
     },
     {
       "path": "agent_brain/agent_integrations/hermes/item_tools.py",
-      "sha256": "sha256:0ca8070f30de9320fb957318df7f6ab45c69b3e2967351104962f774cea8268e"
-    },
-    {
-      "path": "agent_brain/contracts/memory_item.py",
-      "sha256": "sha256:b2ad0d2579e67539b3e965bab0ed509a37e4704718dfc0c6fe2ce9abf248d837"
+      "sha256": "sha256:a42cff92a19dae123f41e80fc6abd1e800acc0ceed6320e0657fd7bdc6306487"
     },
     {
       "path": "agent_brain/contracts/resource.py",
@@ -34,7 +30,7 @@
     },
     {
       "path": "agent_brain/interfaces/cli/commands/crud.py",
-      "sha256": "sha256:ffae195ec170f981661e354af86615c44bf0fd6d67f70d0be8ed6ae12fc1396d"
+      "sha256": "sha256:1025e3efdc27f34422901d0a729e07e499c613ecb764d01e444e1d40d495b4f9"
     },
     {
       "path": "agent_brain/interfaces/cli/commands/gc.py",
@@ -42,27 +38,23 @@
     },
     {
       "path": "agent_brain/interfaces/cli/commands/index_maintenance.py",
-      "sha256": "sha256:93101c647a92bc4cb51d923d40efad2852c36aab9c83fcad74701551692b00e4"
-    },
-    {
-      "path": "agent_brain/interfaces/cli/commands/links.py",
-      "sha256": "sha256:bd4a45ba6fd340e66f232f76aa2ff46344ccfb8d8b294cde5cdd251aee17c00c"
+      "sha256": "sha256:ceec333276eb2671fd2246e70027214034e7037831b013fd1958d01431058910"
     },
     {
       "path": "agent_brain/interfaces/cli/commands/maintenance.py",
-      "sha256": "sha256:0db1b808ccc971c8a1a3b54099a7bd4c51c87ccfcb49731840146db3be53cad8"
+      "sha256": "sha256:326946bd4e115c1a367af3d8f14fc88c638c90e679dcd379c3006d2112e318f5"
     },
     {
       "path": "agent_brain/interfaces/cli/commands/review.py",
-      "sha256": "sha256:19de3d8b6f3705f8208c3efa65b47d765e0f2cc8874bf535b0b7ae91503ffcf8"
+      "sha256": "sha256:33b9c188b51184317a8a1549500311f4dff70b924f8bd92cf07eb1e49dc95ab3"
     },
     {
       "path": "agent_brain/interfaces/cli/commands/subapps.py",
-      "sha256": "sha256:dfae14859ca1f0287c09a9ad7f5b38b4e633b6820f5fa842dc54b38246b8647f"
+      "sha256": "sha256:d36eb809bde0c5fe637f93ba475672f443f8a1fa5f2e06f70d288806afece425"
     },
     {
       "path": "agent_brain/interfaces/cli/doctor_offline.py",
-      "sha256": "sha256:8fd77e4e8032c26a38ae5e551d2b9969d9d7cf8730effa7d6c6e61220b64154c"
+      "sha256": "sha256:a079f540b9fcf7a83eb9f23efcbdabbe8e4c6447640acd06624387d354b7f0e5"
     },
     {
       "path": "agent_brain/interfaces/mcp/onboarding.py",
@@ -70,7 +62,7 @@
     },
     {
       "path": "agent_brain/interfaces/mcp/tools/graph.py",
-      "sha256": "sha256:c53c9ef0e4df1456f4fa57e30731ec157cc47937b628afd4cf1d66185207dc16"
+      "sha256": "sha256:85499f73ef425af6146808d8cf7fceefae2b8bfaf55b6db4ed3ceb125ebac1a5"
     },
     {
       "path": "agent_brain/interfaces/mcp/tools/io.py",
@@ -90,39 +82,15 @@
     },
     {
       "path": "agent_brain/memory/evidence/resource_store.py",
-      "sha256": "sha256:b743521762449a81e70b996d82d910c10df27dea06cd763b66efd1845c34117d"
-    },
-    {
-      "path": "agent_brain/memory/context/context_firewall.py",
-      "sha256": "sha256:af065c2e5a88eb0de85d748b7fd11ba1e28cdcd0a4bae6623abafb9c2975ae78"
+      "sha256": "sha256:15887e12d990c51d94c7634e3a0a52c5af458fb380b39654b175f494f21b7b9b"
     },
     {
       "path": "agent_brain/memory/governance/auto_governance.py",
-      "sha256": "sha256:4eccc1e8cd734f8c86269b9e02272c1b89a2f74985c870ff4586ba25ee0f3c84"
-    },
-    {
-      "path": "agent_brain/memory/governance/confidence_review.py",
-      "sha256": "sha256:88cfbafefb1924cefc1a21b8f9b9e81ad130a5e5c8f54249e67ffb6583f19b57"
-    },
-    {
-      "path": "agent_brain/memory/governance/contradiction_cases.py",
-      "sha256": "sha256:474648951cab91ed921e7d1b897cb6293cafd5dd51a3a315bf1f48b1a05d3181"
-    },
-    {
-      "path": "agent_brain/memory/governance/contradiction_containment.py",
-      "sha256": "sha256:c4e0e23d61fb3a3c676d4045331f3514b9a1fbaa1bbf8025d50d5a31827594f9"
-    },
-    {
-      "path": "agent_brain/memory/governance/contradiction_resolution.py",
-      "sha256": "sha256:681b1c2f4ca939def43b5791b70aa714e9aaedbbf45cde0d0c843a9ac353f714"
+      "sha256": "sha256:5ab05c7f98dd23ac80248e6c18107adbd74705742fe168059c79cfb8ca92fe7d"
     },
     {
       "path": "agent_brain/memory/governance/git_fd_exec.py",
       "sha256": "sha256:123e6d49b8add848e908d465913451b284672287c1e380639c55b87c5f70d3b9"
-    },
-    {
-      "path": "agent_brain/memory/governance/graph_links.py",
-      "sha256": "sha256:7a30a4f12c43913dbd314855c2ae9daf0fc1c6fd3791b3cd4a3e32c951888da2"
     },
     {
       "path": "agent_brain/memory/governance/lifecycle_action_parsing.py",
@@ -142,43 +110,15 @@
     },
     {
       "path": "agent_brain/memory/governance/lifecycle_review.py",
-      "sha256": "sha256:d5969713f5c4706ea5b41b9b969a7844bc05c26c7c91a1c5e3232a535aebd56c"
+      "sha256": "sha256:9dddd1da8fbac1b93e64c8fd7e4e6c3003ef57bd5c11e627ddc583c7d049a839"
     },
     {
       "path": "agent_brain/memory/governance/lifecycle_snapshot.py",
-      "sha256": "sha256:4b4eaf24033509950edcf1f27f1f44599e3f4cf304ceaf66a58df4f460418298"
+      "sha256": "sha256:d431532f10bbee2db1823b5435ef41497385775c2b0566bb4986f745473a7d1f"
     },
     {
       "path": "agent_brain/memory/governance/maintenance_plan.py",
-      "sha256": "sha256:f1213c83a92b91d6bf57499faaf775acc3bad9ae779fb2c83ad34f1c8b7abd9d"
-    },
-    {
-      "path": "agent_brain/memory/governance/pending_receipts.py",
-      "sha256": "sha256:5746d029bc9f95715a6aa837a80fc827a9a301d87ee07d2cf5ba4da14a054338"
-    },
-    {
-      "path": "agent_brain/memory/governance/review_evidence.py",
-      "sha256": "sha256:80a7625cb6f5084d0a20d18a7c63232dd548e19de8f21353ba68ca664cae5903"
-    },
-    {
-      "path": "agent_brain/memory/governance/review_queue.py",
-      "sha256": "sha256:ef27f12695f8d4cc5a18a533ba41f044dad0d636d1b654c0f1e37064f01be998"
-    },
-    {
-      "path": "agent_brain/memory/governance/review_truth.py",
-      "sha256": "sha256:f9169bae5f2086cc88f44a476ce663ff198c1f27e0c380661a615b0439420707"
-    },
-    {
-      "path": "agent_brain/memory/governance/review_transactions.py",
-      "sha256": "sha256:ee178e5caa885565a7ec3ab565c3a4b483101b890d7d91ab57893b6287b410e3"
-    },
-    {
-      "path": "agent_brain/memory/governance/signal_resolution.py",
-      "sha256": "sha256:a1125810c063af57d9eb99de4c7389228ae89b03e13560ec4cb3829923cca898"
-    },
-    {
-      "path": "agent_brain/memory/governance/signal_state.py",
-      "sha256": "sha256:b9d3ce33cc0b4aa5c432649c581922e9d88dcdb9bfc7f9b7c07009169fc02675"
+      "sha256": "sha256:b2b3ff022fcc0fc40dc4de588153e901eeaffe6b2385b2b33723c826bff8e321"
     },
     {
       "path": "agent_brain/memory/governance/supersession.py",
@@ -194,15 +134,15 @@
     },
     {
       "path": "agent_brain/memory/store/items_store.py",
-      "sha256": "sha256:b66e78fc3385546f8f8843f3fd4d278e1c9fae0cd5b0fa01f9e5ef75c85bc4a9"
+      "sha256": "sha256:d77508a2c4b06f17996a2397e555414be03e57be332e3ab1ef9b288b174f2b02"
     },
     {
       "path": "agent_brain/memory/store/pending.py",
-      "sha256": "sha256:b975a27ff599698fddfac12fecf34f58aa9977ce0ba65533e436fe9818e80f5c"
+      "sha256": "sha256:582340bf893fb362a6dc768355405010a338ab3b93fba5c14271bd1792c535d4"
     },
     {
       "path": "agent_brain/memory/store/write_service.py",
-      "sha256": "sha256:d7889d14546f85d5959aa961a261735d8f54aed6574eaa9525100e49f0f6ccbc"
+      "sha256": "sha256:7ee2b4f26d036475a29f8c93d2c19cbf7b7d80c05035effd6aef59d8627c9cad"
     },
     {
       "path": "agent_brain/platform/indexing/graph_index.py",
@@ -222,23 +162,15 @@
     },
     {
       "path": "agent_brain/product/governance_readiness.py",
-      "sha256": "sha256:63cbc58301232e72810112b193e3f6986e067b58e1ae4b80e1d38ae4f38c6401"
-    },
-    {
-      "path": "agent_brain/product/cockpit.py",
-      "sha256": "sha256:3bb8e8fc1b47c9418374df38b55f6b536f0d68c6f07430adddbffa9760bf9bf1"
+      "sha256": "sha256:d7d877e71a47022afa3dda011410821fd0abeea9fa9eb77e9577992c0003feda"
     },
     {
       "path": "web/api/routes/governance.py",
-      "sha256": "sha256:b909331f44116023d6037a5a10270a16cc22087018bd2f3e006cee8c86ec83c1"
-    },
-    {
-      "path": "web/templates/dashboard.html",
-      "sha256": "sha256:8cf1bd2f60181a8adb80a6cc51d30e94df9e1e8c2f83b9b4bbd44978af84e47a"
+      "sha256": "sha256:9dcdfa5948b264842c78c3fe91c379c2a27c4395567c1e78af9e3da7ec026ef1"
     },
     {
       "path": "scripts/generate-lifecycle-governance-report.py",
-      "sha256": "sha256:bffaafb3a3f2afb564d6c8806a40b9c141d22459c63c05c7f8253a30f148e9d5"
+      "sha256": "sha256:8470fca3d38099d1c8bc53ec3bf13721973e3527101f3d96b24c6c5b123168d9"
     }
   ],
   "overall_status": "pending",
@@ -281,7 +213,6 @@
       }
     ],
     "preview_only": true,
-    "scope": "preview-classification-only",
     "status": "pass"
   },
   "privacy": {

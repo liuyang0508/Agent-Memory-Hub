@@ -334,11 +334,6 @@ def test_govern_readiness_json_reports_release_query_and_lifecycle_lanes(tmp_pat
     assert set(by_lane) == {"release", "query_signal", "memory_lifecycle"}
     assert payload["overall_status"] in {"pass", "warn"}
     assert any(check["id"] == "install_sh" for check in by_lane["release"]["checks"])
-    npm_check = next(
-        check for check in by_lane["release"]["checks"] if check["id"] == "npm_package_json"
-    )
-    assert npm_check["status"] == "pass"
-    assert npm_check["detail"].endswith("/package.json")
     assert by_lane["query_signal"]["metrics"]["case_count"] >= 4
     assert by_lane["query_signal"]["metrics"]["under_extracted_cases"] == 0
     lifecycle = by_lane["memory_lifecycle"]["metrics"]
@@ -1070,28 +1065,6 @@ def test_lifecycle_readiness_fails_closed_on_unsafe_dead_queue_entry(
     assert lane.status == "fail"
 
 
-def test_lifecycle_readiness_reports_resolved_pending_without_reopening_blocker(
-    tmp_path,
-) -> None:
-    brain = tmp_path / "brain"
-    (brain / "items").mkdir(parents=True)
-    resolved = brain / "pending" / "resolved"
-    resolved.mkdir(parents=True)
-    (resolved / "reject-obsolete-record.jsonl").write_text(
-        '{"v":2}\n',
-        encoding="utf-8",
-    )
-
-    lane = build_memory_lifecycle_readiness(brain)
-    checks = {check.id: check for check in lane.checks}
-
-    assert lane.metrics["pending_total"] == 0
-    assert lane.metrics["pending_dead_count"] == 0
-    assert lane.metrics["pending_resolved_count"] == 1
-    assert checks["pending_integrity"].status == "pass"
-    assert checks["pending_integrity"].evidence["resolved_count"] == 1
-
-
 def test_lifecycle_readiness_reads_pending_from_explicit_brain_not_environment(
     tmp_path,
     monkeypatch,
@@ -1409,8 +1382,7 @@ def test_lifecycle_readiness_preserves_legacy_stale_signal_check_schema(
     assert lane.metrics["stale_signal_count"] == 1
     assert checks["stale_signal_count"].status == "warn"
     assert checks["stale_signal_count"].evidence["count"] == 1
-    assert checks["lifecycle_due_count"].status == "warn"
-    assert checks["active_review_candidate_count"].status == "pass"
+    assert checks["review_queue_count"].status == "warn"
 
 
 def test_lifecycle_readiness_rejects_duplicate_or_non_unique_graph_schema(

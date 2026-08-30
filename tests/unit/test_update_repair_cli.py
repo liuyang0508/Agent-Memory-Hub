@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import json
+import os
 
 from typer.testing import CliRunner
 
@@ -42,8 +43,8 @@ def test_update_dry_run_reports_installer_without_running(monkeypatch):
 
     assert result.exit_code == 0, _combined(result)
     assert called is False
-    assert "install.sh" in result.output
-    assert "--minimal" in result.output
+    assert ("install.ps1" if os.name == "nt" else "install.sh") in result.output
+    assert ("-Minimal" if os.name == "nt" else "--minimal") in result.output
     assert "dry-run" in result.output.lower()
 
 

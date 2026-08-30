@@ -42,29 +42,12 @@ def expand_query(query: str, use_or: bool = True, synonyms: bool = True) -> str:
     return joiner.join(escaped)
 
 
-# CJK runs shorter than this stay adjacent-character phrases (the existing
-# contract); longer runs become overlapping three-character phrases instead,
-# because an adjacent-character AND phrase over the whole clause dies on any
-# intervening particle ("的"/"跟") between query and document text.
-_CJK_LONG_RUN_LIMIT = 4
-
-
 def _token_groups(query: str) -> list[list[str]]:
     groups: list[list[str]] = []
     for raw in _raw_terms(query):
         if raw.isascii():
             tokens = _tokenize_mixed(raw)
         elif all(is_cjk_search_char(character) for character in raw):
-            if len(raw) >= _CJK_LONG_RUN_LIMIT:
-                # The index stores each CJK character as its own token, so a
-                # fragment must be expressed as a run of single-character
-                # tokens to become an adjacent phrase.  Each fragment is its
-                # own group so the OR joiner keeps them independent; a long
-                # clause then matches documents sharing any fragment instead
-                # of requiring every character adjacent.
-                for position in range(len(raw) - 2):
-                    groups.append(list(raw[position : position + 3]))
-                continue
             tokens = list(raw)
         else:
             tokens = [raw]
@@ -104,7 +87,11 @@ def _raw_terms(query: str) -> list[str]:
 
 
 def _format_group(group: list[str], *, parenthesize: bool) -> str:
-    phrase = " ".join(f'"{token}"' for token in group)
+    # A single quoted FTS5 string is an ordered phrase.  Quoting every CJK
+    # character separately only creates adjacent AND terms and loses order.
+    # The index stores CJK as space-separated characters, so the phrase below
+    # preserves the original character sequence without changing the schema.
+    phrase = '"' + " ".join(token.replace('"', '""') for token in group) + '"'
     if parenthesize and len(group) > 1:
         return f"({phrase})"
     return phrase

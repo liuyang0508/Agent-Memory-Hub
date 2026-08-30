@@ -285,7 +285,7 @@ def test_raw_fallback_uses_cjk_fragments_instead_of_one_long_phrase() -> None:
     index = _Index()
     embedder = _Embedder()
     embedder.degraded = True
-    index.bm25_hits['("深" "度" "叙") OR'] = [Hit("readme-hit", 1.0)]
+    index.bm25_hits['("深 度 叙") OR'] = [Hit("readme-hit", 1.0)]
     request = _request(
         normalized_query="关于多智能体共享第二单的深度叙事和算法解释二次打磨，都做了什么",
         lexical_terms=(),
@@ -295,7 +295,7 @@ def test_raw_fallback_uses_cjk_fragments_instead_of_one_long_phrase() -> None:
 
     assert [hit.id for hit in result.hits] == ["readme-hit"]
     assert " OR " in index.bm25_queries[0]
-    assert '("深" "度" "叙") OR' in index.bm25_queries[0]
+    assert '("深 度 叙") OR' in index.bm25_queries[0]
 
 
 @pytest.mark.parametrize(

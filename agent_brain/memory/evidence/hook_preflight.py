@@ -21,7 +21,6 @@ from agent_brain.memory.evidence.multimodal_capture import (
 
 
 PROTOCOL_VERSION = "amh-hook-preflight-v1"
-MAX_JSON_NESTING = 64
 _INVALID_PAYLOAD = object()
 
 
@@ -132,37 +131,10 @@ def _text(value: Any) -> str | None:
     return text or None
 
 
-def _within_json_nesting_limit(text: str) -> bool:
-    depth = 0
-    in_string = False
-    escaped = False
-    for char in text:
-        if in_string:
-            if escaped:
-                escaped = False
-            elif char == "\\":
-                escaped = True
-            elif char == '"':
-                in_string = False
-            continue
-        if char == '"':
-            in_string = True
-        elif char in "[{":
-            depth += 1
-            if depth > MAX_JSON_NESTING:
-                return False
-        elif char in "]}":
-            depth -= 1
-    return True
-
-
 def _load_payload() -> Any:
     try:
         raw_payload = sys.stdin.buffer.read()
-        decoded_payload = raw_payload.decode("utf-8")
-        if not _within_json_nesting_limit(decoded_payload):
-            return _INVALID_PAYLOAD
-        payload = json.loads(decoded_payload)
+        payload = json.loads(raw_payload)
     except (json.JSONDecodeError, UnicodeDecodeError, ValueError, RecursionError, OSError):
         return _INVALID_PAYLOAD
     return payload

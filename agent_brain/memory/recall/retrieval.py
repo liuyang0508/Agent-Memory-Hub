@@ -5,22 +5,26 @@ import logging
 import math
 import operator
 import re
+import sqlite3
 import time
 from dataclasses import dataclass, field, replace
 from datetime import datetime
-from pathlib import Path
 from typing import TYPE_CHECKING, Callable, SupportsIndex, cast
 
 from agent_brain.platform.embedding import Embedder
 from agent_brain.platform.indexing.index_types import Hit
 from agent_brain.platform.indexing.text_scripts import is_unicode_search_char
+from agent_brain.memory.context.query_constraints import (
+    QueryConstraint,
+    extract_query_constraints,
+)
+from agent_brain.memory.recall.constraint_alignment import apply_constraint_alignment
 from agent_brain.memory.recall.query_expansion import (
     _expand_with_synonyms as _expand_with_synonyms,
     _extract_words as _extract_words,
     _tokenize_mixed as _tokenize_mixed,
     expand_query,
 )
-from agent_brain.memory.recall.adaptive_learning import apply_learning_profile_weight
 from agent_brain.memory.recall.retrieval_access import RetrievalAccessRecorder
 from agent_brain.memory.recall.retrieval_budget import (
     estimate_tokens as estimate_tokens,
@@ -119,8 +123,7 @@ class _SearchPipelineOptions:
     include_superseded: bool
     include_stale_state: bool
     temporal_now: datetime | None
-    adapter: str
-    project: str | None
+    constraints: tuple[QueryConstraint, ...]
 
 
 @dataclass(frozen=True)
@@ -208,6 +211,83 @@ class Retriever:
             vector_weight=self.vector_weight,
         )
 
+    def _routed_lexical_term_hits(
+        self,
+        request: RecallRequest,
+        *,
+        allowed_ids: set[str] | None,
+        excluded_ids: set[str],
+    ) -> list[Hit]:
+        """Run core phrases before optional synonym expansion.
+
+        Constraint-bearing prompts use two bounded BM25 queries.  Exact topic
+        and constraint phrases establish the leading rank; synonym-only hits
+        can extend recall but cannot outrank a core hit merely because an alias
+        matched.  Prompts without constraints keep the historical one-query
+        behavior.
+        """
+
+        raw_terms = " ".join(request.lexical_terms)
+        if not request.query_signal.constraints:
+            expression = expand_query(
+                raw_terms,
+                use_or=self.query_expansion,
+            )
+            return list(
+                self.index.bm25_search(
+                    expression,
+                    top_k=self.bm25_top,
+                    allowed_ids=allowed_ids,
+                    excluded_ids=excluded_ids or None,
+                )
+            )
+
+        core_expression = expand_query(
+            raw_terms,
+            use_or=self.query_expansion,
+            synonyms=False,
+        )
+        core_hits = list(
+            self.index.bm25_search(
+                core_expression,
+                top_k=self.bm25_top,
+                allowed_ids=allowed_ids,
+                excluded_ids=excluded_ids or None,
+            )
+        )
+        expanded_expression = expand_query(
+            raw_terms,
+            use_or=self.query_expansion,
+            synonyms=True,
+        )
+        if expanded_expression == core_expression:
+            return core_hits
+        try:
+            expanded_hits = list(
+                self.index.bm25_search(
+                    expanded_expression,
+                    top_k=self.bm25_top,
+                    allowed_ids=allowed_ids,
+                    excluded_ids=excluded_ids or None,
+                )
+            )
+        except (RuntimeError, TimeoutError, ValueError, sqlite3.Error):
+            # Synonym expansion is a recall extension, never a dependency of
+            # the exact core route.
+            return core_hits
+
+        merged: list[Hit] = []
+        seen: set[str] = set()
+        for hit in (*core_hits, *expanded_hits):
+            item_id = str(hit.id)
+            if item_id in seen:
+                continue
+            seen.add(item_id)
+            merged.append(hit)
+            if len(merged) >= self.bm25_top:
+                break
+        return merged
+
     def _rerank(self, query: str, candidates: list[RetrievedItem]) -> list[RetrievedItem]:
         return self.cross_encoder_reranker.rerank(query, candidates)
 
@@ -216,23 +296,6 @@ class Retriever:
 
     def _apply_value_weight(self, candidates: list[RetrievedItem]) -> list[RetrievedItem]:
         return apply_feedback_value_weight(self.index, candidates)
-
-    def _apply_adaptive_learning(
-        self,
-        candidates: list[RetrievedItem],
-        *,
-        adapter: str,
-        project: str | None,
-    ) -> list[RetrievedItem]:
-        db_path = getattr(self.index, "db_path", None)
-        if db_path is None:
-            return candidates
-        return apply_learning_profile_weight(
-            candidates,
-            brain_dir=Path(db_path).parent,
-            adapter=adapter,
-            project=project,
-        )
 
     def _apply_metadata_phrase_boost(
         self,
@@ -262,6 +325,13 @@ class Retriever:
                 bm25_rank=existing.bm25_rank if existing.bm25_rank is not None else phrase_hit.bm25_rank,
             )
         return sorted(by_id.values(), key=lambda candidate: candidate.score, reverse=True)
+
+    def _apply_constraint_alignment(
+        self,
+        candidates: list[RetrievedItem],
+        constraints: tuple[QueryConstraint, ...],
+    ) -> list[RetrievedItem]:
+        return apply_constraint_alignment(self.index, candidates, constraints)
 
     def _mmr_rerank(
         self, query: str, candidates: list[RetrievedItem], top_k: int,
@@ -352,6 +422,16 @@ class Retriever:
                 ),
             ),
         ]
+        if options.constraints:
+            stages.append(
+                _NamedCandidateStage(
+                    "constraint_alignment",
+                    lambda candidates: self._apply_constraint_alignment(
+                        candidates,
+                        options.constraints,
+                    ),
+                )
+            )
         if self.rerank:
             stages.append(
                 _NamedCandidateStage(
@@ -364,14 +444,6 @@ class Retriever:
         stages.extend(
             (
                 _NamedCandidateStage("feedback_value", self._apply_value_weight),
-                _NamedCandidateStage(
-                    "adaptive_learning",
-                    lambda candidates: self._apply_adaptive_learning(
-                        candidates,
-                        adapter=options.adapter,
-                        project=options.project,
-                    ),
-                ),
                 _NamedCandidateStage(
                     "status_handoff_boost",
                     lambda candidates: apply_status_handoff_boost(
@@ -508,7 +580,6 @@ class Retriever:
         *,
         explain: bool = False,
         record_access: bool | None = None,
-        adapter: str = "unknown",
     ) -> list[RetrievedItem]:
         """Return the top matching memory IDs after retrieval policy stages.
 
@@ -533,8 +604,7 @@ class Retriever:
             include_superseded=filters.include_superseded,
             include_stale_state=filters.include_stale_state,
             temporal_now=self.temporal_now,
-            adapter=adapter,
-            project=filters.project,
+            constraints=extract_query_constraints(query),
         )
         stage_traces: dict[str, list[RetrievalStageTrace]] = {}
         if explain:
@@ -630,17 +700,10 @@ class Retriever:
         if request.lexical_terms:
             started = route_clock()
             try:
-                terms_query = expand_query(
-                    " ".join(request.lexical_terms),
-                    use_or=self.query_expansion,
-                )
-                lexical_terms_hits = list(
-                    self.index.bm25_search(
-                        terms_query,
-                        top_k=self.bm25_top,
-                        allowed_ids=allowed_ids,
-                        excluded_ids=excluded_ids or None,
-                    )
+                lexical_terms_hits = self._routed_lexical_term_hits(
+                    request,
+                    allowed_ids=allowed_ids,
+                    excluded_ids=excluded_ids,
                 )
                 lexical_terms_hits = _filter_route_hits(
                     lexical_terms_hits,
@@ -842,8 +905,7 @@ class Retriever:
             include_superseded=filters.include_superseded,
             include_stale_state=filters.include_stale_state,
             temporal_now=self.temporal_now,
-            adapter=request.adapter,
-            project=scope.value if scope is not None else filters.project,
+            constraints=request.query_signal.constraints,
         )
         stage_traces: dict[str, list[RetrievalStageTrace]] = {}
         if explain:

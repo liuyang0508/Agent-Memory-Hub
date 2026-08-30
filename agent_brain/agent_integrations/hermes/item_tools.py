@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import Any, Callable
 
 from agent_brain.memory.recall.embedding_text import embedding_text_for_item
-from agent_brain.memory.governance.graph_links import link_memory_ref
 
 
 ComponentsFactory = Callable[[], tuple[Any, Any, Any]]
@@ -46,17 +45,9 @@ def hub_link_impl(
     relation: str = "refs",
 ) -> dict[str, Any]:
     """Create a knowledge-graph link between two memory items."""
-    store, idx, _ = components()
-    result = link_memory_ref(store, idx, source_id, target_id, relation)
-    return {
-        "source": source_id,
-        "target": target_id,
-        "relation": relation,
-        "linked": result.linked,
-        "status": result.status,
-        "reason": result.reason,
-        "index_repair_required": result.index_repair_required,
-    }
+    _, idx, _ = components()
+    idx.add_ref(source_id, target_id, relation)
+    return {"source": source_id, "target": target_id, "relation": relation, "linked": True}
 
 
 def hub_unlink_impl(

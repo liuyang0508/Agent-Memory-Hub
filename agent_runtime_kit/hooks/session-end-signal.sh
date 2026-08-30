@@ -51,31 +51,10 @@ if [ -x "$RECORD_TOOL" ]; then
     >/dev/null 2>&1 || true
 fi
 
-if [ -f "$PYTHON_RESOLVER" ]; then
+if [ -n "$TRANSCRIPT" ] && [ -f "$PYTHON_RESOLVER" ]; then
   # shellcheck source=/dev/null
   source "$PYTHON_RESOLVER"
-fi
-
-if [ -n "$TRANSCRIPT" ] && [ -n "${MEMORY_PYTHON:-}" ]; then
   printf '%s' "$INPUT" | "$MEMORY_PYTHON" -m agent_brain.memory.evidence.hook_capture transcript \
-    >/dev/null 2>&1 || true
-fi
-
-# Run bounded, reversible governance at most once per UTC day. Exact
-# duplicates are superseded with snapshots, explicit TTL expirations are
-# archived, and conflicts are contained for review. Fail-open for the agent.
-if [ -n "${MEMORY_PYTHON:-}" ]; then
-  "$MEMORY_PYTHON" -m agent_brain.memory.governance.daily_maintenance \
-    --brain-dir "${BRAIN_DIR:-$HOME/.agent-memory-hub}" \
-    >/dev/null 2>&1 || true
-fi
-
-# Close silent injection cohorts whose observation window elapsed. Idempotent;
-# daily_maintenance repeats the same sweep as a fallback. Fail-open.
-if [ -n "${MEMORY_PYTHON:-}" ]; then
-  "$MEMORY_PYTHON" -m agent_brain.memory.context.injection_closures \
-    --brain-dir "${BRAIN_DIR:-$HOME/.agent-memory-hub}" \
-    --closed-by session_end \
     >/dev/null 2>&1 || true
 fi
 

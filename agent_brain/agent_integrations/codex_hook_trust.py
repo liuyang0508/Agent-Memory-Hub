@@ -45,7 +45,9 @@ EVENTS_WITH_MATCHERS = {
     "SubagentStop",
 }
 
-_STATE_HEADER_RE = re.compile(r'(?m)^\[hooks\.state\."([^"]+)"\]\s*$')
+_STATE_HEADER_RE = re.compile(
+    r'''(?m)^\[hooks\.state\.(?:'([^']+)'|"([^"]+)")\]\s*$'''
+)
 _TRUSTED_HASH_RE = re.compile(r'(?m)^trusted_hash\s*=\s*"([^"]+)"\s*$')
 
 
@@ -163,7 +165,7 @@ def trust_updates_for_hooks(
 def trusted_hashes(config_text: str) -> dict[str, str]:
     hashes: dict[str, str] = {}
     for match in _STATE_HEADER_RE.finditer(config_text):
-        key = match.group(1)
+        key = match.group(1) or match.group(2)
         _, end = _state_section_bounds(config_text, key, start=match.start())
         section = config_text[match.end():end]
         hash_match = _TRUSTED_HASH_RE.search(section)
@@ -225,7 +227,7 @@ def hub_hook_trust_mismatches(
 def upsert_trusted_hashes(content: str, updates: dict[str, str]) -> str:
     updated = content
     for key, trusted_hash in sorted(updates.items()):
-        block = f'[hooks.state."{key}"]\ntrusted_hash = "{trusted_hash}"\n\n'
+        block = f"[hooks.state.'{key}']\ntrusted_hash = \"{trusted_hash}\"\n\n"
         bounds = _state_section_bounds(updated, key)
         if bounds is None:
             if updated and not updated.endswith("\n"):
@@ -248,7 +250,7 @@ def _state_section_bounds(
     start: int | None = None,
 ) -> tuple[int, int] | None:
     if start is None:
-        pattern = re.compile(rf'(?m)^\[hooks\.state\. "{re.escape(key)}"\]\s*$')
+        pattern = re.compile(rf"(?m)^\[hooks\.state\.'{re.escape(key)}'\]\s*$")
         match = pattern.search(content)
         if match is None:
             pattern = re.compile(rf'(?m)^\[hooks\.state\."{re.escape(key)}"\]\s*$')

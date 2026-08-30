@@ -9,16 +9,12 @@ def test_platform_capability_registry_separates_l1_l2_l3_statuses() -> None:
     summary = platform_capability_summary()
 
     assert summary["levels"]["L1"]["status"] == "shipped"
-    assert summary["levels"]["L2"]["status"] == "shipped"
-    assert summary["levels"]["L3"]["status"] == "shipped"
+    assert summary["levels"]["L2"]["status"] in {"foundation", "planned"}
+    assert summary["levels"]["L3"]["status"] in {"foundation", "planned"}
     names = {capability["name"] for capability in summary["capabilities"]}
     assert {
         "local_shared_brain",
         "team_sync_contract",
-        "automatic_feedback_loop",
-        "replay_gated_adaptive_recall",
-        "persistent_task_state_machine",
         "semantic_contradiction_baseline",
         "enterprise_release_gate",
-        "organization_rbac_console",
     } <= names

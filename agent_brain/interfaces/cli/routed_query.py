@@ -6,10 +6,11 @@ import logging
 import math
 import os
 import time
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any, Callable, Literal, Mapping, cast
+from typing import Any, Literal, cast
 
 from agent_brain.memory.context.context_firewall_types import ContextCandidate
 from agent_brain.memory.context.context_loading import ContextVerbosity
@@ -23,14 +24,15 @@ from agent_brain.memory.context.injection_gateway import (
     surface_injection_metrics,
 )
 from agent_brain.memory.context.injection_query_context import InjectionQueryContext
+from agent_brain.memory.context.query_signal import QuerySignal
 from agent_brain.memory.recall.admission import build_recall_request
 from agent_brain.memory.recall.retrieval import SearchFilter
 from agent_brain.memory.recall.retrieval_types import RetrievedItem
 from agent_brain.memory.recall.routed_types import (
     ProjectScope,
+    ProjectShadowTrace,
     RecallRequest,
     RouteEvidence,
-    ProjectShadowTrace,
     RoutedSearchResult,
     RouteTrace,
 )
@@ -132,7 +134,6 @@ def execute_routed_query(
             project_scope=scope,
             cwd=cwd,
             session_id=session_id,
-            brain_dir=brain_dir,
         )
         routed = _generate_candidates(
             request=request,
@@ -163,6 +164,7 @@ def execute_routed_query(
                 injection=None,
                 hydrate_error_count=0,
                 project_shadow_count=len(shadow),
+                query_signal=request.query_signal,
             )
             return HookSearchPayload("empty", "admission_rejected", "", routes, shadow)
         if not routed.hits:
@@ -179,6 +181,7 @@ def execute_routed_query(
                 injection=None,
                 hydrate_error_count=0,
                 project_shadow_count=len(shadow),
+                query_signal=request.query_signal,
             )
             return HookSearchPayload("empty", "no_candidates", "", routes, shadow)
 
@@ -245,6 +248,7 @@ def execute_routed_query(
                 injection=injection,
                 hydrate_error_count=hydrate_error_count,
                 project_shadow_count=len(shadow),
+                query_signal=request.query_signal,
             )
             return HookSearchPayload("empty", "all_rejected", "", routes, shadow)
 
@@ -256,6 +260,7 @@ def execute_routed_query(
                 hydrate_error_count=hydrate_error_count,
             ),
         )
+        metrics.update(_query_model_fallback_metrics(request.query_signal))
         context = _render_included_context(injection)
         if not context:
             raise RuntimeError("empty packed context")
@@ -289,6 +294,7 @@ def execute_routed_query(
                 injection=injection,
                 hydrate_error_count=hydrate_error_count,
                 project_shadow_count=len(shadow),
+                query_signal=request.query_signal,
             )
         return HookSearchPayload("injected", "included", context, routes, shadow)
     except TimeoutError:
@@ -336,7 +342,6 @@ def _generate_candidates(
         filters=filters,
         explain=False,
         record_access=False,
-        adapter=request.adapter,
     )
     evidence = {
         hit.id: RouteEvidence(
@@ -437,11 +442,6 @@ def _serialize_routes(
 
 def _render_included_context(injection: InjectionResult) -> str:
     blocks: list[str] = []
-    if "topic_conflict_requires_verification" in injection.cohort_reasons:
-        blocks.append(
-            "⚠ 检测到可能冲突的长期记忆；不得按新旧或置信度选边，"
-            "请核验当前领域的权威来源。"
-        )
     for entry in injection.included:
         item = entry.decision.candidate.item
         pack = entry.pack
@@ -508,6 +508,7 @@ def _maybe_record_gap(
     retrieved_count: int,
     injection: InjectionResult | None,
     hydrate_error_count: int,
+    query_signal: QuerySignal,
     project_shadow_count: int = 0,
 ) -> None:
     if not enabled or brain_dir is None:
@@ -524,6 +525,10 @@ def _maybe_record_gap(
     ]
     if project_shadow_count:
         evidence.append(f"project_shadow_count={project_shadow_count}")
+    evidence.extend(
+        f"{key}={value}"
+        for key, value in _query_model_fallback_metrics(query_signal).items()
+    )
     reason_counts = injection_exclusion_reason_counts(
         excluded,
         hydrate_error_count=hydrate_error_count,
@@ -540,6 +545,22 @@ def _maybe_record_gap(
         session_id=session_id,
         cwd=cwd,
     )
+
+
+def _query_model_fallback_metrics(signal: QuerySignal) -> dict[str, object]:
+    if signal.model_fallback_status == "not_attempted":
+        return {}
+    metrics: dict[str, object] = {
+        "query_model_fallback_status": signal.model_fallback_status,
+        "constraint_resolution": signal.constraint_resolution,
+    }
+    if signal.model_fallback_confidence is not None:
+        metrics["query_model_fallback_confidence"] = signal.model_fallback_confidence
+    if signal.model_fallback_input_tokens is not None:
+        metrics["query_model_fallback_input_tokens"] = signal.model_fallback_input_tokens
+    if signal.model_fallback_output_tokens is not None:
+        metrics["query_model_fallback_output_tokens"] = signal.model_fallback_output_tokens
+    return metrics
 
 
 def _serialize_project_shadow(

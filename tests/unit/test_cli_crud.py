@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import os
-import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -654,7 +653,7 @@ class TestReviewCLI:
         assert data["review_total"] == 1
         assert data["pending_depth"] == 1
         assert data["pending_dead"] == 0
-        assert data["recommended_next"] == "memory review list --format json"
+        assert data["recommended_next"] == "review list --format json"
 
     def test_review_status_pending_next_action_is_preview_only(self, tmp_brain_dir, monkeypatch):
         monkeypatch.setenv("BRAIN_DIR", str(tmp_brain_dir))
@@ -792,19 +791,6 @@ class TestUpdateCLI:
 
 
 class TestLinkUnlinkCLI:
-    def test_link_rejects_prefix_before_graph_mutation(self, populated_brain):
-        tmp, _store, item = populated_brain
-
-        result = runner.invoke(app, ["link", "mem-20260528", item.id])
-
-        assert result.exit_code == 2
-        assert "INVALID_ITEM_ID" in result.output
-        with sqlite3.connect(tmp / "index.db") as connection:
-            assert connection.execute(
-                "SELECT COUNT(*) FROM refs_graph WHERE source_id = ?",
-                ("mem-20260528",),
-            ).fetchone() == (0,)
-
     def test_link_and_unlink(self, populated_brain):
         tmp, store, item = populated_brain
         item2 = MemoryItem(
@@ -825,35 +811,6 @@ class TestLinkUnlinkCLI:
         result = runner.invoke(app, ["unlink", item.id, item2.id])
         assert result.exit_code == 0
         assert "unlinked" in result.output
-
-    def test_supersedes_link_requires_lifecycle_governance(self, populated_brain):
-        tmp, store, item = populated_brain
-        replacement = MemoryItem(
-            id="mem-20260528-100000-replacement",
-            type=MemoryType.decision,
-            created_at=datetime.now(timezone.utc),
-            title="Replacement decision",
-            summary="A governed replacement",
-        )
-        store.write(replacement, "replacement body")
-        before = {
-            path.name: path.read_bytes()
-            for path in store.items_dir.glob("*.md")
-        }
-
-        result = runner.invoke(
-            app,
-            ["link", replacement.id, item.id, "--label", "supersedes"],
-        )
-
-        assert result.exit_code != 0
-        assert "memory govern apply-lifecycle --supersede" in result.output
-        assert "OLD:NEW" in result.output
-        assert {
-            path.name: path.read_bytes()
-            for path in store.items_dir.glob("*.md")
-        } == before
-        assert not (tmp / "index.db").exists()
 
 
 class TestTagSuggestCLI:

@@ -79,10 +79,8 @@ def doctor_offline(
     )
     if pending_requires_attention:
         preview_command = "memory sync-pending --summary-only --format json"
-    elif lifecycle_metrics["lifecycle_due_count"]:
+    elif lifecycle_metrics["review_queue_count"]:
         preview_command = "memory govern plan --category lifecycle --format markdown"
-    elif lifecycle_metrics["active_review_candidate_count"]:
-        preview_command = "memory review list --format json"
     else:
         preview_command = "memory verify"
     if lifecycle.status == "fail":
@@ -97,9 +95,7 @@ def doctor_offline(
             f"ready={pending_groups['ready']}, "
             f"review={pending_groups['review']}, "
             f"blocker={pending_groups['blocker']}, "
-            f"oldest={oldest_text}, "
-            f"active_review={lifecycle_metrics['active_review_candidate_count']}, "
-            f"lifecycle_due={lifecycle_metrics['lifecycle_due_count']}"
+            f"oldest={oldest_text}"
         ),
         lifecycle_status,
     ))

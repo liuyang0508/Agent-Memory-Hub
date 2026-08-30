@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from agent_brain.memory.recall.retrieval_decay import ranking_weight
 from agent_brain.memory.recall.retrieval_types import RetrievedItem
 
 if TYPE_CHECKING:
@@ -64,7 +63,7 @@ def apply_feedback_value_weight(
         result.append(
             RetrievedItem(
                 id=candidate.id,
-                score=candidate.score * ranking_weight(multiplier),
+                score=candidate.score * multiplier,
                 bm25_rank=candidate.bm25_rank,
                 vector_rank=candidate.vector_rank,
             )

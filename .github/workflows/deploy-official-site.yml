@@ -7,13 +7,8 @@ on:
       - main
     paths:
       - docs/visuals/agent-memory-hub-official-site.html
-      - deploy/telemetry_server.py
-      - deploy/nginx-telemetry-location.conf
-      - docs/product-telemetry.zh.md
+      - docs/assets/agent-memory-hub-wechat-community-qr-current.jpg
       - .github/workflows/deploy-official-site.yml
-
-permissions:
-  contents: read
 
 jobs:
   deploy:
@@ -29,7 +24,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@v4
 
       - name: Skip when deployment secrets are missing
         if: env.DEPLOY_ENABLED != 'true'
@@ -50,9 +45,6 @@ jobs:
         run: |
           set -euo pipefail
           remote="${AIHUB_SSH_USER}@${AIHUB_SSH_HOST}"
-          ssh -i ~/.ssh/aihub_deploy_key -p "$AIHUB_SSH_PORT" "$remote" "mkdir -p '$AIHUB_WEB_ROOT/assets' '$AIHUB_WEB_ROOT/.telemetry'"
+          ssh -i ~/.ssh/aihub_deploy_key -p "$AIHUB_SSH_PORT" "$remote" "mkdir -p '$AIHUB_WEB_ROOT/assets'"
           scp -i ~/.ssh/aihub_deploy_key -P "$AIHUB_SSH_PORT" docs/visuals/agent-memory-hub-official-site.html "$remote:$AIHUB_WEB_ROOT/index.html"
-          scp -i ~/.ssh/aihub_deploy_key -P "$AIHUB_SSH_PORT" deploy/telemetry_server.py "$remote:$AIHUB_WEB_ROOT/.telemetry/telemetry_server.py"
-          scp -i ~/.ssh/aihub_deploy_key -P "$AIHUB_SSH_PORT" deploy/nginx-telemetry-location.conf "$remote:$AIHUB_WEB_ROOT/.telemetry/nginx-location.conf.example"
-          ssh -i ~/.ssh/aihub_deploy_key -p "$AIHUB_SSH_PORT" "$remote" \
-            "if systemctl is-active --quiet agent-memory-hub-telemetry.service 2>/dev/null; then systemctl restart agent-memory-hub-telemetry.service; elif systemctl --user is-active --quiet agent-memory-hub-telemetry.service 2>/dev/null; then systemctl --user restart agent-memory-hub-telemetry.service; fi"
+          scp -i ~/.ssh/aihub_deploy_key -P "$AIHUB_SSH_PORT" docs/assets/agent-memory-hub-wechat-community-qr-current.jpg "$remote:$AIHUB_WEB_ROOT/assets/agent-memory-hub-wechat-community-qr-current.jpg"

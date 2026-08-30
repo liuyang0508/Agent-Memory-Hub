@@ -12,6 +12,9 @@ agent-memory-hub entries, and uninstall removes only those entries.
 
 from __future__ import annotations
 
+import shutil
+import tomllib
+from datetime import UTC, datetime
 from pathlib import Path
 
 from . import AdapterBase, AdapterConfig
@@ -98,17 +101,26 @@ class CodexAdapter(AdapterBase):
 
     def install(self) -> str:
         self._validate_inputs()
+        incompatible_backup = self._backup_incompatible_config()
         changed = [
             self._install_agents_block(),
             self._install_hooks(),
             self._install_mcp_server(),
         ]
+        recovered = self._recover_incompatible_config(incompatible_backup)
+        if recovered is not None:
+            changed.append(True)
         if not any(changed):
             return f"codex adapter: already up-to-date in {AGENTS_MD}"
-        return (
+        message = (
             "codex adapter: installed/updated AGENTS.md, hooks, and MCP server "
             f"under {AGENTS_MD.parent}"
         )
+        if recovered is not None:
+            message += f"; recovered incompatible config (backup: {recovered})"
+        elif incompatible_backup is not None:
+            message += f"; repaired incompatible config (backup: {incompatible_backup})"
+        return message
 
     def uninstall(self) -> str:
         changed = [
@@ -195,12 +207,58 @@ class CodexAdapter(AdapterBase):
 
     def _install_mcp_server(self) -> bool:
         CODEX_CONFIG_TOML.parent.mkdir(parents=True, exist_ok=True)
-        current = CODEX_CONFIG_TOML.read_text(encoding="utf-8") if CODEX_CONFIG_TOML.exists() else ""
+        current = (
+            CODEX_CONFIG_TOML.read_text(encoding="utf-8-sig")
+            if CODEX_CONFIG_TOML.exists()
+            else ""
+        )
         updated = _upsert_mcp_block(current, _mcp_block(self.mcp_server))
         if updated == current:
             return False
         _atomic_write_text(CODEX_CONFIG_TOML, updated)
         return True
+
+    def _backup_incompatible_config(self) -> Path | None:
+        """Preserve an invalid user config before attempting AMH-owned repairs."""
+        if not CODEX_CONFIG_TOML.exists():
+            return None
+        try:
+            tomllib.loads(CODEX_CONFIG_TOML.read_text(encoding="utf-8-sig"))
+            return None
+        except (OSError, UnicodeError, tomllib.TOMLDecodeError):
+            stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
+            backup = CODEX_CONFIG_TOML.with_name(
+                f"{CODEX_CONFIG_TOML.name}.bak.amh-incompatible.{stamp}"
+            )
+            shutil.copy2(CODEX_CONFIG_TOML, backup)
+            return backup
+
+    def _recover_incompatible_config(self, backup: Path | None) -> Path | None:
+        """Ensure install never leaves Codex with an unreadable config.toml.
+
+        Legacy AMH sections are normally repaired in place by the hook/MCP
+        upserts.  If unrelated malformed TOML remains, keep the original backup
+        and rebuild only AMH-owned sections so Codex can start and regenerate
+        its optional defaults.
+        """
+        try:
+            tomllib.loads(CODEX_CONFIG_TOML.read_text(encoding="utf-8-sig"))
+            return None
+        except (OSError, UnicodeError, tomllib.TOMLDecodeError):
+            if backup is None:
+                backup = self._backup_incompatible_config()
+            _atomic_write_text(CODEX_CONFIG_TOML, "")
+            self._install_hooks()
+            self._install_mcp_server()
+            try:
+                tomllib.loads(CODEX_CONFIG_TOML.read_text(encoding="utf-8-sig"))
+            except (OSError, UnicodeError, tomllib.TOMLDecodeError) as exc:
+                CODEX_CONFIG_TOML.unlink(missing_ok=True)
+                raise RuntimeError(
+                    "Codex config recovery failed; removed the unreadable active "
+                    f"config so Codex can regenerate it. Backup: {backup}"
+                ) from exc
+            return backup
 
     def _uninstall_mcp_server(self) -> bool:
         if not CODEX_CONFIG_TOML.exists():

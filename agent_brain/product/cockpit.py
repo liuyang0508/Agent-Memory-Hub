@@ -9,8 +9,6 @@ from typing import Any
 from agent_brain.agent_integrations.capabilities import AdapterCapability, capabilities_for_all
 from agent_brain.agent_integrations.runtime_events import iter_runtime_events
 from agent_brain.contracts.memory_item import MemoryItem
-from agent_brain.memory.governance.signal_state import assess_signal_state
-from agent_brain.memory.governance.review_truth import build_review_truth_snapshot
 from agent_brain.memory.loops.loop_store import LoopStore
 from agent_brain.memory.loops.loop_types import LoopRun
 from agent_brain.memory.store.items_store import ItemsStore
@@ -30,11 +28,6 @@ def build_cockpit_summary(brain_dir: Path, *, now: datetime | None = None) -> di
         "handoff_pack": _handoff_pack(items, generated_at),
         "key_decisions": _key_decisions(items, generated_at),
         "open_signals": _open_signals(items, generated_at),
-        "review_truth": build_review_truth_snapshot(
-            (item for item, _body in items),
-            brain_dir=root,
-            now=generated_at,
-        ).to_dict(),
         "trust_risks": _trust_risks(items, generated_at),
         "adapter_health": _adapter_health(capabilities, adapter_status),
         "loop_governance": _loop_governance(root),
@@ -65,16 +58,10 @@ def _handoff_pack(items: list[tuple[MemoryItem, str]], now: datetime) -> list[di
     candidates = [
         (item, body)
         for item, body in items
-        if (
-            _type(item) != "signal"
-            or assess_signal_state(item, now=now).state == "open"
-        )
-        and (
-            _type(item) in {"signal", "handoff"}
-            or "handoff" in item.tags
-            or "blocker" in item.tags
-            or (_type(item) == "decision" and _age_days(item, now) <= 30)
-        )
+        if _type(item) in {"signal", "handoff"}
+        or "handoff" in item.tags
+        or "blocker" in item.tags
+        or (_type(item) == "decision" and _age_days(item, now) <= 30)
     ]
     ranked = sorted(
         candidates,
@@ -95,15 +82,7 @@ def _key_decisions(items: list[tuple[MemoryItem, str]], now: datetime) -> list[d
 
 
 def _open_signals(items: list[tuple[MemoryItem, str]], now: datetime) -> list[dict[str, Any]]:
-    signals = [
-        (item, body)
-        for item, body in items
-        if _type(item) == "handoff"
-        or (
-            _type(item) == "signal"
-            and assess_signal_state(item, now=now).state == "open"
-        )
-    ]
+    signals = [(item, body) for item, body in items if _type(item) in {"signal", "handoff"}]
     ranked = sorted(
         signals,
         key=lambda pair: (_score_handoff(pair[0], pair[1], now), pair[0].created_at),
@@ -113,12 +92,7 @@ def _open_signals(items: list[tuple[MemoryItem, str]], now: datetime) -> list[di
 
 
 def _trust_risks(items: list[tuple[MemoryItem, str]], now: datetime) -> list[dict[str, Any]]:
-    cards = [
-        _memory_card(item, body, now)
-        for item, body in items
-        if _type(item) != "signal"
-        or assess_signal_state(item, now=now).state in {"open", "ambiguous"}
-    ]
+    cards = [_memory_card(item, body, now) for item, body in items]
     risks = [card for card in cards if card["risk_reasons"]]
     return sorted(
         risks,
@@ -209,9 +183,6 @@ def _loop_governance_row(loop: LoopRun) -> dict[str, Any]:
         "contract_id": loop.metadata.get("contract_id"),
         "completion_readiness": readiness,
         "open_human_gates": len(_open_human_gates(loop)),
-        "steps": len(loop.steps),
-        "verified_steps": sum(1 for step in loop.steps if step.get("status") == "verified"),
-        "open_blockers": sum(1 for row in loop.blockers if row.get("status") == "open"),
     }
 
 
@@ -272,11 +243,6 @@ def _timeline(brain_dir: Path) -> list[dict[str, str | None]]:
 
 
 def _memory_card(item: MemoryItem, body: str, now: datetime) -> dict[str, Any]:
-    signal_state = (
-        assess_signal_state(item, now=now).state
-        if _type(item) == "signal"
-        else None
-    )
     return {
         "id": item.id,
         "type": _type(item),
@@ -287,7 +253,6 @@ def _memory_card(item: MemoryItem, body: str, now: datetime) -> dict[str, Any]:
         "project": item.project,
         "tags": list(item.tags),
         "confidence": item.confidence,
-        "signal_state": signal_state,
         "detail_uri": item.context_views.detail_uri or f"memory://items/{item.id}/body",
         "retrieve_hint": item.context_views.locator or item.summary,
         "trust_reasons": _trust_reasons(item, body, now),
@@ -298,10 +263,7 @@ def _memory_card(item: MemoryItem, body: str, now: datetime) -> dict[str, Any]:
 def _trust_reasons(item: MemoryItem, body: str, now: datetime) -> list[str]:
     reasons: list[str] = []
     item_type = _type(item)
-    if item_type == "handoff" or (
-        item_type == "signal"
-        and assess_signal_state(item, now=now).state == "open"
-    ):
+    if item_type in {"signal", "handoff"}:
         reasons.append("open_signal")
     if item_type == "decision":
         reasons.append("decision")
@@ -335,10 +297,6 @@ def _risk_reasons(item: MemoryItem, body: str, now: datetime) -> list[str]:
         reasons.append("firewall_excluded")
     if item.superseded_by:
         reasons.append("superseded")
-    if _type(item) == "signal":
-        state = assess_signal_state(item, now=now)
-        if state.state == "ambiguous":
-            reasons.append("ambiguous_signal_state")
     return reasons
 
 

@@ -54,62 +54,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   large brain. The report also exposes low-sensitivity reason counts, record-lock
   hygiene, and pending apply receipt-ledger health.
 - **Auditable pending batches** — `memory sync-pending --summary-only` provides
-  count-only preview/apply JSON. Explicit pending record/resolution apply writes
-  prepared/completed append-only receipts under
-  `runtime/pending-apply-receipts.jsonl`; an unmatched prepared entry is reported
-  as incomplete when completion append fails. Standalone lock GC writes no
-  receipt. Proven orphan record locks are collected only while the global
-  pending queue lock is held and after a non-blocking exclusive inode check;
-  held locks are preserved without failing GC by themselves.
-- **Explicit pending resolutions** — `memory sync-pending` now previews
-  per-record audit approval, exact-duplicate acceptance, legacy
-  `feedback -> decision` conversion, and standalone orphan-lock GC. `--apply`
-  is required to mutate; audit approval never bypasses secrets, duplicate
-  acceptance writes no new item, and low-sensitivity record/resolution receipts
-  expose digests and counts instead of raw record/item IDs or bodies.
-- **Audited pending terminal dispositions** — explicit `--reject ID:reason`
-  and `--quarantine ID:reason` resolve review-only or malformed/conflicting
-  records without writing memory. Exact JSONL bytes move to
-  `pending/resolved/`, active queue age clears, and prepared/completed receipts
-  retain the bounded terminal action.
-- **Signal-state consistency gate** — lifecycle readiness now fails when an
-  active signal mixes terminal tags (`resolved` / `closed`) with active tags
-  (`pending` / `blocked`) or closure text lacks a terminal tag. The same finding
-  appears as a review-required lifecycle plan action; no semantic rewrite is
-  auto-applied.
-- **Low-confidence review cohorts** — readiness and maintenance planning now
-  separate contested, explicit-source-gap, source-backed, and terminal
-  low-confidence memories. `memory review attach-source` adds bounded file,
-  HTTPS URL, commit, or memory references without changing confidence or
-  bypassing explicit approve/reject.
-- **Review evidence closure v1** — `memory review evidence-plan` binds exact
-  MemoryItem Markdown digests to content-free source verification, distinguishes
-  explicit source gaps from recoverable WriteService provenance, deduplicates
-  resource/extraction evidence by provenance root, and routes every contested
-  active review item to a contradiction Case or `contested_unpaired`. The
-  self-authored `write_input` sidecar remains `traceability_only` and never
-  counts as independent truth support. The
-  locator-free aggregate is available to admins through Web API and Cockpit;
-  preview never fetches URLs or changes confidence.
-- **Digest-bound review resolution receipts** — `memory review resolve`
-  previews an exact Markdown SHA-256 and requires that digest on apply. The
-  mutation revalidates under the item lock and appends prepared/completed
-  receipts around the review decision.
-- **Contradiction cases** — overlapping pair findings are collapsed into
-  deterministic connected-component case IDs, preserving pair/item counts and
-  bounded evidence while avoiding duplicate per-pair review work.
-- **Recoverable Case adjudication** — `memory review cases` and
-  `memory review resolve-case` support digest-bound `select-authority`, `merge`,
-  `coexist`, `dismiss`, and `defer` decisions across a whole contradiction Case.
-  Containment now runs as a Case-level snapshot transaction with an append-only
-  baseline ledger, so accepted resolutions restore the exact pre-containment
-  tags/confidence and interrupted containment can be recovered explicitly.
-  Semantic similarity alone no longer claims contradiction, project-scope
-  terms are excluded from topic matching, and false positives can be dismissed.
-  Multi-item
-  Git snapshots and prepared/completed/rolled-back receipts make interruption
-  explicit; changed items reopen the Case, and an unhealthy receipt ledger
-  blocks new decisions. The same workflow is available to Web Admins.
+  count-only preview/apply JSON. Explicit apply writes prepared/completed,
+  append-only receipts under `runtime/pending-apply-receipts.jsonl`; partial
+  completion is reported as incomplete. Proven orphan record locks are collected
+  only while the global pending queue lock is held and after a non-blocking
+  exclusive inode check.
 - **Index operational truth** — `memory verify --format json` now compares
   Markdown and `items_meta` IDs, `.index-dirty` repair debt, and Markdown-derived
   supersession against `refs_graph` through an external read-only SQLite
@@ -120,8 +69,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **Breaking / next-major:** `memory sync-pending` 现在默认预览；只有显式
-  `--apply` 配合 `--record`、`--safe-only`、逐 record resolution 或 standalone
-  lock GC 才会执行对应变更。
+  `--apply`（配合 `--record` 或 `--safe-only`）才会写入或清理队列。
   `memory govern apply-lifecycle` 同样默认预览，supersede、archive、
   keep-active、defer 与 revert-supersession 都要求显式 `--apply`。MCP
   `link_memories(..., relation="supersedes")` 也默认预览，只有
@@ -129,9 +77,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `memory verify` 的默认 text 输出继续保留原有 item 数量与 missing/orphan
   明细，并新增 marker/graph 聚合；additive JSON 输出只包含数量和闭集 reason，
   不输出 item id、路径或正文。退出码从“ID 集合一致”收紧为三维状态全部 clean。
-- `memory reindex` 现在默认清理 Markdown 真相层不存在的派生索引孤儿；
-  诊断性 upsert-only 需显式使用 `--no-prune`。Markdown 扫描不完整时
-  CLI 以非零状态退出、Web API 返回 409，并且都不会执行 prune。
 
 - Realtime browser clients now use an HttpOnly session cookie; non-cookie clients
   exchange Bearer credentials for a short-lived, one-use realtime ticket instead

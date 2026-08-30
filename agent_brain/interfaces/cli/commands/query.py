@@ -6,7 +6,6 @@ import io
 import json
 import os
 from contextlib import redirect_stderr, redirect_stdout
-from typing import Any
 
 from agent_brain.interfaces.cli._app import app
 from agent_brain.interfaces.cli._shared import *  # noqa: F401,F403
@@ -23,8 +22,8 @@ from agent_brain.memory.context.injection_gateway import (
     injection_retrieval_top_k,
     surface_injection_metrics,
 )
-from agent_brain.memory.context.query_signal import analyze_injection_query
 from agent_brain.interfaces.cli.routed_query import HookSearchPayload, execute_routed_query
+from agent_brain.memory.recall.admission import build_routed_query_signal
 from agent_brain.memory.recall.routed_protocol import (
     ROUTED_HOOK_OUTPUT_FORMAT,
     ROUTED_HOOK_PROTOCOL_AVAILABLE,
@@ -251,17 +250,19 @@ def search(
     answerability_query = os.environ.get("AGENT_MEMORY_HUB_RAW_QUERY") or query
     if context_firewall:
         frame_query = answerability_query.replace("|", " ")
-        query_signal = analyze_injection_query(frame_query, brain_dir=_brain_dir())
+        query_signal = build_routed_query_signal(
+            frame_query,
+            enable_technical_anchors=False,
+            brain_dir=_brain_dir(),
+        )
         if query_signal.injectable and query_signal.terms:
             effective_query = "|".join(query_signal.terms[:6])
     retrieval_top_k = injection_retrieval_top_k(top_k) if context_firewall else top_k
-    search_kwargs: dict[str, Any] = {
+    search_kwargs = {
         "top_k": retrieval_top_k,
         "filters": sf,
         "explain": explain or record_injection_cohort,
     }
-    if adapter != "unknown":
-        search_kwargs["adapter"] = adapter
     if context_firewall:
         # Retrieval candidates are not final prompt context. Only Gateway
         # inclusions are allowed to affect access accounting.

@@ -11,14 +11,14 @@
 ## 合同结果
 
 - Supersession：`PASS`
-- Pending classification preview：`PASS`
+- Pending：`PASS`
 - Graph drift：`PASS`
 - CLI / Web surface parity：`PASS`
 - Privacy：`PASS`
 
 ## 可重放标识
 
-- Implementation hash：`sha256:7753661df5ce827d89c0567cb68c0c904f865c1768723c83eaf0f4c7417e2d65`
+- Implementation hash：`sha256:b34cd38868273ed5cee19b670233a2432ac11160b3a509436e2cabab663f39af`
 - Fixture hash：`sha256:256ea5ffe4fe78d72719755c6587dfce2c8580909108db6cc7568079b2e555df`
 - Generator：`amh-lifecycle-governance-generator/v1`
 

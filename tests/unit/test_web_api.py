@@ -16,13 +16,16 @@ from agent_brain.contracts.memory_item import MemoryItem, MemoryType
 
 
 @pytest.fixture()
-def brain_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def brain_dir(tmp_path: Path):
     items_dir = tmp_path / "items"
     items_dir.mkdir()
-    monkeypatch.setenv("BRAIN_DIR", str(tmp_path))
-    monkeypatch.setenv("MEMORY_HUB_TEST_EMBEDDING", "1")
-    monkeypatch.setenv("MEMORY_HUB_RATE_LIMIT", "0")
+    os.environ["BRAIN_DIR"] = str(tmp_path)
+    os.environ["MEMORY_HUB_TEST_EMBEDDING"] = "1"
+    os.environ["MEMORY_HUB_RATE_LIMIT"] = "0"
     yield tmp_path
+    os.environ.pop("BRAIN_DIR", None)
+    os.environ.pop("MEMORY_HUB_TEST_EMBEDDING", None)
+    os.environ.pop("MEMORY_HUB_RATE_LIMIT", None)
 
 
 @pytest.fixture()
@@ -233,8 +236,6 @@ def user_token(client: TestClient, admin_token: str) -> str:
     ("method", "path", "payload"),
     [
         ("GET", "/api/cockpit/summary", None),
-        ("GET", "/api/governance/review-evidence-plan", None),
-        ("GET", "/api/governance/review-truth", None),
         ("GET", "/api/data-flow", None),
         ("GET", "/api/memory-lineage", None),
         ("GET", "/api/memory-candidates", None),
@@ -307,7 +308,6 @@ class TestCockpitSummaryAPI:
             "handoff_pack",
             "key_decisions",
             "open_signals",
-            "review_truth",
             "trust_risks",
             "adapter_health",
             "loop_governance",
@@ -319,129 +319,8 @@ class TestCockpitSummaryAPI:
         assert data["adapter_health"]["wip"] == 1
         assert data["adapter_health"]["verified"] == 0
         assert data["loop_governance"]["status"] == "ok"
-        assert data["review_truth"]["schema_version"] == "amh-review-truth/v1"
-        assert data["review_truth"]["consistency_status"] == "consistent"
         assert "recent" in data["loop_governance"]
         assert any(item["title"] == "Use SSE over WebSocket" for item in data["key_decisions"])
-
-
-class TestReviewTruthAPI:
-    def test_review_truth_requires_auth(self, client: TestClient):
-        assert client.get("/api/governance/review-truth").status_code == 401
-
-    def test_review_truth_returns_content_free_canonical_counts(
-        self,
-        client: TestClient,
-        admin_token: str,
-        brain_dir: Path,
-    ):
-        from datetime import timedelta
-
-        from agent_brain.memory.store.items_store import ItemsStore
-
-        store = ItemsStore(brain_dir / "items")
-        now = datetime.now(timezone.utc)
-        review = MemoryItem(
-            id="mem-20260730-160001-review-truth-private",
-            type=MemoryType.decision,
-            created_at=now - timedelta(days=8),
-            title="PRIVATE_REVIEW_TITLE_CANARY",
-            summary="PRIVATE_REVIEW_SUMMARY_CANARY",
-            confidence=0.35,
-            tags=["needs-review"],
-            sensitivity="private",
-        )
-        lifecycle_due = MemoryItem(
-            id="mem-20260101-160002-review-truth-lifecycle",
-            type=MemoryType.signal,
-            created_at=now - timedelta(days=90),
-            title="Lifecycle due signal",
-            summary="Old signal requiring lifecycle review",
-            confidence=0.9,
-        )
-        store.write(review, "PRIVATE_REVIEW_BODY_CANARY")
-        store.write(lifecycle_due, "Lifecycle due body")
-
-        response = client.get(
-            "/api/governance/review-truth",
-            headers={"Authorization": f"Bearer {admin_token}"},
-        )
-
-        assert response.status_code == 200
-        payload = response.json()
-        assert payload["schema_version"] == "amh-review-truth/v1"
-        assert payload["consistency_status"] == "consistent"
-        assert payload["active_review_candidate_count"] == 1
-        assert payload["active_review_candidate_sla_breach_count"] == 1
-        assert payload["active_review_reason_counts"] == {"source_gap": 1}
-        assert payload["active_review_type_counts"] == {"decision": 1}
-        assert payload["active_review_contested_count"] == 0
-        assert (
-            payload["active_review_contested_outside_low_confidence_count"]
-            == 0
-        )
-        assert payload["lifecycle_due_count"] == 1
-        serialized = response.text
-        assert "PRIVATE_REVIEW_TITLE_CANARY" not in serialized
-        assert "PRIVATE_REVIEW_SUMMARY_CANARY" not in serialized
-        assert "PRIVATE_REVIEW_BODY_CANARY" not in serialized
-
-
-class TestReviewEvidencePlanAPI:
-    def test_review_evidence_plan_requires_auth(self, client: TestClient):
-        assert (
-            client.get("/api/governance/review-evidence-plan").status_code
-            == 401
-        )
-
-    def test_review_evidence_plan_is_content_and_locator_free(
-        self,
-        client: TestClient,
-        admin_token: str,
-        brain_dir: Path,
-    ):
-        from agent_brain.contracts.memory_item import Refs, Validity
-        from agent_brain.memory.store.items_store import ItemsStore
-
-        source = brain_dir / "PRIVATE_SOURCE_LOCATOR_CANARY.md"
-        source.write_text("PRIVATE_SOURCE_CONTENT_CANARY", encoding="utf-8")
-        item = MemoryItem(
-            id="mem-20260730-160003-review-evidence-private",
-            type=MemoryType.decision,
-            created_at=datetime.now(timezone.utc),
-            project="review-evidence-api",
-            title="PRIVATE_EVIDENCE_TITLE_CANARY",
-            summary="PRIVATE_EVIDENCE_SUMMARY_CANARY",
-            confidence=0.35,
-            tags=["needs-review"],
-            sensitivity="private",
-            refs=Refs(files=[source.name]),
-            validity=Validity(repo=str(brain_dir)),
-        )
-        ItemsStore(brain_dir / "items").write(
-            item,
-            "PRIVATE_EVIDENCE_BODY_CANARY",
-        )
-
-        response = client.get(
-            "/api/governance/review-evidence-plan",
-            headers={"Authorization": f"Bearer {admin_token}"},
-        )
-
-        assert response.status_code == 200
-        payload = response.json()
-        assert payload["schema_version"] == "amh-review-evidence-plan/v1"
-        assert payload["evidence_available_count"] == 1
-        assert payload["mutates_memory"] is False
-        assert payload["mutates_confidence"] is False
-        assert payload["items"][0]["sources"][0]["availability"] == "verified"
-        assert "locator" not in payload["items"][0]["sources"][0]
-        serialized = response.text
-        assert "PRIVATE_SOURCE_LOCATOR_CANARY" not in serialized
-        assert "PRIVATE_SOURCE_CONTENT_CANARY" not in serialized
-        assert "PRIVATE_EVIDENCE_TITLE_CANARY" not in serialized
-        assert "PRIVATE_EVIDENCE_SUMMARY_CANARY" not in serialized
-        assert "PRIVATE_EVIDENCE_BODY_CANARY" not in serialized
 
 
 class TestAdapterOnboardingAPI:
@@ -738,7 +617,7 @@ class TestApiDocsRoutes:
         data = resp.json()
         paths = {route["path"] for route in data["routes"]}
         assert data["total"] == len(data["routes"])
-        assert data["total"] == 124
+        assert data["total"] == 105
         assert "/api/data-flow" in paths
         assert "/api/chain-logs" in paths
         assert "/api/chain-logs/{chain_id}" in paths
@@ -749,15 +628,7 @@ class TestApiDocsRoutes:
         assert "/api/adapters/{name}/upgrade" in paths
         assert "/api/adapters/{name}/release" in paths
         assert "/api/governance/lifecycle-review" in paths
-        assert "/api/governance/review-truth" in paths
-        assert "/api/governance/review-evidence-plan" in paths
         assert "/api/governance/lifecycle-apply" in paths
-        assert "/api/governance/contradiction-cases" in paths
-        assert "/api/governance/contradiction-cases/{case_id}/resolve" in paths
-        assert "/api/governance/contradiction-cases/recover" in paths
-        assert "/api/governance/contradiction-containment/recover" in paths
-        assert "/api/governance/signals/{item_id}/transition" in paths
-        assert "/api/governance/signals/recover" in paths
         assert "/api/memory-lineage" in paths
         assert "/api/auth/realtime-ticket" in paths
         assert "/ws/events" in paths
@@ -1522,97 +1393,6 @@ class TestSemanticSearch:
         assert result["firewall"]["action"] in {"include", "demote"}
         assert result["resource_context"][0]["resource_id"] == resource.id
 
-    def test_search_survives_exact_secure_resource_store_unavailable(
-        self,
-        client: TestClient,
-        admin_token: str,
-        brain_dir: Path,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        from agent_brain.contracts.memory_item import Refs
-        from web._base import _components, _components_cache
-        from web.api.routes import item_search
-
-        _components_cache.clear()
-        store, idx, _retriever, embedder = _components()
-        item = MemoryItem(
-            id="mem-20260724-120000-web-resource-store-unavailable",
-            type=MemoryType.fact,
-            created_at=datetime.now(timezone.utc),
-            title="Web resource store unavailable",
-            summary="Web resource store unavailable search boundary",
-            refs=Refs(resources=["res-20260724-120000-unavailable-store"]),
-        )
-        body = "Web resource store unavailable search body."
-        store.write(item, body)
-        idx.upsert(item, body, embedding=embedder.embed(item.title))
-
-        class UnavailableResourceStore:
-            def __init__(self, _brain):
-                raise OSError("SECURE_RESOURCE_STORE_UNAVAILABLE")
-
-        monkeypatch.setattr(
-            item_search,
-            "ResourceStore",
-            UnavailableResourceStore,
-        )
-
-        response = client.get(
-            "/api/search?"
-            "q=Web%20resource%20store%20unavailable"
-            "&context_firewall=true&include_resources=true",
-            headers={"Authorization": f"Bearer {admin_token}"},
-        )
-
-        assert response.status_code == 200
-        payload = response.json()
-        assert payload["results"][0]["id"] == item.id
-        assert payload["results"][0]["resource_context"] == []
-        assert payload["resource_results"] == []
-
-    def test_search_does_not_swallow_unrelated_resource_store_errors(
-        self,
-        client: TestClient,
-        admin_token: str,
-        brain_dir: Path,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        from agent_brain.contracts.memory_item import Refs
-        from web._base import _components, _components_cache
-        from web.api.routes import item_search
-
-        _components_cache.clear()
-        store, idx, _retriever, embedder = _components()
-        item = MemoryItem(
-            id="mem-20260724-120001-web-resource-store-broken",
-            type=MemoryType.fact,
-            created_at=datetime.now(timezone.utc),
-            title="Web resource store broken",
-            summary="Web resource store broken search boundary",
-            refs=Refs(resources=["res-20260724-120000-broken-store"]),
-        )
-        body = "Web resource store broken search body."
-        store.write(item, body)
-        idx.upsert(item, body, embedding=embedder.embed(item.title))
-
-        class BrokenResourceStore:
-            def __init__(self, _brain):
-                raise OSError("RESOURCE_STORE_BROKEN")
-
-        monkeypatch.setattr(
-            item_search,
-            "ResourceStore",
-            BrokenResourceStore,
-        )
-
-        with pytest.raises(OSError, match="RESOURCE_STORE_BROKEN"):
-            client.get(
-                "/api/search?"
-                "q=Web%20resource%20store%20broken"
-                "&context_firewall=true&include_resources=true",
-                headers={"Authorization": f"Bearer {admin_token}"},
-            )
-
     def test_search_defaults_to_gateway_and_records_only_final_safe_hits(
         self,
         brain_dir: Path,
@@ -2031,152 +1811,6 @@ class TestGC:
 class TestLifecycleGovernanceAPI:
     def test_lifecycle_review_requires_admin(self, client: TestClient):
         assert client.get("/api/governance/lifecycle-review").status_code == 401
-
-    def test_contradiction_case_routes_preview_and_apply(
-        self,
-        client: TestClient,
-        admin_token: str,
-        brain_dir: Path,
-    ):
-        from agent_brain.memory.store.items_store import ItemsStore
-
-        store = ItemsStore(items_dir=brain_dir / "items")
-        first = MemoryItem(
-            id="mem-20260101-170001-web-react-case",
-            type=MemoryType.decision,
-            created_at=datetime.now(timezone.utc),
-            project="web-case-governance",
-            title="Frontend Framework Choice",
-            summary="Use React",
-            tags=["framework-choice"],
-        )
-        second = first.model_copy(
-            update={
-                "id": "mem-20260101-170002-web-vue-case",
-                "title": "Frontend Framework Choice Updated",
-                "summary": "Use Vue",
-            }
-        )
-        store.write(first, "We decided to use React for the frontend framework.")
-        store.write(second, "After evaluation, we chose Vue instead of React.")
-        headers = {"Authorization": f"Bearer {admin_token}"}
-
-        listed = client.get(
-            "/api/governance/contradiction-cases",
-            headers=headers,
-        )
-        case = listed.json()["cases"][0]
-        preview = client.post(
-            f"/api/governance/contradiction-cases/{case['case_id']}/resolve",
-            json={"action": "dismiss"},
-            headers=headers,
-        )
-        applied = client.post(
-            f"/api/governance/contradiction-cases/{case['case_id']}/resolve",
-            json={
-                "action": "dismiss",
-                "apply": True,
-                "expected_intent_sha256": preview.json()[
-                    "expected_intent_sha256"
-                ],
-            },
-            headers=headers,
-        )
-        resolved = client.get(
-            "/api/governance/contradiction-cases?include_resolved=true",
-            headers=headers,
-        )
-
-        assert listed.status_code == 200, listed.text
-        assert case["status"] == "open"
-        assert [item["id"] for item in case["items"]] == [first.id, second.id]
-        assert preview.status_code == 200, preview.text
-        assert preview.json()["status"] == "ready"
-        assert applied.status_code == 200, applied.text
-        assert applied.json()["status"] == "applied"
-        assert resolved.status_code == 200, resolved.text
-        assert resolved.json()["cases"][0]["status"] == "resolved"
-
-    def test_contradiction_case_routes_require_admin(
-        self,
-        client: TestClient,
-        admin_token: str,
-        user_token: str,
-    ):
-        assert (
-            client.get("/api/governance/contradiction-cases").status_code
-            == 401
-        )
-        response = client.get(
-            "/api/governance/contradiction-cases",
-            headers={"Authorization": f"Bearer {user_token}"},
-        )
-        assert response.status_code == 403
-
-    def test_signal_transition_route_preview_and_apply(
-        self,
-        client: TestClient,
-        admin_token: str,
-        brain_dir: Path,
-    ):
-        from agent_brain.memory.store.items_store import ItemsStore
-
-        store = ItemsStore(items_dir=brain_dir / "items")
-        signal = MemoryItem(
-            id="mem-20260730-031000-web-signal-transition",
-            type=MemoryType.signal,
-            created_at=datetime.now(timezone.utc),
-            project="web-signal-governance",
-            title="Open production blocker",
-            summary="Waiting for operator action",
-            tags=["blocked", "pending"],
-        )
-        store.write(signal, "waiting")
-        headers = {"Authorization": f"Bearer {admin_token}"}
-        path = f"/api/governance/signals/{signal.id}/transition"
-
-        preview = client.post(
-            path,
-            json={"action": "obsolete", "reason": "environment retired"},
-            headers=headers,
-        )
-        applied = client.post(
-            path,
-            json={
-                "action": "obsolete",
-                "reason": "environment retired",
-                "apply": True,
-                "expected_intent_sha256": preview.json()["intent_sha256"],
-            },
-            headers=headers,
-        )
-        updated, _body = store.get(signal.id)
-
-        assert preview.status_code == 200, preview.text
-        assert preview.json()["status"] == "ready"
-        assert applied.status_code == 200, applied.text
-        assert applied.json()["status"] == "applied"
-        assert applied.json()["signal_state"] == "obsolete"
-        assert updated.signal_state is not None
-        assert updated.signal_state.status == "obsolete"
-
-    def test_signal_transition_route_requires_admin(
-        self,
-        client: TestClient,
-        user_token: str,
-    ):
-        path = (
-            "/api/governance/signals/"
-            "mem-20260730-031001-web-signal-admin/transition"
-        )
-
-        assert client.post(path, json={"action": "obsolete"}).status_code == 401
-        response = client.post(
-            path,
-            json={"action": "obsolete"},
-            headers={"Authorization": f"Bearer {user_token}"},
-        )
-        assert response.status_code == 403
 
     def test_lifecycle_review_lists_read_only_queue(
         self,
@@ -2624,56 +2258,10 @@ class TestMaintenanceRoutes:
         assert "effective" in data["items"][0]
 
     def test_reindex(self, client: TestClient, admin_token: str, seed_items):
-        from web._base import _components
-
-        ghost = MemoryItem(
-            id="mem-20260101-000099-web-reindex-ghost",
-            type=MemoryType.fact,
-            title="Web reindex ghost",
-            summary="Derived row without Markdown truth",
-            created_at=datetime.now(timezone.utc),
-        )
-        _, index, _, _ = _components()
-        index.upsert(ghost, ghost.summary, embedding=None)
         headers = {"Authorization": f"Bearer {admin_token}"}
         resp = client.post("/api/reindex", headers=headers)
         assert resp.status_code == 200
         assert resp.json()["reindexed"] == 3
-        assert resp.json()["pruned"] == 1
-        assert ghost.id not in index.all_ids()
-
-    def test_reindex_rejects_incomplete_source_scan_without_pruning(
-        self,
-        client: TestClient,
-        admin_token: str,
-        seed_items,
-        brain_dir: Path,
-    ):
-        from web._base import _components
-
-        ghost = MemoryItem(
-            id="mem-20260101-000098-web-incomplete-ghost",
-            type=MemoryType.fact,
-            title="Web incomplete ghost",
-            summary="Must survive an untrusted source scan",
-            created_at=datetime.now(timezone.utc),
-        )
-        _, index, _, _ = _components()
-        index.upsert(ghost, ghost.summary, embedding=None)
-        (brain_dir / "items" / "malformed.md").write_text(
-            "not frontmatter",
-            encoding="utf-8",
-        )
-
-        resp = client.post(
-            "/api/reindex",
-            headers={"Authorization": f"Bearer {admin_token}"},
-        )
-
-        assert resp.status_code == 409
-        assert resp.json()["detail"]["code"] == "INDEX_SOURCE_SCAN_INCOMPLETE"
-        assert resp.json()["detail"]["pruned"] == 0
-        assert ghost.id in index.all_ids()
 
     def test_obsidian_export(self, client: TestClient, admin_token: str, seed_items, tmp_path: Path):
         headers = {"Authorization": f"Bearer {admin_token}"}

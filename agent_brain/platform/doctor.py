@@ -42,6 +42,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import os
 from pathlib import Path
+import re
 import shlex
 import sqlite3
 
@@ -182,9 +183,10 @@ def _probe_bm25_index_ready(db_path: Path) -> bool:
 
 def _memory_cli_shim_path() -> Path:
     user_bin = os.environ.get("AGENT_MEMORY_HUB_BIN")
+    shim_name = "memory.cmd" if os.name == "nt" else "memory"
     if user_bin:
-        return Path(user_bin) / "memory"
-    return Path.home() / ".local" / "bin" / "memory"
+        return Path(user_bin) / shim_name
+    return Path.home() / ".local" / "bin" / shim_name
 
 
 def _extract_shim_exec_target(shim: Path) -> str:
@@ -193,6 +195,14 @@ def _extract_shim_exec_target(shim: Path) -> str:
     try:
         for raw_line in shim.read_text(encoding="utf-8", errors="replace").splitlines():
             line = raw_line.strip()
+            if os.name == "nt":
+                match = re.match(
+                    r'^"([^"]+)"\s+-m\s+agent_brain\.interfaces\.cli(?:\s|$)',
+                    line,
+                    re.IGNORECASE,
+                )
+                if match is not None:
+                    return match.group(1)
             if not line.startswith("exec "):
                 continue
             parts = shlex.split(line)

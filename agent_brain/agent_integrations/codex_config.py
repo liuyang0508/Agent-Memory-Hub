@@ -45,7 +45,12 @@ def atomic_write_json(path: Path, data: dict) -> None:
 
 
 def mcp_block(command: Path) -> str:
-    return f'{MCP_SECTION}\ncommand = "{command}"\n'
+    # json.dumps emits a TOML-compatible basic string and, critically on
+    # Windows, doubles path separators.  Writing ``C:\Users`` directly inside
+    # TOML double quotes makes ``\U`` look like a Unicode escape and prevents
+    # Codex from loading any user configuration.
+    encoded_command = json.dumps(str(command), ensure_ascii=False)
+    return f"{MCP_SECTION}\ncommand = {encoded_command}\n"
 
 
 def upsert_mcp_block(existing: str, block: str) -> str:

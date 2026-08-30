@@ -575,12 +575,22 @@ def test_doctor_reports_pending_depth(tmp_brain):
 
 def test_doctor_reports_broken_memory_cli_shim(tmp_brain, tmp_path, monkeypatch):
     home = tmp_path / "home"
-    shim = home / ".local" / "bin" / "memory"
-    target = tmp_path / "deleted" / ".venv" / "bin" / "memory"
+    shim = home / ".local" / "bin" / ("memory.cmd" if os.name == "nt" else "memory")
+    target = (
+        tmp_path / "deleted" / ".venv" / "Scripts" / "python.exe"
+        if os.name == "nt"
+        else tmp_path / "deleted" / ".venv" / "bin" / "memory"
+    )
     shim.parent.mkdir(parents=True)
-    shim.write_text(f'#!/bin/sh\nexec "{target}" "$@"\n', encoding="utf-8")
-    shim.chmod(0o755)
-    monkeypatch.setenv("HOME", str(home))
+    body = (
+        f'@echo off\r\n"{target}" -m agent_brain.interfaces.cli %*\r\n'
+        if os.name == "nt"
+        else f'#!/bin/sh\nexec "{target}" "$@"\n'
+    )
+    shim.write_text(body, encoding="utf-8")
+    if os.name != "nt":
+        shim.chmod(0o755)
+    monkeypatch.setenv("AGENT_MEMORY_HUB_BIN", str(shim.parent))
 
     rep = run_doctor(offline=True)
 

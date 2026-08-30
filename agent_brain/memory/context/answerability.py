@@ -14,7 +14,6 @@ from typing import Any, Protocol
 from agent_brain.memory.context.context_firewall_rules import (
     candidate_haystack,
     covered_query_terms,
-    cjk_term_fuzzy_matches,
     matches_query,
 )
 from agent_brain.memory.context.context_firewall_types import (
@@ -231,11 +230,9 @@ def verify_candidate_answerability(
             )
         return CandidateAnswerability(False, (), (), (), query_intent, "query_mismatch")
 
-    covered_set = covered_query_terms(candidate, required_terms)
     covered = tuple(
-        term
-        for term in required_terms
-        if term in covered_set or _cjk_anchor_fuzzy_covered(term, candidate)
+        term for term in required_terms
+        if term in covered_query_terms(candidate, required_terms)
     )
     missing = tuple(term for term in required_terms if term not in covered)
     if missing:
@@ -351,10 +348,7 @@ def verify_routed_candidate_answerability(
 
     if "lexical_raw_fallback" in routes:
         coverage, covered = raw_query_candidate_coverage(query, candidate)
-        anchor_fallback = False
-        if not (covered and coverage >= config.raw_route_min_coverage):
-            anchor_fallback = _routed_anchor_fuzzy_covered(candidate, signal)
-        if (covered and coverage >= config.raw_route_min_coverage) or anchor_fallback:
+        if covered and coverage >= config.raw_route_min_coverage:
             deterministic = CandidateAnswerability(
                 True,
                 (),
@@ -640,27 +634,6 @@ def raw_query_candidate_covered_units(
     ])
 
 
-def _cjk_anchor_fuzzy_covered(term: str, candidate: ContextCandidate) -> bool:
-    """Coverage for a CJK topic anchor that never appears verbatim."""
-    return cjk_term_fuzzy_matches(term, candidate_haystack(candidate))
-
-
-def _routed_anchor_fuzzy_covered(
-    candidate: ContextCandidate,
-    signal: QuerySignal,
-) -> bool:
-    """Raw-route rescue when literal coverage cannot reach the raw threshold.
-
-    Chinese queries paraphrase their topic, so the shared raw-coverage gate
-    starves the correct memory.  Accept the candidate when it fuzzily covers
-    the primary topic anchor instead.
-    """
-    primaries = primary_answerability_terms(signal)
-    if not primaries:
-        return False
-    return _cjk_anchor_fuzzy_covered(primaries[0], candidate)
-
-
 def _substantive_cjk_runs(text: str) -> tuple[str, ...]:
     runs: list[str] = []
     for raw_run in _CJK_RUN_RE.findall(text):
@@ -714,47 +687,12 @@ def _is_substantive_raw_token(token: str) -> bool:
     return lowered not in _RAW_QUERY_CJK_NOISE
 
 
-# Discourse fillers, question clauses, and quantity/measure phrases never
-# anchor a topic; picking one as the primary anchor rejects every on-topic
-# candidate.
-_CJK_NON_TOPICAL_ANCHOR_RE = re.compile(
-    r"针对当前|当前情况|针对(?:这个|那个|此)|目前情况|上述情况|前面提到|综上|总的来|"
-    r"是否|是不是|有没有|为什么|怎么|如何|哪些|多少|"
-    r"^(?:几十|上百|大几十|上百轮|几十轮|好几轮|很多轮|大几十轮)"
-)
-
-# Long CJK topic phrases carry the real subject of a Chinese query.  A bare
-# ASCII word inside a Chinese sentence is often a borrowed verb ("去 mock ...")
-# that coincidentally matches unrelated projects, so it ranks below a genuine
-# CJK topic phrase when one exists.
-
-
 def primary_answerability_terms(signal: QuerySignal) -> tuple[str, ...]:
-    """Return the topic term a candidate must cover to be injected.
-
-    The first substantive strong term is the usual anchor, but queries often
-    open with discourse fillers ("针对当前情况"), question clauses ("是否还有
-    其他未解决的问题"), or closing quantity phrases ("大几十轮上百轮").  Rank
-    terms by topicality so the required anchor is a real topic whenever one
-    exists.
-    """
+    """Return the topic term a candidate must cover to be injected."""
     terms = substantive_answerability_terms(signal.strong_terms or signal.terms)
     if not terms:
         return ()
-    ranked = sorted(
-        range(len(terms)),
-        key=lambda index: (_anchor_term_class(terms[index]), index),
-    )
-    return (terms[ranked[0]],)
-
-
-def _anchor_term_class(term: str) -> int:
-    """Topicality class for one candidate anchor term; lower is better."""
-    if _CJK_NON_TOPICAL_ANCHOR_RE.search(term):
-        return 3
-    if not term.isascii():
-        return 0 if len(term) >= 4 else 2
-    return 1
+    return (terms[0],)
 
 
 def substantive_answerability_terms(terms: tuple[str, ...]) -> tuple[str, ...]:

@@ -33,7 +33,6 @@ def search_items(
     default_project: str | None,
     retriever: Any,
     store: Any,
-    adapter: str = "unknown",
     brain_dir: Path | None = None,
     verbosity: str = "locator",
     include_trace: bool = False,
@@ -75,8 +74,6 @@ def search_items(
         "filters": search_filter if not search_filter.is_empty else None,
         "explain": include_trace,
     }
-    if adapter != "unknown":
-        search_kwargs["adapter"] = adapter
     if context_firewall:
         search_kwargs["record_access"] = False
     hits = retriever.search(query, **search_kwargs)
@@ -186,12 +183,7 @@ def _resource_context_for_item(
     )
     from agent_brain.memory.evidence.resource_store import ResourceStore
 
-    try:
-        store = ResourceStore(brain_dir)
-    except OSError as exc:
-        if exc.args == ("SECURE_RESOURCE_STORE_UNAVAILABLE",):
-            return []
-        raise
+    store = ResourceStore(brain_dir)
     contexts: list[dict[str, Any]] = []
     for resource_id in getattr(item.refs, "resources", []):
         try:

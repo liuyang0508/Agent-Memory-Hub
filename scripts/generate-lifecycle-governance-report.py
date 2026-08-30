@@ -43,7 +43,6 @@ MARKDOWN_PATH = ROOT / "docs/evaluation/lifecycle-governance-readiness.zh.md"
 REPORT_SCHEMA_VERSION = "amh-lifecycle-governance-readiness/v1"
 FIXTURE_SCHEMA_VERSION = "amh-lifecycle-governance-evidence/v1"
 GENERATOR_VERSION = "amh-lifecycle-governance-generator/v1"
-PENDING_CONTRACT_SCOPE = "preview-classification-only"
 EXIT_PASS = 0
 EXIT_FAILED_GATES = 1
 EXIT_STALE_EVIDENCE = 2
@@ -51,12 +50,10 @@ EXIT_INVALID_INPUT = 3
 IMPLEMENTATION_PATHS = (
     "agent_brain/agent_integrations/hermes/import_export_tools.py",
     "agent_brain/agent_integrations/hermes/item_tools.py",
-    "agent_brain/contracts/memory_item.py",
     "agent_brain/contracts/resource.py",
     "agent_brain/interfaces/cli/commands/crud.py",
     "agent_brain/interfaces/cli/commands/gc.py",
     "agent_brain/interfaces/cli/commands/index_maintenance.py",
-    "agent_brain/interfaces/cli/commands/links.py",
     "agent_brain/interfaces/cli/commands/maintenance.py",
     "agent_brain/interfaces/cli/commands/review.py",
     "agent_brain/interfaces/cli/commands/subapps.py",
@@ -68,14 +65,8 @@ IMPLEMENTATION_PATHS = (
     "agent_brain/memory/evidence/import_service.py",
     "agent_brain/memory/evidence/integrations/obsidian.py",
     "agent_brain/memory/evidence/resource_store.py",
-    "agent_brain/memory/context/context_firewall.py",
     "agent_brain/memory/governance/auto_governance.py",
-    "agent_brain/memory/governance/confidence_review.py",
-    "agent_brain/memory/governance/contradiction_cases.py",
-    "agent_brain/memory/governance/contradiction_containment.py",
-    "agent_brain/memory/governance/contradiction_resolution.py",
     "agent_brain/memory/governance/git_fd_exec.py",
-    "agent_brain/memory/governance/graph_links.py",
     "agent_brain/memory/governance/lifecycle_action_parsing.py",
     "agent_brain/memory/governance/lifecycle_archive.py",
     "agent_brain/memory/governance/lifecycle_candidates.py",
@@ -83,13 +74,6 @@ IMPLEMENTATION_PATHS = (
     "agent_brain/memory/governance/lifecycle_review.py",
     "agent_brain/memory/governance/lifecycle_snapshot.py",
     "agent_brain/memory/governance/maintenance_plan.py",
-    "agent_brain/memory/governance/pending_receipts.py",
-    "agent_brain/memory/governance/review_evidence.py",
-    "agent_brain/memory/governance/review_queue.py",
-    "agent_brain/memory/governance/review_truth.py",
-    "agent_brain/memory/governance/review_transactions.py",
-    "agent_brain/memory/governance/signal_resolution.py",
-    "agent_brain/memory/governance/signal_state.py",
     "agent_brain/memory/governance/supersession.py",
     "agent_brain/memory/store/durable_fs.py",
     "agent_brain/memory/store/item_ids.py",
@@ -101,9 +85,7 @@ IMPLEMENTATION_PATHS = (
     "agent_brain/platform/indexing/index_schema.py",
     "agent_brain/platform/indexing/index_writer.py",
     "agent_brain/product/governance_readiness.py",
-    "agent_brain/product/cockpit.py",
     "web/api/routes/governance.py",
-    "web/templates/dashboard.html",
     "scripts/generate-lifecycle-governance-report.py",
 )
 REQUIRED_SUPERSESSION_CASES = {
@@ -561,12 +543,7 @@ def _run_pending_contract(fixture: dict[str, object]) -> dict[str, object]:
     cases = fixture.get("pending_cases")
     schema_errors = _validate_pending_cases(cases)
     if schema_errors:
-        return {
-            "status": "fail",
-            "scope": PENDING_CONTRACT_SCOPE,
-            "cases": [],
-            "schema_errors": schema_errors,
-        }
+        return {"status": "fail", "cases": [], "schema_errors": schema_errors}
     assert isinstance(cases, list)
     with tempfile.TemporaryDirectory(prefix="amh-pending-synthetic-") as directory:
         brain = Path(directory).resolve() / "brain"
@@ -609,7 +586,6 @@ def _run_pending_contract(fixture: dict[str, object]) -> dict[str, object]:
         passed = passed and len(rows) == len(input_matches)
         return {
             "status": "pass" if passed else "fail",
-            "scope": PENDING_CONTRACT_SCOPE,
             "preview_only": before == after,
             "cases": sorted(rows, key=lambda row: str(row["id"])),
         }
@@ -1012,8 +988,7 @@ def render_markdown(report: dict[str, object]) -> str:
         "workflow job 已配置但当前不是 required context。\n\n"
         "## 合同结果\n\n"
         f"- Supersession：`{contract_statuses['supersession_contract']}`\n"
-        "- Pending classification preview："
-        f"`{contract_statuses['pending_contract']}`\n"
+        f"- Pending：`{contract_statuses['pending_contract']}`\n"
         f"- Graph drift：`{contract_statuses['graph_drift_contract']}`\n"
         f"- CLI / Web surface parity：`{contract_statuses['surface_parity']}`\n"
         f"- Privacy：`{contract_statuses['privacy']}`\n\n"

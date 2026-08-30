@@ -35,21 +35,36 @@ def repo_root() -> Path:
 
 def memory_shim_path() -> Path:
     user_bin = os.environ.get("AGENT_MEMORY_HUB_BIN")
+    shim_name = "memory.cmd" if os.name == "nt" else "memory"
     if user_bin:
-        return Path(user_bin) / "memory"
-    return Path.home() / ".local" / "bin" / "memory"
+        return Path(user_bin) / shim_name
+    return Path.home() / ".local" / "bin" / shim_name
 
 
 def venv_memory_path(root: Path | None = None) -> Path:
     base = root or repo_root()
+    if os.name == "nt":
+        return base / ".venv" / "Scripts" / "python.exe"
     return base / ".venv" / "bin" / "memory"
 
 
 def installer_path(root: Path | None = None) -> Path:
-    return (root or repo_root()) / "install.sh"
+    return (root or repo_root()) / ("install.ps1" if os.name == "nt" else "install.sh")
 
 
 def installer_command(root: Path | None = None, *, minimal: bool = True) -> list[str]:
+    if os.name == "nt":
+        command = [
+            "powershell",
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(installer_path(root)),
+        ]
+        if minimal:
+            command.append("-Minimal")
+        return command
     command = ["sh", str(installer_path(root))]
     if minimal:
         command.append("--minimal")
@@ -86,7 +101,11 @@ def repair_memory_cli_shim(
     if not target.exists():
         return [RepairAction("memory CLI shim", "error", f"venv memory missing: {target}")]
 
-    body = f'#!/bin/sh\nexec "{target}" "$@"\n'
+    body = (
+        f'@echo off\r\n"{target}" -m agent_brain.interfaces.cli %*\r\n'
+        if os.name == "nt"
+        else f'#!/bin/sh\nexec "{target}" "$@"\n'
+    )
     if shim.exists():
         try:
             if shim.read_text(encoding="utf-8", errors="replace") == body:
@@ -101,9 +120,11 @@ def repair_memory_cli_shim(
         shim.parent.mkdir(parents=True, exist_ok=True)
         tmp = shim.with_suffix(shim.suffix + ".tmp")
         tmp.write_text(body, encoding="utf-8")
-        tmp.chmod(0o755)
+        if os.name != "nt":
+            tmp.chmod(0o755)
         tmp.replace(shim)
-        shim.chmod(0o755)
+        if os.name != "nt":
+            shim.chmod(0o755)
     except OSError as exc:
         return [RepairAction("memory CLI shim", "error", f"cannot write {shim}: {exc}")]
     return [RepairAction("memory CLI shim", "fixed", f"{shim} -> {target}")]

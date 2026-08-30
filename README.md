@@ -57,6 +57,25 @@ Windows (PowerShell):
 powershell -ExecutionPolicy ByPass -c "irm https://github.com/liuyang0508/agent-memory-hub/releases/latest/download/install.ps1 | iex"
 ```
 
+The same command can be used to reinstall. After installing the Python package,
+the Windows installer reapplies the Agent Adapter configuration. If Codex or
+Claude Code is present but its core integration cannot be restored, installation
+exits with an error instead of reporting a partial setup as successful.
+
+When reinstalling the Codex integration, AMH validates the resulting
+`~/.codex/config.toml`. Legacy Windows MCP paths that were written as unescaped
+TOML basic strings are repaired in place. If other malformed legacy content
+still prevents parsing, AMH first saves
+`config.toml.bak.amh-incompatible.<timestamp>`, then creates a minimal valid
+active configuration so ChatGPT/Codex can start and regenerate its optional
+defaults without requiring the user to delete the file manually.
+
+The Windows installer no longer trusts the first executable named `python` on
+PATH. It verifies Python 3.11+ and pip, creates a dedicated `.venv` under the
+checkout, and binds hooks, MCP, and the `memory.cmd` shim to that environment.
+After installation it runs `sync-pending --apply --safe-only`, replaying safe
+fallback records into `items` while leaving review-required records queued.
+
 Homebrew:
 
 ```bash
@@ -123,6 +142,29 @@ If you are already inside the source checkout:
 ./install.sh --uninstall
 ```
 
+On Windows PowerShell:
+
+```powershell
+PowerShell -ExecutionPolicy Bypass -File .\install.ps1 -Uninstall
+```
+
+Windows uninstall backs up and removes AMH-managed Codex/Claude configuration,
+the `memory.cmd` shim, and the isolated project `.venv`. Add `-PurgeData` only
+when you intentionally want to delete the local brain data too:
+
+```powershell
+PowerShell -ExecutionPolicy Bypass -File .\install.ps1 -Uninstall -PurgeData
+```
+
+To remove the installed checkout in the same command, add `-RemoveCheckout`.
+The script verifies that the deletion target is an AMH source checkout before
+performing the recursive removal.
+
+The default uninstall preserves `~/.agent-memory-hub`, so a later reinstall
+continues using the existing memories. After `-PurgeData`, reinstall creates a
+fresh data directory. If `-RemoveCheckout` was also used, run the remote Windows
+installation command above to download a new checkout.
+
 The uninstall boundary is intentionally conservative: it removes only
 AMH-managed hooks, MCP configuration, and `/remember`; it keeps user memories,
 evidence, and indexes under `~/.agent-memory-hub`. To intentionally erase the
@@ -136,23 +178,6 @@ If you installed a shell package through Homebrew or npm, run the AMH uninstall
 first to clean managed config, then remove the package with that package
 manager.
 
-### Optional anonymous adoption telemetry
-
-Product telemetry is off by default. Users who want to appear in the public
-adoption dashboard can explicitly opt in; the payload contains only a random
-instance ID, OS/architecture, AMH version, install channel, agent type, and an
-`install` or `active` event. It never includes usernames, IPs, paths, prompts,
-conversations, or memory content.
-
-```bash
-memory telemetry enable
-memory telemetry status
-memory telemetry disable
-```
-
-The public dashboard and server deployment contract are documented in
-[Product Telemetry](./docs/product-telemetry.zh.md).
-
 ### 3. Verify the install
 
 ```bash
@@ -160,102 +185,35 @@ memory doctor
 memory govern readiness --format markdown
 memory govern plan --category lifecycle --format markdown
 memory govern plan --category lifecycle --format json
-memory govern plan --category low_confidence --format markdown
 memory govern apply-lifecycle <memory-id> --dry-run --format json
 memory sync-pending --summary-only --limit 100 --format json
 memory verify --format json
 memory search "project decision"
 memory hook recent --limit 5
-memory hook summary --days 7
-memory review status --format json
-memory review evidence-plan --format json
 ```
 
 `memory hook recent` shows whether a prompt injected memory, produced a recall
 gap, timed out, or later received outcome feedback with adopted / rejected /
 ignored item counts. It is the first check when an agent UI shows no
-`<agent_brain>` block. `memory hook summary` aggregates injection volume,
-feedback coverage, adopted/rejected/unrated item rates, gap reasons, timeouts,
-and privacy-safe keywords over a chosen window. `memory review status` exposes
-the content-free `amh-review-truth/v1` contract: `active_review_candidate_count`
-uses the exact same predicate as `memory review list`, while
-`lifecycle_due_count` independently measures TTL/lifecycle work. The legacy
-`review_total` field remains an alias of the active candidate count.
-`active_review_contested_count` is an independent tag axis, so contested items
-above the low-confidence threshold do not disappear into the
-`explicit_review_tag` reason bucket.
-`memory govern readiness` also runs the packaged
+`<agent_brain>` block. `memory govern readiness` also runs the packaged
 query-signal adversarial cases for long Chinese tasks, JSON/config prompts,
 OCR/log/code snippets, and weak follow-ups.
 `memory govern plan --category lifecycle` lists stale `signal` / `handoff`
-review items and contradictory signal states such as `resolved` together with
-`pending` / `blocked`;
+review items with age, threshold, and an `archive_or_supersede` recommendation;
 it is a dry-run plan and does not archive items by itself. The JSON output also
 contains a `review_queue` with item IDs, bounded `memory read` commands, and
 `can_auto_apply=false` for Web Admin or script-driven human review.
-Cockpit includes the same aggregate `review_truth` object, and admins can read
-it directly from `GET /api/governance/review-truth`. The aggregate never
-returns item IDs, titles, summaries, bodies, or brain paths.
 `memory govern apply-lifecycle` rechecks selected IDs against the current
 `review_queue`; it defaults to `--dry-run` and only archives matched items when
 you pass `--apply`.
-`memory govern plan --category low_confidence` separates contested memories,
-items missing an explicit file/URL/commit/memory source, and source-backed
-candidates. These rows are always review-required. Use
-`memory review attach-source ID --commit SHA` to add evidence without changing
-confidence, then explicitly approve or reject the candidate.
-`memory review evidence-plan [ID] --format json` is a read-only
-`amh-review-evidence-plan/v1` preview. It binds the exact MemoryItem Markdown
-SHA-256 to content-free source metadata and digests, validates local
-file/memory/resource/extraction/commit availability without fetching URLs, and
-separates explicit source gaps from provenance that WriteService already
-captured. Resource plus extraction records from the same provenance root count
-once for independence. A `write_input` sidecar proves what was submitted, not
-that the assertion is true, so it is reported as `traceability_only` and never
-counts as independent support. Contested review items route either to an existing
-contradiction Case or to an explicit `contested_unpaired` queue; the preview
-never changes memory or confidence. Admins receive the locator-free form at
-`GET /api/governance/review-evidence-plan`, and Cockpit renders aggregates only.
-For an audited resolution, use `memory review resolve ID --action approve` to
-preview the exact item digest, then repeat with `--expected-sha256 DIGEST
---apply`. Prepared/completed receipts surround the locked mutation. Contradiction
-findings are grouped into stable cases, so
-`memory govern plan --category contradiction` shows one review unit per
-connected conflict set rather than every overlapping pair. Inspect those units
-with `memory review cases`. Then preview `memory review resolve-case CASE
---action coexist` (or `select-authority`, `merge`, `dismiss`, `defer`) and apply only with
-the emitted `--expected-intent-sha256`. Every decision is bound to all current
-item digests and the exact pre-containment baseline; later edits reopen the
-Case. Case-level containment records original tags/confidence in a separate
-append-only receipt ledger, so `dismiss` and accepted resolutions restore recall
-without guessing. Multi-item snapshots and an
-append-only receipt ledger support explicit recovery with
-`memory review recover-case TRANSACTION`; interrupted containment uses
-`memory review recover-containment TRANSACTION`.
-
-Open `signal` memories have a separate terminal-state transaction instead of
-being archived or edited by hand. Preview
-`memory review resolve-signal ID --action resolve` (or `obsolete`, `defer`,
-`reopen`), then apply with the emitted `--expected-intent-sha256`. `resolve`
-may bind a same-project decision/artifact/fact/episode via
-`--resolution-item-id`; `defer` requires `--defer-days 1..365`. The item and
-optional resolution evidence digests are locked into a private snapshot plus
-prepared/completed receipt in `runtime/signal-state-receipts.jsonl`. Explicitly
-resolved, obsolete, and not-yet-expired deferred signals leave brief, context
-injection, and Cockpit handoff queues; an expired deferral becomes open again
-and is flagged for lifecycle normalization. Recover interrupted transitions
-with `memory review recover-signal TRANSACTION`. Web Admin exposes the same
-preview/apply contract at
-`POST /api/governance/signals/{item_id}/transition`.
 
 `memory sync-pending` also defaults to preview. Use `--summary-only` when you
 only need classification, blocker reason, lock-hygiene, or batch counts and do
-not want titles, summaries, paths, or record IDs in the output. Record replay
-requires `--apply` plus `--record` or `--safe-only`; governed resolutions use
-their explicit per-record options. Record/resolution apply persists a
-low-sensitivity prepared/completed receipt before reporting the batch complete;
-standalone lock GC does not. An incomplete receipt is an explicit governance
-warning, not proof that the underlying item write failed.
+not want titles, summaries, paths, or record IDs in the output. A mutating run
+still requires `--apply` plus `--record` or `--safe-only`; it persists a
+low-sensitivity prepared/completed receipt before reporting the batch complete.
+An incomplete receipt is an explicit governance warning, not proof that the
+underlying item write failed.
 
 `memory verify --format json` is a non-mutating index health check across three
 sources: active Markdown versus `items_meta` IDs, the `.index-dirty` repair-debt
@@ -269,31 +227,6 @@ memory verify --repair --format json
 
 Repair is category-scoped, closes its write connection before the final
 read-only verification, and succeeds only when the `after` report is clean.
-
-### Cross-agent handoff and resume
-
-Before switching agents or stopping an unfinished task, persist one complete
-checkpoint. Git state is captured automatically; task state, next actions, and
-verification are required so an incomplete handoff cannot be written:
-
-```bash
-memory handoff \
-  --objective "Finish the recall quality gate" \
-  --done "Added the real-prompt fixture" \
-  --pending "Wire the fixture into readiness" \
-  --decision "Reuse ContextFirewall | keeps policy parity | avoids split behavior" \
-  --next "Add the fixture to the release gate" \
-  --verify "pytest tests/unit/test_query_signal.py -q" \
-  --project agent-memory-hub \
-  --agent codex \
-  --target-agent claude_code
-
-memory resume --project agent-memory-hub --fail-empty
-```
-
-Both commands use the same Markdown source of truth, `WriteService`, sensitivity
-audit, validity TTL, injection gateway, and `memory brief` ranking already used
-by the rest of AMH. No separate handoff database is introduced.
 
 ### Adapter lifecycle truth model
 
@@ -513,10 +446,9 @@ feedback changes trust signals, and which governance actions require review.
 write signal / candidate / raw transcript / task outcome
 -> entry normalization or pending fallback
 -> candidate quarantine and review
--> WriteService audit, enrichment, quality checks, secure-capability gate
+-> WriteService audit, enrichment, quality checks, evidence sidecars
 -> ItemsStore appends Markdown truth
--> when secure mutation is available: sources/writes ledger + resources/extractions evidence
--> otherwise: explicit degraded result; an existing pending resolution stays for operator-visible repair
+-> sources/writes ledger + resources/extractions evidence
 -> index.db projection; .index-dirty / pending repaired by reindex or sync-pending
 -> runtime ledgers record injections, gaps, outcomes, adapter events
 -> feedback applies only adopted/rejected ids; ignored ids stay unchanged
@@ -524,11 +456,6 @@ write signal / candidate / raw transcript / task outcome
 -> AutoGovernance safe-applies only low-risk actions; high-risk actions become review/evolve proposals
 -> approved candidates or audited proposals re-enter the truth layer or an explicit allow-listed execution path
 ```
-
-AMH currently does not auto-backfill sidecars or rewrite refs for an existing
-degraded item when secure mutation later becomes available. The pending record
-and completed repair-required receipts remain the durable signal until a future
-native implementation or an explicit migration handles that repair.
 
 <p align="center">
   <img src="./docs/visuals/memory-maintenance-sequence.svg" alt="Maintenance pipeline from write, evidence, index, feedback, governance, and evolution" width="100%">
@@ -540,11 +467,11 @@ native implementation or an explicit migration handles that repair.
 | 2 | CLI, MCP, SDK, Web, Hermes, and hook shims normalize to `MemoryItem + body`; if the core path is unavailable, the record lands in `pending/*.jsonl`. | Entry points differ, but the durable write contract should converge. | Normalized write contract or replayable pending record. |
 | 3 | Candidate-only material stays in `review/proactive-candidates.jsonl` or carries `needs-review` / `unverified-boundary` tags. | Candidates are quarantined from normal truth semantics. | Review queue item. |
 | 4 | `WriteService.write()` runs `audit_memory_text`, field enrichment, review-boundary marking, and quality warnings; critical/high audit findings block unless explicitly bypassed. | Audit is fail-closed for high-risk content. | Written, blocked, warning, or degraded result. |
-| 5 | When descriptor-relative secure mutation is available, `WriteService` creates `resources/*.json` and `extractions/*.json` from refs or write input where needed. Otherwise it skips sidecar materialization and reports `evidence-sidecar` degraded. | Evidence sidecars explain provenance; they do not replace `MemoryItem`. Non-POSIX secure sidecar writes are currently unavailable. | Resource and extraction records, or an explicit degraded result. |
+| 5 | `WriteService` creates `resources/*.json` and `extractions/*.json` from refs or write input where needed. | Evidence sidecars explain provenance; they do not replace `MemoryItem`. | Resource and extraction records. |
 | 6 | `ItemsStore.write()` appends `items/mem-*.md`. | The Markdown append is the only durable-write success criterion. | Markdown truth source. |
-| 7 | With the same secure mutation capability, `sources/writes/<item-id>.json` records writer, agent, session, item path, body hash, refs, validity, and source kind; otherwise `source-ledger` is degraded and no ledger file is created. | The ledger is observational provenance. | Write ledger or an explicit degraded result. |
+| 7 | `sources/writes/<item-id>.json` records writer, agent, session, item path, body hash, refs, validity, and source kind. | The ledger is observational provenance. | Write ledger. |
 | 8 | `HubIndex.upsert()` projects metadata, FTS, vectors, and `refs_graph`; embedder/index failure marks `.index-dirty` without undoing Markdown. | `index.db` is rebuildable, not authoritative. | Derived index or dirty id. |
-| 9 | `memory verify --repair`, `memory reindex` (prunes by default; `--no-prune` is the explicit escape hatch), and `memory sync-pending` repair index drift and replay buffered writes; poison pending records move to `pending/dead/`. | Repair starts from Markdown or pending records; an incomplete Markdown scan never prunes. | Repaired index, replayed writes, or dead-letter records. |
+| 9 | `memory verify --repair`, `memory reindex --prune`, and `memory sync-pending` repair index drift and replay buffered writes; poison pending records move to `pending/dead/`. | Repair starts from Markdown or pending records. | Repaired index, replayed writes, or dead-letter records. |
 | 10 | `Stop`, `conversation ingest`, and `memory harvest` maintain raw evidence in `sources/conversations/`; harvest uses watermarks and span hashes; `conversation rebalance` updates hot/warm/cold/frozen tiers. | Raw transcripts remain evidence, not automatic prompt context. | Conversation evidence, extracted candidates, watermarks, tiers. |
 | 11 | Runtime sidecars record adapter events, injection cohorts, recall gaps, and task outcomes without exposing raw prompt/query/body. | Runtime evidence proves events, not truth. | Data-flow and lineage inputs. |
 | 12 | `InjectionFeedback` updates only explicitly adopted or rejected injected ids; ignored injected ids stay unchanged. | Retrieval and injection are not adoption. | Support, contradiction, gain, confidence, and index feedback stats. |
@@ -552,29 +479,6 @@ native implementation or an explicit migration handles that repair.
 | 14 | `AutoGovernanceCycle` aggregates maturity, drift, quality, index drift, conversation tiers, and evolve proposals; `--apply` only executes safe actions. | Archive, delete, consolidate, supersede, and skill synthesis stay review-required. | safe_apply, review_required, or blocked actions. |
 | 15 | `EvolveEngine` and `DreamingWorker` propose consolidate/promote/archive/crystallize/synthesize_skill actions behind audit gates; approved proactive candidates write through `WriteService`. | High-risk evolution cannot silently rewrite the brain. | Approved item, archive, promotion, skill proposal, or blocker. |
 | 16 | `GET /api/data-flow` and `GET /api/memory-lineage` expose redacted maintenance, recall, and evolution read models. | Web read models do not reveal raw prompts, queries, or bodies. | Explainable observability. |
-
-### Pending resolution governance
-
-`memory sync-pending` is preview-first. Governed resolutions require an explicit
-pending record: `--approve-audit ID`, `--accept-duplicate ID:ITEM`,
-`--convert-type ID:decision`, `--reject ID:reason`, or
-`--quarantine ID:reason`; only `--apply` mutates state. Audit approval is
-limited to public/internal findings and never bypasses secrets. Exact-duplicate
-acceptance removes the pending record without writing a new item, and conversion
-currently supports only `feedback -> decision`. Reject is limited to
-review-only records; quarantine is limited to malformed/conflicting records.
-Both preserve the exact original bytes under `pending/resolved/`, outside the
-active queue, and record the terminal action in the append-only receipt ledger.
-
-Standalone `--gc-orphan-locks` also previews by default and deletes only proven
-orphan locks that are not held. Held locks are safely preserved and do not fail
-GC by themselves; unsafe, truncated, or unavailable scans do. Pending
-record/resolution apply receipts serialize aggregate counts and digests, never
-raw record/item IDs or bodies; standalone GC creates no receipt. After a failed
-apply, rerun the same preview, then `memory verify --format json` and
-`memory govern readiness --format json` before retrying. Exit status is `0` only
-when every requested resolution is ready/applied and lock GC is safe, `1` for a
-governance or apply failure, and `2` for invalid CLI option combinations.
 
 ## Exact Retrieval Order
 
@@ -588,9 +492,12 @@ candidate becomes injected context:
 
 ```text
 user question
+-> evidence-preserving exact phrases and explicit constraints
+-> optional bounded LLM constraint fallback for ambiguous_constraint only
 -> metadata and memory-type filtering
 -> full-text BM25 and vector recall in parallel
 -> RRF fusion
+-> explicit constraint alignment
 -> optional rerank + confidence/retention/feedback/runtime scoring
 -> stale/supersession filters
 -> optional MMR/Hopfield/graph expansion
@@ -600,16 +507,24 @@ user question
 
 | Step | What happens | Why it matters |
 |---:|---|---|
-| 1 | The user question, CLI/MCP/SDK search call, or `UserPromptSubmit` hook becomes the query signal. | The current prompt and live runtime context stay separate from older memory candidates. |
+| 1 | The user question, CLI/MCP/SDK search call, or `UserPromptSubmit` hook becomes the query signal. The complete normalized query remains intact while explicit constraints retain their source substring as evidence. | Query splitting cannot silently replace the user's original sentence, and constraints such as “do not stop” remain bound to their predicate. |
 | 2 | `SearchFilter` narrows the SQL metadata set by memory type, project, tags, excluded tags, tenant, age, and supersession policy. | AMH does not ask the model to guess the memory class; explicit metadata defines the candidate boundary. |
 | 3 | Full-text BM25 and vector search run against the allowed IDs. If the embedder is degraded, the pipeline falls back to BM25-only instead of fusing bad vectors. | Exact terms and semantic similarity both get a chance to find candidates. |
 | 4 | Reciprocal Rank Fusion combines BM25 and vector ranks into the first candidate pool. | One retrieval path cannot dominate just because its raw score scale is larger. |
-| 5 | Optional cross-encoder rerank adjusts the top pool; trust signals then apply confidence, retention decay, feedback value, handoff/status boosts, and runtime evidence. Maturity remains governance and context-loading metadata; current `SearchEngine.search()` does not use it as a direct rank multiplier. | The result is not just "closest text"; it is ranked by usefulness, confidence, freshness, and observed outcomes. |
+| 5 | Explicit constraint alignment removes only candidates with a clear opposite assertion and modestly boosts clear agreement. Optional cross-encoder rerank then adjusts the top pool; trust signals apply confidence, retention decay, feedback value, handoff/status boosts, and runtime evidence. | A memory that says “migration requires downtime” cannot win a query that explicitly says “no downtime” merely because their keywords overlap. |
 | 6 | Temporal-state and supersession filters remove stale runtime state and memory that has been replaced, unless the caller explicitly includes it. | Old state can remain auditable without being injected as current truth. |
 | 7 | Optional MMR, Hopfield, and `refs_graph` expansion can diversify or expand the result set after the primary ranking stages. | Associative memory is useful, but it stays switchable and benchmark-gated. |
 | 8 | `ContextFirewall` evaluates topic fit, temporal fit, confidence, scope, sensitivity, unsafe context, budget, and feedback before injection. | Retrieved does not mean injected. |
 | 9 | `context_loading` chooses the smallest useful view: locator by default, overview for facts/decisions/state boundaries, detail only for direct raw evidence or explicit requests. | Agents get enough context to act without receiving every matching body. |
 | 10 | `context_pack` injects compact text plus `detail_uri`, retrieve hints, token estimates, and reversible compression metadata when needed. | The prompt stays small, while `memory read --view detail --head N` can still fetch evidence on demand. |
+
+### Optional query-constraint model fallback
+
+The fallback is disabled by default and is not a general query rewrite. Routed recall attempts it once only when the deterministic gate has a stable topic but returns `ambiguous_constraint`. The provider receives the current normalized query only—never stored memories, candidate bodies, or conversation history. A result can reopen automatic recall only if every constraint passes strict JSON, exact source-evidence, predicate-grounding, polarity-consistency, and confidence validation. Missing dependencies, timeouts, invalid output, low confidence, or model-declared ambiguity preserve the existing fail-closed block.
+
+Install the optional provider dependency with `pip install -e ".[llm]"`, then set `MEMORY_HUB_QUERY_MODEL_FALLBACK=1`. The resolver uses `MEMORY_HUB_QUERY_MODEL_FALLBACK_MODEL` or falls back through `MEMORY_HUB_LLM_MODEL` to `gpt-4o-mini`; `MEMORY_HUB_LLM_BASE_URL` and `MEMORY_HUB_LLM_API_KEY` keep their existing meanings. The bounded defaults are a `0.90` confidence threshold, `1.25` second provider timeout, 1,000 query characters, and 256 output tokens. `MEMORY_HUB_NO_MODEL=1` remains the global kill switch.
+
+The outer hook budget is still `AGENT_MEMORY_HUB_SEARCH_TIMEOUT_SECONDS` (2 seconds in production by default). Operators using a slower cloud endpoint must explicitly raise that budget, for example to 5 seconds; enabling the optional dependency does not silently add latency to ordinary prompts. Injection cohorts and unresolved recall gaps record bounded fallback status, confidence, and provider-reported input/output token counts without persisting the model response.
 
 ## Engineering Architecture Map
 
@@ -658,9 +573,7 @@ The HTML map carries larger diagrams, sequences, and flow expansions.
 | Write audit and enrichment | Shipping | Writes pass schema validation, risk audit, source-boundary checks, runtime enrichment, and quality scoring. |
 | Resource and extraction sidecar | Shipping / product surface in progress | `ResourceStore` supports `resources/*.json` and `extractions/*.json`; `memory resource promote-extraction` can promote trusted OCR/ASR/VLM/PDF extraction text into a normal `MemoryItem` while preserving `refs.resources` and `refs.extractions`. |
 | Derived index projection | Shipping | `index.db` maintains `items_meta`, `items_fts`, `items_vec`, and `refs_graph`; projections rebuild from Markdown. |
-| Retrieval scoring pipeline | Shipping | BM25 + vector recall uses RRF, then rerank, decay, feedback, replay-gated adaptive weights, runtime evidence, freshness, and supersession filters. |
-| Automatic feedback tuning | Shipping | The next user turn can safely classify the immediately preceding injection cohort as adopted or rejected; raw prompt text is never persisted, ambiguous feedback is ignored, and retrieval trust weights update exactly once. |
-| Replay-gated adaptive recall | Shipping | Verified Loop outcomes are attributed only to a fresh same-session/same-worktree cohort. Bounded adapter/project profiles activate only when saved retrieval-trace replay preserves Recall@1 and MRR; the previous profile remains rollbackable. Failures and ambiguous multi-item success never auto-penalize or auto-credit memories. |
+| Retrieval scoring pipeline | Shipping | BM25 + vector recall uses RRF, then rerank, decay, feedback, runtime evidence, freshness, and supersession filters. |
 | Optional retrieval trace | Shipping | CLI/MCP search can opt into explainable retrieval traces: initial BM25/vector ranks, stage effects, final rank, and compact signals, without changing default hook injection. |
 | Layered context loading | Shipping | Locator is default, overview is optional, detail reads body on demand; vector features use locator + overview only. |
 | Reversible `context_pack` | Shipping | `context_pack` is the compressed prompt view plus `detail_uri` and retrieve hints; automatic injection avoids body dumps and agents fetch evidence with `read_memory(..., head=2000, view='detail')` only when needed. |
@@ -670,11 +583,8 @@ The HTML map carries larger diagrams, sequences, and flow expansions.
 | Semantic memory candidates | Shipping | Semantic proactive v2 extracts reusable review candidates into `review/proactive-candidates.jsonl`; approvals still write through WriteService. |
 | L2/L3 hierarchy sidecar | Shipping | `memory govern hierarchy --apply` builds `derived/hierarchical-memory.json` by topic/project without mutating `items/`. |
 | Maturity and forgetting governance | Shipping | `memory govern maturity` recommends raw/consolidated/skill; decay considers more than time, including access, importance, feedback, and evidence shape. |
-| Auto-governance cycle | Shipping | `memory govern auto` builds one dry-run/apply plan across maturity, drift, quality, index drift, and conversation tiering. Exact scoped duplicates and explicitly expired short-lived records are handled reversibly; semantic conflicts are contained for review, not silently merged. |
-| Persistent task state machine | Shipping | Loop runs persist dependency-aware steps, blockers, completion and verification evidence. `memory handoff --loop <id>` renders that shared state so another agent resumes from the same ledger. |
-| End-to-end encrypted device sync | Shipping | `memory sync init/run` encrypts every object with AES-256-GCM on-device, stores only opaque append-only objects in the cloud, and deterministically preserves equal-version conflicts until devices converge. |
-| Organization RBAC and operations console | Shipping | Live `owner/admin/member/viewer` authorization governs tenant-scoped sync and membership. Web Admin shows organization memory, devices, heartbeats, and ciphertext-object counts without exposing plaintext or recovery keys. |
-| Loop Contract governance | Shipping | `memory loop run --contract`, `memory loop contract validate`, `memory loop create --contract`, `memory loop step add/set/list`, `memory loop verify`, `memory loop feedback`, and `memory loop gate open/approve/reject` bind goals, state, actions, verifiers, budgets, stop conditions, and human gates to LoopRun evidence. AMH is the multi-agent loop fact layer, verification layer, and governance layer; it is not an unattended runner. |
+| Auto-governance cycle | Shipping | `memory govern auto` builds one dry-run/apply plan across maturity, drift, quality, index drift, and conversation tiering; apply only executes safe actions. |
+| Loop Contract governance | Shipping | `memory loop run --contract`, `memory loop contract validate`, `memory loop create --contract`, `memory loop verify`, `memory loop feedback`, and `memory loop gate open/approve/reject` bind goals, state, actions, verifiers, budgets, stop conditions, and human gates to LoopRun evidence. AMH is the multi-agent loop fact layer, verification layer, and governance layer; it is not an unattended runner. |
 | Associative-memory expansion | Experimental | Explicit `refs_graph` is shipping; graph expansion, MMR, and Hopfield expansion are switchable enhancements gated by benchmarks. |
 | Retrieval benchmark gate | Shipping | `memory benchmark retrieval --cases ...` and Web `/api/retrieval-gate` evaluate recall@1, recall@k, and MRR against the real index; failing thresholds fail the gate. |
 
@@ -695,13 +605,13 @@ deliberate diagnostics; broad explicit-detail search is warned but not blocked.
 | Layer | Audience | Status | Shape |
 |---|---|---:|---|
 | **L1 Personal brain** | One developer using many agents | Shipping | Local Markdown pool + CLI/MCP/hooks. |
-| **L2 Team shared brain** | Small teams | Shipping baseline | End-to-end encrypted device sync, deterministic conflict preservation, tenant isolation, persistent task state, and handoff resume. |
-| **L3 Enterprise memory infra** | Organizations | Shipping baseline | Live organization RBAC and an operations console are shipped; managed SaaS, external identity providers, billing, and region controls remain future deployment work. |
+| **L2 Team shared brain** | Small teams | Planned | Shared repo/sync model once L1 usage proves demand. |
+| **L3 Enterprise memory infra** | Organizations | Reserved | Multi-tenant, RBAC, private cloud/SaaS, dashboards. |
 
 Near-term product work:
 
-- Expand privacy-safe outcome coverage and shadow evaluation on top of the shipped replay-gated adaptive recall loop.
-- Harden `memory govern auto` with provenance-aware review queues while keeping semantic merges, broad deletion, consolidation, and skill synthesis review-required.
+- Improve recall drift controls and feedback loops.
+- Harden `memory govern auto` with provenance-aware review queues while keeping archive, delete, consolidate, and skill synthesis review-required.
 - Tighten adapter verification from `install-ready` to real-client `verified`.
 - Extend raw conversation evidence governance: hot/warm/cold policy, extraction provenance, and bounded replay into MemoryItem candidates.
 - Extend Loop Contract cockpit views and `memory loop gate open` lifecycle reporting while keeping execution outside AMH's default responsibilities.
@@ -761,10 +671,11 @@ MMR/Hopfield/graph expansion, and pre-injection safety gates.
 | **BM25**: Best Matching 25, classic lexical relevance | Term frequency, inverse document frequency, and field-length normalization. | First-hop recall for exact words, file names, commands, paths, and error codes. | Lexical only; it does not model semantic neighbors. |
 | **Vector Similarity**: embedding-neighbor recall | `cos(q, p_i)=q·p_i/(||q||·||p_i||)`. | Runs beside BM25 to catch semantic matches with different wording. | Falls back to BM25-only when embeddings degrade. |
 | **RRF**: Reciprocal Rank Fusion | `RRF(d)=Σs ws/(k+rank_s(d)+1)`. | Fuses BM25 and vector candidates into the first candidate pool. | Initial recall score, not final injection permission. |
+| **Constraint Alignment** | Reject when an explicit candidate assertion has the opposite polarity; boost explicit agreement by `1.08`. | Keeps negation and prohibition evidence separate from topic terms after retrieval. | Neutral mentions and candidates discussing both alternatives remain unknown rather than being hard-filtered. |
 | **Cross-Encoder Reranking** | `rerank_score=sigmoid(cross_encoder(query, doc))`. | Optional top-candidate semantic rerank. | Still goes through decay, feedback, firewall, and benchmark gates. |
 | **Ebbinghaus-style Forgetting Curve** | `retention=0.5^(days_since_access/half_life)`. | Computes time retention from per-memory-class half-life. | Uses `last_accessed` first, then `created_at`; not the only score factor. |
 | **Decay Coefficient** | `decay_coefficient=clamp(retention×access_multiplier×support_multiplier×gain_multiplier×contradiction_multiplier,0.01,1.35)`. | Adds access, support, gain, and contradiction evidence to recall scoring. | Cannot overpower every relevance signal. |
-| **Effective Score** | `S_effective=S_rrf×rank_weight(confidence×decay_coefficient)`, `rank_weight=1±0.05·tanh(ln(x))`. | Produces an explainable candidate score after fusion, confidence, and decay; the raw coefficient stays diagnostic. | Bounded to ±5% so metadata cannot flip lexical/vector relevance; still subject to stale, supersession, and firewall filters. |
+| **Effective Score** | `S_effective=S_rrf×confidence×decay_coefficient`. | Produces an explainable candidate score after fusion, confidence, and decay. | Still subject to stale, supersession, and firewall filters. |
 | **MMR**: Maximal Marginal Relevance | `MMR(d)=λ·relevance(d)-(1-λ)·max_sim(d, selected)`. | Optional diversity rerank so results are relevant without being duplicates. | Diversity enhancement; it does not mutate Markdown truth. |
 | **Hopfield / Modern Hopfield Network** | `Hopfield: weights=softmax(β·cos(q,p_i)); attractor=Σ weights_i·p_i`. | Optional associative expansion from first-hop candidate vectors. | Enabled only through `hopfield_expand`; benchmark-gated with `refs_graph` and MMR. |
 | **Maturity Score** | `maturity_score = 0.28*source + 0.22*confidence + support + reuse + graph + validation + overview + gain - contradiction - stale`. | Governance recommendation for raw / consolidated / skill maturity. | Not a pre-recall hard filter or live rank multiplier. |
@@ -833,16 +744,9 @@ memory search "browser permission" --context-firewall --format text
 memory read mem-YYYYMMDD-HHMMSS-slug --view detail
 memory read mem-YYYYMMDD-HHMMSS-slug --view detail --head 2000
 memory brief
-memory handoff --help
-memory resume --project <project> --fail-empty
-memory hook summary --days 7
-memory review status --format json
 memory conversation ingest ~/.claude/projects/<project>/<session>.jsonl --agent claude-code
 memory conversation list --agent claude-code
 memory conversation rebalance
-memory sync init --server https://memory.example.com --api-key <key>
-memory sync run
-memory sync heartbeat
 memory benchmark system --max-cases 240 --format summary
 memory loop run --contract loop.yaml --format json
 memory doctor

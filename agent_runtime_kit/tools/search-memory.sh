@@ -5,7 +5,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/_resolve-python.sh"
 # Hook/session-time search must return quickly on cold or offline machines.
-# OFFLINE=1 forbids model downloads but still loads a locally cached model;
-# only when no cached model exists does it degrade to HashingEmbedder.
+# Semantic indexes can be rebuilt explicitly; default interactive recall should
+# degrade to HashingEmbedder instead of blocking on model downloads.
 export MEMORY_HUB_EMBEDDING_OFFLINE="${MEMORY_HUB_EMBEDDING_OFFLINE:-1}"
 memory_cli search "$@"
