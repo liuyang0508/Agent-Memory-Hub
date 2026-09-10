@@ -7,6 +7,7 @@ from agent_brain.memory.context.injection_gateway import (
     _record_injection_diagnostic,
     build_injection_context,
     injection_retrieval_top_k,
+    search_query_gate_disabled,
 )
 from agent_brain.memory.context.recall_policy import search_governance_warnings
 from agent_brain.interfaces.mcp.tools._shared import *  # noqa: F401,F403
@@ -150,10 +151,14 @@ def search_memory(
         for hit in hits
         if hit.id in items_by_id
     ]
+    # Programmatic processes (MEMORY_HUB_SEARCH_QUERY_GATE=off) must not lose
+    # BM25 hits to the human-question injectability gate: dropping the query
+    # keeps item-level firewall rules while skipping query-shape cohort gates.
+    gate_query = None if search_query_gate_disabled() else query
     injection = build_injection_context(
         candidates,
-        query=query,
-        brain_dir=_brain_dir(),
+        query=gate_query,
+        brain_dir=None if gate_query is None else _brain_dir(),
         requested=verbosity,
         max_items=top_k,
     )
