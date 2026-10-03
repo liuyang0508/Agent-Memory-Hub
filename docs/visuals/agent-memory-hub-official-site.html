@@ -5142,6 +5142,42 @@
     }
 
   </style>
+  <style id="amh-product-film-styles">
+    .film-section { scroll-margin-top: 100px; padding-top: 36px; }
+    .film-layout { display: grid; grid-template-columns: .82fr 1.18fr; align-items: center; gap: 50px; }
+    .film-story h2 { margin: 14px 0 20px; font-size: clamp(2rem, 3.5vw, 3.5rem); line-height: 1.2; letter-spacing: -.045em; }
+    .film-story h2 span { color: #289bb6; }
+    .film-story p { color: #55717d; font-size: 17px; line-height: 1.85; max-width: 460px; }
+    .film-facts { display: flex; gap: 10px; flex-wrap: wrap; margin: 24px 0; }
+    .film-facts span { padding: 8px 13px; border: 1px solid #cce5e8; border-radius: 999px; color: #3d6d79; font-size: 13px; background: #ffffff90; }
+    button.redesign-button { cursor: pointer; font: inherit; }
+    .film-preview { position: relative; display: block; width: 100%; padding: 0; cursor: pointer; overflow: hidden; border: 1px solid #ffffffd9; border-radius: 28px; background: #dff2ed; box-shadow: 0 22px 65px #2e6d8c16; transition: transform .25s ease, box-shadow .25s ease; }
+    .film-preview img { display: block; width: 100%; height: auto; aspect-ratio: 16 / 9; transition: transform .35s ease; }
+    .film-preview:hover { transform: translateY(-3px); box-shadow: 0 28px 70px #2e6d8c22; }
+    .film-preview:hover img { transform: scale(1.018); }
+    .film-play-badge { position: absolute; right: 18px; bottom: 18px; display: inline-flex; align-items: center; gap: 10px; padding: 12px 17px; border-radius: 999px; background: #ffffffed; border: 1px solid #c5e2e5; color: #173740; font-family: inherit; font-weight: 600; font-size: 14px; line-height: 1.2; box-shadow: 0 5px 22px #285b7512; }
+    .film-play-badge svg { width: 20px; height: 20px; color: #229f9b; }
+    .film-preview-note { margin: 15px 4px 0; color: #67838d; font-size: 13px; line-height: 1.7; }
+    .film-dialog { width: min(1120px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); padding: 22px; border: 1px solid #ffffff; border-radius: 28px; background: #f6fbfb; color: #18353e; box-shadow: 0 30px 100px #0b344544; overflow: auto; }
+    .film-dialog::backdrop { background: #173542a6; backdrop-filter: blur(9px); }
+    .film-dialog-head { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-bottom: 17px; }
+    .film-dialog-head p { margin: 0 0 6px; color: #62808a; font-size: 12px; letter-spacing: .08em; }
+    .film-dialog-head h2 { margin: 0; font-size: 22px; letter-spacing: -.03em; line-height: 1.4; }
+    .film-close { flex: 0 0 auto; display: grid; place-items: center; width: 40px; height: 40px; border: 1px solid #d8e9ec; border-radius: 50%; background: #fff; color: #416570; cursor: pointer; }
+    .film-close svg { width: 17px; height: 17px; }
+    .film-dialog video { width: 100%; aspect-ratio: 16 / 9; display: block; background: #e2f3ef; border-radius: 18px; }
+    .film-chapters { display: flex; gap: 8px; overflow-x: auto; padding: 15px 0 9px; scrollbar-width: thin; }
+    .film-chapters button { flex: 0 0 auto; padding: 8px 12px; border: 1px solid #d5e7e9; border-radius: 999px; background: #fff; color: #526f7a; font: inherit; font-size: 12px; cursor: pointer; }
+    .film-chapters button[aria-pressed="true"] { color: #126a72; background: #e0f5ef; border-color: #94d7cc; }
+    .film-dialog-foot { display: flex; align-items: center; justify-content: space-between; gap: 15px; color: #6a818a; font-size: 12px; margin-top: 5px; line-height: 1.7; }
+    .film-dialog-foot a { color: #278b96; text-decoration: none; white-space: nowrap; }
+    .film-error { color: #875742; font-size: 13px; line-height: 1.7; }
+    .film-is-open { overflow: hidden; }
+    [data-film-open]:focus-visible, .film-dialog button:focus-visible, .film-dialog a:focus-visible { outline: 3px solid #37b6c1; outline-offset: 4px; }
+    @media (max-width: 900px) { .film-layout { grid-template-columns: 1fr; gap: 26px; } .film-story p { max-width: 100%; } .film-story h2 { max-width: 640px; } }
+    @media (max-width: 560px) { .film-section { padding-top: 18px; } .film-preview { border-radius: 20px; } .film-play-badge { right: 12px; bottom: 12px; padding: 10px 13px; font-size: 12px; } .film-dialog { padding: 13px; border-radius: 20px; } .film-dialog-head h2 { font-size: 18px; } .film-dialog-head { margin-bottom: 12px; } .film-dialog-foot { align-items: flex-start; } .film-dialog video { border-radius: 12px; } }
+    @media (prefers-reduced-motion: reduce) { .film-preview, .film-preview img { transition: none; } .film-preview:hover, .film-preview:hover img { transform: none; } }
+  </style>
 </head>
 <body>
   <div class="site-redesign">
@@ -5153,6 +5189,7 @@
         </a>
         <nav class="redesign-links" aria-label="Page sections">
           <a href="#quick-access">快速接入</a>
+          <a href="#product-film">产品影片</a>
           <a href="#adoption">使用数据</a>
           <a href="#capabilities">核心能力</a>
           <a href="#benchmark">评测报告</a>
@@ -5183,6 +5220,9 @@
             <a class="redesign-button primary" href="#quick-access">
               <span>快速接入</span>
             </a>
+            <button class="redesign-button" type="button" data-film-open aria-controls="product-film-dialog">
+              <span>观看产品影片 · 2:40</span>
+            </button>
             <a class="redesign-button" href="https://gitee.com/liuyang0508/Agent-Memory-Hub">
               <span>Gitee 镜像</span>
             </a>
@@ -5270,6 +5310,25 @@
           <div class="signal-card target t6"><strong>runtime/*.jsonl</strong><code>adapter · injection · recall</code><span class="node-note">运行证据账本</span></div>
           <div class="signal-card target t7"><strong>runtime/loops/</strong><code>LoopRun</code><span class="node-note">目标与验证闭环</span></div>
           <div class="signal-card target t8"><strong>pending/ · index.db</strong><code>.index-dirty · FTS/vector</code><span class="node-note">待重放与派生索引</span></div>
+        </div>
+      </section>
+
+      <section class="redesign-section film-section" id="product-film" aria-labelledby="product-film-heading">
+        <div class="redesign-wrap film-layout">
+          <div class="film-story">
+            <p class="section-label">A shared second brain, in motion</p>
+            <h2 id="product-film-heading">看见上下文，<br><span>如何接力向前。</span></h2>
+            <p>从预训练、后训练到强化学习，跟随 12 个 Agent 的研发协作，看看触发、存储、召回与交接如何连成一条完整的记忆链路。</p>
+            <div class="film-facts"><span>2 分 40 秒</span><span>中文讲解与字幕</span><span>12 Agent 协作场景</span></div>
+            <button class="redesign-button primary" type="button" data-film-open aria-controls="product-film-dialog">观看完整影片</button>
+          </div>
+          <div>
+            <button class="film-preview" type="button" data-film-open aria-controls="product-film-dialog" aria-label="播放 Agent Memory Hub 产品影片，2分40秒">
+              <img src="/assets/films/agent-memory-hub-product-v7-poster.webp" width="1280" height="720" alt="12个Agent围绕AMH共享记忆并交接研发上下文" loading="lazy" decoding="async">
+              <span class="film-play-badge"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5.5v13l11-6.5z"/></svg><span>播放影片 · 2:40</span></span>
+            </button>
+            <p class="film-preview-note">LLM 研发协作场景演示 · 从共享记忆到可追溯的跨 Agent 接力。</p>
+          </div>
         </div>
       </section>
 
@@ -5436,6 +5495,31 @@
 
     </main>
 
+    <dialog class="film-dialog" id="product-film-dialog" aria-labelledby="product-film-dialog-heading">
+      <div class="film-dialog-head">
+        <div><p>AGENT MEMORY HUB · 产品影片</p><h2 id="product-film-dialog-heading">多智能体，共享第二大脑。</h2></div>
+        <button class="film-close" type="button" data-film-close aria-label="关闭影片"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m5 5 10 10M15 5 5 15"/></svg></button>
+      </div>
+      <video id="product-film-video" controls playsinline preload="none" poster="/assets/films/agent-memory-hub-product-v7-poster.webp" data-src="/assets/films/agent-memory-hub-product-v7.mp4" aria-label="Agent Memory Hub 中文产品讲解影片"></video>
+      <nav class="film-chapters" aria-label="影片章节">
+        <button type="button" data-film-time="0.8" aria-pressed="true">共享大脑</button>
+        <button type="button" data-film-time="10.8" aria-pressed="false">LLM 研发</button>
+        <button type="button" data-film-time="22.8" aria-pressed="false">触发时机</button>
+        <button type="button" data-film-time="34.8" aria-pressed="false">存储维护</button>
+        <button type="button" data-film-time="47.8" aria-pressed="false">多路召回</button>
+        <button type="button" data-film-time="60.8" aria-pressed="false">混排</button>
+        <button type="button" data-film-time="72.8" aria-pressed="false">遗忘与衰减</button>
+        <button type="button" data-film-time="85.8" aria-pressed="false">Hopfield</button>
+        <button type="button" data-film-time="98.8" aria-pressed="false">分层装载</button>
+        <button type="button" data-film-time="110.8" aria-pressed="false">Case 挖掘</button>
+        <button type="button" data-film-time="124.8" aria-pressed="false">轨迹归因</button>
+        <button type="button" data-film-time="138.8" aria-pressed="false">Agent 接力</button>
+        <button type="button" data-film-time="152.8" aria-pressed="false">下一次出发</button>
+      </nav>
+      <p class="film-error" id="product-film-error" role="status" aria-live="polite" hidden>影片暂时无法加载，可以通过下方链接打开或下载原片。</p>
+      <div class="film-dialog-foot"><span>2:40 · 中文旁白与字幕 · 研发协作演示</span><a href="/assets/films/agent-memory-hub-product-v7.mp4" target="_blank" rel="noopener">打开 / 下载原片 ↗</a></div>
+    </dialog>
+
     <footer class="redesign-footer">
       <div class="redesign-wrap">
         <div class="footer-columns">
@@ -5452,6 +5536,7 @@
           </div>
           <div>
             <h3>资源</h3>
+            <a href="#product-film">产品影片</a>
             <a href="#quick-access">快速接入</a>
             <a href="#adoption">匿名使用数据</a>
             <a href="https://github.com/liuyang0508/agent-memory-hub/blob/main/docs/evaluation/amh-full-ranking-optimized-full/latest-memory-benchmark-report.zh.md">评测报告</a>
@@ -5906,5 +5991,61 @@
       if (document.visibilityState === 'visible') loadTelemetryDashboard();
     }, 15000);
   </script>
+
+  <script id="amh-product-film-player">
+    (() => {
+      const dialog = document.getElementById('product-film-dialog');
+      const video = document.getElementById('product-film-video');
+      const error = document.getElementById('product-film-error');
+      const chapters = Array.from(dialog.querySelectorAll('[data-film-time]'));
+      let returnFocus = null;
+      let pendingSeek = null;
+      function openFilm(trigger, seconds) {
+        if (!dialog.open) {
+          returnFocus = trigger;
+          dialog.showModal();
+          document.body.classList.add('film-is-open');
+        }
+        if (!video.getAttribute('src')) video.src = video.dataset.src;
+        if (seconds !== undefined) {
+          if (video.readyState >= 1) video.currentTime = seconds;
+          else pendingSeek = seconds;
+        }
+        video.play().catch(() => { /* Native controls remain available. */ });
+      }
+      document.querySelectorAll('[data-film-open]').forEach(button => {
+        button.addEventListener('click', () => openFilm(button));
+      });
+      chapters.forEach(button => {
+        button.addEventListener('click', () => openFilm(returnFocus, Number(button.dataset.filmTime)));
+      });
+      video.addEventListener('loadedmetadata', () => {
+        if (pendingSeek !== null) { video.currentTime = pendingSeek; pendingSeek = null; }
+      });
+      video.addEventListener('timeupdate', () => {
+        let current = chapters[0];
+        chapters.forEach(button => { if (video.currentTime >= Number(button.dataset.filmTime) - .8) current = button; });
+        chapters.forEach(button => button.setAttribute('aria-pressed', String(button === current)));
+      });
+      video.addEventListener('error', () => { error.hidden = false; });
+      video.addEventListener('playing', () => { error.hidden = true; });
+      function stopFilm() {
+        video.pause();
+        document.body.classList.remove('film-is-open');
+      }
+      function closeFilm() { stopFilm(); dialog.close(); }
+      dialog.querySelector('[data-film-close]').addEventListener('click', closeFilm);
+      dialog.addEventListener('click', event => {
+        const box = dialog.getBoundingClientRect();
+        if (event.target === dialog && (event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom)) closeFilm();
+      });
+      dialog.addEventListener('cancel', stopFilm);
+      dialog.addEventListener('close', () => {
+        stopFilm();
+        if (returnFocus && returnFocus.isConnected) returnFocus.focus({preventScroll: true});
+      });
+    })();
+  </script>
+
 </body>
 </html>

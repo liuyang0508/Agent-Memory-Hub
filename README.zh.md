@@ -18,6 +18,21 @@
   <img src="./docs/visuals/amh-loop-layered-architecture.zh.svg" alt="AMH 可信上下文生命周期图：接入、维护、召回、治理与评估" width="100%">
 </p>
 
+<a id="product-film"></a>
+
+## 2 分 40 秒，看见共享记忆如何接力
+
+[![点击播放：12个Agent共享第二大脑，2分40秒完整产品影片](https://aihub0508.com/assets/films/agent-memory-hub-product-v7-cover.webp)](https://aihub0508.com/#product-film)
+
+以 **Codex 预训练 → Claude Code 后训练 → Cursor RL** 的研发协作场景，
+展示触发时机、存储维护、多路召回与混排、遗忘曲线、Hopfield、分层装载、
+Case 挖掘、轨迹归因和跨 Agent 交接。影片含中文旁白与字幕，官网播放器支持按章节观看。
+
+[在官网观看完整影片](https://aihub0508.com/#product-film) ·
+[打开 / 下载 MP4 原片](https://aihub0508.com/assets/films/agent-memory-hub-product-v7.mp4)
+
+影片中的 12 个 Agent 是协作场景演示，接入状态以片中标签和项目能力账本为准。
+
 <a id="community"></a>
 
 ## 国内镜像与技术共创群

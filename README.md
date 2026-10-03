@@ -25,6 +25,18 @@ For the full technical audit, algorithm walk-through, and detailed benchmark
 boundaries, see [README.zh.md](./README.zh.md). This English README is the
 concise public overview.
 
+## Watch the product film
+
+[![Play the 2:40 Agent Memory Hub film: 12 agents sharing research context](https://aihub0508.com/assets/films/agent-memory-hub-product-v7-cover.webp)](https://aihub0508.com/#product-film)
+
+**12 agents. One shared second brain.** A 2-minute 40-second walkthrough of
+LLM research collaboration, lifecycle triggers, storage, multi-route recall,
+ranking, forgetting, layered context, case mining, traces, and handoff.
+Chinese narration and captions; the official website player includes chapter navigation.
+
+[Watch on the website](https://aihub0508.com/#product-film) ·
+[Open or download the MP4](https://aihub0508.com/assets/films/agent-memory-hub-product-v7.mp4)
+
 ## Mirrors And Community
 
 - Primary repository: [GitHub `liuyang0508/Agent-Memory-Hub`](https://github.com/liuyang0508/Agent-Memory-Hub).
