@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from typing import Any, Callable, Protocol
 
 
 ComponentsFactory = Callable[[], tuple[Any, Any, Any]]
 EmbedderFactory = Callable[[], Any]
-SuggestTagsFunc = Callable[[Any, Any, str], list[tuple[str, int]]]
+class SuggestTagsFunc(Protocol):
+    def __call__(
+        self, index: Any, embedder: Any, text: str, *, max_tags: int = 5,
+        project: str | None = None, tenant_id: str | None = None,
+    ) -> list[tuple[str, int]]: ...
 
 
 def hub_drift_impl(
@@ -159,11 +163,15 @@ def hub_tag_suggest_impl(
     suggest_tags_func: SuggestTagsFunc,
     text: str,
     max_tags: int = 5,
+    project: str | None = None,
+    tenant_id: str | None = None,
 ) -> dict[str, Any]:
     """Suggest tags for content based on similar existing items."""
     _, idx, _ = components()
     embedder = embedder_factory()
-    suggestions = suggest_tags_func(idx, embedder, text, max_tags=max_tags)
+    suggestions = suggest_tags_func(
+        idx, embedder, text, max_tags=max_tags, project=project, tenant_id=tenant_id,
+    )
     return {
         "suggestions": [{"tag": tag, "frequency": freq} for tag, freq in suggestions],
     }

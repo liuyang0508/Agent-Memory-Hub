@@ -16,6 +16,7 @@
 
 - `UserPromptSubmit`：只写当前用户 prompt 的 `live-prompt` 防丢证据，防止进程异常或适配器没有 transcript 时完全丢失输入。
 - `Stop`：如果 hook payload 带 `transcript_path`，导入完整 transcript 到 `sources/conversations/`；这是原始对话的权威事实源，会覆盖同 session 下内容相同的 `live-prompt`。
+- 每日治理在 Stop 完成前台写入后由独立后台进程执行，不占用宿主的同步等待；并发由进程锁保护，崩溃后自动释放，阶段耗时及错误记录在 `runtime/daily-governance/`。
 - `write-memory.sh` / WriteService：只写长期知识条目到 `items/`，不负责原始对话 transcript。
 
 ## 何时主动写一条 memory（5 个触发器）
@@ -72,11 +73,13 @@ memory conversation rebalance
 | type | 正文必含 |
 |---|---|
 | `decision` | `**决策**` / `**理由**` / `**改回去的代价**` 三段 |
-| `fact` | `**事实**` / `**来源**` / `**有效期**`（如适用） |
+| `fact` | `**事实**` / `**来源**` / `**有效期**`（三项必填；无明确期限时写观察日期与复核条件，不编造） |
 | `signal` | `**当前状态**` / `**影响**` / `**期望操作**` |
 | `episode` | `**情境**` / `**做了什么**` / `**结果**` / `**学到**` |
 | `artifact` | `**产出物**`（路径/链接） / `**用途**` |
 | `handoff` | 优先用 `memory handoff` 生成完整结构；模板见 `agent_runtime_kit/templates/handoff-{code,task}.md` |
+
+写入前先确认复用价值与来源，不依赖事后 GC 替代判断。`write_memory` 返回 id/path 并附带 warnings 时，记忆已经保存，不应重试写入制造副本。`suggested_tags` 仅为有正文依据的建议，不会修改已保存的 tags；格式警告不代表 Hook 超时。
 
 ## 干活前先 query brain
 

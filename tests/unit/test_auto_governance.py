@@ -20,7 +20,8 @@ def _matureable_item(item_id: str = "mem-20260618-160000-auto-govern") -> Memory
     return MemoryItem(
         id=item_id,
         type=MemoryType.decision,
-        created_at=datetime(2026, 6, 18, tzinfo=timezone.utc),
+        # This fixture tests maturity, not the unrelated 90-day expiry rule.
+        created_at=datetime.now(timezone.utc),
         title="Auto governance maturity",
         summary="Auto governance maturity locator",
         confidence=0.85,

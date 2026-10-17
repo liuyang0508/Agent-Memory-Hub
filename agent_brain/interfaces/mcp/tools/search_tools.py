@@ -15,11 +15,15 @@ from agent_brain.interfaces.mcp.tools._shared import *  # noqa: F401,F403
 def tag_suggest(
     text: str,
     max_tags: int = 5,
+    project: str | None = None,
+    tenant_id: str | None = None,
 ) -> dict[str, Any]:
     """Suggest tags for content based on similar existing items.
 
-    Finds the most similar items in the brain pool and returns their
-    most common tags, ranked by frequency.
+    Returns tags supported by the supplied text and sufficiently similar
+    existing items, ranked by frequency. Explicit project/tenant_id filters
+    apply before retrieval. No scope is guessed; no tags are written. An empty
+    result means no supported suggestions, not a failed write.
 
     WHEN TO USE
     -----------
@@ -35,7 +39,9 @@ def tag_suggest(
     """
     _, idx, _ = _components()
     embedder = get_default_embedder()
-    suggestions = _suggest_tags(idx, embedder, text, max_tags=max_tags)
+    suggestions = _suggest_tags(
+        idx, embedder, text, max_tags=max_tags, project=project, tenant_id=tenant_id,
+    )
     return {
         "suggestions": [{"tag": tag, "frequency": freq} for tag, freq in suggestions],
     }
