@@ -65,7 +65,7 @@ echo "<正文>" | __HUB_CODE_DIR__/agent_runtime_kit/tools/write-memory.sh \
 
 1. **title 只描述内容主题**——不要写 "cc-to-codex" 这种方向信息
 2. **decision** 类正文必须包含三段：`决策 | 理由 | 改回去的代价`
-3. **fact** 类必须包含：`事实 / 来源 / 有效期（如适用）`
+3. **fact** 类必须包含：`**事实** / **来源** / **有效期**`（三项必填；无明确期限时写观察日期与复核条件，不编造）
 4. **signal** 类必须包含：`当前状态 / 影响 / 期望操作`
 5. **sensitivity 默认 internal**；涉及 API 密钥 / 私密对话时显式 `--sensitivity private` 或 `secret`
 6. **一次最多写 5 条**——再多就让用户分批

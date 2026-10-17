@@ -14,7 +14,7 @@
     "observed_drift_count": 1,
     "status": "pass"
   },
-  "implementation_hash": "sha256:7753661df5ce827d89c0567cb68c0c904f865c1768723c83eaf0f4c7417e2d65",
+  "implementation_hash": "sha256:5e00ad7b2a25b4b1374af670549a354c2110e94c6bd2e140c70f0f50223db16d",
   "implementation_manifest": [
     {
       "path": "agent_brain/agent_integrations/hermes/import_export_tools.py",
@@ -78,7 +78,7 @@
     },
     {
       "path": "agent_brain/interfaces/mcp/tools/mutation_tools.py",
-      "sha256": "sha256:280a67ffc5d0a7e51f4d08b55fd6fb80c2d9a865d00de5aad1be89b689b0c203"
+      "sha256": "sha256:8e2a471cc6a5ece17150bdc20b07ac7c577cf789b65bcd711d14005c033e8b20"
     },
     {
       "path": "agent_brain/memory/evidence/import_service.py",

@@ -712,12 +712,16 @@ def list_recent(
 def tag_suggest(
     text: str = typer.Argument(..., help="Text to suggest tags for"),
     max_tags: int = typer.Option(5, "--max"),
+    project: str | None = typer.Option(None, "--project", help="Known project scope"),
+    tenant_id: str | None = typer.Option(None, "--tenant-id", help="Tenant scope"),
 ) -> None:
     """Suggest tags based on similar existing items."""
     _, idx, _ = _cli._command_components()
     embedder = _cli.get_default_embedder()
     from agent_brain.memory.recall.retrieval import suggest_tags as _suggest_tags
-    suggestions = _suggest_tags(idx, embedder, text, max_tags=max_tags)
+    suggestions = _suggest_tags(
+        idx, embedder, text, max_tags=max_tags, project=project, tenant_id=tenant_id,
+    )
     if not suggestions:
         typer.echo("(no suggestions)")
         return

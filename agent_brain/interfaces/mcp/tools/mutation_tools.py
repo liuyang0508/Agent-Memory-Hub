@@ -73,6 +73,21 @@ def write_memory(
       * `policy`    - a rule crystallised from repeated episodes
       * `skill`     - an executable recipe or prompt template
 
+    BODY FORMAT (include these literal Markdown labels before calling)
+    -----------------------------------------------------------------
+      * fact: **事实**, **来源**, **有效期**
+      * decision: **决策**, **理由**, **改回去的代价**
+      * signal: **当前状态**, **影响**, **期望操作**
+      * episode: **情境**, **做了什么**, **结果**, **学到**
+      * artifact: **产出物**, **用途**
+      * handoff: use `memory handoff` for its structured task package.
+    For fact, all three sections are required. If no expiry is known, state
+    the observation date and when to recheck under **有效期**; never invent
+    an expiry or a source. Supply known evidence via ref_files/ref_urls/etc.
+    A written result with warnings is already saved: do not retry the write
+    and create a duplicate. Inspect the warning and correct the source input.
+    `suggested_tags` is advisory only; it has NOT changed the saved tags.
+
     CHAIN (run AFTER a successful write)
     -----------------------------------
     1. Read the returned `id` from the response.
@@ -84,9 +99,11 @@ def write_memory(
 
     DO NOT
     ------
-    Ask the user permission before writing. Trivial, low-confidence drafts
-    are filtered automatically by `gc_memory`; the cost of writing too much
-    is far lower than the cost of losing reusable knowledge.
+    Ask permission for a clearly reusable memory already covered by the
+    user's memory discipline. Do not persist temporary output, intermediate
+    steps, unverified conclusions, or whole transcripts as durable knowledge.
+    The caller must establish reuse value and evidence; `gc_memory` is not a
+    substitute for that judgment. Honor an explicit user instruction not to save.
     """
     try:
         mem_type = MemoryType(type)
@@ -160,6 +177,8 @@ def write_memory(
             summary=summary,
             body=body,
             tags=tags,
+            project=project,
+            tenant_id=tenant_id,
         )
     )
     return result

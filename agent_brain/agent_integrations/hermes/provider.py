@@ -349,6 +349,8 @@ def hub_govern(ttl_days: int = 90) -> dict[str, Any]:
 def hub_tag_suggest(
     text: str,
     max_tags: int = 5,
+    project: str | None = None,
+    tenant_id: str | None = None,
 ) -> dict[str, Any]:
     """Suggest tags for content based on similar existing items."""
     from agent_brain.memory.recall.retrieval import suggest_tags as _suggest_tags
@@ -359,6 +361,8 @@ def hub_tag_suggest(
         _suggest_tags,
         text=text,
         max_tags=max_tags,
+        project=project,
+        tenant_id=tenant_id,
     )
 
 

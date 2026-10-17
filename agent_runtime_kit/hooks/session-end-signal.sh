@@ -15,13 +15,14 @@
 #   从 ~50% 降到接近 0。
 #
 # 行为:
-#   - 第一次 turn 结束：创建 flag + 写一条 type=signal 标记 session 活跃
-#   - 后续 turn 结束：flag 存在 → 啥都不做
+#   - 每次 turn 结束：归档 transcript，关闭过期观察窗口，后台调度每日维护
+#   - 第一次 turn 结束：写一条 type=signal 标记 session 活跃
+#   - 后续 turn 结束：flag 存在 → 不再重复写 signal
 #
 # 设计权衡:
 #   - **不**调用 LLM API（避免外部依赖、API 成本）
-#   - **不**读完整 transcript（隐私 + 体积）
-#   - 只写"session 第一次活跃"机械事实 → 让用户主动 /remember
+#   - transcript 进入 evidence/source 层，不自动提炼为长期记忆
+#   - 每日治理脱离 hook 的进程组和标准流，避免占用宿主 Stop 超时预算
 #
 # 装配（可选）:
 #   jq '. + {"hooks": {"Stop": [{"matcher": "", "hooks": [{"type": "command", "command": "<path-to>/session-end-signal.sh"}]}]}}' \
@@ -61,15 +62,6 @@ if [ -n "$TRANSCRIPT" ] && [ -n "${MEMORY_PYTHON:-}" ]; then
     >/dev/null 2>&1 || true
 fi
 
-# Run bounded, reversible governance at most once per UTC day. Exact
-# duplicates are superseded with snapshots, explicit TTL expirations are
-# archived, and conflicts are contained for review. Fail-open for the agent.
-if [ -n "${MEMORY_PYTHON:-}" ]; then
-  "$MEMORY_PYTHON" -m agent_brain.memory.governance.daily_maintenance \
-    --brain-dir "${BRAIN_DIR:-$HOME/.agent-memory-hub}" \
-    >/dev/null 2>&1 || true
-fi
-
 # Close silent injection cohorts whose observation window elapsed. Idempotent;
 # daily_maintenance repeats the same sweep as a fallback. Fail-open.
 if [ -n "${MEMORY_PYTHON:-}" ]; then
@@ -79,7 +71,8 @@ if [ -n "${MEMORY_PYTHON:-}" ]; then
     >/dev/null 2>&1 || true
 fi
 
-[ -x "$WRITE_TOOL" ] || exit 0
+write_session_signal() {
+[ -x "$WRITE_TOOL" ] || return 0
 
 # === DEDUPE: 同一 session_id 只在第一次 turn end 时写 signal ===
 BRAIN_DIR="${BRAIN_DIR:-$HOME/.agent-memory-hub}"
@@ -89,11 +82,10 @@ FLAG="$FLAGS_DIR/$SESSION_ID_FULL"
 
 if [ -f "$FLAG" ]; then
     # 已写过此 session 的 signal，本次 turn end 不再重复
-    exit 0
+    return 0
 fi
 
-# 第一次：标记 flag + 写 signal
-touch "$FLAG"
+# 第一次：写入成功后标记，失败允许下次 Stop 重试。
 
 NOW=$(date +"%Y-%m-%d %H:%M")
 SOURCE_AGENT="${AGENT_MEMORY_HUB_AGENT:-${AGENT_MEMORY_HUB_ADAPTER:-unknown}}"
@@ -120,6 +112,18 @@ echo "**当前状态**：会话 \`${SESSION_ID}\` 在 ${NOW} 第一次 turn 结�
     --session "$SESSION_ID" \
     --cwd "$CWD" \
     --adapter "${AGENT_MEMORY_HUB_ADAPTER:-unknown}" \
-    --sensitivity internal > /dev/null 2>&1 || true
+    --sensitivity internal > /dev/null 2>&1 && touch "$FLAG"
+}
+
+write_session_signal || true
+
+# Start only after foreground writes, so governance cannot contend with the
+# session signal for the index. The worker owns its lock and private logs;
+# stale legacy locks are harmless and a crashed worker can be retried.
+if [ -n "${MEMORY_PYTHON:-}" ]; then
+  "$MEMORY_PYTHON" -m agent_brain.memory.governance.daily_maintenance \
+    --brain-dir "${BRAIN_DIR:-$HOME/.agent-memory-hub}" --background \
+    >/dev/null 2>&1 || true
+fi
 
 exit 0
