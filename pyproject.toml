@@ -58,6 +58,7 @@ dev = [
 ]
 
 [project.scripts]
+amh-native = "agent_brain.native_sync.cli:main"
 memory = "agent_brain.interfaces.cli:app"
 memory-mcp = "agent_brain.interfaces.mcp.server:run"
 

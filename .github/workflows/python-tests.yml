@@ -50,7 +50,7 @@ jobs:
       - name: Unit tests
         env:
           MEMORY_HUB_TEST_EMBEDDING: "1"
-        run: python -m pytest tests/unit -q --cov=agent_brain --cov=web --cov-report=term-missing
+        run: python -m pytest tests/unit tests/native_sync -q --cov=agent_brain --cov=web --cov-report=term-missing
       - name: Conformance tests (CLI + MCP)
         env:
           MEMORY_HUB_TEST_EMBEDDING: "1"
