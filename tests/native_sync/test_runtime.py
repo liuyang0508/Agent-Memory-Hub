@@ -481,3 +481,35 @@ def test_native_mode_preserves_non_memory_safety_hooks_even_under_same_kit(tmp_p
     )
     install_hooks(home, tmp_path / "state", products=["claude-code"])
     assert command in p.read_text()
+
+
+def test_installed_hook_is_not_shadowed_by_an_old_checkout(live, tmp_path):
+    hub, url = live
+    a = enroll(hub)
+    hub.put(a["token"], asset())
+    c = NativeClient.join(tmp_path / "state", url, hub.invite("linkcrux", "李四"), "Mac")
+    home = tmp_path / "home"
+    install_hooks(home, c.root, products=["claude-code"])
+    old = tmp_path / "old-checkout"
+    (old / "agent_brain").mkdir(parents=True)
+    (old / "agent_brain/__init__.py").write_text("# Old checkout without native_sync\n")
+    command = json.loads((home / ".claude/settings.json").read_text())["hooks"]["UserPromptSubmit"][
+        0
+    ]["hooks"][0]["command"]
+    r = subprocess.run(
+        command,
+        shell=True,
+        cwd=old,
+        text=True,
+        capture_output=True,
+        input=json.dumps(
+            {
+                "session_id": "shadow",
+                "hook_event_name": "UserPromptSubmit",
+                "prompt": "订单回调验签",
+            }
+        ),
+        timeout=4,
+    )
+    assert r.returncode == 0, r.stderr
+    assert "张三" in json.loads(r.stdout)["hookSpecificOutput"]["additionalContext"]

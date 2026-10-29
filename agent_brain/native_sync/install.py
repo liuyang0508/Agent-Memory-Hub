@@ -9,9 +9,8 @@ import plistlib
 import re
 import shlex
 import shutil
-import sys
 from pathlib import Path
-from .common import PRODUCTS, atomic_json, atomic_text, digest, legacy_memory_command
+from .common import PRODUCTS, atomic_json, atomic_text, digest, legacy_memory_command, runtime_argv
 
 EVENTS = ("SessionStart", "UserPromptSubmit", "PostToolUse", "Stop", "PostCompact")
 OWNER = "agent_brain.native_sync.hooks"
@@ -156,23 +155,10 @@ def install_hooks(home: Path, state: Path, *, products: list[str]) -> list[str]:
                 if other:
                     kept.append({**entry, "hooks": other})
             hooks[event] = kept
-        command = shlex.join(
-            [sys.executable, "-m", OWNER, "--state", str(state), "--product", product]
-        )
-        # A stable launcher sets import path without installing over the user's environment.
+        command = shlex.join(runtime_argv(OWNER, "--state", str(state), "--product", product))
         launcher = state / "amh-native-hook"
-        package_root = Path(__file__).resolve().parents[2]
-        atomic_text(
-            launcher,
-            "#!/bin/sh\nexport PYTHONPATH="
-            + shlex.quote(str(package_root))
-            + "\nexec "
-            + command
-            + "\n",
-        )
+        atomic_text(launcher, "#!/bin/sh\nexec " + command + "\n")
         launcher.chmod(0o700)
-        # Each handler has its own product arg, including when two configs share a store.
-        command = "PYTHONPATH=" + shlex.quote(str(package_root)) + " " + command
         for event in EVENTS:
             handler = {
                 "type": "command",
@@ -359,14 +345,9 @@ def launch_agent(state: Path, home: Path, *, install: bool = True) -> Path:
     root = Path(__file__).resolve().parents[2]
     data = {
         "Label": label,
-        "ProgramArguments": [
-            sys.executable,
-            "-m",
-            "agent_brain.native_sync",
-            "worker",
-            "--state",
-            str(state),
-        ],
+        "ProgramArguments": runtime_argv(
+            "agent_brain.native_sync.worker", "--state", str(state.resolve())
+        ),
         "WorkingDirectory": str(root),
         "EnvironmentVariables": {"PYTHONPATH": str(root)},
         "RunAtLoad": True,

@@ -93,3 +93,16 @@ def legacy_memory_command(command: str) -> bool:
         for prefix in ("agent_runtime_kit/hooks/", "agent-memory-hub/hooks/")
         for name in scripts
     )
+
+
+def runtime_argv(module: str, *arguments: str) -> list[str]:
+    """Launch this installed code, independent of a same-named package in the task cwd."""
+    import sys
+
+    root = str(Path(__file__).resolve().parents[2])
+    bootstrap = (
+        "import runpy,sys; "
+        f"sys.path.insert(0, {root!r}); "
+        f"runpy.run_module({module!r}, run_name='__main__')"
+    )
+    return [sys.executable, "-I", "-c", bootstrap, *arguments]

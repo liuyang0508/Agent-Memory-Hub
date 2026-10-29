@@ -3,25 +3,22 @@
 from __future__ import annotations
 
 import json
-import os
 import subprocess
 import sys
 from pathlib import Path
 from typing import Any
 from .transport import Transport
+from .common import runtime_argv
 
 
 def bounded_search(state: Path, query: str, *, timeout: float) -> list[dict[str, Any]]:
-    env = dict(os.environ)
-    env["PYTHONPATH"] = str(Path(__file__).resolve().parents[2])
     try:
         result = subprocess.run(
-            [sys.executable, "-m", "agent_brain.native_sync.query_worker", str(state)],
+            runtime_argv("agent_brain.native_sync.query_worker", str(state.resolve())),
             input=json.dumps({"query": query}),
             text=True,
             capture_output=True,
             timeout=timeout,
-            env=env,
         )
     except subprocess.TimeoutExpired:
         raise TimeoutError("cloud recall deadline exceeded") from None

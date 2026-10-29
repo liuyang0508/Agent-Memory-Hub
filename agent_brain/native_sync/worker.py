@@ -4,13 +4,11 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import subprocess
-import sys
 import time
 from pathlib import Path
 from .client import NativeClient
-from .common import atomic_json
+from .common import atomic_json, runtime_argv
 
 
 def work(state: Path, interval: float = 10) -> None:
@@ -59,16 +57,13 @@ def ensure_worker(state: Path) -> None:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             return
-    env = dict(os.environ)
-    env["PYTHONPATH"] = str(Path(__file__).resolve().parents[2])
     with (state / "worker.log").open("a") as log:
         subprocess.Popen(
-            [sys.executable, "-m", "agent_brain.native_sync.worker", "--state", str(state)],
+            runtime_argv("agent_brain.native_sync.worker", "--state", str(state.resolve())),
             stdin=subprocess.DEVNULL,
             stdout=log,
             stderr=log,
             start_new_session=True,
-            env=env,
         )
 
 
