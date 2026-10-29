@@ -10,6 +10,7 @@ import json
 import re
 from pathlib import Path
 from .projection import strip_managed
+from .common import legacy_memory_command
 
 SECRET_NAMES = {
     "auth.json",
@@ -114,7 +115,9 @@ def read_document(path: Path, kind: str) -> tuple[str, str, str] | None:
         def clean(value: Any) -> Any:
             if isinstance(value, dict):
                 command = value.get("command", "")
-                if isinstance(command, str) and "agent_runtime_kit/" in command:
+                if isinstance(command, str) and (
+                    legacy_memory_command(command) or "agent_runtime_kit/mcp/server.sh" in command
+                ):
                     return skip
                 result = {}
                 for key, child in value.items():

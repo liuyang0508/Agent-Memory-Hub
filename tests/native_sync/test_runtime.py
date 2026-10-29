@@ -467,3 +467,17 @@ def test_new_memory_capture_accepts_native_added_modified_metadata(live, tmp_pat
     )
     c.sync()
     assert hub.search(c.identity["token"], "STAMP_CANARY")[0]["body"] == actual
+
+
+def test_native_mode_preserves_non_memory_safety_hooks_even_under_same_kit(tmp_path):
+    home = tmp_path / "home"
+    (home / ".claude").mkdir(parents=True)
+    p = home / ".claude/settings.json"
+    command = "/x/agent_runtime_kit/hooks/security-check.sh"
+    p.write_text(
+        json.dumps(
+            {"hooks": {"PreToolUse": [{"hooks": [{"type": "command", "command": command}]}]}}
+        )
+    )
+    install_hooks(home, tmp_path / "state", products=["claude-code"])
+    assert command in p.read_text()

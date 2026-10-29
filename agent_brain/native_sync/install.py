@@ -11,11 +11,10 @@ import shlex
 import shutil
 import sys
 from pathlib import Path
-from .common import PRODUCTS, atomic_json, atomic_text, digest
+from .common import PRODUCTS, atomic_json, atomic_text, digest, legacy_memory_command
 
 EVENTS = ("SessionStart", "UserPromptSubmit", "PostToolUse", "Stop", "PostCompact")
 OWNER = "agent_brain.native_sync.hooks"
-LEGACY = ("agent_runtime_kit/hooks/", "agent-memory-hub/hooks/")
 
 
 def discover(home: Path) -> list[dict[str, Any]]:
@@ -152,7 +151,7 @@ def install_hooks(home: Path, state: Path, *, products: list[str]) -> list[str]:
                     h
                     for h in entry.get("hooks", [])
                     if not _managed(h.get("command", ""))
-                    and not any(s in h.get("command", "") for s in LEGACY)
+                    and not legacy_memory_command(h.get("command", ""))
                 ]
                 if other:
                     kept.append({**entry, "hooks": other})

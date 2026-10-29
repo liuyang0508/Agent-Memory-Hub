@@ -78,3 +78,18 @@ def tokens(text: str) -> list[str]:
         words.extend(run)
         words.extend(run[i : i + 2] for i in range(len(run) - 1))
     return list(dict.fromkeys(words))
+
+
+def legacy_memory_command(command: str) -> bool:
+    """Identify known memory-business callbacks, not every script in the runtime kit."""
+    scripts = (
+        "inject-context.sh",
+        "inject-discipline.sh",
+        "session-end-signal.sh",
+        "lifecycle-event.sh",
+    )
+    return any(
+        prefix + name in command
+        for prefix in ("agent_runtime_kit/hooks/", "agent-memory-hub/hooks/")
+        for name in scripts
+    )
