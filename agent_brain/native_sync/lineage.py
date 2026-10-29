@@ -35,7 +35,7 @@ def record_tool_coverage(client: Any, payload: dict[str, Any], session: str, epo
     candidates = set(re.findall(r"[0-9a-f]{64}\.md", " ".join(strings(tool_input))))
     if isinstance(file_value, str):
         candidates.add(Path(file_value).name)
-    for target in client.config.get("targets", []):
+    for target in client.targets():
         folder = Path(target["root"]) / "amh-org"
         manifest = folder / "manifest.json"
         if not manifest.exists():

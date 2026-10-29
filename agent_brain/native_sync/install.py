@@ -90,6 +90,22 @@ def _managed(command: Any) -> bool:
     return OWNER in str(command) or "amh-native-hook" in str(command)
 
 
+def native_reading_config(text: str) -> str:
+    """Enable reading while preserving TOML layout and explicit generation preferences."""
+    from collections.abc import MutableMapping
+    import tomlkit
+
+    data = tomlkit.parse(text)
+    for section, key in [("features", "memories"), ("memories", "use_memories")]:
+        if section not in data:
+            data[section] = tomlkit.table()
+        target = data[section]
+        if not isinstance(target, MutableMapping):
+            raise ValueError(section + " must be a TOML table")
+        target[key] = True
+    return tomlkit.dumps(data)
+
+
 def install_hooks(home: Path, state: Path, *, products: list[str]) -> list[str]:
     home, state = Path(home).resolve(), Path(state).resolve()
     state.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -101,11 +117,33 @@ def install_hooks(home: Path, state: Path, *, products: list[str]) -> list[str]:
         destinations[home / ".claude/settings.json"] = "claude-code"
     if any(p in products for p in ("codex-cli", "codex-desktop", "chatgpt-desktop")):
         destinations[home / ".codex/hooks.json"] = "codex-cli"
+    # Validate every target before the first mutation, not halfway through a multi-client install.
+    for path in destinations:
+        if path.is_symlink():
+            raise ValueError("refusing to replace symlink: " + str(path))
+        data = json.loads(path.read_text()) if path.exists() else {}
+        if not isinstance(data, dict) or not isinstance(data.get("hooks", {}), dict):
+            raise ValueError("invalid Hook configuration: " + str(path))
+        for entries in data.get("hooks", {}).values():
+            if not isinstance(entries, list) or any(
+                not isinstance(entry, dict)
+                or not isinstance(entry.get("hooks", []), list)
+                or any(not isinstance(handler, dict) for handler in entry.get("hooks", []))
+                for entry in entries
+            ):
+                raise ValueError("invalid Hook entries: " + str(path))
+    config_path = home / ".codex/config.toml"
+    if any(p in products for p in ("codex-cli", "codex-desktop", "chatgpt-desktop")):
+        if config_path.is_symlink():
+            raise ValueError("refusing to replace symlink: " + str(config_path))
+        native_reading_config(config_path.read_text() if config_path.exists() else "")
     for path, product in destinations.items():
         original = json.loads(path.read_text()) if path.exists() else {}
         if str(path) not in saved["json"]:
             saved["json"][str(path)] = {"before": original, "existed": path.exists()}
         data = json.loads(json.dumps(original))
+        if product == "claude-code":
+            data["autoMemoryEnabled"] = True
         hooks = data.setdefault("hooks", {})
         for event, entries in list(hooks.items()):
             kept = []
@@ -181,7 +219,7 @@ def install_hooks(home: Path, state: Path, *, products: list[str]) -> list[str]:
         )
 
         original = codex_config.read_text() if codex_config.exists() else ""
-        changed = remove_mcp_block(original)
+        changed = native_reading_config(remove_mcp_block(original))
         already_trusted = set(trusted_hashes(original).values())
         hooks_path = (home / ".codex/hooks.json").resolve()
         hooks_data = json.loads(hooks_path.read_text())["hooks"]
@@ -245,9 +283,30 @@ def uninstall_hooks(home: Path, state: Path) -> list[str]:
 def export_cowork_plugin(destination: Path) -> Path:
     """Portable stdlib Hook runtime, no credentials embedded in distributable plugin."""
     root = Path(destination)
+    for directory in (
+        root,
+        root / ".claude-plugin",
+        root / "hooks",
+        root / "runtime",
+        root / "runtime/agent_brain",
+        root / "runtime/agent_brain/native_sync",
+    ):
+        if directory.is_symlink():
+            raise ValueError("plugin output contains a symlink: " + str(directory))
+    generated = [
+        root / ".claude-plugin/plugin.json",
+        root / "hooks/hooks.json",
+        root / "runtime/entry.py",
+        root / "runtime/agent_brain/__init__.py",
+    ]
     atomic_json(
         root / ".claude-plugin/plugin.json",
-        {"name": "amh-native-org", "version": "0.1.0", "description": "组织原生记忆同步与召回"},
+        {
+            "name": "amh-native-org",
+            "version": "0.1.0",
+            "description": "组织原生记忆同步与召回",
+            "author": {"name": "Agent Memory Hub"},
+        },
     )
     runtime = root / "runtime/agent_brain/native_sync"
     runtime.mkdir(parents=True, exist_ok=True)
@@ -261,12 +320,14 @@ def export_cowork_plugin(destination: Path) -> Path:
         "materialize.py",
         "worker.py",
         "lineage.py",
+        "discovery.py",
         "query_worker.py",
         "client.py",
         "recall.py",
         "hooks.py",
     ]:
         atomic_text(runtime / name, (Path(__file__).parent / name).read_text())
+        generated.append(runtime / name)
     atomic_text(
         root / "runtime/entry.py", "from agent_brain.native_sync.hooks import main\nmain()\n"
     )
@@ -280,6 +341,14 @@ def export_cowork_plugin(destination: Path) -> Path:
             }
         },
     )
+    import zipfile
+
+    archive = Path(str(root) + ".zip")
+    if archive.is_symlink():
+        raise ValueError("plugin archive must not be a symlink")
+    with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as bundle:
+        for path in generated:
+            bundle.write(path, str(path.relative_to(root)))
     return root
 
 

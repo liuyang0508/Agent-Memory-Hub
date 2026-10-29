@@ -33,6 +33,7 @@ class NativeClient:
             CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY,value TEXT);
             CREATE TABLE IF NOT EXISTS coverage(session TEXT,epoch TEXT,key TEXT,PRIMARY KEY(session,epoch,key));
             CREATE TABLE IF NOT EXISTS history_hashes(hash TEXT PRIMARY KEY);
+            CREATE TABLE IF NOT EXISTS dynamic_targets(root TEXT PRIMARY KEY,product TEXT);
             CREATE TABLE IF NOT EXISTS file_identity(source TEXT,path TEXT,device INTEGER,inode INTEGER,PRIMARY KEY(source,path));
             CREATE TABLE IF NOT EXISTS aliases(source TEXT,path TEXT,refs TEXT,status TEXT,PRIMARY KEY(source,path));
             CREATE TABLE IF NOT EXISTS native_proofs(session TEXT,epoch TEXT,source TEXT,path TEXT,hash TEXT,PRIMARY KEY(session,epoch,source,path));
@@ -63,7 +64,25 @@ class NativeClient:
         with database(self.path) as db:
             return [dict(r) for r in db.execute("SELECT * FROM sources")]
 
-    def register(self, root: Path, product: str, project: str, kind: str) -> str:
+    def targets(self) -> list[dict[str, Any]]:
+        with database(self.path) as db:
+            dynamic = [dict(row) for row in db.execute("SELECT root,product FROM dynamic_targets")]
+        return list(
+            {
+                str(Path(row["root"]).resolve()): row
+                for row in self.config.get("targets", []) + dynamic
+            }.values()
+        )
+
+    def register(
+        self,
+        root: Path,
+        product: str,
+        project: str,
+        kind: str,
+        *,
+        fresh_files: set[str] | None = None,
+    ) -> str:
         root = Path(root).expanduser().resolve()
         if not root.exists():
             raise ValueError("source file or directory does not exist")
@@ -78,6 +97,7 @@ class NativeClient:
         ):
             raise ValueError("invalid source")
         with database(self.path) as db:
+            db.execute("BEGIN IMMEDIATE")
             old = db.execute(
                 "SELECT * FROM sources WHERE root=? AND kind=?", (str(root), kind)
             ).fetchone()
@@ -94,9 +114,11 @@ class NativeClient:
                     body = "<unreadable-existing-file>"
                     fingerprint = digest(body)
                 if body is not None:
-                    db.execute("INSERT OR IGNORE INTO history_hashes VALUES(?)", (fingerprint,))
-                    stat = p.stat()
                     relative = p.name if root.is_file() else str(p.relative_to(root))
+                    fresh = relative in (fresh_files or set())
+                    if not fresh:
+                        db.execute("INSERT OR IGNORE INTO history_hashes VALUES(?)", (fingerprint,))
+                    stat = p.stat()
                     db.execute(
                         "INSERT OR REPLACE INTO file_identity VALUES(?,?,?,?)",
                         (sid, relative, stat.st_dev, stat.st_ino),
@@ -105,11 +127,11 @@ class NativeClient:
                         (
                             sid,
                             p.name if root.is_file() else str(p.relative_to(root)),
-                            fingerprint,
-                            0,
+                            "" if fresh else fingerprint,
+                            int(fresh),
                             "asset_" + uuid.uuid4().hex,
                             0,
-                            1,
+                            int(not fresh),
                         )
                     )
             db.execute(
@@ -245,6 +267,26 @@ class NativeClient:
                 if doc is None:
                     continue
                 body, encoding, h = doc
+                if row is not None and row["hash"] == "" and not row["unknown"]:
+                    with database(self.path) as db:
+                        prior_parts = db.execute(
+                            "SELECT 1 FROM source_parts WHERE base=? LIMIT 1", (row["asset"],)
+                        ).fetchone()
+                        excluded_copy = db.execute(
+                            "SELECT 1 FROM history_hashes WHERE hash=?", (h,)
+                        ).fetchone()
+                        if not prior_parts and excluded_copy:
+                            db.execute(
+                                "UPDATE snapshots SET selected=0,unknown=1,hash=? WHERE source=? AND path=?",
+                                (h, source["id"], rel),
+                            )
+                            db.execute(
+                                "INSERT OR REPLACE INTO aliases VALUES(?,?,?,?)",
+                                (source["id"], rel, "[]", "needs-history-review"),
+                            )
+                    if not prior_parts and excluded_copy:
+                        errors.append("history review required: " + source["id"] + "/" + rel)
+                        continue
                 if row is not None and row["hash"] == h:
                     continue
                 stat = p.stat()
@@ -344,7 +386,7 @@ class NativeClient:
             return [
                 dict(row)
                 for row in db.execute(
-                    "SELECT source,path,refs,status FROM aliases WHERE status='needs-origin-review'"
+                    "SELECT source,path,refs,status FROM aliases WHERE status IN ('needs-origin-review','needs-history-review')"
                 )
             ]
 
@@ -422,7 +464,7 @@ class NativeClient:
                     break
             from .projection import publish
 
-            for target in self.config.get("targets", []):
+            for target in self.targets():
                 result = publish(Path(target["root"]), target["product"], self.cached())
                 errors.extend(result["conflicts"])
             atomic_json(
@@ -454,7 +496,7 @@ class NativeClient:
             for path in cache.glob("*.md"):
                 if not path.is_symlink() and digest(path.read_text()) == path.stem:
                     path.unlink()
-        for target in self.config.get("targets", []):
+        for target in self.targets():
             publish(Path(target["root"]), target["product"], [])
 
     def search(self, query: str, **kwargs: Any) -> list[dict[str, Any]]:

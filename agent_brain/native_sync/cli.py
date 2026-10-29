@@ -167,7 +167,7 @@ def status(state: Path = DEFAULT_STATE) -> None:
         "identity": {k: v for k, v in c.identity.items() if k != "token"},
         "hub": c.config.get("hub"),
         "sources": c.sources(),
-        "targets": c.config.get("targets", []),
+        "targets": c.targets(),
         "pending": c.pending_count(),
         "origin_reviews": c.origin_reviews(),
     }
@@ -205,6 +205,7 @@ def cowork_plugin(output: Path = typer.Option(...)) -> None:
     emit(
         {
             "plugin": str(export_cowork_plugin(output)),
+            "archive": str(output) + ".zip",
             "status": "package ready; import and bind state in actual Cowork environment",
         }
     )
@@ -262,6 +263,12 @@ def setup(
         ):
             continue
         chosen.append(product["product"])
+        if product["product"] == "claude-code":
+            watcher = {"product": "claude-code", "root": str((home / ".claude/projects").resolve())}
+            watchers = c.config.setdefault("discovery_roots", [])
+            if watcher not in watchers:
+                watchers.append(watcher)
+                atomic_json(c.root / "config.json", c.config)
         bindings = [{"root": raw, "kind": "memory"} for raw in product["roots"]]
         bindings += discover_assets(home, product["product"])
         for binding in bindings:
@@ -298,7 +305,7 @@ def setup(
                         c.select(sid, selection)
     console.print("接入产品：" + "、".join(PRODUCTS[p] for p in chosen))
     console.print(
-        "将启用：后台上传、Hook 组织召回、本地原生组织资源。已有 AMH 托管自动链路将隔离。"
+        "将启用：产品原生记忆、后台上传、Hook 组织召回、本地原生组织资源。原生生成由产品执行，可能使用产品额度；已有 AMH 托管自动链路将隔离。"
     )
     if not typer.confirm("确认配置并启用？", default=False):
         console.print("已登记身份与选择；尚未安装 Hook 或启动上传。")
@@ -307,7 +314,7 @@ def setup(
     if "cowork" in chosen:
         plugin = export_cowork_plugin(state / "cowork-plugin")
         console.print(
-            f"Cowork 插件已生成：{plugin}；需在 Cowork 实际运行环境导入、登记身份并绑定原生目录。尚未验证接入。"
+            f"Cowork 插件包已生成：{plugin}.zip；需在 Cowork 实际运行环境导入、登记身份并绑定原生目录。尚未验证接入。"
         )
     if service and platform.system() == "Darwin":
         plist_path = launch_agent(state, home)
@@ -316,7 +323,9 @@ def setup(
         )
         if result.returncode:
             console.print("后台服务启动失败，请运行 worker；详情可用 status 查看。")
-    console.print("本地配置完成。请用 status 查看同步；产品实际读取须通过独立验收。")
+    console.print(
+        "本地配置完成。请新建会话进入组织模式，已打开会话仍可能保留原上下文；用 status 查看同步，产品实际读取须通过独立验收。"
+    )
 
 
 @app.command("export-assets")

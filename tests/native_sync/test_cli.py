@@ -33,3 +33,19 @@ def test_export_plugin_contains_no_device_credentials(tmp_path):
     hooks = json.loads((tmp_path / "plugin/hooks/hooks.json").read_text())
     assert "UserPromptSubmit" in hooks["hooks"]
     assert not (tmp_path / "plugin/config.json").exists()
+
+
+def test_cowork_archive_excludes_existing_private_files(tmp_path):
+    import zipfile
+    from agent_brain.native_sync.install import export_cowork_plugin
+
+    root = tmp_path / "plugin"
+    root.mkdir()
+    (root / "config.json").write_text('{"token":"DO_NOT_PACK"}')
+    export_cowork_plugin(root)
+    archive = root.with_suffix(".zip")
+    assert archive.is_file()
+    with zipfile.ZipFile(archive) as bundle:
+        assert ".claude-plugin/plugin.json" in bundle.namelist()
+        assert "config.json" not in bundle.namelist()
+        assert not any(b"DO_NOT_PACK" in bundle.read(name) for name in bundle.namelist())

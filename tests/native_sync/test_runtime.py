@@ -152,7 +152,7 @@ def test_legacy_handlers_are_disabled_in_native_mode_and_restored(tmp_path):
 def test_transport_rejects_plaintext_nonlocal_and_url_credentials():
     for url in [
         "http://example.com",
-        "https://a:b@example.com",
+        "https://" + "a:b" + "@example.com",
         "https://example.com/#token",
         "http://127.0.0.1.evil.com",
     ]:
@@ -286,3 +286,184 @@ def test_hook_details_are_real_local_files_with_producer(live, tmp_path):
     p = Path(metadata["detail_file"])
     assert p.is_file() and "张三" in p.read_text()
     assert "long evidence " * 1000 in p.read_text()
+
+
+def test_install_enables_native_reading_and_preserves_generation_preference(tmp_path):
+    import tomllib
+
+    home = tmp_path / "home"
+    (home / ".codex").mkdir(parents=True)
+    (home / ".claude").mkdir()
+    codex = home / ".codex/config.toml"
+    original = 'model="existing"\n[features]\nmemories=false\nother=true\n[memories]\ngenerate_memories=false\nuse_memories=false\n'
+    codex.write_text(original)
+    cc = home / ".claude/settings.json"
+    cc.write_text(json.dumps({"autoMemoryEnabled": False, "model": "existing"}))
+    state = tmp_path / "state"
+    install_hooks(home, state, products=["codex-cli", "claude-code"])
+    parsed = tomllib.loads(codex.read_text())
+    assert parsed["features"]["memories"] is True
+    assert parsed["memories"]["use_memories"] is True
+    assert parsed["memories"]["generate_memories"] is False
+    assert parsed["features"]["other"] is True
+    assert json.loads(cc.read_text())["autoMemoryEnabled"] is True
+    uninstall_hooks(home, state)
+    assert codex.read_text() == original
+    assert json.loads(cc.read_text())["autoMemoryEnabled"] is False
+
+
+def test_native_reading_handles_inline_toml_without_losing_comments(tmp_path):
+    import tomllib
+
+    home = tmp_path / "home"
+    (home / ".codex").mkdir(parents=True)
+    p = home / ".codex/config.toml"
+    p.write_text(
+        "# Keep this note\nfeatures = { memories = false, other = true }\nmemories = { use_memories = false, generate_memories = false }\n"
+    )
+    install_hooks(home, tmp_path / "state", products=["codex-cli"])
+    data = tomllib.loads(p.read_text())
+    assert data["features"] == {"memories": True, "other": True}
+    assert data["memories"] == {"use_memories": True, "generate_memories": False}
+    assert "# Keep this note" in p.read_text()
+
+
+def test_invalid_second_client_config_does_not_partially_change_first(tmp_path):
+    home = tmp_path / "home"
+    (home / ".claude").mkdir(parents=True)
+    (home / ".codex").mkdir()
+    p = home / ".claude/settings.json"
+    p.write_text('{"model":"keep"}')
+    (home / ".codex/hooks.json").write_text("not json")
+    with pytest.raises(ValueError):
+        install_hooks(home, tmp_path / "state", products=["claude-code", "codex-cli"])
+    assert p.read_text() == '{"model":"keep"}'
+
+
+def test_new_claude_project_memory_is_discovered_after_install(live, tmp_path):
+    from agent_brain.native_sync.common import atomic_json
+
+    hub, url = live
+    c = NativeClient.join(tmp_path / "state", url, hub.invite("linkcrux", "张三"), "Mac")
+    projects = tmp_path / "home/.claude/projects"
+    projects.mkdir(parents=True)
+    c.config["discovery_roots"] = [{"root": str(projects), "product": "claude-code"}]
+    atomic_json(c.root / "config.json", c.config)
+    hook(c.root, "SessionStart", source="startup")
+    memory = projects / "new-repo/memory"
+    memory.mkdir(parents=True)
+    p = memory / "new.md"
+    p.write_text("NEW_PROJECT_CANARY")
+    hook(
+        c.root,
+        "PostToolUse",
+        tool_name="Write",
+        tool_input={"file_path": str(p), "content": p.read_text()},
+        tool_response={"type": "create"},
+    )
+    c.sync()
+    assert hub.search(c.identity["token"], "NEW_PROJECT_CANARY")
+    assert (memory / "amh-org/index.md").exists()
+
+
+def test_discovered_existing_memory_remains_history_until_selected(live, tmp_path):
+    from agent_brain.native_sync.common import atomic_json
+
+    hub, url = live
+    c = NativeClient.join(tmp_path / "state", url, hub.invite("linkcrux", "张三"), "Mac")
+    projects = tmp_path / "home/.claude/projects"
+    memory = projects / "existing/memory"
+    memory.mkdir(parents=True)
+    p = memory / "old.md"
+    p.write_text("EXCLUDED_PROJECT_HISTORY")
+    c.config["discovery_roots"] = [{"root": str(projects), "product": "claude-code"}]
+    atomic_json(c.root / "config.json", c.config)
+    hook(c.root, "SessionStart", source="startup")
+    assert c.sources()
+    p.write_text("EXCLUDED_PROJECT_HISTORY changed")
+    hook(
+        c.root,
+        "PostToolUse",
+        tool_name="Write",
+        tool_input={"file_path": str(p), "content": p.read_text()},
+        tool_response={"type": "update"},
+    )
+    c.sync()
+    assert not hub.search(c.identity["token"], "EXCLUDED_PROJECT_HISTORY")
+
+
+def test_discovery_does_not_promote_updates_in_unregistered_roots(live, tmp_path):
+    from agent_brain.native_sync.common import atomic_json
+
+    hub, url = live
+    c = NativeClient.join(tmp_path / "state", url, hub.invite("linkcrux", "张三"), "Mac")
+    projects = tmp_path / "projects"
+    root = projects / "old/memory"
+    root.mkdir(parents=True)
+    p = root / "old.md"
+    p.write_text("PRIVATE_HISTORY_UPDATED")
+    c.config["discovery_roots"] = [{"root": str(projects), "product": "claude-code"}]
+    atomic_json(c.root / "config.json", c.config)
+    hook(
+        c.root,
+        "PostToolUse",
+        tool_name="Write",
+        tool_input={"file_path": str(p), "content": p.read_text()},
+        tool_response={"type": "update"},
+    )
+    c.sync()
+    assert not c.cached()
+
+
+def test_fresh_write_is_rechecked_after_history_refresh(live, tmp_path):
+    from agent_brain.native_sync.common import atomic_json
+
+    hub, url = live
+    c = NativeClient.join(tmp_path / "state", url, hub.invite("linkcrux", "张三"), "Mac")
+    old = tmp_path / "old"
+    old.mkdir()
+    p = old / "history.md"
+    p.write_text("PRIVATE_VERSION_ONE")
+    c.register(old, "claude-code", "p", "memory")
+    p.write_text("PRIVATE_VERSION_TWO")
+    projects = tmp_path / "projects"
+    new = projects / "new/memory"
+    new.mkdir(parents=True)
+    copy = new / "copy.md"
+    copy.write_text(p.read_text())
+    c.config["discovery_roots"] = [{"root": str(projects), "product": "claude-code"}]
+    atomic_json(c.root / "config.json", c.config)
+    hook(
+        c.root,
+        "PostToolUse",
+        tool_name="Write",
+        tool_input={"file_path": str(copy), "content": copy.read_text()},
+        tool_response={"type": "create"},
+    )
+    c.sync()
+    assert not c.cached()
+
+
+def test_new_memory_capture_accepts_native_added_modified_metadata(live, tmp_path):
+    from agent_brain.native_sync.common import atomic_json
+
+    hub, url = live
+    c = NativeClient.join(tmp_path / "state", url, hub.invite("linkcrux", "张三"), "Mac")
+    projects = tmp_path / "projects"
+    root = projects / "new/memory"
+    root.mkdir(parents=True)
+    authored = "---\nname: fresh\n---\nSTAMP_CANARY"
+    actual = "---\nname: fresh\nmodified: 2026-10-30T00:00:00Z\n---\nSTAMP_CANARY"
+    p = root / "fresh.md"
+    p.write_text(actual)
+    c.config["discovery_roots"] = [{"root": str(projects), "product": "claude-code"}]
+    atomic_json(c.root / "config.json", c.config)
+    hook(
+        c.root,
+        "PostToolUse",
+        tool_name="Write",
+        tool_input={"file_path": str(p), "content": authored},
+        tool_response={"type": "create"},
+    )
+    c.sync()
+    assert hub.search(c.identity["token"], "STAMP_CANARY")[0]["body"] == actual

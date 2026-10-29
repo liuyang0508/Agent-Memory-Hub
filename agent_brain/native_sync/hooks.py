@@ -44,6 +44,10 @@ def _run(root: Path, product: str, payload: dict[str, Any]) -> dict[str, Any]:
             db.execute("DELETE FROM emitted WHERE session=?", (session,))
             db.execute("DELETE FROM coverage WHERE session=?", (session,))
             db.execute("DELETE FROM native_proofs WHERE session=?", (session,))
+    if event in ("SessionStart", "PostToolUse"):
+        from .discovery import observe
+
+        observe(c, product, payload, session, epoch)
     if event == "PostToolUse":
         from .lineage import record_tool_coverage
 

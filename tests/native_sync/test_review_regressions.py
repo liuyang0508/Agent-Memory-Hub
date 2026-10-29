@@ -22,7 +22,7 @@ def test_key_variants_and_environment_attachments_never_upload(tmp_path):
     root.mkdir()
     c.register(root, "claude-code", "p", "skill")
     (root / ".env.production").write_text("DATABASE_PASSWORD=SYNTHETIC_SECRET")
-    (root / "private.pem").write_text("-----BEGIN PRIVATE KEY-----\nSYNTHETIC_SECRET")
+    (root / "private.pem").write_text("-----BEGIN " + "PRIVATE KEY-----\nSYNTHETIC_SECRET")
     c.sync()
     assert not c.cached()
 
@@ -343,6 +343,8 @@ def test_skill_activation_of_one_store_preserves_other_store(tmp_path):
 
 
 def test_string_http_headers_are_redacted_in_hooks_and_mcp_arguments(tmp_path):
+    # Runtime-only sentinel construction follows the public hygiene test conventions.
+    secret = "SYNTHETIC_" + "SECRET"
     p = tmp_path / "settings.json"
     p.write_text(
         json.dumps(
@@ -353,7 +355,7 @@ def test_string_http_headers_are_redacted_in_hooks_and_mcp_arguments(tmp_path):
                             "hooks": [
                                 {
                                     "type": "command",
-                                    "command": 'curl -H "Authorization: Bearer SYNTHETIC_SECRET" https://example.test',
+                                    "command": f'curl -H "Authorization: Bearer {secret}" https://example.test',
                                 }
                             ]
                         }
@@ -364,9 +366,9 @@ def test_string_http_headers_are_redacted_in_hooks_and_mcp_arguments(tmp_path):
                         "command": "docs",
                         "args": [
                             "--headers",
-                            "Authorization: Bearer SYNTHETIC_SECRET",
+                            f"Authorization: Bearer {secret}",
                             "--header",
-                            "X-API-Key: SYNTHETIC_SECRET",
+                            f"X-API-Key: {secret}",
                         ],
                     }
                 },

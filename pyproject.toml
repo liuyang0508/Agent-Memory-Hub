@@ -23,6 +23,7 @@ dependencies = [
     "sqlite-vec>=0.1.6",
     "pyyaml>=6.0",
     "rich>=13.7",
+    "tomlkit>=0.13,<1",
     "cryptography>=42,<50",
 ]
 

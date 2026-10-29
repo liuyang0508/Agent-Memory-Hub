@@ -27,7 +27,7 @@ sh install.sh --native --hub https://memory.example.com
 
 安装器检测并逐项显示 Claude Code、Codex CLI、Claude Cowork、实际检测到的 Codex/ChatGPT 客户端。通过个人邀请登记设备，显示成员名与稳定 ID，再预览历史和确认配置。ID 自动生成，不要求手填；邀请不是 OpenAI/Anthropic 的登录密码。
 
-新模块使用 `~/.amh-native-sync/`，独立安装环境 `.native-venv/`。已有旧 AMH 的托管 Hook、纪律区块和已识别旧 MCP 通道会按安装回执隔离；用户其他配置保留。Codex Hook 使用生成处理程序的正常信任 hash，不使用绕过信任的启动参数。
+新模块使用 `~/.amh-native-sync/`，独立安装环境 `.native-venv/`。已有旧 AMH 的托管 Hook、纪律区块和已识别旧 MCP 通道会按安装回执隔离；用户其他配置保留。Codex Hook 使用生成处理程序的正常信任 hash，不使用绕过信任的启动参数。确认安装后会启用 CC 自动记忆及 Codex 原生读取所需开关；已有 Codex `generate_memories` 选择保持不变，原生生成由产品管理并可能使用产品额度。未选历史文件中的后续改写也会继续保留本地，直到重新选择；本模块不自动判定语义上的新旧知识。
 
 ## 历史预览与来源绑定
 
@@ -48,6 +48,8 @@ amh-native sync
 ```
 
 历史内容不能可靠证明原生产者时标注“未知”，不会自动冒认当前上传者。新源内容关联已认证成员。`producer_member_id` 与 `uploader_member_id` 分开；其他成员的副本不会变成当前人的知识原创证明。
+
+Claude Code 新项目会通过 SessionStart / 成功的新建记忆事件登记来源；新发现目录中的既有文件仍按历史处理。启用后请新建会话，旧会话可能保留原有上下文。
 
 来源类型包含 `memory`、`transcript`、`rule`、`skill`、`config`。安装器发现常见来源；特殊目录可以显式绑定。Codex CLI 与桌面共用存储时只采集一次；无法从文件证明具体入口的自动绑定标为 `codex-shared`，不伪造 CLI/桌面生产归属。项目未知时仍允许全组织检索。
 
