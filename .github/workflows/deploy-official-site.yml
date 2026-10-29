@@ -1,69 +1,36 @@
-name: Deploy official website
-
+name: Native memory host readiness (read-only)
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
-    paths:
-      - docs/visuals/agent-memory-hub-official-site.html
-      - docs/visuals/media/**
-      - deploy/telemetry_server.py
-      - deploy/nginx-telemetry-location.conf
-      - docs/product-telemetry.zh.md
-      - .github/workflows/deploy-official-site.yml
-
 permissions:
   contents: read
-
-concurrency:
-  group: aihub-official-site
-  cancel-in-progress: false
-
 jobs:
-  deploy:
-    name: Sync static site to nginx
+  inspect:
     runs-on: ubuntu-latest
+    timeout-minutes: 3
     env:
-      DEPLOY_ENABLED: ${{ secrets.AIHUB_SSH_HOST != '' && secrets.AIHUB_SSH_USER != '' && secrets.AIHUB_SSH_KEY != '' && secrets.AIHUB_WEB_ROOT != '' }}
       AIHUB_SSH_HOST: ${{ secrets.AIHUB_SSH_HOST }}
       AIHUB_SSH_USER: ${{ secrets.AIHUB_SSH_USER }}
       AIHUB_SSH_KEY: ${{ secrets.AIHUB_SSH_KEY }}
       AIHUB_SSH_PORT: ${{ secrets.AIHUB_SSH_PORT || '22' }}
-      AIHUB_WEB_ROOT: ${{ secrets.AIHUB_WEB_ROOT }}
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - name: Skip when deployment secrets are missing
-        if: env.DEPLOY_ENABLED != 'true'
-        run: |
-          echo "::notice title=AMH_DISTRIBUTION_SECRET_MISSING::reason=missing_secret secret=AIHUB_DEPLOY_BUNDLE workflow=deploy-official-site"
-
-      - name: Prepare SSH key
-        if: env.DEPLOY_ENABLED == 'true'
+      - name: Read server capabilities with pre-established public host-key pins
+        shell: bash
         run: |
           set -euo pipefail
           install -m 700 -d ~/.ssh
-          printf '%s\n' "$AIHUB_SSH_KEY" > ~/.ssh/aihub_deploy_key
-          chmod 600 ~/.ssh/aihub_deploy_key
-          ssh-keyscan -p "$AIHUB_SSH_PORT" "$AIHUB_SSH_HOST" >> ~/.ssh/known_hosts
-
-      - name: Upload official website
-        if: env.DEPLOY_ENABLED == 'true'
-        run: |
-          set -euo pipefail
-          remote="${AIHUB_SSH_USER}@${AIHUB_SSH_HOST}"
-          media_stage="$AIHUB_WEB_ROOT/.film-upload-$GITHUB_RUN_ID"
-          ssh -i ~/.ssh/aihub_deploy_key -p "$AIHUB_SSH_PORT" "$remote" "mkdir -p '$AIHUB_WEB_ROOT/assets/films' '$media_stage' '$AIHUB_WEB_ROOT/.telemetry'"
-          # Publish versioned media first so the new homepage never points at missing files.
-          # Stage complete files before renaming: a redeploy cannot truncate an active stream.
-          scp -i ~/.ssh/aihub_deploy_key -P "$AIHUB_SSH_PORT" docs/visuals/media/*.webp docs/visuals/media/*.mp4 "$remote:$media_stage/"
-          ssh -i ~/.ssh/aihub_deploy_key -p "$AIHUB_SSH_PORT" "$remote" "for file in '$media_stage'/*; do mv \"\$file\" '$AIHUB_WEB_ROOT/assets/films/'; done; rmdir '$media_stage'"
-          scp -i ~/.ssh/aihub_deploy_key -P "$AIHUB_SSH_PORT" docs/visuals/agent-memory-hub-official-site.html "$remote:$AIHUB_WEB_ROOT/.index.html.next"
-          ssh -i ~/.ssh/aihub_deploy_key -p "$AIHUB_SSH_PORT" "$remote" "mv '$AIHUB_WEB_ROOT/.index.html.next' '$AIHUB_WEB_ROOT/index.html'"
-          scp -i ~/.ssh/aihub_deploy_key -P "$AIHUB_SSH_PORT" deploy/telemetry_server.py "$remote:$AIHUB_WEB_ROOT/.telemetry/telemetry_server.py"
-          scp -i ~/.ssh/aihub_deploy_key -P "$AIHUB_SSH_PORT" deploy/nginx-telemetry-location.conf "$remote:$AIHUB_WEB_ROOT/.telemetry/nginx-location.conf.example"
-          ssh -i ~/.ssh/aihub_deploy_key -p "$AIHUB_SSH_PORT" "$remote" \
-            "if systemctl is-active --quiet agent-memory-hub-telemetry.service 2>/dev/null; then systemctl restart agent-memory-hub-telemetry.service; elif systemctl --user is-active --quiet agent-memory-hub-telemetry.service 2>/dev/null; then systemctl --user restart agent-memory-hub-telemetry.service; fi"
+          printf '%s\n' "$AIHUB_SSH_KEY" > ~/.ssh/aihub_key
+          chmod 600 ~/.ssh/aihub_key
+          cat > ~/.ssh/known_hosts <<'HOSTS'
+          aihub-pinned ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHJETnY8FTc+8UrXHfCDUblNRP6gsFf5KFfwsMPaZZLf
+          aihub-pinned ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCtJEAWS+KtN4mo7y2KRfMHM5goE3d2JTv+hEUcPDtDcZeER6xtGveCxqD0J+WJo0j7sdh/AscO7cbzPH5ODmNBRM/Eu+g8l7d1457lxy9drYzYUKRmpDr4kMBh+9Pgcass4XWiDHmxxoIJM8Q5/oIDCX+uT/SoDP3k/zAkISujFsJn6Fi9DhMxArjW3MrgngTLsBBYOTBubTCFvhtYdgskwkK6xeBYgo+L5mOe9cHNJjR4t+rPLsiC1mttcwryFt1dnSzqH8/ST2hbuY4L+ph8VfHnarFkvhEHPsKlPTH3g3mhMRUSPOacJSPhsV1y+ESnx703jGv1EkAwxfAVjG5yMuXqMMYcKqnChvJXHlPmSPiEygAernjPxLHw4HSJQoRbH34wSyvH0mBREc2tFKrJ5tC+HNWfnfymh/rylky21Fgc8abs1FKwTwOAIPxnNctsxCQ3SpCqcM67vak9T7r3CaZV1Kt5NSvKqZe1tCSbOB57fd3tTJRA4xPyiPtFb6c=
+          aihub-pinned ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBOn+8XNOgJ89F4RCC6GNxs+V0dsQaNmQtsdRN73GfAcFspoEtYBMU+qG/pLlBJP99Wd9DtSXkme30a+ckUetjdk=
+          HOSTS
+          ssh -T -i ~/.ssh/aihub_key -p "$AIHUB_SSH_PORT" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o HostKeyAlias=aihub-pinned -o ConnectTimeout=10 "$AIHUB_SSH_USER@$AIHUB_SSH_HOST" 'python3 -' <<'REMOTE_PY'
+          import json,os,platform,shutil
+          mem={}
+          try:
+           for line in open('/proc/meminfo'):
+            if line.startswith('MemAvailable:'):mem['available_mb']=int(line.split()[1])//1024
+          except OSError:pass
+          print(json.dumps({'read_only':True,'os':platform.system(),'python':platform.python_version(),'uid':os.getuid(),'python311':bool(shutil.which('python3.11')),'python312':bool(shutil.which('python3.12')),'docker':bool(shutil.which('docker')),'opt_writable':os.access('/opt',os.W_OK),'tmp_free_mb':shutil.disk_usage('/tmp').free//1048576,'memory':mem}))
+          REMOTE_PY
