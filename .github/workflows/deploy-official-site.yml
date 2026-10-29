@@ -1,4 +1,4 @@
-name: Native memory host readiness (read-only)
+name: Native memory private integration test
 on:
   workflow_dispatch:
 permissions:
@@ -6,7 +6,7 @@ permissions:
 jobs:
   inspect:
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 12
     env:
       AIHUB_SSH_HOST: ${{ secrets.AIHUB_SSH_HOST }}
       AIHUB_SSH_USER: ${{ secrets.AIHUB_SSH_USER }}
@@ -34,3 +34,17 @@ jobs:
           except OSError:pass
           print(json.dumps({'read_only':True,'os':platform.system(),'python':platform.python_version(),'uid':os.getuid(),'python311':bool(shutil.which('python3.11')),'python312':bool(shutil.which('python3.12')),'docker':bool(shutil.which('docker')),'opt_writable':os.access('/opt',os.W_OK),'tmp_free_mb':shutil.disk_usage('/tmp').free//1048576,'memory':mem}))
           REMOTE_PY
+      - name: Checkout probe scripts
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - name: Checkout reviewed feature code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: codex/native-org-memory
+          path: code
+      - name: Python 3.11 client
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: '3.11'
+      - name: Temporary loopback-only Hub over pinned SSH
+        shell: bash
+        run: bash deploy/native-probe/run.sh
