@@ -21,7 +21,7 @@ jobs:
       - name: Checkout verified page
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
-          ref: 3e51e6374ceb805b39b9ddbfa393ff9277cffef2
+          ref: b2e492a78cc9d6f2d11f06dc795aee39855ec4ac
           path: site
       - name: Prepare pinned SSH connection
         shell: bash
@@ -48,7 +48,7 @@ jobs:
           scp -i ~/.ssh/aihub_key -P "$AIHUB_SSH_PORT" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o HostKeyAlias=aihub-pinned site/docs/visuals/media/native-memory/*.png "$remote:$stage/assets/"
           ssh "${opts[@]}" "$remote" "python3.11 - '$stage/index.html' '$GITHUB_RUN_ID'" < deploy/site-module/publish.py | tee site-publish-receipt.json
           curl -fsS --retry 2 --max-time 20 "https://aihub0508.com/?module_publish=$GITHUB_RUN_ID" -o published.html
-          echo '82908297363fec676d67d9b6fb53fa2eea2387deec023e9dd566853ae5f33e0d  published.html' | sha256sum -c -
+          echo '90270829a25283f98c8ace549dad5bbbbd471c540cca2bacd706c3cdb7ed3392  published.html' | sha256sum -c -
           curl -fsS --max-time 15 "https://aihub0508.com/assets/native-memory/chatgpt-desktop-dc5090afda.png" -o published-logo.png
           echo 'dc5090afda4e54f06726e6bf4c962e6f625f02455a3d7b240ec92cdd3b90dd1a  published-logo.png' | sha256sum -c -
           curl -fsS --max-time 15 "https://aihub0508.com/assets/native-memory/claude-cowork-d09eb2fe66.png" -o published-logo.png

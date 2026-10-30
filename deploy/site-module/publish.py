@@ -9,8 +9,8 @@ import shutil
 import sys
 import tempfile
 
-EXPECTED_OLD = 'fe0f77d7baf4fb35536ebda2b03bef53fa0fcb69ab4395ebf1948c0f45a09afd'
-EXPECTED_NEW = '82908297363fec676d67d9b6fb53fa2eea2387deec023e9dd566853ae5f33e0d'
+EXPECTED_OLD = '82908297363fec676d67d9b6fb53fa2eea2387deec023e9dd566853ae5f33e0d'
+EXPECTED_NEW = '90270829a25283f98c8ace549dad5bbbbd471c540cca2bacd706c3cdb7ed3392'
 ASSETS = {'chatgpt-desktop-dc5090afda.png': 'dc5090afda4e54f06726e6bf4c962e6f625f02455a3d7b240ec92cdd3b90dd1a', 'claude-cowork-d09eb2fe66.png': 'd09eb2fe66c52aad0f1b0069083edaf5892d24302a30798e24621f26f65678d5'}
 SITE_LINK = Path('/var/www/agent-memory-hub/current/index.html')
 

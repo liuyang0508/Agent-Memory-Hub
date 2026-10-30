@@ -10,7 +10,7 @@ import unittest
 
 HERE = Path(__file__).resolve().parent
 SOURCE = Path(os.environ['AMH_SITE_CANDIDATE'])
-BASE_BYTES = subprocess.check_output(['git','show','60cad8d210dc69f135c03168ede7b88d36547c1a:docs/visuals/agent-memory-hub-official-site.html'],cwd=HERE.parents[1])
+BASE_BYTES = subprocess.check_output(['git','show','3e51e6374ceb805b39b9ddbfa393ff9277cffef2:docs/visuals/agent-memory-hub-official-site.html'],cwd=HERE.parents[1])
 
 
 class PublishSafety(unittest.TestCase):
