@@ -86,4 +86,19 @@ report['memory_available_mb'] = None
 for line in Path('/proc/meminfo').read_text().splitlines():
     if line.startswith('MemAvailable:'):
         report['memory_available_mb'] = int(line.split()[1]) // 1024
+
+report['renew_timer_details'] = run(['systemctl','show','certbot-renew.timer','--property=ActiveState,UnitFileState,LastTriggerUSec,NextElapseUSecRealtime'])[1].strip()
+report['renew_service_command'] = [line.strip() for line in run(['systemctl','cat','certbot-renew.service'])[1].splitlines() if line.strip().startswith('ExecStart=') and 'certbot' in line]
+_, journal, _ = run(['journalctl','-u','certbot-renew.service','-n','200','--no-pager','-o','cat'])
+report['renewal_errors'] = []
+for line in journal.splitlines():
+    if re.search(r'Failed to renew|Failed to start|All renewals failed|no renewals|unauthorized|NXDOMAIN|Invalid response|Connection refused|timed out|not yet due', line, re.I):
+        line = re.sub(r'/\.well-known/acme-challenge/[^\s\"]+', '/.well-known/acme-challenge/[challenge]', line)
+        report['renewal_errors'].append(line[:400])
+report['renewal_errors'] = report['renewal_errors'][-15:]
+webroot=Path('/var/www/agent-memory-hub/current')
+report['webroot_exists'] = webroot.is_dir()
+report['webroot_resolved'] = str(webroot.resolve()) if webroot.exists() else None
+report['challenge_directory_exists'] = (webroot/'.well-known/acme-challenge').is_dir()
+
 print(json.dumps(report, sort_keys=True))
