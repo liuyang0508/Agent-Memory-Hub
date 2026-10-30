@@ -67,16 +67,27 @@ def upsert_mcp_block(existing: str, block: str) -> str:
 
 
 def remove_mcp_block(existing: str) -> str:
-    start, end = mcp_section_bounds(existing)
-    if start is None:
+    """Remove the owned server subtree, including env/tools and inferred parent tables.
+
+    Cutting only the main header leaves nested TOML sections that reconstruct a
+    server without command/url, making Codex reject the entire configuration.
+    Parse the document to handle quoted/dotted/inline keys without touching other
+    servers. The root-only bounds helper remains appropriate for updating a
+    transport while retaining its existing tool policy.
+    """
+    from collections.abc import MutableMapping
+    import tomlkit
+
+    document = tomlkit.parse(existing)
+    servers = document.get("mcp_servers")
+    if servers is None:
         return existing
-    prefix = existing[:start].rstrip()
-    suffix = existing[end:].lstrip("\n")
-    if prefix and suffix:
-        return prefix + "\n\n" + suffix
-    if prefix:
-        return prefix + "\n"
-    return suffix
+    if not isinstance(servers, MutableMapping):
+        raise ValueError("mcp_servers must be a TOML table")
+    if "agent-memory-hub" not in servers:
+        return existing
+    del servers["agent-memory-hub"]
+    return tomlkit.dumps(document)
 
 
 def mcp_section_bounds(existing: str) -> tuple[int | None, int | None]:

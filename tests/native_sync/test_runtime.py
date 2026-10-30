@@ -229,6 +229,27 @@ def test_codex_install_disables_only_legacy_mcp_and_restores(tmp_path):
     assert cfg.read_text() == original
 
 
+def test_codex_install_leaves_no_transportless_nested_mcp_and_restores(tmp_path):
+    import tomllib
+
+    home = tmp_path / "home"
+    (home / ".codex").mkdir(parents=True)
+    cfg = home / ".codex/config.toml"
+    original = (
+        '[mcp_servers.agent-memory-hub]\ncommand = "/legacy/server.sh"\n'
+        '[mcp_servers.agent-memory-hub.tools.write_memory]\napproval_mode = "approve"\n'
+        '[mcp_servers.keep]\ncommand = "keep"\n'
+    )
+    cfg.write_text(original)
+    state = tmp_path / "state"
+    install_hooks(home, state, products=["codex-desktop"])
+    parsed = tomllib.loads(cfg.read_text())
+    assert "agent-memory-hub" not in parsed["mcp_servers"]
+    assert parsed["mcp_servers"]["keep"]["command"] == "keep"
+    assert uninstall_hooks(home, state) == []
+    assert cfg.read_text() == original
+
+
 def test_installed_handler_imports_worktree_from_an_unrelated_cwd(live, tmp_path):
     hub, url = live
     a = enroll(hub)

@@ -134,9 +134,13 @@ def install_hooks(home: Path, state: Path, *, products: list[str]) -> list[str]:
                 raise ValueError("invalid Hook entries: " + str(path))
     config_path = home / ".codex/config.toml"
     if any(p in products for p in ("codex-cli", "codex-desktop", "chatgpt-desktop")):
+        from agent_brain.agent_integrations.codex_config import remove_mcp_block
+
         if config_path.is_symlink():
             raise ValueError("refusing to replace symlink: " + str(config_path))
-        native_reading_config(config_path.read_text() if config_path.exists() else "")
+        native_reading_config(
+            remove_mcp_block(config_path.read_text() if config_path.exists() else "")
+        )
     for path, product in destinations.items():
         original = json.loads(path.read_text()) if path.exists() else {}
         if str(path) not in saved["json"]:
