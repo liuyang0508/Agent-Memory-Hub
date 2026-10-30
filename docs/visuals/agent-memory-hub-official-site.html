@@ -5152,15 +5152,18 @@
     /* Preserve the existing evaluation section's surface after inserting a sibling. */
     #benchmark { background: #fff; }
     #organization-memory .section-label { color: #118dbf; font-size: .82rem; font-weight: 760; letter-spacing: .14em; }
-    #organization-memory h2 { max-width: 1060px; }
+    #organization-memory h2 { max-width: 1060px; container-type: inline-size; }
     #organization-memory h2 span { display: block; }
     #organization-memory h2 .org-accent {
       width: fit-content;
+      /* Fit the complete slogan to its heading container, including narrow screens. */
+      font-size: clamp(1rem, 6vw, 5rem);
+      font-size: clamp(1rem, 7.6cqi, 5rem);
+      white-space: nowrap;
       background: linear-gradient(90deg, #4fb4ff 0%, #e879b4 48%, #1aa678 100%);
       -webkit-background-clip: text; background-clip: text; color: transparent;
     }
     #organization-memory .section-copy { max-width: 870px; color: rgba(15,42,58,.68); }
-    .org-mobile-break { display: none; }
     .org-heading-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 22px; }
     .org-badge { display: inline-flex; align-items: center; gap: 7px; padding: 7px 12px; border: 1px solid rgba(17,141,191,.14); border-radius: 999px; color: #186b60; background: rgba(255,255,255,.8); font-size: .78rem; font-weight: 650; }
     .org-badge i { width: 6px; height: 6px; border-radius: 50%; background: #21a989; }
@@ -5204,15 +5207,7 @@
     .org-endpoint code { font: 650 .84rem var(--qw-mono); color: #185a70; overflow-wrap: anywhere; }
     .org-copy { min-height: 38px; padding: 8px 14px; border: 1px solid rgba(17,141,191,.2); border-radius: 999px; background: linear-gradient(90deg,#f1fbff,#f2fff7); color: #12675b; font: 650 .8rem var(--qw-font); cursor: pointer; }
     .org-copy:hover { background: #e8f7f5; }
-    .org-copy:focus-visible, .org-details summary:focus-visible, .org-details a:focus-visible { outline: 3px solid #118dbf; outline-offset: 4px; }
-    .org-isolation { margin: 17px 4px 0; color: #5a7381; font-size: .83rem; line-height: 1.7; }
-    .org-isolation strong { color: #185a70; }
-    .org-details { margin-top: 20px; border-top: 1px solid rgba(85,185,255,.2); color: #536d7d; font-size: .84rem; }
-    .org-details summary { width: fit-content; padding: 18px 4px; color: #185a70; font-weight: 650; cursor: pointer; }
-    .org-details-content { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 28px; padding: 0 4px 8px; }
-    .org-details h3 { margin: 0 0 8px; font-size: .92rem; color: #102c3c; }
-    .org-details p { margin: 0 0 10px; line-height: 1.8; }
-    .org-details a { color: #087fab; text-decoration: underline; text-underline-offset: 3px; }
+    .org-copy:focus-visible { outline: 3px solid #118dbf; outline-offset: 4px; }
     @media (max-width: 1100px) {
       .org-stage { grid-template-columns: 1fr; }
       .org-map { border-right: 0; border-bottom: 1px solid rgba(89,184,255,.16); }
@@ -5227,7 +5222,6 @@
       .redesign-nav-inner > .redesign-cta { display: inline-flex; }
     }
     @media (max-width: 760px) {
-      .org-mobile-break { display: inline; }
       #organization-memory h2 { font-size: 2.25rem; line-height: 1.12; }
       .org-lab { padding: 12px; border-radius: 24px; }
       .org-map { min-height: 430px; }
@@ -5247,7 +5241,6 @@
       .org-connect { padding: 20px; }
       .org-endpoint { gap: 12px; }
       .org-endpoint code { font-size: .76rem; }
-      .org-details-content { grid-template-columns: 1fr; gap: 16px; }
     }
     @media (max-width: 380px) { .org-qualities { grid-template-columns: 1fr; } }
     @media (prefers-reduced-motion: reduce) { .org-flow { animation: none; stroke-dasharray: none; } }
@@ -5597,8 +5590,8 @@
       <section class="redesign-section" id="organization-memory" aria-labelledby="organization-memory-heading">
         <div class="redesign-wrap">
           <p class="section-label">Organization memory</p>
-          <h2 id="organization-memory-heading"><span>组织第二大脑</span><span class="org-accent">把个人经验，<br class="org-mobile-break">汇成团队智慧。</span></h2>
-          <p class="section-copy">把分散在成员和工具中的项目背景、关键决策与实践经验连接起来，让团队减少重复摸索、更快协同推进，并把工作成果积累为可持续复用的组织知识资产。</p>
+          <h2 id="organization-memory-heading"><span>组织第二大脑</span><span class="org-accent">把个人经验，汇成团队智慧</span></h2>
+          <p class="section-copy">把分散在成员和工具中的项目背景、关键决策与实践经验连接起来，让团队减少重复摸索、更快协同推进，并把工作成果积累为可持续复用的组织知识资产</p>
           <div class="org-heading-meta">
             <span class="org-badge"><i aria-hidden="true"></i>组织试点已上线</span>
             <span class="org-heading-note">macOS 四款产品核心链路已实机验证</span>
@@ -5625,35 +5618,27 @@
               </div>
               <div class="cap-panel org-story">
                 <span class="cap-eyebrow">native memory · shared by the team</span>
-                <h3>少些重复摸索，<br>更快进入有效协作。</h3>
-                <p>帮助新成员补齐背景，让跨角色协作沿用已有结论，把精力集中在当前要解决的问题上。</p>
+                <h3>少些重复摸索，<br>更快进入有效协作</h3>
+                <p>帮助新成员补齐背景，让跨角色协作沿用已有结论，把精力集中在当前要解决的问题上</p>
                 <div class="org-route">
-                  <div class="org-route-item"><span>01</span><div><strong>把分散经验汇到一起</strong><p>在熟悉的产品里沉淀记忆，后台同步已纳入共享的内容，形成团队共同可用的积累。</p></div></div>
-                  <div class="org-route-item"><span>02</span><div><strong>需要时，用上已有积累</strong><p>围绕当前问题取回相关资料，减少翻找历史、反复询问和重复交代背景。</p></div></div>
-                  <div class="org-route-item"><span>03</span><div><strong>换人换工具，也能接着推进</strong><p>共享资料可按产品原生方式读取，跨成员、跨设备延续关键上下文，让交接更顺畅。</p></div></div>
+                  <div class="org-route-item"><span>01</span><div><strong>把分散经验汇到一起</strong><p>在熟悉的产品里沉淀记忆，后台同步已纳入共享的内容，形成团队共同可用的积累</p></div></div>
+                  <div class="org-route-item"><span>02</span><div><strong>需要时，用上已有积累</strong><p>围绕当前问题取回相关资料，减少翻找历史、反复询问和重复交代背景</p></div></div>
+                  <div class="org-route-item"><span>03</span><div><strong>换人换工具，也能接着推进</strong><p>共享资料可按产品原生方式读取，跨成员、跨设备延续关键上下文，让交接更顺畅</p></div></div>
                 </div>
               </div>
             </div>
             <div class="org-qualities">
-              <article class="org-quality"><span>COLLECTIVE</span><h3>汇聚团队智慧</h3><p>连接成员各自积累的知识，让经验可以跨人、跨工具共享与复用。</p></article>
-              <article class="org-quality"><span>EFFICIENCY</span><h3>减少重复投入</h3><p>复用已有方案、决策和实践经验，减少从头检索、解释与试错的成本。</p></article>
-              <article class="org-quality"><span>COLLABORATION</span><h3>缩短协作交接</h3><p>让接手的人更快补齐背景，让不同角色围绕同一上下文继续工作。</p></article>
-              <article class="org-quality"><span>COMPOUND</span><h3>积累组织资产</h3><p>保留生产者、来源产品与版本，让知识可追溯、可复用，服务后续任务与项目。</p></article>
+              <article class="org-quality"><span>COLLECTIVE</span><h3>汇聚团队智慧</h3><p>连接成员各自积累的知识，让经验可以跨人、跨工具共享与复用</p></article>
+              <article class="org-quality"><span>EFFICIENCY</span><h3>减少重复投入</h3><p>复用已有方案、决策和实践经验，减少从头检索、解释与试错的成本</p></article>
+              <article class="org-quality"><span>COLLABORATION</span><h3>缩短协作交接</h3><p>让接手的人更快补齐背景，让不同角色围绕同一上下文继续工作</p></article>
+              <article class="org-quality"><span>COMPOUND</span><h3>积累组织资产</h3><p>保留生产者、来源产品与版本，让知识可追溯、可复用，服务后续任务与项目</p></article>
             </div>
           </div>
 
           <div class="org-connect">
-            <div><strong>一次接入，共享团队积累。</strong><p>获取个人邀请 → 指定组织地址 → 确认接入产品与历史范围</p></div>
+            <div><strong>一次接入，共享团队积累</strong><p>向组织管理员领取个人邀请码 → 安装时填写组织地址与邀请码 → 确认产品与历史范围</p></div>
             <div class="org-endpoint"><code>https://aihub0508.com</code><button class="org-copy" type="button" data-copy="https://aihub0508.com" aria-label="复制组织 Hub 地址">复制地址</button></div>
           </div>
-          <p class="org-isolation"><strong>独立原生协同管线。</strong>产品负责生成记忆，AMH 负责同步、检索与来源标注，与原有记忆维护、召回和治理分开运行。组织也可部署到自己的域名或 IP，通过 HTTPS 接入。</p>
-          <details class="org-details">
-            <summary>接入说明与已验证范围</summary>
-            <div class="org-details-content">
-              <div><h3>按组织接入</h3><p>每位成员使用自己的个人邀请，安装时绑定成员与设备。共享内容保留来源身份，已绑定范围内的新记忆异步同步；历史先预览、选择后导入。组织内默认共享已纳入的记忆，项目用于标注与检索。常规快速安装入口与组织原生协同模式分开配置。</p><a href="https://github.com/liuyang0508/Agent-Memory-Hub/tree/codex/native-org-memory/docs/native-memory" target="_blank" rel="noopener">查看组织协同技术说明 ↗</a></div>
-              <div><h3>实机验证，明确边界</h3><p>当前 macOS 版本已验证跨产品写入与读取、来源身份，以及 Cowork 重启后的记忆保持。Codex 桌面遵循原生更新备注机制，正文与索引由产品自身维护。</p><p>慢网络首次无缓存时，当轮召回可能为空。当前为单节点组织试点，Windows / Linux 客户端及跨主机自动切换不属于本轮已验证范围。</p></div>
-            </div>
-          </details>
         </div>
       </section>
 
