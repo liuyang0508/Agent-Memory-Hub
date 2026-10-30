@@ -9,8 +9,9 @@ import shutil
 import sys
 import tempfile
 
-EXPECTED_OLD = '9f7ee715f8a11fec4f6732cf53ec7c1409f26b2d00da246b569345374a0f735c'
-EXPECTED_NEW = 'fe0f77d7baf4fb35536ebda2b03bef53fa0fcb69ab4395ebf1948c0f45a09afd'
+EXPECTED_OLD = 'fe0f77d7baf4fb35536ebda2b03bef53fa0fcb69ab4395ebf1948c0f45a09afd'
+EXPECTED_NEW = '82908297363fec676d67d9b6fb53fa2eea2387deec023e9dd566853ae5f33e0d'
+ASSETS = {'chatgpt-desktop-dc5090afda.png': 'dc5090afda4e54f06726e6bf4c962e6f625f02455a3d7b240ec92cdd3b90dd1a', 'claude-cowork-d09eb2fe66.png': 'd09eb2fe66c52aad0f1b0069083edaf5892d24302a30798e24621f26f65678d5'}
 SITE_LINK = Path('/var/www/agent-memory-hub/current/index.html')
 
 
@@ -27,8 +28,45 @@ assert digest(content) == EXPECTED_NEW
 assert content.count(b'id="organization-memory"') == 1
 site = SITE_LINK.resolve(strict=True)
 assert str(site).startswith('/var/www/agent-memory-hub/') and site.name == 'index.html'
+def publish_assets():
+    # Versioned, content-verified assets are staged before the HTML references them.
+    payloads = {}
+    for name, checksum in ASSETS.items():
+        source = incoming.parent/'assets'/name
+        assert not source.is_symlink()
+        raw = source.read_bytes()
+        assert raw.startswith(bytes([137,80,78,71,13,10,26,10])) and digest(raw) == checksum
+        payloads[name] = raw
+    directory = site.parent/'assets/native-memory'
+    assert str(directory.resolve()).startswith('/var/www/agent-memory-hub/')
+    directory.mkdir(parents=True, exist_ok=True)
+    for name, raw in payloads.items():
+        target = directory/name
+        assert not target.is_symlink()
+        if target.exists():
+            assert digest(target.read_bytes()) == ASSETS[name], 'versioned asset conflict'
+            continue
+        fd, path = tempfile.mkstemp(prefix='.amh-logo-', dir=directory)
+        os.close(fd)
+        temporary = Path(path)
+        try:
+            shutil.copy2(site, temporary)  # Inherit a served file's permissions/security xattrs.
+            os.chown(temporary, site.stat().st_uid, site.stat().st_gid)
+            with temporary.open('wb') as stream:
+                stream.write(raw); stream.flush(); os.fsync(stream.fileno())
+            os.chmod(temporary, 0o644)
+            assert digest(temporary.read_bytes()) == ASSETS[name]
+            # Never overwrite a file another publisher created in the meantime.
+            try: os.link(temporary, target)
+            except FileExistsError:
+                assert not target.is_symlink() and digest(target.read_bytes()) == ASSETS[name]
+        finally:
+            temporary.unlink(missing_ok=True)
+
+
 original = site.read_bytes()
 if digest(original) == EXPECTED_NEW:
+    publish_assets()
     print(json.dumps({'already_current': True, 'sha256': EXPECTED_NEW}))
     raise SystemExit(0)
 assert digest(original) == EXPECTED_OLD, 'live HTML changed; refusing to overwrite'
@@ -39,7 +77,7 @@ assert digest((backup/'index.before.html').read_bytes()) == EXPECTED_OLD
 shutil.copy2(backup/'index.before.html', backup/'restore-check.html')
 assert (backup/'restore-check.html').read_bytes() == original
 receipt = {'site': str(site), 'site_link': str(SITE_LINK), 'before_sha256': EXPECTED_OLD,
-           'after_sha256': EXPECTED_NEW, 'backup': str(backup), 'run_id': run_id}
+           'after_sha256': EXPECTED_NEW, 'backup': str(backup), 'run_id': run_id, 'assets': ASSETS}
 (backup/'receipt.json').write_text(json.dumps(receipt, indent=2) + '\n')
 # Prepare the recovery command before activating any new bytes.
 rollback = '''import hashlib,json,os,shutil,tempfile
@@ -61,6 +99,7 @@ finally:
 print('original HTML restored; Hub and nginx configuration untouched')
 '''
 (backup/'rollback.py').write_text(rollback)
+publish_assets()
 fd, name = tempfile.mkstemp(prefix='.amh-index-', dir=site.parent)
 os.close(fd)
 candidate = Path(name)
@@ -78,4 +117,4 @@ finally:
     candidate.unlink(missing_ok=True)
 assert digest(site.read_bytes()) == EXPECTED_NEW
 print(json.dumps({'published': True, 'sha256': EXPECTED_NEW, 'backup': str(backup),
-                  'rollback': str(backup/'rollback.py'), 'only_homepage_changed': True}))
+                  'rollback': str(backup/'rollback.py'), 'assets': ASSETS, 'hub_and_nginx_unchanged': True}))

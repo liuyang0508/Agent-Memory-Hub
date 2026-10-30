@@ -21,7 +21,7 @@ jobs:
       - name: Checkout verified page
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
-          ref: 60cad8d210dc69f135c03168ede7b88d36547c1a
+          ref: 3e51e6374ceb805b39b9ddbfa393ff9277cffef2
           path: site
       - name: Prepare pinned SSH connection
         shell: bash
@@ -35,7 +35,7 @@ jobs:
           aihub-pinned ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCtJEAWS+KtN4mo7y2KRfMHM5goE3d2JTv+hEUcPDtDcZeER6xtGveCxqD0J+WJo0j7sdh/AscO7cbzPH5ODmNBRM/Eu+g8l7d1457lxy9drYzYUKRmpDr4kMBh+9Pgcass4XWiDHmxxoIJM8Q5/oIDCX+uT/SoDP3k/zAkISujFsJn6Fi9DhMxArjW3MrgngTLsBBYOTBubTCFvhtYdgskwkK6xeBYgo+L5mOe9cHNJjR4t+rPLsiC1mttcwryFt1dnSzqH8/ST2hbuY4L+ph8VfHnarFkvhEHPsKlPTH3g3mhMRUSPOacJSPhsV1y+ESnx703jGv1EkAwxfAVjG5yMuXqMMYcKqnChvJXHlPmSPiEygAernjPxLHw4HSJQoRbH34wSyvH0mBREc2tFKrJ5tC+HNWfnfymh/rylky21Fgc8abs1FKwTwOAIPxnNctsxCQ3SpCqcM67vak9T7r3CaZV1Kt5NSvKqZe1tCSbOB57fd3tTJRA4xPyiPtFb6c=
           aihub-pinned ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBOn+8XNOgJ89F4RCC6GNxs+V0dsQaNmQtsdRN73GfAcFspoEtYBMU+qG/pLlBJP99Wd9DtSXkme30a+ckUetjdk=
           HOSTS
-      - name: Back up and atomically replace only the homepage
+      - name: Publish versioned icons and atomically replace the homepage
         shell: bash
         run: |
           set -euo pipefail
@@ -44,9 +44,15 @@ jobs:
           stage=$(ssh "${opts[@]}" "$remote" 'mktemp -d /tmp/amh-site-module.XXXXXXXX')
           [[ "$stage" =~ ^/tmp/amh-site-module\.[A-Za-z0-9]+$ ]]
           scp -i ~/.ssh/aihub_key -P "$AIHUB_SSH_PORT" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o HostKeyAlias=aihub-pinned site/docs/visuals/agent-memory-hub-official-site.html "$remote:$stage/index.html"
+          ssh "${opts[@]}" "$remote" "mkdir '$stage/assets'"
+          scp -i ~/.ssh/aihub_key -P "$AIHUB_SSH_PORT" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o HostKeyAlias=aihub-pinned site/docs/visuals/media/native-memory/*.png "$remote:$stage/assets/"
           ssh "${opts[@]}" "$remote" "python3.11 - '$stage/index.html' '$GITHUB_RUN_ID'" < deploy/site-module/publish.py | tee site-publish-receipt.json
           curl -fsS --retry 2 --max-time 20 "https://aihub0508.com/?module_publish=$GITHUB_RUN_ID" -o published.html
-          echo 'fe0f77d7baf4fb35536ebda2b03bef53fa0fcb69ab4395ebf1948c0f45a09afd  published.html' | sha256sum -c -
+          echo '82908297363fec676d67d9b6fb53fa2eea2387deec023e9dd566853ae5f33e0d  published.html' | sha256sum -c -
+          curl -fsS --max-time 15 "https://aihub0508.com/assets/native-memory/chatgpt-desktop-dc5090afda.png" -o published-logo.png
+          echo 'dc5090afda4e54f06726e6bf4c962e6f625f02455a3d7b240ec92cdd3b90dd1a  published-logo.png' | sha256sum -c -
+          curl -fsS --max-time 15 "https://aihub0508.com/assets/native-memory/claude-cowork-d09eb2fe66.png" -o published-logo.png
+          echo 'd09eb2fe66c52aad0f1b0069083edaf5892d24302a30798e24621f26f65678d5  published-logo.png' | sha256sum -c -
           curl -fsS --max-time 10 https://aihub0508.com/native/v1/ready
           ssh "${opts[@]}" "$remote" "test -f '$stage/index.html' && rm -rf -- '$stage'"
       - name: Preserve publication receipt
