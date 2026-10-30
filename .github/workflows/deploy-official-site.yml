@@ -6,7 +6,7 @@ permissions:
 jobs:
   inspect:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 12
     env:
       AIHUB_SSH_HOST: ${{ secrets.AIHUB_SSH_HOST }}
       AIHUB_SSH_USER: ${{ secrets.AIHUB_SSH_USER }}
@@ -28,3 +28,14 @@ jobs:
           aihub-pinned ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBOn+8XNOgJ89F4RCC6GNxs+V0dsQaNmQtsdRN73GfAcFspoEtYBMU+qG/pLlBJP99Wd9DtSXkme30a+ckUetjdk=
           HOSTS
           ssh -T -i ~/.ssh/aihub_key -p "$AIHUB_SSH_PORT" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o HostKeyAlias=aihub-pinned -o ConnectTimeout=10 "$AIHUB_SSH_USER@$AIHUB_SSH_HOST" 'python3 -' < deploy/native-deployment/inspect.py
+      - name: Checkout reviewed native release
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: e685c89283adfb3fc5ba6306e85bd4b17303b161
+          path: code
+      - name: Python for wheel build
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: '3.11'
+      - name: Isolated runtime and nginx rehearsal
+        run: bash deploy/native-deployment/run-preflight.sh
