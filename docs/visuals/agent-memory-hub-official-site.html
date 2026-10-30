@@ -5164,10 +5164,6 @@
       -webkit-background-clip: text; background-clip: text; color: transparent;
     }
     #organization-memory .section-copy { max-width: 870px; color: rgba(15,42,58,.68); }
-    .org-heading-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 22px; }
-    .org-badge { display: inline-flex; align-items: center; gap: 7px; padding: 7px 12px; border: 1px solid rgba(17,141,191,.14); border-radius: 999px; color: #186b60; background: rgba(255,255,255,.8); font-size: .78rem; font-weight: 650; }
-    .org-badge i { width: 6px; height: 6px; border-radius: 50%; background: #21a989; }
-    .org-heading-note { color: #617986; font-size: .8rem; }
     .org-lab { padding: 20px; }
     .org-stage { grid-template-columns: minmax(0,1fr) minmax(0,1.08fr); }
     .org-map { position: relative; min-height: 490px; border-right: 1px solid rgba(89,184,255,.16); background: rgba(255,255,255,.55); }
@@ -5200,14 +5196,6 @@
     .org-quality span { color: #118dbf; font: 700 .68rem var(--qw-mono); letter-spacing: .06em; }
     .org-quality h3 { margin: 8px 0 6px; font-size: .95rem; color: #102c3c; }
     .org-quality p { margin: 0; font-size: .8rem; line-height: 1.65; color: #5a7381; }
-    .org-connect { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; margin-top: 24px; padding: 22px 24px; border: 1px solid rgba(85,185,255,.18); border-radius: 24px; background: rgba(255,255,255,.82); box-shadow: 0 12px 30px rgba(45,103,148,.05); }
-    .org-connect strong { display: block; color: #102c3c; font-size: .95rem; }
-    .org-connect p { margin: 5px 0 0; color: #617986; font-size: .8rem; }
-    .org-endpoint { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; }
-    .org-endpoint code { font: 650 .84rem var(--qw-mono); color: #185a70; overflow-wrap: anywhere; }
-    .org-copy { min-height: 38px; padding: 8px 14px; border: 1px solid rgba(17,141,191,.2); border-radius: 999px; background: linear-gradient(90deg,#f1fbff,#f2fff7); color: #12675b; font: 650 .8rem var(--qw-font); cursor: pointer; }
-    .org-copy:hover { background: #e8f7f5; }
-    .org-copy:focus-visible { outline: 3px solid #118dbf; outline-offset: 4px; }
     @media (max-width: 1100px) {
       .org-stage { grid-template-columns: 1fr; }
       .org-map { border-right: 0; border-bottom: 1px solid rgba(89,184,255,.16); }
@@ -5238,9 +5226,6 @@
       .org-hub strong { font-size: .96rem; }
       .org-qualities { grid-template-columns: 1fr 1fr; gap: 10px; }
       .org-quality { padding: 15px; }
-      .org-connect { padding: 20px; }
-      .org-endpoint { gap: 12px; }
-      .org-endpoint code { font-size: .76rem; }
     }
     @media (max-width: 380px) { .org-qualities { grid-template-columns: 1fr; } }
     @media (prefers-reduced-motion: reduce) { .org-flow { animation: none; stroke-dasharray: none; } }
@@ -5592,10 +5577,6 @@
           <p class="section-label">Organization memory</p>
           <h2 id="organization-memory-heading"><span>组织第二大脑</span><span class="org-accent">把个人经验，汇成团队智慧</span></h2>
           <p class="section-copy">把分散在成员和工具中的项目背景、关键决策与实践经验连接起来，让团队减少重复摸索、更快协同推进，并把工作成果积累为可持续复用的组织知识资产</p>
-          <div class="org-heading-meta">
-            <span class="org-badge"><i aria-hidden="true"></i>组织试点已上线</span>
-            <span class="org-heading-note">macOS 四款产品核心链路已实机验证</span>
-          </div>
 
           <div class="capability-lab org-lab">
             <div class="cap-stage org-stage">
@@ -5635,10 +5616,6 @@
             </div>
           </div>
 
-          <div class="org-connect">
-            <div><strong>一次接入，共享团队积累</strong><p>向组织管理员领取个人邀请码 → 安装时填写组织地址与邀请码 → 确认产品与历史范围</p></div>
-            <div class="org-endpoint"><code>https://aihub0508.com</code><button class="org-copy" type="button" data-copy="https://aihub0508.com" aria-label="复制组织 Hub 地址">复制地址</button></div>
-          </div>
         </div>
       </section>
 
