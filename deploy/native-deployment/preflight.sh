@@ -6,7 +6,10 @@ wheel=$2
 [ "$(dirname "$stage")" = /tmp ] && [[ "$(basename "$stage")" == amh-native-preflight.* ]]
 [ -f "$stage/.owned" ] && [ -f "$wheel" ]
 python3.11 -m venv "$stage/venv"
-"$stage/venv/bin/pip" install "$wheel[web]" > "$stage/install.log" 2>&1
+if ! "$stage/venv/bin/pip" --isolated install --index-url https://pypi.org/simple "$wheel[web]" > "$stage/install.log" 2>&1; then
+  tail -n 35 "$stage/install.log"
+  exit 1
+fi
 "$stage/venv/bin/python" - "$stage" <<'PY'
 import hashlib,json,sqlite3,subprocess,sys,socket,time
 from pathlib import Path
@@ -18,6 +21,7 @@ with socket.socket() as sock:sock.bind(('127.0.0.1',0));port=sock.getsockname()[
 url=f'http://127.0.0.1:{port}'
 with (stage/'hub.log').open('w') as log:
  proc=subprocess.Popen([str(stage/'venv/bin/amh-native'),'serve','--db',str(db),'--port',str(port)],stdout=log,stderr=log)
+ (stage/'hub.pid').write_text(str(proc.pid))
  try:
   for _ in range(100):
    try:
