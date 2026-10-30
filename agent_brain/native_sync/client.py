@@ -585,9 +585,21 @@ class NativeClient:
 
     def local_search(self, query: str, project_filter: str | None = None) -> list[dict[str, Any]]:
         """Rank cached parts deterministically; the caller must enforce the offline authorization window."""
+        from .materialize import assembled
+
+        records = self.cached()
+        # A sync page may stop halfway through a document. Match the Hub's
+        # completeness rule while retaining part identities for recall coverage.
+        ready = {
+            (document["tenant_id"], asset_id, revision)
+            for document in assembled(records)
+            for asset_id, revision in document["assembled_revisions"]
+        }
         wanted = set(tokens(query))
         items = []
-        for r in self.cached():
+        for r in records:
+            if (r["tenant_id"], r["asset_id"], r["revision"]) not in ready:
+                continue
             if project_filter is not None and r["project"] != project_filter:
                 continue
             searchable = r.get("index_text") if r["kind"] == "transcript" else None

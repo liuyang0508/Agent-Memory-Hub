@@ -84,3 +84,18 @@ def test_navigation_cycle_remains_bounded_and_does_not_duplicate(tmp_path):
     detail["body"] = "- [Back](../MEMORY.md)\n"
     body, delivered = pack([index, detail], covered=set(), max_tokens=4000)
     assert len(delivered) == len(set(delivered)) == 2
+
+
+def test_link_order_does_not_override_retrieval_rank(tmp_path):
+    index, detail = records(tmp_path)
+    weaker = {
+        **detail,
+        "asset_id": "weak",
+        "path": "weak.md",
+        "body": "Less relevant detail.",
+        "body_hash": "weak-hash",
+    }
+    index["body"] = "- [Weak](weak.md)\n- [Relevant](release_probe.md)\n"
+    body, delivered = pack([index, detail, weaker], covered=set(), max_items=1)
+    assert "NATIVE_NAVIGATION_CANARY" in body
+    assert coverage_key(detail) in delivered

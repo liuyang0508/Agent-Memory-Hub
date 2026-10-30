@@ -53,6 +53,7 @@ def _details_first(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
             ]
             links = [re.match(r"^(?:[-*+]\s+)?\[[^\]]+\]\(([^\s)]+)\)", line) for line in lines]
             if links and all(links) and all(scope(record)):
+                children: set[int] = set()
                 for link in links:
                     assert link is not None
                     target = urlsplit(link[1])
@@ -65,8 +66,11 @@ def _details_first(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
                     ):
                         continue
                     resolved = posixpath.normpath(posixpath.join(posixpath.dirname(path), relative))
-                    for child in by_path.get((*scope(record), resolved), []):
-                        visit(child)
+                    children.update(by_path.get((*scope(record), resolved), []))
+                # Link order is editorial, not a relevance score. Keep the Hub's
+                # candidate ranking when promoting several details above an index.
+                for child in sorted(children):
+                    visit(child)
         ordered.append(record)
 
     for index in range(len(records)):

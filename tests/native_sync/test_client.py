@@ -261,6 +261,23 @@ def test_unchanged_projection_does_not_rewrite_native_files(tmp_path):
     assert {str(p): p.stat().st_mtime_ns for p in root.rglob("*") if p.is_file()} == times
 
 
+def test_cached_recall_waits_for_complete_document_like_remote_recall(tmp_path):
+    from agent_brain.native_sync.common import digest
+
+    hub = Hub(tmp_path / "hub.sqlite")
+    author = enroll(hub)
+    reader = client(tmp_path, hub, "reader")
+    first, second = "cache-canary", " document tail"
+    shared = dict(document_id="document", document_hash=digest(first + second), part_count=2)
+    hub.put(author["token"], asset("part0", body=first, part_index=0, **shared))
+    reader.sync()
+    assert hub.search(reader.identity["token"], "cache-canary") == []
+    assert reader.local_search("cache-canary") == []
+    hub.put(author["token"], asset("part1", body=second, part_index=1, **shared))
+    reader.sync()
+    assert reader.local_search("cache-canary")[0]["body"] == first
+
+
 def test_single_file_sources_and_multiple_kinds_in_same_directory(tmp_path):
     hub = Hub(tmp_path / "hub.sqlite")
     c = client(tmp_path, hub, "张三")
