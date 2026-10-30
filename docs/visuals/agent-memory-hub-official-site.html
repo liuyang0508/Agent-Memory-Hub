@@ -5141,6 +5141,110 @@
       }
     }
 
+    /* Organization-native memory: reuse the live site's visual tokens and surfaces. */
+    #organization-memory {
+      scroll-margin-top: 65px;
+      background:
+        radial-gradient(circle at 12% 18%, rgba(85,185,255,.15), transparent 25rem),
+        radial-gradient(circle at 87% 72%, rgba(232,121,180,.14), transparent 26rem),
+        linear-gradient(180deg, #f8fdff 0%, #f3fff6 52%, #fff8fc 100%);
+    }
+    /* Preserve the existing evaluation section's surface after inserting a sibling. */
+    #benchmark { background: #fff; }
+    #organization-memory .section-label { color: #118dbf; font-size: .82rem; font-weight: 760; letter-spacing: .14em; }
+    #organization-memory h2 { max-width: 1060px; }
+    #organization-memory h2 span { display: block; }
+    #organization-memory h2 .org-accent {
+      width: fit-content;
+      background: linear-gradient(90deg, #4fb4ff 0%, #e879b4 48%, #1aa678 100%);
+      -webkit-background-clip: text; background-clip: text; color: transparent;
+    }
+    #organization-memory .section-copy { max-width: 870px; color: rgba(15,42,58,.68); }
+    .org-heading-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 22px; }
+    .org-badge { display: inline-flex; align-items: center; gap: 7px; padding: 7px 12px; border: 1px solid rgba(17,141,191,.14); border-radius: 999px; color: #186b60; background: rgba(255,255,255,.8); font-size: .78rem; font-weight: 650; }
+    .org-badge i { width: 6px; height: 6px; border-radius: 50%; background: #21a989; }
+    .org-heading-note { color: #617986; font-size: .8rem; }
+    .org-lab { padding: 20px; }
+    .org-stage { grid-template-columns: minmax(0,1fr) minmax(0,1.08fr); }
+    .org-map { position: relative; min-height: 490px; border-right: 1px solid rgba(89,184,255,.16); background: rgba(255,255,255,.55); }
+    .org-map-wires { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+    .org-wire { fill: none; stroke: rgba(70,156,173,.22); stroke-width: 2; }
+    .org-flow { fill: none; stroke: url(#org-memory-gradient); stroke-width: 3; stroke-linecap: round; stroke-dasharray: 30 260; animation: org-memory-flow 7s linear infinite; }
+    .org-flow.reverse { animation-direction: reverse; animation-delay: -3s; }
+    @keyframes org-memory-flow { to { stroke-dashoffset: -580; } }
+    .org-products { position: absolute; inset: 26px 22px; display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); grid-template-rows: 104px 1fr 104px; gap: 16px; }
+    .org-product { position: relative; display: grid; align-content: center; grid-template-columns: 34px minmax(0,1fr); gap: 5px 10px; padding: 16px; border: 1px solid rgba(85,185,255,.18); border-radius: 20px; background: rgba(255,255,255,.92); box-shadow: 0 14px 32px rgba(45,103,148,.08), inset 0 1px 0 #fff; }
+    .org-product:nth-child(n+3) { grid-row: 3; }
+    .org-product img, .org-product svg { grid-row: span 2; width: 30px; height: 30px; align-self: center; object-fit: contain; }
+    .org-product strong { font-size: .94rem; line-height: 1.3; color: #101820; }
+    .org-product small { color: #6a7f8a; font-size: .72rem; }
+    .org-hub { position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%); display: grid; justify-items: center; gap: 9px; width: 190px; text-align: center; }
+    .org-hub-logo { width: 104px; height: 104px; display: grid; place-items: center; border: 1px solid rgba(255,255,255,.95); border-radius: 50%; background: linear-gradient(135deg,#b9eccd,#81dce3); box-shadow: 0 0 0 12px rgba(85,185,255,.10),0 0 0 28px rgba(85,185,255,.05),0 18px 36px rgba(45,103,148,.12); }
+    .org-hub-logo img { width: 83px; height: 83px; }
+    .org-hub strong { color: #102c3c; font-size: 1.1rem; }
+    .org-hub small { color: #526f7a; font-size: .73rem; }
+    .org-story h3 { font-size: clamp(1.7rem,2.5vw,2.5rem); }
+    .org-route { display: grid; gap: 12px; margin-top: 24px; }
+    .org-route-item { display: grid; grid-template-columns: 30px minmax(0,1fr); gap: 12px; padding: 13px 15px; border: 1px solid rgba(85,185,255,.17); border-radius: 17px; background: linear-gradient(90deg,rgba(255,255,255,.88),rgba(232,247,255,.64)); }
+    .org-route-item > span { color: #118dbf; font: 700 .76rem/1.8 var(--qw-mono); }
+    .org-route-item strong { display: block; color: #193b4b; font-size: .91rem; }
+    .org-route-item p { margin: 4px 0 0; color: #5a7381; font-size: .82rem; line-height: 1.65; }
+    .org-qualities { position: relative; display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 12px; margin-top: 16px; }
+    .org-quality { padding: 18px; border: 1px solid rgba(85,185,255,.14); border-radius: 20px; background: rgba(255,255,255,.86); }
+    .org-quality span { color: #118dbf; font: 700 .68rem var(--qw-mono); letter-spacing: .06em; }
+    .org-quality h3 { margin: 8px 0 6px; font-size: .95rem; color: #102c3c; }
+    .org-quality p { margin: 0; font-size: .8rem; line-height: 1.65; color: #5a7381; }
+    .org-connect { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; margin-top: 24px; padding: 22px 24px; border: 1px solid rgba(85,185,255,.18); border-radius: 24px; background: rgba(255,255,255,.82); box-shadow: 0 12px 30px rgba(45,103,148,.05); }
+    .org-connect strong { display: block; color: #102c3c; font-size: .95rem; }
+    .org-connect p { margin: 5px 0 0; color: #617986; font-size: .8rem; }
+    .org-endpoint { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; }
+    .org-endpoint code { font: 650 .84rem var(--qw-mono); color: #185a70; overflow-wrap: anywhere; }
+    .org-copy { min-height: 38px; padding: 8px 14px; border: 1px solid rgba(17,141,191,.2); border-radius: 999px; background: linear-gradient(90deg,#f1fbff,#f2fff7); color: #12675b; font: 650 .8rem var(--qw-font); cursor: pointer; }
+    .org-copy:hover { background: #e8f7f5; }
+    .org-copy:focus-visible, .org-details summary:focus-visible, .org-details a:focus-visible { outline: 3px solid #118dbf; outline-offset: 4px; }
+    .org-isolation { margin: 17px 4px 0; color: #5a7381; font-size: .83rem; line-height: 1.7; }
+    .org-isolation strong { color: #185a70; }
+    .org-details { margin-top: 20px; border-top: 1px solid rgba(85,185,255,.2); color: #536d7d; font-size: .84rem; }
+    .org-details summary { width: fit-content; padding: 18px 4px; color: #185a70; font-weight: 650; cursor: pointer; }
+    .org-details-content { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 28px; padding: 0 4px 8px; }
+    .org-details h3 { margin: 0 0 8px; font-size: .92rem; color: #102c3c; }
+    .org-details p { margin: 0 0 10px; line-height: 1.8; }
+    .org-details a { color: #087fab; text-decoration: underline; text-underline-offset: 3px; }
+    @media (max-width: 1100px) {
+      .org-stage { grid-template-columns: 1fr; }
+      .org-map { border-right: 0; border-bottom: 1px solid rgba(89,184,255,.16); }
+      .org-qualities { grid-template-columns: repeat(2,minmax(0,1fr)); }
+      .redesign-nav-inner { gap: 12px; }
+      .redesign-links { gap: 2px; }
+      .redesign-links a { padding: 0 9px; font-size: .82rem; }
+      .redesign-nav-inner > .redesign-cta { display: none; }
+    }
+    @media (max-width: 840px) {
+      .redesign-links { display: none; }
+      .redesign-nav-inner > .redesign-cta { display: inline-flex; }
+    }
+    @media (max-width: 760px) {
+      #organization-memory h2 { font-size: 2.25rem; line-height: 1.12; }
+      .org-lab { padding: 12px; border-radius: 24px; }
+      .org-map { min-height: 430px; }
+      .org-products { inset: 20px 12px; grid-template-rows: 96px 1fr 96px; gap: 10px; }
+      .org-product { grid-template-columns: 1fr; justify-items: center; gap: 6px; padding: 11px 7px; border-radius: 16px; text-align: center; }
+      .org-product img, .org-product svg { grid-row: auto; width: 23px; height: 23px; }
+      .org-product strong { font-size: .8rem; }
+      .org-product small { font-size: .66rem; }
+      .org-hub-logo { width: 88px; height: 88px; }
+      .org-hub-logo img { width: 72px; height: 72px; }
+      .org-hub { gap: 7px; }
+      .org-hub strong { font-size: .96rem; }
+      .org-qualities { grid-template-columns: 1fr 1fr; gap: 10px; }
+      .org-quality { padding: 15px; }
+      .org-connect { padding: 20px; }
+      .org-endpoint { gap: 12px; }
+      .org-endpoint code { font-size: .76rem; }
+      .org-details-content { grid-template-columns: 1fr; gap: 16px; }
+    }
+    @media (max-width: 380px) { .org-qualities { grid-template-columns: 1fr; } }
+    @media (prefers-reduced-motion: reduce) { .org-flow { animation: none; stroke-dasharray: none; } }
   </style>
   <style id="amh-product-film-styles">
     .film-section { scroll-margin-top: 100px; padding-top: 36px; }
@@ -5192,6 +5296,7 @@
           <a href="#product-film">产品影片</a>
           <a href="#adoption">使用数据</a>
           <a href="#capabilities">核心能力</a>
+          <a href="#organization-memory">组织大脑</a>
           <a href="#benchmark">评测报告</a>
           <a href="https://gitee.com/liuyang0508/Agent-Memory-Hub">Gitee 镜像</a>
         </nav>
@@ -5229,6 +5334,7 @@
             <a class="redesign-button" href="#capabilities">
               <span>核心能力</span>
             </a>
+            <a class="redesign-button" href="#organization-memory">组织第二大脑</a>
             <a class="redesign-button" href="#benchmark">
               <span>评测报告</span>
             </a>
@@ -5479,6 +5585,69 @@
               </div>
             </div>
           </div>
+        </div>
+      </section>
+
+      <section class="redesign-section" id="organization-memory" aria-labelledby="organization-memory-heading">
+        <div class="redesign-wrap">
+          <p class="section-label">Organization memory</p>
+          <h2 id="organization-memory-heading"><span>组织第二大脑</span><span class="org-accent">换个工具，记忆仍在。</span></h2>
+          <p class="section-copy">从本地共享，走向团队共享。Claude Code、Codex CLI、Claude Cowork 与 Codex 桌面客户端，让已纳入组织的记忆跨工具、跨成员、跨设备接着用。</p>
+          <div class="org-heading-meta">
+            <span class="org-badge"><i aria-hidden="true"></i>组织试点已上线</span>
+            <span class="org-heading-note">macOS 四款产品核心链路已实机验证</span>
+          </div>
+
+          <div class="capability-lab org-lab">
+            <div class="cap-stage org-stage">
+              <div class="org-map" role="img" aria-label="Claude Code、Codex CLI、Claude Cowork、Codex桌面客户端通过异步上传和按需召回，双向连接组织Hub">
+                <svg class="org-map-wires" viewBox="0 0 600 490" preserveAspectRatio="none" aria-hidden="true">
+                  <defs><linearGradient id="org-memory-gradient"><stop offset="0" stop-color="#55b9ff"/><stop offset=".5" stop-color="#9adfd5"/><stop offset="1" stop-color="#e879b4"/></linearGradient></defs>
+                  <path class="org-wire" d="M150 120 C150 180 230 180 260 205 M450 120 C450 180 370 180 340 205 M150 370 C150 300 230 280 260 235 M450 370 C450 300 370 280 340 235"/>
+                  <path class="org-flow" d="M150 120 C150 180 230 180 260 205"/>
+                  <path class="org-flow reverse" d="M450 120 C450 180 370 180 340 205"/>
+                  <path class="org-flow reverse" d="M150 370 C150 300 230 280 260 235"/>
+                  <path class="org-flow" d="M450 370 C450 300 370 280 340 235"/>
+                </svg>
+                <div class="org-products" aria-hidden="true">
+                  <div class="org-product"><img src="../../web/static/agent-logos/claude-code.svg" alt=""><strong>Claude Code</strong><small>终端 · 原生记忆</small></div>
+                  <div class="org-product"><img src="../../web/static/agent-logos/codex.png" alt=""><strong>Codex CLI</strong><small>终端 · 原生记忆</small></div>
+                  <div class="org-product"><svg viewBox="0 0 32 32" fill="none"><rect x="3" y="5" width="26" height="20" rx="5" fill="#fff2ed" stroke="#ce785a" stroke-width="1.6"/><path d="M9 12h14M9 17h9M12 29h8M16 25v4" stroke="#ce785a" stroke-width="1.8" stroke-linecap="round"/></svg><strong>Claude Cowork</strong><small>客户端 · 原生记忆</small></div>
+                  <div class="org-product"><img src="../../web/static/agent-logos/codex.png" alt=""><strong>Codex 桌面客户端</strong><small>客户端 · 原生记忆</small></div>
+                </div>
+                <div class="org-hub" aria-hidden="true"><div class="org-hub-logo"><img src="agent-memory-hub-octopus-logo.svg" alt=""></div><strong>组织 Hub</strong><small>异步上传 ↔ 按需召回</small></div>
+              </div>
+              <div class="cap-panel org-story">
+                <span class="cap-eyebrow">native memory · shared by the team</span>
+                <h3>一个成员的积累，<br>成为团队可用的上下文。</h3>
+                <p>产品负责生成记忆，AMH 负责同步、检索与来源标注。下一位成员换一款工具，也能找到相关的组织经验。</p>
+                <div class="org-route">
+                  <div class="org-route-item"><span>01</span><div><strong>原生写入，后台同步</strong><p>Hooks 触发采集，持久队列异步上传已绑定范围内的新记忆。</p></div></div>
+                  <div class="org-route-item"><span>02</span><div><strong>围绕问题，云端召回</strong><p>检索组织共享内容，保留原始生产成员、来源产品与版本。</p></div></div>
+                  <div class="org-route-item"><span>03</span><div><strong>回到本地，原生读取</strong><p>共享资料同步到本地记忆资源，继续使用产品自己的读取机制。</p></div></div>
+                </div>
+              </div>
+            </div>
+            <div class="org-qualities">
+              <article class="org-quality"><span>SHARED</span><h3>同一组织共享</h3><p>组织内默认共享已纳入的记忆，项目用于标注与检索。</p></article>
+              <article class="org-quality"><span>ATTRIBUTED</span><h3>知道是谁写下的</h3><p>保留生产成员、来源产品与上传成员，跨端仍能追溯。</p></article>
+              <article class="org-quality"><span>SELECTIVE</span><h3>旧记忆，先预览</h3><p>历史内容由成员选择后导入，按确认的范围开始协同。</p></article>
+              <article class="org-quality"><span>ASYNC</span><h3>对话不必等同步</h3><p>异步重试、有界召回和缓存降级，控制等待与上下文开销。</p></article>
+            </div>
+          </div>
+
+          <div class="org-connect">
+            <div><strong>加入一次，让团队记忆接着用。</strong><p>获取个人邀请 → 指定组织地址 → 确认接入产品与历史范围</p></div>
+            <div class="org-endpoint"><code>https://aihub0508.com</code><button class="org-copy" type="button" data-copy="https://aihub0508.com" aria-label="复制组织 Hub 地址">复制地址</button></div>
+          </div>
+          <p class="org-isolation"><strong>独立原生协同管线。</strong>与现有 AMH 记忆维护、召回和治理分开运行。组织也可部署到自己的域名或 IP，通过 HTTPS 接入。</p>
+          <details class="org-details">
+            <summary>接入说明与已验证范围</summary>
+            <div class="org-details-content">
+              <div><h3>按组织接入</h3><p>每位成员使用自己的个人邀请，安装时绑定成员与设备。安装向导会列出接入产品，并先预览历史内容；常规快速安装入口与组织原生协同模式分开配置。</p><a href="https://github.com/liuyang0508/Agent-Memory-Hub/tree/codex/native-org-memory/docs/native-memory" target="_blank" rel="noopener">查看组织协同技术说明 ↗</a></div>
+              <div><h3>实机验证，明确边界</h3><p>当前 macOS 版本已验证跨产品写入与读取、来源身份，以及 Cowork 重启后的记忆保持。Codex 桌面遵循原生更新备注机制，正文与索引由产品自身维护。</p><p>慢网络首次无缓存时，当轮召回可能为空。当前为单节点组织试点，Windows / Linux 客户端及跨主机自动切换不属于本轮已验证范围。</p></div>
+            </div>
+          </details>
         </div>
       </section>
 
