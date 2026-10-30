@@ -3,10 +3,31 @@
 set -euo pipefail
 stage=$1
 wheel=$2
-[ "$(dirname "$stage")" = /tmp ] && [[ "$(basename "$stage")" == amh-native-preflight.* ]]
-[ -f "$stage/.owned" ] && [ -f "$wheel" ]
+[[ "$(dirname "$stage")" = /tmp && "$(basename "$stage")" == amh-native-preflight.* ]] || exit 2
+[ -f "$stage/.owned" ] || exit 2
+[ -f "$wheel" ] || exit 2
+[ "$(ps -o pgid= -p $$ | tr -d ' ')" = "$$" ] || { echo 'isolated process group required'; exit 1; }
+python3.11 - "$stage" "$$" <<'PID'
+from pathlib import Path
+import sys
+p=Path(sys.argv[1]);pid=sys.argv[2];start=(Path('/proc')/pid/'stat').read_text().rsplit(')',1)[1].split()[19]
+(p/'process-group').write_text(pid+' '+start+'\n')
+PID
+finish() {
+  status=$?
+  trap - EXIT HUP INT
+  trap '' TERM
+  kill -TERM -- "-$$" 2>/dev/null || true
+  exit "$status"
+}
+trap finish EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+mkdir -p "$stage/tmp"
+export TMPDIR="$stage/tmp"
 python3.11 -m venv "$stage/venv"
-if ! timeout 360s "$stage/venv/bin/pip" --isolated install --timeout 30 --retries 2 --progress-bar off --index-url https://pypi.org/simple "$wheel[web]" 2>&1 | tee "$stage/install.log"; then
+if ! timeout --foreground 360s "$stage/venv/bin/pip" --isolated --no-cache-dir install --timeout 30 --retries 2 --progress-bar off --index-url https://pypi.org/simple "$wheel[web]" 2>&1 | tee "$stage/install.log"; then
   tail -n 35 "$stage/install.log"
   exit 1
 fi

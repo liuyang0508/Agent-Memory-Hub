@@ -1,4 +1,4 @@
-name: Native memory read-only deployment inspection
+name: Native memory deployment preflight
 on:
   workflow_dispatch:
 permissions:
@@ -39,3 +39,9 @@ jobs:
           python-version: '3.11'
       - name: Isolated runtime and nginx rehearsal
         run: bash deploy/native-deployment/run-preflight.sh
+      - name: Preserve the successfully rehearsed immutable wheel
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: native-release-e685c89
+          path: dist/
+          retention-days: 7
