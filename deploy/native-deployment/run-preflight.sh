@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 remote="${AIHUB_SSH_USER}@${AIHUB_SSH_HOST}"
-opts=(-i "$HOME/.ssh/aihub_key" -p "$AIHUB_SSH_PORT" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o HostKeyAlias=aihub-pinned)
+opts=(-i "$HOME/.ssh/aihub_key" -p "$AIHUB_SSH_PORT" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o HostKeyAlias=aihub-pinned -o ServerAliveInterval=15 -o ServerAliveCountMax=3)
 stage=$(ssh "${opts[@]}" "$remote" 'mktemp -d /tmp/amh-native-preflight.XXXXXXXX')
 [[ "$stage" =~ ^/tmp/amh-native-preflight\.[A-Za-z0-9]+$ ]]
 cleanup() {

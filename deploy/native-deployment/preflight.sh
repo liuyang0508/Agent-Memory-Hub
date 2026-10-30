@@ -6,7 +6,7 @@ wheel=$2
 [ "$(dirname "$stage")" = /tmp ] && [[ "$(basename "$stage")" == amh-native-preflight.* ]]
 [ -f "$stage/.owned" ] && [ -f "$wheel" ]
 python3.11 -m venv "$stage/venv"
-if ! "$stage/venv/bin/pip" --isolated install --index-url https://pypi.org/simple "$wheel[web]" > "$stage/install.log" 2>&1; then
+if ! timeout 360s "$stage/venv/bin/pip" --isolated install --timeout 30 --retries 2 --progress-bar off --index-url https://pypi.org/simple "$wheel[web]" 2>&1 | tee "$stage/install.log"; then
   tail -n 35 "$stage/install.log"
   exit 1
 fi
