@@ -12,6 +12,7 @@ actual=$(sha256sum "$site" | cut -d' ' -f1)
 if [ "$actual" != "$original" ]; then
  [ -f "$backup/site.after.sha256" ] && [ "$actual" = "$(cat "$backup/site.after.sha256")" ] || { echo 'site drift: manual review required' >&2; exit 1; }
  cp -a "$backup/site.before.conf" "$site.amh-rollback"
+ cmp -s "$backup/site.before.conf" "$site.amh-rollback"
  mv "$site.amh-rollback" "$site"
 fi
 /usr/sbin/nginx -t

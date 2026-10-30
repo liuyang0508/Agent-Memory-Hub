@@ -3,6 +3,7 @@
 set -euo pipefail
 stage=$1
 wheel=$2
+bundle_sha=$3
 [[ "$(dirname "$stage")" = /tmp && "$(basename "$stage")" == amh-native-preflight.* ]] || exit 2
 [ -f "$stage/.owned" ] || exit 2
 [ -f "$wheel" ] || exit 2
@@ -26,8 +27,9 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 mkdir -p "$stage/tmp"
 export TMPDIR="$stage/tmp"
+python3.11 "$stage/verify_bundle.py" "$stage" "$bundle_sha" >/dev/null
 python3.11 -m venv "$stage/venv"
-if ! timeout --foreground 360s "$stage/venv/bin/pip" --isolated --no-cache-dir install --timeout 30 --retries 2 --progress-bar off --index-url https://pypi.org/simple "$wheel[web]" 2>&1 | tee "$stage/install.log"; then
+if ! timeout --foreground 360s "$stage/venv/bin/pip" --isolated --no-cache-dir install --timeout 30 --retries 2 --progress-bar off --no-index --find-links "$stage/wheelhouse" "$wheel[web]" 2>&1 | tee "$stage/install.log"; then
   tail -n 35 "$stage/install.log"
   exit 1
 fi

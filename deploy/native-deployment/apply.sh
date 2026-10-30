@@ -4,14 +4,14 @@
 set -euo pipefail
 release=e685c89283adfb3fc5ba6306e85bd4b17303b161
 [ "${1:-}" = "approve-aihub0508.com-$release" ] || { echo 'explicit deployment acknowledgement required' >&2; exit 2; }
-wheel=$2
-expected_wheel=${3:-}
+bundle=$2
+approved_bundle=${3:-}
 rollback_source=${4:-}
-[[ "$expected_wheel" =~ ^[0-9a-f]{64}$ ]] || { echo 'approved artifact hash required' >&2; exit 2; }
+[[ "$approved_bundle" =~ ^[0-9a-f]{64}$ ]] || { echo 'approved bundle hash required' >&2; exit 2; }
 [ "$(id -u)" -eq 0 ] || exit 1
-[ -f "$wheel" ] || exit 1
 [ -f "$rollback_source" ] || exit 1
-[ "$(sha256sum "$wheel" | cut -d' ' -f1)" = "$expected_wheel" ] || { echo 'artifact hash mismatch' >&2; exit 1; }
+wheel=$(python3.11 "$bundle/verify_bundle.py" "$bundle" "$approved_bundle")
+expected_wheel=$(sha256sum "$wheel" | cut -d' ' -f1)
 site=/etc/nginx/conf.d/agent-memory-hub.conf
 [ ! -L "$site" ] || { echo 'refusing symlinked site configuration' >&2; exit 1; }
 expected=d05b86180f526a78a74500ad8adcdbfd70cef66e391bddf162fac39c653d0a8f
@@ -30,20 +30,25 @@ cmp -s "$site" "$backup/restore-check.conf"
 install -m 700 "$rollback_source" "$backup/rollback.sh"
 printf '%s\n' "$release" > "$backup/release.sha"
 printf '%s\n' "$expected_wheel" > "$backup/wheel.sha256"
+printf '%s\n' "$approved_bundle" > "$backup/bundle.sha256"
+cp "$bundle/manifest.json" "$backup/bundle-manifest.json"
 printf '%s\n' prepared > "$backup/phase"
 unit_created=0
 route_changed=0
 installed_site_hash=""
 rollback() {
  code=$?
+ [ "$code" -ne 0 ] || code=1
  trap - EXIT HUP INT TERM
  set +e
  if [ "$route_changed" = 1 ]; then
   actual=$(sha256sum "$site" | cut -d' ' -f1)
   if [ "$actual" = "$installed_site_hash" ] || [ "$actual" = "$expected" ]; then
-   cp -a "$backup/site.before.conf" "$site.amh-rollback"
-   mv "$site.amh-rollback" "$site"
-   /usr/sbin/nginx -t && systemctl reload nginx
+   if cp -a "$backup/site.before.conf" "$site.amh-rollback" && cmp -s "$backup/site.before.conf" "$site.amh-rollback" && mv "$site.amh-rollback" "$site"; then
+    /usr/sbin/nginx -t && systemctl reload nginx || echo 'rollback reload failed; config backup retained' >&2
+   else
+    echo 'rollback copy/validation failed; existing site configuration preserved' >&2
+   fi
   else
    echo "rollback held: site changed externally; preserved for review" >&2
   fi
@@ -53,10 +58,11 @@ rollback() {
    echo 'rollback held: native unit changed externally' >&2
    exit "$code"
   fi
-  systemctl disable --now amh-native.service
-  cp -a /etc/systemd/system/amh-native.service "$backup/failed.service"
-  rm -f /etc/systemd/system/amh-native.service
-  systemctl daemon-reload
+  if systemctl disable --now amh-native.service && ! systemctl is-active --quiet amh-native.service; then
+   echo 'native service stopped; unit and data retained for recovery'
+  else
+   echo 'rollback incomplete: native service could not be stopped; unit retained' >&2
+  fi
  fi
  printf '%s\n' "deployment_failed=$code backup=$backup data_retained=true"
  exit "$code"
@@ -70,7 +76,7 @@ version_dir=/opt/amh-native/releases/$release
 install -d -m 755 "$version_dir"
 cp "$wheel" "$version_dir/$(basename "$wheel")"
 python3.11 -m venv "$version_dir/venv"
-timeout --foreground 360s "$version_dir/venv/bin/pip" --isolated --no-cache-dir install --timeout 30 --retries 2 --index-url https://pypi.org/simple "$version_dir/$(basename "$wheel")[web]" > "$backup/install.log" 2>&1
+timeout --foreground 360s "$version_dir/venv/bin/pip" --isolated --no-cache-dir install --timeout 30 --retries 2 --no-index --find-links "$bundle/wheelhouse" "$version_dir/$(basename "$wheel")[web]" > "$backup/install.log" 2>&1
 useradd --system --user-group --home-dir /var/lib/amh-native --shell /sbin/nologin amh-native
 install -d -o amh-native -g amh-native -m 700 /var/lib/amh-native
 ln -s "$version_dir" /opt/amh-native/current
@@ -161,7 +167,7 @@ curl -fsS --max-time 10 --resolve aihub0508.com:443:127.0.0.1 https://aihub0508.
 printf '%s\n' "$release" > /var/lib/amh-native/deployed-revision
 chown amh-native:amh-native /var/lib/amh-native/deployed-revision
 printf '%s\n' "$installed_site_hash" > "$backup/site.after.sha256"
-sha256sum /etc/systemd/system/amh-native.service | cut -d' ' -f1 > "$backup/unit.sha256"
+[ "$(sha256sum /etc/systemd/system/amh-native.service | cut -d' ' -f1)" = "$(cat "$backup/unit.sha256")" ] || { echo 'unit drift before completion' >&2; false; }
 printf '%s\n' complete > "$backup/phase"
 trap - EXIT HUP INT TERM
 printf '\ndeployed_revision=%s\nrollback_config=%s\n' "$release" "$backup/site.before.conf"
