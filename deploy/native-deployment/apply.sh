@@ -7,6 +7,8 @@ release=e685c89283adfb3fc5ba6306e85bd4b17303b161
 bundle=$2
 approved_bundle=${3:-}
 rollback_source=${4:-}
+public_key=${5:-}
+[[ "$public_key" =~ ^[A-Za-z0-9+/=]+$ ]] && [ "${#public_key}" -lt 8192 ] || exit 2
 [[ "$approved_bundle" =~ ^[0-9a-f]{64}$ ]] || { echo 'approved bundle hash required' >&2; exit 2; }
 [ "$(id -u)" -eq 0 ] || exit 1
 [ -f "$rollback_source" ] || exit 1
@@ -168,6 +170,10 @@ printf '%s\n' "$release" > /var/lib/amh-native/deployed-revision
 chown amh-native:amh-native /var/lib/amh-native/deployed-revision
 printf '%s\n' "$installed_site_hash" > "$backup/site.after.sha256"
 [ "$(sha256sum /etc/systemd/system/amh-native.service | cut -d' ' -f1)" = "$(cat "$backup/unit.sha256")" ] || { echo 'unit drift before completion' >&2; false; }
+install -m 644 "$bundle/bootstrap.py" "$version_dir/bootstrap.py"
+# The database write runs under its owning service account; only ciphertext leaves it.
+(cd "$version_dir"; runuser -u amh-native -- "$version_dir/venv/bin/python" "$version_dir/bootstrap.py" "$public_key") > "$backup/initial-invite.enc"
+chmod 600 "$backup/initial-invite.enc"
 printf '%s\n' complete > "$backup/phase"
 trap - EXIT HUP INT TERM
 printf '\ndeployed_revision=%s\nrollback_config=%s\n' "$release" "$backup/site.before.conf"
