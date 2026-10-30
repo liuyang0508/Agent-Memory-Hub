@@ -1,45 +1,29 @@
-name: Native memory deployment preflight
+name: Publish organization memory website module
 on:
   workflow_dispatch:
-    inputs:
-      operation:
-        type: choice
-        options: [preflight, apply]
-        default: preflight
-      artifact_run_id:
-        type: string
-        default: ''
-      approved_bundle_sha:
-        type: string
-        default: ''
-      approved_ops_sha:
-        type: string
-        default: ''
-      invite_public_key_b64:
-        type: string
-        default: ''
-      acknowledgement:
-        type: string
-        default: ''
 permissions:
   contents: read
-  actions: read
 concurrency:
-  group: aihub-native-rollout
+  group: aihub-official-site
   cancel-in-progress: false
 jobs:
-  inspect:
+  publish:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 8
     env:
       AIHUB_SSH_HOST: ${{ secrets.AIHUB_SSH_HOST }}
       AIHUB_SSH_USER: ${{ secrets.AIHUB_SSH_USER }}
       AIHUB_SSH_KEY: ${{ secrets.AIHUB_SSH_KEY }}
       AIHUB_SSH_PORT: ${{ secrets.AIHUB_SSH_PORT || '22' }}
     steps:
-      - name: Checkout inspection code
+      - name: Checkout publisher
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
-      - name: Read server capabilities with pre-established public host-key pins
+      - name: Checkout verified page
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: 60cad8d210dc69f135c03168ede7b88d36547c1a
+          path: site
+      - name: Prepare pinned SSH connection
         shell: bash
         run: |
           set -euo pipefail
@@ -51,47 +35,22 @@ jobs:
           aihub-pinned ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCtJEAWS+KtN4mo7y2KRfMHM5goE3d2JTv+hEUcPDtDcZeER6xtGveCxqD0J+WJo0j7sdh/AscO7cbzPH5ODmNBRM/Eu+g8l7d1457lxy9drYzYUKRmpDr4kMBh+9Pgcass4XWiDHmxxoIJM8Q5/oIDCX+uT/SoDP3k/zAkISujFsJn6Fi9DhMxArjW3MrgngTLsBBYOTBubTCFvhtYdgskwkK6xeBYgo+L5mOe9cHNJjR4t+rPLsiC1mttcwryFt1dnSzqH8/ST2hbuY4L+ph8VfHnarFkvhEHPsKlPTH3g3mhMRUSPOacJSPhsV1y+ESnx703jGv1EkAwxfAVjG5yMuXqMMYcKqnChvJXHlPmSPiEygAernjPxLHw4HSJQoRbH34wSyvH0mBREc2tFKrJ5tC+HNWfnfymh/rylky21Fgc8abs1FKwTwOAIPxnNctsxCQ3SpCqcM67vak9T7r3CaZV1Kt5NSvKqZe1tCSbOB57fd3tTJRA4xPyiPtFb6c=
           aihub-pinned ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBOn+8XNOgJ89F4RCC6GNxs+V0dsQaNmQtsdRN73GfAcFspoEtYBMU+qG/pLlBJP99Wd9DtSXkme30a+ckUetjdk=
           HOSTS
-          ssh -T -i ~/.ssh/aihub_key -p "$AIHUB_SSH_PORT" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o HostKeyAlias=aihub-pinned -o ConnectTimeout=10 "$AIHUB_SSH_USER@$AIHUB_SSH_HOST" 'python3 -' < deploy/native-deployment/inspect_host.py
-      - name: Clean the retained owned preflight after identity validation
-        if: inputs.operation != 'apply'
+      - name: Back up and atomically replace only the homepage
         shell: bash
         run: |
-          ssh -T -i ~/.ssh/aihub_key -p "$AIHUB_SSH_PORT" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o HostKeyAlias=aihub-pinned -o ConnectTimeout=10 "$AIHUB_SSH_USER@$AIHUB_SSH_HOST" 'python3 - /tmp/amh-native-preflight.pzyjzdEb' < deploy/native-deployment/cleanup_stage.py
-      - name: Checkout reviewed native release
-        if: inputs.operation != 'apply'
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
-        with:
-          ref: e685c89283adfb3fc5ba6306e85bd4b17303b161
-          path: code
-      - name: Python for wheel build
-        if: inputs.operation != 'apply'
-        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
-        with:
-          python-version: '3.11'
-      - name: Isolated runtime and nginx rehearsal
-        if: inputs.operation != 'apply'
-        run: bash deploy/native-deployment/run-preflight.sh
-      - name: Preserve the successfully rehearsed immutable wheel
-        if: inputs.operation != 'apply'
+          set -euo pipefail
+          remote="${AIHUB_SSH_USER}@${AIHUB_SSH_HOST}"
+          opts=(-i ~/.ssh/aihub_key -p "$AIHUB_SSH_PORT" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o HostKeyAlias=aihub-pinned -o ServerAliveInterval=15 -o ServerAliveCountMax=3)
+          stage=$(ssh "${opts[@]}" "$remote" 'mktemp -d /tmp/amh-site-module.XXXXXXXX')
+          [[ "$stage" =~ ^/tmp/amh-site-module\.[A-Za-z0-9]+$ ]]
+          scp -i ~/.ssh/aihub_key -P "$AIHUB_SSH_PORT" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o HostKeyAlias=aihub-pinned site/docs/visuals/agent-memory-hub-official-site.html "$remote:$stage/index.html"
+          ssh "${opts[@]}" "$remote" "python3.11 - '$stage/index.html' '$GITHUB_RUN_ID'" < deploy/site-module/publish.py | tee site-publish-receipt.json
+          curl -fsS --retry 2 --max-time 20 "https://aihub0508.com/?module_publish=$GITHUB_RUN_ID" -o published.html
+          echo 'fe0f77d7baf4fb35536ebda2b03bef53fa0fcb69ab4395ebf1948c0f45a09afd  published.html' | sha256sum -c -
+          curl -fsS --max-time 10 https://aihub0508.com/native/v1/ready
+          ssh "${opts[@]}" "$remote" "test -f '$stage/index.html' && rm -rf -- '$stage'"
+      - name: Preserve publication receipt
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: native-release-e685c89
-          path: dist/
-          retention-days: 7
-      - name: Apply explicitly approved immutable release
-        if: inputs.operation == 'apply'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          DEPLOY_ACK: ${{ inputs.acknowledgement }}
-          ARTIFACT_RUN_ID: ${{ inputs.artifact_run_id }}
-          APPROVED_BUNDLE_SHA: ${{ inputs.approved_bundle_sha }}
-          APPROVED_OPS_SHA: ${{ inputs.approved_ops_sha }}
-          INVITE_PUBLIC_KEY_B64: ${{ inputs.invite_public_key_b64 }}
-        run: bash deploy/native-deployment/run-approved.sh
-      - name: Deliver encrypted first-member invitation
-        if: inputs.operation == 'apply'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: encrypted-linkcrux-invitation
-          path: deployed-invite/
-          retention-days: 1
+          name: organization-module-publication
+          path: site-publish-receipt.json
