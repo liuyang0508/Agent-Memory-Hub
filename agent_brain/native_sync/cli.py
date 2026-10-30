@@ -217,6 +217,9 @@ def cowork_connect(
     output: Path = typer.Option(..., help="无凭证的成员绑定插件输出目录"),
     connection_dir: Path = typer.Option(..., help="Cowork任务可访问的私有配对文件目录"),
     state: Path = DEFAULT_STATE,
+    runtime_state: Path | None = typer.Option(
+        None, help="宿主机 Hook 的持久状态目录；指定后同时固定独立配对文件路径"
+    ),
 ) -> None:
     """生成成员绑定插件和独立的一次性连接文件；不修改日常客户端配置。"""
     from .cowork_runtime import PAIRING_FILENAME, export_connection
@@ -228,7 +231,12 @@ def cowork_connect(
     connection_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     connection = connection_dir / PAIRING_FILENAME
     policy = export_connection(state, connection)
-    plugin = export_cowork_plugin(output, policy=policy)
+    plugin = export_cowork_plugin(
+        output,
+        policy=policy,
+        runtime_state=runtime_state.expanduser().resolve() if runtime_state else None,
+        connection_file=connection if runtime_state else None,
+    )
     emit(
         {
             "plugin": str(plugin) + ".zip",
@@ -346,7 +354,13 @@ def setup(
         connection = state / "cowork-connection" / PAIRING_FILENAME
         try:
             policy = export_connection(state, connection)
-            plugin = export_cowork_plugin(state / "cowork-plugin", policy=policy)
+            host_runtime = platform.system() == "Darwin"
+            plugin = export_cowork_plugin(
+                state / "cowork-plugin",
+                policy=policy,
+                runtime_state=(state / "cowork-runtime").resolve() if host_runtime else None,
+                connection_file=connection.resolve() if host_runtime else None,
+            )
             cowork_artifacts = plugin, connection
         except (OSError, ValueError) as exc:
             console.print(f"Cowork 配对准备失败（{type(exc).__name__}）；尚未修改客户端配置。")
@@ -358,7 +372,7 @@ def setup(
             f"Cowork 插件：{plugin}.zip；一次性连接文件：{connection}（15分钟有效，不能放进插件包）。"
         )
         console.print(
-            "在 Cowork 导入插件，并让首次任务访问连接文件所在目录。运行时会独立登记设备、发现原生记忆目录；实际接入状态仍需核验。"
+            "在 Cowork 导入插件。macOS 宿主机 Hook 已固定持久状态和连接文件路径；其他运行环境需让首次任务访问连接文件所在目录。运行时会独立登记设备、发现原生记忆目录；实际接入状态仍需核验。"
         )
     if service and platform.system() == "Darwin":
         plist_path = launch_agent(state, home)

@@ -6,7 +6,9 @@
 
 代码与回归位于本研发分支，尚未发布到公共安装入口。Claude Code 与 Codex CLI 已在独立配置中双向验证：由真实模型显式写入原生记忆、Hook/后台同步、另一成员经 Hook 或原生文件读取；关闭两条消费路径的对照未取得验收值。这不等于所有原生后台提炼时序均已覆盖。
 
-Codex 桌面 UI 已由人工触发，实际会话输入与回答共同验证了 Claude Code 来源的 Hook 召回；桌面原生读取和生产链路仍需完成 UI 验收。两台真实 Mac 的跨成员原生读取及同步后的缓存 Hook 已通过；该链路直接查询约 1.0–1.6 秒，首次无缓存的 Hook 超过预算时返回空结果，不能保证首次实时召回。阿里云实例的临时隔离试验已通过，公开 HTTPS 服务尚未上线。Cowork 的运行时接入代码已提供，但当前客户端不能创建/执行任务，实际挂载、网络、持久化和模型消费尚未验收。
+Codex 桌面 UI 已由人工触发，实际会话输入与回答共同验证了 Claude Code 来源的 Hook 召回；桌面原生读取和生产链路仍需完成 UI 验收。两台真实 Mac 的跨成员原生读取及同步后的缓存 Hook 已通过；该链路直接查询约 1.0–1.6 秒，首次无缓存的 Hook 超过预算时返回空结果，不能保证首次实时召回。阿里云实例的临时隔离试验已通过，公开 HTTPS 服务尚未上线。
+
+Claude Desktop 4.4212 的 Cowork 已通过官方第三方网关模式进行隔离项目实机验收：真实 Hook 读取 Claude Code 来源，关闭 Hook 后原生读取 Codex 来源，以及 Cowork 原生写入后被 CC/Codex CLI 读取，均取得模型回答和运行记录证据。CLI 读取的关闭召回对照未取得验收值。正常重启应用后，新会话仍能召回内容，成员、设备及状态配置未改变。模型负责原生记忆生成，AMH 负责同步与召回；这些证据不代表所有产品版本、自动提炼时序或云任务环境均已覆盖。
 
 工程职责与扩展约束见 [架构说明](architecture.zh.md)，故障处理与恢复边界见 [运维说明](operations.zh.md)。当前是单节点可恢复实现，尚无跨主机自动容灾。
 
@@ -108,15 +110,24 @@ amh-native cowork-connect --state ~/.amh-native-sync \
   --output ./amh-cowork-plugin --connection-dir ./private-cowork-connection
 ```
 
-- 插件 ZIP 只包含程序和公开的 Hub/成员/组织绑定信息；一次性邀请单独写入连接目录的 `.amh-native-connection.json`，权限为0600，15分钟有效。不要把连接文件放进插件包或贴给模型。
-- 在 Cowork 导入该成员的插件，让首次任务访问连接文件所在目录。插件从 `CLAUDE_PROJECT_DIR` 对应目录读取它，也支持显式 `AMH_NATIVE_CONNECTION_FILE`。连接文件过期可重跑命令刷新；Hub/成员不变时不用重装插件。
+当前 macOS 宿主机 Hook 模式使用明确的持久目录：
+
+```bash
+amh-native cowork-connect --state ~/.amh-native-sync \
+  --output ./amh-cowork-plugin --connection-dir ~/.amh-native-sync/cowork-connection \
+  --runtime-state ~/.amh-native-sync/cowork-runtime
+```
+
+- 插件 ZIP 只包含程序、公开的 Hub/成员/组织绑定信息，以及配置过的本机路径；不包含秘密。一次性邀请单独写入连接目录的 `.amh-native-connection.json`，权限为0600，15分钟有效。不要把连接文件放进插件包或贴给模型。
+- 指定 `--runtime-state` 后，生成的 Hook 同时固定状态和独立配对文件路径，不依赖任务 cwd。macOS `setup` 默认使用此方式。此包绑定当前机器路径，另一台机器应重新生成；VM/云端运行环境应提供其实际可访问的路径，不能直接复制 Mac 路径。
+- 未指定宿主绑定时，插件从 `CLAUDE_PROJECT_DIR` 对应目录寻找连接文件，也支持 `AMH_NATIVE_CONNECTION_FILE`。连接文件过期可重跑命令刷新；Hub/成员与路径不变时不用重装插件。
 - Hook 在后台完成登记，获得**同一成员、不同设备**的凭证；已有状态不会被另一个 Hub 或成员覆盖。撤销发起设备会使未使用的邀请失效，已登记的运行时需单独撤销。
-- 状态默认放在 `CLAUDE_PLUGIN_DATA/amh-native-sync`，或显式的 `AMH_NATIVE_HOME`。运行时未提供持久目录就报告不可接入，不猜测 Mac 与 VM 是同一文件系统。
-- 原生来源使用当前本机 Claude 运行时提供的 `CLAUDE_COWORK_MEMORY_PATH_OVERRIDE`，项目标识取 `CLAUDE_PROJECT_UUID`。Hook 只记录元数据，后台做历史基线；未选择的历史不自动上传。相同项目的旧挂载消失后可迁移路径；同路径身份冲突或挂载被替换会隔离来源，暂停其扫描、上传和投放。
+- 没有显式状态时使用 `CLAUDE_PLUGIN_DATA/amh-native-sync` 或 `AMH_NATIVE_HOME`。不能把变量名称视为持久性保证：实测宿主模式的插件数据位于随会话变化的临时目录，cwd 为 `/private/var/empty`，因此必须用上述持久绑定。
+- 原生来源使用产品提供的 `CLAUDE_COWORK_MEMORY_PATH_OVERRIDE`。优先使用 `CLAUDE_PROJECT_UUID`；宿主模式未提供该变量时，仅识别实际来源路径中的 `spaces/<UUID>/memory` 结构。全局或未知目录保持项目未知，不猜测记忆根目录。Hook 只记录元数据，后台做历史基线；未选择的历史不自动上传。相同项目的旧挂载消失后可迁移路径；同路径身份冲突或挂载被替换会隔离来源。
 - 配对期间的成功创建事件保存在本地队列。内容稳定且不存在历史冲突时纳入新记忆；发生基线竞争或内容变化的文件会明确列入历史复核，不静默跳过或直接上传。
 - 导入后可运行 `/amh-native-org:doctor` 检查运行时目录、项目标识及 Hub 连通性。诊断不读记忆正文或凭证，也不等同于完整验收。
 
-Cowork 不应假定拥有 Claude Code 同样的配置提示界面，因此该接入不依赖用户配置弹窗。[官方组件支持说明](https://claude.com/docs/plugins/platform-support)列出了两者差别。真实任务是否保留插件状态目录、VM 能否访问 Hub，以及后续会话恢复，必须通过实际客户端测试；本机 localhost 不能直接当作云任务的服务地址。
+Cowork 不应假定拥有 Claude Code 同样的配置提示界面，因此该接入不依赖插件配置弹窗。[官方组件支持说明](https://claude.com/docs/plugins/platform-support)列出了两者差别。实测本版本的 Hook 在 Mac 上执行，而模型的 Bash 工具在 Linux VM 中执行；两者环境变量和文件系统不同，不能用模型工具里的 `printenv` 推断 Hook 环境，也不能把本机 localhost 当作云任务的服务地址。生产部署仍使用可达的 HTTPS Hub。
 
 上述材料准备完成时，安装器只报告待验证，不会显示四端全部接入成功。
 

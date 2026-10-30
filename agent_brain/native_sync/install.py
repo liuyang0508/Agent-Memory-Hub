@@ -272,8 +272,18 @@ def uninstall_hooks(home: Path, state: Path) -> list[str]:
     return conflicts
 
 
-def export_cowork_plugin(destination: Path, *, policy: dict[str, str] | None = None) -> Path:
-    """Portable stdlib Hook runtime, no credentials embedded in distributable plugin."""
+def export_cowork_plugin(
+    destination: Path,
+    *,
+    policy: dict[str, str] | None = None,
+    runtime_state: Path | None = None,
+    connection_file: Path | None = None,
+) -> Path:
+    """Export stdlib Hooks; optional explicit host paths avoid ephemeral Cowork data.
+
+    Only paths and public identity pins enter the archive, never ticket contents.
+    Without host binding, the runtime continues using its supplied plugin data.
+    """
     if policy is not None:
         from .transport import validate_url
 
@@ -281,6 +291,12 @@ def export_cowork_plugin(destination: Path, *, policy: dict[str, str] | None = N
             raise ValueError("plugin policy must contain only public Hub/member/tenant pins")
         validate_url(policy["hub"])
     root = Path(destination)
+    for path in (runtime_state, connection_file):
+        if path is not None:
+            if not path.is_absolute():
+                raise ValueError("runtime binding paths must be absolute")
+            if path.resolve() == root.resolve() or path.resolve().is_relative_to(root.resolve()):
+                raise ValueError("runtime state and connection must remain outside the plugin")
     for directory in (
         root,
         root / ".claude-plugin",
@@ -346,9 +362,12 @@ description: 检查组织记忆运行环境，不读取记忆正文或凭证
 在 Cowork 任务中运行下面的诊断命令，原样报告 JSON 结果。不要读取、展示或发送连接文件、邀请或设备凭证，不修改任何客户端配置。诊断只检查目录是否存在及 Hub 是否可达，不代表全部链路验收通过。
 
 ```sh
-python3 "${CLAUDE_PLUGIN_ROOT}/runtime/entry.py" --policy "${CLAUDE_PLUGIN_ROOT}/runtime/connection-policy.json" --diagnose
+python3 "${CLAUDE_PLUGIN_ROOT}/runtime/entry.py" --policy "${CLAUDE_PLUGIN_ROOT}/runtime/connection-policy.json" --diagnose__STATE_ARGUMENT__
 ```
-""",
+""".replace(
+            "__STATE_ARGUMENT__",
+            " --state " + shlex.quote(str(runtime_state)) if runtime_state is not None else "",
+        ),
     )
     arguments = [
         "${CLAUDE_PLUGIN_ROOT}/runtime/entry.py",
@@ -358,6 +377,10 @@ python3 "${CLAUDE_PLUGIN_ROOT}/runtime/entry.py" --policy "${CLAUDE_PLUGIN_ROOT}
         "cowork",
         "--start-worker",
     ]
+    if runtime_state is not None:
+        arguments.extend(["--state", str(runtime_state)])
+    if connection_file is not None:
+        arguments.extend(["--connection-file", str(connection_file)])
     atomic_json(
         root / "hooks/hooks.json",
         {

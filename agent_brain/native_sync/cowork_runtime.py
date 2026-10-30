@@ -20,7 +20,7 @@ from typing import Any
 from .client import NativeClient
 from .common import atomic_json, digest, runtime_argv
 from .storage import DB_TIMEOUT
-from .runtime_sources import queue_observation
+from .runtime_sources import native_project_id, queue_observation
 from .transport import Transport, validate_url
 
 PAIRING_FILENAME = ".amh-native-connection.json"
@@ -151,6 +151,7 @@ def main() -> None:
     """Portable plugin entry; never print tickets or fail the product's normal task."""
     parser = argparse.ArgumentParser()
     parser.add_argument("--state", type=Path)
+    parser.add_argument("--connection-file", type=Path)
     parser.add_argument("--policy", type=Path)
     parser.add_argument("--product", choices=["cowork"], default="cowork")
     parser.add_argument("--start-worker", action="store_true")
@@ -165,12 +166,14 @@ def main() -> None:
         if args.diagnose:
             policy = read_object(args.policy) if args.policy else {}
             native = os.environ.get("CLAUDE_COWORK_MEMORY_PATH_OVERRIDE")
+            project = native_project_id(Path(native)) if native else ""
             diagnostic: dict[str, Any] = {
                 "python": sys.version.split()[0],
                 "persistent_state_supplied": bool(explicit or data_root),
                 "native_memory_directory": native,
                 "native_memory_directory_exists": bool(native and Path(native).is_dir()),
-                "stable_project_id_present": bool(os.environ.get("CLAUDE_PROJECT_UUID")),
+                "stable_project_id_present": bool(project),
+                "project_id": project,
                 "hub_reachable": False,
             }
             if policy.get("hub"):
@@ -209,7 +212,7 @@ def main() -> None:
             if policy:
                 queue_observation(state, payload)
             project_root = os.environ.get("CLAUDE_PROJECT_DIR") or payload.get("cwd")
-            supplied = os.environ.get("AMH_NATIVE_CONNECTION_FILE")
+            supplied = args.connection_file or os.environ.get("AMH_NATIVE_CONNECTION_FILE")
             if args.policy and (supplied or isinstance(project_root, str) and project_root):
                 connection = (
                     Path(supplied) if supplied else Path(str(project_root)) / PAIRING_FILENAME

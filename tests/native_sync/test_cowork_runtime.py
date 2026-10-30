@@ -433,3 +433,77 @@ def test_pairing_preflight_failure_leaves_client_configuration_untouched(
     assert result.exit_code == 1
     assert config.read_text() == 'model = "keep-this-config"\n'
     assert not (home / ".codex/hooks.json").exists()
+
+
+def test_explicit_host_binding_survives_empty_cwd_and_rotated_plugin_data(tmp_path, monkeypatch):
+    """Cowork host Hooks run outside the selected workspace with temporary plugin data."""
+    import io
+    from types import SimpleNamespace
+    from agent_brain.native_sync import cowork_runtime
+
+    state = tmp_path / "persistent-state"
+    connection = tmp_path / "private-connection.json"
+    plugin = export_cowork_plugin(
+        tmp_path / "plugin",
+        policy={"hub": "http://127.0.0.1:8787", "member_id": "member", "tenant_id": "org"},
+        runtime_state=state,
+        connection_file=connection,
+    )
+    hooks = json.loads((plugin / "hooks/hooks.json").read_text())
+    hook = hooks["hooks"]["SessionStart"][0]["hooks"][0]
+    args = [arg.replace("${CLAUDE_PLUGIN_ROOT}", str(plugin)) for arg in hook["args"]]
+    calls = []
+    monkeypatch.setattr(cowork_runtime, "schedule_enrollment", lambda *args: calls.append(args))
+    monkeypatch.delenv("CLAUDE_COWORK_MEMORY_PATH_OVERRIDE", raising=False)
+    monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(tmp_path / "empty"))
+    for number in range(2):
+        monkeypatch.setenv("CLAUDE_PLUGIN_DATA", str(tmp_path / f"temporary-data-{number}"))
+        monkeypatch.setattr(sys, "argv", args)
+        monkeypatch.setattr(
+            sys, "stdin", SimpleNamespace(buffer=io.BytesIO(b'{"hook_event_name":"SessionStart"}'))
+        )
+        cowork_runtime.main()
+    assert len(calls) == 2
+    assert all(call[0] == state and call[2] == connection for call in calls)
+    assert not (tmp_path / "temporary-data-0").exists()
+    assert not (tmp_path / "temporary-data-1").exists()
+
+
+def test_host_binding_refuses_connection_inside_distributable_plugin(tmp_path):
+    plugin = tmp_path / "plugin"
+    with pytest.raises(ValueError, match="outside"):
+        export_cowork_plugin(
+            plugin,
+            runtime_state=tmp_path / "state",
+            connection_file=plugin / "connection.json",
+        )
+
+
+def test_cowork_host_project_scope_uses_observed_native_store_when_env_is_missing(tmp_path, monkeypatch):
+    """The host-loop version supplies the project memory path, but omits its UUID env."""
+    import uuid
+
+    project = str(uuid.uuid4())
+    root = tmp_path / "spaces" / project / "memory"
+    root.mkdir(parents=True)
+    monkeypatch.delenv("CLAUDE_PROJECT_UUID", raising=False)
+    monkeypatch.setenv("CLAUDE_COWORK_MEMORY_PATH_OVERRIDE", str(root))
+    state = tmp_path / "state"
+    queue_observation(state, {"hook_event_name": "SessionStart"})
+    observation = json.loads(next((state / "runtime-observations").glob('*.json')).read_text())
+    assert observation['project'] == project
+    hub = Hub(tmp_path / "hub.sqlite")
+    c = client(tmp_path, hub, "cowork-reader")
+    observe_native_root(c, {}, root_value=str(root))
+    assert c.sources()[0]['project'] == project
+
+
+def test_unknown_cowork_root_does_not_invent_project_identity(tmp_path, monkeypatch):
+    root = tmp_path / 'spaces' / 'not-a-project-id' / 'memory'
+    root.mkdir(parents=True)
+    monkeypatch.delenv('CLAUDE_PROJECT_UUID', raising=False)
+    monkeypatch.setenv('CLAUDE_COWORK_MEMORY_PATH_OVERRIDE', str(root))
+    state = tmp_path / 'state'
+    queue_observation(state, {'hook_event_name': 'SessionStart'})
+    observation = json.loads(next((state / 'runtime-observations').glob('*.json')).read_text())
+    assert observation['project'] == ''

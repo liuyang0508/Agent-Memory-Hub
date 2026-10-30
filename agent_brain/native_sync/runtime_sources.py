@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import time
+import uuid
 from pathlib import Path
 from typing import Any, TYPE_CHECKING
 
@@ -14,6 +15,24 @@ from .storage import database
 
 if TYPE_CHECKING:
     from .client import NativeClient
+
+
+def native_project_id(root: Path) -> str:
+    """Read product scope from explicit metadata or the supplied host project store.
+
+    Current Cowork host Hooks omit CLAUDE_PROJECT_UUID but supply an actual
+    spaces/<UUID>/memory directory. Interpret only this observed layout; never
+    search for a guessed memory root or give a global/unknown store a project ID.
+    """
+    explicit = os.environ.get("CLAUDE_PROJECT_UUID", "")
+    if explicit:
+        return explicit[:256]
+    if root.name == "memory" and root.parent.parent.name == "spaces":
+        try:
+            return str(uuid.UUID(root.parent.name))
+        except ValueError:
+            pass
+    return ""
 
 
 def queue_observation(state: Path, payload: dict[str, Any]) -> None:
@@ -34,7 +53,7 @@ def queue_observation(state: Path, payload: dict[str, Any]) -> None:
     root_stat = root.stat()
     observation: dict[str, Any] = {
         "root": str(root),
-        "project": os.environ.get("CLAUDE_PROJECT_UUID", "")[:256],
+        "project": native_project_id(root),
         "event": event,
         "time": time.time(),
         "root_identity": [root_stat.st_dev, root_stat.st_ino],
@@ -114,7 +133,7 @@ def observe_native_root(
     if root_identity is not None and root_identity != observed_identity:
         raise ValueError("runtime mount changed before its observation was processed")
     project = (
-        project_value if project_value is not None else os.environ.get("CLAUDE_PROJECT_UUID", "")
+        project_value if project_value is not None else native_project_id(root)
     )[:256]
     key = "cowork-project:" + project if project else "cowork-root:" + digest(str(root))
     conflict = False
