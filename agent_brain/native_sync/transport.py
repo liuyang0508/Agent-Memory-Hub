@@ -10,6 +10,8 @@ import ipaddress
 
 
 class NoRedirect(request.HTTPRedirectHandler):
+    """Reject redirect-based host changes so a device token never follows an unexpected destination."""
+
     def redirect_request(
         self, req: Any, fp: Any, code: Any, msg: Any, headers: Any, newurl: Any
     ) -> Any:
@@ -17,6 +19,7 @@ class NoRedirect(request.HTTPRedirectHandler):
 
 
 def validate_url(url: str) -> str:
+    """Require a credential-free HTTPS endpoint; allow HTTP only for local loopback development."""
     p = parse.urlsplit(url)
     if p.username or p.password or p.query or p.fragment or not p.hostname:
         raise ValueError("Hub URL must contain only scheme, host, port and base path")
@@ -31,11 +34,14 @@ def validate_url(url: str) -> str:
 
 
 class Transport:
+    """HTTPS implementation of SyncTransport; retries belong to the worker only."""
+
     def __init__(self, url: str, token: str = "", timeout: float = 10) -> None:
         self.url, self.token, self.timeout = validate_url(url), token, timeout
         self.opener = request.build_opener(NoRedirect())
 
     def call(self, path: str, data: Any = None) -> Any:
+        """Issue one bounded request; classify auth, transient and record errors for the owning retry layer."""
         headers = {"Content-Type": "application/json"}
         if self.token:
             headers["Authorization"] = "Bearer " + self.token
@@ -67,6 +73,8 @@ class Transport:
         except error.HTTPError as exc:
             if exc.code in (401, 403):
                 raise PermissionError("organization access rejected") from None
+            if exc.code in (408, 429) or 500 <= exc.code <= 599:
+                raise OSError(f"Hub temporarily unavailable: HTTP {exc.code}") from None
             raise ValueError(f"Hub HTTP {exc.code}") from None
 
     def enroll(self, invite: str, device_name: str) -> Any:

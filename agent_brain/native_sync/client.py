@@ -8,41 +8,40 @@ import json
 import time
 import uuid
 from pathlib import Path
-from .common import atomic_json, database, digest, tokens
+from .common import atomic_json, digest, tokens
+from .storage import database, CLIENT_SCHEMA
 from .transport import Transport
+from .contracts import SyncTransport
 
 from .source import source_text, read_document, files, enqueue_document, queue_delete
 
 
 class NativeClient:
-    def __init__(self, root: Path, *, transport: Any = None, identity: Any = None) -> None:
+    """One enrolled device profile; all local state is scoped to its Hub identity.
+
+    File observation, queueing and replica commits are local transactions. Network
+    calls run outside those transactions so a slow Hub cannot hold a Hook's lock.
+    Product-specific discovery/projection belongs in the adapter modules, not here.
+    """
+
+    def __init__(
+        self, root: Path, *, transport: SyncTransport | None = None, identity: Any = None
+    ) -> None:
         self.root = Path(root)
         self.path = self.root / "state.sqlite"
         self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
         config_path = self.root / "config.json"
         self.config = json.loads(config_path.read_text()) if config_path.exists() else {}
         self.identity = identity or self.config["identity"]
-        self.transport = transport or Transport(self.config["hub"], self.identity["token"])
+        self.transport: SyncTransport = transport or Transport(
+            self.config["hub"], self.identity["token"]
+        )
         with database(self.path) as db:
-            db.executescript("""
-            CREATE TABLE IF NOT EXISTS sources(id TEXT PRIMARY KEY,root TEXT,product TEXT,project TEXT,kind TEXT,file_source INTEGER NOT NULL DEFAULT 0,UNIQUE(root,kind));
-            CREATE TABLE IF NOT EXISTS snapshots(source TEXT,path TEXT,hash TEXT,selected INTEGER,asset TEXT,revision INTEGER DEFAULT 0,unknown INTEGER DEFAULT 0,PRIMARY KEY(source,path));
-            CREATE TABLE IF NOT EXISTS source_parts(base TEXT,asset TEXT PRIMARY KEY,payload TEXT,revision INTEGER);
-            CREATE TABLE IF NOT EXISTS outbox(asset TEXT PRIMARY KEY,payload TEXT,hash TEXT);
-            CREATE TABLE IF NOT EXISTS replica(asset TEXT PRIMARY KEY,payload TEXT);
-            CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY,value TEXT);
-            CREATE TABLE IF NOT EXISTS coverage(session TEXT,epoch TEXT,key TEXT,PRIMARY KEY(session,epoch,key));
-            CREATE TABLE IF NOT EXISTS history_hashes(hash TEXT PRIMARY KEY);
-            CREATE TABLE IF NOT EXISTS dynamic_targets(root TEXT PRIMARY KEY,product TEXT);
-            CREATE TABLE IF NOT EXISTS file_identity(source TEXT,path TEXT,device INTEGER,inode INTEGER,PRIMARY KEY(source,path));
-            CREATE TABLE IF NOT EXISTS aliases(source TEXT,path TEXT,refs TEXT,status TEXT,PRIMARY KEY(source,path));
-            CREATE TABLE IF NOT EXISTS native_proofs(session TEXT,epoch TEXT,source TEXT,path TEXT,hash TEXT,PRIMARY KEY(session,epoch,source,path));
-            CREATE TABLE IF NOT EXISTS recall_sources(asset TEXT,revision INTEGER,payload TEXT,PRIMARY KEY(asset,revision));
-            CREATE TABLE IF NOT EXISTS emitted(session TEXT,marker TEXT,keys_json TEXT,created REAL,PRIMARY KEY(session,marker));
-            """)
+            db.executescript(CLIENT_SCHEMA)
 
     @classmethod
     def join(cls, root: Path, url: str, invite: str, device_name: str) -> NativeClient:
+        """Enroll a new device once; refuse to reuse a profile belonging to another Hub/identity."""
         if (Path(root) / "config.json").exists():
             raise ValueError("profile already joined; choose a new profile for another Hub/device")
         transport = Transport(url)
@@ -61,10 +60,12 @@ class NativeClient:
         return cls(root)
 
     def sources(self) -> list[dict[str, Any]]:
+        """Return registered source metadata without reading or uploading source bodies."""
         with database(self.path) as db:
             return [dict(r) for r in db.execute("SELECT * FROM sources")]
 
     def targets(self) -> list[dict[str, Any]]:
+        """Merge configured/discovered native destinations by resolved path to avoid duplicate writes."""
         with database(self.path) as db:
             dynamic = [dict(row) for row in db.execute("SELECT root,product FROM dynamic_targets")]
         return list(
@@ -83,6 +84,11 @@ class NativeClient:
         *,
         fresh_files: set[str] | None = None,
     ) -> str:
+        """Bind a source and baseline existing files as excluded history in one transaction.
+
+        fresh_files is reserved for successful adapter-observed creation events; it is
+        not a general bypass of history selection. Re-registering a root is idempotent.
+        """
         root = Path(root).expanduser().resolve()
         if not root.exists():
             raise ValueError("source file or directory does not exist")
@@ -142,6 +148,7 @@ class NativeClient:
         return sid
 
     def preview(self, sid: str) -> list[dict[str, Any]]:
+        """Read current local history only; returned hashes bind explicit selection to this preview."""
         with database(self.path) as db:
             source = db.execute("SELECT * FROM sources WHERE id=?", (sid,)).fetchone()
             if source is None:
@@ -171,6 +178,7 @@ class NativeClient:
             return result
 
     def select(self, sid: str, selections: dict[str, str]) -> None:
+        """Select only previewed matching versions; stale manifests require a fresh preview."""
         preview = {r["path"]: r for r in self.preview(sid)}
         if any(p not in preview or preview[p]["hash"] != h for p, h in selections.items()):
             raise ValueError("history changed; preview again")
@@ -181,8 +189,11 @@ class NativeClient:
                 )
 
     def refresh_excluded_history(self) -> None:
-        # Refresh every excluded source before processing any new path, so copy order cannot
-        # turn edited history into a new upload. Hashes of older excluded versions remain.
+        """Remember all observed excluded versions before scanning possible renamed/copied files.
+
+        Refresh all excluded sources first so copy order cannot turn edited history
+        into a new upload. Hashes of older excluded versions remain.
+        """
         for source in self.sources():
             root = Path(source["root"])
             if not root.exists():
@@ -216,6 +227,11 @@ class NativeClient:
                         )
 
     def scan(self) -> list[str]:
+        """Persist source changes to the outbox without network I/O; return local diagnostics.
+
+        Unselected history stays excluded. Missing source mounts do not imply deletion;
+        within available sources, disappeared owned parts become versioned tombstones.
+        """
         self.refresh_excluded_history()
         errors = []
         for source in self.sources():
@@ -382,6 +398,7 @@ class NativeClient:
         return errors
 
     def origin_reviews(self) -> list[dict[str, Any]]:
+        """Return copies whose origin/history needs review; they remain excluded from upload."""
         with database(self.path) as db:
             return [
                 dict(row)
@@ -391,10 +408,17 @@ class NativeClient:
             ]
 
     def pending_count(self) -> int:
+        """Count queued asset parts, not source files or total historical revisions."""
         with database(self.path) as db:
             return int(db.execute("SELECT count(*) FROM outbox").fetchone()[0])
 
     def sync(self) -> dict[str, Any]:
+        """Capture locally, upload, replay changes, then publish native resources.
+
+        A connection/auth failure stops this pass without removing queued data.
+        Record conflicts remain pending while unrelated records can progress.
+        The caller owns retry scheduling and revoked-device cleanup.
+        """
         import fcntl
 
         with (self.root / "worker.lock").open("a") as lock:
@@ -411,9 +435,11 @@ class NativeClient:
                 item = json.loads(row["payload"])
                 try:
                     saved = self.transport.put(item)
-                except (ValueError, OSError, PermissionError) as exc:
+                except ValueError as exc:
                     errors.append(f"upload {item['asset_id']}: {type(exc).__name__}")
                     continue
+                # Connection/auth failures propagate immediately: N queued assets
+                # must not turn an outage into N socket timeouts (or hide revocation).
                 with database(self.path) as db:
                     db.execute(
                         "UPDATE source_parts SET revision=? WHERE asset=?",
@@ -424,6 +450,8 @@ class NativeClient:
                         (item["asset_id"], row["hash"]),
                     )
                 pushed += 1
+            # Upload acknowledgement can be lost after the Hub commits. Replaying
+            # our changes repairs the base revision before the next idempotent retry.
             pages = 0
             while pages < 100:
                 with database(self.path) as db:
@@ -453,6 +481,8 @@ class NativeClient:
                             "INSERT OR REPLACE INTO replica VALUES(?,?)",
                             (item["asset_id"], json.dumps(item, ensure_ascii=False)),
                         )
+                    # Replica rows and cursor are one commit: a crash cannot skip
+                    # data by advancing the cursor ahead of its applied page.
                     db.execute(
                         "INSERT OR REPLACE INTO meta VALUES('cursor',?)", (str(response["cursor"]),)
                     )
@@ -480,11 +510,13 @@ class NativeClient:
             return {"pushed": pushed, "errors": errors}
 
     def cached(self) -> list[dict[str, Any]]:
+        """Return live replica parts; consumers must verify multipart completeness before applying."""
         with database(self.path) as db:
             items = [json.loads(r["payload"]) for r in db.execute("SELECT payload FROM replica")]
         return [i for i in items if not i["deleted"]]
 
     def revoke_local(self) -> None:
+        """Clear authorized recall state and untouched managed projections; retain local source/outbox data."""
         with database(self.path) as db:
             db.execute("DELETE FROM replica")
             db.execute("DELETE FROM recall_sources")
@@ -500,9 +532,11 @@ class NativeClient:
             publish(Path(target["root"]), target["product"], [])
 
     def search(self, query: str, **kwargs: Any) -> list[dict[str, Any]]:
+        """Query the enrolled organization through the injected transport; do not impose project scope."""
         return list(self.transport.search(query, **kwargs))
 
     def local_search(self, query: str, project_filter: str | None = None) -> list[dict[str, Any]]:
+        """Rank cached parts deterministically; the caller must enforce the offline authorization window."""
         wanted = set(tokens(query))
         items = []
         for r in self.cached():

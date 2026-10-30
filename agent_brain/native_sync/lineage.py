@@ -6,12 +6,14 @@ import json
 import re
 from pathlib import Path
 from typing import Any
-from .common import database, digest
+from .common import digest
+from .storage import database
 from .materialize import assembled
 from .source import read_document
 
 
 def strings(value: Any) -> list[str]:
+    """Flatten string-valued host evidence without assuming a vendor-specific response shape."""
     if isinstance(value, str):
         return [value]
     if isinstance(value, dict):
@@ -22,6 +24,7 @@ def strings(value: Any) -> list[str]:
 
 
 def record_tool_coverage(client: Any, payload: dict[str, Any], session: str, epoch: str) -> None:
+    """Record observed full-content tool reads/writes; paths or partial excerpts alone prove no coverage."""
     result = payload.get("tool_response", {})
     if isinstance(result, dict) and (result.get("is_error") or result.get("error")):
         return
@@ -95,6 +98,7 @@ def record_tool_coverage(client: Any, payload: dict[str, Any], session: str, epo
 def covered_records(
     client: Any, session: str, epoch: str, records: list[dict[str, Any]]
 ) -> set[str]:
+    """Map this session/epoch's observed native versions to recall keys, preserving producer identity."""
     from .recall import coverage_key
 
     with database(client.path) as db:
@@ -114,6 +118,7 @@ def covered_records(
 
 
 def classify_copy(client: Any, h: str) -> tuple[str, list[str]]:
+    """Return alias only with confirmed full-version consumption; otherwise hold exact copies for review."""
     with database(client.path) as db:
         records = [json.loads(r["payload"]) for r in db.execute("SELECT payload FROM replica")]
         observed = [

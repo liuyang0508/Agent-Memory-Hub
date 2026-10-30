@@ -10,27 +10,44 @@ import secrets
 import time
 import uuid
 from pathlib import Path
-from .common import database, digest, tokens
+from .common import digest, tokens
+from .storage import database, HUB_SCHEMA, DB_TIMEOUT
 from .models import AssetInput
 
 
 class Hub:
+    """Single-node authority; each mutation commits assets, changes and FTS together.
+
+    No connection is shared across requests. BEGIN IMMEDIATE serializes identity
+    and revision checks with their writes, including simultaneous retries. Multiple
+    machines must not independently write copies of this SQLite database.
+    """
+
     def __init__(self, path: Path) -> None:
         self.path = Path(path)
         with database(self.path) as db:
-            db.executescript("""
-            CREATE TABLE IF NOT EXISTS members(id TEXT PRIMARY KEY,tenant TEXT NOT NULL,name TEXT NOT NULL);
-            CREATE TABLE IF NOT EXISTS invites(hash TEXT PRIMARY KEY,member TEXT NOT NULL,expires REAL NOT NULL,used INTEGER DEFAULT 0);
-            CREATE TABLE IF NOT EXISTS devices(id TEXT PRIMARY KEY,member TEXT NOT NULL,token_hash TEXT UNIQUE NOT NULL,name TEXT NOT NULL,revoked INTEGER DEFAULT 0);
-            CREATE TABLE IF NOT EXISTS assets(tenant TEXT NOT NULL,id TEXT NOT NULL,revision INTEGER NOT NULL,owner_device TEXT NOT NULL,payload TEXT NOT NULL,PRIMARY KEY(tenant,id));
-            CREATE TABLE IF NOT EXISTS changes(seq INTEGER PRIMARY KEY AUTOINCREMENT,tenant TEXT NOT NULL,payload TEXT NOT NULL);
-            CREATE INDEX IF NOT EXISTS changes_tenant ON changes(tenant,seq);
-            CREATE VIRTUAL TABLE IF NOT EXISTS search_index USING fts5(tenant UNINDEXED,asset_id UNINDEXED,terms);
-            """)
+            db.executescript(HUB_SCHEMA)
+
+    def ready(self) -> None:
+        """Probe schema/index access and writer-lock acquisition within 100ms of waits.
+
+        This is a readiness signal, not a full disk-integrity or capacity check.
+        Never initialize missing tables here: an empty replacement DB is not ready.
+        """
+        timeout = DB_TIMEOUT.set(0.1)
+        try:
+            with database(self.path, create=False) as db:
+                db.execute("BEGIN IMMEDIATE")
+                for table in ("members", "invites", "devices", "assets", "changes", "search_index"):
+                    db.execute(f"SELECT 1 FROM {table} LIMIT 1").fetchone()
+                db.rollback()
+        finally:
+            DB_TIMEOUT.reset(timeout)
 
     def invite(
         self, tenant: str, name: str, *, member_id: str | None = None, ttl: int = 86400
     ) -> str:
+        """Create a one-use expiring member invitation; store only its digest and return the secret once."""
         if not tenant.strip() or not name.strip() or len(tenant) > 128 or len(name) > 160:
             raise ValueError("tenant and member name required")
         token = secrets.token_urlsafe(32)
@@ -49,6 +66,7 @@ class Hub:
         return token
 
     def enroll(self, invite: str, device_name: str) -> dict[str, Any]:
+        """Consume an invitation and issue one device identity atomically under a writer lock."""
         with database(self.path) as db:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute(
@@ -82,14 +100,21 @@ class Hub:
         return dict(row)
 
     def identity(self, token: str) -> dict[str, Any]:
+        """Validate the device token against current revocation/member state on every call."""
         with database(self.path) as db:
             return self._identity(db, token)
 
     def revoke(self, device_id: str) -> None:
+        """Disable future device requests; previously delivered knowledge cannot be remotely erased."""
         with database(self.path) as db:
             db.execute("UPDATE devices SET revoked=1 WHERE id=?", (device_id,))
 
     def put(self, token: str, value: dict[str, Any]) -> dict[str, Any]:
+        """Commit one source-owned revision or return an already-committed replay.
+
+        Identity is server-derived. The equality check precedes base-revision
+        validation so a lost success response can be retried without a new event.
+        """
         item = AssetInput.model_validate(value).model_dump()
         # Hash content and its meaning, not the transport's base revision.
         content_hash = digest(
@@ -161,6 +186,7 @@ class Hub:
             return record
 
     def changes(self, token: str, cursor: int, limit: int = 100) -> dict[str, Any]:
+        """Read a stable tenant-scoped sequence page, including deletions; an empty page retains cursor."""
         with database(self.path) as db:
             who = self._identity(db, token)
             rows = db.execute(
@@ -181,6 +207,11 @@ class Hub:
         project_filter: str | None = None,
         limit: int = 12,
     ) -> list[dict[str, Any]]:
+        """Retrieve complete authorized content with bounded FTS candidates and optional filtering.
+
+        project_hint boosts ranking only. project_filter is an explicit hard filter.
+        Multipart content is suppressed until every part matches the document hash.
+        """
         terms = tokens(query)[:64]
         with database(self.path) as db:
             who = self._identity(db, token)

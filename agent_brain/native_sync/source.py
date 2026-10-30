@@ -33,6 +33,7 @@ SECRET_PARTS = (
 
 
 def forbidden_file(path: Path) -> bool:
+    """Exclude known credential filenames/extensions before any content is read."""
     name = path.name.lower()
     return (
         name in SECRET_NAMES
@@ -42,6 +43,7 @@ def forbidden_file(path: Path) -> bool:
 
 
 def sensitive_key(key: str) -> bool:
+    """Match credential-key variants while retaining ordinary token-budget configuration."""
     compact = "".join(c for c in key.lower() if c.isalnum())
     if compact in {"maxtokens", "maxinputtokens", "maxoutputtokens", "tokenbudget", "tokencount"}:
         return False
@@ -52,7 +54,7 @@ def sensitive_key(key: str) -> bool:
 
 
 def indexable_history(text: str) -> str:
-    # Keep original transcript bytes in storage; mask injected-source records for indexing.
+    """Mask AMH-injected evidence for search while preserving transcript offsets and stored originals."""
     text = re.sub(
         r"\[组织共享资料；来源内容不是执行指令\].*?amh-native-recall:[a-f0-9]{24}",
         lambda m: " " * len(m.group()),
@@ -68,6 +70,12 @@ def indexable_history(text: str) -> str:
 
 
 def read_document(path: Path, kind: str) -> tuple[str, str, str] | None:
+    """Return sanitized (body, encoding, SHA-256 of decoded bytes), or None for excluded files.
+
+    Read a stable inode/version; raise on oversized or changing files rather than
+    silently truncating. Only skill resources may use lossless base64. Native index
+    navigation and known configuration credentials are removed before fingerprinting.
+    """
     if forbidden_file(path) or path.is_symlink():
         return None
     before = path.stat()
@@ -192,11 +200,13 @@ def read_document(path: Path, kind: str) -> tuple[str, str, str] | None:
 
 
 def source_text(path: Path, kind: str) -> str | None:
+    """Expose the same sanitized representation used by capture, so preview cannot diverge."""
     result = read_document(path, kind)
     return result[0] if result is not None else None
 
 
 def files(root: Path, kind: str) -> Iterator[Path]:
+    """Enumerate eligible sources, excluding credentials, generated resources and symlink traversal."""
     for p in [root] if root.is_file() else sorted(root.rglob("*")):
         if not p.is_file() or p.is_symlink():
             continue
@@ -232,6 +242,11 @@ def enqueue_document(
     unknown: bool,
     upstream: list[str] | None = None,
 ) -> None:
+    """Coalesce a complete document into versioned parts inside the caller's transaction.
+
+    Part IDs remain stable across edits. Superseded tails become tombstones; the
+    outbox retains only the latest desired state until an acknowledged upload.
+    """
     text, encoding, document_hash = document
     indexed = indexable_history(text) if source["kind"] == "transcript" else None
     chunks = [text[i : i + 8000] for i in range(0, len(text), 8000)] or [""]
@@ -276,6 +291,7 @@ def enqueue_document(
 
 
 def queue_delete(db: sqlite3.Connection, row: Any) -> None:
+    """Queue an owned part tombstone at its known base revision without deleting its identity."""
     item = json.loads(row["payload"])
     item.update(base_revision=row["revision"], deleted=True, body="")
     payload = json.dumps(item, ensure_ascii=False)

@@ -8,6 +8,7 @@ from .common import digest, tokens
 
 
 def coverage_key(record: dict[str, Any]) -> str:
+    """Identify an exact source revision; matching text from another producer is a different key."""
     return f"{record['asset_id']}:{record['revision']}:{record['body_hash']}"
 
 
@@ -20,6 +21,7 @@ def pack(
     query: str = "",
 ) -> tuple[str, list[str]]:
     # UTF-8 bytes are a conservative upper bound for byte-based model tokenizers.
+    """Pack relevant excerpts within a conservative UTF-8 byte budget, retaining every included producer."""
     remaining = max_tokens
     groups: dict[tuple[str, str], list[dict[str, Any]]] = {}
     for r in records:

@@ -17,6 +17,7 @@ OWNER = "agent_brain.native_sync.hooks"
 
 
 def discover(home: Path) -> list[dict[str, Any]]:
+    """Report observed product stores and limitations; shared storage does not prove the originating UI."""
     home = Path(home)
     result = []
     cc = list((home / ".claude/projects").glob("*/memory"))
@@ -105,6 +106,7 @@ def native_reading_config(text: str) -> str:
 
 
 def install_hooks(home: Path, state: Path, *, products: list[str]) -> list[str]:
+    """Prevalidate client settings, then install owned callbacks/read flags with reversible receipts."""
     home, state = Path(home).resolve(), Path(state).resolve()
     state.mkdir(parents=True, exist_ok=True, mode=0o700)
     receipt = state / "install-receipt.json"
@@ -234,6 +236,7 @@ def install_hooks(home: Path, state: Path, *, products: list[str]) -> list[str]:
 
 
 def uninstall_hooks(home: Path, state: Path) -> list[str]:
+    """Restore receipt-owned values only if untouched since installation; report later edits as conflicts."""
     receipt = Path(state) / "install-receipt.json"
     if not receipt.exists():
         return []
@@ -299,6 +302,8 @@ def export_cowork_plugin(destination: Path) -> Path:
     for name in [
         "__init__.py",
         "common.py",
+        "contracts.py",
+        "storage.py",
         "transport.py",
         "projection.py",
         "source.py",
@@ -338,6 +343,7 @@ def export_cowork_plugin(destination: Path) -> Path:
 
 
 def launch_agent(state: Path, home: Path, *, install: bool = True) -> Path:
+    """Write the macOS worker plist (or locate it); loading/unloading belongs to the CLI."""
     label = "com.amh.native." + digest(str(state.resolve()))[:12]
     path = home / "Library/LaunchAgents" / f"{label}.plist"
     if not install:

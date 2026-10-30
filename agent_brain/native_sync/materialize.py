@@ -11,6 +11,7 @@ from .common import atomic_json, digest
 
 
 def assembled(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Reassemble only complete, contiguous, hash-verified document versions; omit partial revisions."""
     groups: dict[tuple[str, ...], list[dict[str, Any]]] = {}
     for r in records:
         if not r.get("deleted"):
@@ -52,6 +53,7 @@ def assembled(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def complete_snapshot(records: list[dict[str, Any]], kinds: set[str]) -> list[dict[str, Any]]:
+    """Require every selected live document to be complete before applying rules, skills or exports."""
     relevant = [r for r in records if not r.get("deleted") and r["kind"] in kinds]
     complete = assembled(relevant)
 
@@ -71,6 +73,7 @@ def complete_snapshot(records: list[dict[str, Any]], kinds: set[str]) -> list[di
 
 
 def materialize(root: Path, records: list[dict[str, Any]], *, kinds: set[str]) -> dict[str, Any]:
+    """Export selected asset kinds under source-scoped paths; preserve edits and never execute content."""
     root = Path(root)
     if root.is_symlink():
         raise ValueError("destination must not be symlink")

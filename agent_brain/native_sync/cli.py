@@ -16,7 +16,8 @@ from rich.console import Console
 from rich.table import Table
 
 from .client import NativeClient
-from .common import PRODUCTS, atomic_json, database
+from .common import PRODUCTS, atomic_json
+from .storage import database
 from .install import (
     discover as discover_products,
     discover_assets,

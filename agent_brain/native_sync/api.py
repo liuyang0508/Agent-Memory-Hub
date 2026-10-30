@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 from typing import Any
+import sqlite3
 
 from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.responses import JSONResponse
@@ -10,6 +11,7 @@ from .models import AssetInput, EnrollInput, SearchInput
 
 
 def create_app(hub: Hub) -> FastAPI:
+    """Build an independent HTTP facade; the Hub owns identity, tenant scope and transaction invariants."""
     app = FastAPI(title="AMH Native Organization Memory", docs_url=None, redoc_url=None)
 
     @app.exception_handler(PermissionError)
@@ -20,6 +22,11 @@ def create_app(hub: Hub) -> FastAPI:
     async def conflict(request: Any, error: Any) -> JSONResponse:
         return JSONResponse(status_code=409, content={"detail": str(error)})
 
+    @app.exception_handler(sqlite3.Error)
+    async def storage_unavailable(request: Any, error: Any) -> JSONResponse:
+        # Retry belongs to clients, not an unbounded server-side retry loop.
+        return JSONResponse(status_code=503, content={"detail": "storage unavailable"})
+
     def bearer(value: Any) -> str:
         if not value or not value.startswith("Bearer "):
             raise HTTPException(401, "device credential required")
@@ -27,7 +34,17 @@ def create_app(hub: Hub) -> FastAPI:
 
     @app.get("/native/v1/health")
     def health() -> dict[str, Any]:
+        """Liveness/protocol discovery; dependency failures must not cause restart loops."""
         return {"protocol": 1, "service": "amh-native"}
+
+    @app.get("/native/v1/ready")
+    def ready() -> JSONResponse:
+        """Dependency readiness for monitoring; disclose no paths, records or SQL errors."""
+        try:
+            hub.ready()
+        except (sqlite3.Error, OSError):
+            return JSONResponse(status_code=503, content={"ready": False})
+        return JSONResponse(content={"ready": True})
 
     @app.post("/native/v1/enroll")
     def enroll(data: EnrollInput) -> dict[str, Any]:

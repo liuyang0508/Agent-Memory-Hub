@@ -8,6 +8,8 @@ from .common import PRODUCTS
 
 
 class AssetInput(BaseModel):
+    """Untrusted source revision; authenticated member/tenant fields are deliberately not accepted."""
+
     model_config = ConfigDict(extra="forbid")
     asset_id: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_.-]+$")
     base_revision: int = Field(default=0, ge=0)
@@ -45,12 +47,16 @@ class AssetInput(BaseModel):
 
 
 class EnrollInput(BaseModel):
+    """One-use invitation plus a display-only device name, never the vendor account password."""
+
     model_config = ConfigDict(extra="forbid")
     invite: str = Field(min_length=16, max_length=256)
     device_name: str = Field(min_length=1, max_length=160)
 
 
 class SearchInput(BaseModel):
+    """Bounded organization query; project_hint ranks while project_filter explicitly restricts results."""
+
     model_config = ConfigDict(extra="forbid")
     query: str = Field(max_length=8000)
     project_hint: str = Field(default="", max_length=256)

@@ -2,19 +2,14 @@
 
 from __future__ import annotations
 
-from typing import Iterator
-import sqlite3
 
 import hashlib
 import json
 import os
 import re
 import tempfile
-from contextlib import contextmanager
-from contextvars import ContextVar
 from pathlib import Path
 
-DB_TIMEOUT: ContextVar[float] = ContextVar("native_db_timeout", default=10.0)
 
 PRODUCTS = {
     "claude-code": "Claude Code",
@@ -27,18 +22,26 @@ PRODUCTS = {
 
 
 def digest(value: str) -> str:
+    """Return the stable UTF-8 SHA-256 used for content/ownership comparison, not identity."""
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
 def atomic_json(path: Path, value: object) -> None:
+    """Serialize state through atomic_text; credentials inherit private temporary-file permissions."""
     atomic_text(path, json.dumps(value, ensure_ascii=False, indent=2) + "\n")
 
 
 def atomic_text(path: Path, value: str) -> None:
+    """Encode UTF-8 and delegate to the same atomic replacement used for binary resources."""
     atomic_bytes(path, value.encode("utf-8"))
 
 
 def atomic_bytes(path: Path, value: bytes) -> None:
+    """Replace one file atomically after fsync; preserve its mtime when bytes are unchanged.
+
+    Reject symlink destinations. The operation protects readers from partial bytes;
+    it is not a multi-file transaction or a guarantee against filesystem/power loss.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.is_symlink():
         raise ValueError("refusing to replace symlink")
@@ -54,21 +57,6 @@ def atomic_bytes(path: Path, value: bytes) -> None:
     finally:
         if os.path.exists(temp):
             os.unlink(temp)
-
-
-@contextmanager
-def database(path: Path) -> Iterator[sqlite3.Connection]:
-    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    db = sqlite3.connect(path, timeout=DB_TIMEOUT.get())
-    os.chmod(path, 0o600)
-    db.row_factory = sqlite3.Row
-    db.execute("PRAGMA journal_mode=WAL")
-    db.execute("PRAGMA foreign_keys=ON")
-    try:
-        with db:
-            yield db
-    finally:
-        db.close()
 
 
 def tokens(text: str) -> list[str]:

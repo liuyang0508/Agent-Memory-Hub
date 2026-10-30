@@ -10,11 +10,13 @@ import sys
 import time
 from pathlib import Path
 from .client import NativeClient
-from .common import atomic_text, database, digest, DB_TIMEOUT
+from .common import atomic_text, digest
+from .storage import database, DB_TIMEOUT
 from .recall import pack
 
 
 def run(root: Path, product: str, payload: dict[str, Any]) -> dict[str, Any]:
+    """Handle one host event with a short database lock budget, restoring the prior context on every exit."""
     context = DB_TIMEOUT.set(0.04)
     try:
         return _run(root, product, payload)
@@ -85,7 +87,6 @@ def _run(root: Path, product: str, payload: dict[str, Any]) -> dict[str, Any]:
             )
         }
     started = time.monotonic()
-    c.transport.timeout = 0.55
     mode = "remote"
     try:
         from .query_worker import bounded_search
@@ -172,6 +173,7 @@ def _run(root: Path, product: str, payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def main() -> None:
+    """Reserve stdout for Hook output; malformed events fail open without sensitive diagnostics."""
     parser = argparse.ArgumentParser()
     parser.add_argument("--state", type=Path, required=True)
     parser.add_argument("--product", required=True)

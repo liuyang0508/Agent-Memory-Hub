@@ -239,7 +239,8 @@ def test_lost_upload_response_then_local_edit_eventually_converges(tmp_path):
         raise OSError("response lost after commit")
 
     c.transport.put = lose_response
-    c.sync()
+    with pytest.raises(OSError, match="response lost"):
+        c.sync()
     p.write_text("订单验签最新版本")
     c.transport.put = put
     c.sync()

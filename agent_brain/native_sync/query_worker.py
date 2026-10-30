@@ -12,6 +12,7 @@ from .common import runtime_argv
 
 
 def bounded_search(state: Path, query: str, *, timeout: float) -> list[dict[str, Any]]:
+    """Kill the isolated network process at the deadline; propagate explicit denial separately from outage."""
     try:
         result = subprocess.run(
             runtime_argv("agent_brain.native_sync.query_worker", str(state.resolve())),

@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
-from .common import database
+from .storage import database
 from .source import read_document
 
 
 def observe(client: Any, product: str, payload: dict[str, Any], session: str, epoch: str) -> None:
+    """Register adapter-observed native roots; only verified successful file creation may bypass baselining."""
     watchers = [r for r in client.config.get("discovery_roots", []) if r["product"] == product]
     event = payload.get("hook_event_name")
     if event == "SessionStart":

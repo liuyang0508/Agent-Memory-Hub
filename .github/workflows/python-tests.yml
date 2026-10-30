@@ -44,6 +44,7 @@ jobs:
           agent_brain/memory/governance/contradiction_resolution.py
           agent_brain/interfaces/sdk/components.py
           agent_brain/interfaces/sdk/sdk.py
+          agent_brain/native_sync
           web/auth.py
           web/api/routes/auth.py
           web/api/routes/events.py

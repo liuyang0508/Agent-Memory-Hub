@@ -13,6 +13,7 @@ END = "<!-- amh-native-org:end -->"
 
 
 def strip_managed(text: str) -> str:
+    """Remove only the owned navigation block; malformed markers raise to prevent source corruption."""
     start, end = text.find(START), text.find(END)
     if start < 0:
         return text
@@ -22,6 +23,12 @@ def strip_managed(text: str) -> str:
 
 
 def publish(root: Path, product: str, records: list[dict[str, Any]]) -> dict[str, Any]:
+    """Project complete organization memories into a product's native readable resources.
+
+    Compare against the prior ownership manifest before replacing/deleting files.
+    Preserve user edits and each incomplete document's prior complete projection;
+    other documents continue updating. Return conflicts rather than overwrite them.
+    """
     root = Path(root)
     if root.is_symlink():
         raise ValueError("native memory root must not be a symlink")

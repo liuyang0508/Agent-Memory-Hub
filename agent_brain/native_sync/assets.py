@@ -12,6 +12,7 @@ from .materialize import complete_snapshot
 
 
 def provenance(record: dict[str, Any]) -> str:
+    """Render original member/product/version metadata for explicitly activated behavior assets."""
     return json.dumps(
         {
             k: record[k]
@@ -31,6 +32,7 @@ def provenance(record: dict[str, Any]) -> str:
 def activate_skills(
     root: Path, records: list[dict[str, Any]], *, source_store: str | None = None
 ) -> dict[str, Any]:
+    """Apply a complete source-scoped skill snapshot; preserve user changes and unrelated sources."""
     root = Path(root)
     if root.is_symlink():
         raise ValueError("native skill root must not be symlink")
@@ -127,6 +129,7 @@ def activate_skills(
 
 
 def activate_rules(path: Path, records: list[dict[str, Any]]) -> dict[str, Any]:
+    """Replace the owned rules block only after complete-snapshot and edit checks; never auto-activate."""
     path = Path(path)
     start = "<!-- amh-native-rules:start -->"
     end = "<!-- amh-native-rules:end -->"
