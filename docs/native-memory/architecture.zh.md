@@ -35,6 +35,8 @@ agent_brain/native_sync/      # 独立业务包；模块职责表见包内 READM
   hub.py / api.py / models.py # 服务端权威、HTTP 外观、输入校验
   client.py / worker.py      # 持久同步状态机与独立调度
   discovery.py / source.py   # 来源发现、历史边界、稳定读取、分块
+  cowork_runtime.py          # 一次性配对、身份绑定、便携运行时入口
+  runtime_sources.py         # 持久事件队列、后台基线、挂载身份与来源隔离
   lineage.py                 # 可观测消费证据和归属，不推断语义原创
   hooks.py / query_worker.py # Hook 生命周期与可终止的网络进程
   recall.py / projection.py # 上下文组装与原生可读资源
@@ -62,6 +64,10 @@ deploy/native-memory/        # systemd / Nginx 部署模板
 | 授权 | 在线拒绝触发受管理副本清理；Hook 离线回退限最近成功授权后15分钟。此期限不等于已经投放到原生文件中的内容自动失效 |
 
 `SyncTransport` 使用结构化类型契约约束 HTTP 实现和测试直连实现。产品适配不得绕开这条身份/版本链路。JSON 字段由服务端 `models.py` 校验，便携客户端不因此依赖 FastAPI/Pydantic。
+
+Cowork 配对票据只允许当前认证成员登记另一个设备，不接受请求指定成员或组织。票据单次使用、15分钟过期，领取时再检查发起设备是否撤销。插件只固定公开的 Hub/成员信息，秘密连接文件独立存放；运行时凭证通过校验后才持久保存。新增 `runtime_invites` 表为兼容性增量，不更改既有成员/设备/资产表。
+
+运行时的路径和身份检查不能只在发现阶段执行：文件系统可能在发现后、扫描前发生重新挂载。当前绑定记录目录的设备号/inode，并在扫描前后及发送前核验，同时检查最新 Hook 报告的项目身份；冲突来源保持隔离，其历史选择与队列保留供复核。Hook 不执行整库历史扫描，首次创建事件在配对前也进入持久队列。
 
 ## 当前可用性与故障隔离
 

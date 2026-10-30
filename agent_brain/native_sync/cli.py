@@ -212,6 +212,34 @@ def cowork_plugin(output: Path = typer.Option(...)) -> None:
     )
 
 
+@app.command("cowork-connect")
+def cowork_connect(
+    output: Path = typer.Option(..., help="无凭证的成员绑定插件输出目录"),
+    connection_dir: Path = typer.Option(..., help="Cowork任务可访问的私有配对文件目录"),
+    state: Path = DEFAULT_STATE,
+) -> None:
+    """生成成员绑定插件和独立的一次性连接文件；不修改日常客户端配置。"""
+    from .cowork_runtime import PAIRING_FILENAME, export_connection
+
+    output = output.expanduser().resolve()
+    connection_dir = connection_dir.expanduser().resolve()
+    if connection_dir == output or connection_dir.is_relative_to(output):
+        raise typer.BadParameter("连接文件必须位于插件包目录之外")
+    connection_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+    connection = connection_dir / PAIRING_FILENAME
+    policy = export_connection(state, connection)
+    plugin = export_cowork_plugin(output, policy=policy)
+    emit(
+        {
+            "plugin": str(plugin) + ".zip",
+            "connection_file": str(connection),
+            "member_id": policy["member_id"],
+            "expires_in_seconds": 900,
+            "status": "pairing prepared; actual Cowork runtime must load the plugin and access the connection file",
+        }
+    )
+
+
 @app.command()
 def uninstall(state: Path = DEFAULT_STATE, home: Path = typer.Option(Path.home())) -> None:
     """恢复仍未被用户修改的配置；保留同步数据和原生记忆。"""
@@ -311,11 +339,26 @@ def setup(
     if not typer.confirm("确认配置并启用？", default=False):
         console.print("已登记身份与选择；尚未安装 Hook 或启动上传。")
         return
-    install_hooks(home, state, products=chosen)
+    cowork_artifacts: tuple[Path, Path] | None = None
     if "cowork" in chosen:
-        plugin = export_cowork_plugin(state / "cowork-plugin")
+        from .cowork_runtime import PAIRING_FILENAME, export_connection
+
+        connection = state / "cowork-connection" / PAIRING_FILENAME
+        try:
+            policy = export_connection(state, connection)
+            plugin = export_cowork_plugin(state / "cowork-plugin", policy=policy)
+            cowork_artifacts = plugin, connection
+        except (OSError, ValueError) as exc:
+            console.print(f"Cowork 配对准备失败（{type(exc).__name__}）；尚未修改客户端配置。")
+            raise typer.Exit(1) from None
+    install_hooks(home, state, products=chosen)
+    if cowork_artifacts:
+        plugin, connection = cowork_artifacts
         console.print(
-            f"Cowork 插件包已生成：{plugin}.zip；需在 Cowork 实际运行环境导入、登记身份并绑定原生目录。尚未验证接入。"
+            f"Cowork 插件：{plugin}.zip；一次性连接文件：{connection}（15分钟有效，不能放进插件包）。"
+        )
+        console.print(
+            "在 Cowork 导入插件，并让首次任务访问连接文件所在目录。运行时会独立登记设备、发现原生记忆目录；实际接入状态仍需核验。"
         )
     if service and platform.system() == "Darwin":
         plist_path = launch_agent(state, home)

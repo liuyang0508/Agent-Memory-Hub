@@ -38,7 +38,15 @@ class Hub:
         try:
             with database(self.path, create=False) as db:
                 db.execute("BEGIN IMMEDIATE")
-                for table in ("members", "invites", "devices", "assets", "changes", "search_index"):
+                for table in (
+                    "members",
+                    "invites",
+                    "runtime_invites",
+                    "devices",
+                    "assets",
+                    "changes",
+                    "search_index",
+                ):
                     db.execute(f"SELECT 1 FROM {table} LIMIT 1").fetchone()
                 db.rollback()
         finally:
@@ -69,13 +77,25 @@ class Hub:
         """Consume an invitation and issue one device identity atomically under a writer lock."""
         with database(self.path) as db:
             db.execute("BEGIN IMMEDIATE")
+            table = "invites"
             row = db.execute(
                 "SELECT m.*,i.used,i.expires FROM invites i JOIN members m ON i.member=m.id WHERE i.hash=?",
                 (digest(invite),),
             ).fetchone()
+            if row is None:
+                table = "runtime_invites"
+                row = db.execute(
+                    "SELECT m.*,i.used,i.expires FROM runtime_invites i "
+                    "JOIN members m ON i.member=m.id "
+                    "JOIN devices d ON d.id=i.sponsor_device AND d.member=m.id "
+                    "WHERE i.hash=? AND d.revoked=0",
+                    (digest(invite),),
+                ).fetchone()
             if row is None or row["used"] or row["expires"] < time.time():
                 raise ValueError("invitation invalid, expired or used")
-            db.execute("UPDATE invites SET used=1 WHERE hash=?", (digest(invite),))
+            # table is an internal constant; identity validation and consumption
+            # share the writer transaction, including sponsor revocation checks.
+            db.execute(f"UPDATE {table} SET used=1 WHERE hash=?", (digest(invite),))
             device, token = "dev_" + uuid.uuid4().hex, secrets.token_urlsafe(32)
             db.execute(
                 "INSERT INTO devices VALUES(?,?,?,?,0)",
@@ -88,6 +108,29 @@ class Hub:
                 device_id=device,
                 token=token,
             )
+
+    def runtime_invite(self, token: str) -> dict[str, Any]:
+        """Pair another runtime for this member only, with a 15-minute one-use ticket.
+
+        The plugin never receives the host device's reusable credential. Revoking
+        the sponsor invalidates outstanding tickets; enrolled runtimes become
+        independent devices that administrators can revoke separately.
+        """
+        invite = secrets.token_urlsafe(32)
+        expires = time.time() + 900
+        with database(self.path) as db:
+            db.execute("BEGIN IMMEDIATE")
+            who = self._identity(db, token)
+            db.execute(
+                "INSERT INTO runtime_invites VALUES(?,?,?,?,0)",
+                (digest(invite), who["member_id"], who["device_id"], expires),
+            )
+        return {
+            "invite": invite,
+            "expires_at": expires,
+            "tenant_id": who["tenant"],
+            "member_id": who["member_id"],
+        }
 
     @staticmethod
     def _identity(db: sqlite3.Connection, token: str) -> dict[str, Any]:

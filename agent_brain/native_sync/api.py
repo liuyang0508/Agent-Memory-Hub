@@ -7,7 +7,7 @@ import sqlite3
 from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.responses import JSONResponse
 from .hub import Hub
-from .models import AssetInput, EnrollInput, SearchInput
+from .models import AssetInput, EnrollInput, SearchInput, RuntimeInviteInput
 
 
 def create_app(hub: Hub) -> FastAPI:
@@ -53,6 +53,12 @@ def create_app(hub: Hub) -> FastAPI:
     @app.get("/native/v1/me")
     def me(authorization: str | None = Header(default=None)) -> dict[str, Any]:
         return hub.identity(bearer(authorization))
+
+    @app.post("/native/v1/runtime-invites")
+    def runtime_invite(
+        data: RuntimeInviteInput, authorization: str | None = Header(default=None)
+    ) -> dict[str, Any]:
+        return hub.runtime_invite(bearer(authorization))
 
     @app.post("/native/v1/assets")
     def put(data: AssetInput, authorization: str | None = Header(default=None)) -> dict[str, Any]:

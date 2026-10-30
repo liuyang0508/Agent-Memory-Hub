@@ -62,3 +62,9 @@ class SearchInput(BaseModel):
     project_hint: str = Field(default="", max_length=256)
     project_filter: str | None = Field(default=None, max_length=256)
     limit: int = Field(default=12, ge=1, le=50)
+
+
+class RuntimeInviteInput(BaseModel):
+    """Identity and lifetime are server-owned; no caller-selected membership fields."""
+
+    model_config = ConfigDict(extra="forbid")

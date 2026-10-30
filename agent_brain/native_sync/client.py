@@ -40,11 +40,20 @@ class NativeClient:
             db.executescript(CLIENT_SCHEMA)
 
     @classmethod
-    def join(cls, root: Path, url: str, invite: str, device_name: str) -> NativeClient:
+    def join(
+        cls,
+        root: Path,
+        url: str,
+        invite: str,
+        device_name: str,
+        *,
+        expected_identity: dict[str, str] | None = None,
+        timeout: float = 10,
+    ) -> NativeClient:
         """Enroll a new device once; refuse to reuse a profile belonging to another Hub/identity."""
         if (Path(root) / "config.json").exists():
             raise ValueError("profile already joined; choose a new profile for another Hub/device")
-        transport = Transport(url)
+        transport = Transport(url, timeout=timeout)
         health = transport.call("health")
         if health.get("protocol") != 1 or health.get("service") != "amh-native":
             raise ValueError("the address is not a compatible native-memory Hub")
@@ -54,6 +63,8 @@ class NativeClient:
             for k in ("tenant_id", "member_id", "member_name", "device_id", "token")
         ):
             raise ValueError("invalid enrollment response; local identity was not replaced")
+        if expected_identity and any(identity.get(k) != v for k, v in expected_identity.items()):
+            raise PermissionError("runtime enrollment does not match the pinned member")
         atomic_json(
             Path(root) / "config.json", {"hub": transport.url, "identity": identity, "targets": []}
         )
@@ -68,10 +79,17 @@ class NativeClient:
         """Merge configured/discovered native destinations by resolved path to avoid duplicate writes."""
         with database(self.path) as db:
             dynamic = [dict(row) for row in db.execute("SELECT root,product FROM dynamic_targets")]
+            quarantined_roots = {
+                row["root"]
+                for row in db.execute(
+                    "SELECT s.root FROM sources s JOIN meta m ON m.key='quarantined-source:' || s.id"
+                )
+            }
         return list(
             {
                 str(Path(row["root"]).resolve()): row
                 for row in self.config.get("targets", []) + dynamic
+                if str(Path(row["root"]).resolve()) not in quarantined_roots
             }.values()
         )
 
@@ -149,6 +167,10 @@ class NativeClient:
 
     def preview(self, sid: str) -> list[dict[str, Any]]:
         """Read current local history only; returned hashes bind explicit selection to this preview."""
+        if sid in self.quarantined_sources():
+            raise ValueError(
+                "source identity changed; rebind it in a separate profile before import"
+            )
         with database(self.path) as db:
             source = db.execute("SELECT * FROM sources WHERE id=?", (sid,)).fetchone()
             if source is None:
@@ -194,7 +216,10 @@ class NativeClient:
         Refresh all excluded sources first so copy order cannot turn edited history
         into a new upload. Hashes of older excluded versions remain.
         """
+        quarantined = self.quarantined_sources()
         for source in self.sources():
+            if source["id"] in quarantined:
+                continue
             root = Path(source["root"])
             if not root.exists():
                 continue
@@ -232,9 +257,15 @@ class NativeClient:
         Unselected history stays excluded. Missing source mounts do not imply deletion;
         within available sources, disappeared owned parts become versioned tombstones.
         """
+        from .runtime_sources import quarantine_changed_roots
+
+        errors = quarantine_changed_roots(self)
         self.refresh_excluded_history()
-        errors = []
+        quarantined = self.quarantined_sources()
         for source in self.sources():
+            if source["id"] in quarantined:
+                errors.append("source identity changed: " + source["id"])
+                continue
             root = Path(source["root"])
             if not (root.parent.is_dir() if source["file_source"] else root.is_dir()):
                 errors.append("source unavailable: " + source["id"])
@@ -395,6 +426,7 @@ class NativeClient:
                         "UPDATE snapshots SET hash=? WHERE source=? AND path=?",
                         ("<deleted>", source["id"], row["path"]),
                     )
+        errors.extend(quarantine_changed_roots(self))
         return errors
 
     def origin_reviews(self) -> list[dict[str, Any]]:
@@ -412,6 +444,15 @@ class NativeClient:
         with database(self.path) as db:
             return int(db.execute("SELECT count(*) FROM outbox").fetchone()[0])
 
+    def quarantined_sources(self) -> set[str]:
+        """Sources whose runtime identity changed cannot scan or upload ambiguous data."""
+        prefix = "quarantined-source:"
+        with database(self.path) as db:
+            return {
+                row["key"][len(prefix) :]
+                for row in db.execute("SELECT key FROM meta WHERE key LIKE ?", (prefix + "%",))
+            }
+
     def sync(self) -> dict[str, Any]:
         """Capture locally, upload, replay changes, then publish native resources.
 
@@ -426,13 +467,20 @@ class NativeClient:
                 fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError:
                 return {"busy": True}
-            errors = self.scan()  # Persist source changes before any network request.
+            from .runtime_sources import process_observations, quarantine_changed_roots
+
+            errors = process_observations(self)
+            errors.extend(self.scan())  # Persist source changes before any network request.
             self.transport.me()  # revoked devices cannot use this as a successful refresh
+            errors.extend(quarantine_changed_roots(self))
             pushed = 0
             with database(self.path) as db:
                 pending = db.execute("SELECT * FROM outbox").fetchall()
+            quarantined = self.quarantined_sources()
             for row in pending:
                 item = json.loads(row["payload"])
+                if item["source_store"] in quarantined:
+                    continue
                 try:
                     saved = self.transport.put(item)
                 except ValueError as exc:

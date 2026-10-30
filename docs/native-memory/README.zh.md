@@ -4,7 +4,7 @@
 
 ## 状态
 
-代码与回归位于本研发分支，尚未发布到公共安装入口。真实 Codex 引擎已分别验证云端 Hook 消费和关闭云召回后的原生文件消费。阿里云实例的临时隔离端云试验已通过，WAN Hook 使用了缓存降级；这不是公开服务已上线。Claude Code/Cowork 的真实环境验收、Cowork 运行时自动绑定及两台真实 Mac 联测仍待完成，不能将协议测试称为全部产品上线验收。
+代码与回归位于本研发分支，尚未发布到公共安装入口。Claude Code 与 Codex CLI 已在独立配置中双向验证：由真实模型显式写入原生记忆、Hook/后台同步、另一成员经 Hook 或原生文件读取；关闭两条消费路径的对照未取得验收值。这不等于所有原生后台提炼时序均已覆盖。阿里云实例的临时隔离试验已通过，WAN Hook 使用缓存降级，公开服务尚未上线。Cowork 的运行时接入代码已提供，实际客户端持久化、桌面 UI 和两台真实 Mac 仍需验收。
 
 工程职责与扩展约束见 [架构说明](architecture.zh.md)，故障处理与恢复边界见 [运维说明](operations.zh.md)。当前是单节点可恢复实现，尚无跨主机自动容灾。
 
@@ -99,9 +99,24 @@ amh-native apply-config --asset ASSET_ID --product codex-cli --destination ~/.co
 amh-native cowork-plugin --output ./amh-cowork-plugin
 ```
 
-插件包含独立 Hook/worker 的 Python 运行代码，不包含设备凭证。它必须在实际 Cowork 运行环境中可执行，并将 `AMH_NATIVE_HOME` 指向该环境已经登记的持久状态目录，绑定该环境可读的原生记忆位置。插件可唤醒独立 worker；VM/云任务是否保留进程和目录，需要真实客户端验证。不能把 Mac 的 localhost 或目录路径当成 VM/云端的同一位置。
+上面生成通用运行包，适合已经通过 `AMH_NATIVE_HOME` 指定已登记状态目录的运行环境。为当前成员的新 Cowork 运行时生成配对材料：
 
-当前账号组织停用，自动跨运行环境绑定尚未验收。安装器会明确报告“插件包准备好、环境绑定待验证”，不会显示全部接入成功。
+```bash
+amh-native cowork-connect --state ~/.amh-native-sync \
+  --output ./amh-cowork-plugin --connection-dir ./private-cowork-connection
+```
+
+- 插件 ZIP 只包含程序和公开的 Hub/成员/组织绑定信息；一次性邀请单独写入连接目录的 `.amh-native-connection.json`，权限为0600，15分钟有效。不要把连接文件放进插件包或贴给模型。
+- 在 Cowork 导入该成员的插件，让首次任务访问连接文件所在目录。插件从 `CLAUDE_PROJECT_DIR` 对应目录读取它，也支持显式 `AMH_NATIVE_CONNECTION_FILE`。连接文件过期可重跑命令刷新；Hub/成员不变时不用重装插件。
+- Hook 在后台完成登记，获得**同一成员、不同设备**的凭证；已有状态不会被另一个 Hub 或成员覆盖。撤销发起设备会使未使用的邀请失效，已登记的运行时需单独撤销。
+- 状态默认放在 `CLAUDE_PLUGIN_DATA/amh-native-sync`，或显式的 `AMH_NATIVE_HOME`。运行时未提供持久目录就报告不可接入，不猜测 Mac 与 VM 是同一文件系统。
+- 原生来源使用当前本机 Claude 运行时提供的 `CLAUDE_COWORK_MEMORY_PATH_OVERRIDE`，项目标识取 `CLAUDE_PROJECT_UUID`。Hook 只记录元数据，后台做历史基线；未选择的历史不自动上传。相同项目的旧挂载消失后可迁移路径；同路径身份冲突或挂载被替换会隔离来源，暂停其扫描、上传和投放。
+- 配对期间的成功创建事件保存在本地队列。内容稳定且不存在历史冲突时纳入新记忆；发生基线竞争或内容变化的文件会明确列入历史复核，不静默跳过或直接上传。
+- 导入后可运行 `/amh-native-org:doctor` 检查运行时目录、项目标识及 Hub 连通性。诊断不读记忆正文或凭证，也不等同于完整验收。
+
+Cowork 不应假定拥有 Claude Code 同样的配置提示界面，因此该接入不依赖用户配置弹窗。[官方组件支持说明](https://claude.com/docs/plugins/platform-support)列出了两者差别。真实任务是否保留插件状态目录、VM 能否访问 Hub，以及后续会话恢复，必须通过实际客户端测试；本机 localhost 不能直接当作云任务的服务地址。
+
+上述材料准备完成时，安装器只报告待验证，不会显示四端全部接入成功。
 
 ## 运维与恢复
 

@@ -4,12 +4,74 @@ from __future__ import annotations
 from typing import Any
 
 import json
+import posixpath
+import re
+from urllib.parse import unquote, urlsplit
 from .common import digest, tokens
 
 
 def coverage_key(record: dict[str, Any]) -> str:
     """Identify an exact source revision; matching text from another producer is a different key."""
     return f"{record['asset_id']}:{record['revision']}:{record['body_hash']}"
+
+
+def _details_first(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Place already-retrieved detail records ahead of their navigation-only index.
+
+    Native MEMORY.md files can score highly because they contain short link labels.
+    Spending the injection budget on those labels can truncate the actual answer.
+    Follow only relative links within the same tenant/device/store, never fetch new
+    files or reorder a fact-bearing memory document. A visited set bounds cycles.
+    """
+    by_path: dict[tuple[str, ...], list[int]] = {}
+
+    def scope(record: dict[str, Any]) -> tuple[str, ...]:
+        return tuple(
+            str(record.get(k, "")) for k in ("tenant_id", "source_device_id", "source_store")
+        )
+
+    for index, record in enumerate(records):
+        if record.get("kind") == "memory" and all(scope(record)):
+            by_path.setdefault((*scope(record), record.get("path", "")), []).append(index)
+    visited: set[int] = set()
+    ordered: list[dict[str, Any]] = []
+
+    def visit(index: int) -> None:
+        if index in visited:
+            return
+        visited.add(index)
+        record = records[index]
+        path = record.get("path", "")
+        if record.get("kind") == "memory" and posixpath.basename(path).lower() in (
+            "memory.md",
+            "memory_summary.md",
+        ):
+            lines = [
+                line.strip()
+                for line in record["body"].splitlines()
+                if line.strip() and not line.lstrip().startswith("#")
+            ]
+            links = [re.match(r"^(?:[-*+]\s+)?\[[^\]]+\]\(([^\s)]+)\)", line) for line in lines]
+            if links and all(links) and all(scope(record)):
+                for link in links:
+                    assert link is not None
+                    target = urlsplit(link[1])
+                    relative = unquote(target.path)
+                    if (
+                        target.scheme
+                        or target.netloc
+                        or relative.startswith("/")
+                        or "\\" in relative
+                    ):
+                        continue
+                    resolved = posixpath.normpath(posixpath.join(posixpath.dirname(path), relative))
+                    for child in by_path.get((*scope(record), resolved), []):
+                        visit(child)
+        ordered.append(record)
+
+    for index in range(len(records)):
+        visit(index)
+    return ordered
 
 
 def pack(
@@ -20,11 +82,11 @@ def pack(
     max_items: int = 5,
     query: str = "",
 ) -> tuple[str, list[str]]:
-    # UTF-8 bytes are a conservative upper bound for byte-based model tokenizers.
     """Pack relevant excerpts within a conservative UTF-8 byte budget, retaining every included producer."""
+    # UTF-8 bytes are a conservative upper bound for byte-based model tokenizers.
     remaining = max_tokens
     groups: dict[tuple[str, str], list[dict[str, Any]]] = {}
-    for r in records:
+    for r in _details_first(records):
         if r.get("deleted") or coverage_key(r) in covered:
             continue
         groups.setdefault((r["body_hash"], r.get("project", "")), []).append(r)

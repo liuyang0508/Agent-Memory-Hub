@@ -66,6 +66,15 @@ CREATE TABLE IF NOT EXISTS devices(
     revoked INTEGER DEFAULT 0
 );
 
+-- Additive runtime-pairing state; existing invitations/devices retain their schema.
+CREATE TABLE IF NOT EXISTS runtime_invites(
+    hash TEXT PRIMARY KEY,
+    member TEXT NOT NULL,
+    sponsor_device TEXT NOT NULL,
+    expires REAL NOT NULL,
+    used INTEGER DEFAULT 0
+);
+
 CREATE TABLE IF NOT EXISTS assets(
     tenant TEXT NOT NULL,
     id TEXT NOT NULL,

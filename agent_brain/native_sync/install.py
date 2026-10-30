@@ -272,13 +272,20 @@ def uninstall_hooks(home: Path, state: Path) -> list[str]:
     return conflicts
 
 
-def export_cowork_plugin(destination: Path) -> Path:
+def export_cowork_plugin(destination: Path, *, policy: dict[str, str] | None = None) -> Path:
     """Portable stdlib Hook runtime, no credentials embedded in distributable plugin."""
+    if policy is not None:
+        from .transport import validate_url
+
+        if set(policy) != {"hub", "member_id", "tenant_id"} or not all(policy.values()):
+            raise ValueError("plugin policy must contain only public Hub/member/tenant pins")
+        validate_url(policy["hub"])
     root = Path(destination)
     for directory in (
         root,
         root / ".claude-plugin",
         root / "hooks",
+        root / "commands",
         root / "runtime",
         root / "runtime/agent_brain",
         root / "runtime/agent_brain/native_sync",
@@ -289,6 +296,8 @@ def export_cowork_plugin(destination: Path) -> Path:
         root / ".claude-plugin/plugin.json",
         root / "hooks/hooks.json",
         root / "runtime/entry.py",
+        root / "runtime/connection-policy.json",
+        root / "commands/doctor.md",
         root / "runtime/agent_brain/__init__.py",
     ]
     atomic_json(
@@ -317,20 +326,54 @@ def export_cowork_plugin(destination: Path) -> Path:
         "discovery.py",
         "query_worker.py",
         "client.py",
+        "cowork_runtime.py",
+        "runtime_sources.py",
         "recall.py",
         "hooks.py",
     ]:
         atomic_text(runtime / name, (Path(__file__).parent / name).read_text())
         generated.append(runtime / name)
     atomic_text(
-        root / "runtime/entry.py", "from agent_brain.native_sync.hooks import main\nmain()\n"
+        root / "runtime/entry.py",
+        "from agent_brain.native_sync.cowork_runtime import main\nmain()\n",
     )
-    command = 'python3 "${CLAUDE_PLUGIN_ROOT}/runtime/entry.py" --state "${AMH_NATIVE_HOME:-${HOME}/.amh-native-sync}" --product cowork --start-worker'
+    atomic_json(root / "runtime/connection-policy.json", policy or {})
+    atomic_text(
+        root / "commands/doctor.md",
+        """---
+description: 检查组织记忆运行环境，不读取记忆正文或凭证
+---
+在 Cowork 任务中运行下面的诊断命令，原样报告 JSON 结果。不要读取、展示或发送连接文件、邀请或设备凭证，不修改任何客户端配置。诊断只检查目录是否存在及 Hub 是否可达，不代表全部链路验收通过。
+
+```sh
+python3 "${CLAUDE_PLUGIN_ROOT}/runtime/entry.py" --policy "${CLAUDE_PLUGIN_ROOT}/runtime/connection-policy.json" --diagnose
+```
+""",
+    )
+    arguments = [
+        "${CLAUDE_PLUGIN_ROOT}/runtime/entry.py",
+        "--policy",
+        "${CLAUDE_PLUGIN_ROOT}/runtime/connection-policy.json",
+        "--product",
+        "cowork",
+        "--start-worker",
+    ]
     atomic_json(
         root / "hooks/hooks.json",
         {
             "hooks": {
-                e: [{"hooks": [{"type": "command", "command": command, "timeout": 2}]}]
+                e: [
+                    {
+                        "hooks": [
+                            {
+                                "type": "command",
+                                "command": "python3",
+                                "args": arguments,
+                                "timeout": 2,
+                            }
+                        ]
+                    }
+                ]
                 for e in EVENTS
             }
         },

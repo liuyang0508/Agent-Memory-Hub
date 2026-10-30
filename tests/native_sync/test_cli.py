@@ -49,3 +49,30 @@ def test_cowork_archive_excludes_existing_private_files(tmp_path):
         assert ".claude-plugin/plugin.json" in bundle.namelist()
         assert "config.json" not in bundle.namelist()
         assert not any(b"DO_NOT_PACK" in bundle.read(name) for name in bundle.namelist())
+
+
+def test_join_failure_does_not_print_invitation_from_traceback_locals(tmp_path):
+    import os
+    import subprocess
+    import sys
+    import secrets
+
+    secret = secrets.token_urlsafe(32)
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "agent_brain.native_sync",
+            "join",
+            "--hub",
+            "http://127.0.0.1:9",
+            "--state",
+            str(tmp_path / "state"),
+        ],
+        env={**os.environ, "AMH_NATIVE_INVITE": secret},
+        text=True,
+        capture_output=True,
+        timeout=10,
+    )
+    assert result.returncode != 0
+    assert secret not in result.stdout + result.stderr
