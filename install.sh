@@ -124,6 +124,9 @@ for arg in "$@"; do
     --minimal) MINIMAL=true ;;
     --dry-run) ;;
     --verify-only) ;;
+    # An unrecognised flag used to be ignored, so a caller asking for a mode
+    # this installer does not have silently got a full install instead.
+    -*) echo "unknown option: $arg" >&2; exit 2 ;;
   esac
 done
 
