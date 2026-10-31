@@ -9,7 +9,7 @@ VERIFY=false
 SERVICE=true
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    --native) shift ;;
+    --org-memory|--native) shift ;;
     --hub) [ "$#" -ge 2 ] || exit 2; HUB="$2"; shift 2 ;;
     --state) [ "$#" -ge 2 ] || exit 2; STATE="$2"; shift 2 ;;
     --dry-run) DRY=true; shift ;;

@@ -108,9 +108,10 @@ EOF
 fi
 
 for arg in "$@"; do
-  if [ "$arg" = "--native" ]; then
-    exec sh "$SCRIPT_DIR/install-native.sh" "$@"
-  fi
+  case "$arg" in
+    # --native is the pre-release name; kept so existing scripts keep working.
+    --org-memory|--native) exec sh "$SCRIPT_DIR/install-native.sh" "$@" ;;
+  esac
 done
 
 CODE_DIR="$SCRIPT_DIR"

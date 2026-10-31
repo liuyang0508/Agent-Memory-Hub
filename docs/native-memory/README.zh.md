@@ -10,7 +10,7 @@ Codex 桌面 UI 已由人工触发并完成核心验收：Hook 读取 Claude Cod
 
 两台真实 Mac 的跨成员原生读取及同步后的缓存 Hook 已通过。该 SSH 隧道试验中的直接查询约 1.0–1.6 秒，首次无缓存的 Hook 超过预算时返回空结果，不能保证首次实时召回。
 
-组织试点 HTTPS Hub 已部署至 `https://aihub0508.com`，固定功能版本为 `e685c89`；正常 TLS、服务就绪、未授权访问拒绝和原官网均已验证。[部署记录](https://github.com/liuyang0508/Agent-Memory-Hub/actions/runs/41080945986)。生产库未导入验收数据或个人历史；成员仍须使用自己的个人邀请完成接入。这不代表公共 `latest` 安装入口已经发布本模式。
+组织试点 HTTPS Hub 已部署至 `https://aihub0508.com`，固定功能版本为 `e685c89`；正常 TLS、服务就绪、未授权访问拒绝和原官网均已验证。[部署记录](https://github.com/liuyang0508/Agent-Memory-Hub/actions/runs/41080945986)。生产库未导入验收数据或个人历史；成员用自己的飞书账号完成接入。这不代表公共 `latest` 安装入口已经发布本模式。
 
 Claude Desktop 4.4212 的 Cowork 已通过官方第三方网关模式进行隔离项目实机验收：真实 Hook 读取 Claude Code 来源，关闭 Hook 后原生读取 Codex 来源，以及 Cowork 原生写入后被 CC/Codex CLI 读取，均取得模型回答和运行记录证据。CLI 读取的关闭召回对照未取得验收值。正常重启应用后，新会话仍能召回内容，成员、设备及状态配置未改变。模型负责原生记忆生成，AMH 负责同步与召回；这些证据不代表所有产品版本、自动提炼时序或云任务环境均已覆盖。
 
@@ -18,24 +18,25 @@ Claude Desktop 4.4212 的 Cowork 已通过官方第三方网关模式进行隔�
 
 ## 安装与成员登记
 
-组织管理员先在 Hub 主机上运行独立服务，并建立成员邀请：
+组织管理员先在 Hub 主机上运行独立服务：
 
 ```bash
 amh-native serve --db /var/lib/amh-native/hub.sqlite --host 127.0.0.1 --port 8787
-amh-native invite --db /var/lib/amh-native/hub.sqlite --tenant linkcrux --name 张三
 ```
 
-邀请只在命令输出一次；Hub 保存其 hash，有效期默认一天，只能使用一次。管理员自行将邀请交给对应成员，本程序不自动发消息。为既有成员增加设备时，用 `members` 查询稳定 ID，再 `invite --member-id <ID>`。
+**没有邀请码。** 成员加入的唯一凭据是所属企业的飞书账号：装完脚本 → 浏览器里飞书登录 → 勾选要共享的本机记忆 → 完成。Hub 用飞书返回的 `tenant_key` 确认归属，同名且未关联的成员会被复用，不会重复建档。为既有成员增加设备，同样是再登录一次，用 `members` 可查稳定 ID。
 
 在包含本功能的代码版本上安装客户端：
 
 ```bash
-sh install.sh --native --hub https://memory.example.com
+sh install.sh --org-memory --hub https://memory.example.com
 ```
+
+`--native` 是发布前的旧名字，仍然有效。
 
 `--hub` 也支持有有效 TLS 配置的 IP 地址与端口。安装脚本下载地址和组织 Hub 地址彼此独立，不绑定 aihub0508.com。前期可在我们的实例上验证，后续组织自建。HTTP 仅允许本机 loopback 测试；服务端生产部署使用 HTTPS 反向代理。
 
-安装器检测并逐项显示 Claude Code、Codex CLI、Claude Cowork、实际检测到的 Codex/ChatGPT 客户端。通过个人邀请登记设备，显示成员名与稳定 ID，再预览历史和确认配置。ID 自动生成，不要求手填；邀请不是 OpenAI/Anthropic 的登录密码。
+安装器检测并逐项显示 Claude Code、Codex CLI、Claude Cowork、实际检测到的 Codex/ChatGPT 客户端（ChatGPT 客户端记忆保存在账号服务端，本机无可导入目录，会如实说明）。飞书登录后显示成员名与稳定 ID，再预览历史和确认配置。ID 自动生成，不要求手填。
 
 新模块使用 `~/.amh-native-sync/`，独立安装环境 `.native-venv/`。已有旧 AMH 的托管 Hook、纪律区块和已识别旧 MCP 通道会按安装回执隔离；用户其他配置保留。Codex Hook 使用生成处理程序的正常信任 hash，不使用绕过信任的启动参数。确认安装后会启用 CC 自动记忆及 Codex 原生读取所需开关；已有 Codex `generate_memories` 选择保持不变，原生生成由产品管理并可能使用产品额度。未选历史文件中的后续改写也会继续保留本地，直到重新选择；本模块不自动判定语义上的新旧知识。
 
@@ -99,7 +100,7 @@ amh-native apply-config --asset ASSET_ID --product codex-cli --destination ~/.co
 
 行为资产显式选择后再激活：技能保留脚本/资源结构与来源，规则写入指定项目托管区块。配置保留脱敏原件；目前同产品族可映射常见 model/effort/personality 或 model/language/outputStyle/autoMemoryEnabled 字段，其余字段报告跳过并保存在导出中，不把各厂商不兼容配置盲目覆盖。
 
-常见认证文件、`.env.*`、私钥文件不上传；配置凭证键变体和 URL 凭证会处理。它不是通用秘密管理系统，历史预览应检查所选内容。私有登录凭证不在邀请或共享记忆中分发。
+常见认证文件、`.env.*`、私钥文件不上传；配置凭证键变体和 URL 凭证会处理。它不是通用秘密管理系统，历史预览应检查所选内容。私有登录凭证不在配对凭据或共享记忆中分发。
 
 ## Cowork 与运行环境
 
@@ -122,10 +123,10 @@ amh-native cowork-connect --state ~/.amh-native-sync \
   --runtime-state ~/.amh-native-sync/cowork-runtime
 ```
 
-- 插件 ZIP 只包含程序、公开的 Hub/成员/组织绑定信息，以及配置过的本机路径；不包含秘密。一次性邀请单独写入连接目录的 `.amh-native-connection.json`，权限为0600，15分钟有效。不要把连接文件放进插件包或贴给模型。
+- 插件 ZIP 只包含程序、公开的 Hub/成员/组织绑定信息，以及配置过的本机路径；不包含秘密。一次性配对凭据单独写入连接目录的 `.amh-native-connection.json`，权限为0600，15分钟有效。不要把连接文件放进插件包或贴给模型。
 - 指定 `--runtime-state` 后，生成的 Hook 同时固定状态和独立配对文件路径，不依赖任务 cwd。macOS `setup` 默认使用此方式。此包绑定当前机器路径，另一台机器应重新生成；VM/云端运行环境应提供其实际可访问的路径，不能直接复制 Mac 路径。
 - 未指定宿主绑定时，插件从 `CLAUDE_PROJECT_DIR` 对应目录寻找连接文件，也支持 `AMH_NATIVE_CONNECTION_FILE`。连接文件过期可重跑命令刷新；Hub/成员与路径不变时不用重装插件。
-- Hook 在后台完成登记，获得**同一成员、不同设备**的凭证；已有状态不会被另一个 Hub 或成员覆盖。撤销发起设备会使未使用的邀请失效，已登记的运行时需单独撤销。
+- Hook 在后台完成登记，获得**同一成员、不同设备**的凭证；已有状态不会被另一个 Hub 或成员覆盖。撤销发起设备会使未使用的配对凭据失效，已登记的运行时需单独撤销。
 - 没有显式状态时使用 `CLAUDE_PLUGIN_DATA/amh-native-sync` 或 `AMH_NATIVE_HOME`。不能把变量名称视为持久性保证：实测宿主模式的插件数据位于随会话变化的临时目录，cwd 为 `/private/var/empty`，因此必须用上述持久绑定。
 - 原生来源使用产品提供的 `CLAUDE_COWORK_MEMORY_PATH_OVERRIDE`。优先使用 `CLAUDE_PROJECT_UUID`；宿主模式未提供该变量时，仅识别实际来源路径中的 `spaces/<UUID>/memory` 结构。全局或未知目录保持项目未知，不猜测记忆根目录。Hook 只记录元数据，后台做历史基线；未选择的历史不自动上传。相同项目的旧挂载消失后可迁移路径；同路径身份冲突或挂载被替换会隔离来源。
 - 配对期间的成功创建事件保存在本地队列。内容稳定且不存在历史冲突时纳入新记忆；发生基线竞争或内容变化的文件会明确列入历史复核，不静默跳过或直接上传。
