@@ -17,24 +17,27 @@
 > 域名归企业自己这一点是硬要求。飞书后台登记的回调地址会和该企业自己的飞书应用绑定；
 > 用别人的域名登记，等于把登录能力挂在别人手上。
 
-## 1. 装服务
+## 1. 装服务（一条命令）
+
+在准备好的主机上以 root 执行。脚本会建专用账号和目录、装 Python 依赖、
+写 systemd 单元、启动服务并自检；重跑即升级，数据库不受影响。
 
 ```bash
-# 专用账号与目录
-sudo useradd --system --home /var/lib/amh-native --shell /usr/sbin/nologin amh-native
-sudo install -d -m 700 -o amh-native -g amh-native /var/lib/amh-native
-
-# 代码与虚拟环境
-sudo git clone <仓库地址> /opt/agent-memory-hub
-cd /opt/agent-memory-hub
-sudo python3.11 -m venv .native-venv
-sudo .native-venv/bin/pip install -e '.[web]'
-
-# 服务单元
-sudo install -m 644 deploy/native-memory/amh-native.service /etc/systemd/system/amh-native.service
-sudo systemctl daemon-reload
-sudo systemctl enable --now amh-native
+curl -fsSL https://github.com/liuyang0508/agent-memory-hub/raw/main/deploy/deploy.sh \
+  | sudo bash -s -- --hub-url https://企业域名.com --feishu-app-id cli_xxx
 ```
+
+执行后会提示输入 App Secret（不回显、不进 shell 历史）。可选参数：
+
+| 参数 | 默认 | 说明 |
+|---|---|---|
+| `--tenant` | `linkcrux` | 组织标识，决定成员归属 |
+| `--port` | `8787` | 内部监听端口，只绑 127.0.0.1 |
+| `--source` | 自动 clone | 用已有代码目录，适合内网离线 |
+| `--nginx` | 关 | 自动把反代片段推进该域名的 server 块，失败自动还原 |
+
+**前提**：Linux + systemd + Python 3.11 以上 + 出网能到 GitHub 和飞书。
+没有 systemd 的容器里跑会直接拒绝，不会留下半套配置。
 
 **验证**：
 
@@ -64,7 +67,7 @@ curl -fsS https://amh.企业域名.com/native/v1/health
 管理令牌只在主机上生成，**从不过 HTTP 传输**，且只显示一次。
 
 ```bash
-sudo -u amh-native /opt/agent-memory-hub/.native-venv/bin/amh-native admin \
+sudo /opt/amh-native/current/venv/bin/amh-native admin \
   --db /var/lib/amh-native/hub.sqlite \
   --label "运维姓名"
 ```
@@ -149,7 +152,7 @@ sudo nginx -t && sudo systemctl reload nginx
 | 恢复 | 见 `operations.zh.md`：恢复前要对账设备撤销，并处理客户端游标代次 |
 | 监控 | `ready` 持续失败、待传队列增长、磁盘、证书到期 |
 | 令牌 | 设备令牌、配对票据、管理令牌、App Secret 都不得写进日志或工单 |
-| 升级 | 停服务 → 换代码 → 启服务；管理页配置和数据库不受影响 |
+| 升级 | 重跑第 1 步那条命令；它会装到新的版本目录并原子切换，失败自动回滚 |
 
 ## 9. 常见问题
 

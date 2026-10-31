@@ -3547,24 +3547,15 @@
     .install-card {
       position: relative;
       display: grid;
-      grid-template-columns: minmax(180px, 0.34fr) minmax(0, 1fr);
+      grid-template-columns: minmax(120px, max-content) minmax(0, 1fr);
       align-items: center;
-      gap: 18px;
+      gap: 12px;
       min-height: 0;
       padding: 18px 20px;
       border: 1px solid rgba(0,0,0,0.055);
       border-radius: 22px;
       background: rgba(255,255,255,0.88);
       box-shadow: 0 18px 44px rgba(45,103,148,0.07), inset 0 1px 0 rgba(255,255,255,0.9);
-    }
-
-    .install-card::before {
-      content: attr(data-step);
-      position: absolute;
-      top: 18px;
-      right: 18px;
-      color: rgba(17,141,191,0.34);
-      font: 760 0.72rem var(--qw-mono);
     }
 
     .install-card.featured {
@@ -3614,12 +3605,12 @@
       align-items: center;
       min-height: 56px;
       margin: 0;
-      padding: 13px 15px;
+      padding: 13px 12px;
       border: 1px solid rgba(85,185,255,0.22);
       border-radius: 14px;
       background: linear-gradient(90deg, rgba(232,247,255,0.94), rgba(255,242,249,0.70));
       color: #18364a;
-      font: 650 0.75rem var(--qw-mono);
+      font: 650 0.66rem var(--qw-mono);
       line-height: 1.48;
       white-space: pre-wrap;
       overflow-wrap: anywhere;
@@ -5450,38 +5441,42 @@
           <div class="access-flow install-panel" aria-label="Agent Memory Hub install commands">
             <p class="install-group-label">多智能体共享团队第二大脑</p>
             <div class="install-grid">
-              <article class="install-card featured" data-step="01">
+              <article class="install-card featured">
+                <h3>服务器部署</h3>
+                <div class="install-command"><code>curl -fsSL https://github.com/liuyang0508/agent-memory-hub/raw/main/deploy/deploy.sh | sudo bash -s -- --hub-url https://企业域名.com --feishu-app-id cli_你的AppID</code><button class="install-copy-button" type="button" data-copy="curl -fsSL https://github.com/liuyang0508/agent-memory-hub/raw/main/deploy/deploy.sh | sudo bash -s -- --hub-url https://企业域名.com --feishu-app-id cli_你的AppID" aria-label="复制企业服务器部署命令">复制</button></div>
+              </article>
+              <article class="install-card featured">
                 <h3>macOS / Linux</h3>
-                <div class="install-command"><code>curl -fsSL https://github.com/liuyang0508/agent-memory-hub/releases/latest/download/install.sh | sh -s -- --org-memory --hub https://amh.你的企业域名.com</code><button class="install-copy-button" type="button" data-copy="curl -fsSL https://github.com/liuyang0508/agent-memory-hub/releases/latest/download/install.sh | sh -s -- --org-memory --hub https://amh.你的企业域名.com" aria-label="复制组织模式安装命令">复制</button></div>
+                <div class="install-command"><code>curl -fsSL https://github.com/liuyang0508/agent-memory-hub/releases/latest/download/install.sh | sh -s -- --org-memory --hub https://企业域名.com</code><button class="install-copy-button" type="button" data-copy="curl -fsSL https://github.com/liuyang0508/agent-memory-hub/releases/latest/download/install.sh | sh -s -- --org-memory --hub https://企业域名.com" aria-label="复制组织模式安装命令">复制</button></div>
               </article>
             </div>
             <p class="install-group-label">多智能体共享个人第二大脑</p>
             <div class="install-grid">
-              <article class="install-card featured" data-step="02">
+              <article class="install-card featured">
                 <h3>macOS / Linux</h3>
                 <div class="install-command"><code>curl -fsSL https://github.com/liuyang0508/agent-memory-hub/releases/latest/download/install.sh | sh</code><button class="install-copy-button" type="button" data-copy="curl -fsSL https://github.com/liuyang0508/agent-memory-hub/releases/latest/download/install.sh | sh" aria-label="复制 macOS / Linux 安装命令">复制</button></div>
               </article>
-              <article class="install-card" data-step="03">
+              <article class="install-card">
                 <h3>Windows PowerShell</h3>
                 <div class="install-command"><code>powershell -ExecutionPolicy ByPass -c "irm https://github.com/liuyang0508/agent-memory-hub/releases/latest/download/install.ps1 | iex"</code><button class="install-copy-button" type="button" data-copy='powershell -ExecutionPolicy ByPass -c "irm https://github.com/liuyang0508/agent-memory-hub/releases/latest/download/install.ps1 | iex"' aria-label="复制 Windows PowerShell 安装命令">复制</button></div>
               </article>
-              <article class="install-card" data-step="04">
+              <article class="install-card">
                 <h3>Homebrew</h3>
                 <div class="install-command"><code>brew install --cask liuyang0508/agent-memory-hub/agent-memory-hub</code><button class="install-copy-button" type="button" data-copy="brew install --cask liuyang0508/agent-memory-hub/agent-memory-hub" aria-label="复制 Homebrew 安装命令">复制</button></div>
               </article>
-              <article class="install-card" data-step="05">
+              <article class="install-card">
                 <h3>npm</h3>
                 <div class="install-command"><code>npm install -g agent-memory-hub</code><button class="install-copy-button" type="button" data-copy="npm install -g agent-memory-hub" aria-label="复制 npm 安装命令">复制</button></div>
               </article>
-              <article class="install-card" data-step="06">
+              <article class="install-card">
                 <h3>Gitee 国内镜像</h3>
                 <div class="install-command"><code>git clone https://gitee.com/liuyang0508/Agent-Memory-Hub.git ~/agent-memory-hub &amp;&amp; cd ~/agent-memory-hub &amp;&amp; ./install.sh</code><button class="install-copy-button" type="button" data-copy="git clone https://gitee.com/liuyang0508/Agent-Memory-Hub.git ~/agent-memory-hub && cd ~/agent-memory-hub && ./install.sh" aria-label="复制 Gitee 源码安装命令">复制</button></div>
               </article>
-              <article class="install-card" data-step="07">
+              <article class="install-card">
                 <h3>启动本地后管</h3>
                 <div class="install-command"><code>memory serve --port 8765 --open</code><button class="install-copy-button" type="button" data-copy="memory serve --port 8765 --open" aria-label="复制启动本地后管命令">复制</button></div>
               </article>
-              <article class="install-card danger" data-step="08">
+              <article class="install-card danger">
                 <h3>一键卸载</h3>
                 <div class="install-command"><code>curl -fsSL https://github.com/liuyang0508/agent-memory-hub/releases/latest/download/install.sh | sh -s -- --uninstall</code><button class="install-copy-button" type="button" data-copy="curl -fsSL https://github.com/liuyang0508/agent-memory-hub/releases/latest/download/install.sh | sh -s -- --uninstall" aria-label="复制一键卸载命令">复制</button></div>
               </article>
