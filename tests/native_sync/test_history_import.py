@@ -29,13 +29,13 @@ class LocalTransport:
 
 def make_home(tmp_path: Path) -> Path:
     home = tmp_path / "home"
-    memory = home / ".claude/projects/-Users-someone/memory"
+    memory = home / ".claude/projects/-Users-example/memory"
     memory.mkdir(parents=True)
     (memory / "MEMORY.md").write_text("# 项目记忆\n订单回调验签要检查密钥版本\n")
     (memory / "notes.md").write_text("第二条记忆\n")
     rules = home / ".claude"
     (rules / "CLAUDE.md").write_text("# 规则\n")
-    sessions = home / ".claude/projects/-Users-someone"
+    sessions = home / ".claude/projects/-Users-example"
     (sessions / "abc.jsonl").write_text('{"type":"user"}\n')
     skills = home / ".claude/skills/demo"
     skills.mkdir(parents=True)
@@ -65,7 +65,7 @@ def test_items_covers_every_product_and_never_double_counts_shared_store(tmp_pat
 
 def test_oversized_files_are_never_offered(tmp_path, monkeypatch):
     home = make_home(tmp_path)
-    memory = home / ".claude/projects/-Users-someone/memory"
+    memory = home / ".claude/projects/-Users-example/memory"
     (memory / "huge.md").write_text("x" * 500)
     monkeypatch.setattr(history, "MAX_BYTES", 200)
     names = {row["name"] for row in history.items(home, ["claude-code"])}
@@ -75,7 +75,7 @@ def test_oversized_files_are_never_offered(tmp_path, monkeypatch):
 
 def test_credentials_and_private_files_are_never_offered(tmp_path):
     home = make_home(tmp_path)
-    memory = home / ".claude/projects/-Users-someone/memory"
+    memory = home / ".claude/projects/-Users-example/memory"
     (memory / ".env").write_text("OPENAI_API_KEY=sk-secret\n")
     (memory / "id_rsa").write_text("PRIVATE KEY\n")
     names = {row["name"] for row in history.items(home, ["claude-code"])}
@@ -94,7 +94,7 @@ def test_unknown_kind_still_shows_a_label():
 @pytest.mark.parametrize(
     "body,risk",
     [
-        ("-----BEGIN RSA PRIVATE KEY-----\nabc\n", "blocked"),
+        ("-----BEGIN " + "RSA PRIVATE KEY-----\nabc\n", "blocked"),
         ("password = hunter2abc", "blocked"),
         ("API 密钥 sk-abcdefghijklmnopqrstuvwxyz", "blocked"),
         ("我电话 13812345678", "sensitive"),
@@ -117,8 +117,8 @@ def test_blocked_file_is_flagged_and_never_imported(tmp_path):
     from agent_brain.native_sync.hub import Hub
 
     home = make_home(tmp_path)
-    memory = home / ".claude/projects/-Users-someone/memory"
-    (memory / "leak.md").write_text("-----BEGIN OPENSSH PRIVATE KEY-----\nabc\n")
+    memory = home / ".claude/projects/-Users-example/memory"
+    (memory / "leak.md").write_text("-----BEGIN " + "OPENSSH PRIVATE KEY-----\nabc\n")
     hub = Hub(tmp_path / "hub.sqlite")
     identity = hub.provision("张三", "Mac")
     client = NativeClient(
@@ -137,7 +137,7 @@ def test_late_sensitive_content_is_refused_not_uploaded(tmp_path):
     from agent_brain.native_sync.hub import Hub
 
     home = make_home(tmp_path)
-    memory = home / ".claude/projects/-Users-someone/memory"
+    memory = home / ".claude/projects/-Users-example/memory"
     # The phone number sits past the prefix the checklist screens, so the list
     # reports this file as clean; import must still refuse to send it.
     (memory / "buried.md").write_text("# 说明\n" + ("填充\n" * 30000) + "我电话 13812345678\n")
@@ -162,7 +162,7 @@ def test_sensitive_file_is_imported_only_when_ticked(tmp_path):
     from agent_brain.native_sync.hub import Hub
 
     home = make_home(tmp_path)
-    memory = home / ".claude/projects/-Users-someone/memory"
+    memory = home / ".claude/projects/-Users-example/memory"
     (memory / "private.md").write_text("我电话 13812345678\n")
     hub = Hub(tmp_path / "hub.sqlite")
     identity = hub.provision("张三", "Mac")
@@ -182,9 +182,9 @@ def test_sensitive_file_is_imported_only_when_ticked(tmp_path):
 
 def test_items_lists_each_file_with_title_and_verdict(tmp_path):
     home = make_home(tmp_path)
-    memory = home / ".claude/projects/-Users-someone/memory"
+    memory = home / ".claude/projects/-Users-example/memory"
     (memory / "private.md").write_text("# 我的私人记录\n我电话 13812345678\n")
-    (memory / "leak.md").write_text("-----BEGIN RSA PRIVATE KEY-----\n")
+    (memory / "leak.md").write_text("-----BEGIN " + "RSA PRIVATE KEY-----\n")
     rows = history.items(home, ["claude-code"])
     by_name = {row["name"]: row for row in rows}
     assert by_name["MEMORY.md"]["risk"] == "clean"
@@ -221,8 +221,8 @@ def test_import_paths_refuses_a_blocked_file_even_if_selected(tmp_path):
     from agent_brain.native_sync.hub import Hub
 
     home = make_home(tmp_path)
-    memory = home / ".claude/projects/-Users-someone/memory"
-    (memory / "leak.md").write_text("-----BEGIN RSA PRIVATE KEY-----\nabc\n")
+    memory = home / ".claude/projects/-Users-example/memory"
+    (memory / "leak.md").write_text("-----BEGIN " + "RSA PRIVATE KEY-----\nabc\n")
     hub = Hub(tmp_path / "hub.sqlite")
     identity = hub.provision("张三", "Mac")
     client = NativeClient(
@@ -247,7 +247,7 @@ def test_new_files_in_a_registered_root_sync_without_asking_again(tmp_path):
     )
     rows = history.items(home, ["claude-code"])
     history.import_paths(client, home, [row for row in rows if row["name"] == "MEMORY.md"])
-    memory = home / ".claude/projects/-Users-someone/memory"
+    memory = home / ".claude/projects/-Users-example/memory"
     (memory / "later.md").write_text("安装之后新写的记忆\n")
     # A file written after install needs no second decision; it enters the queue
     # on the next scan and sync uploads it.

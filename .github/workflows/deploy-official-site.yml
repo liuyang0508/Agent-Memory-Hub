@@ -2,6 +2,11 @@ name: Deploy official website
 
 on:
   workflow_dispatch:
+    inputs:
+      deploy_native:
+        description: '同时升级原生 Hub 服务'
+        type: boolean
+        default: true
   push:
     branches:
       - main
@@ -11,6 +16,8 @@ on:
       - deploy/telemetry_server.py
       - deploy/nginx-telemetry-location.conf
       - docs/product-telemetry.zh.md
+      - deploy/native-memory/**
+      - agent_brain/native_sync/**
       - .github/workflows/deploy-official-site.yml
 
 permissions:
@@ -21,7 +28,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  deploy:
+  site:
     name: Sync static site to nginx
     runs-on: ubuntu-latest
     env:
@@ -67,3 +74,93 @@ jobs:
           scp -i ~/.ssh/aihub_deploy_key -P "$AIHUB_SSH_PORT" deploy/nginx-telemetry-location.conf "$remote:$AIHUB_WEB_ROOT/.telemetry/nginx-location.conf.example"
           ssh -i ~/.ssh/aihub_deploy_key -p "$AIHUB_SSH_PORT" "$remote" \
             "if systemctl is-active --quiet agent-memory-hub-telemetry.service 2>/dev/null; then systemctl restart agent-memory-hub-telemetry.service; elif systemctl --user is-active --quiet agent-memory-hub-telemetry.service 2>/dev/null; then systemctl --user restart agent-memory-hub-telemetry.service; fi"
+
+  native:
+    name: Upgrade native Hub service
+    needs: site
+    # A manual dispatch may opt out; a plain push always ships both.
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.deploy_native }}
+    runs-on: ubuntu-latest
+    env:
+      NATIVE_ENABLED: ${{ secrets.AIHUB_SSH_HOST != '' && secrets.AIHUB_SSH_USER != '' && secrets.AIHUB_SSH_KEY != '' }}
+      AIHUB_SSH_HOST: ${{ secrets.AIHUB_SSH_HOST }}
+      AIHUB_SSH_USER: ${{ secrets.AIHUB_SSH_USER }}
+      AIHUB_SSH_KEY: ${{ secrets.AIHUB_SSH_KEY }}
+      AIHUB_SSH_PORT: ${{ secrets.AIHUB_SSH_PORT || '22' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Skip when deployment secrets are missing
+        if: env.NATIVE_ENABLED != 'true'
+        run: |
+          echo "::notice title=AMH_NATIVE_SECRET_MISSING::reason=missing_secret secret=AIHUB_SSH_KEY workflow=deploy-official-site"
+
+      - name: Set up Python
+        if: env.NATIVE_ENABLED == 'true'
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: '3.11'
+
+      - name: Build wheel and dependency closure
+        if: env.NATIVE_ENABLED == 'true'
+        run: |
+          set -euo pipefail
+          python -m pip wheel --no-deps . -w dist >/dev/null
+          wheel=$(find dist -maxdepth 1 -name 'agent_memory_hub-*.whl' -type f)
+          test "$(printf '%s\n' "$wheel" | wc -l)" -eq 1
+          python -m pip download --only-binary=:all: --python-version 311 --implementation cp \
+            --abi cp311 --abi abi3 --abi none \
+            --platform manylinux_2_28_x86_64 --platform manylinux2014_x86_64 \
+            --dest dist/wheelhouse "$wheel[web]" >/dev/null
+          python - <<'PY'
+          from pathlib import Path
+          import hashlib, json
+          files = {p.name: hashlib.sha256(p.read_bytes()).hexdigest()
+                   for p in sorted(Path('dist/wheelhouse').glob('*.whl'))}
+          digest = hashlib.sha256(json.dumps(files, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+          Path('dist/bundle.json').write_text(json.dumps({'files': files, 'bundle_sha256': digest}))
+          print(digest)
+          PY
+
+      - name: Prepare SSH key
+        if: env.NATIVE_ENABLED == 'true'
+        run: |
+          set -euo pipefail
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$AIHUB_SSH_KEY" > ~/.ssh/aihub_key
+          chmod 600 ~/.ssh/aihub_key
+          ssh-keyscan -p "$AIHUB_SSH_PORT" "$AIHUB_SSH_HOST" >> ~/.ssh/known_hosts
+
+      - name: Upload release bundle
+        if: env.NATIVE_ENABLED == 'true'
+        run: |
+          set -euo pipefail
+          remote="${AIHUB_SSH_USER}@${AIHUB_SSH_HOST}"
+          stage=$(ssh -i ~/.ssh/aihub_key -p "$AIHUB_SSH_PORT" "$remote" 'mktemp -d /tmp/amh-native-upgrade.XXXXXXXX')
+          ssh -i ~/.ssh/aihub_key -p "$AIHUB_SSH_PORT" "$remote" "mkdir -p '$stage/wheelhouse'"
+          scp -i ~/.ssh/aihub_key -P "$AIHUB_SSH_PORT" dist/wheelhouse/*.whl "$remote:$stage/wheelhouse/"
+          scp -i ~/.ssh/aihub_key -P "$AIHUB_SSH_PORT" dist/bundle.json deploy/native-memory/upgrade.sh "$remote:$stage/"
+          echo "NATIVE_STAGE=$stage" >> "$GITHUB_ENV"
+
+      - name: Upgrade service and verify readiness
+        if: env.NATIVE_ENABLED == 'true'
+        run: |
+          set -euo pipefail
+          remote="${AIHUB_SSH_USER}@${AIHUB_SSH_HOST}"
+          bundle=$(python -c "import json;print(json.load(open('dist/bundle.json'))['bundle_sha256'])")
+          wheel="$NATIVE_STAGE/wheelhouse/$(ls dist/wheelhouse | head -1)"
+          ssh -i ~/.ssh/aihub_key -p "$AIHUB_SSH_PORT" "$remote" \
+            "sudo bash '$NATIVE_STAGE/upgrade.sh' '$wheel' '$NATIVE_STAGE/wheelhouse' '$bundle' '$GITHUB_SHA'"
+          # Verify from inside the host, so a TLS or CDN problem is not mistaken for a service failure.
+          ssh -i ~/.ssh/aihub_key -p "$AIHUB_SSH_PORT" "$remote" \
+            "curl -fsS --max-time 10 http://127.0.0.1:8787/native/v1/ready"
+          curl -fsS --retry 3 --retry-delay 3 --max-time 15 https://aihub0508.com/native/v1/health
+          echo "native_release=$GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Remove upload stage
+        if: always() && env.NATIVE_ENABLED == 'true' && env.NATIVE_STAGE != ''
+        run: |
+          remote="${AIHUB_SSH_USER}@${AIHUB_SSH_HOST}"
+          ssh -i ~/.ssh/aihub_key -p "$AIHUB_SSH_PORT" "$remote" "rm -rf -- '$NATIVE_STAGE'" || true
