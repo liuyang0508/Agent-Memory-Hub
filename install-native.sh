@@ -10,7 +10,10 @@ DRY=false
 VERIFY=false
 SERVICE=true
 WHEEL=""
-VERSION="${AMH_VERSION:-}"
+# The release workflow substitutes this with the tag it publishes from; a
+# checkout keeps the placeholder and falls back to building its own wheel.
+VERSION="${AMH_VERSION:-__AMH_VERSION__}"
+case "$VERSION" in __AMH_VERSION__*|"") VERSION="" ;; esac
 CODE_DIR=$(CDPATH= cd "$(dirname "$0")" && pwd)
 RELEASE_BASE="${AMH_RELEASE_BASE:-https://github.com/liuyang0508/agent-memory-hub/releases/latest/download}"
 
@@ -88,7 +91,9 @@ else
   if [ -n "$VERSION" ]; then
     WHEEL_URL="$RELEASE_BASE/agent_memory_hub-$VERSION-py3-none-any.whl"
   else
-    WHEEL_URL="$RELEASE_BASE/agent_memory_hub-py3-none-any.whl"
+    echo 'Cannot install: no wheel beside this script and no version to fetch.' >&2
+    echo 'Set AMH_VERSION, or pass --wheel <path>.' >&2
+    exit 1
   fi
 fi
 

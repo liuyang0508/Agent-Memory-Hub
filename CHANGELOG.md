@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.5] — 2026-11-01
+
+### Fixed
+
+- 1.2.4 published the wheel under an unversioned alias, and pip rejects a wheel
+  filename without a version. The release now bakes the tag's version into
+  `install-native.sh`, so it fetches `agent_memory_hub-<version>-py3-none-any.whl`
+  by name and the alias is gone.
+
 ## [1.2.4] — 2026-11-01
 
 ### Fixed

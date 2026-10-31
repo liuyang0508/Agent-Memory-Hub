@@ -28,7 +28,6 @@ jobs:
           python -m pip install --quiet --upgrade pip build
           python -m build --wheel --outdir dist .
           ls -l dist/*.whl
-          cp "$(ls dist/*.whl | head -1)" dist/agent_memory_hub-py3-none-any.whl
 
       - name: Prepare release installer assets
         env:
@@ -45,6 +44,16 @@ jobs:
           # The organization-mode installer dispatches before any clone, so it
           # must ship as the same pinned asset.
           cp install-native.sh dist/install-native.sh
+          # The installer must name the wheel it downloads, and pip rejects a
+          # wheel filename without a version, so bake this tag in.
+          python - <<'PY'
+          import os, re
+          from pathlib import Path
+          tag = os.environ["AMH_GITHUB_REF_NAME"]
+          version = tag[1:] if tag.startswith("v") else tag
+          path = Path("dist/install-native.sh")
+          path.write_text(path.read_text().replace("__AMH_VERSION__", version))
+          PY
           python - <<'PY'
           import os
           from pathlib import Path
