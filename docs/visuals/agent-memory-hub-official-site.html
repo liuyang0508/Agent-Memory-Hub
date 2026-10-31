@@ -3388,6 +3388,13 @@
       max-width: 900px;
     }
 
+    h2.install-title {
+      /* background-clip:text only paints inside the element box, so the
+         default 1.02 line-height cuts the descender of "g". */
+      line-height: 1.16;
+      padding-bottom: .06em;
+    }
+
     .install-title .title-line {
       display: block;
     }
@@ -3526,7 +3533,7 @@
     }
 
     .install-group-label {
-      margin: 4px 0 -6px;
+      margin: 4px 0 10px;
       color: #0d5f80;
       font-size: 0.95rem;
       font-weight: 760;
