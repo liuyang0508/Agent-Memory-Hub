@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.6] — 2026-11-01
+
+### Fixed
+
+- The release job substitutes the version placeholder in `install-native.sh`,
+  which also rewrote the guard that detects the placeholder — so the guard
+  blanked the version it had just filled in. It now matches a token that the
+  substitution cannot produce.
+
 ## [1.2.5] — 2026-11-01
 
 ### Fixed

@@ -10,10 +10,12 @@ DRY=false
 VERIFY=false
 SERVICE=true
 WHEEL=""
-# The release workflow substitutes this with the tag it publishes from; a
-# checkout keeps the placeholder and falls back to building its own wheel.
+# The release workflow substitutes the placeholder below with the tag it
+# publishes from; a checkout keeps it and builds its own wheel instead.
 VERSION="${AMH_VERSION:-__AMH_VERSION__}"
-case "$VERSION" in __AMH_VERSION__*|"") VERSION="" ;; esac
+case "$VERSION" in
+  ""|*AMH_VERSION*) VERSION="" ;;
+esac
 CODE_DIR=$(CDPATH= cd "$(dirname "$0")" && pwd)
 RELEASE_BASE="${AMH_RELEASE_BASE:-https://github.com/liuyang0508/agent-memory-hub/releases/latest/download}"
 
