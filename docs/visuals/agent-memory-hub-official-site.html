@@ -5428,40 +5428,45 @@
         <div class="redesign-wrap">
           <p class="section-label">Quick start</p>
           <h2 class="install-title"><span class="title-line">快速接入</span><span class="title-line accent">Agent Memory Hub</span></h2>
-          <p class="section-copy install-copy">选择你熟悉的安装入口，把 CLI、本地后管和 Agent runtime 一次装好。所有路径都会回到同一个 <strong>~/.agent-memory-hub/</strong>，先跑起来，再接入你的 AI Agent 工具。</p>
+          <p class="section-copy install-copy"><strong>个人模式</strong>把 CLI、本地后管和 Agent runtime 装进 <strong>~/.agent-memory-hub/</strong>，记忆留在本机；<strong>组织模式</strong>再往前一步，用自己的飞书账号加入企业 Hub，把挑选过的记忆共享给全组织。两种模式互不干扰，可以先装个人模式，之后再接组织。</p>
           <div class="access-flow install-panel" aria-label="Agent Memory Hub install commands">
             <div class="install-grid">
               <article class="install-card featured" data-step="01">
+                <h3>组织模式 · 飞书登录</h3>
+                <p>用企业飞书账号加入组织 Hub。装完自动识别本机四端记忆，逐条列出供你勾选，含密钥的一律不上传。</p>
+                <div class="install-command"><code>curl -fsSL https://github.com/liuyang0508/agent-memory-hub/releases/latest/download/install.sh | sh -s -- --org-memory --hub https://amh.你的企业域名.com</code><button class="install-copy-button" type="button" data-copy="curl -fsSL https://github.com/liuyang0508/agent-memory-hub/releases/latest/download/install.sh | sh -s -- --org-memory --hub https://amh.你的企业域名.com" aria-label="复制组织模式安装命令">复制</button></div>
+              </article>
+              <article class="install-card featured" data-step="02">
                 <h3>macOS / Linux</h3>
                 <p>推荐入口。适合远程安装、更新和后续一键卸载。</p>
                 <div class="install-command"><code>curl -fsSL https://github.com/liuyang0508/agent-memory-hub/releases/latest/download/install.sh | sh</code><button class="install-copy-button" type="button" data-copy="curl -fsSL https://github.com/liuyang0508/agent-memory-hub/releases/latest/download/install.sh | sh" aria-label="复制 macOS / Linux 安装命令">复制</button></div>
               </article>
-              <article class="install-card" data-step="02">
+              <article class="install-card" data-step="03">
                 <h3>Windows PowerShell</h3>
                 <p>在 PowerShell 中执行，安装 Windows 侧 CLI 与本地后管入口。</p>
                 <div class="install-command"><code>powershell -ExecutionPolicy ByPass -c "irm https://github.com/liuyang0508/agent-memory-hub/releases/latest/download/install.ps1 | iex"</code><button class="install-copy-button" type="button" data-copy='powershell -ExecutionPolicy ByPass -c "irm https://github.com/liuyang0508/agent-memory-hub/releases/latest/download/install.ps1 | iex"' aria-label="复制 Windows PowerShell 安装命令">复制</button></div>
               </article>
-              <article class="install-card" data-step="03">
+              <article class="install-card" data-step="04">
                 <h3>Homebrew</h3>
                 <p>适合习惯用 brew 管理桌面工具和命令行入口的 macOS 用户。</p>
                 <div class="install-command"><code>brew install --cask liuyang0508/agent-memory-hub/agent-memory-hub</code><button class="install-copy-button" type="button" data-copy="brew install --cask liuyang0508/agent-memory-hub/agent-memory-hub" aria-label="复制 Homebrew 安装命令">复制</button></div>
               </article>
-              <article class="install-card" data-step="04">
+              <article class="install-card" data-step="05">
                 <h3>npm</h3>
                 <p>适合 Node 工具链用户，快速获得全局 memory 命令。</p>
                 <div class="install-command"><code>npm install -g agent-memory-hub</code><button class="install-copy-button" type="button" data-copy="npm install -g agent-memory-hub" aria-label="复制 npm 安装命令">复制</button></div>
               </article>
-              <article class="install-card" data-step="05">
+              <article class="install-card" data-step="06">
                 <h3>Gitee 国内镜像</h3>
                 <p>GitHub 访问不稳定时，从 Gitee 克隆源码并在本机完成安装。</p>
                 <div class="install-command"><code>git clone https://gitee.com/liuyang0508/Agent-Memory-Hub.git ~/agent-memory-hub &amp;&amp; cd ~/agent-memory-hub &amp;&amp; ./install.sh</code><button class="install-copy-button" type="button" data-copy="git clone https://gitee.com/liuyang0508/Agent-Memory-Hub.git ~/agent-memory-hub && cd ~/agent-memory-hub && ./install.sh" aria-label="复制 Gitee 源码安装命令">复制</button></div>
               </article>
-              <article class="install-card" data-step="06">
+              <article class="install-card" data-step="07">
                 <h3>启动本地后管</h3>
                 <p>打开 Web Admin，查看 Agent、运行证据、本机历史源和记忆草稿。</p>
                 <div class="install-command"><code>memory serve --port 8765 --open</code><button class="install-copy-button" type="button" data-copy="memory serve --port 8765 --open" aria-label="复制启动本地后管命令">复制</button></div>
               </article>
-              <article class="install-card danger" data-step="07">
+              <article class="install-card danger" data-step="08">
                 <h3>一键卸载</h3>
                 <p>如果它对你造成了烦恼，可以用同一个远程入口卸载。</p>
                 <div class="install-command"><code>curl -fsSL https://github.com/liuyang0508/agent-memory-hub/releases/latest/download/install.sh | sh -s -- --uninstall</code><button class="install-copy-button" type="button" data-copy="curl -fsSL https://github.com/liuyang0508/agent-memory-hub/releases/latest/download/install.sh | sh -s -- --uninstall" aria-label="复制一键卸载命令">复制</button></div>
