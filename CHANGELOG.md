@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] — 2026-11-01
+
+### Added
+
+- **Organization memory mode** — a self-hosted, single-tenant Hub that shares
+  native memory across members' Claude Code, Codex CLI and Cowork installs.
+  Installed with `install.sh --org-memory --hub <url>`; `--native` still works.
+- **Feishu enterprise login** — no invite codes. The member authorizes in the
+  browser, then the reusable device credential is fetched by the local process
+  over loopback, so only a 120-second one-use ticket ever reaches the browser.
+  `redirect_uri` comes from deployment config, never from a request header.
+- **Per-file history import** — every pre-install memory file is listed with its
+  product, kind, size and a privacy verdict before anything leaves the machine.
+  Blocked files (keys, secrets) are never uploaded; `clean` skips the 185
+  flagged ones the same way.
+- **Operator page** — `/native/v1/admin` with a host-issued token to view
+  members and devices, revoke a device, and set the Feishu credentials.
+- **Idempotent server upgrade** — `deploy/native-memory/upgrade.sh` installs to
+  a versioned release directory, swaps the symlink atomically, and rolls back
+  on a failed health check.
+
+### Fixed
+
+- The upgrade script's `EXIT` trap fired on success too, so every successful
+  upgrade immediately rolled itself back and exited 1.
+- ChatGPT desktop was reported as owning `~/.codex/memories`, which would have
+  labelled Codex memories as ChatGPT's. It keeps memory server-side and has no
+  local store.
+- `all` included blocked files, promising an upload that is always refused.
+- `install.sh` ignored unrecognised options, so asking for a mode it did not
+  have silently produced a full legacy install.
+- `install-native.sh` was stored without its executable bit, breaking the
+  documented `./install-native.sh` invocation after a fresh clone.
+- The official site had no organization-memory section: it was authored on a
+  branch that was never merged.
+
 ### Added
 
 - **Stage 1 governance gates** — Python 3.11/3.12, hook, security,
