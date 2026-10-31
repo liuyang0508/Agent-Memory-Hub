@@ -115,6 +115,19 @@ CREATE TABLE IF NOT EXISTS feishu_tickets(
     used INTEGER DEFAULT 0
 );
 
+-- Additive operator surface; an instance without an admin credential serves no admin page.
+CREATE TABLE IF NOT EXISTS admins(
+    hash TEXT PRIMARY KEY,
+    label TEXT NOT NULL,
+    created REAL NOT NULL,
+    revoked INTEGER DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS settings(
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+
 CREATE VIRTUAL TABLE IF NOT EXISTS search_index USING fts5(
     tenant UNINDEXED,
     asset_id UNINDEXED,

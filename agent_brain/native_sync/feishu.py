@@ -40,11 +40,21 @@ class FeishuConfig:
         return not self.allowed_tenants or tenant_key in self.allowed_tenants
 
 
-def load() -> FeishuConfig | None:
-    """Return configuration only when every required value is present; else login is unavailable."""
-    app_id = os.environ.get("FEISHU_APP_ID", "").strip()
-    app_secret = os.environ.get("FEISHU_APP_SECRET", "").strip()
-    public_url = os.environ.get("AMH_HUB_PUBLIC_URL", "").strip()
+def load(settings: Any = None) -> FeishuConfig | None:
+    """Return configuration only when every required value is present; else login is unavailable.
+
+    Environment variables win so a host operator can pin values system-wide;
+    otherwise the operator page's stored settings apply. Nothing here reads a
+    request, so a browser cannot influence where the code is sent.
+    """
+    read = settings or (lambda key: "")
+
+    def value(key: str, env: str) -> str:
+        return os.environ.get(env, "").strip() or read(key)
+
+    app_id = value("feishu_app_id", "FEISHU_APP_ID")
+    app_secret = value("feishu_app_secret", "FEISHU_APP_SECRET")
+    public_url = value("amh_hub_public_url", "AMH_HUB_PUBLIC_URL")
     if not (app_id and app_secret and public_url):
         return None
     if not public_url.startswith("https://"):
@@ -53,7 +63,7 @@ def load() -> FeishuConfig | None:
         app_id=app_id,
         app_secret=app_secret,
         public_url=public_url,
-        tenant=os.environ.get("FEISHU_TENANT", "linkcrux").strip() or "linkcrux",
+        tenant=os.environ.get("FEISHU_TENANT", "").strip() or read("feishu_tenant") or "linkcrux",
         allowed_tenants=frozenset(
             part.strip()
             for part in os.environ.get("FEISHU_ALLOWED_TENANT_KEYS", "").split(",")

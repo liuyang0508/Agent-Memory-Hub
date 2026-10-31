@@ -76,6 +76,102 @@ class Hub:
             )
         return token
 
+    # ---- operator surface -------------------------------------------------
+    # The admin credential is minted locally on the Hub host (never over HTTP)
+    # and stored only as a digest. It is deliberately separate from device
+    # tokens: revoking a device must never grant or remove operator access.
+
+    def admin_create(self, label: str) -> str:
+        """Create one operator credential and return it once."""
+        if not label.strip() or len(label) > 80:
+            raise ValueError("admin label required")
+        token = secrets.token_urlsafe(32)
+        with database(self.path) as db:
+            db.execute("INSERT INTO admins VALUES(?,?,?,0)", (digest(token), label, time.time()))
+        return token
+
+    def _admin(self, db: sqlite3.Connection, token: str) -> None:
+        row = db.execute(
+            "SELECT 1 FROM admins WHERE hash=? AND revoked=0", (digest(token),)
+        ).fetchone()
+        if row is None:
+            raise PermissionError("operator credential invalid or revoked")
+
+    def admin_overview(self, token: str) -> dict[str, Any]:
+        """Members, devices and pending invitations; never includes any secret."""
+        with database(self.path) as db:
+            self._admin(db, token)
+            members = [
+                dict(row)
+                for row in db.execute(
+                    "SELECT m.id,m.name,m.tenant,"
+                    "(SELECT count(*) FROM devices d WHERE d.member=m.id AND d.revoked=0) devices,"
+                    "(SELECT count(*) FROM assets a WHERE a.tenant=m.tenant) assets "
+                    "FROM members m ORDER BY m.name"
+                )
+            ]
+            devices = [
+                dict(row)
+                for row in db.execute(
+                    "SELECT d.id,d.name,d.revoked,d.member,m.name member_name "
+                    "FROM devices d LEFT JOIN members m ON m.id=d.member ORDER BY d.name"
+                )
+            ]
+            invites = [
+                dict(row)
+                for row in db.execute(
+                    "SELECT i.member,m.name,i.expires,i.used FROM invites i "
+                    "LEFT JOIN members m ON m.id=i.member ORDER BY i.expires DESC LIMIT 50"
+                )
+            ]
+            settings = {
+                row["key"]: row["value"]
+                for row in db.execute(
+                    "SELECT key,value FROM settings WHERE key IN "
+                    "('feishu_app_id','amh_hub_public_url','feishu_tenant')"
+                )
+            }
+        return {"members": members, "devices": devices, "invites": invites, "settings": settings}
+
+    def admin_invite(self, token: str, name: str, ttl: int = 86400) -> dict[str, Any]:
+        """Issue a member invitation from the operator page."""
+        with database(self.path) as db:
+            self._admin(db, token)
+        return {"invite": self.invite(self.tenant, name, ttl=ttl), "name": name, "expires_in": ttl}
+
+    def admin_revoke(self, token: str, device_id: str) -> None:
+        with database(self.path) as db:
+            self._admin(db, token)
+        self.revoke(device_id)
+
+    def admin_setting(self, token: str, key: str, value: str) -> None:
+        """Store deployment settings; an empty value clears the key."""
+        allowed = {"feishu_app_id", "amh_hub_public_url", "feishu_tenant"}
+        if key not in allowed:
+            raise ValueError("unknown setting")
+        with database(self.path) as db:
+            self._admin(db, token)
+            if value:
+                db.execute("INSERT OR REPLACE INTO settings VALUES(?,?)", (key, value))
+            else:
+                db.execute("DELETE FROM settings WHERE key=?", (key,))
+
+    def admin_secret_set(self, token: str, app_secret: str) -> None:
+        """Store the application secret separately so it is never read back by the page."""
+        if not app_secret.strip():
+            raise ValueError("app secret required")
+        with database(self.path) as db:
+            self._admin(db, token)
+            db.execute(
+                "INSERT OR REPLACE INTO settings VALUES('feishu_app_secret',?)", (app_secret,)
+            )
+
+    def setting(self, key: str) -> str:
+        """Read one deployment setting; used by login when environment variables are absent."""
+        with database(self.path) as db:
+            row = db.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
+        return str(row["value"]) if row else ""
+
     def enroll(self, invite: str, device_name: str) -> dict[str, Any]:
         """Consume an invitation and issue one device identity atomically under a writer lock."""
         with database(self.path) as db:

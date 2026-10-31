@@ -63,6 +63,14 @@ def invite(
 
 
 @app.command()
+def admin(db: Path = typer.Option(...), label: str = typer.Option(...)) -> None:
+    """在 Hub 主机签发一个管理令牌，用于 /native/v1/admin 页面；只显示这一次。"""
+    from .hub import Hub
+
+    emit({"admin": Hub(db).admin_create(label), "label": label, "note": "只显示一次"})
+
+
+@app.command()
 def members(db: Path = typer.Option(...)) -> None:
     """管理员查看成员稳定 ID，以便为同一成员登记新设备。"""
     from .hub import Hub

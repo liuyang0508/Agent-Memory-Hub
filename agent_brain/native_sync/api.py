@@ -8,6 +8,10 @@ from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from .hub import Hub
 from .models import (
+    AdminInviteInput,
+    AdminRevokeInput,
+    AdminSecretInput,
+    AdminSettingInput,
     AssetInput,
     EnrollInput,
     FeishuRedeemInput,
@@ -59,10 +63,51 @@ def create_app(hub: Hub) -> FastAPI:
         from . import feishu
 
         try:
-            config = feishu.load()
+            config = feishu.load(hub.setting)
         except ValueError:
             return {"available": False}
         return {"available": config is not None}
+
+    def operator(authorization: str | None) -> str:
+        return bearer(authorization)
+
+    @app.get("/native/v1/admin")
+    def admin_page() -> HTMLResponse:
+        """Operator page; it holds no credential and lists no memory content."""
+        from . import admin
+
+        return HTMLResponse(admin.html())
+
+    @app.get("/native/v1/admin/overview")
+    def admin_overview(authorization: str | None = Header(default=None)) -> dict[str, Any]:
+        return hub.admin_overview(operator(authorization))
+
+    @app.post("/native/v1/admin/invite")
+    def admin_invite(
+        data: AdminInviteInput, authorization: str | None = Header(default=None)
+    ) -> dict[str, Any]:
+        return hub.admin_invite(operator(authorization), data.name, data.ttl)
+
+    @app.post("/native/v1/admin/revoke")
+    def admin_revoke(
+        data: AdminRevokeInput, authorization: str | None = Header(default=None)
+    ) -> dict[str, Any]:
+        hub.admin_revoke(operator(authorization), data.device_id)
+        return {"revoked": data.device_id}
+
+    @app.post("/native/v1/admin/settings")
+    def admin_settings(
+        data: AdminSettingInput, authorization: str | None = Header(default=None)
+    ) -> dict[str, Any]:
+        hub.admin_setting(operator(authorization), data.key, data.value)
+        return {"saved": data.key}
+
+    @app.post("/native/v1/admin/secret")
+    def admin_secret(
+        data: AdminSecretInput, authorization: str | None = Header(default=None)
+    ) -> dict[str, Any]:
+        hub.admin_secret_set(operator(authorization), data.app_secret)
+        return {"saved": "feishu_app_secret"}
 
     @app.post("/native/v1/auth/feishu/start")
     def feishu_start(data: FeishuStartInput) -> dict[str, Any]:
@@ -70,7 +115,7 @@ def create_app(hub: Hub) -> FastAPI:
         from . import feishu
 
         try:
-            config = feishu.load()
+            config = feishu.load(hub.setting)
         except ValueError as exc:
             raise HTTPException(503, str(exc)) from None
         if config is None:
@@ -92,7 +137,7 @@ def create_app(hub: Hub) -> FastAPI:
         if not code or not state:
             raise HTTPException(400, "missing authorization code")
         try:
-            config = feishu.load()
+            config = feishu.load(hub.setting)
         except ValueError as exc:
             raise HTTPException(503, str(exc)) from None
         if config is None:

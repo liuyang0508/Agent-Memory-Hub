@@ -64,6 +64,32 @@ class SearchInput(BaseModel):
     limit: int = Field(default=12, ge=1, le=50)
 
 
+class AdminInviteInput(BaseModel):
+    """Invitation issued by an operator; the organization is server-owned."""
+
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(min_length=1, max_length=160)
+    ttl: int = Field(default=86400, ge=60, le=2_592_000)
+
+
+class AdminRevokeInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    device_id: str = Field(min_length=1, max_length=128)
+
+
+class AdminSettingInput(BaseModel):
+    """Only allowlisted deployment settings reach storage."""
+
+    model_config = ConfigDict(extra="forbid")
+    key: str = Field(min_length=1, max_length=64)
+    value: str = Field(default="", max_length=2048)
+
+
+class AdminSecretInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    app_secret: str = Field(min_length=1, max_length=512)
+
+
 class FeishuStartInput(BaseModel):
     """The browser will return to this loopback port; nothing else is caller-selected."""
 
