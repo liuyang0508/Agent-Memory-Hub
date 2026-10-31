@@ -5,9 +5,16 @@ from typing import Any
 import sqlite3
 
 from fastapi import FastAPI, Header, HTTPException, Query
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from .hub import Hub
-from .models import AssetInput, EnrollInput, SearchInput, RuntimeInviteInput
+from .models import (
+    AssetInput,
+    EnrollInput,
+    FeishuRedeemInput,
+    FeishuStartInput,
+    SearchInput,
+    RuntimeInviteInput,
+)
 
 
 def create_app(hub: Hub) -> FastAPI:
@@ -45,6 +52,68 @@ def create_app(hub: Hub) -> FastAPI:
         except (sqlite3.Error, OSError):
             return JSONResponse(status_code=503, content={"ready": False})
         return JSONResponse(content={"ready": True})
+
+    @app.get("/native/v1/auth/feishu")
+    def feishu_available() -> dict[str, Any]:
+        """Advertise whether this deployment offers browser login, without disclosing credentials."""
+        from . import feishu
+
+        try:
+            config = feishu.load()
+        except ValueError:
+            return {"available": False}
+        return {"available": config is not None}
+
+    @app.post("/native/v1/auth/feishu/start")
+    def feishu_start(data: FeishuStartInput) -> dict[str, Any]:
+        """Return the consent URL for a state bound to the caller's loopback port."""
+        from . import feishu
+
+        try:
+            config = feishu.load()
+        except ValueError as exc:
+            raise HTTPException(503, str(exc)) from None
+        if config is None:
+            raise HTTPException(503, "this Hub does not offer enterprise login")
+        state = hub.feishu_begin(data.port)
+        return {"authorize_url": feishu.authorize_url(config, state), "redirect_uri": config.redirect_uri}
+
+    @app.get("/native/v1/auth/feishu/callback")
+    def feishu_callback(
+        code: str = Query(default=""),
+        state: str = Query(default=""),
+        error: str = Query(default=""),
+    ) -> Any:
+        """Consume the code, then hand a one-use ticket to the caller's loopback listener."""
+        from . import feishu
+
+        if error:
+            raise HTTPException(400, "authorization declined")
+        if not code or not state:
+            raise HTTPException(400, "missing authorization code")
+        try:
+            config = feishu.load()
+        except ValueError as exc:
+            raise HTTPException(503, str(exc)) from None
+        if config is None:
+            raise HTTPException(503, "this Hub does not offer enterprise login")
+        token = feishu.exchange_code(config, code)
+        identity = feishu.user_identity(token)
+        if not config.accepts(identity["tenant_key"]):
+            raise HTTPException(403, "this Feishu tenant is not served by this Hub")
+        port, ticket = hub.feishu_complete(state, code, identity)
+        response = RedirectResponse(
+            "http://127.0.0.1:%d/?ticket=%s" % (port, ticket), status_code=303
+        )
+        response.headers["Referrer-Policy"] = "no-referrer"
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["Content-Security-Policy"] = "default-src 'none'"
+        return response
+
+    @app.post("/native/v1/auth/feishu/redeem")
+    def feishu_redeem(data: FeishuRedeemInput) -> dict[str, Any]:
+        """Exchange the loopback ticket for the device credential, once."""
+        return hub.feishu_redeem(data.ticket, data.device_name)
 
     @app.post("/native/v1/enroll")
     def enroll(data: EnrollInput) -> dict[str, Any]:

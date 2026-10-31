@@ -64,6 +64,21 @@ class SearchInput(BaseModel):
     limit: int = Field(default=12, ge=1, le=50)
 
 
+class FeishuStartInput(BaseModel):
+    """The browser will return to this loopback port; nothing else is caller-selected."""
+
+    model_config = ConfigDict(extra="forbid")
+    port: int = Field(ge=1, le=65535)
+
+
+class FeishuRedeemInput(BaseModel):
+    """One-use loopback ticket plus a display-only device name."""
+
+    model_config = ConfigDict(extra="forbid")
+    ticket: str = Field(min_length=16, max_length=256)
+    device_name: str = Field(min_length=1, max_length=160)
+
+
 class RuntimeInviteInput(BaseModel):
     """Identity and lifetime are server-owned; no caller-selected membership fields."""
 

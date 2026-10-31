@@ -20,6 +20,19 @@ PRODUCTS = {
     "chatgpt-desktop": "ChatGPT 客户端",
 }
 
+KINDS = {
+    "memory": "记忆",
+    "rule": "规则",
+    "skill": "技能",
+    "config": "配置",
+    "transcript": "会话记录",
+}
+
+
+def display_name(kind: str) -> str:
+    """Human label for a source kind; unknown kinds stay visible rather than being hidden."""
+    return KINDS.get(kind, kind)
+
 
 def digest(value: str) -> str:
     """Return the stable UTF-8 SHA-256 used for content/ownership comparison, not identity."""

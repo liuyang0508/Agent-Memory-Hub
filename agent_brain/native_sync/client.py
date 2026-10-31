@@ -70,6 +70,31 @@ class NativeClient:
         )
         return cls(root)
 
+    @classmethod
+    def adopt(cls, root: Path, url: str, identity: dict[str, Any], device_name: str) -> "NativeClient":
+        """Persist an identity the Hub already issued over loopback (enterprise login).
+
+        The credential never travelled through the browser, so nothing here can
+        be replayed from a URL; joining again would mint a second device.
+        """
+        if (Path(root) / "config.json").exists():
+            raise ValueError("profile already joined; choose a new profile for another Hub/device")
+        required = ("tenant_id", "member_id", "member_name", "device_id", "token")
+        if not isinstance(identity, dict) or any(
+            not isinstance(identity.get(k), str) or not identity[k] for k in required
+        ):
+            raise ValueError("invalid login response; local identity was not written")
+        atomic_json(
+            Path(root) / "config.json",
+            {
+                "hub": validate_url(url),
+                "identity": identity,
+                "targets": [],
+                "device_name": device_name,
+            },
+        )
+        return cls(root)
+
     def sources(self) -> list[dict[str, Any]]:
         """Return registered source metadata without reading or uploading source bodies."""
         with database(self.path) as db:

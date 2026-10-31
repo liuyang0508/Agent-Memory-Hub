@@ -108,6 +108,69 @@ def join(
 
 
 @app.command()
+def login(
+    hub: str = typer.Option(...),
+    state: Path = DEFAULT_STATE,
+    device_name: str = socket.gethostname(),
+    timeout: float = 300,
+) -> None:
+    """飞书登录加入组织：浏览器授权后自动登记设备，无需邀请码。"""
+    import http.server
+    import threading
+    import webbrowser
+
+    from .transport import Transport, validate_url
+
+    url = validate_url(hub)
+    transport = Transport(url)
+    available = transport.call("auth/feishu")
+    if not available.get("available"):
+        raise typer.BadParameter("该 Hub 未启用飞书登录，请改用 join 邀请凭证")
+
+    holder: dict[str, str] = {}
+    ready = threading.Event()
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            from urllib.parse import parse_qs, urlsplit
+
+            query = parse_qs(urlsplit(self.path).query)
+            if "ticket" in query:
+                holder["ticket"] = query["ticket"][0]
+                body = "登录完成，可以关闭此页面，回到终端。".encode()
+                ready.set()
+            else:
+                body = "缺少登录票据，请回到终端重试。".encode()
+            self.send_response(200 if "ticket" in query else 400)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args: Any) -> None:
+            return
+
+    server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+    port = server.server_address[1]
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        started = transport.call("auth/feishu/start", {"port": port})
+        console.print("在浏览器完成飞书授权：" + started["authorize_url"])
+        webbrowser.open(started["authorize_url"])
+        if not ready.wait(timeout):
+            raise typer.BadParameter("等待授权超时，请重新运行 login")
+    finally:
+        server.shutdown()
+
+    identity = transport.call(
+        "auth/feishu/redeem", {"ticket": holder["ticket"], "device_name": device_name}
+    )
+    NativeClient.adopt(state, url, identity, device_name)
+    emit({k: v for k, v in identity.items() if k != "token"})
+
+
+@app.command()
 def bind(
     root: Path = typer.Option(...),
     product: str = typer.Option(...),
@@ -122,6 +185,71 @@ def bind(
     if kind == "memory" and native_target:
         add_target(c, root, product)
     emit({"source_id": sid, "history": "excluded until selected"})
+
+
+@app.command("import")
+def import_history(
+    state: Path = DEFAULT_STATE,
+    home: Path = typer.Option(Path.home()),
+    product: list[str] = typer.Option(None, help="只处理指定产品，可重复"),
+    kind: list[str] = typer.Option(None, help="只处理指定类型，可重复"),
+    yes: bool = False,
+    dry_run: bool = False,
+) -> None:
+    """一键导入本地历史：按产品/类型归类，逐类确认后上传。"""
+    from . import history
+
+    # Counting is purely local; requiring an enrolled profile would block the
+    # preview a member wants before deciding whether to join at all.
+    c = None if dry_run and not (state / "config.json").exists() else load(state)
+    chosen_products = product or ["claude-code", "codex-cli", "cowork"]
+    entries = history.catalog(c, home, chosen_products)
+    if kind:
+        wanted = set(kind)
+        entries = [e for e in entries if e["kind"] in wanted]
+    rows = history.group(entries)
+    if not rows:
+        emit({"imported": 0, "note": "未发现可导入的本地历史"})
+        return
+    table = Table("编号", "类别", "文件数", "体积", "说明")
+    for index, row in enumerate(rows, start=1):
+        note = row.get("note") or ""
+        if row.get("oversized"):
+            note = (note + " " if note else "") + f"{row['oversized']} 个超过 64MB 未计入"
+        table.add_row(
+            str(index),
+            history.describe(row).split("：")[0],
+            str(row["files"]),
+            f"{row['bytes'] / 1024 / 1024:.1f} MB",
+            note,
+        )
+    console.print(table)
+    if dry_run:
+        emit(rows)
+        return
+    answer = "all" if yes else typer.prompt("要导入哪些？输入编号（逗号分隔）、all 或 none", default="none")
+    if answer.strip().lower() in ("none", ""):
+        emit({"imported": 0, "note": "未选择任何类别"})
+        return
+    if answer.strip().lower() == "all":
+        picked = rows
+    else:
+        try:
+            indices = {int(part) for part in answer.replace("，", ",").split(",") if part.strip()}
+        except ValueError:
+            raise typer.BadParameter("编号格式不正确") from None
+        if any(i < 1 or i > len(rows) for i in indices):
+            raise typer.BadParameter("编号超出范围")
+        picked = [rows[i - 1] for i in sorted(indices)]
+    console.print(f"将共享给组织全体成员：{len(picked)} 个类别。正文将上传到云端，可被其他成员检索。")
+    if not typer.confirm("确认导入？", default=False):
+        emit({"imported": 0, "note": "已取消"})
+        return
+    results = [
+        history.import_category(c, home, row["product"], row["kind"]) for row in picked
+    ]
+    pushed = c.sync() if not dry_run else {"skipped": True}
+    emit({"imported": results, "sync": pushed})
 
 
 def add_target(c: NativeClient, root: Path, product: str) -> None:

@@ -95,6 +95,26 @@ CREATE INDEX IF NOT EXISTS changes_tenant ON changes(
     seq
 );
 
+-- Additive enterprise-login state; disabled instances never populate it.
+CREATE TABLE IF NOT EXISTS feishu_members(
+    open_id TEXT PRIMARY KEY,
+    member TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS feishu_states(
+    hash TEXT PRIMARY KEY,
+    port INTEGER NOT NULL,
+    expires REAL NOT NULL,
+    used INTEGER DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS feishu_tickets(
+    hash TEXT PRIMARY KEY,
+    member TEXT NOT NULL,
+    expires REAL NOT NULL,
+    used INTEGER DEFAULT 0
+);
+
 CREATE VIRTUAL TABLE IF NOT EXISTS search_index USING fts5(
     tenant UNINDEXED,
     asset_id UNINDEXED,

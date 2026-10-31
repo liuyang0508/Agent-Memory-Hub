@@ -6,6 +6,7 @@ from typing import Any
 import sqlite3
 
 import json
+import os
 import secrets
 import time
 import uuid
@@ -25,6 +26,8 @@ class Hub:
 
     def __init__(self, path: Path) -> None:
         self.path = Path(path)
+        # Deployment-owned organization scope for enterprise logins; invitations carry their own tenant.
+        self.tenant = (os.environ.get("FEISHU_TENANT", "linkcrux").strip() or "linkcrux")[:128]
         with database(self.path) as db:
             db.executescript(HUB_SCHEMA)
 
@@ -104,6 +107,82 @@ class Hub:
             return dict(
                 tenant_id=row["tenant"],
                 member_id=row["id"],
+                member_name=row["name"],
+                device_id=device,
+                token=token,
+            )
+
+    def feishu_begin(self, port: int) -> str:
+        """Issue a one-use state bound to the caller's loopback port.
+
+        The port is what the browser will be sent back to, so it is stored
+        server-side; a caller cannot substitute a foreign redirect target.
+        """
+        if not 1 <= port <= 65535:
+            raise ValueError("loopback port required")
+        state = secrets.token_urlsafe(32)
+        with database(self.path) as db:
+            db.execute(
+                "INSERT INTO feishu_states VALUES(?,?,?,0)",
+                (digest(state), port, time.time() + 300),
+            )
+        return state
+
+    def feishu_complete(self, state: str, code: str, identity: dict[str, str]) -> tuple[int, str]:
+        """Consume a state, bind the Feishu account to a member, return the loopback port.
+
+        Member creation is idempotent per open_id so a second device reuses the
+        same member. A one-use ticket is returned to the browser, never the
+        device credential: the credential is only ever issued over loopback.
+        """
+        with database(self.path) as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute(
+                "SELECT port,used,expires FROM feishu_states WHERE hash=?", (digest(state),)
+            ).fetchone()
+            if row is None or row["used"] or row["expires"] < time.time():
+                raise ValueError("login state invalid, expired or used")
+            db.execute("UPDATE feishu_states SET used=1 WHERE hash=?", (digest(state),))
+            port = int(row["port"])
+            open_id = identity["open_id"]
+            linked = db.execute(
+                "SELECT member FROM feishu_members WHERE open_id=?", (open_id,)
+            ).fetchone()
+            if linked is None:
+                member = "mem_" + uuid.uuid4().hex
+                db.execute(
+                    "INSERT INTO members VALUES(?,?,?)", (member, self.tenant, identity["name"])
+                )
+                db.execute("INSERT INTO feishu_members VALUES(?,?)", (open_id, member))
+            else:
+                member = linked["member"]
+            ticket = secrets.token_urlsafe(32)
+            db.execute(
+                "INSERT INTO feishu_tickets VALUES(?,?,?,0)",
+                (digest(ticket), member, time.time() + 120),
+            )
+        return port, ticket
+
+    def feishu_redeem(self, ticket: str, device_name: str) -> dict[str, Any]:
+        """Exchange a loopback ticket for a device credential, once."""
+        with database(self.path) as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute(
+                "SELECT t.member,t.used,t.expires,m.tenant,m.name FROM feishu_tickets t "
+                "JOIN members m ON m.id=t.member WHERE t.hash=?",
+                (digest(ticket),),
+            ).fetchone()
+            if row is None or row["used"] or row["expires"] < time.time():
+                raise ValueError("login ticket invalid, expired or used")
+            db.execute("UPDATE feishu_tickets SET used=1 WHERE hash=?", (digest(ticket),))
+            device, token = "dev_" + uuid.uuid4().hex, secrets.token_urlsafe(32)
+            db.execute(
+                "INSERT INTO devices VALUES(?,?,?,?,0)",
+                (device, row["member"], digest(token), device_name),
+            )
+            return dict(
+                tenant_id=row["tenant"],
+                member_id=row["member"],
                 member_name=row["name"],
                 device_id=device,
                 token=token,
