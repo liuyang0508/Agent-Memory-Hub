@@ -33,8 +33,9 @@ previous=""
 
 rollback() {
   code=$?
-  [ "$code" -ne 0 ] || code=1
   trap - EXIT
+  # A clean exit must not roll back: the EXIT trap fires on success too.
+  [ "$code" -ne 0 ] || exit 0
   set +e
   if [ -n "$previous" ] && [ -d "$previous" ]; then
     ln -sfn "$previous" "$current"
