@@ -37,17 +37,29 @@ def discover(home: Path) -> list[dict[str, Any]]:
             "roots": [str(home / ".codex/memories")],
         }
     )
-    for app, product in [("ChatGPT", "chatgpt-desktop"), ("Codex", "codex-desktop")]:
-        if (Path("/Applications") / (app + ".app")).exists():
-            result.append(
-                {
-                    "product": product,
-                    "name": PRODUCTS[product],
-                    "detected": True,
-                    "roots": [str(home / ".codex/memories")],
-                    "note": "shares Codex store; verify active host",
-                }
-            )
+    # ChatGPT desktop keeps its memory server-side on the account, not in a local
+    # store, so reporting ~/.codex/memories here would label Codex memories as
+    # ChatGPT's. Report it as detected with nothing importable instead.
+    if (Path("/Applications") / "ChatGPT.app").exists():
+        result.append(
+            {
+                "product": "chatgpt-desktop",
+                "name": PRODUCTS["chatgpt-desktop"],
+                "detected": True,
+                "roots": [],
+                "note": "记忆保存在账号服务端，本机没有可导入的记忆目录",
+            }
+        )
+    if (Path("/Applications") / "Codex.app").exists():
+        result.append(
+            {
+                "product": "codex-desktop",
+                "name": PRODUCTS["codex-desktop"],
+                "detected": True,
+                "roots": [str(home / ".codex/memories")],
+                "note": "与 Codex CLI 共用同一份存储",
+            }
+        )
     cowork = home / "Library/Application Support/Claude/local-agent-mode-sessions"
     roots = [str(p.parent) for p in cowork.rglob("MEMORY.md")] if cowork.exists() else []
     result.append(

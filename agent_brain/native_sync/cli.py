@@ -42,6 +42,15 @@ def load(state: Path) -> NativeClient:
     return NativeClient(state)
 
 
+def all_selectable(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Every row except blocked ones: a blocked file can never be uploaded."""
+    picked = [row for row in rows if row["risk"] != "blocked"]
+    dropped = len(rows) - len(picked)
+    if dropped:
+        console.print(f"含密钥的 {dropped} 个文件一律不上传，已从 all 中排除。", markup=False)
+    return picked
+
+
 @app.command()
 def admin(db: Path = typer.Option(...), label: str = typer.Option(...)) -> None:
     """在 Hub 主机签发一个管理令牌，用于 /native/v1/admin 页面；只显示这一次。"""
@@ -235,7 +244,7 @@ def import_history(
         emit({"imported": 0, "note": "未选择任何文件"})
         return
     if answer == "all":
-        picked = rows
+        picked = all_selectable(rows)
     elif answer == "clean":
         picked = [row for row in rows if row["risk"] == "clean"]
     else:
@@ -426,7 +435,7 @@ def setup(
         table.add_row(
             p["name"],
             "已发现" if p["detected"] else "未发现",
-            "\n".join(p["roots"]) or "运行环境未暴露本地目录",
+            "\n".join(p["roots"]) or p.get("note") or "运行环境未暴露本地目录",
         )
     console.print(table)
     console.print("组织服务地址：" + hub)
@@ -468,7 +477,7 @@ def setup(
         )
         answer = typer.prompt("要同步哪些？", default="").strip().lower()
         if answer == "all":
-            picked = rows
+            picked = all_selectable(rows)
         elif answer == "clean":
             picked = [row for row in rows if row["risk"] == "clean"]
         elif answer:
