@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.4] — 2026-11-01
+
+### Fixed
+
+- 1.2.3 downloaded the wheel to a `mktemp` name, which pip rejects as an
+  invalid wheel filename. The published name is kept inside a scratch
+  directory instead.
+
 ## [1.2.3] — 2026-11-01
 
 ### Fixed

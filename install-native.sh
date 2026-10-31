@@ -99,7 +99,10 @@ if [ -n "$WHEEL_URL" ]; then
   # pip does not accept extras on a URL ("...whl[web]" is read as a path and
   # 404s), so fetch the file first and install it by path.
   echo "Downloading wheel: $WHEEL_URL"
-  WHEEL=$(mktemp /tmp/amh-wheel.XXXXXXXX.whl)
+  # pip validates the wheel filename, so keep the published name inside a
+  # scratch directory rather than renaming the file.
+  wheel_dir=$(mktemp -d /tmp/amh-wheel.XXXXXX)
+  WHEEL="$wheel_dir/${WHEEL_URL##*/}"
   curl -fsSL "$WHEEL_URL" -o "$WHEEL" || { echo 'could not download the wheel' >&2; exit 1; }
 fi
 echo "Installing wheel: $WHEEL"
