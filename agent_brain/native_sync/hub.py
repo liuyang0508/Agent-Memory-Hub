@@ -26,10 +26,19 @@ class Hub:
 
     def __init__(self, path: Path) -> None:
         self.path = Path(path)
-        # Deployment-owned organization scope for enterprise logins; invitations carry their own tenant.
-        self.tenant = (os.environ.get("FEISHU_TENANT", "linkcrux").strip() or "linkcrux")[:128]
         with database(self.path) as db:
             db.executescript(HUB_SCHEMA)
+
+    @property
+    def tenant(self) -> str:
+        """Organization scope for enterprise logins.
+
+        Resolved per call so the operator page's setting applies without a
+        restart, and so an environment pin still wins. Invitations carry their
+        own tenant and are unaffected.
+        """
+        pinned = os.environ.get("FEISHU_TENANT", "").strip()
+        return (pinned or self.setting("feishu_tenant") or "linkcrux")[:128]
 
     def ready(self) -> None:
         """Probe schema/index access and writer-lock acquisition within 100ms of waits.
@@ -69,8 +78,18 @@ class Hub:
                 if row is None or row["tenant"] != tenant:
                     raise ValueError("member not found in this organization")
             else:
-                member_id = "mem_" + uuid.uuid4().hex
-                db.execute("INSERT INTO members VALUES(?,?,?)", (member_id, tenant, name))
+                # Reuse an unlinked member with the same exact name: pressing
+                # "生成邀请" twice must not split one person across identities.
+                existing = db.execute(
+                    "SELECT id FROM members WHERE tenant=? AND name=? AND id NOT IN "
+                    "(SELECT member FROM feishu_members) LIMIT 1",
+                    (tenant, name),
+                ).fetchone()
+                if existing:
+                    member_id = existing["id"]
+                else:
+                    member_id = "mem_" + uuid.uuid4().hex
+                    db.execute("INSERT INTO members VALUES(?,?,?)", (member_id, tenant, name))
             db.execute(
                 "INSERT INTO invites VALUES(?,?,?,0)", (digest(token), member_id, time.time() + ttl)
             )
@@ -224,19 +243,41 @@ class Hub:
             )
         return state
 
-    def feishu_complete(self, state: str, code: str, identity: dict[str, str]) -> tuple[int, str]:
+    def feishu_check(self, state: str) -> None:
+        """Reject an unknown or expired state before any outbound call is made.
+
+        The callback is public; without this, anyone could drive the Hub to
+        spend Feishu's rate limit by posting invented states. Consumption stays
+        in ``feishu_complete`` so a failed code exchange does not burn a state
+        that a retry could still use.
+        """
+        with database(self.path) as db:
+            row = db.execute(
+                "SELECT used,expires FROM feishu_states WHERE hash=?", (digest(state),)
+            ).fetchone()
+        if row is None or row["used"] or row["expires"] < time.time():
+            raise ValueError("login state invalid, expired or used")
+
+    def feishu_complete(self, state: str, identity: dict[str, str]) -> tuple[int, str]:
         """Consume a state, bind the Feishu account to a member, return the loopback port.
 
         Member creation is idempotent per open_id so a second device reuses the
-        same member. A one-use ticket is returned to the browser, never the
-        device credential: the credential is only ever issued over loopback.
+        same member. An invited member with the same exact name is adopted when
+        it is unambiguous, so nobody ends up with two identities. A one-use
+        ticket is returned to the browser, never the device credential: the
+        credential is only ever issued over loopback.
         """
         with database(self.path) as db:
             db.execute("BEGIN IMMEDIATE")
+            now = time.time()
+            # Expired rows are unusable anyway; dropping them keeps the table
+            # bounded on a public endpoint that anyone can start a login on.
+            db.execute("DELETE FROM feishu_states WHERE expires<?", (now,))
+            db.execute("DELETE FROM feishu_tickets WHERE expires<?", (now,))
             row = db.execute(
                 "SELECT port,used,expires FROM feishu_states WHERE hash=?", (digest(state),)
             ).fetchone()
-            if row is None or row["used"] or row["expires"] < time.time():
+            if row is None or row["used"] or row["expires"] < now:
                 raise ValueError("login state invalid, expired or used")
             db.execute("UPDATE feishu_states SET used=1 WHERE hash=?", (digest(state),))
             port = int(row["port"])
@@ -245,10 +286,21 @@ class Hub:
                 "SELECT member FROM feishu_members WHERE open_id=?", (open_id,)
             ).fetchone()
             if linked is None:
-                member = "mem_" + uuid.uuid4().hex
-                db.execute(
-                    "INSERT INTO members VALUES(?,?,?)", (member, self.tenant, identity["name"])
-                )
+                # Only a single unlinked match is adopted; two colleagues with
+                # the same display name must not collapse into one identity.
+                candidates = db.execute(
+                    "SELECT id FROM members WHERE tenant=? AND name=? AND id NOT IN "
+                    "(SELECT member FROM feishu_members)",
+                    (self.tenant, identity["name"]),
+                ).fetchall()
+                if len(candidates) == 1:
+                    member = candidates[0]["id"]
+                else:
+                    member = "mem_" + uuid.uuid4().hex
+                    db.execute(
+                        "INSERT INTO members VALUES(?,?,?)",
+                        (member, self.tenant, identity["name"]),
+                    )
                 db.execute("INSERT INTO feishu_members VALUES(?,?)", (open_id, member))
             else:
                 member = linked["member"]

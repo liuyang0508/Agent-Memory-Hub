@@ -142,11 +142,17 @@ def create_app(hub: Hub) -> FastAPI:
             raise HTTPException(503, str(exc)) from None
         if config is None:
             raise HTTPException(503, "this Hub does not offer enterprise login")
+        try:
+            # Public endpoint: refuse unknown states before spending an outbound
+            # request, so invented states cannot drive Feishu's rate limit.
+            hub.feishu_check(state)
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from None
         token = feishu.exchange_code(config, code)
         identity = feishu.user_identity(token)
         if not config.accepts(identity["tenant_key"]):
             raise HTTPException(403, "this Feishu tenant is not served by this Hub")
-        port, ticket = hub.feishu_complete(state, code, identity)
+        port, ticket = hub.feishu_complete(state, identity)
         response = RedirectResponse(
             "http://127.0.0.1:%d/?ticket=%s" % (port, ticket), status_code=303
         )

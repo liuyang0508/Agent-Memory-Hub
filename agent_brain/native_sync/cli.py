@@ -217,7 +217,6 @@ def import_history(
     if not rows:
         emit({"imported": 0, "note": "未发现可导入的本地历史"})
         return
-    current = None
     group_label = ""
     for index, row in enumerate(rows, start=1):
         label = f"{row['product_name']} · {display_name(row['kind'])}"
@@ -244,7 +243,10 @@ def import_history(
     if dry_run:
         emit(rows)
         return
-    answer = "all" if yes else typer.prompt("要同步哪些？", default="")
+    # --yes must never mean "including the ones flagged as private": the whole
+    # point of the marker is that a person reads it before that content leaves
+    # the machine.
+    answer = "clean" if yes else typer.prompt("要同步哪些？", default="")
     answer = answer.strip().lower()
     if answer in ("", "none"):
         emit({"imported": 0, "note": "未选择任何文件"})

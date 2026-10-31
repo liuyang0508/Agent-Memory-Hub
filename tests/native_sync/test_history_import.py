@@ -48,61 +48,47 @@ def make_home(tmp_path: Path) -> Path:
     return home
 
 
-def test_catalog_groups_by_product_and_kind(tmp_path):
+def test_items_covers_every_product_and_never_double_counts_shared_store(tmp_path):
     home = make_home(tmp_path)
-    rows = history.group(history.catalog(None, home, ["claude-code", "codex-cli"]))
+    rows = history.items(home, ["claude-code", "codex-cli", "codex-desktop", "chatgpt-desktop"])
     kinds = {(row["product"], row["kind"]) for row in rows}
     assert ("claude-code", "memory") in kinds
     assert ("claude-code", "transcript") in kinds
-    assert ("claude-shared", "rule") not in kinds
-    # Codex CLI, desktop and ChatGPT share one store and must not be double counted.
-    assert sum(1 for row in rows if row["product"] == "codex-shared" and row["kind"] == "rule") == 1
-    memory = next(row for row in rows if row["product"] == "claude-code" and row["kind"] == "memory")
-    assert memory["files"] == 2
+    # Codex CLI, desktop and ChatGPT share one store; each file appears once.
+    codex_rules = [row for row in rows if row["product"] == "codex-shared" and row["kind"] == "rule"]
+    assert len(codex_rules) == 1
+    paths = [row["path"] for row in rows]
+    assert len(paths) == len(set(paths))
+    memory = [row for row in rows if row["product"] == "claude-code" and row["kind"] == "memory"]
+    assert len(memory) == 2
 
 
-def test_oversized_files_are_counted_separately_not_as_importable(tmp_path, monkeypatch):
+def test_oversized_files_are_never_offered(tmp_path, monkeypatch):
     home = make_home(tmp_path)
     memory = home / ".claude/projects/-Users-someone/memory"
     (memory / "huge.md").write_text("x" * 500)
-    # Normal fixtures stay under the limit; only the 500-byte file is excluded.
     monkeypatch.setattr(history, "MAX_BYTES", 200)
-    rows = history.group(history.catalog(None, home, ["claude-code"]))
-    row = next(r for r in rows if r["kind"] == "memory")
-    assert row["files"] == 2
-    assert row["oversized"] == 1
-    assert row["bytes"] < 500
+    names = {row["name"] for row in history.items(home, ["claude-code"])}
+    assert "huge.md" not in names
+    assert "MEMORY.md" in names
 
 
-def test_credentials_and_private_files_are_never_counted(tmp_path):
+def test_credentials_and_private_files_are_never_offered(tmp_path):
     home = make_home(tmp_path)
     memory = home / ".claude/projects/-Users-someone/memory"
     (memory / ".env").write_text("OPENAI_API_KEY=sk-secret\n")
     (memory / "id_rsa").write_text("PRIVATE KEY\n")
-    rows = history.group(history.catalog(None, home, ["claude-code"]))
-    row = next(r for r in rows if r["kind"] == "memory")
-    assert row["files"] == 2
-
-
-def test_selection_is_bound_to_fresh_preview(tmp_path):
-    from agent_brain.native_sync.client import NativeClient
-    from agent_brain.native_sync.hub import Hub
-
-    home = make_home(tmp_path)
-    hub = Hub(tmp_path / "hub.sqlite")
-    identity = hub.enroll(hub.invite("linkcrux", "张三"), "Mac")
-    client = NativeClient(tmp_path / "state", transport=LocalTransport(hub, identity), identity=identity)
-    result = history.import_category(client, home, "claude-code", "memory")
-    assert result["selected"] == 2
-    # Everything selected is now eligible to upload; nothing was read from network.
-    assert client.pending_count() >= 0
-    with_transcripts = history.import_category(client, home, "claude-code", "transcript")
-    assert with_transcripts["selected"] == 1
+    names = {row["name"] for row in history.items(home, ["claude-code"])}
+    assert ".env" not in names
+    assert "id_rsa" not in names
+    assert "MEMORY.md" in names
 
 
 def test_unknown_kind_still_shows_a_label():
-    assert history.display_name("memory") == "记忆"
-    assert history.display_name("something-new") == "something-new"
+    from agent_brain.native_sync.common import display_name
+
+    assert display_name("memory") == "记忆"
+    assert display_name("something-new") == "something-new"
 
 
 @pytest.mark.parametrize(
@@ -126,7 +112,7 @@ def test_screen_classifies_without_echoing_content(body, risk):
     assert "13812345678" not in rendered
 
 
-def test_blocked_files_are_never_selected_even_when_category_chosen(tmp_path):
+def test_blocked_file_is_flagged_and_never_imported(tmp_path):
     from agent_brain.native_sync.client import NativeClient
     from agent_brain.native_sync.hub import Hub
 
@@ -138,12 +124,40 @@ def test_blocked_files_are_never_selected_even_when_category_chosen(tmp_path):
     client = NativeClient(
         tmp_path / "state", transport=LocalTransport(hub, identity), identity=identity
     )
-    result = history.import_category(client, home, "claude-code", "memory")
-    assert result["blocked"] == [str(memory / "leak.md")]
+    rows = [row for row in history.items(home, ["claude-code"]) if row["kind"] == "memory"]
+    leak = next(row for row in rows if row["name"] == "leak.md")
+    assert leak["risk"] == "blocked"
+    result = history.import_paths(client, home, rows)
+    assert result["rejected"] == [str(memory / "leak.md")]
     assert result["selected"] == 2  # the two clean fixtures only
 
 
-def test_sensitive_files_require_explicit_approval(tmp_path):
+def test_late_sensitive_content_is_refused_not_uploaded(tmp_path):
+    from agent_brain.native_sync.client import NativeClient
+    from agent_brain.native_sync.hub import Hub
+
+    home = make_home(tmp_path)
+    memory = home / ".claude/projects/-Users-someone/memory"
+    # The phone number sits past the prefix the checklist screens, so the list
+    # reports this file as clean; import must still refuse to send it.
+    (memory / "buried.md").write_text("# 说明\n" + ("填充\n" * 30000) + "我电话 13812345678\n")
+    hub = Hub(tmp_path / "hub.sqlite")
+    identity = hub.enroll(hub.invite("linkcrux", "张三"), "Mac")
+    client = NativeClient(
+        tmp_path / "state", transport=LocalTransport(hub, identity), identity=identity
+    )
+    buried = [
+        row
+        for row in history.items(home, ["claude-code"])
+        if row["name"] == "buried.md" and row["kind"] == "memory"
+    ]
+    assert buried[0]["risk"] == "clean"
+    result = history.import_paths(client, home, buried)
+    assert result["selected"] == 0
+    assert [item["path"] for item in result["late_sensitive"]] == [str(memory / "buried.md")]
+
+
+def test_sensitive_file_is_imported_only_when_ticked(tmp_path):
     from agent_brain.native_sync.client import NativeClient
     from agent_brain.native_sync.hub import Hub
 
@@ -155,13 +169,15 @@ def test_sensitive_files_require_explicit_approval(tmp_path):
     client = NativeClient(
         tmp_path / "state", transport=LocalTransport(hub, identity), identity=identity
     )
-    default = history.import_category(client, home, "claude-code", "memory")
-    assert [item["path"] for item in default["sensitive"]] == [str(memory / "private.md")]
-    assert default["selected"] == 2
-    approved = history.import_category(
-        client, home, "claude-code", "memory", accept_sensitive={str(memory / "private.md")}
-    )
-    assert approved["selected"] == 3
+    rows = [row for row in history.items(home, ["claude-code"]) if row["kind"] == "memory"]
+    private = next(row for row in rows if row["name"] == "private.md")
+    assert private["risk"] == "sensitive"
+    # Not ticked: the other files upload, this one does not.
+    skipped = history.import_paths(client, home, [r for r in rows if r["name"] != "private.md"])
+    assert skipped["selected"] == 2
+    # Ticked explicitly: now it uploads.
+    taken = history.import_paths(client, home, [private])
+    assert taken["selected"] == 1
 
 
 def test_items_lists_each_file_with_title_and_verdict(tmp_path):
@@ -243,11 +259,3 @@ def test_new_files_in_a_registered_root_sync_without_asking_again(tmp_path):
     assert stored, "the file written after install never reached the Hub"
 
 
-def test_survey_reports_counts_before_joining(tmp_path):
-    home = make_home(tmp_path)
-    memory = home / ".claude/projects/-Users-someone/memory"
-    (memory / "private.md").write_text("月薪 35000\n")
-    survey = history.survey_category(home, "claude-code", "memory")
-    assert survey["clean"] == 2
-    assert [item["path"] for item in survey["sensitive"]] == [str(memory / "private.md")]
-    assert survey["blocked"] == 0

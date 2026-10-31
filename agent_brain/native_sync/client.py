@@ -10,7 +10,7 @@ import uuid
 from pathlib import Path
 from .common import atomic_json, digest, tokens
 from .storage import database, CLIENT_SCHEMA
-from .transport import Transport
+from .transport import Transport, validate_url
 from .contracts import SyncTransport
 
 from .source import source_text, read_document, files, enqueue_document, queue_delete
@@ -233,6 +233,32 @@ class NativeClient:
             for p in selections:
                 db.execute(
                     "UPDATE snapshots SET selected=1,hash=? WHERE source=? AND path=?", ("", sid, p)
+                )
+
+    def select_targets(self, sid: str, selections: dict[str, str]) -> None:
+        """Select explicit paths after re-reading only those files.
+
+        Same guarantee as ``select`` (a changed file is refused), without
+        re-reading an entire transcript source of hundreds of megabytes just to
+        confirm the handful of files the member actually ticked.
+        """
+        with database(self.path) as db:
+            source = db.execute("SELECT * FROM sources WHERE id=?", (sid,)).fetchone()
+        if source is None:
+            raise ValueError("source not found")
+        root = Path(source["root"])
+        for rel, expected in selections.items():
+            path = root if source["file_source"] else root / rel
+            try:
+                body = source_text(path, source["kind"])
+            except (ValueError, OSError, UnicodeError):
+                raise ValueError("history changed; preview again") from None
+            if body is None or digest(body) != expected:
+                raise ValueError("history changed; preview again")
+        with database(self.path) as db:
+            for rel in selections:
+                db.execute(
+                    "UPDATE snapshots SET selected=1,hash=? WHERE source=? AND path=?", ("", sid, rel)
                 )
 
     def refresh_excluded_history(self) -> None:
