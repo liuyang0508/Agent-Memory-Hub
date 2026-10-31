@@ -1,6 +1,7 @@
 """Single fail-closed boundary for turning retrieved memories into prompt context."""
 
 import logging
+import os
 from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime
@@ -28,6 +29,21 @@ from agent_brain.memory.context.query_signal import QuerySignal, analyze_injecti
 logger = logging.getLogger(__name__)
 _CONTEXT_VERBOSITIES = frozenset(get_args(ContextVerbosity))
 _INJECTION_OVERFETCH_CAP = 50
+
+
+def search_query_gate_disabled() -> bool:
+    """Whether this process opts out of the injectability gate for MCP search.
+
+    The gate judges whether a *human question* is worth injecting memories for;
+    it answers with anchors (files, JSON fields, ASCII identifiers) that long
+    CJK clauses never produce, so a scoped programmatic caller (per-subject
+    recall via search_memory with project/tenant/tags hard filters) would see
+    every BM25 hit discarded as ``query_not_injectable``.  Setting
+    ``MEMORY_HUB_SEARCH_QUERY_GATE=off`` declares the whole process
+    programmatic: query-shape gates are skipped while item-level firewall
+    rules (sensitivity, superseded, review-required) still apply.
+    """
+    return os.environ.get("MEMORY_HUB_SEARCH_QUERY_GATE", "").strip().lower() == "off"
 _UNKNOWN_EXCLUSION_REASON_ERROR = "unsupported injection exclusion reason"
 _PACKING_ANNOTATION_REASONS = frozenset({
     "budget_downgraded_to_locator",
