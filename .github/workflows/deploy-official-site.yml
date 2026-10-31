@@ -151,8 +151,10 @@ jobs:
           remote="${AIHUB_SSH_USER}@${AIHUB_SSH_HOST}"
           bundle=$(python -c "import json;print(json.load(open('dist/bundle.json'))['bundle_sha256'])")
           wheel="$NATIVE_STAGE/wheelhouse/$(ls dist/wheelhouse | head -1)"
+          # The previous rollout already required uid 0 here, so root login is
+          # expected; sudo is used only when the account is not already root.
           ssh -i ~/.ssh/aihub_key -p "$AIHUB_SSH_PORT" "$remote" \
-            "sudo bash '$NATIVE_STAGE/upgrade.sh' '$wheel' '$NATIVE_STAGE/wheelhouse' '$bundle' '$GITHUB_SHA'"
+            "if [ \$(id -u) -eq 0 ]; then bash '$NATIVE_STAGE/upgrade.sh' '$wheel' '$NATIVE_STAGE/wheelhouse' '$bundle' '$GITHUB_SHA'; else sudo bash '$NATIVE_STAGE/upgrade.sh' '$wheel' '$NATIVE_STAGE/wheelhouse' '$bundle' '$GITHUB_SHA'; fi"
           # Verify from inside the host, so a TLS or CDN problem is not mistaken for a service failure.
           ssh -i ~/.ssh/aihub_key -p "$AIHUB_SSH_PORT" "$remote" \
             "curl -fsS --max-time 10 http://127.0.0.1:8787/native/v1/ready"
