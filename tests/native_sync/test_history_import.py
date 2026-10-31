@@ -1,6 +1,9 @@
 """One-click import: categories reflect real stores and never overstate what can upload."""
 
+import json
 from pathlib import Path
+
+import pytest
 
 from agent_brain.native_sync import history
 
@@ -100,3 +103,151 @@ def test_selection_is_bound_to_fresh_preview(tmp_path):
 def test_unknown_kind_still_shows_a_label():
     assert history.display_name("memory") == "记忆"
     assert history.display_name("something-new") == "something-new"
+
+
+@pytest.mark.parametrize(
+    "body,risk",
+    [
+        ("-----BEGIN RSA PRIVATE KEY-----\nabc\n", "blocked"),
+        ("password = hunter2abc", "blocked"),
+        ("API 密钥 sk-abcdefghijklmnopqrstuvwxyz", "blocked"),
+        ("我电话 13812345678", "sensitive"),
+        ("身份证 110105199003071234", "sensitive"),
+        ("月薪 35000，年终奖另算", "sensitive"),
+        ("联系 zhangsan@example.com", "sensitive"),
+        ("订单回调验签失败时检查密钥版本", "clean"),
+    ],
+)
+def test_screen_classifies_without_echoing_content(body, risk):
+    verdict = history.screen(body)
+    assert verdict["risk"] == risk
+    rendered = json.dumps(verdict, ensure_ascii=False)
+    assert "hunter2" not in rendered
+    assert "13812345678" not in rendered
+
+
+def test_blocked_files_are_never_selected_even_when_category_chosen(tmp_path):
+    from agent_brain.native_sync.client import NativeClient
+    from agent_brain.native_sync.hub import Hub
+
+    home = make_home(tmp_path)
+    memory = home / ".claude/projects/-Users-someone/memory"
+    (memory / "leak.md").write_text("-----BEGIN OPENSSH PRIVATE KEY-----\nabc\n")
+    hub = Hub(tmp_path / "hub.sqlite")
+    identity = hub.enroll(hub.invite("linkcrux", "张三"), "Mac")
+    client = NativeClient(
+        tmp_path / "state", transport=LocalTransport(hub, identity), identity=identity
+    )
+    result = history.import_category(client, home, "claude-code", "memory")
+    assert result["blocked"] == [str(memory / "leak.md")]
+    assert result["selected"] == 2  # the two clean fixtures only
+
+
+def test_sensitive_files_require_explicit_approval(tmp_path):
+    from agent_brain.native_sync.client import NativeClient
+    from agent_brain.native_sync.hub import Hub
+
+    home = make_home(tmp_path)
+    memory = home / ".claude/projects/-Users-someone/memory"
+    (memory / "private.md").write_text("我电话 13812345678\n")
+    hub = Hub(tmp_path / "hub.sqlite")
+    identity = hub.enroll(hub.invite("linkcrux", "张三"), "Mac")
+    client = NativeClient(
+        tmp_path / "state", transport=LocalTransport(hub, identity), identity=identity
+    )
+    default = history.import_category(client, home, "claude-code", "memory")
+    assert [item["path"] for item in default["sensitive"]] == [str(memory / "private.md")]
+    assert default["selected"] == 2
+    approved = history.import_category(
+        client, home, "claude-code", "memory", accept_sensitive={str(memory / "private.md")}
+    )
+    assert approved["selected"] == 3
+
+
+def test_items_lists_each_file_with_title_and_verdict(tmp_path):
+    home = make_home(tmp_path)
+    memory = home / ".claude/projects/-Users-someone/memory"
+    (memory / "private.md").write_text("# 我的私人记录\n我电话 13812345678\n")
+    (memory / "leak.md").write_text("-----BEGIN RSA PRIVATE KEY-----\n")
+    rows = history.items(home, ["claude-code"])
+    by_name = {row["name"]: row for row in rows}
+    assert by_name["MEMORY.md"]["risk"] == "clean"
+    assert by_name["private.md"]["risk"] == "sensitive"
+    assert by_name["private.md"]["reasons"] == ["手机号"]
+    assert by_name["private.md"]["title"] == "我的私人记录"
+    # Blocked files stay listed so the person can see why they are unavailable.
+    assert by_name["leak.md"]["risk"] == "blocked"
+    assert all(row["path"].startswith("/") for row in rows)
+
+
+def test_import_paths_takes_only_the_ticked_files(tmp_path):
+    from agent_brain.native_sync.client import NativeClient
+    from agent_brain.native_sync.hub import Hub
+
+    home = make_home(tmp_path)
+    hub = Hub(tmp_path / "hub.sqlite")
+    identity = hub.enroll(hub.invite("linkcrux", "张三"), "Mac")
+    client = NativeClient(
+        tmp_path / "state", transport=LocalTransport(hub, identity), identity=identity
+    )
+    rows = history.items(home, ["claude-code"])
+    chosen = [row for row in rows if row["name"] == "MEMORY.md"]
+    result = history.import_paths(client, home, chosen)
+    assert result["selected"] == 1
+    # The sibling note was not ticked, so it stays excluded from upload.
+    sid = client.sources()[0]["id"]
+    selected = {row["path"] for row in client.preview(sid) if row["selected"]}
+    assert selected == {"MEMORY.md"}
+
+
+def test_import_paths_refuses_a_blocked_file_even_if_selected(tmp_path):
+    from agent_brain.native_sync.client import NativeClient
+    from agent_brain.native_sync.hub import Hub
+
+    home = make_home(tmp_path)
+    memory = home / ".claude/projects/-Users-someone/memory"
+    (memory / "leak.md").write_text("-----BEGIN RSA PRIVATE KEY-----\nabc\n")
+    hub = Hub(tmp_path / "hub.sqlite")
+    identity = hub.enroll(hub.invite("linkcrux", "张三"), "Mac")
+    client = NativeClient(
+        tmp_path / "state", transport=LocalTransport(hub, identity), identity=identity
+    )
+    rows = history.items(home, ["claude-code"])
+    leak = [row for row in rows if row["name"] == "leak.md"]
+    result = history.import_paths(client, home, leak)
+    assert result["selected"] == 0
+    assert result["rejected"] == [str(memory / "leak.md")]
+
+
+def test_new_files_in_a_registered_root_sync_without_asking_again(tmp_path):
+    from agent_brain.native_sync.client import NativeClient
+    from agent_brain.native_sync.hub import Hub
+
+    home = make_home(tmp_path)
+    hub = Hub(tmp_path / "hub.sqlite")
+    identity = hub.enroll(hub.invite("linkcrux", "张三"), "Mac")
+    client = NativeClient(
+        tmp_path / "state", transport=LocalTransport(hub, identity), identity=identity
+    )
+    rows = history.items(home, ["claude-code"])
+    history.import_paths(client, home, [row for row in rows if row["name"] == "MEMORY.md"])
+    memory = home / ".claude/projects/-Users-someone/memory"
+    (memory / "later.md").write_text("安装之后新写的记忆\n")
+    # A file written after install needs no second decision; it enters the queue
+    # on the next scan and sync uploads it.
+    client.scan()
+    assert client.pending_count() >= 1
+    client.sync()
+    assert client.pending_count() == 0
+    stored = client.transport.search("安装之后新写的记忆")
+    assert stored, "the file written after install never reached the Hub"
+
+
+def test_survey_reports_counts_before_joining(tmp_path):
+    home = make_home(tmp_path)
+    memory = home / ".claude/projects/-Users-someone/memory"
+    (memory / "private.md").write_text("月薪 35000\n")
+    survey = history.survey_category(home, "claude-code", "memory")
+    assert survey["clean"] == 2
+    assert [item["path"] for item in survey["sensitive"]] == [str(memory / "private.md")]
+    assert survey["blocked"] == 0

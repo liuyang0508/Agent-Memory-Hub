@@ -16,7 +16,7 @@ from rich.console import Console
 from rich.table import Table
 
 from .client import NativeClient
-from .common import PRODUCTS, atomic_json
+from .common import PRODUCTS, atomic_json, display_name
 from .storage import database
 from .install import (
     discover as discover_products,
@@ -196,60 +196,87 @@ def import_history(
     yes: bool = False,
     dry_run: bool = False,
 ) -> None:
-    """一键导入本地历史：按产品/类型归类，逐类确认后上传。"""
+    """导入安装前的历史记忆：逐条列出可同步内容，由你勾选，此后新增自动同步。"""
     from . import history
 
-    # Counting is purely local; requiring an enrolled profile would block the
-    # preview a member wants before deciding whether to join at all.
-    c = None if dry_run and not (state / "config.json").exists() else load(state)
-    chosen_products = product or ["claude-code", "codex-cli", "cowork"]
-    entries = history.catalog(c, home, chosen_products)
+    # Listing is purely local; requiring an enrolled profile would block the
+    # review a member wants before deciding whether to join at all.
+    chosen_products = product or list(PRODUCTS)
+    rows = history.items(home, chosen_products)
     if kind:
         wanted = set(kind)
-        entries = [e for e in entries if e["kind"] in wanted]
-    rows = history.group(entries)
+        rows = [row for row in rows if row["kind"] in wanted]
     if not rows:
         emit({"imported": 0, "note": "未发现可导入的本地历史"})
         return
-    table = Table("编号", "类别", "文件数", "体积", "说明")
+    current = None
+    group_label = ""
     for index, row in enumerate(rows, start=1):
-        note = row.get("note") or ""
-        if row.get("oversized"):
-            note = (note + " " if note else "") + f"{row['oversized']} 个超过 64MB 未计入"
-        table.add_row(
-            str(index),
-            history.describe(row).split("：")[0],
-            str(row["files"]),
-            f"{row['bytes'] / 1024 / 1024:.1f} MB",
-            note,
+        label = f"{row['product_name']} · {display_name(row['kind'])}"
+        if label != group_label:
+            console.print(f"\n[bold]{label}[/bold]", markup=True)
+            group_label = label
+        marks = ""
+        if row["risk"] == "sensitive":
+            marks = "  ⚠ " + "、".join(row["reasons"])
+        console.print(
+            f"  {index:3d}. {row['name']} — {row['title']} "
+            f"({row['bytes'] / 1024:.0f} KB){marks}",
+            markup=False,
         )
-    console.print(table)
+    console.print(
+        "\n⚠ 标记的文件命中了手机号、身份证、银行卡、邮箱或工资/病历等措辞。"
+        "勾选它们意味着这些内容会上传并被全组织检索引擎读到。",
+        markup=False,
+    )
+    console.print(
+        "输入编号勾选（如 1,3,5-9）；clean 选全部无标记项；all 选全部；直接回车跳过。",
+        markup=False,
+    )
     if dry_run:
         emit(rows)
         return
-    answer = "all" if yes else typer.prompt("要导入哪些？输入编号（逗号分隔）、all 或 none", default="none")
-    if answer.strip().lower() in ("none", ""):
-        emit({"imported": 0, "note": "未选择任何类别"})
+    answer = "all" if yes else typer.prompt("要同步哪些？", default="")
+    answer = answer.strip().lower()
+    if answer in ("", "none"):
+        emit({"imported": 0, "note": "未选择任何文件"})
         return
-    if answer.strip().lower() == "all":
+    if answer == "all":
         picked = rows
+    elif answer == "clean":
+        picked = [row for row in rows if row["risk"] == "clean"]
     else:
+        picked_indices: set[int] = set()
         try:
-            indices = {int(part) for part in answer.replace("，", ",").split(",") if part.strip()}
+            for part in answer.replace("，", ",").split(","):
+                part = part.strip()
+                if not part:
+                    continue
+                if "-" in part:
+                    start, end = part.split("-", 1)
+                    picked_indices.update(range(int(start), int(end) + 1))
+                else:
+                    picked_indices.add(int(part))
         except ValueError:
-            raise typer.BadParameter("编号格式不正确") from None
-        if any(i < 1 or i > len(rows) for i in indices):
+            raise typer.BadParameter("编号格式不正确，例如 1,3,5-9") from None
+        if any(i < 1 or i > len(rows) for i in picked_indices):
             raise typer.BadParameter("编号超出范围")
-        picked = [rows[i - 1] for i in sorted(indices)]
-    console.print(f"将共享给组织全体成员：{len(picked)} 个类别。正文将上传到云端，可被其他成员检索。")
-    if not typer.confirm("确认导入？", default=False):
+        picked = [rows[i - 1] for i in sorted(picked_indices)]
+    risky = sum(1 for row in picked if row["risk"] == "sensitive")
+    console.print(
+        f"将上传 {len(picked)} 个文件到组织云端，其中 {risky} 个带隐私标记。"
+        "上传后其他成员可检索正文。",
+        markup=False,
+    )
+    if not typer.confirm("确认同步这些记忆？", default=False):
         emit({"imported": 0, "note": "已取消"})
         return
-    results = [
-        history.import_category(c, home, row["product"], row["kind"]) for row in picked
-    ]
-    pushed = c.sync() if not dry_run else {"skipped": True}
-    emit({"imported": results, "sync": pushed})
+    current = None if dry_run and not (state / "config.json").exists() else load(state)
+    if current is None:
+        raise typer.BadParameter("请先完成登录或加入组织，再执行导入")
+    result = history.import_paths(current, home, picked)
+    pushed = current.sync()
+    emit({"import": result, "sync": pushed})
 
 
 def add_target(c: NativeClient, root: Path, product: str) -> None:
