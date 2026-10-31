@@ -96,12 +96,14 @@ fi
 "$VENV/bin/python" -m pip install --quiet --upgrade pip >/dev/null 2>&1 || true
 
 if [ -n "$WHEEL_URL" ]; then
-  echo "Installing published wheel: $WHEEL_URL"
-  "$VENV/bin/python" -m pip install --quiet "$WHEEL_URL[web]"
-else
-  echo "Installing wheel: $WHEEL"
-  "$VENV/bin/python" -m pip install --quiet "$WHEEL[web]"
+  # pip does not accept extras on a URL ("...whl[web]" is read as a path and
+  # 404s), so fetch the file first and install it by path.
+  echo "Downloading wheel: $WHEEL_URL"
+  WHEEL=$(mktemp /tmp/amh-wheel.XXXXXXXX.whl)
+  curl -fsSL "$WHEEL_URL" -o "$WHEEL" || { echo 'could not download the wheel' >&2; exit 1; }
 fi
+echo "Installing wheel: $WHEEL"
+"$VENV/bin/python" -m pip install --quiet "$WHEEL[web]"
 
 mkdir -p "$HOME/.local/bin"
 # Point at the console entrypoint, not into a source tree.

@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.3] — 2026-11-01
+
+### Fixed
+
+- 1.2.2 could not install from the published release: `pip` does not accept
+  extras on a URL, so `…/agent_memory_hub-py3-none-any.whl[web]` was read as a
+  literal path and returned 404. The installer now downloads the wheel and
+  installs it by path.
+
 ## [1.2.2] — 2026-11-01
 
 ### Changed
