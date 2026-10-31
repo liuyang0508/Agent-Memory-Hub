@@ -3,6 +3,13 @@ from __future__ import annotations
 
 import math
 
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from typing import TYPE_CHECKING
+
+from agent_brain.memory.recall.retrieval_types import RetrievedItem
+from agent_brain.contracts.memory_item import DECAY_HALF_LIFE_DAYS
+
 # Ranking weight bounds for confidence/decay adjustments. Fusion (RRF) score
 # gaps between candidates are typically a few percent, so a ±35% multiplier
 # let metadata (recency, access counts, confidence) override lexical/vector
@@ -10,12 +17,6 @@ import math
 # without flipping relevance order. The unbounded breakdown remains available
 # for diagnostics and governance (archival, lineage).
 _RANK_WEIGHT_MAX = 0.05
-from dataclasses import dataclass
-from datetime import datetime, timezone
-from typing import TYPE_CHECKING
-
-from agent_brain.memory.recall.retrieval_types import RetrievedItem
-from agent_brain.contracts.memory_item import DECAY_HALF_LIFE_DAYS
 
 if TYPE_CHECKING:
     from agent_brain.platform.indexing.index import HubIndex

@@ -1,0 +1,25 @@
+[Unit]
+Description=AMH native organization memory Hub
+After=network.target
+
+[Service]
+Type=simple
+User=amh-native
+Group=amh-native
+WorkingDirectory=/opt/agent-memory-hub
+ExecStart=/opt/agent-memory-hub/.native-venv/bin/amh-native serve --db /var/lib/amh-native/hub.sqlite --host 127.0.0.1 --port 8787
+# Optional deployment settings (Feishu login). A leading "-" keeps the unit
+# valid before the file exists, so an install without enterprise login works.
+EnvironmentFile=-/etc/amh-native/feishu.env
+Restart=on-failure
+RestartSec=3
+UMask=0077
+StateDirectory=amh-native
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/amh-native
+
+[Install]
+WantedBy=multi-user.target

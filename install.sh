@@ -107,6 +107,12 @@ EOF
   exec ./install.sh "$@"
 fi
 
+for arg in "$@"; do
+  if [ "$arg" = "--native" ]; then
+    exec sh "$SCRIPT_DIR/install-native.sh" "$@"
+  fi
+done
+
 CODE_DIR="$SCRIPT_DIR"
 USER_DATA="${BRAIN_DIR:-$HOME/.agent-memory-hub}"
 ACTION="install"
