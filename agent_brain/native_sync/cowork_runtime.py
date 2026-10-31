@@ -94,13 +94,16 @@ def enroll_runtime(state: Path, policy: dict[str, Any], connection: Path) -> Nat
             )
         ):
             raise PermissionError("connection file differs from the pinned organization/member")
-        client = NativeClient.join(
+        from .transport import Transport
+
+        transport = Transport(policy["hub"], timeout=5)
+        identity = transport.enroll(str(ticket["invite"]), "Claude Cowork runtime")
+        client = NativeClient.adopt(
             state,
             policy["hub"],
-            ticket["invite"],
+            identity,
             "Claude Cowork runtime",
             expected_identity={k: policy[k] for k in ("member_id", "tenant_id")},
-            timeout=5,
         )
         atomic_json(state / "runtime-status.json", {"phase": "enrolled", "time": time.time()})
         return client

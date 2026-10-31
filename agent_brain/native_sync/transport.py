@@ -77,8 +77,8 @@ class Transport:
                 raise OSError(f"Hub temporarily unavailable: HTTP {exc.code}") from None
             raise ValueError(f"Hub HTTP {exc.code}") from None
 
-    def enroll(self, invite: str, device_name: str) -> Any:
-        return self.call("enroll", {"invite": invite, "device_name": device_name})
+    def enroll(self, ticket: str, device_name: str) -> Any:
+        return self.call("enroll", {"ticket": ticket, "device_name": device_name})
 
     def me(self) -> Any:
         return self.call("me")

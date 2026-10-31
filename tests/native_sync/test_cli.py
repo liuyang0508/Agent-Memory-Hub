@@ -5,13 +5,11 @@ from agent_brain.native_sync.cli import app
 runner = CliRunner()
 
 
-def test_cli_admin_invite_and_status_do_not_mix_with_legacy(tmp_path):
+def test_cli_admin_token_and_status_do_not_mix_with_legacy(tmp_path):
     db = tmp_path / "hub.sqlite"
-    result = runner.invoke(
-        app, ["invite", "--db", str(db), "--tenant", "linkcrux", "--name", "张三"]
-    )
+    result = runner.invoke(app, ["admin", "--db", str(db), "--label", "运维"])
     assert result.exit_code == 0, result.output
-    assert len(json.loads(result.output)["invite"]) > 20
+    assert len(json.loads(result.output)["admin"]) > 20
     result = runner.invoke(app, ["status", "--state", str(tmp_path / "unjoined")])
     assert result.exit_code != 0
     assert not (tmp_path / "unjoined/state.sqlite").exists()

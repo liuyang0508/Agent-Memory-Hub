@@ -14,9 +14,14 @@ def hub(tmp_path):
     return Hub(tmp_path / "hub.sqlite")
 
 
-def enroll(hub, tenant="linkcrux", name="张三", member=None):
-    invite = hub.invite(tenant, name, member_id=member)
-    return hub.enroll(invite, "test-mac")
+def enroll(hub, tenant="linkcrux", name="张三", device="test-mac"):
+    """Issue a device for a member; joining no longer uses an invitation secret."""
+    return hub.provision(name, device, tenant=tenant)
+
+
+def enroll_runtime(hub, host):
+    """Pair a second runtime for an existing member through a one-use ticket."""
+    return hub.enroll(hub.runtime_invite(host["token"])["invite"], "test-runtime")
 
 
 def asset(key="a", body="订单回调验签失败检查签名密钥版本", **extra):
@@ -35,12 +40,13 @@ def asset(key="a", body="订单回调验签失败检查签名密钥版本", **ex
     return value
 
 
-def test_invitation_is_single_use_and_new_device_keeps_member(hub):
-    invite = hub.invite("linkcrux", "张三")
-    a = hub.enroll(invite, "Mac A")
-    with pytest.raises(ValueError):
-        hub.enroll(invite, "imposter")
-    b = enroll(hub, member=a["member_id"])
+def test_same_name_keeps_one_member_across_devices(hub):
+    a = hub.provision("张三", "Mac A")
+    b = hub.provision("张三", "Mac B")
+    assert a["member_id"] == b["member_id"]
+    assert a["device_id"] != b["device_id"]
+    assert a["token"] != b["token"]
+    assert a["token"] not in Path(hub.path).read_bytes().decode("utf8", errors="ignore")
     assert a["member_id"] == b["member_id"]
     assert a["device_id"] != b["device_id"]
     assert a["token"] != b["token"]
@@ -115,9 +121,11 @@ def test_pagination_is_tenant_scoped_and_stable(hub):
 def test_http_auth_validation_and_no_cross_tenant_request_override(hub):
     c = TestClient(create_app(hub))
     assert c.post("/native/v1/search", json={"query": "订单"}).status_code == 401
-    e = c.post(
-        "/native/v1/enroll", json={"invite": hub.invite("linkcrux", "张三"), "device_name": "Mac"}
-    )
+    host = hub.provision("张三", "Mac")
+    ticket = c.post(
+        "/native/v1/runtime-invites", json={}, headers={"Authorization": "Bearer " + host["token"]}
+    ).json()["invite"]
+    e = c.post("/native/v1/enroll", json={"ticket": ticket, "device_name": "Mac 2"})
     assert e.status_code == 200
     headers = {"Authorization": "Bearer " + e.json()["token"]}
     assert c.post("/native/v1/assets", headers=headers, json=asset()).status_code == 200

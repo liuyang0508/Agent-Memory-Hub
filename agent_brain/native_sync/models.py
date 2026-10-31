@@ -47,10 +47,10 @@ class AssetInput(BaseModel):
 
 
 class EnrollInput(BaseModel):
-    """One-use invitation plus a display-only device name, never the vendor account password."""
+    """One-use runtime pairing ticket plus a display-only device name."""
 
     model_config = ConfigDict(extra="forbid")
-    invite: str = Field(min_length=16, max_length=256)
+    ticket: str = Field(min_length=16, max_length=256)
     device_name: str = Field(min_length=1, max_length=160)
 
 
@@ -62,14 +62,6 @@ class SearchInput(BaseModel):
     project_hint: str = Field(default="", max_length=256)
     project_filter: str | None = Field(default=None, max_length=256)
     limit: int = Field(default=12, ge=1, le=50)
-
-
-class AdminInviteInput(BaseModel):
-    """Invitation issued by an operator; the organization is server-owned."""
-
-    model_config = ConfigDict(extra="forbid")
-    name: str = Field(min_length=1, max_length=160)
-    ttl: int = Field(default=86400, ge=60, le=2_592_000)
 
 
 class AdminRevokeInput(BaseModel):

@@ -121,13 +121,14 @@ def test_parallel_replays_commit_one_revision_and_one_change(tmp_path):
     assert len(hub.changes(who["token"], 0)["items"]) == 1
 
 
-def test_parallel_enrollment_consumes_invitation_once(tmp_path):
+def test_parallel_enrollment_consumes_pairing_ticket_once(tmp_path):
     hub = Hub(tmp_path / "hub.sqlite")
-    invite = hub.invite("linkcrux", "member")
+    host = hub.provision("member", "host")
+    ticket = hub.runtime_invite(host["token"])["invite"]
 
     def attempt(_):
         try:
-            return hub.enroll(invite, "test-device")
+            return hub.enroll(ticket, "test-device")
         except ValueError:
             return None
 

@@ -51,13 +51,6 @@ CREATE TABLE IF NOT EXISTS members(
     name TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS invites(
-    hash TEXT PRIMARY KEY,
-    member TEXT NOT NULL,
-    expires REAL NOT NULL,
-    used INTEGER DEFAULT 0
-);
-
 CREATE TABLE IF NOT EXISTS devices(
     id TEXT PRIMARY KEY,
     member TEXT NOT NULL,

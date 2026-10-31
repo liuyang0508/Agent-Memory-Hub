@@ -45,7 +45,7 @@ def test_overview_requires_an_operator_credential(operator):
 
 def test_device_credential_does_not_open_the_operator_page(hub, operator):
     client, headers, _ = operator
-    device = hub.enroll(hub.invite("linkcrux", "张三"), "Mac")
+    device = hub.provision("张三", "Mac")
     device_headers = {"Authorization": "Bearer " + device["token"]}
     assert client.get("/native/v1/admin/overview", headers=device_headers).status_code == 401
     # ...and the operator credential is not a device credential.
@@ -53,13 +53,10 @@ def test_device_credential_does_not_open_the_operator_page(hub, operator):
         hub.identity(hub.admin_create("另一人"))
 
 
-def test_invite_then_enroll_shows_up_in_overview(operator):
+def test_joined_member_shows_up_in_overview(operator, hub):
     client, headers, _ = operator
-    created = client.post("/native/v1/admin/invite", json={"name": "张三"}, headers=headers).json()
-    assert len(created["invite"]) > 20
-    device = client.post(
-        "/native/v1/enroll", json={"invite": created["invite"], "device_name": "Mac A"}
-    ).json()
+    # Members join with a Feishu account; there is no invitation to issue.
+    device = hub.provision("张三", "Mac A")
     overview = client.get("/native/v1/admin/overview", headers=headers).json()
     assert [m["name"] for m in overview["members"]] == ["张三"]
     assert overview["members"][0]["devices"] == 1
@@ -67,12 +64,9 @@ def test_invite_then_enroll_shows_up_in_overview(operator):
     assert device["device_id"] in {d["id"] for d in overview["devices"]}
 
 
-def test_revoke_through_page_disables_the_device(operator):
+def test_revoke_through_page_disables_the_device(operator, hub):
     client, headers, _ = operator
-    invite = client.post("/native/v1/admin/invite", json={"name": "张三"}, headers=headers).json()
-    device = client.post(
-        "/native/v1/enroll", json={"invite": invite["invite"], "device_name": "Mac A"}
-    ).json()
+    device = hub.provision("张三", "Mac A")
     client.post("/native/v1/admin/revoke", json={"device_id": device["device_id"]}, headers=headers)
     assert (
         client.get(

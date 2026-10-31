@@ -79,7 +79,7 @@ def test_expired_runtime_ticket_cannot_enroll(tmp_path):
 
 def test_pairing_keeps_credentials_outside_plugin_and_is_idempotent(live, tmp_path):
     hub, url = live
-    host = NativeClient.join(tmp_path / "host", url, hub.invite("linkcrux", "member"), "host")
+    host = NativeClient.adopt(tmp_path / "host", url, hub.provision("member", "host"), "host")
     connection = tmp_path / "connection.json"
     policy = export_connection(host.root, connection)
     ticket = json.loads(connection.read_text())
@@ -98,7 +98,7 @@ def test_pairing_keeps_credentials_outside_plugin_and_is_idempotent(live, tmp_pa
 
 def test_modified_connection_cannot_repoint_pinned_hub(live, tmp_path):
     hub, url = live
-    host = NativeClient.join(tmp_path / "host", url, hub.invite("linkcrux", "member"), "host")
+    host = NativeClient.adopt(tmp_path / "host", url, hub.provision("member", "host"), "host")
     connection = tmp_path / "connection.json"
     policy = export_connection(host.root, connection)
     ticket = json.loads(connection.read_text())
@@ -110,26 +110,26 @@ def test_modified_connection_cannot_repoint_pinned_hub(live, tmp_path):
 
 
 def test_mismatched_enrollment_response_is_never_persisted(live, tmp_path, monkeypatch):
+    from agent_brain.native_sync import cowork_runtime
     from agent_brain.native_sync.transport import Transport
 
     hub, url = live
-    invite = hub.invite("linkcrux", "member")
+    host = hub.provision("member", "host")
+    ticket = hub.runtime_invite(host["token"])
+    policy = {"hub": url, "member_id": host["member_id"], "tenant_id": host["tenant_id"]}
+    connection = tmp_path / "connection.json"
+    connection.write_text(json.dumps({**ticket, "hub": url, "protocol": 1}))
+
     original = Transport.enroll
 
-    def wrong_identity(self, invite, device_name):
-        result = original(self, invite, device_name)
+    def wrong_identity(self, ticket_value, device_name):
+        result = original(self, ticket_value, device_name)
         result["member_id"] = "wrong-member"
         return result
 
     monkeypatch.setattr(Transport, "enroll", wrong_identity)
     with pytest.raises(PermissionError):
-        NativeClient.join(
-            tmp_path / "runtime",
-            url,
-            invite,
-            "runtime",
-            expected_identity={"member_id": "expected-member"},
-        )
+        cowork_runtime.enroll_runtime(tmp_path / "runtime", policy, connection)
     assert not (tmp_path / "runtime/config.json").exists()
 
 
@@ -233,7 +233,7 @@ def test_remount_between_discovery_and_scan_never_uploads_other_history(
 
 def test_created_file_observation_survives_pairing_and_async_baseline(live, tmp_path, monkeypatch):
     hub, url = live
-    host = NativeClient.join(tmp_path / "host", url, hub.invite("linkcrux", "member"), "host")
+    host = NativeClient.adopt(tmp_path / "host", url, hub.provision("member", "host"), "host")
     connection = tmp_path / "connection.json"
     policy = export_connection(host.root, connection)
     state = tmp_path / "runtime"
@@ -262,7 +262,7 @@ def test_created_file_observation_survives_pairing_and_async_baseline(live, tmp_
 
 def test_session_hook_queues_baseline_even_while_database_is_busy(live, tmp_path):
     hub, url = live
-    c = NativeClient.join(tmp_path / "runtime", url, hub.invite("linkcrux", "member"), "runtime")
+    c = NativeClient.adopt(tmp_path / "runtime", url, hub.provision("member", "runtime"), "runtime")
     root = tmp_path / "many-memories"
     root.mkdir()
     (root / "history.md").write_text("history" * 100_000)
@@ -298,7 +298,7 @@ def test_session_hook_queues_baseline_even_while_database_is_busy(live, tmp_path
 
 def test_hook_never_calls_history_baseline_inline(live, tmp_path):
     hub, url = live
-    c = NativeClient.join(tmp_path / "runtime", url, hub.invite("linkcrux", "member"), "runtime")
+    c = NativeClient.adopt(tmp_path / "runtime", url, hub.provision("member", "runtime"), "runtime")
     root = tmp_path / "memory"
     root.mkdir()
     env = {**os.environ, "CLAUDE_COWORK_MEMORY_PATH_OVERRIDE": str(root)}
@@ -325,7 +325,7 @@ main()
 
 def test_unstable_pending_create_is_held_for_visible_history_review(live, tmp_path, monkeypatch):
     hub, url = live
-    c = NativeClient.join(tmp_path / "runtime", url, hub.invite("linkcrux", "member"), "runtime")
+    c = NativeClient.adopt(tmp_path / "runtime", url, hub.provision("member", "runtime"), "runtime")
     root = tmp_path / "memory"
     root.mkdir()
     path = root / "new.md"
@@ -406,7 +406,7 @@ def test_pairing_preflight_failure_leaves_client_configuration_untouched(
     from typer.testing import CliRunner
 
     hub, url = live
-    c = NativeClient.join(tmp_path / "state", url, hub.invite("linkcrux", "member"), "host")
+    c = NativeClient.adopt(tmp_path / "state", url, hub.provision("member", "host"), "host")
     home = tmp_path / "home"
     (home / ".codex").mkdir(parents=True)
     config = home / ".codex/config.toml"
@@ -428,7 +428,7 @@ def test_pairing_preflight_failure_leaves_client_configuration_untouched(
     result = CliRunner().invoke(
         cli.app,
         ["setup", "--hub", url, "--state", str(c.root), "--home", str(home), "--no-service"],
-        input="y\ny\ny\n",
+        input="\ny\ny\ny\n",
     )
     assert result.exit_code == 1
     assert config.read_text() == 'model = "keep-this-config"\n'

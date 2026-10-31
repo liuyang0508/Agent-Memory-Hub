@@ -120,7 +120,7 @@ def test_blocked_file_is_flagged_and_never_imported(tmp_path):
     memory = home / ".claude/projects/-Users-someone/memory"
     (memory / "leak.md").write_text("-----BEGIN OPENSSH PRIVATE KEY-----\nabc\n")
     hub = Hub(tmp_path / "hub.sqlite")
-    identity = hub.enroll(hub.invite("linkcrux", "张三"), "Mac")
+    identity = hub.provision("张三", "Mac")
     client = NativeClient(
         tmp_path / "state", transport=LocalTransport(hub, identity), identity=identity
     )
@@ -142,7 +142,7 @@ def test_late_sensitive_content_is_refused_not_uploaded(tmp_path):
     # reports this file as clean; import must still refuse to send it.
     (memory / "buried.md").write_text("# 说明\n" + ("填充\n" * 30000) + "我电话 13812345678\n")
     hub = Hub(tmp_path / "hub.sqlite")
-    identity = hub.enroll(hub.invite("linkcrux", "张三"), "Mac")
+    identity = hub.provision("张三", "Mac")
     client = NativeClient(
         tmp_path / "state", transport=LocalTransport(hub, identity), identity=identity
     )
@@ -165,7 +165,7 @@ def test_sensitive_file_is_imported_only_when_ticked(tmp_path):
     memory = home / ".claude/projects/-Users-someone/memory"
     (memory / "private.md").write_text("我电话 13812345678\n")
     hub = Hub(tmp_path / "hub.sqlite")
-    identity = hub.enroll(hub.invite("linkcrux", "张三"), "Mac")
+    identity = hub.provision("张三", "Mac")
     client = NativeClient(
         tmp_path / "state", transport=LocalTransport(hub, identity), identity=identity
     )
@@ -202,7 +202,7 @@ def test_import_paths_takes_only_the_ticked_files(tmp_path):
 
     home = make_home(tmp_path)
     hub = Hub(tmp_path / "hub.sqlite")
-    identity = hub.enroll(hub.invite("linkcrux", "张三"), "Mac")
+    identity = hub.provision("张三", "Mac")
     client = NativeClient(
         tmp_path / "state", transport=LocalTransport(hub, identity), identity=identity
     )
@@ -224,7 +224,7 @@ def test_import_paths_refuses_a_blocked_file_even_if_selected(tmp_path):
     memory = home / ".claude/projects/-Users-someone/memory"
     (memory / "leak.md").write_text("-----BEGIN RSA PRIVATE KEY-----\nabc\n")
     hub = Hub(tmp_path / "hub.sqlite")
-    identity = hub.enroll(hub.invite("linkcrux", "张三"), "Mac")
+    identity = hub.provision("张三", "Mac")
     client = NativeClient(
         tmp_path / "state", transport=LocalTransport(hub, identity), identity=identity
     )
@@ -241,7 +241,7 @@ def test_new_files_in_a_registered_root_sync_without_asking_again(tmp_path):
 
     home = make_home(tmp_path)
     hub = Hub(tmp_path / "hub.sqlite")
-    identity = hub.enroll(hub.invite("linkcrux", "张三"), "Mac")
+    identity = hub.provision("张三", "Mac")
     client = NativeClient(
         tmp_path / "state", transport=LocalTransport(hub, identity), identity=identity
     )

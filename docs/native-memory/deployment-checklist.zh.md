@@ -121,12 +121,12 @@ curl -fsS https://amh.企业域名.com/native/v1/auth/feishu
 
 ## 6. 第一个成员
 
-两种方式，任选：
+成员在终端执行 `./install-native.sh --hub https://amh.企业域名.com`，
+脚本会依次完成：识别本机四端记忆目录 → 打开浏览器做飞书登录 →
+逐条列出可共享的历史记忆供勾选 → 安装 Hook 并启动后台同步。
 
-- **飞书登录**：成员在终端执行
-  `amh-native login --hub https://amh.企业域名.com`，浏览器授权后自动登记设备。
-- **邀请码**：管理页点「生成一次性邀请」，把结果单独发给本人；
-  成员执行 `amh-native join --hub https://amh.企业域名.com`。
+没有邀请码，也不需要在管理页为谁单独分配。成员加入的唯一凭据是
+该企业飞书账号，`tenant_key` 用来确认归属。
 
 **验证**：管理页的成员表里出现该成员，设备表里有一条「正常」设备。
 
@@ -148,7 +148,7 @@ sudo nginx -t && sudo systemctl reload nginx
 | 备份 | 用 SQLite `Connection.backup()` 做一致快照；只复制主文件会漏 WAL |
 | 恢复 | 见 `operations.zh.md`：恢复前要对账设备撤销，并处理客户端游标代次 |
 | 监控 | `ready` 持续失败、待传队列增长、磁盘、证书到期 |
-| 令牌 | 设备令牌、邀请码、管理令牌、App Secret 都不得写进日志或工单 |
+| 令牌 | 设备令牌、配对票据、管理令牌、App Secret 都不得写进日志或工单 |
 | 升级 | 停服务 → 换代码 → 启服务；管理页配置和数据库不受影响 |
 
 ## 9. 常见问题

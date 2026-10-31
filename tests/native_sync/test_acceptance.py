@@ -20,8 +20,8 @@ PRODUCTS = ["claude-code", "codex-cli", "cowork", "codex-desktop"]
 )
 def test_two_members_cloud_and_native_file_paths(live, tmp_path, source_product, target_product):
     hub, url = live
-    author = NativeClient.join(tmp_path / "author", url, hub.invite("linkcrux", "甲成员"), "A")
-    reader = NativeClient.join(tmp_path / "reader", url, hub.invite("linkcrux", "乙成员"), "B")
+    author = NativeClient.adopt(tmp_path / "author", url, hub.provision("甲成员", "A"), "A")
+    reader = NativeClient.adopt(tmp_path / "reader", url, hub.provision("乙成员", "B"), "B")
     source = tmp_path / "source"
     source.mkdir()
     author.register(source, source_product, "source-project", "memory")

@@ -45,7 +45,7 @@ def test_confirmed_hook_memory_is_alias_not_new_producer(live, tmp_path):
     hub, url = live
     a = enroll(hub)
     original = hub.put(a["token"], asset(body="ORIGIN_CANARY original memory"))
-    b = NativeClient.join(tmp_path / "b", url, hub.invite("linkcrux", "李四"), "B")
+    b = NativeClient.adopt(tmp_path / "b", url, hub.provision("李四", "B"), "B")
     root = tmp_path / "notes"
     root.mkdir()
     b.register(root, "claude-code", "orders", "memory")
@@ -85,7 +85,7 @@ def test_native_read_records_only_visible_full_resource_coverage(live, tmp_path)
     hub, url = live
     a = enroll(hub)
     hub.put(a["token"], asset(body="NATIVE_READ_CANARY"))
-    b = NativeClient.join(tmp_path / "b", url, hub.invite("linkcrux", "李四"), "B")
+    b = NativeClient.adopt(tmp_path / "b", url, hub.provision("李四", "B"), "B")
     b.sync()
     target = tmp_path / "memory"
     publish(target, "claude-code", b.cached())
@@ -221,7 +221,7 @@ def test_converting_existing_asset_to_alias_retires_its_old_cloud_fact(live, tmp
     hub, url = live
     a = enroll(hub)
     hub.put(a["token"], asset(body="ORIGIN_CANARY"))
-    b = NativeClient.join(tmp_path / "b", url, hub.invite("linkcrux", "李四"), "B")
+    b = NativeClient.adopt(tmp_path / "b", url, hub.provision("李四", "B"), "B")
     root = tmp_path / "notes"
     root.mkdir()
     b.register(root, "claude-code", "orders", "memory")

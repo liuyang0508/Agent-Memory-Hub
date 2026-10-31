@@ -35,7 +35,7 @@ PAGE = """<!doctype html>
 </head>
 <body>
 <h1>组织记忆 Hub</h1>
-<p class="sub">本页只列出成员、设备与邀请，不含任何记忆正文。</p>
+<p class="sub">本页只列出成员与设备，不含任何记忆正文。</p>
 
 <div id="token-box">
   <p class="muted">请在 Hub 主机执行 <span class="mono">amh-native admin --db &lt;库&gt; --label 你的名字</span> 取得管理令牌，然后粘贴到这里。令牌只在本次浏览器会话内保存。</p>
@@ -58,17 +58,8 @@ PAGE = """<!doctype html>
   <h2>设备</h2>
   <table><thead><tr><th>设备</th><th>所属成员</th><th>状态</th><th></th></tr></thead><tbody id="devices"></tbody></table>
 
-  <h2>邀请</h2>
-  <div class="row">
-    <input id="invite-name" placeholder="成员姓名">
-    <button class="primary" onclick="createInvite()">生成一次性邀请</button>
-    <span class="muted">默认 24 小时有效、只能使用一次。请单独发给本人。</span>
-  </div>
-  <pre id="invite-out" style="display:none"></pre>
-  <table><thead><tr><th>成员</th><th>过期时间</th><th>状态</th></tr></thead><tbody id="invites"></tbody></table>
-
   <h2>飞书登录</h2>
-  <p class="muted">填写后员工可用飞书账号登录，无需邀请码。App Secret 保存后不会再显示。</p>
+  <p class="muted">成员用飞书账号登录即可加入，没有邀请码。App Secret 保存后不会再显示。</p>
   <div class="row"><input id="s-app-id" placeholder="App ID（cli_ 开头）" size="34"></div>
   <div class="row"><input id="s-app-secret" type="password" placeholder="App Secret（留空表示不修改）" size="34"></div>
   <div class="row"><input id="s-public-url" placeholder="本站公网地址，如 https://amh.example.com" size="44"></div>
@@ -120,10 +111,7 @@ async function load() {
      <td>${d.revoked ? "" : `<button onclick="revoke('${esc(d.id)}')">撤销</button>`}</td></tr>`).join("")
     || `<tr><td colspan="4" class="muted">还没有设备</td></tr>`;
 
-  document.getElementById("invites").innerHTML = data.invites.map(i =>
-    `<tr><td>${esc(i.name)}</td><td>${when(i.expires)}</td>
-     <td>${i.used ? "已使用" : (i.expires * 1000 < Date.now() ? "已过期" : "待使用")}</td></tr>`).join("")
-    || `<tr><td colspan="3" class="muted">还没有邀请</td></tr>`;
+  // No invitation list: joining is done with a Feishu account.
 
   const s = data.settings || {};
   document.getElementById("s-app-id").value = s.feishu_app_id || "";
@@ -137,17 +125,6 @@ function updateCallback() {
   document.getElementById("callback").textContent = base ? base + "/native/v1/auth/feishu/callback" : "（先填公网地址）";
 }
 document.getElementById("s-public-url").addEventListener("input", updateCallback);
-
-async function createInvite() {
-  const name = document.getElementById("invite-name").value.trim();
-  if (!name) return;
-  const r = await api("/invite", { name });
-  const out = document.getElementById("invite-out");
-  out.style.display = "block";
-  out.textContent = r.invite;
-  document.getElementById("invite-name").value = "";
-  load();
-}
 
 async function revoke(id) {
   if (!confirm("撤销后该设备立即失去访问权限，确定？")) return;

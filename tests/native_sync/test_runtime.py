@@ -63,7 +63,7 @@ def test_real_http_hook_cross_member_and_no_old_brain_side_effects(live, tmp_pat
     hub, url = live
     author = enroll(hub)
     hub.put(author["token"], asset())
-    c = NativeClient.join(tmp_path / "client", url, hub.invite("linkcrux", "李四"), "Mac")
+    c = NativeClient.adopt(tmp_path / "client", url, hub.provision("李四", "Mac"), "Mac")
     monkeypatch.setenv("BRAIN_DIR", str(tmp_path / "old-brain"))
     output = hook(c.root, "UserPromptSubmit", prompt="订单回调验签失败怎么办")
     body = output["hookSpecificOutput"]["additionalContext"]
@@ -78,7 +78,7 @@ def test_coverage_requires_transcript_evidence_and_compaction_resets(live, tmp_p
     hub, url = live
     author = enroll(hub)
     hub.put(author["token"], asset())
-    c = NativeClient.join(tmp_path / "client", url, hub.invite("linkcrux", "李四"), "Mac")
+    c = NativeClient.adopt(tmp_path / "client", url, hub.provision("李四", "Mac"), "Mac")
     first = hook(c.root, "UserPromptSubmit", prompt="订单回调验签")
     transcript = tmp_path / "transcript.jsonl"
     transcript.write_text(json.dumps(first, ensure_ascii=False))
@@ -96,7 +96,7 @@ def test_revoked_device_does_not_fallback_to_cached_data(live, tmp_path):
     hub, url = live
     a = enroll(hub)
     hub.put(a["token"], asset())
-    c = NativeClient.join(tmp_path / "client", url, hub.invite("linkcrux", "李四"), "Mac")
+    c = NativeClient.adopt(tmp_path / "client", url, hub.provision("李四", "Mac"), "Mac")
     c.sync()
     hub.revoke(c.identity["device_id"])
     assert hook(c.root, "UserPromptSubmit", prompt="订单回调") == {}
@@ -187,7 +187,7 @@ def test_portable_cowork_hook_executes_outside_repository(live, tmp_path):
     hub, url = live
     a = enroll(hub)
     hub.put(a["token"], asset())
-    c = NativeClient.join(tmp_path / "cowork-state", url, hub.invite("linkcrux", "李四"), "VM")
+    c = NativeClient.adopt(tmp_path / "cowork-state", url, hub.provision("李四", "VM"), "VM")
     plugin = export_cowork_plugin(tmp_path / "plugin")
     result = subprocess.run(
         [
@@ -254,7 +254,7 @@ def test_installed_handler_imports_worktree_from_an_unrelated_cwd(live, tmp_path
     hub, url = live
     a = enroll(hub)
     hub.put(a["token"], asset())
-    c = NativeClient.join(tmp_path / "state", url, hub.invite("linkcrux", "李四"), "Mac")
+    c = NativeClient.adopt(tmp_path / "state", url, hub.provision("李四", "Mac"), "Mac")
     home = tmp_path / "home"
     install_hooks(home, c.root, products=["claude-code"])
     command = json.loads((home / ".claude/settings.json").read_text())["hooks"]["UserPromptSubmit"][
@@ -300,7 +300,7 @@ def test_hook_details_are_real_local_files_with_producer(live, tmp_path):
     hub, url = live
     a = enroll(hub)
     hub.put(a["token"], asset(body="DETAIL_CANARY " + ("long evidence " * 1000)))
-    c = NativeClient.join(tmp_path / "state", url, hub.invite("linkcrux", "李四"), "Mac")
+    c = NativeClient.adopt(tmp_path / "state", url, hub.provision("李四", "Mac"), "Mac")
     result = hook(c.root, "UserPromptSubmit", prompt="DETAIL_CANARY")
     context = result["hookSpecificOutput"]["additionalContext"]
     metadata = json.loads(next(line for line in context.splitlines() if line.startswith("{")))
@@ -365,7 +365,7 @@ def test_new_claude_project_memory_is_discovered_after_install(live, tmp_path):
     from agent_brain.native_sync.common import atomic_json
 
     hub, url = live
-    c = NativeClient.join(tmp_path / "state", url, hub.invite("linkcrux", "张三"), "Mac")
+    c = NativeClient.adopt(tmp_path / "state", url, hub.provision("张三", "Mac"), "Mac")
     projects = tmp_path / "home/.claude/projects"
     projects.mkdir(parents=True)
     c.config["discovery_roots"] = [{"root": str(projects), "product": "claude-code"}]
@@ -391,7 +391,7 @@ def test_discovered_existing_memory_remains_history_until_selected(live, tmp_pat
     from agent_brain.native_sync.common import atomic_json
 
     hub, url = live
-    c = NativeClient.join(tmp_path / "state", url, hub.invite("linkcrux", "张三"), "Mac")
+    c = NativeClient.adopt(tmp_path / "state", url, hub.provision("张三", "Mac"), "Mac")
     projects = tmp_path / "home/.claude/projects"
     memory = projects / "existing/memory"
     memory.mkdir(parents=True)
@@ -417,7 +417,7 @@ def test_discovery_does_not_promote_updates_in_unregistered_roots(live, tmp_path
     from agent_brain.native_sync.common import atomic_json
 
     hub, url = live
-    c = NativeClient.join(tmp_path / "state", url, hub.invite("linkcrux", "张三"), "Mac")
+    c = NativeClient.adopt(tmp_path / "state", url, hub.provision("张三", "Mac"), "Mac")
     projects = tmp_path / "projects"
     root = projects / "old/memory"
     root.mkdir(parents=True)
@@ -440,7 +440,7 @@ def test_fresh_write_is_rechecked_after_history_refresh(live, tmp_path):
     from agent_brain.native_sync.common import atomic_json
 
     hub, url = live
-    c = NativeClient.join(tmp_path / "state", url, hub.invite("linkcrux", "张三"), "Mac")
+    c = NativeClient.adopt(tmp_path / "state", url, hub.provision("张三", "Mac"), "Mac")
     old = tmp_path / "old"
     old.mkdir()
     p = old / "history.md"
@@ -469,7 +469,7 @@ def test_new_memory_capture_accepts_native_added_modified_metadata(live, tmp_pat
     from agent_brain.native_sync.common import atomic_json
 
     hub, url = live
-    c = NativeClient.join(tmp_path / "state", url, hub.invite("linkcrux", "张三"), "Mac")
+    c = NativeClient.adopt(tmp_path / "state", url, hub.provision("张三", "Mac"), "Mac")
     projects = tmp_path / "projects"
     root = projects / "new/memory"
     root.mkdir(parents=True)
@@ -508,7 +508,7 @@ def test_installed_hook_is_not_shadowed_by_an_old_checkout(live, tmp_path):
     hub, url = live
     a = enroll(hub)
     hub.put(a["token"], asset())
-    c = NativeClient.join(tmp_path / "state", url, hub.invite("linkcrux", "李四"), "Mac")
+    c = NativeClient.adopt(tmp_path / "state", url, hub.provision("李四", "Mac"), "Mac")
     home = tmp_path / "home"
     install_hooks(home, c.root, products=["claude-code"])
     old = tmp_path / "old-checkout"

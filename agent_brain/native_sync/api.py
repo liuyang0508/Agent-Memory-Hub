@@ -8,7 +8,6 @@ from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from .hub import Hub
 from .models import (
-    AdminInviteInput,
     AdminRevokeInput,
     AdminSecretInput,
     AdminSettingInput,
@@ -81,12 +80,6 @@ def create_app(hub: Hub) -> FastAPI:
     @app.get("/native/v1/admin/overview")
     def admin_overview(authorization: str | None = Header(default=None)) -> dict[str, Any]:
         return hub.admin_overview(operator(authorization))
-
-    @app.post("/native/v1/admin/invite")
-    def admin_invite(
-        data: AdminInviteInput, authorization: str | None = Header(default=None)
-    ) -> dict[str, Any]:
-        return hub.admin_invite(operator(authorization), data.name, data.ttl)
 
     @app.post("/native/v1/admin/revoke")
     def admin_revoke(
@@ -168,7 +161,7 @@ def create_app(hub: Hub) -> FastAPI:
 
     @app.post("/native/v1/enroll")
     def enroll(data: EnrollInput) -> dict[str, Any]:
-        return hub.enroll(data.invite, data.device_name)
+        return hub.enroll(data.ticket, data.device_name)
 
     @app.get("/native/v1/me")
     def me(authorization: str | None = Header(default=None)) -> dict[str, Any]:

@@ -5,6 +5,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from agent_brain.native_sync.hub import Hub
+from agent_brain.native_sync.storage import database
 from agent_brain.native_sync.api import create_app
 from agent_brain.native_sync.client import NativeClient
 from agent_brain.native_sync.materialize import materialize
@@ -115,10 +116,14 @@ def test_paused_hook_does_not_fetch_or_schedule(tmp_path):
     assert not (tmp_path / "wake").exists()
 
 
-def test_expired_invite_and_bounded_requests(tmp_path):
+def test_expired_pairing_ticket_and_bounded_requests(tmp_path):
     hub = Hub(tmp_path / "hub.sqlite")
+    host = hub.provision("张三", "Mac")
+    ticket = hub.runtime_invite(host["token"])["invite"]
+    with database(hub.path) as db:
+        db.execute("UPDATE runtime_invites SET expires=0")
     with pytest.raises(ValueError):
-        hub.enroll(hub.invite("linkcrux", "张三", ttl=-1), "Mac")
+        hub.enroll(ticket, "late")
     c = TestClient(create_app(hub))
     result = c.post(
         "/native/v1/search", content=b"x" * 5_100_000, headers={"content-type": "application/json"}

@@ -52,7 +52,6 @@ class Hub:
                 db.execute("BEGIN IMMEDIATE")
                 for table in (
                     "members",
-                    "invites",
                     "runtime_invites",
                     "devices",
                     "assets",
@@ -64,36 +63,44 @@ class Hub:
         finally:
             DB_TIMEOUT.reset(timeout)
 
-    def invite(
-        self, tenant: str, name: str, *, member_id: str | None = None, ttl: int = 86400
-    ) -> str:
-        """Create a one-use expiring member invitation; store only its digest and return the secret once."""
-        if not tenant.strip() or not name.strip() or len(tenant) > 128 or len(name) > 160:
-            raise ValueError("tenant and member name required")
-        token = secrets.token_urlsafe(32)
+    def provision(self, name: str, device_name: str, *, tenant: str = "") -> dict[str, Any]:
+        """Create or reuse a member by exact name and issue one device.
+
+        There is no invitation secret: a member is identified by their Feishu
+        account in normal use, and this exists for the host operator to recover
+        someone. Only one unlinked member with that name is reused, so two
+        colleagues who share a display name stay separate people.
+
+        ``tenant`` is for isolation tests and host-side recovery of a member in
+        another scope; it never comes from a request.
+        """
+        if not name.strip() or len(name) > 160 or not device_name.strip():
+            raise ValueError("member and device name required")
         with database(self.path) as db:
             db.execute("BEGIN IMMEDIATE")
-            if member_id:
-                row = db.execute("SELECT tenant FROM members WHERE id=?", (member_id,)).fetchone()
-                if row is None or row["tenant"] != tenant:
-                    raise ValueError("member not found in this organization")
+            tenant = (tenant.strip() or self.tenant)[:128]
+            candidates = db.execute(
+                "SELECT id FROM members WHERE tenant=? AND name=? AND id NOT IN "
+                "(SELECT member FROM feishu_members)",
+                (tenant, name),
+            ).fetchall()
+            if len(candidates) == 1:
+                member = candidates[0]["id"]
             else:
-                # Reuse an unlinked member with the same exact name: pressing
-                # "生成邀请" twice must not split one person across identities.
-                existing = db.execute(
-                    "SELECT id FROM members WHERE tenant=? AND name=? AND id NOT IN "
-                    "(SELECT member FROM feishu_members) LIMIT 1",
-                    (tenant, name),
-                ).fetchone()
-                if existing:
-                    member_id = existing["id"]
-                else:
-                    member_id = "mem_" + uuid.uuid4().hex
-                    db.execute("INSERT INTO members VALUES(?,?,?)", (member_id, tenant, name))
+                member = "mem_" + uuid.uuid4().hex
+                db.execute("INSERT INTO members VALUES(?,?,?)", (member, tenant, name))
+            device, token = "dev_" + uuid.uuid4().hex, secrets.token_urlsafe(32)
             db.execute(
-                "INSERT INTO invites VALUES(?,?,?,0)", (digest(token), member_id, time.time() + ttl)
+                "INSERT INTO devices VALUES(?,?,?,?,0)",
+                (device, member, digest(token), device_name),
             )
-        return token
+            return dict(
+                tenant_id=tenant,
+                member_id=member,
+                member_name=name,
+                device_id=device,
+                token=token,
+            )
 
     # ---- operator surface -------------------------------------------------
     # The admin credential is minted locally on the Hub host (never over HTTP)
@@ -136,13 +143,6 @@ class Hub:
                     "FROM devices d LEFT JOIN members m ON m.id=d.member ORDER BY d.name"
                 )
             ]
-            invites = [
-                dict(row)
-                for row in db.execute(
-                    "SELECT i.member,m.name,i.expires,i.used FROM invites i "
-                    "LEFT JOIN members m ON m.id=i.member ORDER BY i.expires DESC LIMIT 50"
-                )
-            ]
             settings = {
                 row["key"]: row["value"]
                 for row in db.execute(
@@ -150,13 +150,17 @@ class Hub:
                     "('feishu_app_id','amh_hub_public_url','feishu_tenant')"
                 )
             }
-        return {"members": members, "devices": devices, "invites": invites, "settings": settings}
+        return {"members": members, "devices": devices, "settings": settings}
 
-    def admin_invite(self, token: str, name: str, ttl: int = 86400) -> dict[str, Any]:
-        """Issue a member invitation from the operator page."""
+    def admin_device(self, token: str, name: str, device_name: str) -> dict[str, Any]:
+        """Issue a device for a named member; the only way in is a Feishu account.
+
+        Exists for the host operator to recover a member whose Feishu login is
+        unavailable, not as a general onboarding path.
+        """
         with database(self.path) as db:
             self._admin(db, token)
-        return {"invite": self.invite(self.tenant, name, ttl=ttl), "name": name, "expires_in": ttl}
+        return self.provision(name, device_name)
 
     def admin_revoke(self, token: str, device_id: str) -> None:
         with database(self.path) as db:
@@ -191,29 +195,25 @@ class Hub:
             row = db.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
         return str(row["value"]) if row else ""
 
-    def enroll(self, invite: str, device_name: str) -> dict[str, Any]:
-        """Consume an invitation and issue one device identity atomically under a writer lock."""
+    def enroll(self, ticket: str, device_name: str) -> dict[str, Any]:
+        """Consume a runtime pairing ticket and issue one device identity.
+
+        Only same-member runtime pairing remains: joining the organization goes
+        through Feishu login, so no reusable member invitation secret exists to
+        forward, leak or brute-force.
+        """
         with database(self.path) as db:
             db.execute("BEGIN IMMEDIATE")
-            table = "invites"
             row = db.execute(
-                "SELECT m.*,i.used,i.expires FROM invites i JOIN members m ON i.member=m.id WHERE i.hash=?",
-                (digest(invite),),
+                "SELECT m.*,i.used,i.expires FROM runtime_invites i "
+                "JOIN members m ON m.id=i.member "
+                "JOIN devices d ON d.id=i.sponsor_device AND d.member=m.id "
+                "WHERE i.hash=? AND d.revoked=0",
+                (digest(ticket),),
             ).fetchone()
-            if row is None:
-                table = "runtime_invites"
-                row = db.execute(
-                    "SELECT m.*,i.used,i.expires FROM runtime_invites i "
-                    "JOIN members m ON i.member=m.id "
-                    "JOIN devices d ON d.id=i.sponsor_device AND d.member=m.id "
-                    "WHERE i.hash=? AND d.revoked=0",
-                    (digest(invite),),
-                ).fetchone()
             if row is None or row["used"] or row["expires"] < time.time():
-                raise ValueError("invitation invalid, expired or used")
-            # table is an internal constant; identity validation and consumption
-            # share the writer transaction, including sponsor revocation checks.
-            db.execute(f"UPDATE {table} SET used=1 WHERE hash=?", (digest(invite),))
+                raise ValueError("pairing ticket invalid, expired or used")
+            db.execute("UPDATE runtime_invites SET used=1 WHERE hash=?", (digest(ticket),))
             device, token = "dev_" + uuid.uuid4().hex, secrets.token_urlsafe(32)
             db.execute(
                 "INSERT INTO devices VALUES(?,?,?,?,0)",

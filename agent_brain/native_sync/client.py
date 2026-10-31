@@ -40,42 +40,22 @@ class NativeClient:
             db.executescript(CLIENT_SCHEMA)
 
     @classmethod
-    def join(
+    @classmethod
+    def adopt(
         cls,
         root: Path,
         url: str,
-        invite: str,
+        identity: dict[str, Any],
         device_name: str,
         *,
         expected_identity: dict[str, str] | None = None,
-        timeout: float = 10,
-    ) -> NativeClient:
-        """Enroll a new device once; refuse to reuse a profile belonging to another Hub/identity."""
-        if (Path(root) / "config.json").exists():
-            raise ValueError("profile already joined; choose a new profile for another Hub/device")
-        transport = Transport(url, timeout=timeout)
-        health = transport.call("health")
-        if health.get("protocol") != 1 or health.get("service") != "amh-native":
-            raise ValueError("the address is not a compatible native-memory Hub")
-        identity = transport.enroll(invite, device_name)
-        if not isinstance(identity, dict) or any(
-            not isinstance(identity.get(k), str) or not identity[k]
-            for k in ("tenant_id", "member_id", "member_name", "device_id", "token")
-        ):
-            raise ValueError("invalid enrollment response; local identity was not replaced")
-        if expected_identity and any(identity.get(k) != v for k, v in expected_identity.items()):
-            raise PermissionError("runtime enrollment does not match the pinned member")
-        atomic_json(
-            Path(root) / "config.json", {"hub": transport.url, "identity": identity, "targets": []}
-        )
-        return cls(root)
-
-    @classmethod
-    def adopt(cls, root: Path, url: str, identity: dict[str, Any], device_name: str) -> "NativeClient":
+    ) -> "NativeClient":
         """Persist an identity the Hub already issued over loopback (enterprise login).
 
         The credential never travelled through the browser, so nothing here can
         be replayed from a URL; joining again would mint a second device.
+        A paired runtime pins the member it was issued for, so a Hub answering
+        with someone else's identity is refused rather than silently adopted.
         """
         if (Path(root) / "config.json").exists():
             raise ValueError("profile already joined; choose a new profile for another Hub/device")
@@ -84,6 +64,10 @@ class NativeClient:
             not isinstance(identity.get(k), str) or not identity[k] for k in required
         ):
             raise ValueError("invalid login response; local identity was not written")
+        if expected_identity and any(
+            identity.get(k) != v for k, v in expected_identity.items()
+        ):
+            raise PermissionError("runtime enrollment does not match the pinned member")
         atomic_json(
             Path(root) / "config.json",
             {

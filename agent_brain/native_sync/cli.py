@@ -38,28 +38,8 @@ def emit(value: Any) -> None:
 
 def load(state: Path) -> NativeClient:
     if not (state / "config.json").exists():
-        raise typer.BadParameter("尚未加入组织，请先运行 setup 或 join")
+        raise typer.BadParameter("尚未加入组织，请先运行 setup")
     return NativeClient(state)
-
-
-@app.command()
-def invite(
-    db: Path = typer.Option(...),
-    tenant: str = "linkcrux",
-    name: str = typer.Option(...),
-    member_id: str | None = None,
-    ttl: int = 86400,
-) -> None:
-    """管理员在 Hub 主机创建一次性成员邀请；不发送给任何人。"""
-    from .hub import Hub
-
-    emit(
-        {
-            "invite": Hub(db).invite(tenant, name, member_id=member_id, ttl=ttl),
-            "tenant": tenant,
-            "member": name,
-        }
-    )
 
 
 @app.command()
@@ -103,26 +83,13 @@ def discover(home: Path = typer.Option(Path.home())) -> None:
     emit(discover_products(home))
 
 
-@app.command()
-def join(
-    hub: str = typer.Option(...),
-    state: Path = DEFAULT_STATE,
-    device_name: str = socket.gethostname(),
-) -> None:
-    """使用个人邀请登记设备；邀请不会出现在进程命令参数中。"""
-    secret = os.environ.get("AMH_NATIVE_INVITE") or typer.prompt("成员邀请凭证", hide_input=True)
-    c = NativeClient.join(state, hub, secret, device_name)
-    emit({k: v for k, v in c.identity.items() if k != "token"})
+def feishu_login(hub: str, state: Path, device_name: str, timeout: float = 300) -> dict[str, Any]:
+    """Authorize in the browser, then write the profile; shared by setup and login.
 
-
-@app.command()
-def login(
-    hub: str = typer.Option(...),
-    state: Path = DEFAULT_STATE,
-    device_name: str = socket.gethostname(),
-    timeout: float = 300,
-) -> None:
-    """飞书登录加入组织：浏览器授权后自动登记设备，无需邀请码。"""
+    The browser only ever receives a one-use ticket addressed to this machine's
+    loopback port. The reusable device credential is fetched by this process
+    over loopback, so no URL, history entry or proxy log can carry it.
+    """
     import http.server
     import threading
     import webbrowser
@@ -133,7 +100,9 @@ def login(
     transport = Transport(url)
     available = transport.call("auth/feishu")
     if not available.get("available"):
-        raise typer.BadParameter("该 Hub 未启用飞书登录，请改用 join 邀请凭证")
+        raise typer.BadParameter(
+            "该 Hub 未启用飞书登录；请让管理员在管理页完成飞书应用配置后重试"
+        )
 
     holder: dict[str, str] = {}
     ready = threading.Event()
@@ -152,6 +121,8 @@ def login(
             self.send_response(200 if "ticket" in query else 400)
             self.send_header("Content-Type", "text/plain; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
+            self.send_header("Referrer-Policy", "no-referrer")
+            self.send_header("Cache-Control", "no-store")
             self.end_headers()
             self.wfile.write(body)
 
@@ -167,7 +138,7 @@ def login(
         console.print("在浏览器完成飞书授权：" + started["authorize_url"])
         webbrowser.open(started["authorize_url"])
         if not ready.wait(timeout):
-            raise typer.BadParameter("等待授权超时，请重新运行 login")
+            raise typer.BadParameter("等待授权超时，请重新运行")
     finally:
         server.shutdown()
 
@@ -175,6 +146,18 @@ def login(
         "auth/feishu/redeem", {"ticket": holder["ticket"], "device_name": device_name}
     )
     NativeClient.adopt(state, url, identity, device_name)
+    return identity
+
+
+@app.command()
+def login(
+    hub: str = typer.Option(...),
+    state: Path = DEFAULT_STATE,
+    device_name: str = socket.gethostname(),
+    timeout: float = 300,
+) -> None:
+    """飞书登录加入组织：浏览器授权后自动登记设备。"""
+    identity = feishu_login(hub, state, device_name, timeout)
     emit({k: v for k, v in identity.items() if k != "token"})
 
 
@@ -433,7 +416,9 @@ def setup(
     home: Path = typer.Option(Path.home()),
     service: bool = True,
 ) -> None:
-    """终端分步安装：检查产品、绑定身份、预览历史、确认配置。"""
+    """终端分步安装：检查产品、飞书登录、挑选历史、确认配置。"""
+    from . import history
+
     console.print("[bold]AMH · 组织共享第二大脑[/bold]")
     found = discover_products(home)
     table = Table("产品", "检测结果", "原生记忆目录")
@@ -441,22 +426,83 @@ def setup(
         table.add_row(
             p["name"],
             "已发现" if p["detected"] else "未发现",
-            "\n".join(p["roots"]) or "需要在产品运行环境绑定",
+            "\n".join(p["roots"]) or "运行环境未暴露本地目录",
         )
     console.print(table)
+    console.print("组织服务地址：" + hub)
     if not (state / "config.json").exists():
-        console.print("组织服务地址：" + hub)
-        secret = os.environ.get("AMH_NATIVE_INVITE") or typer.prompt(
-            "个人邀请凭证", hide_input=True
-        )
-        c = NativeClient.join(state, hub, secret, socket.gethostname())
+        console.print("\n第 1 步：用飞书账号登录")
+        identity = feishu_login(hub, state, socket.gethostname())
+        c = load(state)
+        console.print(f"登录成功：{identity['member_name']}")
     else:
         c = load(state)
         if c.config["hub"] != hub.rstrip("/"):
             raise typer.BadParameter("不同 Hub 必须使用独立 --state；不能把旧队列发给新组织")
+        console.print("已使用现有身份；如需换账号请指定新的 --state")
     console.print(
         f"成员：{c.identity['member_name']} ({c.identity['member_id']})；组织：{c.identity['tenant_id']}"
     )
+
+    console.print("\n第 2 步：挑选要共享的历史记忆（默认不上传任何已有内容）")
+    rows = history.items(home, list(PRODUCTS))
+    picked: list[dict[str, Any]] = []
+    if rows:
+        group_label = ""
+        for index, row in enumerate(rows, start=1):
+            label = f"{row['product_name']} · {display_name(row['kind'])}"
+            if label != group_label:
+                console.print(f"\n[bold]{label}[/bold]", markup=True)
+                group_label = label
+            marks = ""
+            if row["risk"] == "sensitive":
+                marks = "  ⚠ " + "、".join(row["reasons"])
+            console.print(
+                f"  {index:3d}. {row['name']} — {row['title']} "
+                f"({row['bytes'] / 1024:.0f} KB){marks}",
+                markup=False,
+            )
+        console.print(
+            "\n输入编号勾选（如 1,3,5-9）；clean 选全部无标记项；all 选全部；回车表示都不上传。",
+            markup=False,
+        )
+        answer = typer.prompt("要同步哪些？", default="").strip().lower()
+        if answer == "all":
+            picked = rows
+        elif answer == "clean":
+            picked = [row for row in rows if row["risk"] == "clean"]
+        elif answer:
+            indices: set[int] = set()
+            try:
+                for part in answer.replace("，", ",").split(","):
+                    part = part.strip()
+                    if not part:
+                        continue
+                    if "-" in part:
+                        start, end = part.split("-", 1)
+                        indices.update(range(int(start), int(end) + 1))
+                    else:
+                        indices.add(int(part))
+            except ValueError:
+                raise typer.BadParameter("编号格式不正确，例如 1,3,5-9") from None
+            if any(i < 1 or i > len(rows) for i in indices):
+                raise typer.BadParameter("编号超出范围")
+            picked = [rows[i - 1] for i in sorted(indices)]
+        if picked:
+            imported = history.import_paths(c, home, picked)
+            if imported["late_sensitive"]:
+                console.print(
+                    f"另有 {len(imported['late_sensitive'])} 个文件在全文检查中发现隐私内容，已跳过。",
+                    markup=False,
+                )
+            if imported["rejected"]:
+                console.print(
+                    f"{len(imported['rejected'])} 个文件含密钥或已变更，已跳过。", markup=False
+                )
+    else:
+        console.print("没有发现本机历史记忆，跳过。")
+
+    console.print("\n第 3 步：接入产品")
     chosen = []
     processed_sources: set[str] = set()
     for product in found:
@@ -490,21 +536,6 @@ def setup(
                 continue
             processed_sources.add(sid)
             console.print(f"新内容同步来源：{kind} · {root}", markup=False)
-            rows = c.preview(sid)
-            if rows:
-                console.print(f"{root}：{len(rows)} 个已有文件。生产者无法证明的历史将标为未知。")
-                if typer.confirm("逐项预览并选择导入？", default=False):
-                    selection = {}
-                    for row in rows:
-                        console.print(f"\n{row['path']} · {row['bytes']} bytes", markup=False)
-                        if typer.confirm("显示完整正文？", default=False):
-                            console.print(row["body"], markup=False)
-                        if typer.confirm("共享此项给组织全体成员？", default=False):
-                            selection[row["path"]] = row["hash"]
-                    if selection and typer.confirm(
-                        f"确认导入所选 {len(selection)} 项？", default=False
-                    ):
-                        c.select(sid, selection)
     console.print("接入产品：" + "、".join(PRODUCTS[p] for p in chosen))
     console.print(
         "将启用：产品原生记忆、后台上传、Hook 组织召回、本地原生组织资源。原生生成由产品执行，可能使用产品额度；已有 AMH 托管自动链路将隔离。"
