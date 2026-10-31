@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.2] — 2026-11-01
+
+### Changed
+
+- **Organization mode installs from a wheel.** It used to clone the whole
+  repository to `~/agent-memory-hub` and install it editable, which put a source
+  tree on the member's machine and made the running client follow whatever they
+  edited there. The release now builds a wheel, `install-native.sh` installs
+  that, and `--org-memory` is dispatched *before* the bootstrap, so the mode no
+  longer triggers a clone at all. Existing installations keep their state
+  directory; re-running the command upgrades in place.
+
+### Added
+
+- **Browser checklist for history import.** A real machine holds over a thousand
+  candidate files, and "1,3,5-9" is not a decision anyone can make from a
+  terminal list. The rows now open as a local page with filters for keyword,
+  product, kind, risk and modification time, per-row checkboxes, and bulk
+  "clean / all / none". Nothing leaves the machine until the member confirms,
+  and a blocked row is refused even if the request asks for it.
+- **`--since` filter** on import, accepting `2026-10-01` or
+  `2026-10-01 09:30:00`.
+
+### Fixed
+
+- ChatGPT desktop was reported as having no importable memory. Its settings
+  page ("Codex 记忆 → 本地主机") manages the Codex store at `~/.codex/memories`,
+  which is what the client now reads.
+- `setup` opened the checklist page even with no terminal attached, where
+  nothing could click it, and blocked forever. It now skips the import in a
+  non-interactive environment instead of hanging.
+
 ## [1.2.1] — 2026-11-01
 
 ### Added

@@ -15,6 +15,21 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: '3.11'
+
+      - name: Build the client wheel
+        # Organization memory installs from this wheel, so a member's machine
+        # never receives a source checkout.
+        run: |
+          set -euo pipefail
+          python -m pip install --quiet --upgrade pip build
+          python -m build --wheel --outdir dist .
+          ls -l dist/*.whl
+          cp "$(ls dist/*.whl | head -1)" dist/agent_memory_hub-py3-none-any.whl
+
       - name: Prepare release installer assets
         env:
           AMH_GITHUB_REPOSITORY: ${{ github.repository }}
@@ -27,6 +42,9 @@ jobs:
           # Pinned server installer: a deployment script should not drift with
           # whatever main happens to hold at the moment someone pipes it to sudo.
           cp deploy/deploy.sh dist/deploy.sh
+          # The organization-mode installer dispatches before any clone, so it
+          # must ship as the same pinned asset.
+          cp install-native.sh dist/install-native.sh
           python - <<'PY'
           import os
           from pathlib import Path
@@ -47,8 +65,8 @@ jobs:
                   text = text.replace(old, new)
               path.write_text(text, encoding="utf-8")
           PY
-          chmod +x dist/install.sh dist/deploy.sh
-          (cd dist && sha256sum install.sh install.ps1 deploy.sh > checksums.txt)
+          chmod +x dist/install.sh dist/deploy.sh dist/install-native.sh
+          (cd dist && sha256sum install.sh install.ps1 deploy.sh install-native.sh > checksums.txt)
 
       - name: Upload installers to GitHub Release
         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
@@ -57,4 +75,6 @@ jobs:
             dist/install.sh
             dist/install.ps1
             dist/deploy.sh
+            dist/install-native.sh
+            dist/*.whl
             dist/checksums.txt

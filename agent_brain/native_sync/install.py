@@ -37,17 +37,19 @@ def discover(home: Path) -> list[dict[str, Any]]:
             "roots": [str(home / ".codex/memories")],
         }
     )
-    # ChatGPT desktop keeps its memory server-side on the account, not in a local
-    # store, so reporting ~/.codex/memories here would label Codex memories as
-    # ChatGPT's. Report it as detected with nothing importable instead.
+    # The ChatGPT desktop app manages Codex memory on this host ("Codex 记忆 →
+    # 本地主机" in its settings), and that store is ~/.codex/memories. It is the
+    # same directory Codex CLI and the Codex app use, so the three share one
+    # store; rows are deduplicated by absolute path and labelled codex-shared.
+    codex_store = home / ".codex/memories"
     if (Path("/Applications") / "ChatGPT.app").exists():
         result.append(
             {
                 "product": "chatgpt-desktop",
                 "name": PRODUCTS["chatgpt-desktop"],
                 "detected": True,
-                "roots": [],
-                "note": "记忆保存在账号服务端，本机没有可导入的记忆目录",
+                "roots": [str(codex_store)],
+                "note": "记忆在「设置 → 个性化 → Codex 记忆」，与 Codex 共用同一份本地存储",
             }
         )
     if (Path("/Applications") / "Codex.app").exists():
@@ -56,7 +58,7 @@ def discover(home: Path) -> list[dict[str, Any]]:
                 "product": "codex-desktop",
                 "name": PRODUCTS["codex-desktop"],
                 "detected": True,
-                "roots": [str(home / ".codex/memories")],
+                "roots": [str(codex_store)],
                 "note": "与 Codex CLI 共用同一份存储",
             }
         )

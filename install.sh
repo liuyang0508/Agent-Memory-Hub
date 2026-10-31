@@ -52,6 +52,26 @@ case "$SCRIPT_PATH" in
   *) SCRIPT_DIR=$(pwd) ;;
 esac
 
+# Organization memory installs from a published wheel, so it must be dispatched
+# before the bootstrap below: cloning a checkout for this mode would put source on
+# the member's machine for no reason and could disturb an existing one.
+for arg in "$@"; do
+  case "$arg" in
+    # --native is the pre-release name; kept so existing scripts keep working.
+    --org-memory|--native)
+      if [ -f "$SCRIPT_DIR/install-native.sh" ]; then
+        exec sh "$SCRIPT_DIR/install-native.sh" "$@"
+      fi
+      # Running from an unpacked release asset: fetch just the installer, not a checkout.
+      tmp=$(mktemp -d /tmp/amh-org-memory.XXXXXXXX)
+      trap 'rm -rf -- "$tmp"' EXIT INT TERM
+      curl -fsSL "https://github.com/liuyang0508/agent-memory-hub/releases/latest/download/install-native.sh" -o "$tmp/install-native.sh" || {
+        echo 'could not fetch install-native.sh' >&2; exit 1; }
+      exec sh "$tmp/install-native.sh" "$@"
+      ;;
+  esac
+done
+
 if [ ! -f "$SCRIPT_DIR/pyproject.toml" ] || [ ! -d "$SCRIPT_DIR/agent_brain" ]; then
   if [ "$DRY_RUN" = true ]; then
     cat <<EOF
@@ -106,13 +126,6 @@ EOF
   cd "$TARGET_DIR"
   exec ./install.sh "$@"
 fi
-
-for arg in "$@"; do
-  case "$arg" in
-    # --native is the pre-release name; kept so existing scripts keep working.
-    --org-memory|--native) exec sh "$SCRIPT_DIR/install-native.sh" "$@" ;;
-  esac
-done
 
 CODE_DIR="$SCRIPT_DIR"
 USER_DATA="${BRAIN_DIR:-$HOME/.agent-memory-hub}"

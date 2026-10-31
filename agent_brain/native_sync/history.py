@@ -84,7 +84,32 @@ def peek(path: Path) -> str:
     return raw.decode("utf8", errors="replace")
 
 
-def items(home: Path, products: list[str]) -> list[dict[str, Any]]:
+def parse_moment(value: str) -> float:
+    """Accept "YYYY-MM-DD", "YYYY-MM-DD HH:MM" or "YYYY-MM-DD HH:MM:SS" as local time.
+
+    A member thinking "since I joined this team" gives a date, not an epoch, so
+    the filter has to accept the shapes people actually type.
+    """
+    from datetime import datetime
+
+    text = (value or "").strip()
+    if not text:
+        raise ValueError("empty time")
+    for pattern in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(text, pattern).timestamp()
+        except ValueError:
+            continue
+    raise ValueError("expected YYYY-MM-DD or YYYY-MM-DD HH:MM:SS")
+
+
+def items(
+    home: Path,
+    products: list[str],
+    *,
+    since: float | None = None,
+    until: float | None = None,
+) -> list[dict[str, Any]]:
     """Every importable file with its screening verdict, grouped for a person to tick through.
 
     Only files someone would recognise: credential files, oversized files and
@@ -110,6 +135,12 @@ def items(home: Path, products: list[str]) -> list[dict[str, Any]]:
                 except (OSError, ValueError, UnicodeError):
                     continue
                 if stat.st_size > MAX_BYTES:
+                    continue
+                # Filter before screening: a member narrowing by date should not
+                # pay to screen files they have already excluded.
+                if since is not None and stat.st_mtime < since:
+                    continue
+                if until is not None and stat.st_mtime > until:
                     continue
                 verdict = screen(head)
                 rows.append(

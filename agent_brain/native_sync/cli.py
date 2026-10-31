@@ -193,21 +193,53 @@ def import_history(
     home: Path = typer.Option(Path.home()),
     product: list[str] = typer.Option(None, help="只处理指定产品，可重复"),
     kind: list[str] = typer.Option(None, help="只处理指定类型，可重复"),
+    since: str = typer.Option("", help="只看该时间之后修改的文件，如 2026-10-01 或 2026-10-01 09:30"),
+    web: bool = typer.Option(True, help="在浏览器里勾选；--no-web 回到终端逐条"),
     yes: bool = False,
     dry_run: bool = False,
 ) -> None:
-    """导入安装前的历史记忆：逐条列出可同步内容，由你勾选，此后新增自动同步。"""
+    """导入安装前的历史记忆：浏览器里勾选（--no-web 回终端），此后新增自动同步。"""
     from . import history
 
     # Listing is purely local; requiring an enrolled profile would block the
     # review a member wants before deciding whether to join at all.
     chosen_products = product or list(PRODUCTS)
-    rows = history.items(home, chosen_products)
+    try:
+        moment = history.parse_moment(since) if since else None
+    except ValueError:
+        raise typer.BadParameter("--since 请用 2026-10-01 或 2026-10-01 09:30:00") from None
+    rows = history.items(home, chosen_products, since=moment)
     if kind:
         wanted = set(kind)
         rows = [row for row in rows if row["kind"] in wanted]
     if not rows:
         emit({"imported": 0, "note": "未发现可导入的本地历史"})
+        return
+    if dry_run:
+        emit(rows)
+        return
+    if web:
+        from . import picker
+
+        try:
+            picked = picker.serve(rows)
+        except (TimeoutError, OSError) as exc:
+            raise typer.BadParameter(f"勾选页面未能完成（{exc}）；可加 --no-web 改用终端") from None
+        if not picked:
+            emit({"imported": 0, "note": "未选择任何文件"})
+            return
+        risky = sum(1 for row in picked if row["risk"] == "sensitive")
+        console.print(
+            f"将上传 {len(picked)} 个文件到组织云端，其中 {risky} 个带隐私标记。"
+            "上传后其他成员可检索正文。",
+            markup=False,
+        )
+        if not typer.confirm("确认同步这些记忆？", default=False):
+            emit({"imported": 0, "note": "已取消"})
+            return
+        current = load(state)
+        result = history.import_paths(current, home, picked)
+        emit({"import": result, "sync": current.sync()})
         return
     group_label = ""
     for index, row in enumerate(rows, start=1):
@@ -232,9 +264,6 @@ def import_history(
         "输入编号勾选（如 1,3,5-9）；clean 选全部无标记项；all 选全部；直接回车跳过。",
         markup=False,
     )
-    if dry_run:
-        emit(rows)
-        return
     # --yes must never mean "including the ones flagged as private": the whole
     # point of the marker is that a person reads it before that content leaves
     # the machine.
@@ -457,48 +486,30 @@ def setup(
     rows = history.items(home, list(PRODUCTS))
     picked: list[dict[str, Any]] = []
     if rows:
-        group_label = ""
-        for index, row in enumerate(rows, start=1):
-            label = f"{row['product_name']} · {display_name(row['kind'])}"
-            if label != group_label:
-                console.print(f"\n[bold]{label}[/bold]", markup=True)
-                group_label = label
-            marks = ""
-            if row["risk"] == "sensitive":
-                marks = "  ⚠ " + "、".join(row["reasons"])
+        # A real machine lists a thousand-odd files; ticking them by number in a
+        # terminal is not a decision anyone can make, so the checklist is a page.
+        # Without a terminal there is nobody to click it, so the page would block
+        # forever: fall back to skipping rather than hanging.
+        import sys as _sys
+
+        if not _sys.stdin.isatty():
+            console.print("非交互环境，跳过历史勾选（可稍后运行 import）。", markup=False)
+            picked = []
+        else:
+            from . import picker
+
             console.print(
-                f"  {index:3d}. {row['name']} — {row['title']} "
-                f"({row['bytes'] / 1024:.0f} KB){marks}",
+                f"本机 {len(rows)} 个可共享文件，将在浏览器里逐项勾选。",
                 markup=False,
             )
-        console.print(
-            "\n输入编号勾选（如 1,3,5-9）；clean 选全部无标记项；all 选全部；回车表示都不上传。",
-            markup=False,
-        )
-        answer = typer.prompt("要同步哪些？", default="").strip().lower()
-        if answer == "all":
-            picked = all_selectable(rows)
-        elif answer == "clean":
-            picked = [row for row in rows if row["risk"] == "clean"]
-        elif answer:
-            indices: set[int] = set()
             try:
-                for part in answer.replace("，", ",").split(","):
-                    part = part.strip()
-                    if not part:
-                        continue
-                    if "-" in part:
-                        start, end = part.split("-", 1)
-                        indices.update(range(int(start), int(end) + 1))
-                    else:
-                        indices.add(int(part))
-            except ValueError:
-                raise typer.BadParameter("编号格式不正确，例如 1,3,5-9") from None
-            if any(i < 1 or i > len(rows) for i in indices):
-                raise typer.BadParameter("编号超出范围")
-            picked = [rows[i - 1] for i in sorted(indices)]
+                picked = picker.serve(rows, open_browser=bool(__import__("os").environ.get("DISPLAY") or _sys.platform == "darwin"))
+            except (TimeoutError, OSError) as exc:
+                console.print(f"勾选页面未能完成（{exc}）；本次跳过历史导入。", markup=False)
+                picked = []
         if picked:
             imported = history.import_paths(c, home, picked)
+            console.print(f"已选择 {imported['selected']} 个文件。", markup=False)
             if imported["late_sensitive"]:
                 console.print(
                     f"另有 {len(imported['late_sensitive'])} 个文件在全文检查中发现隐私内容，已跳过。",
@@ -508,6 +519,8 @@ def setup(
                 console.print(
                     f"{len(imported['rejected'])} 个文件含密钥或已变更，已跳过。", markup=False
                 )
+        else:
+            console.print("未选择任何文件，跳过历史导入。", markup=False)
     else:
         console.print("没有发现本机历史记忆，跳过。")
 
