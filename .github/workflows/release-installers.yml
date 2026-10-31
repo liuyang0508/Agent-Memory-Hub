@@ -24,6 +24,9 @@ jobs:
           mkdir -p dist
           cp install.sh dist/install.sh
           cp install.ps1 dist/install.ps1
+          # Pinned server installer: a deployment script should not drift with
+          # whatever main happens to hold at the moment someone pipes it to sudo.
+          cp deploy/deploy.sh dist/deploy.sh
           python - <<'PY'
           import os
           from pathlib import Path
@@ -44,8 +47,8 @@ jobs:
                   text = text.replace(old, new)
               path.write_text(text, encoding="utf-8")
           PY
-          chmod +x dist/install.sh
-          (cd dist && sha256sum install.sh install.ps1 > checksums.txt)
+          chmod +x dist/install.sh dist/deploy.sh
+          (cd dist && sha256sum install.sh install.ps1 deploy.sh > checksums.txt)
 
       - name: Upload installers to GitHub Release
         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
@@ -53,4 +56,5 @@ jobs:
           files: |
             dist/install.sh
             dist/install.ps1
+            dist/deploy.sh
             dist/checksums.txt

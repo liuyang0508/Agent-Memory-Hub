@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.1] — 2026-11-01
+
+### Added
+
+- **One-shot server install** — `deploy.sh` stands up a Hub on an
+  organization's own host in one run: python and account setup, a versioned
+  release directory, `feishu.env` at root:amh-native 0640, the systemd unit,
+  and a readiness probe that reports whether Feishu login actually came up.
+  It prompts for the App Secret on `/dev/tty`, so `curl | sudo bash -s --`
+  keeps the secret out of argv and shell history. Re-running upgrades in place
+  without touching the database; a host without systemd is rejected before
+  anything is written. Published as a release asset.
+
+### Changed
+
+- The quick start leads with that command and separates team and personal
+  installs; step numbers, per-card captions and the intro paragraph are gone.
+
+### Fixed
+
+- The quick start heading's descender was clipped: `.redesign-section h2`
+  outranked `.install-title`, so the tight line-height still applied to
+  gradient text and cut the g in "Agent" flat.
+
 ## [1.2.0] — 2026-11-01
 
 ### Added
