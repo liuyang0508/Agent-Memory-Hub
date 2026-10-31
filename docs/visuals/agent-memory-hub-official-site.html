@@ -5173,12 +5173,13 @@
     .org-flow.reverse { animation-direction: reverse; animation-delay: -3s; }
     @keyframes org-memory-flow { to { stroke-dashoffset: -580; } }
     .org-products { position: absolute; inset: 26px 22px; display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); grid-template-rows: 104px 1fr 104px; gap: 16px; }
-    .org-product { position: relative; display: grid; align-content: center; grid-template-columns: 34px minmax(0,1fr); gap: 5px 10px; padding: 16px; border: 1px solid rgba(85,185,255,.18); border-radius: 20px; background: rgba(255,255,255,.92); box-shadow: 0 14px 32px rgba(45,103,148,.08), inset 0 1px 0 #fff; }
+    .org-product { position: relative; display: flex; align-items: center; gap: 10px; padding: 16px; border: 1px solid rgba(85,185,255,.18); border-radius: 20px; background: rgba(255,255,255,.92); box-shadow: 0 14px 32px rgba(45,103,148,.08), inset 0 1px 0 #fff; }
     .org-product:nth-child(n+3) { grid-row: 3; }
-    .org-product img, .org-product svg { width: 30px; height: 30px; align-self: center; object-fit: contain; }
-    .org-product.org-client { grid-template-columns: 42px minmax(0,1fr); }
+    .org-product img, .org-product svg { flex: none; width: 30px; height: 30px; object-fit: contain; }
+    .org-product.org-client { gap: 12px; }
     .org-product img.org-client-logo { width: 38px; height: 38px; border-radius: 24%; }
     .org-product strong { font-size: .94rem; line-height: 1.3; color: #101820; }
+    .org-product { justify-content: flex-start; }
     .org-product small { color: #6a7f8a; font-size: .72rem; }
     .org-hub { position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%); display: grid; justify-items: center; width: 190px; text-align: center; }
     .org-hub-logo { margin: 0 auto; width: 104px; height: 104px; display: grid; place-items: center; border: 1px solid rgba(255,255,255,.95); border-radius: 50%; background: linear-gradient(135deg,#b9eccd,#81dce3); box-shadow: 0 0 0 12px rgba(85,185,255,.10),0 0 0 28px rgba(85,185,255,.05),0 18px 36px rgba(45,103,148,.12); }
@@ -5215,9 +5216,9 @@
       .org-lab { padding: 12px; border-radius: 24px; }
       .org-map { min-height: 430px; }
       .org-products { inset: 20px 12px; grid-template-rows: 96px 1fr 96px; gap: 10px; }
-      .org-product { grid-template-columns: 1fr; justify-items: center; gap: 6px; padding: 11px 7px; border-radius: 16px; text-align: center; }
-      .org-product img, .org-product svg { grid-row: auto; width: 23px; height: 23px; }
-      .org-product.org-client { grid-template-columns: 1fr; }
+      .org-product { flex-direction: column; justify-content: center; align-items: center; gap: 6px; padding: 11px 7px; border-radius: 16px; text-align: center; }
+      .org-product img, .org-product svg { width: 23px; height: 23px; }
+      .org-product.org-client { flex-direction: column; }
       .org-product img.org-client-logo { width: 29px; height: 29px; }
       .org-product strong { font-size: .8rem; }
       .org-product small { font-size: .66rem; }
@@ -5596,7 +5597,7 @@
                   <div class="org-product org-client"><img class="org-client-logo" src="/assets/native-memory/claude-cowork-d09eb2fe66.png" alt=""><strong>Claude Cowork</strong></div>
                   <div class="org-product org-client"><img class="org-client-logo" src="/assets/native-memory/chatgpt-desktop-dc5090afda.png" alt=""><strong>ChatGPT</strong></div>
                 </div>
-                <div class="org-hub" aria-hidden="true"><div class="org-hub-logo"><img src="agent-memory-hub-octopus-logo.svg" alt=""></div><strong>组织 Hub</strong></div>
+                <div class="org-hub" aria-hidden="true"><div class="org-hub-logo"><img src="agent-memory-hub-octopus-logo.svg" alt=""></div><strong>Agent Memory Hub</strong></div>
               </div>
               <div class="cap-panel org-story">
                 <span class="cap-eyebrow">native memory · shared by the team</span>
