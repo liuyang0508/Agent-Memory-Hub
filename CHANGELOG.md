@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.8] — 2026-11-01
+
+### Fixed
+
+- Codex CLI and the ChatGPT desktop app were detected but had no importable
+  rows: `discover_assets` never listed `~/.codex/memories`, only
+  `sessions`, `AGENTS.md`, `skills` and `config.toml`.
+- Claude Cowork keeps its workspaces under `Claude-3p` on current builds, while
+  discovery and the history scan only looked under `Claude`, so every workspace
+  `MEMORY.md` was invisible. Both now check either bundle directory.
+- The selection page had no date filter; `--since` existed only on the command
+  line. It now has a from/to range compared against each row's modification
+  time.
+
 ## [1.2.7] — 2026-11-01
 
 ### Fixed
