@@ -235,7 +235,8 @@ python -m ruff check agent_brain tests          # 必须通过
 
 ```python
 import json, urllib.request, time
-cfg = json.load(open("/Users/liuyang/.amh-native-sync/config.json"))
+from pathlib import Path
+cfg = json.loads((Path.home()/".amh-native-sync/config.json").read_text())
 hub, token = cfg["hub"], cfg["identity"]["token"]
 t = time.monotonic()
 req = urllib.request.Request(hub + "/native/v1/search",

@@ -148,7 +148,7 @@ def test_current_pack_boundaries_mask_injection_but_preserve_surrounding_text(tm
     hub = Hub(tmp_path / "hub.sqlite")
     who = hub.provision("A", "a")
     record = hub.put(who["token"], asset(body="INJECTED_CANARY"))
-    body, _ = pack([record], covered=set(), max_tokens=2000)
+    body, _ = pack([record], covered=set(), max_bytes=2000)
     text = "NATIVE_BEFORE\n" + body + "\namh-native-recall:abcdef123456abcdef123456\nNATIVE_AFTER"
     if encoded:
         text = json.dumps({"content": text}, ensure_ascii=False)

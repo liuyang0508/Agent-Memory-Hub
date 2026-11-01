@@ -39,7 +39,7 @@ if __name__ == "__main__":
         payload = json.load(sys.stdin)
         print(
             json.dumps(
-                Transport(config["hub"], config["identity"]["token"], timeout=0.55).search(
+                Transport(config["hub"], config["identity"]["token"], timeout=1.0).search(
                     payload["query"]
                 )
             )

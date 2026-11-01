@@ -100,7 +100,7 @@ def _run(root: Path, product: str, payload: dict[str, Any]) -> dict[str, Any]:
     try:
         from .query_worker import bounded_search
 
-        hits = bounded_search(root, prompt[:8000], timeout=0.65)
+        hits = bounded_search(root, prompt[:8000], timeout=1.2)
         from .evidence import metadata
 
         with database(c.path) as db:
@@ -129,7 +129,11 @@ def _run(root: Path, product: str, payload: dict[str, Any]) -> dict[str, Any]:
     # Recalled bodies go straight into the prompt and nowhere else. Writing them
     # to disk would make a second copy of other members' memories on this
     # machine, which is exactly what local-first sharing is supposed to avoid.
-    body, keys = pack(hits, covered=covered, max_tokens=1450, query=prompt)
+    # The delivery receipt is appended below; reserve it inside the byte cap.
+    receipt_bytes = len("\namh-native-recall:") + 24
+    body, keys = pack(
+        hits, covered=covered, max_bytes=4096 - receipt_bytes, per_item_bytes=1536, query=prompt
+    )
     if body:
         marker = "amh-native-recall:" + digest(session + epoch + body)[:24]
         body += "\n" + marker

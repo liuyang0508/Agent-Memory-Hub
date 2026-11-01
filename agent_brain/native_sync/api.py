@@ -211,7 +211,7 @@ def create_app(hub: Hub) -> FastAPI:
     def runtime_invite(
         data: RuntimeInviteInput, authorization: str | None = Header(default=None)
     ) -> dict[str, Any]:
-        return hub.runtime_invite(bearer(authorization))
+        return hub.runtime_invite(bearer(authorization), ttl_seconds=data.ttl_seconds)
 
     @app.post("/native/v1/assets")
     def put(data: AssetInput, authorization: str | None = Header(default=None)) -> dict[str, Any]:

@@ -583,7 +583,9 @@ def setup(
     chosen = []
     processed_sources: set[str] = set()
     for product in found:
-        if not product["detected"] or not typer.confirm(
+        if not product["detected"]:
+            continue
+        if product["product"] != "cowork" and not typer.confirm(
             "接入 " + product["name"] + "？", default=True
         ):
             continue
@@ -642,11 +644,15 @@ def setup(
     if cowork_artifacts:
         plugin, connection = cowork_artifacts
         console.print(
-            f"Cowork 插件：{plugin}.zip；一次性连接文件：{connection}（15分钟有效，不能放进插件包）。"
+            f"Cowork 插件：{plugin}.zip；一次性连接文件：{connection}（7天内单次使用，不能放进插件包）。"
         )
         console.print(
             "在 Cowork 导入插件。macOS 宿主机 Hook 已固定持久状态和连接文件路径；其他运行环境需让首次任务访问连接文件所在目录。运行时会独立登记设备、发现原生记忆目录；实际接入状态仍需核验。"
         )
+        # Reveal the supported import artifact; never write Claude's private
+        # plugin state or pretend the Claude Code CLI installs into Cowork.
+        if platform.system() == "Darwin":
+            subprocess.run(["open", "-R", str(plugin) + ".zip"], check=False, capture_output=True)
     if service and platform.system() == "Darwin":
         plist_path = launch_agent(state, home)
         result = subprocess.run(

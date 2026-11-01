@@ -631,15 +631,19 @@ class Hub:
                 token=token,
             )
 
-    def runtime_invite(self, token: str) -> dict[str, Any]:
-        """Pair another runtime for this member only, with a 15-minute one-use ticket.
+    def runtime_invite(self, token: str, *, ttl_seconds: int = 900) -> dict[str, Any]:
+        """Pair another runtime for this member only, with a bounded one-use ticket.
 
         The plugin never receives the host device's reusable credential. Revoking
         the sponsor invalidates outstanding tickets; enrolled runtimes become
         independent devices that administrators can revoke separately.
         """
+        from .common import PAIRING_MAX_TTL
+
+        if type(ttl_seconds) is not int or not 60 <= ttl_seconds <= PAIRING_MAX_TTL:
+            raise ValueError("pairing lifetime must be 60 seconds to 7 days")
         invite = secrets.token_urlsafe(32)
-        expires = time.time() + 900
+        expires = time.time() + ttl_seconds
         with database(self.path) as db:
             db.execute("BEGIN IMMEDIATE")
             who = self._identity(db, token)
@@ -788,7 +792,52 @@ class Hub:
                 if current and Hub._proof_key(current) == Hub._proof_key(item)
                 else []
             )
+        elif item.get("encoding", "utf8") == "utf8":
+            # Fetch only the fields needed for completeness, not duplicated
+            # index_text and all provenance JSON for every transcript chunk.
+            # Stream bytes into the digest rather than constructing a full copy.
+            import hashlib
+
+            part_rows = db.execute(
+                "SELECT id,revision,json_extract(payload,'$.body') body, "
+                "json_extract(payload,'$.part_index') part_index, "
+                "json_extract(payload,'$.part_count') part_count, "
+                "json_extract(payload,'$.encoding') encoding, "
+                "json_extract(payload,'$.deleted') deleted FROM assets "
+                "WHERE tenant=? AND owner_device=? "
+                "AND json_extract(payload,'$.source_store')=? "
+                "AND json_extract(payload,'$.document_id')=? AND json_extract(payload,'$.document_hash')=? "
+                "ORDER BY json_extract(payload,'$.part_index')",
+                (
+                    item["tenant_id"],
+                    item["source_device_id"],
+                    item["source_store"],
+                    item["document_id"],
+                    item["document_hash"],
+                ),
+            )
+            hashed = hashlib.sha256()
+            versions = []
+            count = None
+            for index, row in enumerate(part_rows):
+                if count is None:
+                    count = row["part_count"]
+                if (
+                    row["deleted"]
+                    or row["part_index"] != index
+                    or row["part_count"] != count
+                    or row["encoding"] != "utf8"
+                ):
+                    return []
+                hashed.update(row["body"].encode())
+                versions.append((row["id"], row["revision"]))
+            return (
+                versions
+                if len(versions) == count and hashed.hexdigest() == item["document_hash"]
+                else []
+            )
         else:
+            # Binary resources require base64 validation across chunk boundaries.
             rows = db.execute(
                 "SELECT payload FROM assets WHERE tenant=? AND owner_device=? "
                 "AND json_extract(payload,'$.source_store')=? "
@@ -870,21 +919,44 @@ class Hub:
                 "SELECT a.payload,bm25(search_index) score FROM search_index JOIN assets a ON a.tenant=search_index.tenant AND a.id=search_index.asset_id WHERE search_index MATCH ? AND search_index.tenant=? AND (? IS NULL OR json_extract(a.payload, '$.project')=?) ORDER BY score LIMIT 100",
                 (match, who["tenant"], project_filter, project_filter),
             ).fetchall()
-            results = []
-            proofs: dict[tuple[str, ...], list[tuple[str, int]]] = {}
+            # Apply product semantics before the final ranking, never inside
+            # SQLite's bm25 expression. Curated memories should not lose solely
+            # because a conversation repeated question words many times.
+            kind_weight = {
+                "memory": 2.5,
+                "rule": 2.5,
+                "skill": 1.5,
+                "config": 1.0,
+                "transcript": 1.0,
+            }
+            candidates = []
             for row in rows:
                 item = json.loads(row["payload"])
-                key = self._proof_key(item)
-                if key not in proofs:
-                    proofs[key] = self._version_proof(db, item)
-                if (item["asset_id"], item["revision"]) not in proofs[key]:
-                    continue
-                if project_filter is not None and item["project"] != project_filter:
-                    continue
-                # The project is a bounded boost, never a visibility filter.
-                item["score"] = -row["score"] * (
-                    1.05 if project_hint and item["project"] == project_hint else 1
+                item["score"] = (
+                    -row["score"]
+                    * kind_weight.get(item["kind"], 1.0)
+                    * (1.05 if project_hint and item["project"] == project_hint else 1)
                 )
+                candidates.append(item)
+            candidates.sort(key=lambda item: item["score"], reverse=True)
+            results = []
+            proofs: dict[tuple[str, ...], list[tuple[str, int]]] = {}
+            from .materialize import assembled
+
+            for item in candidates:
+                if item.get("part_count", 1) == 1:
+                    # Already read from the current assets snapshot: hash-check
+                    # these bytes directly instead of re-querying the same row.
+                    valid = bool(assembled([item]))
+                else:
+                    key = self._proof_key(item)
+                    if key not in proofs:
+                        proofs[key] = self._version_proof(db, item)
+                    valid = (item["asset_id"], item["revision"]) in proofs[key]
+                if not valid:
+                    continue
                 item["verified"] = True
                 results.append(item)
-            return sorted(results, key=lambda x: x["score"], reverse=True)[:limit]
+                if len(results) >= limit:
+                    break  # Do not assemble candidates we cannot return.
+            return results

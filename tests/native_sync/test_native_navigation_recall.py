@@ -52,7 +52,7 @@ def test_actual_claude_index_does_not_displace_answer_in_detail(tmp_path):
     body, delivered = pack(
         [index, detail],
         covered=set(),
-        max_tokens=1450,
+        max_bytes=1450,
         query="星桥灰度验收-85b882 灰度回滚核验口令是什么",
     )
     assert "NATIVE_NAVIGATION_CANARY" in body
@@ -82,7 +82,7 @@ def test_navigation_cycle_remains_bounded_and_does_not_duplicate(tmp_path):
     index["body"] = "- [Next](sub/MEMORY.md)\n"
     detail["path"] = "sub/MEMORY.md"
     detail["body"] = "- [Back](../MEMORY.md)\n"
-    body, delivered = pack([index, detail], covered=set(), max_tokens=4000)
+    body, delivered = pack([index, detail], covered=set(), max_bytes=4000)
     assert len(delivered) == len(set(delivered)) == 2
 
 

@@ -61,7 +61,7 @@ def test_process_crash_cannot_commit_half_a_hub_revision(tmp_path):
 import os, sqlite3, sys
 db = sqlite3.connect(sys.argv[1])
 db.execute("BEGIN IMMEDIATE")
-db.execute("UPDATE assets SET payload='uncommitted'")
+db.execute("UPDATE assets SET payload=json_set(payload, '$.body', 'uncommitted')")
 db.execute("INSERT INTO changes(tenant,payload) VALUES('linkcrux','uncommitted')")
 db.execute("DELETE FROM search_index")
 os._exit(42)

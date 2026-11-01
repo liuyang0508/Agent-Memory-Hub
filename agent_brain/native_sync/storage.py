@@ -77,6 +77,14 @@ CREATE TABLE IF NOT EXISTS assets(
     PRIMARY KEY(tenant,id)
 );
 
+-- Complete-version lookups must not scan every JSON payload in the tenant.
+CREATE INDEX IF NOT EXISTS assets_document_version ON assets(
+    tenant, owner_device,
+    json_extract(payload,'$.source_store'),
+    json_extract(payload,'$.document_id'),
+    json_extract(payload,'$.document_hash')
+);
+
 CREATE TABLE IF NOT EXISTS changes(
     seq INTEGER PRIMARY KEY AUTOINCREMENT,
     tenant TEXT NOT NULL,

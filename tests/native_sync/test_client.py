@@ -158,13 +158,13 @@ def test_packing_preserves_two_producers_and_session_version_coverage(tmp_path):
     b = enroll(hub, name="李四")
     r1 = hub.put(a["token"], asset("a"))
     r2 = hub.put(b["token"], asset("b"))
-    body, delivered = pack([r1, r2], covered=set(), max_tokens=1500)
+    body, delivered = pack([r1, r2], covered=set(), max_bytes=1500)
     assert "张三" in body and "李四" in body
     assert body.count("订单回调验签失败检查签名密钥版本") == 1
-    assert pack([r1, r2], covered=set(delivered), max_tokens=1500)[0] == ""
-    assert pack([{**r1, "revision": 2}], covered=set(delivered), max_tokens=1500)[0]
+    assert pack([r1, r2], covered=set(delivered), max_bytes=1500)[0] == ""
+    assert pack([{**r1, "revision": 2}], covered=set(delivered), max_bytes=1500)[0]
     # Conservative bound must hold for CJK too; identity may never be silently dropped.
-    short, _ = pack([dict(r1, body="汉" * 9000)], covered=set(), max_tokens=100)
+    short, _ = pack([dict(r1, body="汉" * 9000)], covered=set(), max_bytes=100)
     assert len(short.encode()) <= 100
 
 
@@ -306,8 +306,8 @@ def test_recall_excerpt_contains_matched_tail_and_deduplicates_that_fragment(tmp
     hub = Hub(tmp_path / "hub.sqlite")
     a = enroll(hub)
     r = hub.put(a["token"], asset(body="irrelevant filler " * 400 + " THE_TAIL_CANARY is 72861."))
-    text, keys = pack([r], covered=set(), max_tokens=700, query="THE_TAIL_CANARY")
+    text, keys = pack([r], covered=set(), max_bytes=700, query="THE_TAIL_CANARY")
     assert "72861" in text
     assert keys
-    assert pack([r], covered=set(keys), max_tokens=700, query="THE_TAIL_CANARY")[0] == ""
-    assert pack([r], covered=set(keys), max_tokens=700, query="irrelevant filler")[0]
+    assert pack([r], covered=set(keys), max_bytes=700, query="THE_TAIL_CANARY")[0] == ""
+    assert pack([r], covered=set(keys), max_bytes=700, query="irrelevant filler")[0]

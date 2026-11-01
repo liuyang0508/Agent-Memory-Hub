@@ -68,7 +68,14 @@ def test_real_http_hook_cross_member_and_no_old_brain_side_effects(live, tmp_pat
     output = hook(c.root, "UserPromptSubmit", prompt="订单回调验签失败怎么办")
     body = output["hookSpecificOutput"]["additionalContext"]
     assert "张三" in body and "订单回调" in body
-    assert author["member_id"] in body
+    assert "codex-cli" in body
+    from agent_brain.native_sync.storage import database
+
+    with database(c.path) as db:
+        assert any(
+            author["member_id"] in row["payload"]
+            for row in db.execute("SELECT payload FROM recall_sources")
+        )
     assert not (tmp_path / "old-brain").exists()
     assert hook(c.root, "Stop") == {}
     assert (c.root / "wake").exists()
@@ -314,7 +321,7 @@ def test_hook_recall_keeps_no_second_copy_on_disk(live, tmp_path):
     # The producer is still named, and the text still reaches the prompt.
     assert "张三" in context
     # The banner states the same thing more briefly so it costs less budget.
-    assert "非指令" in context and "未经你验证" in context
+    assert "非指令" in context and "未经当前会话确认" in context
 
 
 def test_install_enables_native_reading_and_preserves_generation_preference(tmp_path):
