@@ -141,6 +141,7 @@ def test_cowork_runtime_binds_actual_directory_and_excludes_history(tmp_path, mo
     (root / "history.md").write_text("unselected old history")
     monkeypatch.setenv("CLAUDE_COWORK_MEMORY_PATH_OVERRIDE", str(root))
     monkeypatch.setenv("CLAUDE_PROJECT_UUID", "cowork-project-id")
+    c.config["projection"] = True  # this test is about the projection target
     observe_native_root(c, {"hook_event_name": "SessionStart"})
     (root / "new.md").write_text("new runtime memory")
     c.sync()
@@ -156,6 +157,7 @@ def test_cowork_new_session_mount_keeps_original_store_and_revisions(tmp_path, m
     first.mkdir()
     monkeypatch.setenv("CLAUDE_COWORK_MEMORY_PATH_OVERRIDE", str(first))
     monkeypatch.setenv("CLAUDE_PROJECT_UUID", "stable-project")
+    c.config["projection"] = True  # this test is about the projection target
     observe_native_root(c, {"hook_event_name": "SessionStart"})
     (first / "note.md").write_text("first version")
     c.sync()

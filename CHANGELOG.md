@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] — 2026-11-01
+
+### Changed
+
+- **Organization memory is no longer copied onto members' machines.** Projection
+  used to write every shared memory into `amh-org/` beside each product's own
+  memory, so joining an organization silently placed everyone else's memory —
+  full text — on your disk. That is now off by default: your own memory stays in
+  your product, the organization's memory stays on the Hub, and recall is a live
+  query at question time (all four clients have a Hook channel for it).
+  `setup --projection` turns the local copy back on for anyone who wants it.
+
+### Verified
+
+- With projection off: no `amh-org/` directory, `MEMORY.md` untouched, and a
+  question in another product still recalls the other member's memory from the
+  Hub, with its producer named.
+
 ## [1.2.9] — 2026-11-01
 
 ### Changed

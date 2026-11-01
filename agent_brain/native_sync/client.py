@@ -84,8 +84,20 @@ class NativeClient:
         with database(self.path) as db:
             return [dict(r) for r in db.execute("SELECT * FROM sources")]
 
+    def projection_enabled(self) -> bool:
+        """Whether organization memory may be copied into this machine's product stores.
+
+        Off by default. A member's own memory already lives in the product; the
+        organization's memory is recalled from the Hub at question time. Copying
+        other people's memories onto this disk is a data-placement decision the
+        member has to make explicitly, not a side effect of joining.
+        """
+        return bool(self.config.get("projection"))
+
     def targets(self) -> list[dict[str, Any]]:
         """Merge configured/discovered native destinations by resolved path to avoid duplicate writes."""
+        if not self.projection_enabled():
+            return []
         with database(self.path) as db:
             dynamic = [dict(row) for row in db.execute("SELECT root,product FROM dynamic_targets")]
             quarantined_roots = {

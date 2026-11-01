@@ -229,6 +229,8 @@ def _record_target(client: NativeClient, root: Path, product: str) -> None:
     """Register the root for native projection so shared memories land where products read."""
     from .common import atomic_json
 
+    if not client.projection_enabled():
+        return
     targets = client.config.setdefault("targets", [])
     entry = {"root": str(root.resolve()), "product": product}
     if not any(t.get("root") == entry["root"] for t in targets):

@@ -177,7 +177,7 @@ def bind(
     project: str = "",
     kind: str = "memory",
     state: Path = DEFAULT_STATE,
-    native_target: bool = True,
+    native_target: bool = False,
 ) -> None:
     """绑定真实源目录。已有内容默认不上传，请 preview/select。"""
     c = load(state)
@@ -333,6 +333,9 @@ def _empty_products(home: Path, rows: list[dict[str, Any]]) -> list[str]:
 
 
 def add_target(c: NativeClient, root: Path, product: str) -> None:
+    """Record a projection target; a no-op unless the member opted into projection."""
+    if not c.projection_enabled():
+        return
     entry = {"root": str(root.expanduser().resolve()), "product": product}
     targets = c.config.setdefault("targets", [])
     if not any(t["root"] == entry["root"] for t in targets):
@@ -475,11 +478,20 @@ def setup(
     state: Path = DEFAULT_STATE,
     home: Path = typer.Option(Path.home()),
     service: bool = True,
+    projection: bool = typer.Option(
+        False,
+        help="把组织记忆也存成各产品本地的原生文件；默认关闭，召回走云端实时检索",
+    ),
 ) -> None:
     """终端分步安装：检查产品、飞书登录、挑选历史、确认配置。"""
     from . import history
 
     console.print("[bold]AMH · 组织共享第二大脑[/bold]")
+    # Set before anything registers a target so the choice applies to this run.
+    c0 = NativeClient(state) if (state / "config.json").exists() else None
+    if c0 is not None:
+        c0.config["projection"] = bool(projection)
+        atomic_json(c0.root / "config.json", c0.config)
     found = discover_products(home)
     table = Table("产品", "检测结果", "原生记忆目录")
     for p in found:

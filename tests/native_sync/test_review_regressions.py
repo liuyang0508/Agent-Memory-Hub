@@ -89,6 +89,7 @@ def test_native_read_records_only_visible_full_resource_coverage(live, tmp_path)
     b.sync()
     target = tmp_path / "memory"
     publish(target, "claude-code", b.cached())
+    b.config["projection"] = True
     b.config["targets"] = [{"root": str(target), "product": "claude-code"}]
     from agent_brain.native_sync.common import atomic_json
 

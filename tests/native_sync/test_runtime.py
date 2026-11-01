@@ -377,6 +377,7 @@ def test_new_claude_project_memory_is_discovered_after_install(live, tmp_path):
     projects.mkdir(parents=True)
     c.config["discovery_roots"] = [{"root": str(projects), "product": "claude-code"}]
     atomic_json(c.root / "config.json", c.config)
+    c.config["projection"] = True  # this test is about the projection target
     hook(c.root, "SessionStart", source="startup")
     memory = projects / "new-repo/memory"
     memory.mkdir(parents=True)

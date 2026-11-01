@@ -180,7 +180,8 @@ def observe_native_root(
                 ),
             ),
         )
-        db.execute("INSERT OR IGNORE INTO dynamic_targets VALUES(?,?)", (str(root), "cowork"))
+        if client.projection_enabled():
+            db.execute("INSERT OR IGNORE INTO dynamic_targets VALUES(?,?)", (str(root), "cowork"))
 
 
 def quarantine_changed_roots(client: NativeClient) -> list[str]:

@@ -21,11 +21,16 @@ def observe(client: Any, product: str, payload: dict[str, Any], session: str, ep
                 root = root.resolve()
                 if str(root) not in existing:
                     client.register(root, product, "", "memory")
-                    with database(client.path) as db:
-                        db.execute(
-                            "INSERT OR IGNORE INTO dynamic_targets VALUES(?,?)",
-                            (str(root), product),
-                        )
+                    # Discovery adds the root as a *source* so its memory is shared.
+                    # Making it a projection target as well would copy other
+                    # members' memory back onto this disk, so that only happens
+                    # when the member opted in.
+                    if client.projection_enabled():
+                        with database(client.path) as db:
+                            db.execute(
+                                "INSERT OR IGNORE INTO dynamic_targets VALUES(?,?)",
+                                (str(root), product),
+                            )
         return
     if event != "PostToolUse" or payload.get("tool_name") != "Write":
         return
