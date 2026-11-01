@@ -68,6 +68,10 @@ __EMPTY__
   </select>
   <select id="product"><option value="">全部产品</option></select>
   <select id="kind"><option value="">全部类型</option></select>
+  <label class="muted" for="since">修改时间从</label>
+  <input id="since" type="date">
+  <label class="muted" for="until">到</label>
+  <input id="until" type="date">
   <button onclick="pick('clean')">选中全部无标记</button>
   <button onclick="pick('all')">全选（不含含密钥）</button>
   <button onclick="pick('none')">全部取消</button>
@@ -99,16 +103,25 @@ for (const k of uniq("kind_name")) {
   const o = document.createElement("option"); o.value = k; o.textContent = k; document.getElementById("kind").append(o);
 }
 
+// A date input is day-grained local time; the row carries epoch seconds, so
+// compare against the start of the chosen day and the end of the chosen one.
+function dayStart(value) { return value ? new Date(value + "T00:00:00").getTime() / 1000 : null; }
+function dayEnd(value) { return value ? new Date(value + "T23:59:59.999").getTime() / 1000 : null; }
+
 function visible() {
   const q = document.getElementById("q").value.trim().toLowerCase();
   const risk = document.getElementById("risk").value;
   const product = document.getElementById("product").value;
   const kind = document.getElementById("kind").value;
+  const from = dayStart(document.getElementById("since").value);
+  const to = dayEnd(document.getElementById("until").value);
   return ROWS.filter(r =>
     (!q || (r.name + " " + r.title).toLowerCase().includes(q)) &&
     (!risk || r.risk === risk) &&
     (!product || r.product_name === product) &&
-    (!kind || r.kind_name === kind));
+    (!kind || r.kind_name === kind) &&
+    (from === null || r.mtime >= from) &&
+    (to === null || r.mtime <= to));
 }
 
 function render() {
@@ -161,7 +174,7 @@ async function submitSelection(withSelection) {
 }
 
 document.getElementById("q").addEventListener("input", render);
-for (const id of ["risk", "product", "kind"]) document.getElementById(id).addEventListener("change", render);
+for (const id of ["risk", "product", "kind", "since", "until"]) document.getElementById(id).addEventListener("change", render);
 render();
 </script>
 </body>

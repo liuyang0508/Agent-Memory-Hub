@@ -62,8 +62,13 @@ def discover(home: Path) -> list[dict[str, Any]]:
                 "note": "与 Codex CLI 共用同一份存储",
             }
         )
-    cowork = home / "Library/Application Support/Claude/local-agent-mode-sessions"
-    roots = [str(p.parent) for p in cowork.rglob("MEMORY.md")] if cowork.exists() else []
+    # Cowork keeps workspaces under "Claude" or "Claude-3p" depending on the
+    # build; checking only the first missed every memory on this machine.
+    roots: list[str] = []
+    for bundle in ("Claude", "Claude-3p"):
+        base = home / "Library/Application Support" / bundle / "local-agent-mode-sessions"
+        if base.is_dir():
+            roots += [str(p.parent) for p in base.rglob("MEMORY.md")]
     result.append(
         {
             "product": "cowork",
@@ -91,6 +96,9 @@ def discover_assets(home: Path, product: str) -> list[dict[str, str]]:
     elif product in ("codex-cli", "codex-desktop", "chatgpt-desktop"):
         base = home / ".codex"
         candidates = [
+            # The curated store. It was missing here, so Codex and the ChatGPT
+            # desktop app were "detected" but contributed no memory rows at all.
+            (base / "memories", "memory"),
             (base / "sessions", "transcript"),
             (base / "AGENTS.md", "rule"),
             (base / "skills", "skill"),

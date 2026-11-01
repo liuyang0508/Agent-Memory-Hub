@@ -44,8 +44,13 @@ def roots(home: Path, product: str) -> list[tuple[Path, str]]:
                 seen.setdefault(str(resolved), (resolved, "memory"))
     # Cowork stores each workspace's memory beside its session rather than in a fixed root.
     if product == "cowork":
-        base = home / "Library/Application Support/Claude/local-agent-mode-sessions"
-        if base.is_dir():
+        bases = [
+            home / "Library/Application Support" / bundle / "local-agent-mode-sessions"
+            for bundle in ("Claude", "Claude-3p")
+        ]
+        for base in bases:
+            if not base.is_dir():
+                continue
             for memory in sorted(base.rglob("MEMORY.md")):
                 if memory.is_symlink() or not memory.parent.is_dir():
                     continue
