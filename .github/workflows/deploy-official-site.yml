@@ -1,168 +1,38 @@
-name: Deploy official website
-
+name: Inspect native repair readiness (read only)
 on:
   workflow_dispatch:
-    inputs:
-      deploy_native:
-        description: '同时升级原生 Hub 服务'
-        type: boolean
-        default: true
-  push:
-    branches:
-      - main
-    paths:
-      - docs/visuals/agent-memory-hub-official-site.html
-      - docs/visuals/media/**
-      - deploy/telemetry_server.py
-      - deploy/nginx-telemetry-location.conf
-      - docs/product-telemetry.zh.md
-      - deploy/native-memory/**
-      - agent_brain/native_sync/**
-      - .github/workflows/deploy-official-site.yml
-
 permissions:
   contents: read
-
-concurrency:
-  group: aihub-official-site
-  cancel-in-progress: false
-
 jobs:
-  site:
-    name: Sync static site to nginx
+  inspect:
     runs-on: ubuntu-latest
+    timeout-minutes: 4
     env:
-      DEPLOY_ENABLED: ${{ secrets.AIHUB_SSH_HOST != '' && secrets.AIHUB_SSH_USER != '' && secrets.AIHUB_SSH_KEY != '' && secrets.AIHUB_WEB_ROOT != '' }}
       AIHUB_SSH_HOST: ${{ secrets.AIHUB_SSH_HOST }}
       AIHUB_SSH_USER: ${{ secrets.AIHUB_SSH_USER }}
       AIHUB_SSH_KEY: ${{ secrets.AIHUB_SSH_KEY }}
       AIHUB_SSH_PORT: ${{ secrets.AIHUB_SSH_PORT || '22' }}
-      AIHUB_WEB_ROOT: ${{ secrets.AIHUB_WEB_ROOT }}
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - name: Skip when deployment secrets are missing
-        if: env.DEPLOY_ENABLED != 'true'
-        run: |
-          echo "::notice title=AMH_DISTRIBUTION_SECRET_MISSING::reason=missing_secret secret=AIHUB_DEPLOY_BUNDLE workflow=deploy-official-site"
-
-      - name: Prepare SSH key
-        if: env.DEPLOY_ENABLED == 'true'
-        run: |
-          set -euo pipefail
-          install -m 700 -d ~/.ssh
-          printf '%s\n' "$AIHUB_SSH_KEY" > ~/.ssh/aihub_deploy_key
-          chmod 600 ~/.ssh/aihub_deploy_key
-          ssh-keyscan -p "$AIHUB_SSH_PORT" "$AIHUB_SSH_HOST" >> ~/.ssh/known_hosts
-
-      - name: Upload official website
-        if: env.DEPLOY_ENABLED == 'true'
-        run: |
-          set -euo pipefail
-          remote="${AIHUB_SSH_USER}@${AIHUB_SSH_HOST}"
-          media_stage="$AIHUB_WEB_ROOT/.film-upload-$GITHUB_RUN_ID"
-          ssh -i ~/.ssh/aihub_deploy_key -p "$AIHUB_SSH_PORT" "$remote" "mkdir -p '$AIHUB_WEB_ROOT/assets/films' '$media_stage' '$AIHUB_WEB_ROOT/.telemetry'"
-          # Publish versioned media first so the new homepage never points at missing files.
-          # Stage complete files before renaming: a redeploy cannot truncate an active stream.
-          scp -i ~/.ssh/aihub_deploy_key -P "$AIHUB_SSH_PORT" docs/visuals/media/*.webp docs/visuals/media/*.mp4 "$remote:$media_stage/"
-          ssh -i ~/.ssh/aihub_deploy_key -p "$AIHUB_SSH_PORT" "$remote" "for file in '$media_stage'/*; do mv \"\$file\" '$AIHUB_WEB_ROOT/assets/films/'; done; rmdir '$media_stage'"
-          scp -i ~/.ssh/aihub_deploy_key -P "$AIHUB_SSH_PORT" docs/visuals/agent-memory-hub-official-site.html "$remote:$AIHUB_WEB_ROOT/.index.html.next"
-          ssh -i ~/.ssh/aihub_deploy_key -p "$AIHUB_SSH_PORT" "$remote" "mv '$AIHUB_WEB_ROOT/.index.html.next' '$AIHUB_WEB_ROOT/index.html'"
-          scp -i ~/.ssh/aihub_deploy_key -P "$AIHUB_SSH_PORT" deploy/telemetry_server.py "$remote:$AIHUB_WEB_ROOT/.telemetry/telemetry_server.py"
-          scp -i ~/.ssh/aihub_deploy_key -P "$AIHUB_SSH_PORT" deploy/nginx-telemetry-location.conf "$remote:$AIHUB_WEB_ROOT/.telemetry/nginx-location.conf.example"
-          ssh -i ~/.ssh/aihub_deploy_key -p "$AIHUB_SSH_PORT" "$remote" \
-            "if systemctl is-active --quiet agent-memory-hub-telemetry.service 2>/dev/null; then systemctl restart agent-memory-hub-telemetry.service; elif systemctl --user is-active --quiet agent-memory-hub-telemetry.service 2>/dev/null; then systemctl --user restart agent-memory-hub-telemetry.service; fi"
-
-  native:
-    name: Upgrade native Hub service
-    needs: site
-    # A manual dispatch may opt out; a plain push always ships both.
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.deploy_native }}
-    runs-on: ubuntu-latest
-    env:
-      NATIVE_ENABLED: ${{ secrets.AIHUB_SSH_HOST != '' && secrets.AIHUB_SSH_USER != '' && secrets.AIHUB_SSH_KEY != '' }}
-      AIHUB_SSH_HOST: ${{ secrets.AIHUB_SSH_HOST }}
-      AIHUB_SSH_USER: ${{ secrets.AIHUB_SSH_USER }}
-      AIHUB_SSH_KEY: ${{ secrets.AIHUB_SSH_KEY }}
-      AIHUB_SSH_PORT: ${{ secrets.AIHUB_SSH_PORT || '22' }}
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - name: Skip when deployment secrets are missing
-        if: env.NATIVE_ENABLED != 'true'
-        run: |
-          echo "::notice title=AMH_NATIVE_SECRET_MISSING::reason=missing_secret secret=AIHUB_SSH_KEY workflow=deploy-official-site"
-
-      - name: Set up Python
-        if: env.NATIVE_ENABLED == 'true'
-        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
-        with:
-          python-version: '3.11'
-
-      - name: Build wheel and dependency closure
-        if: env.NATIVE_ENABLED == 'true'
-        run: |
-          set -euo pipefail
-          python -m pip wheel --no-deps . -w dist >/dev/null
-          wheel=$(find dist -maxdepth 1 -name 'agent_memory_hub-*.whl' -type f)
-          test "$(printf '%s\n' "$wheel" | wc -l)" -eq 1
-          python -m pip download --only-binary=:all: --python-version 311 --implementation cp \
-            --abi cp311 --abi abi3 --abi none \
-            --platform manylinux_2_28_x86_64 --platform manylinux2014_x86_64 \
-            --dest dist/wheelhouse "$wheel[web]" >/dev/null
-          python - <<'PY'
-          from pathlib import Path
-          import hashlib, json
-          files = {p.name: hashlib.sha256(p.read_bytes()).hexdigest()
-                   for p in sorted(Path('dist/wheelhouse').glob('*.whl'))}
-          digest = hashlib.sha256(json.dumps(files, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
-          Path('dist/bundle.json').write_text(json.dumps({'files': files, 'bundle_sha256': digest}))
-          print(digest)
-          PY
-
-      - name: Prepare SSH key
-        if: env.NATIVE_ENABLED == 'true'
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - name: Prepare pinned SSH connection
+        shell: bash
         run: |
           set -euo pipefail
           install -m 700 -d ~/.ssh
           printf '%s\n' "$AIHUB_SSH_KEY" > ~/.ssh/aihub_key
           chmod 600 ~/.ssh/aihub_key
-          ssh-keyscan -p "$AIHUB_SSH_PORT" "$AIHUB_SSH_HOST" >> ~/.ssh/known_hosts
-
-      - name: Upload release bundle
-        if: env.NATIVE_ENABLED == 'true'
+          cat > ~/.ssh/known_hosts <<'HOSTS'
+          aihub-pinned ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHJETnY8FTc+8UrXHfCDUblNRP6gsFf5KFfwsMPaZZLf
+          aihub-pinned ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCtJEAWS+KtN4mo7y2KRfMHM5goE3d2JTv+hEUcPDtDcZeER6xtGveCxqD0J+WJo0j7sdh/AscO7cbzPH5ODmNBRM/Eu+g8l7d1457lxy9drYzYUKRmpDr4kMBh+9Pgcass4XWiDHmxxoIJM8Q5/oIDCX+uT/SoDP3k/zAkISujFsJn6Fi9DhMxArjW3MrgngTLsBBYOTBubTCFvhtYdgskwkK6xeBYgo+L5mOe9cHNJjR4t+rPLsiC1mttcwryFt1dnSzqH8/ST2hbuY4L+ph8VfHnarFkvhEHPsKlPTH3g3mhMRUSPOacJSPhsV1y+ESnx703jGv1EkAwxfAVjG5yMuXqMMYcKqnChvJXHlPmSPiEygAernjPxLHw4HSJQoRbH34wSyvH0mBREc2tFKrJ5tC+HNWfnfymh/rylky21Fgc8abs1FKwTwOAIPxnNctsxCQ3SpCqcM67vak9T7r3CaZV1Kt5NSvKqZe1tCSbOB57fd3tTJRA4xPyiPtFb6c=
+          aihub-pinned ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBOn+8XNOgJ89F4RCC6GNxs+V0dsQaNmQtsdRN73GfAcFspoEtYBMU+qG/pLlBJP99Wd9DtSXkme30a+ckUetjdk=
+          HOSTS
+      - name: Read service and aggregate database state
+        shell: bash
         run: |
           set -euo pipefail
-          remote="${AIHUB_SSH_USER}@${AIHUB_SSH_HOST}"
-          stage=$(ssh -i ~/.ssh/aihub_key -p "$AIHUB_SSH_PORT" "$remote" 'mktemp -d /tmp/amh-native-upgrade.XXXXXXXX')
-          ssh -i ~/.ssh/aihub_key -p "$AIHUB_SSH_PORT" "$remote" "mkdir -p '$stage/wheelhouse'"
-          scp -i ~/.ssh/aihub_key -P "$AIHUB_SSH_PORT" dist/wheelhouse/*.whl "$remote:$stage/wheelhouse/"
-          scp -i ~/.ssh/aihub_key -P "$AIHUB_SSH_PORT" dist/bundle.json deploy/native-memory/upgrade.sh "$remote:$stage/"
-          echo "NATIVE_STAGE=$stage" >> "$GITHUB_ENV"
-
-      - name: Upgrade service and verify readiness
-        if: env.NATIVE_ENABLED == 'true'
-        run: |
-          set -euo pipefail
-          remote="${AIHUB_SSH_USER}@${AIHUB_SSH_HOST}"
-          bundle=$(python -c "import json;print(json.load(open('dist/bundle.json'))['bundle_sha256'])")
-          wheel="$NATIVE_STAGE/wheelhouse/$(ls dist/wheelhouse | head -1)"
-          # The previous rollout already required uid 0 here, so root login is
-          # expected; sudo is used only when the account is not already root.
-          ssh -i ~/.ssh/aihub_key -p "$AIHUB_SSH_PORT" "$remote" \
-            "if [ \$(id -u) -eq 0 ]; then bash '$NATIVE_STAGE/upgrade.sh' '$wheel' '$NATIVE_STAGE/wheelhouse' '$bundle' '$GITHUB_SHA'; else sudo bash '$NATIVE_STAGE/upgrade.sh' '$wheel' '$NATIVE_STAGE/wheelhouse' '$bundle' '$GITHUB_SHA'; fi"
-          # Verify from inside the host, so a TLS or CDN problem is not mistaken for a service failure.
-          ssh -i ~/.ssh/aihub_key -p "$AIHUB_SSH_PORT" "$remote" \
-            "curl -fsS --max-time 10 http://127.0.0.1:8787/native/v1/ready"
-          curl -fsS --retry 3 --retry-delay 3 --max-time 15 https://aihub0508.com/native/v1/health
-          echo "native_release=$GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Remove upload stage
-        if: always() && env.NATIVE_ENABLED == 'true' && env.NATIVE_STAGE != ''
-        run: |
-          remote="${AIHUB_SSH_USER}@${AIHUB_SSH_HOST}"
-          ssh -i ~/.ssh/aihub_key -p "$AIHUB_SSH_PORT" "$remote" "rm -rf -- '$NATIVE_STAGE'" || true
+          ssh -i ~/.ssh/aihub_key -p "$AIHUB_SSH_PORT" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o HostKeyAlias=aihub-pinned -o ConnectTimeout=15 "$AIHUB_SSH_USER@$AIHUB_SSH_HOST" 'PYTHONDONTWRITEBYTECODE=1 python3.11 -' < deploy/native-review/inspect.py > preflight.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: native-repair-preflight
+          path: preflight.json
+          retention-days: 7
