@@ -61,7 +61,7 @@ def test_process_crash_cannot_commit_half_a_hub_revision(tmp_path):
 import os, sqlite3, sys
 db = sqlite3.connect(sys.argv[1])
 db.execute("BEGIN IMMEDIATE")
-db.execute("UPDATE assets SET payload='uncommitted'")
+db.execute("UPDATE assets SET payload=json_set(payload, '$.body', 'uncommitted')")
 db.execute("INSERT INTO changes(tenant,payload) VALUES('linkcrux','uncommitted')")
 db.execute("DELETE FROM search_index")
 os._exit(42)
@@ -69,7 +69,7 @@ os._exit(42)
     result = subprocess.run([sys.executable, "-c", script, str(hub.path)], timeout=10)
     assert result.returncode == 42
     restarted = Hub(hub.path)
-    assert restarted.changes(who["token"], 0)["items"] == [saved]
+    assert restarted.changes(who["token"], 0)["items"] == [{**saved, "verified": True}]
     assert restarted.search(who["token"], "订单")[0]["revision"] == 1
 
 

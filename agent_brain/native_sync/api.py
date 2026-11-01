@@ -30,7 +30,13 @@ def create_app(hub: Hub) -> FastAPI:
 
     @app.exception_handler(ValueError)
     async def conflict(request: Any, error: Any) -> JSONResponse:
-        return JSONResponse(status_code=409, content={"detail": str(error)})
+        # Never echo an arbitrary exception message: some carry SQL, paths or
+        # decoder internals. Messages this service raises on purpose are short
+        # and lowercase; anything longer is treated as internal.
+        detail = str(error)
+        if len(detail) > 200:
+            detail = "request rejected"
+        return JSONResponse(status_code=409, content={"detail": detail})
 
     @app.exception_handler(sqlite3.Error)
     async def storage_unavailable(request: Any, error: Any) -> JSONResponse:
@@ -65,7 +71,16 @@ def create_app(hub: Hub) -> FastAPI:
             config = feishu.load(hub.setting)
         except ValueError:
             return {"available": False}
-        return {"available": config is not None}
+        return {
+            "available": bool(
+                config
+                and (
+                    config.allowed_tenants
+                    or hub.setting("feishu_tenant_key")
+                    or hub.prepare_legacy_provider(config.app_id)
+                )
+            )
+        }
 
     def operator(authorization: str | None) -> str:
         return bearer(authorization)
@@ -76,6 +91,21 @@ def create_app(hub: Hub) -> FastAPI:
         from . import admin
 
         return HTMLResponse(admin.html())
+
+    @app.get("/native/v1/admin/dashboard")
+    def admin_dashboard_page() -> HTMLResponse:
+        """Activity dashboard; the page holds no credential and no memory text."""
+        from . import dashboard
+
+        return HTMLResponse(dashboard.html())
+
+    @app.get("/native/v1/admin/dashboard/data")
+    def admin_dashboard(
+        days: int = Query(default=30, ge=1, le=365),
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        """Aggregate activity for the operator dashboard; counts only, no memory text."""
+        return hub.admin_dashboard(operator(authorization), days=days)
 
     @app.get("/native/v1/admin/overview")
     def admin_overview(authorization: str | None = Header(default=None)) -> dict[str, Any]:
@@ -113,8 +143,12 @@ def create_app(hub: Hub) -> FastAPI:
             raise HTTPException(503, str(exc)) from None
         if config is None:
             raise HTTPException(503, "this Hub does not offer enterprise login")
+        hub.prepare_legacy_provider(config.app_id)
         state = hub.feishu_begin(data.port)
-        return {"authorize_url": feishu.authorize_url(config, state), "redirect_uri": config.redirect_uri}
+        return {
+            "authorize_url": feishu.authorize_url(config, state),
+            "redirect_uri": config.redirect_uri,
+        }
 
     @app.get("/native/v1/auth/feishu/callback")
     def feishu_callback(
@@ -143,9 +177,15 @@ def create_app(hub: Hub) -> FastAPI:
             raise HTTPException(409, str(exc)) from None
         token = feishu.exchange_code(config, code)
         identity = feishu.user_identity(token)
-        if not config.accepts(identity["tenant_key"]):
+        hub.prepare_legacy_provider(config.app_id)
+        if not hub.feishu_accept_tenant(
+            identity["tenant_key"],
+            config.allowed_tenants,
+            app_id=config.app_id,
+            verified_identity=identity,
+        ):
             raise HTTPException(403, "this Feishu tenant is not served by this Hub")
-        port, ticket = hub.feishu_complete(state, identity)
+        port, ticket = hub.feishu_complete(state, identity, app_id=config.app_id)
         response = RedirectResponse(
             "http://127.0.0.1:%d/?ticket=%s" % (port, ticket), status_code=303
         )
@@ -171,7 +211,7 @@ def create_app(hub: Hub) -> FastAPI:
     def runtime_invite(
         data: RuntimeInviteInput, authorization: str | None = Header(default=None)
     ) -> dict[str, Any]:
-        return hub.runtime_invite(bearer(authorization))
+        return hub.runtime_invite(bearer(authorization), ttl_seconds=data.ttl_seconds)
 
     @app.post("/native/v1/assets")
     def put(data: AssetInput, authorization: str | None = Header(default=None)) -> dict[str, Any]:
@@ -181,9 +221,10 @@ def create_app(hub: Hub) -> FastAPI:
     def changes(
         cursor: int = Query(default=0, ge=0),
         limit: int = Query(default=100, ge=1, le=100),
+        metadata_only: bool = False,
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
-        return hub.changes(bearer(authorization), cursor, limit)
+        return hub.changes(bearer(authorization), cursor, limit, metadata_only=metadata_only)
 
     @app.post("/native/v1/search")
     def search(
@@ -192,6 +233,11 @@ def create_app(hub: Hub) -> FastAPI:
         return {"items": hub.search(bearer(authorization), **data.model_dump())}
 
     app.add_middleware(BodyLimit)
+    # Transcript body/index payloads are repetitive. Negotiate standard gzip so
+    # the network does not erase the gains from bounded candidate verification.
+    from starlette.middleware.gzip import GZipMiddleware
+
+    app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=4)
     return app
 
 

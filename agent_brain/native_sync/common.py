@@ -11,6 +11,10 @@ import tempfile
 from pathlib import Path
 
 
+PAIRING_DEFAULT_TTL = 15 * 60
+PAIRING_MAX_TTL = 7 * 24 * 60 * 60
+
+
 PRODUCTS = {
     "claude-code": "Claude Code",
     "codex-cli": "Codex CLI",

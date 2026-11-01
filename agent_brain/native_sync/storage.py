@@ -77,6 +77,14 @@ CREATE TABLE IF NOT EXISTS assets(
     PRIMARY KEY(tenant,id)
 );
 
+-- Complete-version lookups must not scan every JSON payload in the tenant.
+CREATE INDEX IF NOT EXISTS assets_document_version ON assets(
+    tenant, owner_device,
+    json_extract(payload,'$.source_store'),
+    json_extract(payload,'$.document_id'),
+    json_extract(payload,'$.document_hash')
+);
+
 CREATE TABLE IF NOT EXISTS changes(
     seq INTEGER PRIMARY KEY AUTOINCREMENT,
     tenant TEXT NOT NULL,
@@ -94,6 +102,15 @@ CREATE TABLE IF NOT EXISTS feishu_members(
     member TEXT NOT NULL
 );
 
+-- New identities carry their provider namespace. Legacy mappings stay intact
+-- until a host administrator explicitly scopes them; names are never keys.
+CREATE TABLE IF NOT EXISTS feishu_accounts(
+    app_id TEXT NOT NULL,
+    tenant_key TEXT NOT NULL,
+    open_id TEXT NOT NULL,
+    member TEXT NOT NULL,
+    PRIMARY KEY(app_id,tenant_key,open_id)
+);
 CREATE TABLE IF NOT EXISTS feishu_states(
     hash TEXT PRIMARY KEY,
     port INTEGER NOT NULL,
@@ -164,6 +181,10 @@ CREATE TABLE IF NOT EXISTS outbox(
     hash TEXT
 );
 
+CREATE TABLE IF NOT EXISTS lineage_records(
+    asset TEXT PRIMARY KEY,
+    payload TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS replica(
     asset TEXT PRIMARY KEY,
     payload TEXT

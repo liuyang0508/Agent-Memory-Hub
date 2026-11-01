@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-from .common import PRODUCTS
+from .common import PRODUCTS, PAIRING_DEFAULT_TTL, PAIRING_MAX_TTL
 
 
 class AssetInput(BaseModel):
@@ -98,6 +98,7 @@ class FeishuRedeemInput(BaseModel):
 
 
 class RuntimeInviteInput(BaseModel):
-    """Identity and lifetime are server-owned; no caller-selected membership fields."""
+    """Authenticated sponsor may request bounded onboarding time, never membership."""
 
     model_config = ConfigDict(extra="forbid")
+    ttl_seconds: int = Field(default=PAIRING_DEFAULT_TTL, ge=60, le=PAIRING_MAX_TTL, strict=True)

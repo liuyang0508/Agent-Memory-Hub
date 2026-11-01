@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 from .common import digest
 from .storage import database
-from .materialize import assembled
+from .evidence import complete_versions
 from .source import read_document
 
 
@@ -117,22 +117,29 @@ def covered_records(
     }
 
 
-def classify_copy(client: Any, h: str) -> tuple[str, list[str]]:
+def classify_copy(client: Any, h: str, *, exclude_document: str = "") -> tuple[str, list[str]]:
     """Return alias only with confirmed full-version consumption; otherwise hold exact copies for review."""
     with database(client.path) as db:
-        records = [json.loads(r["payload"]) for r in db.execute("SELECT payload FROM replica")]
+        records = [
+            json.loads(r["payload"]) for r in db.execute("SELECT payload FROM lineage_records")
+        ]
         observed = [
             json.loads(r["payload"]) for r in db.execute("SELECT payload FROM recall_sources")
         ]
         known = {r["key"] for r in db.execute("SELECT key FROM coverage")}
     unique: dict[str, dict[str, Any]] = {}
     for record in records + observed:
-        if record["deleted"] or record["kind"] != "memory":
+        if record["kind"] != "memory":
+            continue
+        if (
+            record["source_device_id"] == client.identity["device_id"]
+            and (record.get("document_id") or record["asset_id"]) == exclude_document
+        ):
             continue
         existing = unique.get(record["asset_id"])
         if existing is None or record["revision"] > existing["revision"]:
             unique[record["asset_id"]] = record
-    matches = [r for r in assembled(list(unique.values())) if r["body_hash"] == h]
+    matches = [r for r in complete_versions(list(unique.values())) if r["body_hash"] == h]
     if not matches:
         return "", []
     refs = [r["asset_id"] for r in matches]

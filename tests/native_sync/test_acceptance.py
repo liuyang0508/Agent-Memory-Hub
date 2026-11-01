@@ -52,7 +52,14 @@ def test_two_members_cloud_and_native_file_paths(live, tmp_path, source_product,
     )
     context = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
     assert "PROTOCOL-72861" in context and "甲成员" in context
-    assert author.identity["member_id"] in context
+    assert source_product in context  # Compact display retains author name/product; IDs stay in provenance.
+    # Explicit opt-in: default cloud mode must not maintain organization bodies.
+    assert not reader.cached()
+    reader.config["projection"] = True
+    from agent_brain.native_sync.common import atomic_json
+
+    atomic_json(reader.root / "config.json", reader.config)
+    reader.configure_storage()
     # Native-files-only: no invocation of the recall hook.
     reader.sync()
     native = tmp_path / "native"

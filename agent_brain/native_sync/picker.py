@@ -15,12 +15,14 @@ import html
 import http.server
 import json
 import threading
-from typing import Any
+from typing import Any, cast
 import webbrowser
 
 from .common import display_name
 
 MAX_PORT_ATTEMPTS = 5
+# The page sends a short list of row indexes; anything larger is not a selection.
+MAX_BODY_BYTES = 64 * 1024
 
 PAGE = """<!doctype html>
 <html lang="zh-CN">
@@ -240,9 +242,11 @@ def serve(
             self.wfile.write(body)
 
         def do_GET(self) -> None:
+            # Order matters: fill the static notice before injecting row data,
+            # otherwise a file literally named __EMPTY__ would be replaced too.
             page = (
-                PAGE.replace("__ROWS__", _payload(rows))
-                .replace("__EMPTY__", _empty_note(empty_products))
+                PAGE.replace("__EMPTY__", _empty_note(empty_products))
+                .replace("__ROWS__", _payload(rows))
                 .encode()
             )
             self._send(200, page, "text/html; charset=utf-8")
@@ -251,9 +255,29 @@ def serve(
             if self.path != "/submit":
                 self._send(404, b"not found", "text/plain; charset=utf-8")
                 return
-            length = int(self.headers.get("Content-Length") or 0)
+            # Any open tab can reach a loopback port, and a text/plain POST skips
+            # the CORS preflight entirely. Require the content type this page
+            # sends and refuse an Origin that is not ours.
+            ctype = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+            origin = self.headers.get("Origin")
+            expected = "http://127.0.0.1:%d" % port
+            if ctype != "application/json" or (origin and origin != expected):
+                self._send(403, b"forbidden", "text/plain; charset=utf-8")
+                return
+            try:
+                length = int(self.headers.get("Content-Length") or 0)
+            except ValueError:
+                length = -1
+            if not 0 <= length <= MAX_BODY_BYTES:
+                self._send(400, b"bad request", "text/plain; charset=utf-8")
+                return
             try:
                 data = json.loads(self.rfile.read(length) or b"{}")
+                # A list or a bare string parsed fine but then crashed on .get,
+                # which dropped the connection and left the CLI waiting out its
+                # full timeout.
+                if not isinstance(data, dict):
+                    raise TypeError("payload must be an object")
                 picked = [int(i) for i in data.get("picked") or []]
             except (ValueError, TypeError):
                 self._send(400, b"bad request", "text/plain; charset=utf-8")
@@ -280,4 +304,4 @@ def serve(
             raise TimeoutError("selection page timed out")
     finally:
         server.shutdown()
-    return holder.get("picked", [])
+    return cast(list[dict[str, Any]], holder.get("picked", []))

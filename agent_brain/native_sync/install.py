@@ -338,11 +338,13 @@ def export_cowork_plugin(
         root / "commands/doctor.md",
         root / "runtime/agent_brain/__init__.py",
     ]
+    from agent_brain._version import __version__
+
     atomic_json(
         root / ".claude-plugin/plugin.json",
         {
             "name": "amh-native-org",
-            "version": "0.1.0",
+            "version": __version__,
             "description": "组织原生记忆同步与召回",
             "author": {"name": "Agent Memory Hub"},
         },
@@ -354,6 +356,7 @@ def export_cowork_plugin(
         "__init__.py",
         "common.py",
         "contracts.py",
+        "evidence.py",
         "storage.py",
         "transport.py",
         "projection.py",

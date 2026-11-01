@@ -197,3 +197,73 @@ def publish(root: Path, product: str, records: list[dict[str, Any]]) -> dict[str
         },
     )
     return {"resources": len(entries), "conflicts": conflicts, "pending": pending}
+
+
+def cleanup(root: Path, product: str) -> dict[str, Any]:
+    """Remove only verified AMH-owned resources; never create a target or index.
+
+    A user-edited resource/navigation block remains untouched and is reported as
+    a conflict. Without a valid ownership manifest nothing is ours to remove.
+    """
+    root = Path(root)
+    folder = root / "amh-org"
+    manifest = folder / "manifest.json"
+    if not root.exists():
+        return {"conflicts": []}
+    if root.is_symlink() or folder.is_symlink() or manifest.is_symlink():
+        return {"conflicts": [str(root)]}
+    if not manifest.is_file():
+        return {"conflicts": []}
+    try:
+        previous = json.loads(manifest.read_text())
+        owned = dict(previous["files"])
+        indexes = dict(previous.get("indexes", {}))
+    except (ValueError, KeyError, TypeError):
+        return {"conflicts": [str(manifest)]}
+    conflicts = []
+    for name, expected in list(owned.items()):
+        p = folder / name
+        if Path(name).name != name or name in (".", "..") or p.is_symlink():
+            conflicts.append(str(p))
+        elif not p.exists():
+            owned.pop(name)
+        elif digest(p.read_text()) == expected:
+            p.unlink()
+            owned.pop(name)
+        else:
+            conflicts.append(str(p))
+    allowed = (
+        {"MEMORY.md"}
+        if product in ("claude-code", "cowork")
+        else {"MEMORY.md", "memory_summary.md"}
+    )
+    for name, expected in list(indexes.items()):
+        p = root / name
+        if name not in allowed or p.is_symlink():
+            conflicts.append(str(p))
+            continue
+        if not p.exists():
+            indexes.pop(name)
+            continue
+        original = p.read_text()
+        if START not in original:
+            indexes.pop(name)
+            continue
+        try:
+            clean = strip_managed(original)
+            block = original[original.index(START) : original.index(END) + len(END)]
+        except ValueError:
+            conflicts.append(str(p))
+            continue
+        if digest(block) != expected or p.read_text() != original:
+            conflicts.append(str(p))
+            continue
+        atomic_text(p, clean)
+        indexes.pop(name)
+    if owned or indexes:
+        atomic_json(manifest, {**previous, "files": owned, "indexes": indexes})
+    else:
+        manifest.unlink()
+        if not any(folder.iterdir()):
+            folder.rmdir()
+    return {"conflicts": conflicts}

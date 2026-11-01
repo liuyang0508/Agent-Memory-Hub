@@ -6,6 +6,7 @@ from typing import Any
 
 import argparse
 import json
+import sqlite3
 import sys
 import time
 from pathlib import Path
@@ -32,7 +33,15 @@ def _run(root: Path, product: str, payload: dict[str, Any]) -> dict[str, Any]:
     session = str(payload.get("session_id", ""))[:256]
     if not session:
         return {}
-    atomic_text(root / "wake", str(time.time()))
+    # The worker consumes this by unlinking it, so an existing marker already
+    # means "wake pending". Rewriting it every call meant an fsync per tool use,
+    # all of it inside the hook's time budget.
+    wake = root / "wake"
+    if not wake.exists():
+        try:
+            atomic_text(wake, str(time.time()))
+        except OSError:
+            pass  # A read-only state directory must not block the event itself.
     with database(c.path) as db:
         epoch_row = db.execute(
             "SELECT value FROM meta WHERE key=?", ("epoch:" + session,)
@@ -91,58 +100,79 @@ def _run(root: Path, product: str, payload: dict[str, Any]) -> dict[str, Any]:
     try:
         from .query_worker import bounded_search
 
-        hits = bounded_search(root, prompt[:8000], timeout=0.65)
-        with database(c.path) as db:
-            for record in hits:
-                db.execute(
-                    "INSERT OR REPLACE INTO recall_sources VALUES(?,?,?)",
-                    (
-                        record["asset_id"],
-                        record["revision"],
-                        json.dumps(record, ensure_ascii=False),
-                    ),
-                )
-            db.execute("INSERT OR REPLACE INTO meta VALUES('last_auth',?)", (str(time.time()),))
+        hits = bounded_search(root, prompt[:8000], timeout=1.2)
     except PermissionError:
         c.revoke_local()
         mode = "denied"
         hits = []
-    except (OSError, ValueError, TimeoutError):
+    except (OSError, ValueError, TimeoutError, sqlite3.Error):
         with database(c.path) as db:
             row = db.execute("SELECT value FROM meta WHERE key='last_auth'").fetchone()
         hits = c.local_search(prompt) if row and time.time() - float(row["value"]) < 900 else []
         mode = "cache" if hits else "unavailable"
+    if mode == "remote":
+        # Valid authorized results remain usable even while the async worker
+        # owns SQLite's writer lock. Provenance bookkeeping is best effort;
+        # losing it may cause a bounded repeat, never an invented coverage claim.
+        try:
+            from .evidence import metadata
+
+            with database(c.path) as db:
+                for record in hits:
+                    db.execute(
+                        "INSERT OR REPLACE INTO recall_sources VALUES(?,?,?)",
+                        (
+                            record["asset_id"],
+                            record["revision"],
+                            json.dumps(metadata(record), ensure_ascii=False),
+                        ),
+                    )
+                db.execute("INSERT OR REPLACE INTO meta VALUES('last_auth',?)", (str(time.time()),))
+        except (sqlite3.Error, OSError):
+            pass
     from .lineage import covered_records
 
     covered.update(covered_records(c, session, epoch, hits))
     # Recalled bodies go straight into the prompt and nowhere else. Writing them
     # to disk would make a second copy of other members' memories on this
     # machine, which is exactly what local-first sharing is supposed to avoid.
-    body, keys = pack(hits, covered=covered, max_tokens=1450, query=prompt)
+    # The delivery receipt is appended below; reserve it inside the byte cap.
+    receipt_bytes = len("\namh-native-recall:") + 24
+    body, keys = pack(
+        hits, covered=covered, max_bytes=4096 - receipt_bytes, per_item_bytes=1536, query=prompt
+    )
     if body:
         marker = "amh-native-recall:" + digest(session + epoch + body)[:24]
         body += "\n" + marker
-        with database(c.path) as db:
-            db.execute(
-                "INSERT OR REPLACE INTO emitted VALUES(?,?,?,?)",
-                (session, marker, json.dumps(keys), time.time()),
+        try:
+            with database(c.path) as db:
+                db.execute(
+                    "INSERT OR REPLACE INTO emitted VALUES(?,?,?,?)",
+                    (session, marker, json.dumps(keys), time.time()),
+                )
+                db.execute("DELETE FROM emitted WHERE created<?", (time.time() - 86400,))
+        except (sqlite3.Error, OSError):
+            pass  # Do not discard a completed recall for an unavailable receipt store.
+    # Never log user prompts or memory bodies. Metrics are diagnostics: a
+    # read-only state directory must not cost the member a recall they already
+    # paid for, and `emitted` has already been written above.
+    try:
+        with (root / "hook-metrics.jsonl").open("a") as stream:
+            stream.write(
+                json.dumps(
+                    {
+                        "event": event,
+                        "product": product,
+                        "mode": mode,
+                        "elapsed_ms": round((time.monotonic() - started) * 1000),
+                        "bytes": len(body.encode()),
+                        "timestamp": time.time(),
+                    }
+                )
+                + "\n"
             )
-            db.execute("DELETE FROM emitted WHERE created<?", (time.time() - 86400,))
-    # Never log user prompts or memory bodies.
-    with (root / "hook-metrics.jsonl").open("a") as stream:
-        stream.write(
-            json.dumps(
-                {
-                    "event": event,
-                    "product": product,
-                    "mode": mode,
-                    "elapsed_ms": round((time.monotonic() - started) * 1000),
-                    "bytes": len(body.encode()),
-                    "timestamp": time.time(),
-                }
-            )
-            + "\n"
-        )
+    except OSError:
+        pass
     if not body:
         return {}
     return {"hookSpecificOutput": {"hookEventName": event, "additionalContext": body}}

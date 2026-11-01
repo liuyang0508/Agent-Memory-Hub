@@ -77,7 +77,13 @@ def observe(client: Any, product: str, payload: dict[str, Any], session: str, ep
             fresh_files={str(path.relative_to(root))} if not denied else set(),
         )
         with database(client.path) as db:
-            db.execute("INSERT OR IGNORE INTO dynamic_targets VALUES(?,?)", (str(root), product))
+            # Same rule as the SessionStart branch: a target recorded now would
+            # become live the moment someone later enables projection, which is
+            # not a decision this hook is allowed to make in advance.
+            if client.projection_enabled():
+                db.execute(
+                    "INSERT OR IGNORE INTO dynamic_targets VALUES(?,?)", (str(root), product)
+                )
             if not denied and tool_input.get("content") == document[0]:
                 db.execute(
                     "INSERT OR REPLACE INTO native_proofs VALUES(?,?,?,?,?)",

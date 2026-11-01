@@ -42,7 +42,7 @@ class Transport:
 
     def call(self, path: str, data: Any = None) -> Any:
         """Issue one bounded request; classify auth, transient and record errors for the owning retry layer."""
-        headers = {"Content-Type": "application/json"}
+        headers = {"Content-Type": "application/json", "Accept-Encoding": "gzip"}
         if self.token:
             headers["Authorization"] = "Bearer " + self.token
         req = request.Request(
@@ -69,6 +69,19 @@ class Transport:
                     raw.extend(chunk)
                     if len(raw) > 8_000_000:
                         raise ValueError("Hub response too large")
+                if response.headers.get("Content-Encoding", "").lower() == "gzip":
+                    import gzip
+                    import io
+
+                    # Bound decoded bytes too: a compressed response must not
+                    # bypass the existing memory limit or become a gzip bomb.
+                    with gzip.GzipFile(fileobj=io.BytesIO(raw)) as compressed:
+                        decoded = compressed.read(8_000_001)
+                    if len(decoded) > 8_000_000:
+                        raise ValueError("Hub decoded response too large")
+                    raw = bytearray(decoded)
+                if time.monotonic() >= deadline:
+                    raise TimeoutError("Hub response deadline exceeded")
                 return json.loads(raw)
         except error.HTTPError as exc:
             if exc.code in (401, 403):
@@ -86,8 +99,10 @@ class Transport:
     def put(self, value: Any) -> Any:
         return self.call("assets", value)
 
-    def changes(self, cursor: int) -> Any:
-        return self.call(f"changes?cursor={cursor}&limit=10")
+    def changes(self, cursor: int, *, metadata_only: bool = False) -> Any:
+        return self.call(
+            f"changes?cursor={cursor}&limit=10&metadata_only={str(metadata_only).lower()}"
+        )
 
     def search(self, query: str, **kwargs: Any) -> Any:
         return self.call("search", {"query": query, **kwargs})["items"]

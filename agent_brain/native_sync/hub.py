@@ -132,7 +132,8 @@ class Hub:
                 for row in db.execute(
                     "SELECT m.id,m.name,m.tenant,"
                     "(SELECT count(*) FROM devices d WHERE d.member=m.id AND d.revoked=0) devices,"
-                    "(SELECT count(*) FROM assets a WHERE a.tenant=m.tenant) assets "
+                    "(SELECT count(*) FROM assets a WHERE a.tenant=m.tenant "
+                    "AND json_extract(a.payload,'$.producer_member_id')=m.id) assets "
                     "FROM members m ORDER BY m.name"
                 )
             ]
@@ -147,10 +148,161 @@ class Hub:
                 row["key"]: row["value"]
                 for row in db.execute(
                     "SELECT key,value FROM settings WHERE key IN "
-                    "('feishu_app_id','amh_hub_public_url','feishu_tenant')"
+                    "('feishu_app_id','amh_hub_public_url','feishu_tenant','feishu_tenant_key')"
                 )
             }
         return {"members": members, "devices": devices, "settings": settings}
+
+    def admin_dashboard(self, token: str, *, days: int = 30) -> dict[str, Any]:
+        """Aggregates for the operator dashboard; counts and metadata only, never memory text.
+
+        Every number here is derived from what devices actually uploaded, so a
+        member who joins and shares nothing correctly shows zero rather than
+        being counted as active.
+        """
+        days = max(1, min(int(days), 365))
+        now = time.time()
+        cutoff = now - days * 86400
+        with database(self.path) as db:
+            self._admin(db, token)
+            # Scope to this Hub's tenant: the dashboard belongs to one
+            # organization, and an unfiltered read pulled every row in the
+            # database into memory on each page load.
+            scope = self.tenant
+            members = {
+                r["id"]: dict(r)
+                for r in db.execute("SELECT * FROM members WHERE tenant=?", (scope,))
+            }
+            devices = [
+                dict(r)
+                for r in db.execute(
+                    "SELECT d.* FROM devices d JOIN members m ON m.id=d.member WHERE m.tenant=?",
+                    (scope,),
+                )
+            ]
+            rows = db.execute("SELECT payload FROM assets WHERE tenant=?", (scope,)).fetchall()
+        assets = []
+        for row in rows:
+            try:
+                assets.append(json.loads(row["payload"]))
+            except (TypeError, ValueError):
+                continue
+        live = [a for a in assets if not a.get("deleted")]
+
+        def bucket() -> dict[str, Any]:
+            return {
+                "assets": 0,
+                "bytes": 0,
+                "revisions": 0,
+                "products": {},
+                "kinds": {},
+                "last": 0.0,
+            }
+
+        by_member: dict[str, dict[str, Any]] = {}
+        by_device: dict[str, dict[str, Any]] = {}
+        by_product: dict[str, dict[str, Any]] = {}
+        by_kind: dict[str, int] = {}
+        by_day: dict[str, dict[str, int]] = {}
+        by_hour = [0] * 24
+        projects: dict[str, int] = {}
+
+        for a in live:
+            producer = a.get("producer_member_id") or ""
+            device = a.get("source_device_id") or ""
+            product = a.get("product") or "unknown"
+            kind = a.get("kind") or "memory"
+            observed = float(a.get("observed_at") or 0)
+            size = len((a.get("body") or "").encode())
+
+            def add(store: dict[str, Any], key: str, label: str) -> None:
+                item = store.setdefault(key, bucket())
+                item["label"] = label
+                item["assets"] += 1
+                item["bytes"] += size
+                item["revisions"] += max(1, int(a.get("revision") or 1))
+                item["products"][product] = item["products"].get(product, 0) + 1
+                item["kinds"][kind] = item["kinds"].get(kind, 0) + 1
+                item["last"] = max(item["last"], observed)
+
+            add(by_member, producer, (members.get(producer) or {}).get("name") or "未知来源")
+            add(by_device, device, next((d["name"] for d in devices if d["id"] == device), device))
+            add(by_product, product, product)
+
+            by_kind[kind] = by_kind.get(kind, 0) + 1
+            project = (a.get("project") or "").strip()
+            if project:
+                projects[project] = projects.get(project, 0) + 1
+            if observed >= cutoff:
+                day = time.strftime("%Y-%m-%d", time.localtime(observed))
+                entry = by_day.setdefault(day, {"assets": 0, "bytes": 0})
+                entry["assets"] += 1
+                entry["bytes"] += size
+            if observed:
+                by_hour[time.localtime(observed).tm_hour] += 1
+
+        def ranked(store: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+            out = []
+            for key, item in store.items():
+                out.append(
+                    {
+                        "key": key,
+                        "label": item.get("label") or key or "未知",
+                        "assets": item["assets"],
+                        "bytes": item["bytes"],
+                        "revisions": item["revisions"],
+                        "products": item["products"],
+                        "kinds": item["kinds"],
+                        "last": item["last"],
+                    }
+                )
+            out.sort(key=lambda r: (-r["assets"], -r["bytes"], r["label"]))
+            return out
+
+        day_series = []
+        for offset in range(days - 1, -1, -1):
+            day = time.strftime("%Y-%m-%d", time.localtime(now - offset * 86400))
+            entry = by_day.get(day, {"assets": 0, "bytes": 0})
+            day_series.append({"day": day, "assets": entry["assets"], "bytes": entry["bytes"]})
+
+        active_devices = [d for d in devices if not d.get("revoked")]
+        return {
+            "generated_at": now,
+            "window_days": days,
+            "totals": {
+                "members": len(members),
+                "devices": len(devices),
+                "active_devices": len(active_devices),
+                "assets": len(live),
+                "revisions": sum(max(1, int(a.get("revision") or 1)) for a in live),
+                "bytes": sum(len((a.get("body") or "").encode()) for a in live),
+                "projects": len(projects),
+                "in_window": sum(e["assets"] for e in day_series),
+                "last_upload": max((float(a.get("observed_at") or 0) for a in live), default=0),
+            },
+            "by_member": ranked(by_member),
+            "by_device": ranked(by_device),
+            "by_product": ranked(by_product),
+            "by_kind": sorted(
+                ({"kind": k, "assets": v} for k, v in by_kind.items()),
+                key=lambda r: -r["assets"],
+            ),
+            "by_day": day_series,
+            "by_hour": by_hour,
+            "top_projects": [
+                {"project": k, "assets": v}
+                for k, v in sorted(projects.items(), key=lambda item: -item[1])[:10]
+            ],
+            "devices": [
+                {
+                    "id": d["id"],
+                    "name": d["name"],
+                    "member": (members.get(d["member"]) or {}).get("name") or d["member"],
+                    "revoked": bool(d["revoked"]),
+                }
+                for d in devices
+            ],
+        }
 
     def admin_device(self, token: str, name: str, device_name: str) -> dict[str, Any]:
         """Issue a device for a named member; the only way in is a Feishu account.
@@ -160,7 +312,11 @@ class Hub:
         """
         with database(self.path) as db:
             self._admin(db, token)
-        return self.provision(name, device_name)
+            row = db.execute("SELECT tenant FROM members WHERE name=? LIMIT 2", (name,)).fetchall()
+        # Recover in the member's own tenant; defaulting to this Hub's tenant
+        # silently created a second, empty identity under the same name.
+        tenant = row[0]["tenant"] if len(row) == 1 else ""
+        return self.provision(name, device_name, tenant=tenant)
 
     def admin_revoke(self, token: str, device_id: str) -> None:
         with database(self.path) as db:
@@ -169,7 +325,7 @@ class Hub:
 
     def admin_setting(self, token: str, key: str, value: str) -> None:
         """Store deployment settings; an empty value clears the key."""
-        allowed = {"feishu_app_id", "amh_hub_public_url", "feishu_tenant"}
+        allowed = {"feishu_app_id", "amh_hub_public_url", "feishu_tenant", "feishu_tenant_key"}
         if key not in allowed:
             raise ValueError("unknown setting")
         with database(self.path) as db:
@@ -237,6 +393,9 @@ class Hub:
             raise ValueError("loopback port required")
         state = secrets.token_urlsafe(32)
         with database(self.path) as db:
+            # This endpoint is unauthenticated; drop dead rows on the way in so
+            # abandoned logins cannot grow the table for free.
+            db.execute("DELETE FROM feishu_states WHERE expires<?", (time.time(),))
             db.execute(
                 "INSERT INTO feishu_states VALUES(?,?,?,0)",
                 (digest(state), port, time.time() + 300),
@@ -258,15 +417,136 @@ class Hub:
         if row is None or row["used"] or row["expires"] < time.time():
             raise ValueError("login state invalid, expired or used")
 
-    def feishu_complete(self, state: str, identity: dict[str, str]) -> tuple[int, str]:
-        """Consume a state, bind the Feishu account to a member, return the loopback port.
+    def prepare_legacy_provider(self, app_id: str) -> bool:
+        """Pin the trusted deployment's existing provider, never a browser value.
 
-        Member creation is idempotent per open_id so a second device reuses the
-        same member. An invited member with the same exact name is adopted when
-        it is unambiguous, so nobody ends up with two identities. A one-use
-        ticket is returned to the browser, never the device credential: the
-        credential is only ever issued over loopback.
+        Upgraded instances already have authenticated open_id mappings but older
+        versions omitted their namespace. Pinning the configured application
+        allows those same accounts to prove their tenant at their next normal
+        login, without requesting extra enterprise-directory permissions.
         """
+        if not app_id:
+            return False
+        with database(self.path) as db:
+            db.execute("BEGIN IMMEDIATE")
+            if not db.execute("SELECT 1 FROM feishu_members LIMIT 1").fetchone():
+                return False
+            row = db.execute(
+                "SELECT value FROM settings WHERE key='legacy-feishu-app-id'"
+            ).fetchone()
+            if row is None:
+                scoped = db.execute(
+                    "SELECT value FROM settings WHERE key='legacy-feishu-scope'"
+                ).fetchone()
+                expected = json.loads(scoped["value"])[0] if scoped else app_id
+                db.execute("INSERT INTO settings VALUES('legacy-feishu-app-id',?)", (expected,))
+            else:
+                expected = row["value"]
+            return expected == app_id
+
+    def feishu_accept_tenant(
+        self,
+        tenant_key: str,
+        allowlist: frozenset[str],
+        *,
+        app_id: str = "",
+        verified_identity: dict[str, str] | None = None,
+    ) -> bool:
+        """Accept configured tenants, or let an already-known account prove its tenant.
+
+        The identity must come from Feishu's authenticated user_info exchange.
+        An unknown first visitor, a display-name match, or another application
+        cannot establish the enterprise boundary during a legacy upgrade.
+        """
+        key = (tenant_key or "").strip()
+        if not key:
+            return False
+        if allowlist and key not in allowlist:
+            return False
+        tenant = self.tenant
+        with database(self.path) as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute("SELECT value FROM settings WHERE key='feishu_tenant_key'").fetchone()
+            if row is not None:
+                return bool(allowlist) or row["value"] == key
+            provider = db.execute(
+                "SELECT value FROM settings WHERE key='legacy-feishu-app-id'"
+            ).fetchone()
+            if (
+                not verified_identity
+                or verified_identity.get("tenant_key") != key
+                or not provider
+                or provider["value"] != app_id
+            ):
+                return bool(allowlist)
+            known = db.execute(
+                "SELECT 1 FROM feishu_members f JOIN members m ON m.id=f.member WHERE f.open_id=? AND m.tenant=?",
+                (verified_identity.get("open_id", ""), tenant),
+            ).fetchone()
+            if not known:
+                return bool(allowlist)
+            db.execute("INSERT INTO settings VALUES('feishu_tenant_key',?)", (key,))
+            return True
+
+    def scope_legacy_feishu(self, app_id: str, tenant_key: str) -> int:
+        """Explicit host-admin migration of 1.3.1 mappings; preserve member/device IDs.
+
+        The operator must verify the old deployment's App ID and enterprise key.
+        This does not guess ownership from a person's name or bind a new account.
+        Re-running the same migration is safe; changing its scope is rejected.
+        """
+        if not app_id.strip() or not tenant_key.strip():
+            raise ValueError("verified app ID and tenant key required")
+        scope = json.dumps([app_id, tenant_key])
+        with database(self.path) as db:
+            db.execute("BEGIN IMMEDIATE")
+            done = db.execute(
+                "SELECT value FROM settings WHERE key='legacy-feishu-scope'"
+            ).fetchone()
+            if done and done["value"] != scope:
+                raise ValueError("legacy identities already scoped to another provider")
+            pinned = db.execute(
+                "SELECT value FROM settings WHERE key='feishu_tenant_key'"
+            ).fetchone()
+            if pinned and pinned["value"] != tenant_key:
+                raise ValueError("tenant key differs from the existing deployment")
+            rows = db.execute("SELECT open_id,member FROM feishu_members").fetchall()
+            for row in rows:
+                old = db.execute(
+                    "SELECT member FROM feishu_accounts WHERE app_id=? AND tenant_key=? AND open_id=?",
+                    (app_id, tenant_key, row["open_id"]),
+                ).fetchone()
+                if old and old["member"] != row["member"]:
+                    raise ValueError("identity migration conflict")
+                db.execute(
+                    "INSERT OR IGNORE INTO feishu_accounts VALUES(?,?,?,?)",
+                    (app_id, tenant_key, row["open_id"], row["member"]),
+                )
+            provider = db.execute(
+                "SELECT value FROM settings WHERE key='legacy-feishu-app-id'"
+            ).fetchone()
+            if provider and provider["value"] != app_id:
+                raise ValueError("legacy provider differs from the trusted deployment")
+            db.execute(
+                "INSERT OR REPLACE INTO settings VALUES('legacy-feishu-app-id',?)", (app_id,)
+            )
+            db.execute("INSERT OR REPLACE INTO settings VALUES('legacy-feishu-scope',?)", (scope,))
+            db.execute(
+                "INSERT OR REPLACE INTO settings VALUES('feishu_tenant_key',?)", (tenant_key,)
+            )
+            return len(rows)
+
+    def feishu_complete(
+        self, state: str, identity: dict[str, str], *, app_id: str
+    ) -> tuple[int, str]:
+        """Consume a login state and bind only a scoped, verified provider identity.
+
+        A display name is presentation data. Even a unique same-name legacy
+        member is not evidence of ownership. Legacy provider mappings require an
+        explicit host-admin migration before the original account can sign in.
+        """
+        if not app_id or not identity.get("tenant_key") or not identity.get("open_id"):
+            raise ValueError("scoped provider identity required")
         with database(self.path) as db:
             db.execute("BEGIN IMMEDIATE")
             now = time.time()
@@ -282,28 +562,43 @@ class Hub:
             db.execute("UPDATE feishu_states SET used=1 WHERE hash=?", (digest(state),))
             port = int(row["port"])
             open_id = identity["open_id"]
+            scope = (app_id, identity["tenant_key"], open_id)
             linked = db.execute(
-                "SELECT member FROM feishu_members WHERE open_id=?", (open_id,)
+                "SELECT member FROM feishu_accounts WHERE app_id=? AND tenant_key=? AND open_id=?",
+                scope,
             ).fetchone()
             if linked is None:
-                # Only a single unlinked match is adopted; two colleagues with
-                # the same display name must not collapse into one identity.
-                candidates = db.execute(
-                    "SELECT id FROM members WHERE tenant=? AND name=? AND id NOT IN "
-                    "(SELECT member FROM feishu_members)",
-                    (self.tenant, identity["name"]),
-                ).fetchall()
-                if len(candidates) == 1:
-                    member = candidates[0]["id"]
+                legacy = db.execute(
+                    "SELECT f.member,m.tenant FROM feishu_members f JOIN members m ON m.id=f.member WHERE f.open_id=?",
+                    (open_id,),
+                ).fetchone()
+                provider = db.execute(
+                    "SELECT value FROM settings WHERE key='legacy-feishu-app-id'"
+                ).fetchone()
+                tenant_pin = db.execute(
+                    "SELECT value FROM settings WHERE key='feishu_tenant_key'"
+                ).fetchone()
+                if legacy and provider is None:
+                    raise ValueError("legacy Feishu identity requires administrator migration")
+                if (
+                    legacy
+                    and provider["value"] == app_id
+                    and tenant_pin
+                    and tenant_pin["value"] == identity["tenant_key"]
+                ):
+                    if legacy["tenant"] != self.tenant:
+                        raise ValueError("legacy identity belongs to another organization")
+                    member = legacy["member"]
+                    db.execute("UPDATE members SET name=? WHERE id=?", (identity["name"], member))
                 else:
                     member = "mem_" + uuid.uuid4().hex
                     db.execute(
-                        "INSERT INTO members VALUES(?,?,?)",
-                        (member, self.tenant, identity["name"]),
+                        "INSERT INTO members VALUES(?,?,?)", (member, self.tenant, identity["name"])
                     )
-                db.execute("INSERT INTO feishu_members VALUES(?,?)", (open_id, member))
+                db.execute("INSERT INTO feishu_accounts VALUES(?,?,?,?)", (*scope, member))
             else:
                 member = linked["member"]
+                db.execute("UPDATE members SET name=? WHERE id=?", (identity["name"], member))
             ticket = secrets.token_urlsafe(32)
             db.execute(
                 "INSERT INTO feishu_tickets VALUES(?,?,?,0)",
@@ -336,18 +631,25 @@ class Hub:
                 token=token,
             )
 
-    def runtime_invite(self, token: str) -> dict[str, Any]:
-        """Pair another runtime for this member only, with a 15-minute one-use ticket.
+    def runtime_invite(self, token: str, *, ttl_seconds: int = 900) -> dict[str, Any]:
+        """Pair another runtime for this member only, with a bounded one-use ticket.
 
         The plugin never receives the host device's reusable credential. Revoking
         the sponsor invalidates outstanding tickets; enrolled runtimes become
         independent devices that administrators can revoke separately.
         """
+        from .common import PAIRING_MAX_TTL
+
+        if type(ttl_seconds) is not int or not 60 <= ttl_seconds <= PAIRING_MAX_TTL:
+            raise ValueError("pairing lifetime must be 60 seconds to 7 days")
         invite = secrets.token_urlsafe(32)
-        expires = time.time() + 900
+        expires = time.time() + ttl_seconds
         with database(self.path) as db:
             db.execute("BEGIN IMMEDIATE")
             who = self._identity(db, token)
+            # Expired invitations can never be redeemed; drop them here instead
+            # of letting the table grow by one row per pairing attempt forever.
+            db.execute("DELETE FROM runtime_invites WHERE expires<?", (time.time(),))
             db.execute(
                 "INSERT INTO runtime_invites VALUES(?,?,?,?,0)",
                 (digest(invite), who["member_id"], who["device_id"], expires),
@@ -386,6 +688,16 @@ class Hub:
         validation so a lost success response can be retried without a new event.
         """
         item = AssetInput.model_validate(value).model_dump()
+        from .source import transcript_metadata
+
+        # Old clients must not resurrect metadata sidecars after cleanup. Accept
+        # tombstones so their owners can still converge through the normal API.
+        if (
+            item["kind"] == "transcript"
+            and transcript_metadata(item["path"])
+            and not item["deleted"]
+        ):
+            raise ValueError("transcript metadata is not shareable")
         # Hash content and its meaning, not the transport's base revision.
         content_hash = digest(
             json.dumps(
@@ -407,12 +719,19 @@ class Hub:
                 return previous
             if item["base_revision"] != (old["revision"] if old else 0):
                 raise ValueError("revision conflict; fetch current revision before retry")
+            # source_store and product identify the origin and stay immutable.
+            # producer_unknown may only move from True to False: that is a
+            # member confirming authorship of their own file, which is strictly
+            # more attribution. Allowing it back to True would be a way to shed
+            # authorship, so that direction stays refused.
             if previous and (
                 previous["source_store"],
                 previous["product"],
-                previous["producer_unknown"],
-            ) != (item["source_store"], item["product"], item["producer_unknown"]):
+            ) != (item["source_store"], item["product"]):
                 raise ValueError("source identity is immutable")
+            if previous and previous["producer_unknown"] != item["producer_unknown"]:
+                if not (previous["producer_unknown"] and not item["producer_unknown"]):
+                    raise ValueError("source identity is immutable")
             for ref in item["upstream"]:
                 if not db.execute(
                     "SELECT 1 FROM assets WHERE tenant=? AND id=?", (who["tenant"], ref)
@@ -455,7 +774,98 @@ class Hub:
                 )
             return record
 
-    def changes(self, token: str, cursor: int, limit: int = 100) -> dict[str, Any]:
+    @staticmethod
+    def _version_proof(db: sqlite3.Connection, item: dict[str, Any]) -> list[tuple[str, int]]:
+        """Validate a current complete version and return its exact part revisions."""
+        from .materialize import assembled
+
+        if item.get("deleted"):
+            return []
+        if not item.get("document_id"):
+            row = db.execute(
+                "SELECT payload FROM assets WHERE tenant=? AND id=?",
+                (item["tenant_id"], item["asset_id"]),
+            ).fetchone()
+            current = json.loads(row["payload"]) if row else None
+            complete = (
+                assembled([current])
+                if current and Hub._proof_key(current) == Hub._proof_key(item)
+                else []
+            )
+        elif item.get("encoding", "utf8") == "utf8":
+            # Fetch only the fields needed for completeness, not duplicated
+            # index_text and all provenance JSON for every transcript chunk.
+            # Stream bytes into the digest rather than constructing a full copy.
+            import hashlib
+
+            part_rows = db.execute(
+                "SELECT id,revision,json_extract(payload,'$.body') body, "
+                "json_extract(payload,'$.part_index') part_index, "
+                "json_extract(payload,'$.part_count') part_count, "
+                "json_extract(payload,'$.encoding') encoding, "
+                "json_extract(payload,'$.deleted') deleted FROM assets "
+                "WHERE tenant=? AND owner_device=? "
+                "AND json_extract(payload,'$.source_store')=? "
+                "AND json_extract(payload,'$.document_id')=? AND json_extract(payload,'$.document_hash')=? "
+                "ORDER BY json_extract(payload,'$.part_index')",
+                (
+                    item["tenant_id"],
+                    item["source_device_id"],
+                    item["source_store"],
+                    item["document_id"],
+                    item["document_hash"],
+                ),
+            )
+            hashed = hashlib.sha256()
+            versions = []
+            count = None
+            for index, row in enumerate(part_rows):
+                if count is None:
+                    count = row["part_count"]
+                if (
+                    row["deleted"]
+                    or row["part_index"] != index
+                    or row["part_count"] != count
+                    or row["encoding"] != "utf8"
+                ):
+                    return []
+                hashed.update(row["body"].encode())
+                versions.append((row["id"], row["revision"]))
+            return (
+                versions
+                if len(versions) == count and hashed.hexdigest() == item["document_hash"]
+                else []
+            )
+        else:
+            # Binary resources require base64 validation across chunk boundaries.
+            rows = db.execute(
+                "SELECT payload FROM assets WHERE tenant=? AND owner_device=? "
+                "AND json_extract(payload,'$.source_store')=? "
+                "AND json_extract(payload,'$.document_id')=? AND json_extract(payload,'$.document_hash')=?",
+                (
+                    item["tenant_id"],
+                    item["source_device_id"],
+                    item["source_store"],
+                    item["document_id"],
+                    item["document_hash"],
+                ),
+            ).fetchall()
+            complete = assembled([json.loads(r["payload"]) for r in rows])
+        return complete[0]["assembled_revisions"] if len(complete) == 1 else []
+
+    @staticmethod
+    def _proof_key(item: dict[str, Any]) -> tuple[str, ...]:
+        return (
+            item["tenant_id"],
+            item["source_device_id"],
+            item["source_store"],
+            item.get("document_id") or item["asset_id"],
+            item.get("document_hash") or item["body_hash"],
+        )
+
+    def changes(
+        self, token: str, cursor: int, limit: int = 100, *, metadata_only: bool = False
+    ) -> dict[str, Any]:
         """Read a stable tenant-scoped sequence page, including deletions; an empty page retains cursor."""
         with database(self.path) as db:
             who = self._identity(db, token)
@@ -463,8 +873,25 @@ class Hub:
                 "SELECT seq,payload FROM changes WHERE tenant=? AND seq>? ORDER BY seq LIMIT ?",
                 (who["tenant"], max(0, cursor), min(max(1, limit), 100)),
             ).fetchall()
+            from .evidence import metadata
+
+            items = [json.loads(r["payload"]) for r in rows]
+            proofs: dict[tuple[str, ...], list[tuple[str, int]]] = {}
+            for item in items:
+                key = self._proof_key(item)
+                # Only memory provenance needs whole-document deduplication.
+                # Do not repeatedly assemble large raw transcripts for a delta.
+                if item["kind"] == "memory" and not item["deleted"] and key not in proofs:
+                    proofs[key] = self._version_proof(db, item)
+                item["verified"] = (item["asset_id"], item["revision"]) in proofs.get(key, [])
             return {
-                "items": [json.loads(r["payload"]) for r in rows],
+                # Completion can occur after an earlier part's cursor was already
+                # consumed. The last part must also carry proof for those earlier
+                # revisions, without replaying their content or forging new events.
+                "proofs": [
+                    {"scope": key, "parts": parts} for key, parts in proofs.items() if parts
+                ],
+                "items": [metadata(item) for item in items] if metadata_only else items,
                 "cursor": rows[-1]["seq"] if rows else cursor,
             }
 
@@ -492,27 +919,44 @@ class Hub:
                 "SELECT a.payload,bm25(search_index) score FROM search_index JOIN assets a ON a.tenant=search_index.tenant AND a.id=search_index.asset_id WHERE search_index MATCH ? AND search_index.tenant=? AND (? IS NULL OR json_extract(a.payload, '$.project')=?) ORDER BY score LIMIT 100",
                 (match, who["tenant"], project_filter, project_filter),
             ).fetchall()
-            results = []
-            ready: dict[tuple[str, str, str], bool] = {}
+            # Apply product semantics before the final ranking, never inside
+            # SQLite's bm25 expression. Curated memories should not lose solely
+            # because a conversation repeated question words many times.
+            kind_weight = {
+                "memory": 2.5,
+                "rule": 2.5,
+                "skill": 1.5,
+                "config": 1.0,
+                "transcript": 1.0,
+            }
+            candidates = []
             for row in rows:
                 item = json.loads(row["payload"])
-                if item.get("document_id"):
-                    key = (item["source_device_id"], item["document_id"], item["document_hash"])
-                    if key not in ready:
-                        from .materialize import assembled
-
-                        parts = db.execute(
-                            "SELECT payload FROM assets WHERE tenant=? AND owner_device=? AND json_extract(payload,'$.document_id')=? AND json_extract(payload,'$.document_hash')=?",
-                            (who["tenant"], *key),
-                        ).fetchall()
-                        ready[key] = bool(assembled([json.loads(p["payload"]) for p in parts]))
-                    if not ready[key]:
-                        continue
-                if project_filter is not None and item["project"] != project_filter:
-                    continue
-                # The project is a bounded boost, never a visibility filter.
-                item["score"] = -row["score"] * (
-                    1.05 if project_hint and item["project"] == project_hint else 1
+                item["score"] = (
+                    -row["score"]
+                    * kind_weight.get(item["kind"], 1.0)
+                    * (1.05 if project_hint and item["project"] == project_hint else 1)
                 )
+                candidates.append(item)
+            candidates.sort(key=lambda item: item["score"], reverse=True)
+            results = []
+            proofs: dict[tuple[str, ...], list[tuple[str, int]]] = {}
+            from .materialize import assembled
+
+            for item in candidates:
+                if item.get("part_count", 1) == 1:
+                    # Already read from the current assets snapshot: hash-check
+                    # these bytes directly instead of re-querying the same row.
+                    valid = bool(assembled([item]))
+                else:
+                    key = self._proof_key(item)
+                    if key not in proofs:
+                        proofs[key] = self._version_proof(db, item)
+                    valid = (item["asset_id"], item["revision"]) in proofs[key]
+                if not valid:
+                    continue
+                item["verified"] = True
                 results.append(item)
-            return sorted(results, key=lambda x: x["score"], reverse=True)[:limit]
+                if len(results) >= limit:
+                    break  # Do not assemble candidates we cannot return.
+            return results

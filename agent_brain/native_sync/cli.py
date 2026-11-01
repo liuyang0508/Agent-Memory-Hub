@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 import json
 import os
@@ -16,7 +16,7 @@ from rich.console import Console
 from rich.table import Table
 
 from .client import NativeClient
-from .common import PRODUCTS, atomic_json, display_name
+from .common import PRODUCTS, PAIRING_MAX_TTL, atomic_json, display_name
 from .storage import database
 from .install import (
     discover as discover_products,
@@ -57,6 +57,18 @@ def admin(db: Path = typer.Option(...), label: str = typer.Option(...)) -> None:
     from .hub import Hub
 
     emit({"admin": Hub(db).admin_create(label), "label": label, "note": "只显示一次"})
+
+
+@app.command("scope-feishu-identities")
+def scope_feishu_identities(
+    db: Path = typer.Option(...),
+    app_id: str = typer.Option(...),
+    tenant_key: str = typer.Option(...),
+) -> None:
+    """升级1.3.1：管理员核对旧应用和企业标识后，将已有飞书身份迁移到明确作用域。"""
+    from .hub import Hub
+
+    emit({"migrated": Hub(db).scope_legacy_feishu(app_id, tenant_key)})
 
 
 @app.command()
@@ -109,9 +121,7 @@ def feishu_login(hub: str, state: Path, device_name: str, timeout: float = 300) 
     transport = Transport(url)
     available = transport.call("auth/feishu")
     if not available.get("available"):
-        raise typer.BadParameter(
-            "该 Hub 未启用飞书登录；请让管理员在管理页完成飞书应用配置后重试"
-        )
+        raise typer.BadParameter("该 Hub 未启用飞书登录；请让管理员在管理页完成飞书应用配置后重试")
 
     holder: dict[str, str] = {}
     ready = threading.Event()
@@ -155,7 +165,7 @@ def feishu_login(hub: str, state: Path, device_name: str, timeout: float = 300) 
         "auth/feishu/redeem", {"ticket": holder["ticket"], "device_name": device_name}
     )
     NativeClient.adopt(state, url, identity, device_name)
-    return identity
+    return cast(dict[str, Any], identity)
 
 
 @app.command()
@@ -193,7 +203,9 @@ def import_history(
     home: Path = typer.Option(Path.home()),
     product: list[str] = typer.Option(None, help="只处理指定产品，可重复"),
     kind: list[str] = typer.Option(None, help="只处理指定类型，可重复"),
-    since: str = typer.Option("", help="只看该时间之后修改的文件，如 2026-10-01 或 2026-10-01 09:30"),
+    since: str = typer.Option(
+        "", help="只看该时间之后修改的文件，如 2026-10-01 或 2026-10-01 09:30"
+    ),
     web: bool = typer.Option(True, help="在浏览器里勾选；--no-web 回到终端逐条"),
     yes: bool = False,
     dry_run: bool = False,
@@ -251,8 +263,7 @@ def import_history(
         if row["risk"] == "sensitive":
             marks = "  ⚠ " + "、".join(row["reasons"])
         console.print(
-            f"  {index:3d}. {row['name']} — {row['title']} "
-            f"({row['bytes'] / 1024:.0f} KB){marks}",
+            f"  {index:3d}. {row['name']} — {row['title']} ({row['bytes'] / 1024:.0f} KB){marks}",
             markup=False,
         )
     console.print(
@@ -453,7 +464,7 @@ def cowork_connect(
             "plugin": str(plugin) + ".zip",
             "connection_file": str(connection),
             "member_id": policy["member_id"],
-            "expires_in_seconds": 900,
+            "expires_in_seconds": PAIRING_MAX_TTL,
             "status": "pairing prepared; actual Cowork runtime must load the plugin and access the connection file",
         }
     )
@@ -487,11 +498,12 @@ def setup(
     from . import history
 
     console.print("[bold]AMH · 组织共享第二大脑[/bold]")
-    # Set before anything registers a target so the choice applies to this run.
-    c0 = NativeClient(state) if (state / "config.json").exists() else None
-    if c0 is not None:
-        c0.config["projection"] = bool(projection)
-        atomic_json(c0.root / "config.json", c0.config)
+    # A failed 1.3.1 --projection setup could leave only this preference behind.
+    # It is not an enrolled identity. Keep it until login succeeds; adopt() accepts
+    # only this exact harmless partial shape, never an existing identity/profile.
+    profile = state / "config.json"
+    partial = json.loads(profile.read_text()) if profile.exists() else None
+    joined = partial is not None and set(partial) != {"projection"}
     found = discover_products(home)
     table = Table("产品", "检测结果", "原生记忆目录")
     for p in found:
@@ -502,7 +514,7 @@ def setup(
         )
     console.print(table)
     console.print("组织服务地址：" + hub)
-    if not (state / "config.json").exists():
+    if not joined:
         console.print("\n第 1 步：用飞书账号登录")
         identity = feishu_login(hub, state, socket.gethostname())
         c = load(state)
@@ -512,6 +524,9 @@ def setup(
         if c.config["hub"] != hub.rstrip("/"):
             raise typer.BadParameter("不同 Hub 必须使用独立 --state；不能把旧队列发给新组织")
         console.print("已使用现有身份；如需换账号请指定新的 --state")
+    c.config["projection"] = bool(projection)
+    atomic_json(c.root / "config.json", c.config)
+    c.configure_storage()
     console.print(
         f"成员：{c.identity['member_name']} ({c.identity['member_id']})；组织：{c.identity['tenant_id']}"
     )
@@ -568,7 +583,9 @@ def setup(
     chosen = []
     processed_sources: set[str] = set()
     for product in found:
-        if not product["detected"] or not typer.confirm(
+        if not product["detected"]:
+            continue
+        if product["product"] != "cowork" and not typer.confirm(
             "接入 " + product["name"] + "？", default=True
         ):
             continue
@@ -627,11 +644,15 @@ def setup(
     if cowork_artifacts:
         plugin, connection = cowork_artifacts
         console.print(
-            f"Cowork 插件：{plugin}.zip；一次性连接文件：{connection}（15分钟有效，不能放进插件包）。"
+            f"Cowork 插件：{plugin}.zip；一次性连接文件：{connection}（7天内单次使用，不能放进插件包）。"
         )
         console.print(
             "在 Cowork 导入插件。macOS 宿主机 Hook 已固定持久状态和连接文件路径；其他运行环境需让首次任务访问连接文件所在目录。运行时会独立登记设备、发现原生记忆目录；实际接入状态仍需核验。"
         )
+        # Reveal the supported import artifact; never write Claude's private
+        # plugin state or pretend the Claude Code CLI installs into Cowork.
+        if platform.system() == "Darwin":
+            subprocess.run(["open", "-R", str(plugin) + ".zip"], check=False, capture_output=True)
     if service and platform.system() == "Darwin":
         plist_path = launch_agent(state, home)
         result = subprocess.run(

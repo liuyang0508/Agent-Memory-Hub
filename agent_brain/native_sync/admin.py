@@ -63,6 +63,7 @@ PAGE = """<!doctype html>
   <div class="row"><input id="s-app-id" placeholder="App ID（cli_ 开头）" size="34"></div>
   <div class="row"><input id="s-app-secret" type="password" placeholder="App Secret（留空表示不修改）" size="34"></div>
   <div class="row"><input id="s-public-url" placeholder="本站公网地址，如 https://amh.example.com" size="44"></div>
+  <div class="row"><input id="s-tenant-key" placeholder="允许登录的飞书企业 tenant_key（必填）" size="44"></div>
   <div class="row"><input id="s-tenant" placeholder="组织标识，如 linkcrux" size="24"></div>
   <div class="row"><button class="primary" onclick="saveSettings()">保存</button><span id="settings-msg" class="muted"></span></div>
   <p class="muted">回调地址请填：<span class="mono" id="callback"></span>（同时登记在飞书开发者后台的安全设置里）</p>
@@ -117,6 +118,7 @@ async function load() {
   document.getElementById("s-app-id").value = s.feishu_app_id || "";
   document.getElementById("s-public-url").value = s.amh_hub_public_url || "";
   document.getElementById("s-tenant").value = s.feishu_tenant || "";
+  document.getElementById("s-tenant-key").value = s.feishu_tenant_key || "";
   updateCallback();
 }
 
@@ -142,6 +144,7 @@ async function saveSettings() {
     if (appId) await api("/settings", { key: "feishu_app_id", value: appId });
     if (url) await api("/settings", { key: "amh_hub_public_url", value: url });
     if (tenant) await api("/settings", { key: "feishu_tenant", value: tenant });
+    await api("/settings", { key: "feishu_tenant_key", value: document.getElementById("s-tenant-key").value.trim() });
     if (secret) await api("/secret", { app_secret: secret });
     document.getElementById("s-app-secret").value = "";
     msg.textContent = "已保存。飞书登录是否生效可用 /native/v1/auth/feishu 检查。";
