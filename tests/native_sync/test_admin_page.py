@@ -124,3 +124,38 @@ def test_revoked_operator_credential_stops_working(hub, operator):
     with database(hub.path) as db:
         db.execute("UPDATE admins SET revoked=1")
     assert client.get("/native/v1/admin/overview", headers=headers).status_code == 401
+
+
+def test_dashboard_page_is_public_but_empty_until_a_token_is_given(operator):
+    """The page carries no credential and no memory text; only the data call is guarded."""
+    client, headers, token = operator
+    page = client.get("/native/v1/admin/dashboard")
+    assert page.status_code == 200
+    assert token not in page.text
+    assert "贡献排行" in page.text
+    assert client.get("/native/v1/admin/dashboard/data").status_code == 401
+    assert client.get("/native/v1/admin/dashboard/data?days=0").status_code == 422
+
+
+def test_dashboard_data_reports_counts_and_never_bodies(operator, hub):
+    from test_hub import asset, enroll
+
+    client, headers, _ = operator
+    a = enroll(hub)
+    hub.put(a["token"], asset(body="DASHBOARD_SECRET_BODY"))
+    data = client.get("/native/v1/admin/dashboard/data?days=30", headers=headers).json()
+    assert data["totals"]["assets"] == 1
+    assert [m["label"] for m in data["by_member"]] == ["张三"]
+    assert "DASHBOARD_SECRET_BODY" not in str(data)
+    assert "generated_at" in data
+
+
+def test_dashboard_rejects_a_revoked_operator(operator):
+    client, headers, token = operator
+    assert client.get("/native/v1/admin/dashboard/data", headers=headers).status_code == 200
+    assert (
+        client.get(
+            "/native/v1/admin/dashboard/data", headers={"Authorization": "Bearer nope"}
+        ).status_code
+        == 401
+    )
