@@ -51,7 +51,7 @@ def test_payload_omits_paths_and_bodies():
         "risk",
         "reasons",
     }
-    assert "/home/example" not in payload
+    assert "/home/" not in payload
 
 
 def test_payload_labels_kind_in_chinese():
