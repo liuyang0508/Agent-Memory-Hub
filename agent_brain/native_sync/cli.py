@@ -16,7 +16,7 @@ from rich.console import Console
 from rich.table import Table
 
 from .client import NativeClient
-from .common import PRODUCTS, atomic_json, display_name
+from .common import PRODUCTS, PAIRING_MAX_TTL, atomic_json, display_name
 from .storage import database
 from .install import (
     discover as discover_products,
@@ -464,7 +464,7 @@ def cowork_connect(
             "plugin": str(plugin) + ".zip",
             "connection_file": str(connection),
             "member_id": policy["member_id"],
-            "expires_in_seconds": 900,
+            "expires_in_seconds": PAIRING_MAX_TTL,
             "status": "pairing prepared; actual Cowork runtime must load the plugin and access the connection file",
         }
     )
