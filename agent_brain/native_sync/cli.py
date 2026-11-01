@@ -222,7 +222,7 @@ def import_history(
         from . import picker
 
         try:
-            picked = picker.serve(rows)
+            picked = picker.serve(rows, empty_products=_empty_products(home, rows))
         except (TimeoutError, OSError) as exc:
             raise typer.BadParameter(f"勾选页面未能完成（{exc}）；可加 --no-web 改用终端") from None
         if not picked:
@@ -308,6 +308,28 @@ def import_history(
     result = history.import_paths(current, home, picked)
     pushed = current.sync()
     emit({"import": result, "sync": pushed})
+
+
+def _empty_products(home: Path, rows: list[dict[str, Any]]) -> list[str]:
+    """Detected products that contributed no importable file.
+
+    Cowork keeps one MEMORY.md per workspace and has none until a task actually
+    produces memory, so listing it as "found" but absent from the checklist
+    filters looks like a bug rather than "nothing here yet".
+    """
+    present = {row["product"] for row in rows}
+    names: list[str] = []
+    for entry in discover_products(home):
+        if not entry["detected"]:
+            continue
+        source = (
+            "codex-shared"
+            if entry["product"] in ("codex-cli", "codex-desktop", "chatgpt-desktop")
+            else entry["product"]
+        )
+        if source not in present and entry["name"] not in names:
+            names.append(entry["name"])
+    return names
 
 
 def add_target(c: NativeClient, root: Path, product: str) -> None:
@@ -503,7 +525,13 @@ def setup(
                 markup=False,
             )
             try:
-                picked = picker.serve(rows, open_browser=bool(__import__("os").environ.get("DISPLAY") or _sys.platform == "darwin"))
+                picked = picker.serve(
+                    rows,
+                    open_browser=bool(
+                        __import__("os").environ.get("DISPLAY") or _sys.platform == "darwin"
+                    ),
+                    empty_products=_empty_products(home, rows),
+                )
             except (TimeoutError, OSError) as exc:
                 console.print(f"勾选页面未能完成（{exc}）；本次跳过历史导入。", markup=False)
                 picked = []

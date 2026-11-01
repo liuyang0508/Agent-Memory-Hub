@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.7] — 2026-11-01
+
+### Fixed
+
+- The history checklist silently omitted a detected product that had nothing
+  importable. Claude Cowork keeps one MEMORY.md per workspace and has none
+  until a task produces memory, so its absence from the filters read as "not
+  supported" rather than "nothing here yet". The page now says so by name.
+
 ## [1.2.6] — 2026-11-01
 
 ### Fixed

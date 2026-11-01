@@ -57,6 +57,8 @@ PAGE = """<!doctype html>
 <h1>选择要共享的记忆</h1>
 <p class="sub">勾选的内容会上传到组织 Hub，全组织成员可检索正文。未勾选的文件一个字节都不会离开这台机器。</p>
 
+__EMPTY__
+
 <div class="row">
   <input id="q" placeholder="按文件名或标题筛选" size="28">
   <select id="risk">
@@ -186,8 +188,31 @@ def _payload(rows: list[dict[str, Any]]) -> str:
     return json.dumps(slim, ensure_ascii=False).replace("</", "<\\/")
 
 
-def serve(rows: list[dict[str, Any]], *, open_browser: bool = True, timeout: float = 1800) -> list[dict[str, Any]]:
-    """Show the checklist and return the ticked rows; empty means the member skipped."""
+def _empty_note(products: list[str] | None) -> str:
+    if not products:
+        return ""
+    names = "、".join(products)
+    return (
+        '<p class="muted" style="margin:10px 0 0">'
+        f"{html.escape(names)} 已检测到，但本机还没有可导入的记忆文件。"
+        "在该产品里实际用一段时间、产生了记忆之后，重跑导入即可看到。"
+        "</p>"
+    )
+
+
+def serve(
+    rows: list[dict[str, Any]],
+    *,
+    open_browser: bool = True,
+    timeout: float = 1800,
+    empty_products: list[str] | None = None,
+) -> list[dict[str, Any]]:
+    """Show the checklist and return the ticked rows; empty means the member skipped.
+
+    empty_products names products that were detected but have nothing importable
+    yet, so their absence from the filters reads as "nothing here" rather than
+    "not supported".
+    """
     holder: dict[str, Any] = {}
     done = threading.Event()
 
@@ -202,7 +227,11 @@ def serve(rows: list[dict[str, Any]], *, open_browser: bool = True, timeout: flo
             self.wfile.write(body)
 
         def do_GET(self) -> None:
-            page = PAGE.replace("__ROWS__", _payload(rows)).encode()
+            page = (
+                PAGE.replace("__ROWS__", _payload(rows))
+                .replace("__EMPTY__", _empty_note(empty_products))
+                .encode()
+            )
             self._send(200, page, "text/html; charset=utf-8")
 
         def do_POST(self) -> None:
