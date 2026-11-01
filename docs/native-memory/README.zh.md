@@ -38,7 +38,7 @@ curl -fsSL https://github.com/liuyang0508/agent-memory-hub/releases/latest/downl
 
 `--hub` 也支持有有效 TLS 配置的 IP 地址与端口。安装脚本下载地址和组织 Hub 地址彼此独立，不绑定 aihub0508.com。前期可在我们的实例上验证，后续组织自建。HTTP 仅允许本机 loopback 测试；服务端生产部署使用 HTTPS 反向代理。
 
-安装器检测并逐项显示 Claude Code、Codex CLI、Claude Cowork、实际检测到的 Codex/ChatGPT 客户端（ChatGPT 客户端记忆保存在账号服务端，本机无可导入目录，会如实说明）。飞书登录后显示成员名与稳定 ID，再预览历史和确认配置。ID 自动生成，不要求手填。
+安装器检测并逐项显示 Claude Code、Codex CLI、Claude Cowork、实际检测到的 Codex/ChatGPT 客户端（本轮验证ChatGPT桌面应用的本地Codex模式共用Codex存储；普通Chat和云端Work不在本轮验证范围）。飞书登录后显示成员名与稳定 ID，再预览历史和确认配置。ID 自动生成，不要求手填。
 
 新模块使用 `~/.amh-native-sync/` 作为状态目录，运行环境装在 `~/.amh-native/venv/`。安装的是一份打好的 wheel，**不会在你的机器上留下源码目录**；升级即重跑同一条命令。已有旧 AMH 的托管 Hook、纪律区块和已识别旧 MCP 通道会按安装回执隔离；用户其他配置保留。Codex Hook 使用生成处理程序的正常信任 hash，不使用绕过信任的启动参数。确认安装后会启用 CC 自动记忆及 Codex 原生读取所需开关；已有 Codex `generate_memories` 选择保持不变，原生生成由产品管理并可能使用产品额度。未选历史文件中的后续改写也会继续保留本地，直到重新选择；本模块不自动判定语义上的新旧知识。
 
