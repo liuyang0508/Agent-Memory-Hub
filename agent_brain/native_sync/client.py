@@ -447,7 +447,7 @@ class NativeClient:
                 # imported asset show as "未知" and broke contribution counts.
                 if unknown and ticked:
                     unknown = False
-                if source["kind"] == "memory" and not unknown:
+                if source["kind"] == "memory" and not unknown and not ticked:
                     from .lineage import classify_copy
 
                     action, refs = classify_copy(self, h)
