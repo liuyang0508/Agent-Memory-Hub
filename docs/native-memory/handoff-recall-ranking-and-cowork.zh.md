@@ -114,7 +114,7 @@ KIND_WEIGHT = {"memory": 2.5, "rule": 2.5, "skill": 1.5, "config": 1.0, "transcr
 - 单条上限设为 `per_item_budget = 700` 字节左右
 - 保证至少尝试投递 2-3 条
 
-⚠️ 这会改变 `coverage_key()` 的截断摘要（`recall.py:143-146` 用 `digest(excerpt)` 做 key），
+⚠️ 这会改变 `coverage_key()` 的截断摘要（`recall.py:149` 用 `digest(excerpt)` 做 key），
 截断位置一变，`covered` 就失效、同一内容会重复注入。**改这里必须同时确认
 `covered` 的语义仍然成立**，或者改成按 `asset_id:revision` 去重而不是按摘要去重。
 
