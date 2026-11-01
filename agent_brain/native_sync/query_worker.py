@@ -40,7 +40,7 @@ if __name__ == "__main__":
         print(
             json.dumps(
                 Transport(config["hub"], config["identity"]["token"], timeout=1.0).search(
-                    payload["query"]
+                    payload["query"], limit=8
                 )
             )
         )

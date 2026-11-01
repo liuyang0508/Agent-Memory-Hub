@@ -233,6 +233,11 @@ def create_app(hub: Hub) -> FastAPI:
         return {"items": hub.search(bearer(authorization), **data.model_dump())}
 
     app.add_middleware(BodyLimit)
+    # Transcript body/index payloads are repetitive. Negotiate standard gzip so
+    # the network does not erase the gains from bounded candidate verification.
+    from starlette.middleware.gzip import GZipMiddleware
+
+    app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=4)
     return app
 
 

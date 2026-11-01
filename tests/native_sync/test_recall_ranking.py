@@ -149,3 +149,28 @@ def test_cowork_long_pairing_file_is_private_and_absent_from_plugin(live, tmp_pa
     with zipfile.ZipFile(str(plugin) + ".zip") as z:
         raw = b"\n".join(z.read(name) for name in z.namelist())
     assert ticket["invite"].encode() not in raw and who["token"].encode() not in raw
+
+
+def test_gzip_transport_decodes_complete_records_without_weakening_size_limit(live, tmp_path):
+    import gzip
+    import io
+    from agent_brain.native_sync.transport import Transport
+
+    hub, url = live
+    who = hub.provision("Member", "device")
+    body = "COMPRESSED_CANARY " * 1500
+    hub.put(who["token"], asset("large", body=body))
+    transport = Transport(url, who["token"])
+    assert transport.search("COMPRESSED_CANARY")[0]["body"] == body
+
+    class Response(io.BytesIO):
+        headers = {"Content-Encoding": "gzip"}
+
+    class Bomb:
+        def open(self, req, **kwargs):
+            assert req.get_header("Accept-encoding") == "gzip"
+            return Response(gzip.compress(b"x" * 8_000_001))
+
+    transport.opener = Bomb()
+    with pytest.raises(ValueError, match="decoded response too large"):
+        transport.search("anything")
