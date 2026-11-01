@@ -67,7 +67,12 @@ def test_history_selection_and_snapshot_change_require_repreview(tmp_path):
     row = c.preview(sid)[0]
     c.select(sid, {"a.md": row["hash"]})
     c.sync()
-    assert hub.search(c.identity["token"], "旧知识")[0]["producer_member_id"] is None
+    # Ticking a history file settles who wrote it: the member did, in the past.
+    # It used to publish as an anonymous baseline, which made every imported
+    # asset show up as "未知" and left the contribution ranking meaningless.
+    hit = hub.search(c.identity["token"], "旧知识")[0]
+    assert hit["producer_member_id"] == c.identity["member_id"]
+    assert hit["producer_name"] == "张三"
 
 
 def test_two_members_four_product_recall_and_native_projection(tmp_path):

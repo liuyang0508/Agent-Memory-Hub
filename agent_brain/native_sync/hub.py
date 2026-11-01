@@ -589,12 +589,19 @@ class Hub:
                 return previous
             if item["base_revision"] != (old["revision"] if old else 0):
                 raise ValueError("revision conflict; fetch current revision before retry")
+            # source_store and product identify the origin and stay immutable.
+            # producer_unknown may only move from True to False: that is a
+            # member confirming authorship of their own file, which is strictly
+            # more attribution. Allowing it back to True would be a way to shed
+            # authorship, so that direction stays refused.
             if previous and (
                 previous["source_store"],
                 previous["product"],
-                previous["producer_unknown"],
-            ) != (item["source_store"], item["product"], item["producer_unknown"]):
+            ) != (item["source_store"], item["product"]):
                 raise ValueError("source identity is immutable")
+            if previous and previous["producer_unknown"] != item["producer_unknown"]:
+                if not (previous["producer_unknown"] and not item["producer_unknown"]):
+                    raise ValueError("source identity is immutable")
             for ref in item["upstream"]:
                 if not db.execute(
                     "SELECT 1 FROM assets WHERE tenant=? AND id=?", (who["tenant"], ref)

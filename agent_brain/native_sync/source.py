@@ -250,6 +250,13 @@ def files(root: Path, kind: str) -> Iterator[Path]:
             p.suffix.lower() not in (".jsonl", ".json", ".md") or "memory" in rel.parts
         ):
             continue
+        # A subagent's .meta.json holds only agentType/description/toolUseId — no
+        # conversation. Admitting it made these one-line stubs the largest group
+        # in a member's selection (208 of 212 on a real machine), because being
+        # short they never trip the privacy screen and every "select clean" pass
+        # swept them in. The sibling .jsonl is the actual transcript and stays.
+        if kind == "transcript" and p.name.endswith(".meta.json") and "subagents" in rel.parts:
+            continue
         if kind == "config" and p.suffix.lower() not in (".json", ".toml"):
             continue
         yield p

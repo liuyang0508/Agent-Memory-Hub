@@ -234,6 +234,10 @@ class NativeClient:
                 db.execute(
                     "UPDATE snapshots SET selected=1,hash=? WHERE source=? AND path=?", ("", sid, p)
                 )
+                db.execute(
+                    "INSERT OR REPLACE INTO meta VALUES(?,?)",
+                    ("explicit:" + sid + ":" + p, "1"),
+                )
 
     def select_targets(self, sid: str, selections: dict[str, str]) -> None:
         """Select explicit paths after re-reading only those files.
@@ -259,6 +263,12 @@ class NativeClient:
             for rel in selections:
                 db.execute(
                     "UPDATE snapshots SET selected=1,hash=? WHERE source=? AND path=?", ("", sid, rel)
+                )
+                # Remember the tick: scan() needs it to keep the file selected
+                # and to credit the member as producer.
+                db.execute(
+                    "INSERT OR REPLACE INTO meta VALUES(?,?)",
+                    ("explicit:" + sid + ":" + rel, "1"),
                 )
 
     def refresh_excluded_history(self) -> None:
@@ -380,13 +390,21 @@ class NativeClient:
                 body, encoding, h = doc
                 if row is not None and row["hash"] == "" and not row["unknown"]:
                     with database(self.path) as db:
+                        # An explicit tick answers the history question in
+                        # advance. Without this check the guard below would
+                        # un-select the file the member just chose, because its
+                        # content is by definition in history_hashes.
+                        explicit = db.execute(
+                            "SELECT 1 FROM meta WHERE key=?",
+                            ("explicit:" + source["id"] + ":" + rel,),
+                        ).fetchone()
                         prior_parts = db.execute(
                             "SELECT 1 FROM source_parts WHERE base=? LIMIT 1", (row["asset"],)
                         ).fetchone()
                         excluded_copy = db.execute(
                             "SELECT 1 FROM history_hashes WHERE hash=?", (h,)
                         ).fetchone()
-                        if not prior_parts and excluded_copy:
+                        if not prior_parts and excluded_copy and not explicit:
                             db.execute(
                                 "UPDATE snapshots SET selected=0,unknown=1,hash=? WHERE source=? AND path=?",
                                 (h, source["id"], rel),
@@ -432,6 +450,17 @@ class NativeClient:
                     continue
                 aid = row["asset"] if row else "asset_" + uuid.uuid4().hex
                 unknown = bool(row["unknown"]) if row else False
+                if unknown and row is not None:
+                    with database(self.path) as db:
+                        ticked = db.execute(
+                            "SELECT 1 FROM meta WHERE key=?",
+                            ("explicit:" + source["id"] + ":" + rel,),
+                        ).fetchone()
+                    # The member chose this file by hand, so the producer is not
+                    # unknown: publishing it as an anonymous baseline made every
+                    # imported asset show as "未知" and broke contribution counts.
+                    if ticked:
+                        unknown = False
                 if source["kind"] == "memory" and not unknown:
                     from .lineage import classify_copy
 
