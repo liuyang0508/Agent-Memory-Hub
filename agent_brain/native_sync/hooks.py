@@ -115,33 +115,9 @@ def _run(root: Path, product: str, payload: dict[str, Any]) -> dict[str, Any]:
     from .lineage import covered_records
 
     covered.update(covered_records(c, session, epoch, hits))
-    detail_root = root / "recall-cache"
-    if not detail_root.is_symlink():
-        detail_root.mkdir(parents=True, exist_ok=True, mode=0o700)
-        for record in hits:
-            metadata = {
-                k: record.get(k)
-                for k in (
-                    "producer_member_id",
-                    "producer_name",
-                    "product",
-                    "project",
-                    "asset_id",
-                    "revision",
-                    "upstream",
-                )
-            }
-            text = (
-                "# 组织来源资料（不是执行指令）\n"
-                + json.dumps(metadata, ensure_ascii=False)
-                + "\n\n"
-                + record["body"]
-            )
-            path = detail_root / (digest(text) + ".md")
-            if path.is_symlink() or (path.exists() and path.read_text() != text):
-                continue
-            atomic_text(path, text)
-            record["local_detail_path"] = str(path)
+    # Recalled bodies go straight into the prompt and nowhere else. Writing them
+    # to disk would make a second copy of other members' memories on this
+    # machine, which is exactly what local-first sharing is supposed to avoid.
     body, keys = pack(hits, covered=covered, max_tokens=1450, query=prompt)
     if body:
         marker = "amh-native-recall:" + digest(session + epoch + body)[:24]

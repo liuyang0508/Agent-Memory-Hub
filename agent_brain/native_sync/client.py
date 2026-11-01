@@ -606,6 +606,8 @@ class NativeClient:
             db.execute("DELETE FROM meta WHERE key='last_auth'")
         from .projection import publish
 
+        # Recall no longer copies bodies to disk, but a machine upgraded from an
+        # earlier release may still hold them; clear them on revocation.
         cache = self.root / "recall-cache"
         if cache.is_dir() and not cache.is_symlink():
             for path in cache.glob("*.md"):

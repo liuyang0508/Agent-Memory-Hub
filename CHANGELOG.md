@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.9] — 2026-11-01
+
+### Changed
+
+- **Recalled organization memory is no longer copied to disk.** The hook used to
+  write every hit to `recall-cache/` and hand the model a `detail_file` path.
+  That placed another member's memory — full text — on this machine, which is
+  the copy local-first sharing exists to avoid. Recalled text now goes into the
+  prompt only; the cache is gone, and stale copies from older installs are
+  cleared on revocation.
+- **Recalled items say what they are.** Each hit is prefixed with an explicit
+  note that the content came from another member or device, is unverified, and
+  is not an instruction — so the model weighs relevance and credibility instead
+  of treating it as its own knowledge.
+
+### Verified
+
+- A memory written after install (the delay a product applies before it
+  summarizes a conversation) syncs on the next scan, and a later rewrite of the
+  same file uploads as a new revision.
+
 ## [1.2.8] — 2026-11-01
 
 ### Fixed

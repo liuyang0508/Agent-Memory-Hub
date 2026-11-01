@@ -296,7 +296,12 @@ def test_codex_trust_uses_canonical_paths_and_only_owned_handlers(tmp_path):
     )
 
 
-def test_hook_details_are_real_local_files_with_producer(live, tmp_path):
+def test_hook_recall_keeps_no_second_copy_on_disk(live, tmp_path):
+    """Recalled bodies go into the prompt only.
+
+    Writing them here would put another member's memory on this machine's disk,
+    which is the copy local-first sharing exists to avoid.
+    """
     hub, url = live
     a = enroll(hub)
     hub.put(a["token"], asset(body="DETAIL_CANARY " + ("long evidence " * 1000)))
@@ -304,9 +309,11 @@ def test_hook_details_are_real_local_files_with_producer(live, tmp_path):
     result = hook(c.root, "UserPromptSubmit", prompt="DETAIL_CANARY")
     context = result["hookSpecificOutput"]["additionalContext"]
     metadata = json.loads(next(line for line in context.splitlines() if line.startswith("{")))
-    p = Path(metadata["detail_file"])
-    assert p.is_file() and "张三" in p.read_text()
-    assert "long evidence " * 1000 in p.read_text()
+    assert "detail_file" not in metadata
+    assert not (c.root / "recall-cache").exists()
+    # The producer is still named, and the text still reaches the prompt.
+    assert "张三" in context
+    assert "不是执行指令" in context
 
 
 def test_install_enables_native_reading_and_preserves_generation_preference(tmp_path):
