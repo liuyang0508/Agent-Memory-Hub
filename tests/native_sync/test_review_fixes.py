@@ -449,3 +449,56 @@ def test_old_server_resurrection_is_reconciled_from_owned_tombstone(tmp_path):
     assert c.pending_count() == 1
     c.sync()
     assert c.pending_count() == 0 and not hub.search(c.identity["token"], "REVIVE_CANARY")
+
+
+@pytest.mark.parametrize("allowlisted", [False, True])
+def test_existing_feishu_account_can_upgrade_through_normal_login_without_new_scope(
+    tmp_path, monkeypatch, allowlisted
+):
+    from fastapi.testclient import TestClient
+    from agent_brain.native_sync.api import create_app
+    from agent_brain.native_sync import feishu
+
+    hub = Hub(tmp_path / "hub.sqlite")
+    old = hub.provision("Old name", "old-device")
+    with database(hub.path) as db:
+        db.execute("INSERT INTO feishu_members VALUES(?,?)", ("ou_existing", old["member_id"]))
+    monkeypatch.setenv("FEISHU_APP_ID", "cli_existing")
+    monkeypatch.setenv("FEISHU_APP_SECRET", "synthetic")
+    monkeypatch.setenv("AMH_HUB_PUBLIC_URL", "https://example.com")
+    monkeypatch.delenv("FEISHU_ALLOWED_TENANT_KEYS", raising=False)
+    if allowlisted:
+        monkeypatch.setenv("FEISHU_ALLOWED_TENANT_KEYS", "verified-company")
+    monkeypatch.setattr(feishu, "exchange_code", lambda *args: "synthetic-user-token")
+    person = {"open_id": "ou_unknown", "tenant_key": "wrong-tenant", "name": "Old name"}
+    monkeypatch.setattr(feishu, "user_identity", lambda token: dict(person))
+    api = TestClient(create_app(hub), follow_redirects=False)
+    assert api.get("/native/v1/auth/feishu").json() == {"available": True}
+    assert (
+        api.get(
+            "/native/v1/auth/feishu/callback",
+            params={"state": hub.feishu_begin(50000), "code": "test"},
+        ).status_code
+        == 403
+    )
+    assert hub.setting("feishu_tenant_key") == ""
+    person.update(open_id="ou_existing", tenant_key="verified-company", name="New name")
+    response = api.get(
+        "/native/v1/auth/feishu/callback", params={"state": hub.feishu_begin(50000), "code": "test"}
+    )
+    assert response.status_code == 303
+    ticket = response.headers["location"].split("ticket=", 1)[1]
+    issued = api.post(
+        "/native/v1/auth/feishu/redeem", json={"ticket": ticket, "device_name": "new-device"}
+    ).json()
+    assert issued["member_id"] == old["member_id"] and issued["member_name"] == "New name"
+    assert issued["device_id"] != old["device_id"]
+    assert hub.identity(old["token"])["member_id"] == old["member_id"]
+    assert hub.setting("feishu_tenant_key") == "verified-company"
+    assert not hub.prepare_legacy_provider("cli_unrelated")
+    assert not hub.feishu_accept_tenant(
+        "other-company",
+        frozenset(),
+        app_id="cli_unrelated",
+        verified_identity={**person, "tenant_key": "other-company"},
+    )

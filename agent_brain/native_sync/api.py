@@ -73,7 +73,12 @@ def create_app(hub: Hub) -> FastAPI:
             return {"available": False}
         return {
             "available": bool(
-                config and (config.allowed_tenants or hub.setting("feishu_tenant_key"))
+                config
+                and (
+                    config.allowed_tenants
+                    or hub.setting("feishu_tenant_key")
+                    or hub.prepare_legacy_provider(config.app_id)
+                )
             )
         }
 
@@ -138,6 +143,7 @@ def create_app(hub: Hub) -> FastAPI:
             raise HTTPException(503, str(exc)) from None
         if config is None:
             raise HTTPException(503, "this Hub does not offer enterprise login")
+        hub.prepare_legacy_provider(config.app_id)
         state = hub.feishu_begin(data.port)
         return {
             "authorize_url": feishu.authorize_url(config, state),
@@ -171,7 +177,13 @@ def create_app(hub: Hub) -> FastAPI:
             raise HTTPException(409, str(exc)) from None
         token = feishu.exchange_code(config, code)
         identity = feishu.user_identity(token)
-        if not hub.feishu_accept_tenant(identity["tenant_key"], config.allowed_tenants):
+        hub.prepare_legacy_provider(config.app_id)
+        if not hub.feishu_accept_tenant(
+            identity["tenant_key"],
+            config.allowed_tenants,
+            app_id=config.app_id,
+            verified_identity=identity,
+        ):
             raise HTTPException(403, "this Feishu tenant is not served by this Hub")
         port, ticket = hub.feishu_complete(state, identity, app_id=config.app_id)
         response = RedirectResponse(

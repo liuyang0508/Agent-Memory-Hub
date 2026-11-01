@@ -417,16 +417,76 @@ class Hub:
         if row is None or row["used"] or row["expires"] < time.time():
             raise ValueError("login state invalid, expired or used")
 
-    def feishu_accept_tenant(self, tenant_key: str, allowlist: frozenset[str]) -> bool:
-        """Require an administrator-selected organization, not the first public visitor."""
+    def prepare_legacy_provider(self, app_id: str) -> bool:
+        """Pin the trusted deployment's existing provider, never a browser value.
+
+        Upgraded instances already have authenticated open_id mappings but older
+        versions omitted their namespace. Pinning the configured application
+        allows those same accounts to prove their tenant at their next normal
+        login, without requesting extra enterprise-directory permissions.
+        """
+        if not app_id:
+            return False
+        with database(self.path) as db:
+            db.execute("BEGIN IMMEDIATE")
+            if not db.execute("SELECT 1 FROM feishu_members LIMIT 1").fetchone():
+                return False
+            row = db.execute(
+                "SELECT value FROM settings WHERE key='legacy-feishu-app-id'"
+            ).fetchone()
+            if row is None:
+                scoped = db.execute(
+                    "SELECT value FROM settings WHERE key='legacy-feishu-scope'"
+                ).fetchone()
+                expected = json.loads(scoped["value"])[0] if scoped else app_id
+                db.execute("INSERT INTO settings VALUES('legacy-feishu-app-id',?)", (expected,))
+            else:
+                expected = row["value"]
+            return expected == app_id
+
+    def feishu_accept_tenant(
+        self,
+        tenant_key: str,
+        allowlist: frozenset[str],
+        *,
+        app_id: str = "",
+        verified_identity: dict[str, str] | None = None,
+    ) -> bool:
+        """Accept configured tenants, or let an already-known account prove its tenant.
+
+        The identity must come from Feishu's authenticated user_info exchange.
+        An unknown first visitor, a display-name match, or another application
+        cannot establish the enterprise boundary during a legacy upgrade.
+        """
         key = (tenant_key or "").strip()
         if not key:
             return False
-        if allowlist:
-            return key in allowlist
+        if allowlist and key not in allowlist:
+            return False
+        tenant = self.tenant
         with database(self.path) as db:
+            db.execute("BEGIN IMMEDIATE")
             row = db.execute("SELECT value FROM settings WHERE key='feishu_tenant_key'").fetchone()
-            return row is not None and row["value"] == key
+            if row is not None:
+                return bool(allowlist) or row["value"] == key
+            provider = db.execute(
+                "SELECT value FROM settings WHERE key='legacy-feishu-app-id'"
+            ).fetchone()
+            if (
+                not verified_identity
+                or verified_identity.get("tenant_key") != key
+                or not provider
+                or provider["value"] != app_id
+            ):
+                return bool(allowlist)
+            known = db.execute(
+                "SELECT 1 FROM feishu_members f JOIN members m ON m.id=f.member WHERE f.open_id=? AND m.tenant=?",
+                (verified_identity.get("open_id", ""), tenant),
+            ).fetchone()
+            if not known:
+                return bool(allowlist)
+            db.execute("INSERT INTO settings VALUES('feishu_tenant_key',?)", (key,))
+            return True
 
     def scope_legacy_feishu(self, app_id: str, tenant_key: str) -> int:
         """Explicit host-admin migration of 1.3.1 mappings; preserve member/device IDs.
@@ -462,6 +522,14 @@ class Hub:
                     "INSERT OR IGNORE INTO feishu_accounts VALUES(?,?,?,?)",
                     (app_id, tenant_key, row["open_id"], row["member"]),
                 )
+            provider = db.execute(
+                "SELECT value FROM settings WHERE key='legacy-feishu-app-id'"
+            ).fetchone()
+            if provider and provider["value"] != app_id:
+                raise ValueError("legacy provider differs from the trusted deployment")
+            db.execute(
+                "INSERT OR REPLACE INTO settings VALUES('legacy-feishu-app-id',?)", (app_id,)
+            )
             db.execute("INSERT OR REPLACE INTO settings VALUES('legacy-feishu-scope',?)", (scope,))
             db.execute(
                 "INSERT OR REPLACE INTO settings VALUES('feishu_tenant_key',?)", (tenant_key,)
@@ -500,24 +568,33 @@ class Hub:
                 scope,
             ).fetchone()
             if linked is None:
-                legacy_scope = db.execute(
-                    "SELECT value FROM settings WHERE key='legacy-feishu-scope'"
+                legacy = db.execute(
+                    "SELECT f.member,m.tenant FROM feishu_members f JOIN members m ON m.id=f.member WHERE f.open_id=?",
+                    (open_id,),
                 ).fetchone()
-                same_legacy_scope = legacy_scope is None or json.loads(legacy_scope["value"]) == [
-                    app_id,
-                    identity["tenant_key"],
-                ]
-                if (
-                    same_legacy_scope
-                    and db.execute(
-                        "SELECT 1 FROM feishu_members WHERE open_id=?", (open_id,)
-                    ).fetchone()
-                ):
+                provider = db.execute(
+                    "SELECT value FROM settings WHERE key='legacy-feishu-app-id'"
+                ).fetchone()
+                tenant_pin = db.execute(
+                    "SELECT value FROM settings WHERE key='feishu_tenant_key'"
+                ).fetchone()
+                if legacy and provider is None:
                     raise ValueError("legacy Feishu identity requires administrator migration")
-                member = "mem_" + uuid.uuid4().hex
-                db.execute(
-                    "INSERT INTO members VALUES(?,?,?)", (member, self.tenant, identity["name"])
-                )
+                if (
+                    legacy
+                    and provider["value"] == app_id
+                    and tenant_pin
+                    and tenant_pin["value"] == identity["tenant_key"]
+                ):
+                    if legacy["tenant"] != self.tenant:
+                        raise ValueError("legacy identity belongs to another organization")
+                    member = legacy["member"]
+                    db.execute("UPDATE members SET name=? WHERE id=?", (identity["name"], member))
+                else:
+                    member = "mem_" + uuid.uuid4().hex
+                    db.execute(
+                        "INSERT INTO members VALUES(?,?,?)", (member, self.tenant, identity["name"])
+                    )
                 db.execute("INSERT INTO feishu_accounts VALUES(?,?,?,?)", (*scope, member))
             else:
                 member = linked["member"]
