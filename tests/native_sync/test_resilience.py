@@ -69,7 +69,7 @@ os._exit(42)
     result = subprocess.run([sys.executable, "-c", script, str(hub.path)], timeout=10)
     assert result.returncode == 42
     restarted = Hub(hub.path)
-    assert restarted.changes(who["token"], 0)["items"] == [saved]
+    assert restarted.changes(who["token"], 0)["items"] == [{**saved, "verified": True}]
     assert restarted.search(who["token"], "订单")[0]["revision"] == 1
 
 

@@ -148,7 +148,7 @@ class Hub:
                 row["key"]: row["value"]
                 for row in db.execute(
                     "SELECT key,value FROM settings WHERE key IN "
-                    "('feishu_app_id','amh_hub_public_url','feishu_tenant')"
+                    "('feishu_app_id','amh_hub_public_url','feishu_tenant','feishu_tenant_key')"
                 )
             }
         return {"members": members, "devices": devices, "settings": settings}
@@ -289,10 +289,10 @@ class Hub:
             ),
             "by_day": day_series,
             "by_hour": by_hour,
-            "top_projects": sorted(
-                ({"project": k, "assets": v} for k, v in projects.items()),
-                key=lambda r: -r["assets"],
-            )[:10],
+            "top_projects": [
+                {"project": k, "assets": v}
+                for k, v in sorted(projects.items(), key=lambda item: -item[1])[:10]
+            ],
             "devices": [
                 {
                     "id": d["id"],
@@ -325,7 +325,7 @@ class Hub:
 
     def admin_setting(self, token: str, key: str, value: str) -> None:
         """Store deployment settings; an empty value clears the key."""
-        allowed = {"feishu_app_id", "amh_hub_public_url", "feishu_tenant"}
+        allowed = {"feishu_app_id", "amh_hub_public_url", "feishu_tenant", "feishu_tenant_key"}
         if key not in allowed:
             raise ValueError("unknown setting")
         with database(self.path) as db:
@@ -418,13 +418,7 @@ class Hub:
             raise ValueError("login state invalid, expired or used")
 
     def feishu_accept_tenant(self, tenant_key: str, allowlist: frozenset[str]) -> bool:
-        """Decide whether this Feishu tenant belongs to this organization.
-
-        An explicit allowlist wins. With none configured the first tenant to log
-        in is pinned in settings and every later login must match it, so the Hub
-        is closed by default instead of open to every Feishu organization that
-        can reach the same application.
-        """
+        """Require an administrator-selected organization, not the first public visitor."""
         key = (tenant_key or "").strip()
         if not key:
             return False
@@ -432,20 +426,59 @@ class Hub:
             return key in allowlist
         with database(self.path) as db:
             row = db.execute("SELECT value FROM settings WHERE key='feishu_tenant_key'").fetchone()
-            if row is None:
-                db.execute("INSERT OR REPLACE INTO settings VALUES('feishu_tenant_key',?)", (key,))
-                return True
-            return row["value"] == key
+            return row is not None and row["value"] == key
 
-    def feishu_complete(self, state: str, identity: dict[str, str]) -> tuple[int, str]:
-        """Consume a state, bind the Feishu account to a member, return the loopback port.
+    def scope_legacy_feishu(self, app_id: str, tenant_key: str) -> int:
+        """Explicit host-admin migration of 1.3.1 mappings; preserve member/device IDs.
 
-        Member creation is idempotent per open_id so a second device reuses the
-        same member. An invited member with the same exact name is adopted when
-        it is unambiguous, so nobody ends up with two identities. A one-use
-        ticket is returned to the browser, never the device credential: the
-        credential is only ever issued over loopback.
+        The operator must verify the old deployment's App ID and enterprise key.
+        This does not guess ownership from a person's name or bind a new account.
+        Re-running the same migration is safe; changing its scope is rejected.
         """
+        if not app_id.strip() or not tenant_key.strip():
+            raise ValueError("verified app ID and tenant key required")
+        scope = json.dumps([app_id, tenant_key])
+        with database(self.path) as db:
+            db.execute("BEGIN IMMEDIATE")
+            done = db.execute(
+                "SELECT value FROM settings WHERE key='legacy-feishu-scope'"
+            ).fetchone()
+            if done and done["value"] != scope:
+                raise ValueError("legacy identities already scoped to another provider")
+            pinned = db.execute(
+                "SELECT value FROM settings WHERE key='feishu_tenant_key'"
+            ).fetchone()
+            if pinned and pinned["value"] != tenant_key:
+                raise ValueError("tenant key differs from the existing deployment")
+            rows = db.execute("SELECT open_id,member FROM feishu_members").fetchall()
+            for row in rows:
+                old = db.execute(
+                    "SELECT member FROM feishu_accounts WHERE app_id=? AND tenant_key=? AND open_id=?",
+                    (app_id, tenant_key, row["open_id"]),
+                ).fetchone()
+                if old and old["member"] != row["member"]:
+                    raise ValueError("identity migration conflict")
+                db.execute(
+                    "INSERT OR IGNORE INTO feishu_accounts VALUES(?,?,?,?)",
+                    (app_id, tenant_key, row["open_id"], row["member"]),
+                )
+            db.execute("INSERT OR REPLACE INTO settings VALUES('legacy-feishu-scope',?)", (scope,))
+            db.execute(
+                "INSERT OR REPLACE INTO settings VALUES('feishu_tenant_key',?)", (tenant_key,)
+            )
+            return len(rows)
+
+    def feishu_complete(
+        self, state: str, identity: dict[str, str], *, app_id: str
+    ) -> tuple[int, str]:
+        """Consume a login state and bind only a scoped, verified provider identity.
+
+        A display name is presentation data. Even a unique same-name legacy
+        member is not evidence of ownership. Legacy provider mappings require an
+        explicit host-admin migration before the original account can sign in.
+        """
+        if not app_id or not identity.get("tenant_key") or not identity.get("open_id"):
+            raise ValueError("scoped provider identity required")
         with database(self.path) as db:
             db.execute("BEGIN IMMEDIATE")
             now = time.time()
@@ -461,28 +494,34 @@ class Hub:
             db.execute("UPDATE feishu_states SET used=1 WHERE hash=?", (digest(state),))
             port = int(row["port"])
             open_id = identity["open_id"]
+            scope = (app_id, identity["tenant_key"], open_id)
             linked = db.execute(
-                "SELECT member FROM feishu_members WHERE open_id=?", (open_id,)
+                "SELECT member FROM feishu_accounts WHERE app_id=? AND tenant_key=? AND open_id=?",
+                scope,
             ).fetchone()
             if linked is None:
-                # Only a single unlinked match is adopted; two colleagues with
-                # the same display name must not collapse into one identity.
-                candidates = db.execute(
-                    "SELECT id FROM members WHERE tenant=? AND name=? AND id NOT IN "
-                    "(SELECT member FROM feishu_members)",
-                    (self.tenant, identity["name"]),
-                ).fetchall()
-                if len(candidates) == 1:
-                    member = candidates[0]["id"]
-                else:
-                    member = "mem_" + uuid.uuid4().hex
-                    db.execute(
-                        "INSERT INTO members VALUES(?,?,?)",
-                        (member, self.tenant, identity["name"]),
-                    )
-                db.execute("INSERT INTO feishu_members VALUES(?,?)", (open_id, member))
+                legacy_scope = db.execute(
+                    "SELECT value FROM settings WHERE key='legacy-feishu-scope'"
+                ).fetchone()
+                same_legacy_scope = legacy_scope is None or json.loads(legacy_scope["value"]) == [
+                    app_id,
+                    identity["tenant_key"],
+                ]
+                if (
+                    same_legacy_scope
+                    and db.execute(
+                        "SELECT 1 FROM feishu_members WHERE open_id=?", (open_id,)
+                    ).fetchone()
+                ):
+                    raise ValueError("legacy Feishu identity requires administrator migration")
+                member = "mem_" + uuid.uuid4().hex
+                db.execute(
+                    "INSERT INTO members VALUES(?,?,?)", (member, self.tenant, identity["name"])
+                )
+                db.execute("INSERT INTO feishu_accounts VALUES(?,?,?,?)", (*scope, member))
             else:
                 member = linked["member"]
+                db.execute("UPDATE members SET name=? WHERE id=?", (identity["name"], member))
             ticket = secrets.token_urlsafe(32)
             db.execute(
                 "INSERT INTO feishu_tickets VALUES(?,?,?,0)",
@@ -568,6 +607,16 @@ class Hub:
         validation so a lost success response can be retried without a new event.
         """
         item = AssetInput.model_validate(value).model_dump()
+        from .source import transcript_metadata
+
+        # Old clients must not resurrect metadata sidecars after cleanup. Accept
+        # tombstones so their owners can still converge through the normal API.
+        if (
+            item["kind"] == "transcript"
+            and transcript_metadata(item["path"])
+            and not item["deleted"]
+        ):
+            raise ValueError("transcript metadata is not shareable")
         # Hash content and its meaning, not the transport's base revision.
         content_hash = digest(
             json.dumps(
@@ -644,7 +693,53 @@ class Hub:
                 )
             return record
 
-    def changes(self, token: str, cursor: int, limit: int = 100) -> dict[str, Any]:
+    @staticmethod
+    def _version_proof(db: sqlite3.Connection, item: dict[str, Any]) -> list[tuple[str, int]]:
+        """Validate a current complete version and return its exact part revisions."""
+        from .materialize import assembled
+
+        if item.get("deleted"):
+            return []
+        if not item.get("document_id"):
+            row = db.execute(
+                "SELECT payload FROM assets WHERE tenant=? AND id=?",
+                (item["tenant_id"], item["asset_id"]),
+            ).fetchone()
+            current = json.loads(row["payload"]) if row else None
+            complete = (
+                assembled([current])
+                if current and Hub._proof_key(current) == Hub._proof_key(item)
+                else []
+            )
+        else:
+            rows = db.execute(
+                "SELECT payload FROM assets WHERE tenant=? AND owner_device=? "
+                "AND json_extract(payload,'$.source_store')=? "
+                "AND json_extract(payload,'$.document_id')=? AND json_extract(payload,'$.document_hash')=?",
+                (
+                    item["tenant_id"],
+                    item["source_device_id"],
+                    item["source_store"],
+                    item["document_id"],
+                    item["document_hash"],
+                ),
+            ).fetchall()
+            complete = assembled([json.loads(r["payload"]) for r in rows])
+        return complete[0]["assembled_revisions"] if len(complete) == 1 else []
+
+    @staticmethod
+    def _proof_key(item: dict[str, Any]) -> tuple[str, ...]:
+        return (
+            item["tenant_id"],
+            item["source_device_id"],
+            item["source_store"],
+            item.get("document_id") or item["asset_id"],
+            item.get("document_hash") or item["body_hash"],
+        )
+
+    def changes(
+        self, token: str, cursor: int, limit: int = 100, *, metadata_only: bool = False
+    ) -> dict[str, Any]:
         """Read a stable tenant-scoped sequence page, including deletions; an empty page retains cursor."""
         with database(self.path) as db:
             who = self._identity(db, token)
@@ -652,8 +747,25 @@ class Hub:
                 "SELECT seq,payload FROM changes WHERE tenant=? AND seq>? ORDER BY seq LIMIT ?",
                 (who["tenant"], max(0, cursor), min(max(1, limit), 100)),
             ).fetchall()
+            from .evidence import metadata
+
+            items = [json.loads(r["payload"]) for r in rows]
+            proofs: dict[tuple[str, ...], list[tuple[str, int]]] = {}
+            for item in items:
+                key = self._proof_key(item)
+                # Only memory provenance needs whole-document deduplication.
+                # Do not repeatedly assemble large raw transcripts for a delta.
+                if item["kind"] == "memory" and not item["deleted"] and key not in proofs:
+                    proofs[key] = self._version_proof(db, item)
+                item["verified"] = (item["asset_id"], item["revision"]) in proofs.get(key, [])
             return {
-                "items": [json.loads(r["payload"]) for r in rows],
+                # Completion can occur after an earlier part's cursor was already
+                # consumed. The last part must also carry proof for those earlier
+                # revisions, without replaying their content or forging new events.
+                "proofs": [
+                    {"scope": key, "parts": parts} for key, parts in proofs.items() if parts
+                ],
+                "items": [metadata(item) for item in items] if metadata_only else items,
                 "cursor": rows[-1]["seq"] if rows else cursor,
             }
 
@@ -682,26 +794,20 @@ class Hub:
                 (match, who["tenant"], project_filter, project_filter),
             ).fetchall()
             results = []
-            ready: dict[tuple[str, str, str], bool] = {}
+            proofs: dict[tuple[str, ...], list[tuple[str, int]]] = {}
             for row in rows:
                 item = json.loads(row["payload"])
-                if item.get("document_id"):
-                    key = (item["source_device_id"], item["document_id"], item["document_hash"])
-                    if key not in ready:
-                        from .materialize import assembled
-
-                        parts = db.execute(
-                            "SELECT payload FROM assets WHERE tenant=? AND owner_device=? AND json_extract(payload,'$.document_id')=? AND json_extract(payload,'$.document_hash')=?",
-                            (who["tenant"], *key),
-                        ).fetchall()
-                        ready[key] = bool(assembled([json.loads(p["payload"]) for p in parts]))
-                    if not ready[key]:
-                        continue
+                key = self._proof_key(item)
+                if key not in proofs:
+                    proofs[key] = self._version_proof(db, item)
+                if (item["asset_id"], item["revision"]) not in proofs[key]:
+                    continue
                 if project_filter is not None and item["project"] != project_filter:
                     continue
                 # The project is a bounded boost, never a visibility filter.
                 item["score"] = -row["score"] * (
                     1.05 if project_hint and item["project"] == project_hint else 1
                 )
+                item["verified"] = True
                 results.append(item)
             return sorted(results, key=lambda x: x["score"], reverse=True)[:limit]

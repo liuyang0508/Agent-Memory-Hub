@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 import json
 import os
@@ -59,6 +59,18 @@ def admin(db: Path = typer.Option(...), label: str = typer.Option(...)) -> None:
     emit({"admin": Hub(db).admin_create(label), "label": label, "note": "只显示一次"})
 
 
+@app.command("scope-feishu-identities")
+def scope_feishu_identities(
+    db: Path = typer.Option(...),
+    app_id: str = typer.Option(...),
+    tenant_key: str = typer.Option(...),
+) -> None:
+    """升级1.3.1：管理员核对旧应用和企业标识后，将已有飞书身份迁移到明确作用域。"""
+    from .hub import Hub
+
+    emit({"migrated": Hub(db).scope_legacy_feishu(app_id, tenant_key)})
+
+
 @app.command()
 def members(db: Path = typer.Option(...)) -> None:
     """管理员查看成员稳定 ID，以便为同一成员登记新设备。"""
@@ -109,9 +121,7 @@ def feishu_login(hub: str, state: Path, device_name: str, timeout: float = 300) 
     transport = Transport(url)
     available = transport.call("auth/feishu")
     if not available.get("available"):
-        raise typer.BadParameter(
-            "该 Hub 未启用飞书登录；请让管理员在管理页完成飞书应用配置后重试"
-        )
+        raise typer.BadParameter("该 Hub 未启用飞书登录；请让管理员在管理页完成飞书应用配置后重试")
 
     holder: dict[str, str] = {}
     ready = threading.Event()
@@ -155,7 +165,7 @@ def feishu_login(hub: str, state: Path, device_name: str, timeout: float = 300) 
         "auth/feishu/redeem", {"ticket": holder["ticket"], "device_name": device_name}
     )
     NativeClient.adopt(state, url, identity, device_name)
-    return identity
+    return cast(dict[str, Any], identity)
 
 
 @app.command()
@@ -193,7 +203,9 @@ def import_history(
     home: Path = typer.Option(Path.home()),
     product: list[str] = typer.Option(None, help="只处理指定产品，可重复"),
     kind: list[str] = typer.Option(None, help="只处理指定类型，可重复"),
-    since: str = typer.Option("", help="只看该时间之后修改的文件，如 2026-10-01 或 2026-10-01 09:30"),
+    since: str = typer.Option(
+        "", help="只看该时间之后修改的文件，如 2026-10-01 或 2026-10-01 09:30"
+    ),
     web: bool = typer.Option(True, help="在浏览器里勾选；--no-web 回到终端逐条"),
     yes: bool = False,
     dry_run: bool = False,
@@ -251,8 +263,7 @@ def import_history(
         if row["risk"] == "sensitive":
             marks = "  ⚠ " + "、".join(row["reasons"])
         console.print(
-            f"  {index:3d}. {row['name']} — {row['title']} "
-            f"({row['bytes'] / 1024:.0f} KB){marks}",
+            f"  {index:3d}. {row['name']} — {row['title']} ({row['bytes'] / 1024:.0f} KB){marks}",
             markup=False,
         )
     console.print(
@@ -487,16 +498,12 @@ def setup(
     from . import history
 
     console.print("[bold]AMH · 组织共享第二大脑[/bold]")
-    # Record the choice before anything registers a target. On a first install
-    # there is no config yet, and the flag used to be dropped on the floor:
-    # --projection was accepted, printed nothing, and did nothing.
-    if (state / "config.json").exists():
-        c0 = NativeClient(state)
-        c0.config["projection"] = bool(projection)
-        atomic_json(c0.root / "config.json", c0.config)
-    elif projection:
-        (state).mkdir(parents=True, exist_ok=True, mode=0o700)
-        atomic_json(state / "config.json", {"projection": True})
+    # A failed 1.3.1 --projection setup could leave only this preference behind.
+    # It is not an enrolled identity. Keep it until login succeeds; adopt() accepts
+    # only this exact harmless partial shape, never an existing identity/profile.
+    profile = state / "config.json"
+    partial = json.loads(profile.read_text()) if profile.exists() else None
+    joined = partial is not None and set(partial) != {"projection"}
     found = discover_products(home)
     table = Table("产品", "检测结果", "原生记忆目录")
     for p in found:
@@ -507,7 +514,7 @@ def setup(
         )
     console.print(table)
     console.print("组织服务地址：" + hub)
-    if not (state / "config.json").exists():
+    if not joined:
         console.print("\n第 1 步：用飞书账号登录")
         identity = feishu_login(hub, state, socket.gethostname())
         c = load(state)
@@ -517,6 +524,9 @@ def setup(
         if c.config["hub"] != hub.rstrip("/"):
             raise typer.BadParameter("不同 Hub 必须使用独立 --state；不能把旧队列发给新组织")
         console.print("已使用现有身份；如需换账号请指定新的 --state")
+    c.config["projection"] = bool(projection)
+    atomic_json(c.root / "config.json", c.config)
+    c.configure_storage()
     console.print(
         f"成员：{c.identity['member_name']} ({c.identity['member_id']})；组织：{c.identity['tenant_id']}"
     )

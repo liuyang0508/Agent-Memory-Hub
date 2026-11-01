@@ -39,8 +39,8 @@ class FeishuConfig:
         """Allowlist decision; None means "the Hub must decide".
 
         An empty allowlist used to mean "accept any Feishu organization that can
-        reach this app", which is open to the public internet. The Hub now binds
-        the first tenant to log in and rejects every later one, so this only
+        reach this app". The Hub now requires an administrator-selected tenant,
+        or a previously pinned tenant retained on upgrade, so this only
         answers the question the configuration can actually answer.
         """
         if not self.allowed_tenants:
@@ -156,7 +156,9 @@ def user_identity(token: str) -> dict[str, str]:
     if not isinstance(data, dict) or data.get("code") != 0:
         raise ValueError(_failure(json.dumps(data).encode(), "user info failed"))
     value = data.get("data") or {}
-    result = {key: str(value.get(key) or "") for key in ("name", "open_id", "union_id", "tenant_key")}
+    result = {
+        key: str(value.get(key) or "") for key in ("name", "open_id", "union_id", "tenant_key")
+    }
     if not result["open_id"] or not result["tenant_key"]:
         raise ValueError("Feishu returned no stable user identity")
     return result

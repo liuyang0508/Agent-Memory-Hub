@@ -17,8 +17,8 @@ class LocalTransport:
     def put(self, value):
         return self.hub.put(self.identity["token"], value)
 
-    def changes(self, cursor):
-        return self.hub.changes(self.identity["token"], cursor)
+    def changes(self, cursor, *, metadata_only=False):
+        return self.hub.changes(self.identity["token"], cursor, metadata_only=metadata_only)
 
     def search(self, query, **kwargs):
         return self.hub.search(self.identity["token"], query, **kwargs)
@@ -55,7 +55,9 @@ def test_items_covers_every_product_and_never_double_counts_shared_store(tmp_pat
     assert ("claude-code", "memory") in kinds
     assert ("claude-code", "transcript") in kinds
     # Codex CLI, desktop and ChatGPT share one store; each file appears once.
-    codex_rules = [row for row in rows if row["product"] == "codex-shared" and row["kind"] == "rule"]
+    codex_rules = [
+        row for row in rows if row["product"] == "codex-shared" and row["kind"] == "rule"
+    ]
     assert len(codex_rules) == 1
     paths = [row["path"] for row in rows]
     assert len(paths) == len(set(paths))
@@ -257,5 +259,3 @@ def test_new_files_in_a_registered_root_sync_without_asking_again(tmp_path):
     assert client.pending_count() == 0
     stored = client.transport.search("安装之后新写的记忆")
     assert stored, "the file written after install never reached the Hub"
-
-

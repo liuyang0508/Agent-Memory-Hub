@@ -91,6 +91,18 @@ def test_stored_settings_enable_login_and_hide_the_secret(operator, hub):
     client.post("/native/v1/admin/secret", json={"app_secret": "SECRET-XYZ"}, headers=headers)
     overview = client.get("/native/v1/admin/overview", headers=headers)
     assert "SECRET-XYZ" not in overview.text
+    assert client.get("/native/v1/auth/feishu").json() == {"available": False}
+    client.post(
+        "/native/v1/admin/settings",
+        json={"key": "feishu_tenant_key", "value": "tk_expected"},
+        headers=headers,
+    )
+    assert (
+        client.get("/native/v1/admin/overview", headers=headers).json()["settings"][
+            "feishu_tenant_key"
+        ]
+        == "tk_expected"
+    )
     assert client.get("/native/v1/auth/feishu").json() == {"available": True}
     config = feishu.load(hub.setting)
     assert config.redirect_uri == "https://amh.example.com/native/v1/auth/feishu/callback"

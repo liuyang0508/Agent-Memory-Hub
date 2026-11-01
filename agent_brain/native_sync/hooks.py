@@ -101,6 +101,8 @@ def _run(root: Path, product: str, payload: dict[str, Any]) -> dict[str, Any]:
         from .query_worker import bounded_search
 
         hits = bounded_search(root, prompt[:8000], timeout=0.65)
+        from .evidence import metadata
+
         with database(c.path) as db:
             for record in hits:
                 db.execute(
@@ -108,7 +110,7 @@ def _run(root: Path, product: str, payload: dict[str, Any]) -> dict[str, Any]:
                     (
                         record["asset_id"],
                         record["revision"],
-                        json.dumps(record, ensure_ascii=False),
+                        json.dumps(metadata(record), ensure_ascii=False),
                     ),
                 )
             db.execute("INSERT OR REPLACE INTO meta VALUES('last_auth',?)", (str(time.time()),))

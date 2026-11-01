@@ -86,8 +86,10 @@ class Transport:
     def put(self, value: Any) -> Any:
         return self.call("assets", value)
 
-    def changes(self, cursor: int) -> Any:
-        return self.call(f"changes?cursor={cursor}&limit=10")
+    def changes(self, cursor: int, *, metadata_only: bool = False) -> Any:
+        return self.call(
+            f"changes?cursor={cursor}&limit=10&metadata_only={str(metadata_only).lower()}"
+        )
 
     def search(self, query: str, **kwargs: Any) -> Any:
         return self.call("search", {"query": query, **kwargs})["items"]

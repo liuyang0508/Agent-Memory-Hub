@@ -56,21 +56,25 @@ def sensitive_key(key: str) -> bool:
 
 def indexable_history(text: str) -> str:
     """Mask AMH-injected evidence for search while preserving transcript offsets and stored originals."""
-    # Match the banner by its stable prefix rather than its exact wording: the
-    # label changed once already, and a stale copy here let other members' text
-    # through the mask and into this member's index.
+    # Fixed machine boundaries survive wording changes and also match escaped
+    # newlines in JSONL. Preserve offsets so nearby native text remains usable.
     text = re.sub(
-        r"\[组织共享资料[^\]]*\].*?amh-native-recall:[a-f0-9]{24}",
+        r"\[AMH_ORG_CONTEXT_V1\].*?\[/AMH_ORG_CONTEXT_V1\]",
         lambda m: " " * len(m.group()),
         text,
         flags=re.S,
     )
-    return "".join(
-        " " * len(line.rstrip("\r\n")) + line[len(line.rstrip("\r\n")) :]
-        if "amh-native-recall:" in line
-        else line
-        for line in text.splitlines(keepends=True)
+    # Match the banner by its stable prefix rather than its exact wording: the
+    # label changed once already, and a stale copy here let other members' text
+    # through the mask and into this member's index.
+    labels = "|".join(re.escape(label) for label in ("组织共享", json.dumps("组织共享")[1:-1]))
+    text = re.sub(
+        r"\[(?:" + labels + r")[^\]]*\].*?amh-native-recall:[a-f0-9]{24}",
+        lambda m: " " * len(m.group()),
+        text,
+        flags=re.S,
     )
+    return re.sub(r"amh-native-recall:[a-f0-9]{24}", lambda m: " " * len(m.group()), text)
 
 
 def read_document(path: Path, kind: str) -> tuple[str, str, str] | None:
@@ -214,6 +218,11 @@ def _raise_walk_error(error: OSError) -> None:
     raise error
 
 
+def transcript_metadata(path: str | Path) -> bool:
+    """Agent metadata sidecars are not conversations, even with a nested source root."""
+    return Path(path).name.lower().endswith(".meta.json")
+
+
 def files(root: Path, kind: str) -> Iterator[Path]:
     """Enumerate eligible sources, excluding credentials, generated resources and symlink traversal.
 
@@ -255,7 +264,7 @@ def files(root: Path, kind: str) -> Iterator[Path]:
         # in a member's selection (208 of 212 on a real machine), because being
         # short they never trip the privacy screen and every "select clean" pass
         # swept them in. The sibling .jsonl is the actual transcript and stays.
-        if kind == "transcript" and p.name.endswith(".meta.json") and "subagents" in rel.parts:
+        if kind == "transcript" and transcript_metadata(p):
             continue
         if kind == "config" and p.suffix.lower() not in (".json", ".toml"):
             continue

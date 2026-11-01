@@ -15,7 +15,7 @@ import html
 import http.server
 import json
 import threading
-from typing import Any
+from typing import Any, cast
 import webbrowser
 
 from .common import display_name
@@ -260,7 +260,7 @@ def serve(
             # sends and refuse an Origin that is not ours.
             ctype = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower()
             origin = self.headers.get("Origin")
-            expected = "http://127.0.0.1:%d" % self.server.server_address[1]
+            expected = "http://127.0.0.1:%d" % port
             if ctype != "application/json" or (origin and origin != expected):
                 self._send(403, b"forbidden", "text/plain; charset=utf-8")
                 return
@@ -304,4 +304,4 @@ def serve(
             raise TimeoutError("selection page timed out")
     finally:
         server.shutdown()
-    return holder.get("picked", [])
+    return cast(list[dict[str, Any]], holder.get("picked", []))

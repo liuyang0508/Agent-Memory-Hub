@@ -21,6 +21,7 @@ def configured(monkeypatch):
     monkeypatch.setenv("FEISHU_APP_SECRET", "secret-value")
     monkeypatch.setenv("AMH_HUB_PUBLIC_URL", "https://hub.example.com")
     monkeypatch.setenv("FEISHU_TENANT", "linkcrux")
+    monkeypatch.setenv("FEISHU_ALLOWED_TENANT_KEYS", "tk")
     return feishu.load()
 
 
@@ -33,10 +34,7 @@ def test_login_is_unavailable_without_deployment_credentials(hub, monkeypatch):
 
 
 def test_redirect_uri_is_derived_from_public_url_not_host_header(configured):
-    assert (
-        configured.redirect_uri
-        == "https://hub.example.com/native/v1/auth/feishu/callback"
-    )
+    assert configured.redirect_uri == "https://hub.example.com/native/v1/auth/feishu/callback"
 
 
 def test_public_url_must_be_https(monkeypatch):
@@ -58,10 +56,10 @@ def test_authorize_url_carries_no_scope_and_no_secret(configured):
 def test_state_is_single_use_and_bound_to_its_port(hub):
     state = hub.feishu_begin(51234)
     identity = {"name": "张三", "open_id": "ou_1", "union_id": "on_1", "tenant_key": "tk"}
-    port, ticket = hub.feishu_complete(state, identity)
+    port, ticket = hub.feishu_complete(state, identity, app_id="cli_test")
     assert port == 51234
     with pytest.raises(ValueError):
-        hub.feishu_complete(state, identity)
+        hub.feishu_complete(state, identity, app_id="cli_test")
     # The ticket alone completes the loopback exchange; the code is never stored.
     issued = hub.feishu_redeem(ticket, "Mac")
     assert issued["member_name"] == "张三"
@@ -72,8 +70,12 @@ def test_state_is_single_use_and_bound_to_its_port(hub):
 
 def test_same_feishu_account_reuses_one_member_across_devices(hub):
     identity = {"name": "张三", "open_id": "ou_1", "union_id": "on_1", "tenant_key": "tk"}
-    first_port, first_ticket = hub.feishu_complete(hub.feishu_begin(50001), identity)
-    second_port, second_ticket = hub.feishu_complete(hub.feishu_begin(50002), identity)
+    first_port, first_ticket = hub.feishu_complete(
+        hub.feishu_begin(50001), identity, app_id="cli_test"
+    )
+    second_port, second_ticket = hub.feishu_complete(
+        hub.feishu_begin(50002), identity, app_id="cli_test"
+    )
     assert (first_port, second_port) == (50001, 50002)
     a = hub.feishu_redeem(first_ticket, "Mac A")
     b = hub.feishu_redeem(second_ticket, "Mac B")

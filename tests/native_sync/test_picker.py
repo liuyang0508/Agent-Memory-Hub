@@ -17,13 +17,13 @@ from agent_brain.native_sync import picker
 def rows(count: int = 3):
     def row(index: int, risk: str, reasons: list[str] | None = None):
         return {
-            "path": "/home/m/.claude/projects/p/memory/file%d.md" % index,
+            "path": "/home/example/.claude/projects/p/memory/file%d.md" % index,
             "name": "file%d.md" % index,
             "title": "标题 %d" % index,
             "product": "claude-code",
             "product_name": "Claude Code",
             "kind": "memory",
-            "root": "/home/m/.claude/projects/p/memory",
+            "root": "/home/example/.claude/projects/p/memory",
             "bytes": 1024 * (index + 1),
             "mtime": 1793000000 + index,
             "risk": risk,
@@ -51,7 +51,7 @@ def test_payload_omits_paths_and_bodies():
         "risk",
         "reasons",
     }
-    assert "/home/m" not in payload
+    assert "/home/example" not in payload
 
 
 def test_payload_labels_kind_in_chinese():

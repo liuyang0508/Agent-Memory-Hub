@@ -86,6 +86,11 @@ def test_native_read_records_only_visible_full_resource_coverage(live, tmp_path)
     a = enroll(hub)
     hub.put(a["token"], asset(body="NATIVE_READ_CANARY"))
     b = NativeClient.adopt(tmp_path / "b", url, hub.provision("李四", "B"), "B")
+    b.config["projection"] = True
+    from agent_brain.native_sync.common import atomic_json
+
+    atomic_json(b.root / "config.json", b.config)
+    b.configure_storage()
     b.sync()
     target = tmp_path / "memory"
     publish(target, "claude-code", b.cached())
@@ -497,10 +502,11 @@ def test_dashboard_is_scoped_to_one_tenant(tmp_path):
     assert data["totals"]["assets"] == 1
 
 
-def test_feishu_tenant_is_pinned_by_first_login(tmp_path):
-    """The first organization to log in claims the Hub; later ones are refused."""
+def test_feishu_tenant_is_selected_by_operator_not_first_login(tmp_path):
+    """Public first login must not choose the organization boundary."""
     hub = Hub(tmp_path / "hub.sqlite")
-    assert hub.feishu_accept_tenant("tk-ours", frozenset())
+    assert not hub.feishu_accept_tenant("tk-ours", frozenset())
+    hub.admin_setting(hub.admin_create("operator"), "feishu_tenant_key", "tk-ours")
     assert hub.feishu_accept_tenant("tk-ours", frozenset())
     assert not hub.feishu_accept_tenant("tk-other", frozenset())
     # An explicit allowlist still wins over the pin.

@@ -71,7 +71,11 @@ def create_app(hub: Hub) -> FastAPI:
             config = feishu.load(hub.setting)
         except ValueError:
             return {"available": False}
-        return {"available": config is not None}
+        return {
+            "available": bool(
+                config and (config.allowed_tenants or hub.setting("feishu_tenant_key"))
+            )
+        }
 
     def operator(authorization: str | None) -> str:
         return bearer(authorization)
@@ -135,7 +139,10 @@ def create_app(hub: Hub) -> FastAPI:
         if config is None:
             raise HTTPException(503, "this Hub does not offer enterprise login")
         state = hub.feishu_begin(data.port)
-        return {"authorize_url": feishu.authorize_url(config, state), "redirect_uri": config.redirect_uri}
+        return {
+            "authorize_url": feishu.authorize_url(config, state),
+            "redirect_uri": config.redirect_uri,
+        }
 
     @app.get("/native/v1/auth/feishu/callback")
     def feishu_callback(
@@ -166,7 +173,7 @@ def create_app(hub: Hub) -> FastAPI:
         identity = feishu.user_identity(token)
         if not hub.feishu_accept_tenant(identity["tenant_key"], config.allowed_tenants):
             raise HTTPException(403, "this Feishu tenant is not served by this Hub")
-        port, ticket = hub.feishu_complete(state, identity)
+        port, ticket = hub.feishu_complete(state, identity, app_id=config.app_id)
         response = RedirectResponse(
             "http://127.0.0.1:%d/?ticket=%s" % (port, ticket), status_code=303
         )
@@ -202,9 +209,10 @@ def create_app(hub: Hub) -> FastAPI:
     def changes(
         cursor: int = Query(default=0, ge=0),
         limit: int = Query(default=100, ge=1, le=100),
+        metadata_only: bool = False,
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
-        return hub.changes(bearer(authorization), cursor, limit)
+        return hub.changes(bearer(authorization), cursor, limit, metadata_only=metadata_only)
 
     @app.post("/native/v1/search")
     def search(

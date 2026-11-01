@@ -77,6 +77,11 @@ def title_of(path: Path, body: str) -> str:
 SCREEN_PREFIX = 64 * 1024
 
 
+def file_version(stat: Any) -> list[int]:
+    """Cheap stable version for the local chooser; includes replacement and metadata changes."""
+    return [stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns]
+
+
 def peek(path: Path) -> str:
     """Read only the head of a file for screening and titling.
 
@@ -137,6 +142,8 @@ def items(
                 try:
                     stat = path.stat()
                     head = peek(path)
+                    if file_version(stat) != file_version(path.stat()):
+                        continue
                 except (OSError, ValueError, UnicodeError):
                     continue
                 if stat.st_size > MAX_BYTES:
@@ -159,15 +166,24 @@ def items(
                         "title": title_of(path, head),
                         "bytes": stat.st_size,
                         "mtime": stat.st_mtime,
+                        "version": file_version(stat),
                         "risk": verdict["risk"],
                         "reasons": verdict["reasons"],
                     }
                 )
-    rows.sort(key=lambda r: (r["product"], CATEGORY_ORDER.index(r["kind"]) if r["kind"] in CATEGORY_ORDER else 99, r["path"]))
+    rows.sort(
+        key=lambda r: (
+            r["product"],
+            CATEGORY_ORDER.index(r["kind"]) if r["kind"] in CATEGORY_ORDER else 99,
+            r["path"],
+        )
+    )
     return rows
 
 
-def import_paths(client: NativeClient, home: Path, selected: list[dict[str, Any]]) -> dict[str, Any]:
+def import_paths(
+    client: NativeClient, home: Path, selected: list[dict[str, Any]]
+) -> dict[str, Any]:
     """Select exactly the ticked files; nothing else from their categories is touched.
 
     The category is registered first so later changes in it sync automatically,
@@ -190,7 +206,14 @@ def import_paths(client: NativeClient, home: Path, selected: list[dict[str, Any]
             absolute = row["path"]
             path = Path(absolute)
             try:
+                expected_version = row.get("version")
+                if expected_version is None or file_version(path.stat()) != expected_version:
+                    rejected.append(absolute)
+                    continue
                 body = source_text(path, kind)
+                if file_version(path.stat()) != expected_version:
+                    rejected.append(absolute)
+                    continue
             except (ValueError, OSError, UnicodeError):
                 rejected.append(absolute)
                 continue
@@ -272,11 +295,7 @@ def screen(body: str) -> dict[str, Any]:
     blocked = sorted({label for pattern, label in BLOCKING_PATTERNS if re.search(pattern, body)})
     if blocked:
         return {"risk": "blocked", "reasons": blocked}
-    sensitive = sorted(
-        {label for pattern, label in SENSITIVE_PATTERNS if re.search(pattern, body)}
-    )
+    sensitive = sorted({label for pattern, label in SENSITIVE_PATTERNS if re.search(pattern, body)})
     if sensitive:
         return {"risk": "sensitive", "reasons": sensitive}
     return {"risk": "clean", "reasons": []}
-
-

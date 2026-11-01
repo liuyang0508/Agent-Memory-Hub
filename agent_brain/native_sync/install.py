@@ -354,6 +354,7 @@ def export_cowork_plugin(
         "__init__.py",
         "common.py",
         "contracts.py",
+        "evidence.py",
         "storage.py",
         "transport.py",
         "projection.py",
