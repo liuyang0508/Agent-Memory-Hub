@@ -40,7 +40,6 @@ class NativeClient:
             db.executescript(CLIENT_SCHEMA)
 
     @classmethod
-    @classmethod
     def adopt(
         cls,
         root: Path,
@@ -94,9 +93,14 @@ class NativeClient:
         """
         return bool(self.config.get("projection"))
 
-    def targets(self) -> list[dict[str, Any]]:
-        """Merge configured/discovered native destinations by resolved path to avoid duplicate writes."""
-        if not self.projection_enabled():
+    def targets(self, *, enabled_only: bool = True) -> list[dict[str, Any]]:
+        """Merge configured/discovered native destinations by resolved path to avoid duplicate writes.
+
+        enabled_only=False returns the destinations on record regardless of the
+        projection setting, so revocation can clear copies written by an earlier
+        release that had projection switched on.
+        """
+        if enabled_only and not self.projection_enabled():
             return []
         with database(self.path) as db:
             dynamic = [dict(row) for row in db.execute("SELECT root,product FROM dynamic_targets")]
@@ -270,7 +274,13 @@ class NativeClient:
             root = Path(source["root"])
             if not root.exists():
                 continue
-            for p in files(root, source["kind"]):
+            try:
+                candidates = list(files(root, source["kind"]))
+            except OSError:
+                # Unreadable is not empty: record nothing and leave the
+                # existing history hashes alone.
+                continue
+            for p in candidates:
                 rel = p.name if source["file_source"] else str(p.relative_to(root))
                 stat = p.stat()
                 with database(self.path) as db:
@@ -317,8 +327,15 @@ class NativeClient:
             if not (root.parent.is_dir() if source["file_source"] else root.is_dir()):
                 errors.append("source unavailable: " + source["id"])
                 continue
+            try:
+                candidates = list(files(root, source["kind"]))
+            except OSError as exc:
+                # Unreadable is not empty. Skipping the pass keeps the existing
+                # snapshots intact; the next successful scan reconciles them.
+                errors.append("source unreadable: " + source["id"] + ": " + str(exc))
+                continue
             seen = set()
-            for p in files(root, source["kind"]):
+            for p in candidates:
                 rel = p.name if source["file_source"] else str(p.relative_to(root))
                 seen.add(rel)
                 with database(self.path) as db:
@@ -625,7 +642,7 @@ class NativeClient:
             for path in cache.glob("*.md"):
                 if not path.is_symlink() and digest(path.read_text()) == path.stem:
                     path.unlink()
-        for target in self.targets():
+        for target in self.targets(enabled_only=False):
             publish(Path(target["root"]), target["product"], [])
 
     def search(self, query: str, **kwargs: Any) -> list[dict[str, Any]]:

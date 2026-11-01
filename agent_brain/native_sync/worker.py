@@ -9,6 +9,7 @@ import random
 import subprocess
 import time
 from pathlib import Path
+from typing import Any
 from .client import NativeClient
 from .common import atomic_json, runtime_argv
 
@@ -31,6 +32,8 @@ def work(state: Path, interval: float = 10) -> None:
         except BlockingIOError:
             return
         c = NativeClient(state)
+        config_path = state / "config.json"
+        last_config: Any = json.loads(config_path.read_text()) if config_path.exists() else None
         next_run = 0.0
         backoff = interval
         cooling_down = False
@@ -40,7 +43,14 @@ def work(state: Path, interval: float = 10) -> None:
             if not (state / "paused").exists() and due:
                 wake.unlink(missing_ok=True)
                 try:
-                    c.config = json.loads((state / "config.json").read_text())
+                    config = json.loads(config_path.read_text())
+                    if config != last_config:
+                        # Rebuild on any config change: a re-enrolment issues a new
+                        # device token, and this long-lived process would otherwise
+                        # keep authenticating with the old one — a permanent 401
+                        # followed by revoke_local() and a 60s cooldown, forever.
+                        last_config = config
+                        c = NativeClient(state)
                     c.sync()
                     backoff = interval
                     cooling_down = False

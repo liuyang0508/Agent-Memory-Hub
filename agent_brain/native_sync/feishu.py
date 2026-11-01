@@ -35,9 +35,17 @@ class FeishuConfig:
     def redirect_uri(self) -> str:
         return self.public_url.rstrip("/") + CALLBACK_PATH
 
-    def accepts(self, tenant_key: str) -> bool:
-        """An empty allowlist trusts the app's own availability scope for this tenant."""
-        return not self.allowed_tenants or tenant_key in self.allowed_tenants
+    def allows_tenant(self, tenant_key: str) -> bool | None:
+        """Allowlist decision; None means "the Hub must decide".
+
+        An empty allowlist used to mean "accept any Feishu organization that can
+        reach this app", which is open to the public internet. The Hub now binds
+        the first tenant to log in and rejects every later one, so this only
+        answers the question the configuration can actually answer.
+        """
+        if not self.allowed_tenants:
+            return None
+        return tenant_key in self.allowed_tenants
 
 
 def load(settings: Any = None) -> FeishuConfig | None:

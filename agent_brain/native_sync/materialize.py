@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import Any
 
 import base64
+import binascii
 import hashlib
 import json
 from pathlib import Path, PurePosixPath
@@ -33,11 +34,17 @@ def assembled(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if len(group) != count or [r.get("part_index", 0) for r in group] != list(range(count)):
             continue  # Do not expose a partially downloaded revision.
         text = "".join(r["body"] for r in group)
-        raw = (
-            base64.b64decode(text, validate=True)
-            if first.get("encoding") == "base64"
-            else text.encode()
-        )
+        try:
+            raw = (
+                base64.b64decode(text, validate=True)
+                if first.get("encoding") == "base64"
+                else text.encode()
+            )
+        except (binascii.Error, UnicodeError, ValueError):
+            # A malformed part is that document's problem, not everyone's. This
+            # used to raise out of search(), so one member could make a keyword
+            # unsearchable for the whole organization.
+            continue
         expected = first.get("document_hash") or first["body_hash"]
         if hashlib.sha256(raw).hexdigest() != expected:
             continue
@@ -79,7 +86,14 @@ def materialize(root: Path, records: list[dict[str, Any]], *, kinds: set[str]) -
         raise ValueError("destination must not be symlink")
     root.mkdir(parents=True, exist_ok=True)
     manifest = root / "amh-native-export.json"
-    previous = json.loads(manifest.read_text()) if manifest.exists() else {}
+    try:
+        previous = json.loads(manifest.read_text()) if manifest.exists() else {}
+    except (OSError, ValueError):
+        # A corrupted manifest means we no longer know which files we own; start
+        # clean rather than refusing to export at all.
+        previous = {}
+    if not isinstance(previous, dict):
+        previous = {}
     owned = previous.get("files", {})
     next_owned = dict(owned)
     desired = set()

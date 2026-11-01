@@ -487,11 +487,16 @@ def setup(
     from . import history
 
     console.print("[bold]AMH · 组织共享第二大脑[/bold]")
-    # Set before anything registers a target so the choice applies to this run.
-    c0 = NativeClient(state) if (state / "config.json").exists() else None
-    if c0 is not None:
+    # Record the choice before anything registers a target. On a first install
+    # there is no config yet, and the flag used to be dropped on the floor:
+    # --projection was accepted, printed nothing, and did nothing.
+    if (state / "config.json").exists():
+        c0 = NativeClient(state)
         c0.config["projection"] = bool(projection)
         atomic_json(c0.root / "config.json", c0.config)
+    elif projection:
+        (state).mkdir(parents=True, exist_ok=True, mode=0o700)
+        atomic_json(state / "config.json", {"projection": True})
     found = discover_products(home)
     table = Table("产品", "检测结果", "原生记忆目录")
     for p in found:

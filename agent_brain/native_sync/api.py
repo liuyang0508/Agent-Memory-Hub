@@ -30,7 +30,13 @@ def create_app(hub: Hub) -> FastAPI:
 
     @app.exception_handler(ValueError)
     async def conflict(request: Any, error: Any) -> JSONResponse:
-        return JSONResponse(status_code=409, content={"detail": str(error)})
+        # Never echo an arbitrary exception message: some carry SQL, paths or
+        # decoder internals. Messages this service raises on purpose are short
+        # and lowercase; anything longer is treated as internal.
+        detail = str(error)
+        if len(detail) > 200:
+            detail = "request rejected"
+        return JSONResponse(status_code=409, content={"detail": detail})
 
     @app.exception_handler(sqlite3.Error)
     async def storage_unavailable(request: Any, error: Any) -> JSONResponse:
@@ -76,6 +82,21 @@ def create_app(hub: Hub) -> FastAPI:
         from . import admin
 
         return HTMLResponse(admin.html())
+
+    @app.get("/native/v1/admin/dashboard")
+    def admin_dashboard_page() -> HTMLResponse:
+        """Activity dashboard; the page holds no credential and no memory text."""
+        from . import dashboard
+
+        return HTMLResponse(dashboard.html())
+
+    @app.get("/native/v1/admin/dashboard/data")
+    def admin_dashboard(
+        days: int = Query(default=30, ge=1, le=365),
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        """Aggregate activity for the operator dashboard; counts only, no memory text."""
+        return hub.admin_dashboard(operator(authorization), days=days)
 
     @app.get("/native/v1/admin/overview")
     def admin_overview(authorization: str | None = Header(default=None)) -> dict[str, Any]:
@@ -143,7 +164,7 @@ def create_app(hub: Hub) -> FastAPI:
             raise HTTPException(409, str(exc)) from None
         token = feishu.exchange_code(config, code)
         identity = feishu.user_identity(token)
-        if not config.accepts(identity["tenant_key"]):
+        if not hub.feishu_accept_tenant(identity["tenant_key"], config.allowed_tenants):
             raise HTTPException(403, "this Feishu tenant is not served by this Hub")
         port, ticket = hub.feishu_complete(state, identity)
         response = RedirectResponse(

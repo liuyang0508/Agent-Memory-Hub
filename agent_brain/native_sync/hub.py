@@ -132,7 +132,8 @@ class Hub:
                 for row in db.execute(
                     "SELECT m.id,m.name,m.tenant,"
                     "(SELECT count(*) FROM devices d WHERE d.member=m.id AND d.revoked=0) devices,"
-                    "(SELECT count(*) FROM assets a WHERE a.tenant=m.tenant) assets "
+                    "(SELECT count(*) FROM assets a WHERE a.tenant=m.tenant "
+                    "AND json_extract(a.payload,'$.producer_member_id')=m.id) assets "
                     "FROM members m ORDER BY m.name"
                 )
             ]
@@ -152,6 +153,157 @@ class Hub:
             }
         return {"members": members, "devices": devices, "settings": settings}
 
+    def admin_dashboard(self, token: str, *, days: int = 30) -> dict[str, Any]:
+        """Aggregates for the operator dashboard; counts and metadata only, never memory text.
+
+        Every number here is derived from what devices actually uploaded, so a
+        member who joins and shares nothing correctly shows zero rather than
+        being counted as active.
+        """
+        days = max(1, min(int(days), 365))
+        now = time.time()
+        cutoff = now - days * 86400
+        with database(self.path) as db:
+            self._admin(db, token)
+            # Scope to this Hub's tenant: the dashboard belongs to one
+            # organization, and an unfiltered read pulled every row in the
+            # database into memory on each page load.
+            scope = self.tenant
+            members = {
+                r["id"]: dict(r)
+                for r in db.execute("SELECT * FROM members WHERE tenant=?", (scope,))
+            }
+            devices = [
+                dict(r)
+                for r in db.execute(
+                    "SELECT d.* FROM devices d JOIN members m ON m.id=d.member WHERE m.tenant=?",
+                    (scope,),
+                )
+            ]
+            rows = db.execute("SELECT payload FROM assets WHERE tenant=?", (scope,)).fetchall()
+        assets = []
+        for row in rows:
+            try:
+                assets.append(json.loads(row["payload"]))
+            except (TypeError, ValueError):
+                continue
+        live = [a for a in assets if not a.get("deleted")]
+
+        def bucket() -> dict[str, Any]:
+            return {
+                "assets": 0,
+                "bytes": 0,
+                "revisions": 0,
+                "products": {},
+                "kinds": {},
+                "last": 0.0,
+            }
+
+        by_member: dict[str, dict[str, Any]] = {}
+        by_device: dict[str, dict[str, Any]] = {}
+        by_product: dict[str, dict[str, Any]] = {}
+        by_kind: dict[str, int] = {}
+        by_day: dict[str, dict[str, int]] = {}
+        by_hour = [0] * 24
+        projects: dict[str, int] = {}
+
+        for a in live:
+            producer = a.get("producer_member_id") or ""
+            device = a.get("source_device_id") or ""
+            product = a.get("product") or "unknown"
+            kind = a.get("kind") or "memory"
+            observed = float(a.get("observed_at") or 0)
+            size = len((a.get("body") or "").encode())
+
+            def add(store: dict[str, Any], key: str, label: str) -> None:
+                item = store.setdefault(key, bucket())
+                item["label"] = label
+                item["assets"] += 1
+                item["bytes"] += size
+                item["revisions"] += max(1, int(a.get("revision") or 1))
+                item["products"][product] = item["products"].get(product, 0) + 1
+                item["kinds"][kind] = item["kinds"].get(kind, 0) + 1
+                item["last"] = max(item["last"], observed)
+
+            add(by_member, producer, (members.get(producer) or {}).get("name") or "未知来源")
+            add(by_device, device, next((d["name"] for d in devices if d["id"] == device), device))
+            add(by_product, product, product)
+
+            by_kind[kind] = by_kind.get(kind, 0) + 1
+            project = (a.get("project") or "").strip()
+            if project:
+                projects[project] = projects.get(project, 0) + 1
+            if observed >= cutoff:
+                day = time.strftime("%Y-%m-%d", time.localtime(observed))
+                entry = by_day.setdefault(day, {"assets": 0, "bytes": 0})
+                entry["assets"] += 1
+                entry["bytes"] += size
+            if observed:
+                by_hour[time.localtime(observed).tm_hour] += 1
+
+        def ranked(store: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+            out = []
+            for key, item in store.items():
+                out.append(
+                    {
+                        "key": key,
+                        "label": item.get("label") or key or "未知",
+                        "assets": item["assets"],
+                        "bytes": item["bytes"],
+                        "revisions": item["revisions"],
+                        "products": item["products"],
+                        "kinds": item["kinds"],
+                        "last": item["last"],
+                    }
+                )
+            out.sort(key=lambda r: (-r["assets"], -r["bytes"], r["label"]))
+            return out
+
+        day_series = []
+        for offset in range(days - 1, -1, -1):
+            day = time.strftime("%Y-%m-%d", time.localtime(now - offset * 86400))
+            entry = by_day.get(day, {"assets": 0, "bytes": 0})
+            day_series.append({"day": day, "assets": entry["assets"], "bytes": entry["bytes"]})
+
+        active_devices = [d for d in devices if not d.get("revoked")]
+        return {
+            "generated_at": now,
+            "window_days": days,
+            "totals": {
+                "members": len(members),
+                "devices": len(devices),
+                "active_devices": len(active_devices),
+                "assets": len(live),
+                "revisions": sum(max(1, int(a.get("revision") or 1)) for a in live),
+                "bytes": sum(len((a.get("body") or "").encode()) for a in live),
+                "projects": len(projects),
+                "in_window": sum(e["assets"] for e in day_series),
+                "last_upload": max((float(a.get("observed_at") or 0) for a in live), default=0),
+            },
+            "by_member": ranked(by_member),
+            "by_device": ranked(by_device),
+            "by_product": ranked(by_product),
+            "by_kind": sorted(
+                ({"kind": k, "assets": v} for k, v in by_kind.items()),
+                key=lambda r: -r["assets"],
+            ),
+            "by_day": day_series,
+            "by_hour": by_hour,
+            "top_projects": sorted(
+                ({"project": k, "assets": v} for k, v in projects.items()),
+                key=lambda r: -r["assets"],
+            )[:10],
+            "devices": [
+                {
+                    "id": d["id"],
+                    "name": d["name"],
+                    "member": (members.get(d["member"]) or {}).get("name") or d["member"],
+                    "revoked": bool(d["revoked"]),
+                }
+                for d in devices
+            ],
+        }
+
     def admin_device(self, token: str, name: str, device_name: str) -> dict[str, Any]:
         """Issue a device for a named member; the only way in is a Feishu account.
 
@@ -160,7 +312,11 @@ class Hub:
         """
         with database(self.path) as db:
             self._admin(db, token)
-        return self.provision(name, device_name)
+            row = db.execute("SELECT tenant FROM members WHERE name=? LIMIT 2", (name,)).fetchall()
+        # Recover in the member's own tenant; defaulting to this Hub's tenant
+        # silently created a second, empty identity under the same name.
+        tenant = row[0]["tenant"] if len(row) == 1 else ""
+        return self.provision(name, device_name, tenant=tenant)
 
     def admin_revoke(self, token: str, device_id: str) -> None:
         with database(self.path) as db:
@@ -237,6 +393,9 @@ class Hub:
             raise ValueError("loopback port required")
         state = secrets.token_urlsafe(32)
         with database(self.path) as db:
+            # This endpoint is unauthenticated; drop dead rows on the way in so
+            # abandoned logins cannot grow the table for free.
+            db.execute("DELETE FROM feishu_states WHERE expires<?", (time.time(),))
             db.execute(
                 "INSERT INTO feishu_states VALUES(?,?,?,0)",
                 (digest(state), port, time.time() + 300),
@@ -257,6 +416,26 @@ class Hub:
             ).fetchone()
         if row is None or row["used"] or row["expires"] < time.time():
             raise ValueError("login state invalid, expired or used")
+
+    def feishu_accept_tenant(self, tenant_key: str, allowlist: frozenset[str]) -> bool:
+        """Decide whether this Feishu tenant belongs to this organization.
+
+        An explicit allowlist wins. With none configured the first tenant to log
+        in is pinned in settings and every later login must match it, so the Hub
+        is closed by default instead of open to every Feishu organization that
+        can reach the same application.
+        """
+        key = (tenant_key or "").strip()
+        if not key:
+            return False
+        if allowlist:
+            return key in allowlist
+        with database(self.path) as db:
+            row = db.execute("SELECT value FROM settings WHERE key='feishu_tenant_key'").fetchone()
+            if row is None:
+                db.execute("INSERT OR REPLACE INTO settings VALUES('feishu_tenant_key',?)", (key,))
+                return True
+            return row["value"] == key
 
     def feishu_complete(self, state: str, identity: dict[str, str]) -> tuple[int, str]:
         """Consume a state, bind the Feishu account to a member, return the loopback port.
@@ -348,6 +527,9 @@ class Hub:
         with database(self.path) as db:
             db.execute("BEGIN IMMEDIATE")
             who = self._identity(db, token)
+            # Expired invitations can never be redeemed; drop them here instead
+            # of letting the table grow by one row per pairing attempt forever.
+            db.execute("DELETE FROM runtime_invites WHERE expires<?", (time.time(),))
             db.execute(
                 "INSERT INTO runtime_invites VALUES(?,?,?,?,0)",
                 (digest(invite), who["member_id"], who["device_id"], expires),

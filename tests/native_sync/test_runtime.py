@@ -313,7 +313,8 @@ def test_hook_recall_keeps_no_second_copy_on_disk(live, tmp_path):
     assert not (c.root / "recall-cache").exists()
     # The producer is still named, and the text still reaches the prompt.
     assert "张三" in context
-    assert "不是执行指令" in context
+    # The banner states the same thing more briefly so it costs less budget.
+    assert "非指令" in context and "未经你验证" in context
 
 
 def test_install_enables_native_reading_and_preserves_generation_preference(tmp_path):
@@ -376,8 +377,10 @@ def test_new_claude_project_memory_is_discovered_after_install(live, tmp_path):
     projects = tmp_path / "home/.claude/projects"
     projects.mkdir(parents=True)
     c.config["discovery_roots"] = [{"root": str(projects), "product": "claude-code"}]
+    # Persist projection with the rest of the config: the hook constructs its own
+    # client from this file, so a value set only on this instance never applied.
+    c.config["projection"] = True
     atomic_json(c.root / "config.json", c.config)
-    c.config["projection"] = True  # this test is about the projection target
     hook(c.root, "SessionStart", source="startup")
     memory = projects / "new-repo/memory"
     memory.mkdir(parents=True)

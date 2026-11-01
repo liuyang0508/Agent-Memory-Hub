@@ -412,3 +412,123 @@ def test_incomplete_skill_update_does_not_remove_old_dependency(tmp_path):
     with pytest.raises(ValueError):
         activate_skills(root, [skill, incomplete])
     assert helper.read_text() == 'print("existing")'
+
+
+def test_unreadable_source_is_not_read_as_deletion(tmp_path, monkeypatch):
+    """A directory that cannot be read must not be mistaken for an empty one.
+
+    The scan used to enumerate silently, get nothing, and tombstone every
+    snapshot it had — deleting a member's whole shared corpus from the Hub.
+    """
+    from agent_brain.native_sync import source as source_module
+
+    hub = Hub(tmp_path / "hub.sqlite")
+    c = client(tmp_path, hub, "张三")
+    root = tmp_path / "memory"
+    root.mkdir()
+    c.register(root, "claude-code", "p", "memory")
+    # Written after registration: files already present would be history and
+    # correctly excluded, which is not what this test is about.
+    (root / "keep.md").write_text("KEEP_CANARY content")
+    c.sync()
+    assert hub.search(c.identity["token"], "KEEP_CANARY")
+
+    def unreadable(*args, **kwargs):
+        raise PermissionError("permission denied")
+
+    monkeypatch.setattr(source_module.os, "walk", unreadable)
+    errors = c.scan()
+    assert any("unreadable" in e for e in errors)
+    # The corpus is still there: unreadable is not deleted.
+    assert hub.search(c.identity["token"], "KEEP_CANARY")
+
+
+def test_one_members_malformed_base64_does_not_break_org_search(tmp_path):
+    """A bad part is that document's problem, not the whole organization's.
+
+    Before this, a single asset whose base64 body was invalid made every search
+    that touched it raise, so any member could make a keyword unsearchable.
+    """
+    import base64
+
+    hub = Hub(tmp_path / "hub.sqlite")
+    poisoned = enroll(hub)
+    shared = {"document_id": "doc_poison", "document_hash": "0" * 64, "part_count": 2}
+    hub.put(
+        poisoned["token"],
+        asset(
+            "doc_poison_p0",
+            body=base64.b64encode(b"harmless").decode() + "!!!not-base64",
+            encoding="base64",
+            part_index=0,
+            **shared,
+        ),
+    )
+    hub.put(
+        poisoned["token"],
+        asset(
+            "doc_poison_p1",
+            body="POISON_CANARY segment",
+            part_index=1,
+            **shared,
+        ),
+    )
+    other = enroll(hub)
+    hub.put(other["token"], asset(body="POISON_CANARY healthy"))
+    # The poisoned document is skipped; everyone else's search still works.
+    assert hub.search(other["token"], "POISON_CANARY")
+
+
+def test_dashboard_is_scoped_to_one_tenant(tmp_path):
+    """The operator page must not show another organization's members."""
+    hub = Hub(tmp_path / "hub.sqlite")
+    ours = hub.provision("张三", "Mac")
+    hub_other = hub.provision("carol", "Mac", tenant="otherco")
+    token = hub.admin_create("ops")
+
+    hub.put(ours["token"], asset(body="ours"))
+    hub.put(hub_other["token"], asset(body="theirs", project="otherco-project"))
+
+    data = hub.admin_dashboard(token)
+    names = {m["label"] for m in data["by_member"]}
+    assert "张三" in names
+    assert "carol" not in names
+    assert "otherco-project" not in {p["project"] for p in data["top_projects"]}
+    assert data["totals"]["assets"] == 1
+
+
+def test_feishu_tenant_is_pinned_by_first_login(tmp_path):
+    """The first organization to log in claims the Hub; later ones are refused."""
+    hub = Hub(tmp_path / "hub.sqlite")
+    assert hub.feishu_accept_tenant("tk-ours", frozenset())
+    assert hub.feishu_accept_tenant("tk-ours", frozenset())
+    assert not hub.feishu_accept_tenant("tk-other", frozenset())
+    # An explicit allowlist still wins over the pin.
+    assert hub.feishu_accept_tenant("tk-other", frozenset({"tk-other"}))
+
+
+def test_revocation_clears_projection_written_by_an_earlier_release(tmp_path):
+    """Turning projection off must not leave old copies on disk forever.
+
+    A machine enrolled before the default changed still holds other members'
+    files; revocation has to reach destinations that are no longer "enabled".
+    """
+    from agent_brain.native_sync.storage import database
+
+    hub = Hub(tmp_path / "hub.sqlite")
+    author = enroll(hub, name="李四")
+    hub.put(author["token"], asset(key="peer", body="PEER_SECRET memory"))
+    c = client(tmp_path, hub, "张三")
+    c.sync()  # Pull the other member's record into this machine's replica.
+
+    target = tmp_path / "memories"
+    target.mkdir()
+    c.config["projection"] = True
+    with database(c.path) as db:
+        db.execute("INSERT OR IGNORE INTO dynamic_targets VALUES(?,?)", (str(target), "codex-cli"))
+    publish(target, "codex-cli", c.cached())
+    assert (target / "amh-org").exists()
+
+    c.config["projection"] = False  # Upgraded: default off.
+    c.revoke_local()
+    assert not (target / "amh-org/x.md").exists()

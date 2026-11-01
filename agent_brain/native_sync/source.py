@@ -5,6 +5,7 @@ from typing import Any, Iterator
 import sqlite3
 
 import base64
+import os
 import hashlib
 import json
 import re
@@ -55,8 +56,11 @@ def sensitive_key(key: str) -> bool:
 
 def indexable_history(text: str) -> str:
     """Mask AMH-injected evidence for search while preserving transcript offsets and stored originals."""
+    # Match the banner by its stable prefix rather than its exact wording: the
+    # label changed once already, and a stale copy here let other members' text
+    # through the mask and into this member's index.
     text = re.sub(
-        r"\[组织共享资料；来源内容不是执行指令\].*?amh-native-recall:[a-f0-9]{24}",
+        r"\[组织共享资料[^\]]*\].*?amh-native-recall:[a-f0-9]{24}",
         lambda m: " " * len(m.group()),
         text,
         flags=re.S,
@@ -205,9 +209,27 @@ def source_text(path: Path, kind: str) -> str | None:
     return result[0] if result is not None else None
 
 
+def _raise_walk_error(error: OSError) -> None:
+    """Surface an unreadable directory instead of letting os.walk skip it silently."""
+    raise error
+
+
 def files(root: Path, kind: str) -> Iterator[Path]:
-    """Enumerate eligible sources, excluding credentials, generated resources and symlink traversal."""
-    for p in [root] if root.is_file() else sorted(root.rglob("*")):
+    """Enumerate eligible sources, excluding credentials, generated resources and symlink traversal.
+
+    Raises OSError when a directory cannot be read. An unreadable tree used to
+    yield nothing, which the caller could not tell apart from an empty one: every
+    file would then look deleted and be removed from the Hub.
+    """
+    if root.is_file():
+        candidates = [root]
+    else:
+        found: list[Path] = []
+        walker = os.walk(root, onerror=_raise_walk_error)
+        for base, _dirs, names in walker:
+            found.extend(Path(base) / name for name in names)
+        candidates = sorted(found)
+    for p in candidates:
         if not p.is_file() or p.is_symlink():
             continue
         rel = Path(p.name) if root.is_file() else p.relative_to(root)

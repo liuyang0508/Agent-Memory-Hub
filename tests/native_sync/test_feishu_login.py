@@ -85,11 +85,11 @@ def test_same_feishu_account_reuses_one_member_across_devices(hub):
 def test_tenant_allowlist_rejects_foreign_tenant(configured, monkeypatch):
     monkeypatch.setenv("FEISHU_ALLOWED_TENANT_KEYS", "tk-ours")
     config = feishu.load()
-    assert config.accepts("tk-ours")
-    assert not config.accepts("tk-other")
-    # An empty allowlist defers to the app's own availability scope.
+    assert config.allows_tenant("tk-ours")
+    assert not config.allows_tenant("tk-other")
+    # No allowlist is not a yes: it defers to the Hub, which pins the tenant.
     monkeypatch.delenv("FEISHU_ALLOWED_TENANT_KEYS")
-    assert feishu.load().accepts("tk-anything")
+    assert feishu.load().allows_tenant("tk-anything") is None
 
 
 def test_callback_rejects_declined_authorization(hub, configured):
