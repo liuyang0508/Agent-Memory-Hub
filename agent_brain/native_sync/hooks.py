@@ -101,19 +101,6 @@ def _run(root: Path, product: str, payload: dict[str, Any]) -> dict[str, Any]:
         from .query_worker import bounded_search
 
         hits = bounded_search(root, prompt[:8000], timeout=1.2)
-        from .evidence import metadata
-
-        with database(c.path) as db:
-            for record in hits:
-                db.execute(
-                    "INSERT OR REPLACE INTO recall_sources VALUES(?,?,?)",
-                    (
-                        record["asset_id"],
-                        record["revision"],
-                        json.dumps(metadata(record), ensure_ascii=False),
-                    ),
-                )
-            db.execute("INSERT OR REPLACE INTO meta VALUES('last_auth',?)", (str(time.time()),))
     except PermissionError:
         c.revoke_local()
         mode = "denied"
@@ -123,6 +110,26 @@ def _run(root: Path, product: str, payload: dict[str, Any]) -> dict[str, Any]:
             row = db.execute("SELECT value FROM meta WHERE key='last_auth'").fetchone()
         hits = c.local_search(prompt) if row and time.time() - float(row["value"]) < 900 else []
         mode = "cache" if hits else "unavailable"
+    if mode == "remote":
+        # Valid authorized results remain usable even while the async worker
+        # owns SQLite's writer lock. Provenance bookkeeping is best effort;
+        # losing it may cause a bounded repeat, never an invented coverage claim.
+        try:
+            from .evidence import metadata
+
+            with database(c.path) as db:
+                for record in hits:
+                    db.execute(
+                        "INSERT OR REPLACE INTO recall_sources VALUES(?,?,?)",
+                        (
+                            record["asset_id"],
+                            record["revision"],
+                            json.dumps(metadata(record), ensure_ascii=False),
+                        ),
+                    )
+                db.execute("INSERT OR REPLACE INTO meta VALUES('last_auth',?)", (str(time.time()),))
+        except (sqlite3.Error, OSError):
+            pass
     from .lineage import covered_records
 
     covered.update(covered_records(c, session, epoch, hits))
@@ -137,12 +144,15 @@ def _run(root: Path, product: str, payload: dict[str, Any]) -> dict[str, Any]:
     if body:
         marker = "amh-native-recall:" + digest(session + epoch + body)[:24]
         body += "\n" + marker
-        with database(c.path) as db:
-            db.execute(
-                "INSERT OR REPLACE INTO emitted VALUES(?,?,?,?)",
-                (session, marker, json.dumps(keys), time.time()),
-            )
-            db.execute("DELETE FROM emitted WHERE created<?", (time.time() - 86400,))
+        try:
+            with database(c.path) as db:
+                db.execute(
+                    "INSERT OR REPLACE INTO emitted VALUES(?,?,?,?)",
+                    (session, marker, json.dumps(keys), time.time()),
+                )
+                db.execute("DELETE FROM emitted WHERE created<?", (time.time() - 86400,))
+        except (sqlite3.Error, OSError):
+            pass  # Do not discard a completed recall for an unavailable receipt store.
     # Never log user prompts or memory bodies. Metrics are diagnostics: a
     # read-only state directory must not cost the member a recall they already
     # paid for, and `emitted` has already been written above.

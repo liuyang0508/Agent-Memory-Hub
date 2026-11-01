@@ -174,3 +174,36 @@ def test_gzip_transport_decodes_complete_records_without_weakening_size_limit(li
     transport.opener = Bomb()
     with pytest.raises(ValueError, match="decoded response too large"):
         transport.search("anything")
+
+
+def test_worker_write_lock_does_not_discard_successful_remote_recall(live, tmp_path, monkeypatch):
+    import sqlite3
+    from agent_brain.native_sync import hooks
+
+    hub, url = live
+    who = hub.provision("Author", "a")
+    record = hub.put(who["token"], asset("busy", body="LOCKED_WRITER_CANARY"))
+    c = NativeClient.adopt(tmp_path / "reader", url, hub.provision("Reader", "r"), "r")
+    writer = sqlite3.connect(c.path)
+
+    def retrieve(*args, **kwargs):
+        writer.execute("BEGIN IMMEDIATE")
+        return [record]
+
+    monkeypatch.setattr("agent_brain.native_sync.query_worker.bounded_search", retrieve)
+    try:
+        result = hooks.run(
+            c.root,
+            "codex-cli",
+            {
+                "session_id": "locked-receipt",
+                "hook_event_name": "UserPromptSubmit",
+                "prompt": "LOCKED_WRITER_CANARY",
+            },
+        )
+        assert "LOCKED_WRITER_CANARY" in result["hookSpecificOutput"]["additionalContext"]
+        metric = json.loads((c.root / "hook-metrics.jsonl").read_text().splitlines()[-1])
+        assert metric["mode"] == "remote"
+    finally:
+        writer.rollback()
+        writer.close()
