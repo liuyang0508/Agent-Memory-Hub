@@ -932,9 +932,24 @@ class Hub:
             candidates = []
             for row in rows:
                 item = json.loads(row["payload"])
+                weight = kind_weight.get(item["kind"], 1.0)
+                # Codex stores supporting session summaries/raw extraction in
+                # its memory directory too. They remain searchable evidence,
+                # but must not receive the same curated-topic boost merely
+                # because their source root was registered as "memory".
+                if (
+                    item["kind"] == "memory"
+                    and item["product"]
+                    in ("codex-shared", "codex-cli", "codex-desktop", "chatgpt-desktop")
+                    and (
+                        item["path"].startswith("rollout_summaries/")
+                        or item["path"] == "raw_memories.md"
+                    )
+                ):
+                    weight = kind_weight["transcript"]
                 item["score"] = (
                     -row["score"]
-                    * kind_weight.get(item["kind"], 1.0)
+                    * weight
                     * (1.05 if project_hint and item["project"] == project_hint else 1)
                 )
                 candidates.append(item)

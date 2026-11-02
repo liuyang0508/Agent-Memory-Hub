@@ -45,6 +45,70 @@ def test_natural_question_promotes_curated_memory_above_verbose_transcripts(tmp_
     assert next(i for i, r in enumerate(hits, 1) if r["asset_id"] == "answer") <= 2
 
 
+@pytest.mark.parametrize("support_path", ["rollout_summaries/review-{i}.md", "raw_memories.md"])
+def test_codex_supporting_memory_does_not_crowd_out_topic_fact(tmp_path, support_path):
+    hub = Hub(tmp_path / "hub.sqlite")
+    who = hub.provision("Author", "device")
+    question = "青岚项目的审批要求是什么？请注明记忆来源；没有资料请说未找到，不要猜测。"
+    for i in range(5):
+        hub.put(
+            who["token"],
+            asset(
+                f"summary{i}",
+                product="codex-shared",
+                path=support_path.format(i=i),
+                kind="memory",
+                title="青岚项目审批要求检索记录",
+                body=(
+                    question
+                    + "\n这次未找到。资料来源不足，不能据此判断审批要求。"
+                    + "\n历史操作：查找资料、读取文件、说明来源、检查权限。" * 80
+                    + f"\n记录编号：{i}"
+                ),
+            ),
+        )
+    fact = hub.put(
+        who["token"],
+        asset(
+            "topic-fact",
+            product="claude-code",
+            path="project-qinglan.md",
+            title="青岚项目审批要求",
+            body="青岚项目的审批要求：提交前由两位负责人复核，附变更清单。" * 12,
+        ),
+    )
+    # Common citation/uncertainty wording also appears in unrelated memories;
+    # it must not become the identifying vocabulary of this one topic.
+    for i in range(20):
+        hub.put(
+            who["token"],
+            asset(
+                f"other{i}",
+                body="客户记录：资料来源于工单，检索时先核实文件；没有找到时说明未找到，不要猜测。",
+            ),
+        )
+    hits = hub.search(who["token"], question, limit=8)
+    assert next(i for i, r in enumerate(hits, 1) if r["asset_id"] == "topic-fact") <= 2
+    context, _ = pack(hits, covered=set(), max_bytes=4053, query=question)
+    assert fact["body"] in context
+
+
+def test_explicit_history_lookup_still_finds_codex_supporting_documents(tmp_path):
+    hub = Hub(tmp_path / "hub.sqlite")
+    who = hub.provision("Author", "device")
+    hub.put(
+        who["token"],
+        asset(
+            "history",
+            product="codex-shared",
+            path="rollout_summaries/trace.md",
+            body="TRACE_731 上次检索失败的过程：接口超时，等待连接恢复。",
+        ),
+    )
+    hub.put(who["token"], asset("topic", body="项目审批需两人复核。"))
+    assert hub.search(who["token"], "TRACE_731 上次检索失败的过程")[0]["asset_id"] == "history"
+
+
 def test_single_part_fast_path_keeps_integrity_without_whole_version_queries(tmp_path):
     hub = Hub(tmp_path / "hub.sqlite")
     who = hub.provision("Author", "device")
