@@ -44,6 +44,7 @@ jobs:
           # The organization-mode installer dispatches before any clone, so it
           # must ship as the same pinned asset.
           cp install-native.sh dist/install-native.sh
+          cp docs/native-memory/user-guide.zh.md dist/user-guide.zh.md
           # The installer must name the wheel it downloads, and pip rejects a
           # wheel filename without a version, so bake this tag in.
           python - <<'PY'
@@ -75,7 +76,7 @@ jobs:
               path.write_text(text, encoding="utf-8")
           PY
           chmod +x dist/install.sh dist/deploy.sh dist/install-native.sh
-          (cd dist && sha256sum install.sh install.ps1 deploy.sh install-native.sh *.whl > checksums.txt)
+          (cd dist && sha256sum install.sh install.ps1 deploy.sh install-native.sh user-guide.zh.md *.whl > checksums.txt)
 
       - name: Upload installers to GitHub Release
         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
@@ -86,4 +87,5 @@ jobs:
             dist/deploy.sh
             dist/install-native.sh
             dist/*.whl
+            dist/user-guide.zh.md
             dist/checksums.txt

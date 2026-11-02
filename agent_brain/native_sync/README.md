@@ -1,6 +1,6 @@
 # 组织记忆：存储与同步
 
-适用于 [AMH 1.3.2 发布版](https://github.com/liuyang0508/Agent-Memory-Hub/tree/v1.3.2)。源码分支或其他版本的表结构与行为可能不同。
+适用于 [AMH 1.3.3 发布版](https://github.com/liuyang0508/Agent-Memory-Hub/tree/v1.3.3)。源码分支或其他版本的表结构与行为可能不同。
 
 组织记忆分为三层：产品维护原生记忆，AMH 客户端记录同步状态，云端 Hub 保存共享内容。上传的是文件内容及来源信息，不是产品数据库或整个目录的镜像。
 
@@ -114,4 +114,4 @@
 - 默认不会用云端旧内容覆盖原生记忆。上传失败保留队列重试；两次扫描之间的每个中间修改版本不保证留存。
 - 默认按问题从云端召回，不自动把整批组织记忆写入各产品。`--projection` 可显式启用本地组织资源，但不会关闭 Hook 查询。
 
-安装步骤见[用户手册](https://github.com/liuyang0508/Agent-Memory-Hub/blob/v1.3.2/docs/native-memory/user-guide.zh.md)，技术边界见[架构说明](https://github.com/liuyang0508/Agent-Memory-Hub/blob/v1.3.2/docs/native-memory/architecture.zh.md)，故障处理见[运维说明](https://github.com/liuyang0508/Agent-Memory-Hub/blob/v1.3.2/docs/native-memory/operations.zh.md)。
+安装步骤见[用户手册](https://github.com/liuyang0508/Agent-Memory-Hub/blob/v1.3.3/docs/native-memory/user-guide.zh.md)，技术边界见[架构说明](https://github.com/liuyang0508/Agent-Memory-Hub/blob/v1.3.3/docs/native-memory/architecture.zh.md)，故障处理见[运维说明](https://github.com/liuyang0508/Agent-Memory-Hub/blob/v1.3.3/docs/native-memory/operations.zh.md)。

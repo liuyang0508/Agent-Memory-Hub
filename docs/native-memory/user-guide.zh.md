@@ -1,6 +1,6 @@
 # 组织第二大脑：安装与使用手册
 
-适用版本：AMH 1.3.2。面向 macOS 成员；试点组织 linkcrux，组织地址 `https://aihub0508.com`。核对日期：2026-11-02。
+适用版本：AMH 1.3.3。面向 macOS 成员；试点组织 linkcrux，组织地址 `https://aihub0508.com`。核对日期：2026-11-02。
 
 ## 一、你能用它做什么
 
@@ -34,7 +34,7 @@ curl -fsSL https://github.com/liuyang0508/agent-memory-hub/releases/latest/downl
 需要固定安装本手册版本时，用下面这条代替：
 
 ```bash
-curl -fsSL https://github.com/liuyang0508/agent-memory-hub/releases/download/v1.3.2/install.sh | sh -s -- --org-memory --hub https://aihub0508.com
+curl -fsSL https://github.com/liuyang0508/agent-memory-hub/releases/download/v1.3.3/install.sh | sh -s -- --org-memory --hub https://aihub0508.com
 ```
 
 其他组织把最后的地址替换为管理员提供的 HTTPS 地址，不要填邮箱、账号或 SSH 地址。
@@ -56,7 +56,8 @@ curl -fsSL https://github.com/liuyang0508/agent-memory-hub/releases/download/v1.
 
 - 首次体验推荐点击底部 **“不上传，跳过”**，先用一条虚构记忆跑通。
 - 需要导入时，按产品、类型、文件名或修改时间筛选，逐项勾选，再点 **“确认并继续”**。
-- 可选类型包括记忆、聊天、规则、技能和可迁移配置。含密钥的文件会被拦截；没有风险标记也仍需自行判断是否适合共享。
+- 可选类型包括记忆、聊天、规则、技能和可迁移配置。含密钥的文件不可选；带隐私标签的文件需要自行决定是否共享。“选中全部无标记”只选中当前列表中无标记的文件。
+- 确认后，终端显示本地全文检查进度；新发现的隐私、密钥或已变更文件会跳过。此阶段尚未上传。
 
 **选择上传后，本组织成员可以检索正文。** 无法证明原作者的历史标注为未知，不因你上传就认定你是生产者。
 
@@ -66,7 +67,9 @@ curl -fsSL https://github.com/liuyang0508/agent-memory-hub/releases/download/v1.
 
 回到终端，对检测到的产品逐项回答。`[Y/n]` 中回车表示同意，不接入则输入 `n` 后回车。
 
-最后出现 **“确认配置并启用？”** 时，核对后输入 `y` 并回车。这一步启用 Hook 和后台服务。检测到 Cowork 时会准备插件包，继续按下一节完成导入。
+最后出现 **“确认配置并启用？”** 时，核对后输入 `y` 并回车。这一步配置 Hook，并显示首次同步进度，随后启动后台服务。上传计数按云端已确认的内容条目推进，不等同于文件数量；一个较长文件可能拆为多项。
+
+首次同步完成会显示“待上传 0 项”；失败时保留待上传内容并提示重试，不会把配置完成当成上传完成。检测到 Cowork 时会准备插件包，继续按下一节完成导入。
 
 Claude Code、Codex CLI 和桌面本地 Codex 请**新建会话**。旧会话可能保留旧上下文。如产品要求 Hook 审核，核对 AMH 来源后使用产品正常的批准流程。
 
@@ -77,7 +80,7 @@ CLI 和桌面共用的文件可能标为 `codex-shared`：这表示无法从同�
 1. 安装器会在 Finder 定位 `cowork-plugin.zip`，默认位于 `~/.amh-native-sync/cowork-plugin.zip`。
 2. 打开 Claude 桌面应用，进入 **Customize → Plugins → Add plugin → Upload**。
 3. 选择刚生成的 ZIP，完成导入；已有同名插件时，核对后选择替换。
-4. 确认 **Amh native org** 已启用，版本为 1.3.2。
+4. 确认 **Amh native org** 已启用，版本为 1.3.3。
 5. 在 Cowork 新建任务，触发首次配对。
 
 安装器把连接文件单独保存在本机私有目录，不需要贴给模型或放进插件 ZIP。首次票据 **7 天内单次有效**，配对成功后不需要每 7 天重新登录。每台机器各自生成插件，不把绑定本机路径的包直接给同事使用。
@@ -108,7 +111,7 @@ Cowork 执行过首次任务后，再检查其独立运行时：
 
 应与主客户端是同一成员、不同设备。未登记时，先核对插件启用状态与首次任务。
 
-检查版本，本文版本应输出 `1.3.2`：
+检查版本，本文版本应输出 `1.3.3`：
 
 ```bash
 "$HOME/.amh-native/venv/bin/python" -c 'from importlib.metadata import version; print(version("agent-memory-hub"))'
@@ -194,7 +197,7 @@ Cowork 执行过首次任务后，再检查其独立运行时：
 
 该命令恢复未被后续修改的配置并停用主客户端 LaunchAgent，**保留数据和软件**。出现 `conflicts` 时先核对后续编辑，不强行覆盖。完整重置登录、运行环境及残留 worker 是额外操作，需备份并核对范围；不要删除 `~/.codex`、`~/.claude` 或旧 AMH 记忆库。
 
-升级须先停用旧 worker，再更新客户端和 Cowork 插件，不能仅覆盖磁盘软件。现有数据和身份保留；管理员按 [升级说明](upgrade-1.3.2.zh.md) 操作。首次安装者不需要执行升级流程。
+升级须先停用旧 worker，再更新客户端和 Cowork 插件，不能仅覆盖磁盘软件。现有数据和身份保留；管理员按 [升级说明](upgrade-1.3.3.zh.md) 操作。首次安装者不需要执行升级流程。
 
 ## 十二、常见问题
 
