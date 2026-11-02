@@ -361,6 +361,7 @@ def export_cowork_plugin(
         "transport.py",
         "projection.py",
         "source.py",
+        "source_policy.py",
         "materialize.py",
         "worker.py",
         "lineage.py",

@@ -12,6 +12,11 @@ from .common import atomic_json, digest, tokens
 from .storage import database, CLIENT_SCHEMA
 from .transport import Transport, validate_url
 from .contracts import SyncTransport
+from .source_policy import (
+    describe as describe_scope,
+    enabled as enabled_kinds,
+    policy as scope_policy,
+)
 
 from .source import source_text, read_document, files, enqueue_document, queue_delete
 
@@ -156,6 +161,7 @@ class NativeClient:
                 "identity": identity,
                 "targets": [],
                 "device_name": device_name,
+                "source_policy": scope_policy(),
             },
         )
         return cls(root)
@@ -164,6 +170,36 @@ class NativeClient:
         """Return registered source metadata without reading or uploading source bodies."""
         with database(self.path) as db:
             return [dict(r) for r in db.execute("SELECT * FROM sources")]
+
+    def source_scope(self) -> dict[str, Any]:
+        """Read-only review; old profiles retain their original behavior."""
+        result = describe_scope(self.config, self.sources())
+        with database(self.path) as db:
+            result["paused_pending"] = sum(
+                json.loads(row["payload"])["kind"] not in result["enabled_kinds"]
+                for row in db.execute("SELECT payload FROM outbox")
+            )
+        return result
+
+    def set_source_scope(self, kinds: list[str]) -> dict[str, Any]:
+        """Persist an already confirmed scope, serialized with any active upload.
+
+        No outbox rows, selection bits, source bindings or remote assets are removed.
+        A busy worker must finish before this operation returns successfully.
+        """
+        import fcntl
+
+        chosen = scope_policy(kinds)
+        with (self.root / "worker.lock").open("a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            self._refresh_profile()
+            self.config["source_policy"] = chosen
+            self.config.setdefault("identity", self.identity)
+            atomic_json(self.root / "config.json", self.config)
+        return self.source_scope()
+
+    def source_enabled(self, kind: str) -> bool:
+        return kind in enabled_kinds(self.config)
 
     def projection_enabled(self) -> bool:
         """Whether organization memory may be copied into this machine's product stores.
@@ -368,6 +404,8 @@ class NativeClient:
         """
         quarantined = self.quarantined_sources()
         for source in self.sources():
+            if not self.source_enabled(source["kind"]):
+                continue
             if source["id"] in quarantined:
                 continue
             root = Path(source["root"])
@@ -419,6 +457,8 @@ class NativeClient:
         self.refresh_excluded_history()
         quarantined = self.quarantined_sources()
         for source in self.sources():
+            if not self.source_enabled(source["kind"]):
+                continue
             if source["id"] in quarantined:
                 errors.append("source identity changed: " + source["id"])
                 continue
@@ -672,13 +712,17 @@ class NativeClient:
             errors.extend(quarantine_changed_roots(self))
             pushed = 0
             with database(self.path) as db:
-                pending = db.execute("SELECT * FROM outbox").fetchall()
+                pending = [
+                    row
+                    for row in db.execute("SELECT * FROM outbox")
+                    if self.source_enabled(json.loads(row["payload"])["kind"])
+                ]
             quarantined = self.quarantined_sources()
             if progress:
                 progress("upload", 0, len(pending))
             for row in pending:
                 item = json.loads(row["payload"])
-                if item["source_store"] in quarantined:
+                if not self.source_enabled(item["kind"]) or item["source_store"] in quarantined:
                     continue
                 try:
                     saved = self.transport.put(item)
@@ -810,6 +854,7 @@ class NativeClient:
                     "last_sync": time.time(),
                     "pushed": pushed,
                     "pending": self.pending_count(),
+                    "paused_pending": self.source_scope()["paused_pending"],
                     "origin_review_count": len(self.origin_reviews()),
                     "errors": errors,
                 },

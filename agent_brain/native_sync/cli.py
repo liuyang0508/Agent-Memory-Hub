@@ -20,6 +20,7 @@ from rich.table import Table
 from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 
 from .client import NativeClient
+from . import source_policy
 from .common import PRODUCTS, PAIRING_MAX_TTL, atomic_json, display_name
 from .storage import database
 from .install import (
@@ -102,7 +103,13 @@ def initial_sync(client: NativeClient) -> bool:
     if result.get("busy"):
         console.print("后台正在同步，未启动第二次上传；用 amh-native status 查看结果。")
         return False
-    pending = client.pending_count()
+    total_pending = client.pending_count()
+    paused = client.source_scope()["paused_pending"]
+    pending = total_pending - paused
+    if paused:
+        console.print(
+            f"另有 {paused} 项因同步范围暂停，队列已保留；用 amh-native scope 查看或恢复。"
+        )
     if pending or result.get("errors"):
         console.print(
             f"本轮仍有 {pending} 项待上传，{len(result.get('errors', []))} 项需检查；"
@@ -110,7 +117,7 @@ def initial_sync(client: NativeClient) -> bool:
             markup=False,
         )
         return False
-    console.print("首次同步完成：待上传 0 项。")
+    console.print("首次同步完成：当前启用范围待上传 0 项。")
     return True
 
 
@@ -258,6 +265,58 @@ def login(
     emit({k: v for k, v in identity.items() if k != "token"})
 
 
+def show_source_scope(c: NativeClient) -> None:
+    scope = c.source_scope()
+    console.print(
+        "当前自动同步类型："
+        + ("、".join(display_name(k) for k in scope["enabled_kinds"]) or "全部暂停"),
+        markup=False,
+    )
+    console.print(scope["note"], markup=False)
+    console.print(scope["preservation"], markup=False)
+
+
+def confirm_history_scope(c: NativeClient, picked: list[dict[str, Any]]) -> bool:
+    current = source_policy.enabled(c.config)
+    added = source_policy.normalize({r["kind"] for r in picked} - set(current))
+    if added:
+        console.print(
+            "所选文件还需启用以下类型的后续自动同步：" + "、".join(display_name(k) for k in added),
+            markup=False,
+        )
+        if not typer.confirm("确认启用这些类型并导入所选历史？", default=False):
+            return False
+        c.set_source_scope(current + added)
+    return True
+
+
+@app.command("scope")
+def configure_scope(
+    state: Path = DEFAULT_STATE,
+    kind: list[str] = typer.Option(None, help="新的完整同步范围，可重复；省略则只预览"),
+    none: bool = typer.Option(False, help="暂停全部类型；保留所有选择和队列"),
+) -> None:
+    """查看或确认调整未来同步范围，不删除本地或云端内容。"""
+    c = load(state)
+    if kind is None and not none:
+        emit(c.source_scope())
+        return
+    if kind and none:
+        raise typer.BadParameter("--kind 和 --none 不能同时使用")
+    try:
+        desired = source_policy.normalize(kind or [])
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from None
+    show_source_scope(c)
+    console.print(
+        "调整后：" + ("、".join(display_name(k) for k in desired) or "全部暂停"), markup=False
+    )
+    if not typer.confirm("确认调整未来同步范围？", default=False):
+        emit({"changed": False, "scope": c.source_scope()})
+        return
+    emit({"changed": True, "scope": c.set_source_scope(desired)})
+
+
 @app.command()
 def bind(
     root: Path = typer.Option(...),
@@ -270,6 +329,13 @@ def bind(
     """绑定真实源目录。已有内容默认不上传，请 preview/select。"""
     c = load(state)
     sid = c.register(root, product, project, kind)
+    if not c.source_enabled(kind):
+        if not typer.confirm(
+            "确认启用" + display_name(kind) + "类型的后续自动同步？", default=False
+        ):
+            emit({"source_id": sid, "enabled": False, "history": "excluded until selected"})
+            return
+        c.set_source_scope(source_policy.enabled(c.config) + [kind])
     if kind == "memory" and native_target:
         add_target(c, root, product)
     emit({"source_id": sid, "history": "excluded until selected"})
@@ -291,6 +357,9 @@ def import_history(
     """导入安装前的历史记忆：浏览器里勾选（--no-web 回终端），此后新增自动同步。"""
     from . import history
 
+    current = load(state) if (state / "config.json").exists() else None
+    if current:
+        show_source_scope(current)
     # Listing is purely local; requiring an enrolled profile would block the
     # review a member wants before deciding whether to join at all.
     chosen_products = product or list(PRODUCTS)
@@ -303,6 +372,8 @@ def import_history(
     if kind:
         wanted = set(kind)
         rows = [row for row in rows if row["kind"] in wanted]
+    if current:
+        rows = history.annotate_selection(current, rows)
     if not rows:
         emit({"imported": 0, "note": "未发现可导入的本地历史"})
         return
@@ -313,11 +384,15 @@ def import_history(
         from . import picker
 
         try:
-            picked = picker.serve(rows, empty_products=_empty_products(home, rows))
+            picked = picker.serve(
+                rows,
+                empty_products=_empty_products(home, rows),
+                scope=current.source_scope() if current else None,
+            )
         except (TimeoutError, OSError) as exc:
             raise typer.BadParameter(f"勾选页面未能完成（{exc}）；可加 --no-web 改用终端") from None
         if not picked:
-            emit({"imported": 0, "note": "未选择任何文件"})
+            emit({"imported": 0, "note": "未新增选择；已有选择和同步范围保持不变"})
             return
         risky = sum(1 for row in picked if row["risk"] == "sensitive")
         console.print(
@@ -329,6 +404,9 @@ def import_history(
             emit({"imported": 0, "note": "已取消"})
             return
         current = load(state)
+        if not confirm_history_scope(current, picked):
+            emit({"imported": 0, "note": "未确认新类型，未新增选择"})
+            return
         with operation_progress() as report:
             result = history.import_paths(current, home, picked, progress=report)
         emit({"import": result, "sync": sync_with_progress(current)})
@@ -361,12 +439,26 @@ def import_history(
     answer = "clean" if yes else typer.prompt("要同步哪些？", default="")
     answer = answer.strip().lower()
     if answer in ("", "none"):
-        emit({"imported": 0, "note": "未选择任何文件"})
+        emit({"imported": 0, "note": "未新增选择；已有选择和同步范围保持不变"})
         return
     if answer == "all":
         picked = all_selectable(rows)
     elif answer == "clean":
-        picked = [row for row in rows if row["risk"] == "clean"]
+        picked = [
+            row
+            for row in rows
+            if row["risk"] == "clean"
+            and (
+                not yes
+                or kind
+                or row["kind"]
+                in (
+                    source_policy.enabled(current.config)
+                    if current
+                    else source_policy.DEFAULT_KINDS
+                )
+            )
+        ]
     else:
         picked_indices: set[int] = set()
         try:
@@ -396,6 +488,9 @@ def import_history(
     current = None if dry_run and not (state / "config.json").exists() else load(state)
     if current is None:
         raise typer.BadParameter("请先完成登录或加入组织，再执行导入")
+    if not confirm_history_scope(current, picked):
+        emit({"imported": 0, "note": "未确认新类型，未新增选择"})
+        return
     with operation_progress() as report:
         result = history.import_paths(current, home, picked, progress=report)
     pushed = sync_with_progress(current)
@@ -473,6 +568,7 @@ def status(state: Path = DEFAULT_STATE) -> None:
         "sources": c.sources(),
         "targets": c.targets(),
         "pending": c.pending_count(),
+        "scope": c.source_scope(),
         "origin_reviews": c.origin_reviews(),
     }
     if (state / "status.json").exists():
@@ -612,9 +708,11 @@ def setup(
         f"成员：{c.identity['member_name']} ({c.identity['member_id']})；组织：{c.identity['tenant_id']}"
     )
 
-    console.print("\n第 2 步：挑选要共享的历史记忆（默认不上传任何已有内容）")
+    show_source_scope(c)
+    console.print("范围可用 amh-native scope 预览；加 --kind memory 等完整类型列表可确认调整。")
+    console.print("\n第 2 步：新增历史选择（跳过不撤销已有选择；默认不新增上传任何历史）")
     with Console(stderr=True).status("正在查找历史文件并检查标记（本地）…"):
-        rows = history.items(home, list(PRODUCTS))
+        rows = history.annotate_selection(c, history.items(home, list(PRODUCTS)))
     picked: list[dict[str, Any]] = []
     if rows:
         # A real machine lists a thousand-odd files; ticking them by number in a
@@ -640,10 +738,13 @@ def setup(
                         __import__("os").environ.get("DISPLAY") or _sys.platform == "darwin"
                     ),
                     empty_products=_empty_products(home, rows),
+                    scope=c.source_scope(),
                 )
             except (TimeoutError, OSError) as exc:
                 console.print(f"勾选页面未能完成（{exc}）；本次跳过历史导入。", markup=False)
                 picked = []
+        if picked and not confirm_history_scope(c, picked):
+            picked = []
         if picked:
             with operation_progress() as report:
                 imported = history.import_paths(c, home, picked, progress=report)
@@ -661,7 +762,7 @@ def setup(
                     f"{len(imported['rejected'])} 个文件含密钥或已变更，已跳过。", markup=False
                 )
         else:
-            console.print("未选择任何文件，跳过历史导入。", markup=False)
+            console.print("未新增选择；已有选择和同步范围保持不变。", markup=False)
     else:
         console.print("没有发现本机历史记忆，跳过。")
 
@@ -700,7 +801,8 @@ def setup(
             if sid in processed_sources:
                 continue
             processed_sources.add(sid)
-            console.print(f"新内容同步来源：{kind} · {root}", markup=False)
+            label = "新内容同步来源" if c.source_enabled(kind) else "未启用的来源（保留历史基线）"
+            console.print(f"{label}：{kind} · {root}", markup=False)
     console.print("接入产品：" + "、".join(PRODUCTS[p] for p in chosen))
     console.print(
         "将启用：产品原生记忆、后台上传、Hook 组织召回、本地原生组织资源。原生生成由产品执行，可能使用产品额度；已有 AMH 托管自动链路将隔离。"

@@ -181,6 +181,31 @@ def items(
     return rows
 
 
+def annotate_selection(client: NativeClient, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Attach prior decisions without re-reading bodies or treating checkboxes as revocation."""
+    from .storage import database
+
+    with database(client.path) as db:
+        existing = {
+            (
+                str(Path(row["root"]) if row["file_source"] else Path(row["root"]) / row["path"]),
+                row["kind"],
+            )
+            for row in db.execute(
+                "SELECT s.root,s.file_source,s.kind,p.path FROM snapshots p "
+                "JOIN sources s ON s.id=p.source WHERE p.selected=1"
+            )
+        }
+    return [
+        dict(
+            row,
+            previously_selected=(row["path"], row["kind"]) in existing,
+            scope_enabled=client.source_enabled(row["kind"]),
+        )
+        for row in rows
+    ]
+
+
 def import_paths(
     client: NativeClient,
     home: Path,
@@ -194,6 +219,9 @@ def import_paths(
     then only the chosen paths are marked selected. That keeps the history
     decision a one-time pre-install step rather than an ongoing question.
     """
+    disabled = sorted({row["kind"] for row in selected if not client.source_enabled(row["kind"])})
+    if disabled:
+        raise ValueError("confirm upload scope before importing: " + ", ".join(disabled))
     by_root: dict[tuple[str, str, str], list[dict[str, Any]]] = {}
     for row in selected:
         by_root.setdefault((row["root"], row["product"], row["kind"]), []).append(row)
