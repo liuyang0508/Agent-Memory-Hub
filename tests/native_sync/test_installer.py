@@ -37,3 +37,37 @@ def test_native_installer_requires_explicit_hub(tmp_path):
     )
     assert r.returncode != 0
     assert "--hub" in r.stderr
+
+
+def test_published_installer_keeps_native_stage_and_wheel_on_same_release(tmp_path):
+    # Exercise the remote dispatch without a checkout or network. The fake
+    # second stage reports the download base inherited by its wheel fetch.
+    script = tmp_path / "install.sh"
+    script.write_text(
+        (ROOT / "install.sh").read_text()
+        .replace('RELEASE_REPO="__AMH_GITHUB_REPOSITORY__"', 'RELEASE_REPO="liuyang0508/agent-memory-hub"')
+        .replace('RELEASE_REF="__AMH_GITHUB_REF_NAME__"', 'RELEASE_REF="v1.3.2"')
+    )
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    curl = bin_dir / "curl"
+    curl.write_text(
+        '#!/bin/sh\n'
+        'printf "%s\\n" "$2" > "$DOWNLOAD_LOG"\n'
+        'printf \'#!/bin/sh\\nprintf "base=%%s\\\\n" "$AMH_RELEASE_BASE"\\n\' > "$4"\n'
+    )
+    curl.chmod(0o755)
+    env = {k: v for k, v in os.environ.items() if not k.startswith("AMH_")}
+    env.update(
+        PATH=str(bin_dir) + os.pathsep + os.environ["PATH"],
+        DOWNLOAD_LOG=str(tmp_path / "download.log"),
+        AMH_RELEASE_REF="v1.3.2",
+    )
+    r = subprocess.run(
+        ["sh", str(script), "--org-memory", "--hub", "https://team.example.com"],
+        cwd=tmp_path, env=env, text=True, capture_output=True,
+    )
+    assert r.returncode == 0, r.stderr
+    base = "https://github.com/liuyang0508/agent-memory-hub/releases/download/v1.3.2"
+    assert (tmp_path / "download.log").read_text().strip() == base + "/install-native.sh"
+    assert r.stdout.strip() == "base=" + base

@@ -65,7 +65,15 @@ for arg in "$@"; do
       # Running from an unpacked release asset: fetch just the installer, not a checkout.
       tmp=$(mktemp -d /tmp/amh-org-memory.XXXXXXXX)
       trap 'rm -rf -- "$tmp"' EXIT INT TERM
-      curl -fsSL "https://github.com/liuyang0508/agent-memory-hub/releases/latest/download/install-native.sh" -o "$tmp/install-native.sh" || {
+      # Keep both installer stages and the wheel on the selected release. A
+      # saved versioned installer must not silently pick up a newer latest.
+      case "$RELEASE_REF" in
+        v*) native_base="https://github.com/$RELEASE_REPO/releases/download/$RELEASE_REF" ;;
+        *) native_base="https://github.com/$RELEASE_REPO/releases/latest/download" ;;
+      esac
+      AMH_RELEASE_BASE="${AMH_RELEASE_BASE:-$native_base}"
+      export AMH_RELEASE_BASE
+      curl -fsSL "$AMH_RELEASE_BASE/install-native.sh" -o "$tmp/install-native.sh" || {
         echo 'could not fetch install-native.sh' >&2; exit 1; }
       exec sh "$tmp/install-native.sh" "$@"
       ;;
