@@ -6,7 +6,7 @@ on:
       deploy_native:
         description: '同时升级原生 Hub 服务'
         type: boolean
-        default: true
+        default: false
   push:
     branches:
       - main
@@ -16,8 +16,6 @@ on:
       - deploy/telemetry_server.py
       - deploy/nginx-telemetry-location.conf
       - docs/product-telemetry.zh.md
-      - deploy/native-memory/**
-      - agent_brain/native_sync/**
       - .github/workflows/deploy-official-site.yml
 
 permissions:
@@ -78,8 +76,9 @@ jobs:
   native:
     name: Upgrade native Hub service
     needs: site
-    # A manual dispatch may opt out; a plain push always ships both.
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.deploy_native }}
+    # Website/docs pushes must never replace an independently released Hub.
+    # Select the reviewed release tag when explicitly dispatching a Hub upgrade.
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.deploy_native }}
     runs-on: ubuntu-latest
     env:
       NATIVE_ENABLED: ${{ secrets.AIHUB_SSH_HOST != '' && secrets.AIHUB_SSH_USER != '' && secrets.AIHUB_SSH_KEY != '' }}

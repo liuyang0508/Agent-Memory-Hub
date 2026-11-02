@@ -246,6 +246,18 @@ def test_distribution_workflows_explain_missing_secrets_without_becoming_core_ga
         assert distribution_job not in governance
 
 
+def test_website_push_cannot_replace_an_independently_released_native_hub() -> None:
+    workflow = yaml.safe_load(Path(".github/workflows/deploy-official-site.yml").read_text())
+    # PyYAML's YAML 1.1 loader treats the GitHub Actions key "on" as True.
+    triggers = workflow.get("on", workflow.get(True))
+    assert triggers["workflow_dispatch"]["inputs"]["deploy_native"]["default"] is False
+    assert workflow["jobs"]["native"]["if"] == (
+        "${{ github.event_name == 'workflow_dispatch' && inputs.deploy_native }}"
+    )
+    assert "agent_brain/native_sync/**" not in triggers["push"]["paths"]
+    assert "deploy/native-memory/**" not in triggers["push"]["paths"]
+
+
 def test_mypy_baseline_is_checked_in_and_never_rewritten_by_ci() -> None:
     checker = Path("scripts/check_mypy_baseline.py").read_text(encoding="utf-8")
     baseline = Path(".github/mypy-baseline.txt")
