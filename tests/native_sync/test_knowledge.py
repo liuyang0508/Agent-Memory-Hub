@@ -244,6 +244,10 @@ def test_upstream_cross_source_and_versions_are_metadata_only(env):
     )
     graph = service.related(a["token"], "a", 2)
     assert {edge["type"] for edge in graph["edges"]} == {"derived_from", "previous_version"}
+    for edge in graph["edges"]:
+        assert {key: edge["evidence"][key] for key in ("asset_id", "revision")} == edge["from"]
+        if edge["type"] == "previous_version":
+            assert edge["evidence"]["previous_revision"] == edge["to"]["revision"]
     old = next(item for item in graph["items"] if item["asset_id"] == "a")
     assert not old["current"] and not old["readable"]
     assert old["source"]["path"] == "a.md"

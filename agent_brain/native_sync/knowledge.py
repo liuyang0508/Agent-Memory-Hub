@@ -380,7 +380,7 @@ class NativeKnowledge:
                         (
                             old,
                             "previous_version",
-                            {"field": "changes", "revision": old["revision"]},
+                            {"field": "changes", "previous_revision": old["revision"]},
                             False,
                         )
                     )
