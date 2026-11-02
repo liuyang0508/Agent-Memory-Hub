@@ -13,7 +13,7 @@ import posixpath
 import re
 import sqlite3
 from collections import deque
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Iterator
 from urllib.parse import unquote, urlsplit
 
 from .asset_roles import asset_role
@@ -42,6 +42,22 @@ class KnowledgeConflict(ValueError):
     def __init__(self, code: str) -> None:
         self.code = code
         super().__init__(code.replace("_", " "))
+
+
+class _GraphLimit(Exception):
+    pass
+
+
+class _GraphBudget:
+    """Count projected JSON bytes before loading them, not after parsing bodies."""
+
+    def __init__(self) -> None:
+        self.remaining = MAX_GRAPH_BYTES
+
+    def take(self, size: int) -> None:
+        if size > self.remaining:
+            raise _GraphLimit
+        self.remaining -= size
 
 
 def _source(item: dict[str, Any]) -> dict[str, Any]:
@@ -142,13 +158,29 @@ class NativeKnowledge:
         self.hub = hub
 
     def _current(
-        self, db: sqlite3.Connection, token: str, asset_id: str, revision: int | None = None
+        self,
+        db: sqlite3.Connection,
+        token: str,
+        asset_id: str,
+        revision: int | None = None,
+        *,
+        budget: _GraphBudget | None = None,
     ) -> dict[str, Any]:
         # Authorization is repeated for each graph hop. Organization membership
         # is the Hub's sharing policy; caller-supplied identity is never accepted.
         who = self.hub._identity(db, token)
+        projection = "json_remove(payload,'$.body','$.index_text')" if budget else "payload"
+        if budget:
+            size = db.execute(
+                f"SELECT length(CAST({projection} AS BLOB)) FROM assets WHERE tenant=? AND id=?",
+                (who["tenant"], asset_id),
+            ).fetchone()
+            if size is None:
+                raise KnowledgeConflict("asset_unavailable")
+            budget.take(size[0])
         row = db.execute(
-            "SELECT * FROM assets WHERE tenant=? AND id=?", (who["tenant"], asset_id)
+            f"SELECT tenant,id,revision,owner_device,{projection} payload FROM assets WHERE tenant=? AND id=?",
+            (who["tenant"], asset_id),
         ).fetchone()
         if row is None:
             raise KnowledgeConflict("asset_unavailable")
@@ -169,7 +201,12 @@ class NativeKnowledge:
         return item
 
     def _document(
-        self, db: sqlite3.Connection, token: str, item: dict[str, Any]
+        self,
+        db: sqlite3.Connection,
+        token: str,
+        item: dict[str, Any],
+        *,
+        budget: _GraphBudget | None = None,
     ) -> tuple[bytes, list[tuple[str, int]]]:
         """Assemble one bounded, contiguous, hash-verified current version."""
         who = self.hub._identity(db, token)
@@ -180,9 +217,17 @@ class NativeKnowledge:
         count = item.get("part_count", 1)
         if count > MAX_PARTS:
             raise KnowledgeConflict("document_too_large")
+        # The graph never needs derived index_text. Fetch sizes first and only
+        # decode a selected part after its projected payload fits the budget.
+        projection = "json_remove(payload,'$.index_text')" if budget else "payload"
+        selected = (
+            f"id,revision,owner_device,length(CAST({projection} AS BLOB)) payload_bytes"
+            if budget
+            else "id,revision,owner_device,payload"
+        )
         if item.get("document_id"):
             rows = db.execute(
-                "SELECT id,revision,owner_device,payload FROM assets WHERE tenant=? AND owner_device=? "
+                f"SELECT {selected} FROM assets WHERE tenant=? AND owner_device=? "
                 "AND json_extract(payload,'$.source_store')=? "
                 "AND json_extract(payload,'$.document_id')=? "
                 "AND json_extract(payload,'$.document_hash')=? "
@@ -198,13 +243,21 @@ class NativeKnowledge:
             )
         else:
             rows = db.execute(
-                "SELECT id,revision,owner_device,payload FROM assets WHERE tenant=? AND id=?",
+                f"SELECT {selected} FROM assets WHERE tenant=? AND id=?",
                 (who["tenant"], item["asset_id"]),
             )
         result = bytearray()
         parts: list[tuple[str, int]] = []
         for index, row in enumerate(rows):
-            part = json.loads(row["payload"])
+            if budget:
+                budget.take(row["payload_bytes"])
+                payload = db.execute(
+                    f"SELECT {projection} FROM assets WHERE tenant=? AND id=?",
+                    (who["tenant"], row["id"]),
+                ).fetchone()[0]
+            else:
+                payload = row["payload"]
+            part = json.loads(payload)
             if (
                 index >= count
                 or part.get("part_index", 0) != index
@@ -262,7 +315,13 @@ class NativeKnowledge:
             }
 
     def _resolve(
-        self, db: sqlite3.Connection, token: str, item: dict[str, Any], href: str
+        self,
+        db: sqlite3.Connection,
+        token: str,
+        item: dict[str, Any],
+        href: str,
+        *,
+        budget: _GraphBudget,
     ) -> dict[str, Any] | None:
         who = self.hub._identity(db, token)
         if href.startswith("asset:"):
@@ -285,156 +344,169 @@ class NativeKnowledge:
                 return None
             key = rows[0]["id"]
         try:
-            return self._current(db, token, key)
+            return self._current(db, token, key, budget=budget)
         except KnowledgeConflict:
             return None
 
     def _history(
-        self, db: sqlite3.Connection, token: str, item: dict[str, Any]
-    ) -> tuple[list[dict[str, Any]], bool]:
+        self, db: sqlite3.Connection, token: str, item: dict[str, Any], *, budget: _GraphBudget
+    ) -> tuple[Iterator[dict[str, Any]], bool]:
         who = self.hub._identity(db, token)
         rows = db.execute(
-            "SELECT payload FROM changes WHERE tenant=? AND json_extract(payload,'$.asset_id')=? "
+            "SELECT seq,length(CAST(json_remove(payload,'$.body','$.index_text') AS BLOB)) payload_bytes "
+            "FROM changes WHERE tenant=? AND json_extract(payload,'$.asset_id')=? "
             "AND json_extract(payload,'$.revision')<? "
             "ORDER BY json_extract(payload,'$.revision') DESC LIMIT ?",
             (who["tenant"], item["asset_id"], item["revision"], MAX_HISTORY + 1),
         ).fetchall()
-        result = []
-        for row in rows[:MAX_HISTORY]:
-            old = json.loads(row["payload"])
-            if (
-                old.get("deleted")
-                or old["tenant_id"] != who["tenant"]
-                or old["source_device_id"] != item["source_device_id"]
-                or old["source_store"] != item["source_store"]
-                or old.get("document_id") != item.get("document_id")
-            ):
-                continue
-            result.append(old)
-        return result, len(rows) > MAX_HISTORY
+
+        def entries() -> Iterator[dict[str, Any]]:
+            for row in rows[:MAX_HISTORY]:
+                current = self.hub._identity(db, token)
+                if current["tenant"] != who["tenant"]:
+                    raise PermissionError("organization changed during graph traversal")
+                budget.take(row["payload_bytes"])
+                old = json.loads(
+                    db.execute(
+                        "SELECT json_remove(payload,'$.body','$.index_text') FROM changes WHERE tenant=? AND seq=?",
+                        (who["tenant"], row["seq"]),
+                    ).fetchone()[0]
+                )
+                if (
+                    old.get("deleted")
+                    or old["tenant_id"] != who["tenant"]
+                    or old["source_device_id"] != item["source_device_id"]
+                    or old["source_store"] != item["source_store"]
+                    or old.get("document_id") != item.get("document_id")
+                ):
+                    continue
+                yield old
+
+        return entries(), len(rows) > MAX_HISTORY
 
     def related(
         self, token: str, asset_id: str, revision: int, *, depth: int = 1, limit: int = 10
     ) -> dict[str, Any]:
         data = RelatedInput(asset_id=asset_id, revision=revision, depth=depth, limit=limit)
+        response: dict[str, Any] = {
+            "root": {"asset_id": asset_id, "revision": revision, "metadata_available": False},
+            "items": [],
+            "edges": [],
+            "depth": data.depth,
+            "limit": data.limit,
+            "truncated": False,
+            "relation_policy": "explicit_only",
+        }
+        budget = _GraphBudget()
         with database(self.hub.path, create=False) as db:
             db.execute("BEGIN")
-            root = self._current(db, token, data.asset_id, data.revision)
-            queue = deque([(root, 0)])
-            seen = {(root["asset_id"], root["revision"])}
-            items: list[dict[str, Any]] = []
-            edges: list[dict[str, Any]] = []
-            edge_keys: set[tuple[Any, ...]] = set()
-            truncated = False
-            consumed = 0
-            while queue:
-                item, level = queue.popleft()
-                # Every node/hop is authorized and validated as a complete version.
-                item = self._current(db, token, item["asset_id"], item["revision"])
-                try:
-                    raw, _ = self._document(db, token, item)
-                except KnowledgeConflict:
-                    if level == 0:
-                        raise
-                    continue
-                consumed += len(raw)
-                if consumed > MAX_GRAPH_BYTES:
-                    truncated = True
-                    break
-                links, clipped = (
-                    _links(raw.decode("utf8"))
-                    if item["path"].lower().endswith((".md", ".markdown"))
-                    else ([], False)
-                )
-                truncated |= clipped
-                candidates: list[tuple[dict[str, Any], str, dict[str, Any], bool]] = []
-                for href, line in links:
-                    target = self._resolve(db, token, item, href)
-                    if target:
-                        candidates.append(
-                            (target, "explicit_reference", {"href": href, "line": line}, True)
-                        )
-                for index, key in enumerate(item.get("upstream", [])[:100]):
+            try:
+                root = self._current(db, token, data.asset_id, data.revision, budget=budget)
+                response["root"] = _node(root)
+                queue = deque([(root, 0)])
+                seen = {(root["asset_id"], root["revision"])}
+                edge_keys: set[tuple[Any, ...]] = set()
+                while queue:
+                    item, level = queue.popleft()
+                    # Nodes were loaded in this same snapshot; body verification
+                    # reauthenticates each hop, without rereading full candidates.
                     try:
-                        target = self._current(db, token, key)
+                        raw, _ = self._document(db, token, item, budget=budget)
                     except KnowledgeConflict:
+                        if level == 0:
+                            raise
                         continue
-                    candidates.append(
-                        (
-                            target,
-                            "derived_from",
-                            {
-                                "field": "upstream",
-                                "index": index,
-                                "relation_scope": "asset",
-                                "target_revision_binding": "current_lookup",
-                                "original_target_revision": None,
-                            },
-                            True,
-                        )
+                    links, clipped = (
+                        _links(raw.decode("utf8"))
+                        if item["path"].lower().endswith((".md", ".markdown"))
+                        else ([], False)
                     )
-                history, clipped = self._history(db, token, item)
-                truncated |= clipped
-                for old in history:
-                    candidates.append(
-                        (
-                            old,
-                            "previous_version",
-                            {"field": "changes", "previous_revision": old["revision"]},
-                            False,
-                        )
-                    )
-                for target, relation, evidence, current in candidates:
-                    key = (target["asset_id"], target["revision"])
-                    if key == (item["asset_id"], item["revision"]):
-                        continue
-                    edge_key = (item["asset_id"], item["revision"], *key, relation)
-                    if edge_key in edge_keys:
-                        continue
-                    if len(edges) >= data.limit:
-                        truncated = True
-                        break
-                    if current:
-                        try:
-                            target = self._current(db, token, *key)
-                            target_raw, _ = self._document(db, token, target)
-                        except KnowledgeConflict:
+                    response["truncated"] |= clipped
+
+                    def candidates() -> Iterator[tuple[dict[str, Any], str, dict[str, Any], bool]]:
+                        # A generator is essential: the edge cap must stop BEFORE
+                        # loading any subsequent target or historical payload.
+                        for href, line in links:
+                            target = self._resolve(db, token, item, href, budget=budget)
+                            if target:
+                                yield (
+                                    target,
+                                    "explicit_reference",
+                                    {"href": href, "line": line},
+                                    True,
+                                )
+                        for index, key in enumerate(item.get("upstream", [])[:100]):
+                            try:
+                                target = self._current(db, token, key, budget=budget)
+                            except KnowledgeConflict:
+                                continue
+                            yield (
+                                target,
+                                "derived_from",
+                                {
+                                    "field": "upstream",
+                                    "index": index,
+                                    "relation_scope": "asset",
+                                    "target_revision_binding": "current_lookup",
+                                    "original_target_revision": None,
+                                },
+                                True,
+                            )
+                        history, clipped_history = self._history(db, token, item, budget=budget)
+                        response["truncated"] |= clipped_history
+                        for old in history:
+                            yield (
+                                old,
+                                "previous_version",
+                                {
+                                    "field": "changes",
+                                    "previous_revision": old["revision"],
+                                },
+                                False,
+                            )
+
+                    for target, relation, evidence, current in candidates():
+                        key = (target["asset_id"], target["revision"])
+                        if key == (item["asset_id"], item["revision"]):
                             continue
-                        consumed += len(target_raw)
-                        if consumed > MAX_GRAPH_BYTES:
-                            truncated = True
-                            break
-                    else:
-                        # Historical metadata inherits access from its current
-                        # asset; deleted/inaccessible assets cannot open history.
-                        self._current(db, token, target["asset_id"])
-                    edge_keys.add(edge_key)
-                    edges.append(
-                        {
-                            "from": {"asset_id": item["asset_id"], "revision": item["revision"]},
-                            "to": {"asset_id": key[0], "revision": key[1]},
-                            "type": relation,
-                            "evidence": {
-                                "asset_id": item["asset_id"],
-                                "revision": item["revision"],
-                                **evidence,
-                            },
-                        }
-                    )
-                    if key not in seen:
-                        seen.add(key)
-                        items.append(_node(target, current=current))
-                        if current and level + 1 < data.depth:
-                            queue.append((target, level + 1))
-                if len(edges) >= data.limit or consumed > MAX_GRAPH_BYTES:
-                    truncated |= bool(queue)
-                    break
-            return {
-                "root": _node(root),
-                "items": items,
-                "edges": edges,
-                "depth": data.depth,
-                "limit": data.limit,
-                "truncated": truncated,
-                "relation_policy": "explicit_only",
-            }
+                        edge_key = (item["asset_id"], item["revision"], *key, relation)
+                        if edge_key in edge_keys:
+                            continue
+                        if current:
+                            try:
+                                self._document(db, token, target, budget=budget)
+                            except KnowledgeConflict:
+                                continue
+                        else:
+                            # Historical metadata inherits the current asset's
+                            # access, not permission to reopen a deleted source.
+                            self._current(db, token, target["asset_id"], budget=budget)
+                        edge_keys.add(edge_key)
+                        response["edges"].append(
+                            {
+                                "from": {
+                                    "asset_id": item["asset_id"],
+                                    "revision": item["revision"],
+                                },
+                                "to": {"asset_id": key[0], "revision": key[1]},
+                                "type": relation,
+                                "evidence": {
+                                    "asset_id": item["asset_id"],
+                                    "revision": item["revision"],
+                                    **evidence,
+                                },
+                            }
+                        )
+                        if key not in seen:
+                            seen.add(key)
+                            response["items"].append(_node(target, current=current))
+                            if current and level + 1 < data.depth:
+                                queue.append((target, level + 1))
+                        if len(response["edges"]) >= data.limit:
+                            # Conservatively report the reached cap without
+                            # pulling another candidate just to prove truncation.
+                            response["truncated"] = True
+                            return response
+            except _GraphLimit:
+                response["truncated"] = True
+            return response

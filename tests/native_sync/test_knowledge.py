@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -515,3 +516,108 @@ def test_graph_marks_reference_scan_and_byte_budget_exhaustion(env, monkeypatch)
     monkeypatch.setattr(knowledge, "MAX_GRAPH_BYTES", 2)
     graph = service.related(a["token"], "a", 1)
     assert graph["truncated"] and graph["edges"] == []
+
+
+def test_graph_limit_one_loads_one_large_target_not_all_candidates(env, monkeypatch):
+    from agent_brain.native_sync import knowledge
+
+    hub, service, a, *_ = env
+    for index in range(25):
+        hub.put(
+            a["token"],
+            asset("target" + str(index), "x" * 500000, index_text="INDEX_CANARY" * 40000),
+        )
+    hub.put(a["token"], asset("one", "[first](target0.md)"))
+    hub.put(
+        a["token"],
+        asset("many", " ".join(f"[target{index}](target{index}.md)" for index in range(25))),
+    )
+    decoded = []
+
+    def load(payload):
+        decoded.append(payload)
+        return json.loads(payload)
+
+    def no_history(*args, **kwargs):
+        pytest.fail("edge cap must stop before even querying history")
+
+    monkeypatch.setattr(knowledge, "json", SimpleNamespace(loads=load))
+    monkeypatch.setattr(service, "_history", no_history)
+    single = service.related(a["token"], "one", 1, limit=1)
+    single_bytes = sum(len(value.encode()) for value in decoded)
+    decoded.clear()
+    many = service.related(a["token"], "many", 1, limit=1)
+    many_bytes = sum(len(value.encode()) for value in decoded)
+    assert len(single["edges"]) == len(many["edges"]) == 1
+    assert many["truncated"]
+    assert many_bytes - single_bytes < 10000
+    assert many_bytes < 600000
+    assert all("INDEX_CANARY" not in value for value in decoded)
+    loaded_ids = [json.loads(value)["asset_id"] for value in decoded]
+    assert set(loaded_ids) == {"many", "target0"}
+
+
+def test_graph_checks_target_payload_budget_before_loading_body(env, monkeypatch):
+    from agent_brain.native_sync import knowledge
+
+    hub, service, a, *_ = env
+    hub.put(a["token"], asset("a", "[big](b.md)"))
+    hub.put(a["token"], asset("b", "TARGET_BODY_CANARY" * 10000, index_text="INDEX_CANARY" * 40000))
+    decoded = []
+
+    def load(payload):
+        decoded.append(payload)
+        return json.loads(payload)
+
+    monkeypatch.setattr(knowledge, "json", SimpleNamespace(loads=load))
+    monkeypatch.setattr(knowledge, "MAX_GRAPH_BYTES", 6000)
+    graph = service.related(a["token"], "a", 1)
+    assert graph["truncated"] and graph["edges"] == []
+    assert graph["root"]["asset_id"] == "a"
+    assert sum(len(value.encode()) for value in decoded) <= 6000
+    assert all(
+        "TARGET_BODY_CANARY" not in value and "INDEX_CANARY" not in value for value in decoded
+    )
+
+
+def test_graph_history_only_loads_bounded_metadata_not_old_bodies(env, monkeypatch):
+    from agent_brain.native_sync import knowledge
+
+    hub, service, a, *_ = env
+    hub.put(
+        a["token"],
+        asset("a", "HISTORY_BODY_CANARY" * 20000, index_text="HISTORY_INDEX_CANARY" * 20000),
+    )
+    hub.put(a["token"], asset("a", "small current body", base_revision=1))
+    decoded = []
+
+    def load(payload):
+        decoded.append(payload)
+        return json.loads(payload)
+
+    monkeypatch.setattr(knowledge, "json", SimpleNamespace(loads=load))
+    graph = service.related(a["token"], "a", 2)
+    assert graph["edges"][0]["type"] == "previous_version"
+    assert graph["edges"][0]["evidence"]["revision"] == 2
+    assert graph["edges"][0]["evidence"]["previous_revision"] == 1
+    assert sum(len(value.encode()) for value in decoded) < 6000
+    assert all(
+        "HISTORY_BODY_CANARY" not in value and "HISTORY_INDEX_CANARY" not in value
+        for value in decoded
+    )
+
+
+def test_graph_exhaustion_before_root_metadata_returns_only_requested_reference(env, monkeypatch):
+    from agent_brain.native_sync import knowledge
+
+    hub, service, a, *_ = env
+    hub.put(a["token"], asset("a", "data"))
+    monkeypatch.setattr(knowledge, "MAX_GRAPH_BYTES", 1)
+
+    def forbidden(payload):
+        pytest.fail("an over-budget root metadata payload must not be decoded")
+
+    monkeypatch.setattr(knowledge, "json", SimpleNamespace(loads=forbidden))
+    graph = service.related(a["token"], "a", 1)
+    assert graph["root"] == {"asset_id": "a", "revision": 1, "metadata_available": False}
+    assert graph["truncated"] and graph["items"] == graph["edges"] == []
