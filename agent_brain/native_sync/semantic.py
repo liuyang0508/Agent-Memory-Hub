@@ -9,10 +9,48 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import sqlite3
 from pathlib import Path
-from typing import Protocol
+from typing import TYPE_CHECKING, Any, Literal, NotRequired, Protocol, TypedDict, cast
 
 from .storage import database
+
+if TYPE_CHECKING:
+    from .hub import Hub
+
+
+class TextWindow(TypedDict):
+    text: str
+    start: int
+    end: int
+    source_field: NotRequired[Literal["body", "index_text"]]
+
+
+class StoredWindow(TypedDict):
+    start: int
+    end: int
+    source_field: Literal["body", "index_text"]
+    vector: list[float]
+
+
+class SemanticDescriptor(TypedDict):
+    model: str
+    model_version: str
+    dimension: int
+    index_version: int
+    window: int
+    stride: int
+    token_window: int | None
+    token_stride: int | None
+    aggregation: Literal["max_window_cosine"]
+
+
+class IndexRefreshResult(SemanticDescriptor):
+    indexed: int
+    skipped_changed: int
+    reused: int
+    encoded: int
+
 
 INDEX_VERSION = 3
 WINDOW = 700
@@ -28,12 +66,19 @@ class SemanticBackend(Protocol):
     def embed(self, text: str) -> list[float]: ...
 
 
+class WindowedSemanticBackend(SemanticBackend, Protocol):
+    window_tokens: int
+    stride_tokens: int
+
+    def split_windows(self, text: str) -> list[TextWindow]: ...
+
+
 class LocalSentenceTransformer:
     """Reuse the legacy real encoder, with NO hashing or online fallback."""
 
     semantic = True
 
-    def __init__(self, model_name: str):
+    def __init__(self, model_name: str) -> None:
         from huggingface_hub import snapshot_download
         from agent_brain.platform.embedding import SentenceTransformerEmbedder
 
@@ -53,13 +98,15 @@ class LocalSentenceTransformer:
         self.encoder = SentenceTransformerEmbedder(str(path), local_only=True)
         self.dim = self.encoder.dim
         model = self.encoder._model
-        self.window_tokens = model.max_seq_length - model.tokenizer.num_special_tokens_to_add(False)
+        self.window_tokens: int = model.max_seq_length - model.tokenizer.num_special_tokens_to_add(
+            False
+        )
         self.stride_tokens = max(1, self.window_tokens * 3 // 4)
 
     def embed(self, text: str) -> list[float]:
         return self.encoder.embed(text)
 
-    def split_windows(self, text: str) -> list[dict]:
+    def split_windows(self, text: str) -> list[TextWindow]:
         # Keep tokenizer offsets into source text; decoded model input may have
         # normalized spacing, so it must not itself be presented as a quotation.
         tokenizer = self.encoder._model.tokenizer
@@ -71,7 +118,7 @@ class LocalSentenceTransformer:
             verbose=False,
         )
         ids, offsets = encoded["input_ids"], encoded["offset_mapping"]
-        windows = []
+        windows: list[TextWindow] = []
         for i in range(0, max(1, len(ids)), self.stride_tokens):
             end = min(i + self.window_tokens, len(ids))
             windows.append(
@@ -84,7 +131,7 @@ class LocalSentenceTransformer:
         return windows
 
 
-def descriptor(backend: SemanticBackend) -> dict:
+def descriptor(backend: SemanticBackend) -> SemanticDescriptor:
     if not getattr(backend, "semantic", False):
         raise ValueError("a real semantic backend is required; hashing is not semantic")
     return dict(
@@ -109,15 +156,15 @@ def vector(backend: SemanticBackend, text: str) -> list[float]:
     return result
 
 
-def text_windows(item: dict, backend: SemanticBackend) -> list[dict]:
-    field = (
+def text_windows(item: dict[str, Any], backend: SemanticBackend) -> list[TextWindow]:
+    field: Literal["body", "index_text"] = (
         "index_text"
         if item["kind"] == "transcript" and item.get("index_text") is not None
         else "body"
     )
     body, title = item[field], item.get("title", "")
     if hasattr(backend, "split_windows"):
-        windows = backend.split_windows(title + "\n" + body)
+        windows = cast(WindowedSemanticBackend, backend).split_windows(title + "\n" + body)
         for window in windows:
             window["start"] = max(0, window["start"] - len(title) - 1)
             window["end"] = max(0, window["end"] - len(title) - 1)
@@ -143,7 +190,7 @@ CREATE TABLE IF NOT EXISTS native_semantic_vectors(
 """
 
 
-def exists(db) -> bool:
+def exists(db: sqlite3.Connection) -> bool:
     return (
         db.execute(
             "SELECT 1 FROM sqlite_master WHERE type='table' AND name='native_semantic_meta'"
@@ -152,7 +199,7 @@ def exists(db) -> bool:
     )
 
 
-def rebuild(hub, token: str, backend: SemanticBackend) -> dict:
+def rebuild(hub: Hub, token: str, backend: SemanticBackend) -> IndexRefreshResult:
     """Build a tenant snapshot, then atomically replace its derived generation.
 
     Reuse only the same model/index descriptor and exact source revision/hash.
@@ -168,9 +215,9 @@ def rebuild(hub, token: str, backend: SemanticBackend) -> dict:
             "SELECT payload FROM assets WHERE tenant=? AND json_extract(payload,'$.deleted')=0 AND json_extract(payload,'$.encoding')='utf8'",
             (who["tenant"],),
         ).fetchall()
-        items = [json.loads(row["payload"]) for row in rows]
+        items: list[dict[str, Any]] = [json.loads(row["payload"]) for row in rows]
         items = [item for item in items if hub._retrieval_valid(db, item)]
-        cached = {}
+        cached: dict[str, str] = {}
         if exists(db):
             previous = db.execute(
                 "SELECT descriptor FROM native_semantic_meta WHERE tenant=?", (who["tenant"],)
@@ -187,7 +234,7 @@ def rebuild(hub, token: str, backend: SemanticBackend) -> dict:
                         (who["tenant"],),
                     )
                 }
-    prepared = []
+    prepared: list[tuple[dict[str, Any], str]] = []
     reused = 0
     encoded = 0
     for item in items:

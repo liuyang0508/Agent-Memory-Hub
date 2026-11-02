@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
+from collections.abc import Callable, Sequence
 import sqlite3
 import threading
 
@@ -15,6 +16,9 @@ from pathlib import Path
 from .common import digest, tokens
 from .storage import database, HUB_SCHEMA, DB_TIMEOUT
 from .models import AssetInput
+
+if TYPE_CHECKING:
+    from .semantic import IndexRefreshResult, SemanticBackend
 
 
 class Hub:
@@ -30,10 +34,10 @@ class Hub:
         path: Path,
         *,
         semantic_model: str | None = None,
-        semantic_backend=None,
+        semantic_backend: SemanticBackend | None = None,
         semantic_min_score: float = 0.45,
         mmr_lambda: float | None = None,
-        reranker=None,
+        reranker: Callable[[str, list[dict[str, Any]]], Sequence[float]] | None = None,
     ) -> None:
         self.path = Path(path)
         self.semantic_model = semantic_model or os.environ.get("AMH_NATIVE_SEMANTIC_MODEL")
@@ -1005,7 +1009,7 @@ class Hub:
                     break  # Do not assemble candidates we cannot return.
             return results
 
-    def _semantic_backend(self):
+    def _semantic_backend(self) -> tuple[SemanticBackend | None, str | None]:
         """Explicit local model only; never downloads or hashes as a fallback."""
         from .semantic import LocalSentenceTransformer, descriptor
 
@@ -1020,7 +1024,7 @@ class Hub:
         except Exception as exc:
             return None, "semantic_model_unavailable:" + type(exc).__name__
 
-    def _retrieval_valid(self, db, item: dict) -> bool:
+    def _retrieval_valid(self, db: sqlite3.Connection, item: dict[str, Any]) -> bool:
         from .materialize import assembled
 
         if item.get("deleted"):
@@ -1031,7 +1035,7 @@ class Hub:
         # Use the same whole-version metadata contract as bounded document read.
         return (item["asset_id"], item["revision"]) in self._version_proof(db, item)
 
-    def rebuild_semantic(self, token: str) -> dict:
+    def rebuild_semantic(self, token: str) -> IndexRefreshResult:
         """Explicit maintenance operation outside hooks and source-write locks."""
         self.identity(token)
         from .semantic import rebuild
@@ -1047,10 +1051,10 @@ class Hub:
         query: str,
         *,
         limit: int = 8,
-        kinds=None,
+        kinds: Sequence[str] | None = None,
         include_evidence: bool = False,
         project_filter: str | None = None,
-    ) -> dict:
+    ) -> dict[str, Any]:
         from .retrieval import retrieve
 
         return retrieve(

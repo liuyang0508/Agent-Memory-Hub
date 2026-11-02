@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from collections.abc import Sequence
+from typing import TYPE_CHECKING, Any
+import sqlite3
 import json
 import math
 
@@ -14,14 +17,24 @@ from .common import tokens
 from .storage import database
 from . import semantic
 
+if TYPE_CHECKING:
+    from .hub import Hub
+
 KINDS = frozenset({"memory", "rule", "skill", "config", "transcript"})
 SUPPORTING = frozenset({"conversation_summary", "raw_memory", "transcript"})
 CANDIDATES = 100
 
 
 def retrieve(
-    hub, token, query, *, limit=8, kinds=None, include_evidence=False, project_filter=None
-):
+    hub: Hub,
+    token: str,
+    query: str,
+    *,
+    limit: int = 8,
+    kinds: Sequence[str] | None = None,
+    include_evidence: bool = False,
+    project_filter: str | None = None,
+) -> dict[str, Any]:
     kinds = ["memory"] if kinds is None else list(kinds)
     if not kinds or not set(kinds) <= KINDS:
         raise ValueError("invalid retrieval kinds")
@@ -58,7 +71,7 @@ def retrieve(
         who = hub._identity(db, token)
         db.execute("BEGIN")
         args = [who["tenant"], *kinds] + ([project_filter] if project_filter is not None else [])
-        lexical = []
+        lexical: list[sqlite3.Row | dict[str, Any]] = []
         if terms:
             match = " OR ".join('"' + t + '"' for t in terms)
             lexical = db.execute(
@@ -72,18 +85,21 @@ def retrieve(
             [*args, query.strip()],
         ).fetchone()
         if exact:
-            lexical = [{"payload": exact["payload"], "score": -1.0}] + [
+            exact_hits: list[sqlite3.Row | dict[str, Any]] = [
+                {"payload": exact["payload"], "score": -1.0}
+            ]
+            lexical = exact_hits + [
                 row for row in lexical if json.loads(row["payload"])["asset_id"] != query.strip()
             ]
-        assets = {}
-        lex_hits = []
+        assets: dict[str, dict[str, Any]] = {}
+        lex_hits: list[RetrievedItem] = []
         for row in lexical:
             item = json.loads(row["payload"])
             if hub._retrieval_valid(db, item):
                 assets[item["asset_id"]] = item
                 lex_hits.append(RetrievedItem(item["asset_id"], -row["score"], None, None))
-        indexed = []
-        metadata = None
+        indexed: list[sqlite3.Row] = []
+        metadata: semantic.SemanticDescriptor | None = None
         if semantic.exists(db):
             record = db.execute(
                 "SELECT descriptor FROM native_semantic_meta WHERE tenant=?", (who["tenant"],)
@@ -100,14 +116,14 @@ def retrieve(
         eligible_count = db.execute(
             "SELECT count(*) FROM assets a WHERE " + predicate, args
         ).fetchone()[0]
-        current = []
+        current: list[tuple[dict[str, Any], list[semantic.StoredWindow]]] = []
         for row in indexed:
             item = json.loads(row["payload"])
             if hub._retrieval_valid(db, item):
                 current.append((item, json.loads(row["vectors"])))
-    vector_hits = []
+    vector_hits: list[RetrievedItem] = []
     semantic_used = False
-    embeddings = {}
+    embeddings: dict[str, list[float]] = {}
     if metadata is None:
         reasons.append("semantic_index_not_built")
     else:
@@ -180,8 +196,8 @@ def retrieve(
         # An exact authorized asset identifier is a deterministic lookup, even
         # when a semantic model associates its words with unrelated documents.
         fused.sort(key=lambda hit: hit.id != query.strip())
-    results = []
-    duplicates = {}
+    results: list[dict[str, Any]] = []
+    duplicates: dict[tuple[str, str], dict[str, Any]] = {}
     # Recheck revocation and revisions after potentially slow model work. An
     # update racing inference is omitted, never returned with old content.
     with database(hub.path) as db:
