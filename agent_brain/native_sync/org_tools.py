@@ -179,6 +179,14 @@ class OrganizationTools:
             if path.stat().st_size > 128000:
                 raise ValueError("profile too large")
             config = json.loads(path.read_text())
+            # A previously interrupted first setup may contain only its local
+            # projection preference. It is not an enrolled identity.
+            if (
+                isinstance(config, dict)
+                and set(config) == {"projection"}
+                and type(config["projection"]) is bool
+            ):
+                raise RuntimeError("not_connected")
             identity = config["identity"]
             token = _text(identity["token"], 16000)
             if not token:

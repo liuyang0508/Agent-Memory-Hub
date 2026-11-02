@@ -427,3 +427,15 @@ def test_research_resident_metadata_is_bounded_and_calls_cannot_override_identit
         for _, payload, _ in hub.calls
     )
     assert all(auth == "Bearer " + TOKEN for _, _, auth in hub.calls)
+
+
+def test_partial_first_setup_remains_not_connected_without_mutation(tmp_path):
+    state = tmp_path / "profile"
+    state.mkdir()
+    config = state / "config.json"
+    original = '{"projection":false}'
+    config.write_text(original)
+    result = OrganizationTools(state).search("question")
+    assert result["code"] == "not_connected"
+    assert config.read_text() == original
+    assert list(state.iterdir()) == [config]
