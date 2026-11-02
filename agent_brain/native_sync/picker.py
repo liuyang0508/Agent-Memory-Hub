@@ -243,6 +243,7 @@ def serve(
     timeout: float = 1800,
     empty_products: list[str] | None = None,
     scope: dict[str, Any] | None = None,
+    port: int = 0,
 ) -> list[dict[str, Any]]:
     """Show the checklist and return the ticked rows; empty means the member skipped.
 
@@ -283,8 +284,8 @@ def serve(
             # sends and refuse an Origin that is not ours.
             ctype = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower()
             origin = self.headers.get("Origin")
-            expected = "http://127.0.0.1:%d" % port
-            if ctype != "application/json" or (origin and origin != expected):
+            expected = {f"http://127.0.0.1:{port}", f"http://localhost:{port}"}
+            if ctype != "application/json" or (origin and origin not in expected):
                 self._send(403, b"forbidden", "text/plain; charset=utf-8")
                 return
             try:
@@ -317,7 +318,7 @@ def serve(
         def log_message(self, *args: Any) -> None:
             return
 
-    server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+    server = http.server.HTTPServer(("127.0.0.1", port), Handler)
     port = server.server_address[1]
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -330,4 +331,6 @@ def serve(
             raise TimeoutError("selection page timed out")
     finally:
         server.shutdown()
+        server.server_close()
+        thread.join()
     return cast(list[dict[str, Any]], holder.get("picked", []))

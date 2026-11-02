@@ -181,7 +181,7 @@ def test_first_projection_setup_logs_in_before_writing_preferences(tmp_path, mon
         atomic_json(state / "config.json", {"projection": True})
     calls = []
 
-    def login(url, path, device_name):
+    def login(url, path, device_name, **kwargs):
         calls.append(True)
         identity = {
             "tenant_id": "org",

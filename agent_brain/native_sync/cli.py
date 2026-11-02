@@ -279,12 +279,33 @@ def discover(home: Path = typer.Option(Path.home())) -> None:
     emit(discover_products(home))
 
 
-def feishu_login(hub: str, state: Path, device_name: str, timeout: float = 300) -> dict[str, Any]:
+def browser_mode(ssh: bool | None, web_port: int) -> tuple[bool, int]:
+    """One loopback port and one tunnel for sequential login and selection pages."""
+    remote = bool(os.environ.get("SSH_CONNECTION") or os.environ.get("SSH_TTY")) if ssh is None else ssh
+    port = web_port or (8765 if remote else 0)
+    if remote:
+        console.print(
+            f"SSH 安装：在你本机另开终端，保持端口转发运行：\n"
+            f"  ssh -N -o ExitOnForwardFailure=yes -L 127.0.0.1:{port}:127.0.0.1:{port} <你的 SSH 别名>\n"
+            f"使用 remote-claude 时也可运行：remote-claude forward {port}\n"
+            f"多连接配置请加远端别名。本机和远端端口必须相同；授权和历史选择共用此端口。\n"
+            f"稍后在本机浏览器打开 http://127.0.0.1:{port}/，飞书无需在远端登录。",
+            markup=False,
+        )
+        if not typer.confirm("端口转发已启动，继续？", default=True):
+            raise typer.Exit()
+    return remote, port
+
+
+def feishu_login(
+    hub: str, state: Path, device_name: str, timeout: float = 300,
+    *, port: int = 0, open_browser: bool = True,
+) -> dict[str, Any]:
     """Authorize in the browser, then write the profile; shared by setup and login.
 
     The browser only ever receives a one-use ticket addressed to this machine's
     loopback port. The reusable device credential is fetched by this process
-    over loopback, so no URL, history entry or proxy log can carry it.
+    from the Hub over HTTPS, so no browser URL or history entry can carry it.
     """
     import http.server
     import threading
@@ -306,6 +327,12 @@ def feishu_login(hub: str, state: Path, device_name: str, timeout: float = 300) 
             from urllib.parse import parse_qs, urlsplit
 
             query = parse_qs(urlsplit(self.path).query)
+            if not query and self.path == "/" and holder.get("authorize_url"):
+                self.send_response(302)
+                self.send_header("Location", holder["authorize_url"])
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                return
             if "ticket" in query:
                 holder["ticket"] = query["ticket"][0]
                 body = "登录完成，可以关闭此页面，回到终端。".encode()
@@ -323,18 +350,29 @@ def feishu_login(hub: str, state: Path, device_name: str, timeout: float = 300) 
         def log_message(self, *args: Any) -> None:
             return
 
-    server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+    try:
+        server = http.server.HTTPServer(("127.0.0.1", port), Handler)
+    except OSError as exc:
+        raise typer.BadParameter(
+            f"无法监听本机端口 {port}：{exc}。请使用 --web-port 更换端口，并同步调整本机转发。"
+        ) from None
     port = server.server_address[1]
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
         started = transport.call("auth/feishu/start", {"port": port})
-        console.print("在浏览器完成飞书授权：" + started["authorize_url"])
-        webbrowser.open(started["authorize_url"])
+        holder["authorize_url"] = started["authorize_url"]
+        if open_browser:
+            console.print("在浏览器完成飞书授权：" + started["authorize_url"], markup=False)
+            webbrowser.open(started["authorize_url"])
+        else:
+            console.print(f"在本机浏览器完成飞书授权：http://127.0.0.1:{port}/", markup=False)
         if not ready.wait(timeout):
-            raise typer.BadParameter("等待授权超时，请重新运行")
+            raise typer.BadParameter("等待授权超时，请检查端口转发后重新运行；不要复用旧授权页面")
     finally:
         server.shutdown()
+        server.server_close()
+        thread.join()
 
     identity = transport.call(
         "auth/feishu/redeem", {"ticket": holder["ticket"], "device_name": device_name}
@@ -349,9 +387,12 @@ def login(
     state: Path = DEFAULT_STATE,
     device_name: str = socket.gethostname(),
     timeout: float = 300,
+    ssh: bool | None = typer.Option(None, "--ssh/--no-ssh", help="本机浏览器经端口转发授权；默认检测 SSH"),
+    web_port: int = typer.Option(0, min=0, max=65535, help="浏览器端口；SSH 默认 8765，本机默认随机"),
 ) -> None:
     """飞书登录加入组织：浏览器授权后自动登记设备。"""
-    identity = feishu_login(hub, state, device_name, timeout)
+    remote, port = browser_mode(ssh, web_port)
+    identity = feishu_login(hub, state, device_name, timeout, port=port, open_browser=not remote)
     emit({k: v for k, v in identity.items() if k != "token"})
 
 
@@ -443,6 +484,8 @@ def import_history(
     web: bool = typer.Option(True, help="在浏览器里勾选；--no-web 回到终端逐条"),
     yes: bool = False,
     dry_run: bool = False,
+    ssh: bool | None = typer.Option(None, "--ssh/--no-ssh", help="通过本机浏览器选择；默认检测 SSH"),
+    web_port: int = typer.Option(0, min=0, max=65535, help="浏览器端口；SSH 默认 8765，本机默认随机"),
 ) -> None:
     """导入安装前的历史记忆：浏览器里勾选（--no-web 回终端），此后新增自动同步。"""
     from . import history
@@ -473,9 +516,12 @@ def import_history(
     if web:
         from . import picker
 
+        remote, port = browser_mode(ssh, web_port)
         try:
             picked = picker.serve(
                 rows,
+                port=port,
+                open_browser=not remote,
                 empty_products=_empty_products(home, rows),
                 scope=current.source_scope() if current else None,
             )
@@ -743,9 +789,10 @@ def uninstall(state: Path = DEFAULT_STATE, home: Path = typer.Option(Path.home()
     if platform.system() == "Darwin":
         p = launch_agent(state, home, install=False)
         if p.exists():
-            subprocess.run(
-                ["launchctl", "bootout", f"gui/{os.getuid()}", str(p)], capture_output=True
-            )
+            for domain in ("gui", "user"):
+                subprocess.run(
+                    ["launchctl", "bootout", f"{domain}/{os.getuid()}", str(p)], capture_output=True
+                )
             p.unlink()
     emit({"conflicts": uninstall_hooks(home, state), "data": "preserved"})
 
@@ -756,6 +803,8 @@ def setup(
     state: Path = DEFAULT_STATE,
     home: Path = typer.Option(Path.home()),
     service: bool = True,
+    ssh: bool | None = typer.Option(None, "--ssh/--no-ssh", help="使用本机浏览器安装远端设备；默认检测 SSH"),
+    web_port: int = typer.Option(0, min=0, max=65535, help="浏览器端口；SSH 默认 8765，本机默认随机"),
     projection: bool = typer.Option(
         False,
         help="把组织记忆也存成各产品本地的原生文件；默认关闭，召回走云端实时检索",
@@ -766,6 +815,7 @@ def setup(
 
     console.print("[bold]AMH · 组织共享第二大脑[/bold]")
     require_research_service(hub)
+    remote, port = browser_mode(ssh, web_port)
     # A failed 1.3.1 --projection setup could leave only this preference behind.
     # It is not an enrolled identity. Keep it until login succeeds; adopt() accepts
     # only this exact harmless partial shape, never an existing identity/profile.
@@ -784,7 +834,7 @@ def setup(
     console.print("组织服务地址：" + hub)
     if not joined:
         console.print("\n第 1 步：用飞书账号登录")
-        identity = feishu_login(hub, state, socket.gethostname())
+        identity = feishu_login(hub, state, socket.gethostname(), port=port, open_browser=not remote)
         c = load(state)
         console.print(f"登录成功：{identity['member_name']}")
     else:
@@ -825,7 +875,8 @@ def setup(
             try:
                 picked = picker.serve(
                     rows,
-                    open_browser=bool(
+                    port=port,
+                    open_browser=not remote and bool(
                         __import__("os").environ.get("DISPLAY") or _sys.platform == "darwin"
                     ),
                     empty_products=_empty_products(home, rows),
@@ -930,20 +981,39 @@ def setup(
         )
         # Reveal the supported import artifact; never write Claude's private
         # plugin state or pretend the Claude Code CLI installs into Cowork.
-        if platform.system() == "Darwin":
+        if platform.system() == "Darwin" and not remote:
             subprocess.run(["open", "-R", str(plugin) + ".zip"], check=False, capture_output=True)
     if c.sources():
         initial_sync(c)
     if service and platform.system() == "Darwin":
-        plist_path = launch_agent(state, home)
-        result = subprocess.run(
-            ["launchctl", "bootstrap", f"gui/{os.getuid()}", str(plist_path)], capture_output=True
-        )
-        if result.returncode:
-            console.print("后台服务启动失败，请运行 worker；详情可用 status 查看。")
+        start_background_service(state, home, remote=remote)
     console.print(
         "本地配置完成。请新建会话进入组织模式，已打开会话仍可能保留原上下文；用 status 查看同步，产品实际读取须通过独立验收。"
     )
+
+
+def start_background_service(state: Path, home: Path, *, remote: bool) -> None:
+    """SSH users have a user domain even when no GUI login domain exists."""
+    path = launch_agent(state, home, install=False)
+    label = path.stem
+    domains = [f"{kind}/{os.getuid()}" for kind in ("user", "gui")]
+    # Re-running setup must not load the same worker into two domains.
+    for domain in domains:
+        existing = subprocess.run(["launchctl", "print", f"{domain}/{label}"], capture_output=True)
+        if existing.returncode == 0:
+            console.print("后台同步服务已登记：" + domain, markup=False)
+            return
+    domain = domains[0 if remote else 1]
+    path = launch_agent(state, home, background=remote)
+    result = subprocess.run(["launchctl", "bootstrap", domain, str(path)], capture_output=True)
+    if result.returncode:
+        console.print(
+            "后台同步服务未启动；本次配置已保存，但安装尚未全部完成。"
+            "可重新运行 setup，或暂时运行 amh-native worker --state " + str(state),
+            markup=False,
+        )
+        raise typer.Exit(1)
+    console.print("后台同步服务已登记：" + domain, markup=False)
 
 
 @app.command("export-assets")

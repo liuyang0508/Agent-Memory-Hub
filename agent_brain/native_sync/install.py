@@ -589,7 +589,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/runtime/entry.py" --policy "${CLAUDE_PLUGIN_ROOT}
     return root
 
 
-def launch_agent(state: Path, home: Path, *, install: bool = True) -> Path:
+def launch_agent(state: Path, home: Path, *, install: bool = True, background: bool = False) -> Path:
     """Write the macOS worker plist (or locate it); loading/unloading belongs to the CLI."""
     label = "com.amh.native." + digest(str(state.resolve()))[:12]
     path = home / "Library/LaunchAgents" / f"{label}.plist"
@@ -605,6 +605,7 @@ def launch_agent(state: Path, home: Path, *, install: bool = True) -> Path:
         "EnvironmentVariables": {"PYTHONPATH": str(root)},
         "RunAtLoad": True,
         "KeepAlive": True,
+        **({"LimitLoadToSessionType": "Background"} if background else {}),
         "StandardOutPath": str(state / "worker.log"),
         "StandardErrorPath": str(state / "worker-error.log"),
     }

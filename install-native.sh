@@ -9,6 +9,8 @@ VENV="${AMH_NATIVE_VENV:-$HOME/.amh-native/venv}"
 DRY=false
 VERIFY=false
 SERVICE=true
+SSH_MODE=""
+WEB_PORT=""
 WHEEL=""
 # The release workflow substitutes the placeholder below with the tag it
 # publishes from; a checkout keeps it and builds its own wheel instead.
@@ -30,16 +32,23 @@ while [ "$#" -gt 0 ]; do
     --dry-run) DRY=true; shift ;;
     --verify-only) VERIFY=true; shift ;;
     --no-service) SERVICE=false; shift ;;
+    --ssh|--no-ssh) SSH_MODE="$1"; shift ;;
+    --web-port) [ "$#" -ge 2 ] || exit 2; WEB_PORT="$2"; shift 2 ;;
     *) echo "Unknown organization memory option: $1" >&2; exit 2 ;;
   esac
 done
 [ -n "$HUB" ] || { echo 'Required: --hub https://your-organization-host' >&2; exit 2; }
+if [ -n "$WEB_PORT" ]; then
+  case "$WEB_PORT" in *[!0-9]*|??????*) echo '--web-port must be 1..65535' >&2; exit 2 ;; esac
+  [ "$WEB_PORT" -ge 1 ] && [ "$WEB_PORT" -le 65535 ] || { echo '--web-port must be 1..65535' >&2; exit 2; }
+fi
 
 if [ "$DRY" = true ]; then
   echo 'AMH organization memory install preview'
   echo "Hub: $HUB"
   echo "State: $STATE"
   echo "Venv: $VENV"
+  echo "Browser mode: ${SSH_MODE:-auto}; port: ${WEB_PORT:-auto}"
   echo 'Source checkout left on disk: none (wheel install)'
   exit 0
 fi
@@ -124,6 +133,8 @@ if [ "$SERVICE" = false ]; then
 else
   set -- setup --hub "$HUB" --state "$STATE"
 fi
+[ -z "$SSH_MODE" ] || set -- "$@" "$SSH_MODE"
+[ -z "$WEB_PORT" ] || set -- "$@" --web-port "$WEB_PORT"
 if [ -t 0 ]; then
   exec "$VENV/bin/amh-native" "$@"
 elif [ -r /dev/tty ]; then

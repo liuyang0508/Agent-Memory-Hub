@@ -71,3 +71,46 @@ def test_published_installer_keeps_native_stage_and_wheel_on_same_release(tmp_pa
     base = "https://github.com/liuyang0508/agent-memory-hub/releases/download/v1.3.2"
     assert (tmp_path / "download.log").read_text().strip() == base + "/install-native.sh"
     assert r.stdout.strip() == "base=" + base
+
+
+def test_ssh_options_reach_installed_setup_with_no_real_install(tmp_path):
+    import pty
+    import sys
+
+    venv = tmp_path / "venv"
+    (venv / "bin").mkdir(parents=True)
+    python = venv / "bin/python"
+    python.write_text('#!/bin/sh\nexit 0\n')
+    python.chmod(0o755)
+    entry = venv / "bin/amh-native"
+    entry.write_text('#!/bin/sh\nprintf "%s\\n" "$@" > "$ARG_LOG"\n')
+    entry.chmod(0o755)
+    wheel = tmp_path / "synthetic.whl"
+    wheel.touch()
+    log = tmp_path / "args"
+    master, slave = pty.openpty()
+    try:
+        result = subprocess.run(
+            ["sh", str(ROOT / "install.sh"), "--org-memory", "--hub", "https://example.com", "--ssh", "--web-port", "8080", "--no-service", "--wheel", str(wheel), "--venv", str(venv)],
+            env={**os.environ, "HOME": str(tmp_path), "AMH_NATIVE_PYTHON": sys.executable, "ARG_LOG": str(log)},
+            stdin=slave, capture_output=True, text=True,
+        )
+    finally:
+        os.close(master)
+        os.close(slave)
+    assert result.returncode == 0, result.stderr
+    args = log.read_text().splitlines()
+    assert args[-3:] == ["--ssh", "--web-port", "8080"]
+    assert args[:3] == ["setup", "--hub", "https://example.com"]
+    assert "--no-service" in args
+
+
+def test_installer_rejects_invalid_web_port_before_install(tmp_path):
+    for port in ("-1", "65536", "oops", "0"):
+        result = subprocess.run(
+            ["sh", str(ROOT / "install.sh"), "--org-memory", "--hub", "https://example.com", "--ssh", "--web-port", port, "--dry-run"],
+            env={**os.environ, "HOME": str(tmp_path)}, capture_output=True, text=True,
+        )
+        assert result.returncode != 0
+        assert "--web-port" in result.stderr
+    assert not (tmp_path / ".amh-native").exists()
