@@ -63,7 +63,7 @@ def create_app(hub: Hub) -> FastAPI:
         return {
             "protocol": 1,
             "service": "amh-native",
-            "capabilities": ["org-research-v1"],
+            "capabilities": ["org-research-v1", "recall-parity-v1"],
         }
 
     @app.get("/native/v1/ready")

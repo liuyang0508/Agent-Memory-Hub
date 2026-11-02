@@ -130,6 +130,12 @@ class Transport:
     def me(self) -> Any:
         return self.call("me")
 
+    def capabilities(self) -> list[str]:
+        """Unauthenticated protocol discovery; a malformed answer means no capabilities."""
+        value = self.call("health")
+        found = value.get("capabilities") if isinstance(value, dict) else None
+        return [c for c in found if isinstance(c, str)] if isinstance(found, list) else []
+
     def put(self, value: Any) -> Any:
         return self.call("assets", value)
 

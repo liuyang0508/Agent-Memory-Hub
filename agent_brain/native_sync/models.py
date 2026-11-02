@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from .common import PRODUCTS, PAIRING_DEFAULT_TTL, PAIRING_MAX_TTL
+from .facets import validate_source_meta
 
 
 class AssetInput(BaseModel):
@@ -29,6 +30,14 @@ class AssetInput(BaseModel):
     deleted: bool = False
     producer_unknown: bool = False
     upstream: list[str] = Field(default_factory=list, max_length=100)
+    # Client-captured hints (file mtime, declared front matter, links). Bounded
+    # here and treated as declarations, never as authenticated facts.
+    source_meta: dict[str, Any] | None = None
+
+    @field_validator("source_meta")
+    @classmethod
+    def bounded_source_meta(cls, value: dict[str, Any] | None) -> dict[str, Any] | None:
+        return validate_source_meta(value) or None
 
     @model_validator(mode="after")
     def valid_parts(self) -> "AssetInput":

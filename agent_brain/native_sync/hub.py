@@ -722,7 +722,11 @@ class Hub:
             and not item["deleted"]
         ):
             raise ValueError("transcript metadata is not shareable")
-        # Hash content and its meaning, not the transport's base revision.
+        # Hash content and its meaning, not the transport's base revision. An
+        # absent source_meta is removed first so records from clients that
+        # predate the field keep byte-identical payloads and hashes.
+        if not item.get("source_meta"):
+            item.pop("source_meta", None)
         content_hash = digest(
             json.dumps(
                 {k: v for k, v in item.items() if k != "base_revision"},

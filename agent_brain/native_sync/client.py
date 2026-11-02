@@ -624,7 +624,9 @@ class NativeClient:
                         (source["id"], rel),
                     ).fetchone()
                     upstream = json.loads(alias["refs"]) if alias else []
-                    enqueue_document(db, source, rel, aid, doc, unknown, upstream)
+                    enqueue_document(
+                        db, source, rel, aid, doc, unknown, upstream, mtime=stat.st_mtime
+                    )
                     db.execute(
                         "INSERT OR REPLACE INTO snapshots VALUES(?,?,?,?,?,?,?)",
                         (source["id"], rel, h, 1, aid, 0, int(unknown)),
@@ -710,6 +712,15 @@ class NativeClient:
                 progress("connect", 0, None)
             self.transport.me()  # revoked devices cannot use this as a successful refresh
             errors.extend(quarantine_changed_roots(self))
+            # A Hub that predates source_meta rejects unknown fields outright.
+            # Ask once per pass; a transport without the probe is a current one.
+            probe = getattr(self.transport, "capabilities", None)
+            send_meta = True
+            if probe is not None:
+                try:
+                    send_meta = "recall-parity-v1" in probe()
+                except (OSError, ValueError, TimeoutError):
+                    send_meta = False
             pushed = 0
             with database(self.path) as db:
                 pending = [
@@ -724,8 +735,19 @@ class NativeClient:
                 item = json.loads(row["payload"])
                 if not self.source_enabled(item["kind"]) or item["source_store"] in quarantined:
                     continue
+                if not send_meta:
+                    item.pop("source_meta", None)
                 try:
-                    saved = self.transport.put(item)
+                    try:
+                        saved = self.transport.put(item)
+                    except ValueError as exc:
+                        # One retry without the optional hints covers a Hub whose
+                        # health endpoint is newer than its asset contract.
+                        if getattr(exc, "http_status", None) != 422 or "source_meta" not in item:
+                            raise
+                        item.pop("source_meta")
+                        send_meta = False
+                        saved = self.transport.put(item)
                 except ValueError as exc:
                     errors.append(f"upload {item['asset_id']}: {type(exc).__name__}")
                     continue
