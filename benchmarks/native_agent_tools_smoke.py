@@ -28,7 +28,7 @@ from agent_brain.native_sync.client import NativeClient
 from agent_brain.native_sync.hub import Hub
 
 
-def run(binary: str) -> dict:
+def run(binary: str, *, case: str = "references") -> dict:
     account_home = Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex")))
     auth = account_home / "auth.json"
     if not auth.is_file():
@@ -41,7 +41,14 @@ def run(binary: str) -> dict:
     with tempfile.TemporaryDirectory(prefix="amh-agent-research-") as folder:
         root = Path(folder)
         root.chmod(0o700)
-        hub = Hub(root / "hub.sqlite")
+        hub = Hub(
+            root / "hub.sqlite",
+            semantic_model=(
+                "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+                if case == "rewrite"
+                else None
+            ),
+        )
         sock = socket.socket()
         sock.bind(("127.0.0.1", 0))
         sock.listen()
@@ -74,7 +81,15 @@ def run(binary: str) -> dict:
                 "# Zinnia exception policy\n"
                 "Emergency rollback must be authorized by the duty incident commander.\n"
             )
+            if case == "rewrite":
+                (source / "release.md").write_text(
+                    "常规会议日程记录。" * 300
+                    + "\n恢复旧配置需要先停止队列，再切换到上个发布版本。"
+                )
+                (source / "exception.md").write_text("客户退款在七个工作日内退回原支付账户。")
             client.sync()
+            if case == "rewrite":
+                hub.rebuild_semantic(identity["token"])
             isolated = root / "codex"
             isolated.mkdir(mode=0o700)
             shutil.copyfile(auth, isolated / "auth.json")
@@ -128,6 +143,27 @@ def run(binary: str) -> dict:
                 "the tools' budgets. Report how many reviewer sign-offs are required, which role "
                 "authorizes emergency rollback, and the source asset IDs. Do not guess from excerpts."
             )
+            if case == "rewrite":
+                schema.write_text(
+                    json.dumps(
+                        {
+                            "type": "object",
+                            "additionalProperties": False,
+                            "properties": {
+                                "steps": {"type": "array", "items": {"type": "string"}},
+                                "source_assets": {"type": "array", "items": {"type": "string"}},
+                            },
+                            "required": ["steps", "source_assets"],
+                        }
+                    )
+                )
+                prompt = (
+                    "只使用amh-org的三项只读工具，不用shell、文件或网络等其他工具。"
+                    "请只依据组织资料用中文回答：怎样回滚到之前的部署？"
+                    "第一步以原问题逐字搜索；若没有匹配，按工具说明改写查询继续找，"
+                    "最多三次搜索，复用同一research_id。找到后读取原文核对步骤，"
+                    "给出操作顺序和来源资产ID。找不到不能自行编造。"
+                )
             env = {
                 **os.environ,
                 "CODEX_HOME": str(isolated),
@@ -174,6 +210,12 @@ def run(binary: str) -> dict:
                 if item.get("type") == "mcp_tool_call" and item.get("status") == "completed"
             ]
             tools = [item.get("tool") for item in calls]
+            queries = [
+                item.get("arguments", {}).get("query")
+                for item in calls
+                if item.get("tool") == "search_org_memory"
+                and isinstance(item.get("arguments"), dict)
+            ]
             answer_file = root / "answer.json"
             answer = json.loads(answer_file.read_text()) if answer_file.exists() else None
             passed = (
@@ -188,11 +230,28 @@ def run(binary: str) -> dict:
                     for item in items
                 )
             )
+            if case == "rewrite":
+                steps = " ".join(answer.get("steps", [])) if answer else ""
+                passed = (
+                    result.returncode == 0
+                    and "停止" in steps
+                    and "队列" in steps
+                    and "版本" in steps
+                    and "切换" in steps
+                    and tools.count("search_org_memory") >= 2
+                    and tools.count("read_org_memory") >= 1
+                    and not any(
+                        item.get("type") in {"command_execution", "web_search", "file_change"}
+                        for item in items
+                    )
+                )
             # No raw transcript or auth material leaves this private temporary fixture.
             return {
                 "passed": passed,
+                "case": case,
                 "returncode": result.returncode,
                 "tools": tools,
+                "queries": queries,
                 "answer": answer,
                 "elapsed_seconds": round(time.monotonic() - started, 2),
                 "usage": next(
@@ -222,8 +281,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--codex-bin", default="codex")
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--case", choices=["references", "rewrite"], default="references")
     args = parser.parse_args()
-    report = run(args.codex_bin)
+    report = run(args.codex_bin, case=args.case)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n")
     print(json.dumps(report, ensure_ascii=False))

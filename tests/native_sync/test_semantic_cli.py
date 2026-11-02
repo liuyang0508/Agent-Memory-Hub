@@ -62,3 +62,18 @@ def test_operator_profile_credential_never_appears_in_results(tmp_path, monkeypa
     assert result.exit_code == 0, result.output
     assert json.loads(result.stdout)["semantic_index"]["indexed"] == 0
     assert who["token"] not in result.output
+
+
+def test_configured_model_is_loaded_before_server_accepts_requests(tmp_path, monkeypatch):
+    backend = SyntheticBackend()
+    hub = Hub(tmp_path / "hub.sqlite", semantic_model="cached", semantic_backend=backend)
+    stages = []
+    monkeypatch.setattr("agent_brain.native_sync.hub.Hub", lambda *a, **kw: hub)
+    monkeypatch.setattr(hub, "_semantic_backend", lambda: (stages.append("load") or backend, None))
+    monkeypatch.setattr("uvicorn.run", lambda *a, **kw: stages.append("serve"))
+    result = CliRunner().invoke(
+        cli.app, ["serve", "--db", str(hub.path), "--semantic-model", "cached"]
+    )
+    assert result.exit_code == 0, result.output
+    assert stages == ["load", "serve"]
+    assert not backend.seen  # Warmup must not encode source data.

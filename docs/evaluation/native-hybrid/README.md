@@ -255,3 +255,18 @@ topic/navigation records. Explicit expansion and subsequent narrowing verify
 vector reuse, unchanged source rows and explicit partial-index reporting. This
 limits unnecessary corpus work; it does not reduce the model's own resident
 memory requirement or establish a production memory-capacity guarantee.
+
+## Bounded query continuation on the known miss
+
+`agent-rewrite-smoke.json` exercises the known Chinese rollback query in a real
+Codex host. The first exact query found no candidate; the host reused the same
+research flow, reformulated it as “部署回滚 恢复历史版本 操作步骤”, read the returned
+source, and answered the two documented steps without inventing commands. This
+is a targeted recovery integration test on a known development failure, not a
+new held-out quality result. The primitive retrieval failure remains recorded.
+The 156-second run includes model connection retries; it is not a tool-latency
+measurement. No global client configuration or production memory was changed.
+
+`final-semantic-smoke.json` is the final integrated replay with memory-first
+index scope. It retains the failed development paraphrase and the frozen holdout
+results without changing the model or eligibility threshold.
