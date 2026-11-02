@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from .client import NativeClient
 from .common import PRODUCTS, digest
@@ -182,7 +182,11 @@ def items(
 
 
 def import_paths(
-    client: NativeClient, home: Path, selected: list[dict[str, Any]]
+    client: NativeClient,
+    home: Path,
+    selected: list[dict[str, Any]],
+    *,
+    progress: Callable[[str, int, int | None], None] | None = None,
 ) -> dict[str, Any]:
     """Select exactly the ticked files; nothing else from their categories is touched.
 
@@ -197,12 +201,18 @@ def import_paths(
     taken = 0
     rejected: list[str] = []
     late_sensitive: list[dict[str, Any]] = []
+    checked = 0
     for (root_path, product, kind), rows in by_root.items():
         root = Path(root_path)
+        if progress:
+            progress("prepare", checked, None)
         sid = client.register(root, product, "", kind)
         registered += 1
         selection: dict[str, str] = {}
         for row in rows:
+            if progress:
+                progress("check", checked, len(selected))
+            checked += 1
             absolute = row["path"]
             path = Path(absolute)
             try:
@@ -240,6 +250,8 @@ def import_paths(
             taken += len(selection)
         if kind == "memory":
             _record_target(client, root, product)
+    if progress:
+        progress("check", checked, len(selected))
     return {
         "roots": registered,
         "selected": taken,

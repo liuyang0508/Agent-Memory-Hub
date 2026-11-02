@@ -2,18 +2,22 @@
 
 from __future__ import annotations
 
-from typing import Any, cast
+from typing import Any, Callable, Iterator, cast
+
+from contextlib import contextmanager
 
 import json
 import os
 import platform
 import socket
+import sqlite3
 import subprocess
 from pathlib import Path
 
 import typer
 from rich.console import Console
 from rich.table import Table
+from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 
 from .client import NativeClient
 from .common import PRODUCTS, PAIRING_MAX_TTL, atomic_json, display_name
@@ -34,6 +38,80 @@ DEFAULT_STATE = Path.home() / ".amh-native-sync"
 
 def emit(value: Any) -> None:
     typer.echo(json.dumps(value, ensure_ascii=False, indent=2))
+
+
+@contextmanager
+def operation_progress() -> Iterator[Callable[[str, int, int | None], None]]:
+    """Render counts on stderr; callbacks contain no source paths, bodies or credentials."""
+    output = Console(stderr=True)
+    labels = {
+        "prepare": "准备历史文件（本地）",
+        "check": "检查所选文件（本地，尚未上传）",
+        "scan": "扫描待同步内容",
+        "connect": "连接组织服务",
+        "upload": "上传到组织（云端已确认）",
+        "refresh": "更新同步状态",
+    }
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("{task.description}"),
+        BarColumn(),
+        TextColumn("{task.fields[count]}"),
+        TimeElapsedColumn(),
+        console=output,
+        disable=not output.is_terminal,
+    ) as ui:
+        task = ui.add_task("", total=None, count="")
+        previous = ""
+
+        def report(stage: str, completed: int, total: int | None) -> None:
+            nonlocal previous
+            count = f"{completed}/{total}" if total is not None else ""
+            if not output.is_terminal and (
+                stage != previous or total is not None and completed == total
+            ):
+                output.print(labels[stage], count, markup=False)
+            if stage != previous:
+                ui.reset(
+                    task, description=labels[stage], completed=completed, total=total, count=count
+                )
+            else:
+                ui.update(task, completed=completed, total=total, count=count)
+            previous = stage
+
+        yield report
+
+
+def sync_with_progress(client: NativeClient) -> dict[str, Any]:
+    with operation_progress() as report:
+        return client.sync(progress=report)
+
+
+def initial_sync(client: NativeClient) -> bool:
+    """Show the first upload before starting the service; never discard failed work."""
+    console.print("\n首次同步：上传进度按云端确认的内容条目计数。")
+    try:
+        result = sync_with_progress(client)
+    except (OSError, ValueError, sqlite3.Error) as exc:
+        console.print(
+            f"首次同步尚未完成（{type(exc).__name__}）。选择和待上传内容已保留；"
+            "恢复连接或处理错误后，可运行 amh-native sync 重试。",
+            markup=False,
+        )
+        return False
+    if result.get("busy"):
+        console.print("后台正在同步，未启动第二次上传；用 amh-native status 查看结果。")
+        return False
+    pending = client.pending_count()
+    if pending or result.get("errors"):
+        console.print(
+            f"本轮仍有 {pending} 项待上传，{len(result.get('errors', []))} 项需检查；"
+            "用 amh-native status 查看详情。",
+            markup=False,
+        )
+        return False
+    console.print("首次同步完成：待上传 0 项。")
+    return True
 
 
 def load(state: Path) -> NativeClient:
@@ -220,7 +298,8 @@ def import_history(
         moment = history.parse_moment(since) if since else None
     except ValueError:
         raise typer.BadParameter("--since 请用 2026-10-01 或 2026-10-01 09:30:00") from None
-    rows = history.items(home, chosen_products, since=moment)
+    with Console(stderr=True).status("正在查找历史文件并检查标记（本地）…"):
+        rows = history.items(home, chosen_products, since=moment)
     if kind:
         wanted = set(kind)
         rows = [row for row in rows if row["kind"] in wanted]
@@ -250,8 +329,9 @@ def import_history(
             emit({"imported": 0, "note": "已取消"})
             return
         current = load(state)
-        result = history.import_paths(current, home, picked)
-        emit({"import": result, "sync": current.sync()})
+        with operation_progress() as report:
+            result = history.import_paths(current, home, picked, progress=report)
+        emit({"import": result, "sync": sync_with_progress(current)})
         return
     group_label = ""
     for index, row in enumerate(rows, start=1):
@@ -316,8 +396,9 @@ def import_history(
     current = None if dry_run and not (state / "config.json").exists() else load(state)
     if current is None:
         raise typer.BadParameter("请先完成登录或加入组织，再执行导入")
-    result = history.import_paths(current, home, picked)
-    pushed = current.sync()
+    with operation_progress() as report:
+        result = history.import_paths(current, home, picked, progress=report)
+    pushed = sync_with_progress(current)
     emit({"import": result, "sync": pushed})
 
 
@@ -374,7 +455,7 @@ def select(
 
 @app.command()
 def sync(state: Path = DEFAULT_STATE) -> None:
-    emit(load(state).sync())
+    emit(sync_with_progress(load(state)))
 
 
 @app.command()
@@ -532,7 +613,8 @@ def setup(
     )
 
     console.print("\n第 2 步：挑选要共享的历史记忆（默认不上传任何已有内容）")
-    rows = history.items(home, list(PRODUCTS))
+    with Console(stderr=True).status("正在查找历史文件并检查标记（本地）…"):
+        rows = history.items(home, list(PRODUCTS))
     picked: list[dict[str, Any]] = []
     if rows:
         # A real machine lists a thousand-odd files; ticking them by number in a
@@ -563,8 +645,12 @@ def setup(
                 console.print(f"勾选页面未能完成（{exc}）；本次跳过历史导入。", markup=False)
                 picked = []
         if picked:
-            imported = history.import_paths(c, home, picked)
-            console.print(f"已选择 {imported['selected']} 个文件。", markup=False)
+            with operation_progress() as report:
+                imported = history.import_paths(c, home, picked, progress=report)
+            console.print(
+                f"已选择 {imported['selected']} 个文件，尚未上传；确认启用后开始同步。",
+                markup=False,
+            )
             if imported["late_sensitive"]:
                 console.print(
                     f"另有 {len(imported['late_sensitive'])} 个文件在全文检查中发现隐私内容，已跳过。",
@@ -653,6 +739,8 @@ def setup(
         # plugin state or pretend the Claude Code CLI installs into Cowork.
         if platform.system() == "Darwin":
             subprocess.run(["open", "-R", str(plugin) + ".zip"], check=False, capture_output=True)
+    if c.sources():
+        initial_sync(c)
     if service and platform.system() == "Darwin":
         plist_path = launch_agent(state, home)
         result = subprocess.run(

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Callable
 
 import json
 import time
@@ -642,7 +642,9 @@ class NativeClient:
                 for row in db.execute("SELECT key FROM meta WHERE key LIKE ?", (prefix + "%",))
             }
 
-    def sync(self) -> dict[str, Any]:
+    def sync(
+        self, *, progress: Callable[[str, int, int | None], None] | None = None
+    ) -> dict[str, Any]:
         """Capture locally, upload, replay changes, then publish native resources.
 
         A connection/auth failure stops this pass without removing queued data.
@@ -660,14 +662,20 @@ class NativeClient:
             self._configure_storage_locked()
             from .runtime_sources import process_observations, quarantine_changed_roots
 
+            if progress:
+                progress("scan", 0, None)
             errors = process_observations(self)
             errors.extend(self.scan())  # Persist source changes before any network request.
+            if progress:
+                progress("connect", 0, None)
             self.transport.me()  # revoked devices cannot use this as a successful refresh
             errors.extend(quarantine_changed_roots(self))
             pushed = 0
             with database(self.path) as db:
                 pending = db.execute("SELECT * FROM outbox").fetchall()
             quarantined = self.quarantined_sources()
+            if progress:
+                progress("upload", 0, len(pending))
             for row in pending:
                 item = json.loads(row["payload"])
                 if item["source_store"] in quarantined:
@@ -689,9 +697,13 @@ class NativeClient:
                         (item["asset_id"], row["hash"]),
                     )
                 pushed += 1
+                if progress:
+                    progress("upload", pushed, len(pending))
             # Upload acknowledgement can be lost after the Hub commits. Replaying
             # our changes repairs the base revision before the next idempotent retry.
             pages = 0
+            if progress:
+                progress("refresh", 0, None)
             while pages < 100:
                 with database(self.path) as db:
                     row = db.execute("SELECT value FROM meta WHERE key='cursor'").fetchone()
@@ -781,6 +793,8 @@ class NativeClient:
                         "INSERT OR REPLACE INTO meta VALUES('last_auth',?)", (str(time.time()),)
                     )
                 pages += 1
+                if progress:
+                    progress("refresh", pages, None)
                 if not response["items"]:
                     break
             self._refresh_profile()
@@ -800,6 +814,8 @@ class NativeClient:
                     "errors": errors,
                 },
             )
+            if progress:
+                progress("refresh", pages, pages)
             return {"pushed": pushed, "errors": errors}
 
     def cached(self) -> list[dict[str, Any]]:
