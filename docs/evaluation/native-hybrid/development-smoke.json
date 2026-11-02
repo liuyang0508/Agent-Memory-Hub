@@ -1,0 +1,309 @@
+{
+  "evaluation": "development smoke; synthetic corpus, REAL cached multilingual encoder",
+  "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+  "build": {
+    "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+    "model_version": "09dcfb3bf7f009c5a890f800bd3c33a5d3855be516640c2bcf46c17586cd9466",
+    "dimension": 384,
+    "index_version": 2,
+    "window": 700,
+    "stride": 550,
+    "indexed": 16,
+    "skipped_changed": 0
+  },
+  "elapsed_seconds": 4.049,
+  "cases": [
+    {
+      "case": "zh-paraphrase",
+      "query": "部署之前找谁审核变更？",
+      "expected": "approval",
+      "first_relevant_rank": 1,
+      "ids": [
+        "approval"
+      ],
+      "passed": true,
+      "retrieval": {
+        "mode": "hybrid",
+        "degraded": true,
+        "reasons": [
+          "semantic_index_incomplete_rebuild_required"
+        ],
+        "model": {
+          "dimension": 384,
+          "index_version": 2,
+          "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+          "model_version": "09dcfb3bf7f009c5a890f800bd3c33a5d3855be516640c2bcf46c17586cd9466",
+          "stride": 550,
+          "window": 700
+        },
+        "reranked": false,
+        "mmr": true,
+        "candidates": {
+          "lexical": 2,
+          "semantic": 2
+        },
+        "semantic_index": {
+          "current": 5,
+          "eligible": 6
+        },
+        "answer_status": "candidates_only"
+      }
+    },
+    {
+      "case": "cross-language",
+      "query": "How long does it take to get my money back after cancellation?",
+      "expected": "refund",
+      "first_relevant_rank": 1,
+      "ids": [
+        "refund"
+      ],
+      "passed": true,
+      "retrieval": {
+        "mode": "hybrid",
+        "degraded": true,
+        "reasons": [
+          "semantic_index_incomplete_rebuild_required"
+        ],
+        "model": {
+          "dimension": 384,
+          "index_version": 2,
+          "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+          "model_version": "09dcfb3bf7f009c5a890f800bd3c33a5d3855be516640c2bcf46c17586cd9466",
+          "stride": 550,
+          "window": 700
+        },
+        "reranked": false,
+        "mmr": true,
+        "candidates": {
+          "lexical": 0,
+          "semantic": 1
+        },
+        "semantic_index": {
+          "current": 5,
+          "eligible": 6
+        },
+        "answer_status": "candidates_only"
+      }
+    },
+    {
+      "case": "synonym",
+      "query": "退款多久到账？",
+      "expected": "refund",
+      "first_relevant_rank": 1,
+      "ids": [
+        "refund",
+        "long-tail"
+      ],
+      "passed": true,
+      "retrieval": {
+        "mode": "hybrid",
+        "degraded": true,
+        "reasons": [
+          "semantic_index_incomplete_rebuild_required"
+        ],
+        "model": {
+          "dimension": 384,
+          "index_version": 2,
+          "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+          "model_version": "09dcfb3bf7f009c5a890f800bd3c33a5d3855be516640c2bcf46c17586cd9466",
+          "stride": 550,
+          "window": 700
+        },
+        "reranked": false,
+        "mmr": true,
+        "candidates": {
+          "lexical": 2,
+          "semantic": 1
+        },
+        "semantic_index": {
+          "current": 5,
+          "eligible": 6
+        },
+        "answer_status": "candidates_only"
+      }
+    },
+    {
+      "case": "exact-id",
+      "query": "TRACE_731",
+      "expected": "exact",
+      "first_relevant_rank": 1,
+      "ids": [
+        "exact"
+      ],
+      "passed": true,
+      "retrieval": {
+        "mode": "hybrid",
+        "degraded": true,
+        "reasons": [
+          "semantic_index_incomplete_rebuild_required"
+        ],
+        "model": {
+          "dimension": 384,
+          "index_version": 2,
+          "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+          "model_version": "09dcfb3bf7f009c5a890f800bd3c33a5d3855be516640c2bcf46c17586cd9466",
+          "stride": 550,
+          "window": 700
+        },
+        "reranked": false,
+        "mmr": true,
+        "candidates": {
+          "lexical": 1,
+          "semantic": 1
+        },
+        "semantic_index": {
+          "current": 5,
+          "eligible": 6
+        },
+        "answer_status": "candidates_only"
+      }
+    },
+    {
+      "case": "exact-asset-id",
+      "query": "approval",
+      "expected": "approval",
+      "first_relevant_rank": 1,
+      "ids": [
+        "approval"
+      ],
+      "passed": true,
+      "retrieval": {
+        "mode": "hybrid",
+        "degraded": true,
+        "reasons": [
+          "semantic_index_incomplete_rebuild_required"
+        ],
+        "model": {
+          "dimension": 384,
+          "index_version": 2,
+          "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+          "model_version": "09dcfb3bf7f009c5a890f800bd3c33a5d3855be516640c2bcf46c17586cd9466",
+          "stride": 550,
+          "window": 700
+        },
+        "reranked": false,
+        "mmr": false,
+        "candidates": {
+          "lexical": 1,
+          "semantic": 0
+        },
+        "semantic_index": {
+          "current": 5,
+          "eligible": 6
+        },
+        "answer_status": "candidates_only"
+      }
+    },
+    {
+      "case": "long-tail",
+      "query": "怎样回滚到之前的部署？",
+      "expected": "long-tail",
+      "first_relevant_rank": 3,
+      "ids": [
+        "approval",
+        "refund",
+        "long-tail"
+      ],
+      "passed": true,
+      "retrieval": {
+        "mode": "hybrid",
+        "degraded": true,
+        "reasons": [
+          "semantic_index_incomplete_rebuild_required"
+        ],
+        "model": {
+          "dimension": 384,
+          "index_version": 2,
+          "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+          "model_version": "09dcfb3bf7f009c5a890f800bd3c33a5d3855be516640c2bcf46c17586cd9466",
+          "stride": 550,
+          "window": 700
+        },
+        "reranked": false,
+        "mmr": false,
+        "candidates": {
+          "lexical": 4,
+          "semantic": 0
+        },
+        "semantic_index": {
+          "current": 5,
+          "eligible": 6
+        },
+        "answer_status": "candidates_only"
+      }
+    },
+    {
+      "case": "no-answer",
+      "query": "How many rings does Saturn have?",
+      "expected": null,
+      "first_relevant_rank": null,
+      "ids": [],
+      "passed": true,
+      "retrieval": {
+        "mode": "hybrid",
+        "degraded": true,
+        "reasons": [
+          "semantic_index_incomplete_rebuild_required"
+        ],
+        "model": {
+          "dimension": 384,
+          "index_version": 2,
+          "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+          "model_version": "09dcfb3bf7f009c5a890f800bd3c33a5d3855be516640c2bcf46c17586cd9466",
+          "stride": 550,
+          "window": 700
+        },
+        "reranked": false,
+        "mmr": false,
+        "candidates": {
+          "lexical": 0,
+          "semantic": 0
+        },
+        "semantic_index": {
+          "current": 5,
+          "eligible": 6
+        },
+        "answer_status": "no_match"
+      }
+    },
+    {
+      "case": "isolation",
+      "query": "SECRET_ISOLATION_CANARY",
+      "expected": null,
+      "first_relevant_rank": null,
+      "ids": [],
+      "passed": true,
+      "retrieval": {
+        "mode": "hybrid",
+        "degraded": true,
+        "reasons": [
+          "semantic_index_incomplete_rebuild_required"
+        ],
+        "model": {
+          "dimension": 384,
+          "index_version": 2,
+          "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+          "model_version": "09dcfb3bf7f009c5a890f800bd3c33a5d3855be516640c2bcf46c17586cd9466",
+          "stride": 550,
+          "window": 700
+        },
+        "reranked": false,
+        "mmr": false,
+        "candidates": {
+          "lexical": 0,
+          "semantic": 0
+        },
+        "semantic_index": {
+          "current": 5,
+          "eligible": 6
+        },
+        "answer_status": "no_match"
+      }
+    }
+  ],
+  "passed": 8,
+  "total": 8,
+  "metric": "answerable Hit@3 plus empty-result checks; not all Top1",
+  "top1": 5,
+  "answerable": 6
+}

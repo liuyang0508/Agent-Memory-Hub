@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 import sqlite3
+import threading
 
 import json
 import os
@@ -24,8 +25,27 @@ class Hub:
     machines must not independently write copies of this SQLite database.
     """
 
-    def __init__(self, path: Path) -> None:
+    def __init__(
+        self,
+        path: Path,
+        *,
+        semantic_model: str | None = None,
+        semantic_backend=None,
+        semantic_min_score: float = 0.45,
+        mmr_lambda: float | None = None,
+        reranker=None,
+    ) -> None:
         self.path = Path(path)
+        self.semantic_model = semantic_model or os.environ.get("AMH_NATIVE_SEMANTIC_MODEL")
+        self._encoder = semantic_backend
+        self._encoder_lock = threading.Lock()
+        self.semantic_min_score = semantic_min_score
+        if not 0 <= semantic_min_score <= 1 or (
+            mmr_lambda is not None and not 0 <= mmr_lambda <= 1
+        ):
+            raise ValueError("semantic threshold and MMR lambda must be between 0 and 1")
+        self.mmr_lambda = mmr_lambda
+        self.reranker = reranker
         with database(self.path) as db:
             db.executescript(HUB_SCHEMA)
 
@@ -975,3 +995,59 @@ class Hub:
                 if len(results) >= limit:
                     break  # Do not assemble candidates we cannot return.
             return results
+
+    def _semantic_backend(self):
+        """Explicit local model only; never downloads or hashes as a fallback."""
+        from .semantic import LocalSentenceTransformer, descriptor
+
+        try:
+            if self._encoder is None and self.semantic_model:
+                with self._encoder_lock:
+                    if self._encoder is None:
+                        self._encoder = LocalSentenceTransformer(self.semantic_model)
+            if self._encoder is not None:
+                descriptor(self._encoder)
+            return self._encoder, None
+        except Exception as exc:
+            return None, "semantic_model_unavailable:" + type(exc).__name__
+
+    def _retrieval_valid(self, db, item: dict) -> bool:
+        from .materialize import assembled
+
+        if item.get("deleted"):
+            return False
+        if item.get("part_count", 1) == 1:
+            return bool(assembled([item]))
+        return (item["asset_id"], item["revision"]) in self._version_proof(db, item)
+
+    def rebuild_semantic(self, token: str) -> dict:
+        """Explicit maintenance operation outside hooks and source-write locks."""
+        self.identity(token)
+        from .semantic import rebuild
+
+        backend, error = self._semantic_backend()
+        if backend is None:
+            raise ValueError(error or "semantic_model_not_configured")
+        return rebuild(self, token, backend)
+
+    def retrieve(
+        self,
+        token: str,
+        query: str,
+        *,
+        limit: int = 8,
+        kinds=None,
+        include_evidence: bool = False,
+        project_filter: str | None = None,
+    ) -> dict:
+        from .retrieval import retrieve
+
+        return retrieve(
+            self,
+            token,
+            query,
+            limit=limit,
+            kinds=kinds,
+            include_evidence=include_evidence,
+            project_filter=project_filter,
+        )
