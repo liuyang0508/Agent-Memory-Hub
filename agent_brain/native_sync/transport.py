@@ -9,6 +9,28 @@ from urllib import request, error, parse
 import ipaddress
 
 
+SAFE_ERROR_CODES = frozenset(
+    {
+        "stale_version",
+        "incomplete_version",
+        "asset_unavailable",
+        "invalid_version",
+        "invalid_cursor",
+        "document_too_large",
+        "unsupported_encoding",
+    }
+)
+
+
+class HubHTTPError(ValueError):
+    """Finite public errors; never include response bodies, URLs or credentials."""
+
+    def __init__(self, http_status: int, code: str = "request_rejected") -> None:
+        self.http_status = http_status
+        self.code = code if code in SAFE_ERROR_CODES else "request_rejected"
+        super().__init__(f"Hub HTTP {http_status}: {self.code}")
+
+
 class NoRedirect(request.HTTPRedirectHandler):
     """Reject redirect-based host changes so a device token never follows an unexpected destination."""
 
@@ -85,10 +107,22 @@ class Transport:
                 return json.loads(raw)
         except error.HTTPError as exc:
             if exc.code in (401, 403):
+                exc.close()
                 raise PermissionError("organization access rejected") from None
             if exc.code in (408, 429) or 500 <= exc.code <= 599:
+                exc.close()
                 raise OSError(f"Hub temporarily unavailable: HTTP {exc.code}") from None
-            raise ValueError(f"Hub HTTP {exc.code}") from None
+            code = "request_rejected"
+            try:
+                # Parse only a small finite error envelope, never arbitrary detail.
+                body = json.loads(exc.read(4096))
+                if isinstance(body, dict) and body.get("code") in SAFE_ERROR_CODES:
+                    code = body["code"]
+            except (ValueError, TypeError, OSError):
+                pass
+            finally:
+                exc.close()
+            raise HubHTTPError(exc.code, code) from None
 
     def enroll(self, ticket: str, device_name: str) -> Any:
         return self.call("enroll", {"ticket": ticket, "device_name": device_name})
