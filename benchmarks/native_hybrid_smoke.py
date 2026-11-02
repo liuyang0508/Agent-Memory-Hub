@@ -5,12 +5,16 @@ Uses only local cached weights and temporary synthetic assets; no production wri
 """
 
 import argparse
+import hashlib
+import math
 import json
 import tempfile
 import time
 from pathlib import Path
 
 from agent_brain.native_sync.hub import Hub
+from agent_brain.native_sync.storage import database
+from agent_brain.retrieval.mmr import _cosine_sim
 
 MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 
@@ -73,15 +77,56 @@ def run():
             ("no-answer", "How many rings does Saturn have?", None),
             ("isolation", "SECRET_ISOLATION_CANARY", None),
         ]
+        holdout_file = (
+            Path(__file__).resolve().parents[1]
+            / "docs/evaluation/native-hybrid/holdout-queries.json"
+        )
+        holdout_bytes = holdout_file.read_bytes()
+        holdout = json.loads(holdout_bytes)
+        cases += [(c["case"], c["query"], c["expected"]) for c in holdout]
+        baseline = Hub(hub.path)
+        baseline.semantic_model = None  # same SQL/role/RRF pipeline, model disabled
         observations = []
         for name, query, target in cases:
+            before = time.perf_counter()
             result = hub.retrieve(token, query, limit=3)
+            hybrid_ms = (time.perf_counter() - before) * 1000
+            before = time.perf_counter()
+            lexical = baseline.retrieve(token, query, limit=3)
+            lexical_ms = (time.perf_counter() - before) * 1000
+            baseline_ids = [v["asset_id"] for v in lexical["items"]]
+            diagnostic = None
+            if target:
+                with database(hub.path) as db:
+                    row = db.execute(
+                        "SELECT vectors FROM native_semantic_vectors WHERE tenant=? AND asset_id=?",
+                        (who["tenant_id"], target),
+                    ).fetchone()
+                windows = json.loads(row["vectors"])
+                query_vector = hub._encoder.embed(query)
+                best = max(windows, key=lambda w: _cosine_sim(query_vector, w["vector"]))
+                diagnostic = {k: v for k, v in best.items() if k != "vector"}
+                diagnostic["max_cosine"] = _cosine_sim(query_vector, best["vector"])
+                diagnostic["eligible_at_configured_floor"] = (
+                    diagnostic["max_cosine"] >= hub.semantic_min_score
+                )
             ids = [v["asset_id"] for v in result["items"]]
             # Duplicates are equivalent answers, provenance remains attached.
             found = target in ids or (target == "approval" and "duplicate" in ids)
             observations.append(
                 dict(
                     case=name,
+                    split="holdout" if name.startswith("holdout-") else "development",
+                    baseline_ids=baseline_ids,
+                    baseline_passed=(
+                        target in baseline_ids
+                        or (target == "approval" and "duplicate" in baseline_ids)
+                    )
+                    if target
+                    else not baseline_ids,
+                    baseline_ms=round(lexical_ms, 3),
+                    hybrid_ms=round(hybrid_ms, 3),
+                    expected_semantic_window=diagnostic,
                     query=query,
                     expected=target,
                     first_relevant_rank=next(
@@ -97,7 +142,23 @@ def run():
                     retrieval=result["retrieval"],
                 )
             )
+
+        def timing(split, key):
+            values = sorted(c[key] for c in observations if c["split"] == split)
+            return dict(
+                n=len(values),
+                p50_ms=values[math.ceil(len(values) * 0.5) - 1],
+                p95_ms=values[math.ceil(len(values) * 0.95) - 1],
+            )
+
         return dict(
+            holdout_sha256=hashlib.sha256(holdout_bytes).hexdigest(),
+            holdout_policy="Frozen before first execution; no subsequent threshold/model tuning. Same synthetic corpus; not a sealed generalization test.",
+            timing_note="Single warm query per case; nearest-rank percentiles on tiny local corpus, excludes build/model load, not production latency.",
+            timings={
+                split: {key: timing(split, key) for key in ["baseline_ms", "hybrid_ms"]}
+                for split in ["development", "holdout"]
+            },
             evaluation="development smoke; synthetic corpus, REAL cached multilingual encoder",
             model=MODEL,
             build=built,

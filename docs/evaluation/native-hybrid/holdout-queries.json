@@ -1,0 +1,8 @@
+[
+  {"case":"holdout-signoff", "query":"Who has to sign off the deployment checklist?", "expected":"approval"},
+  {"case":"holdout-reimbursement", "query":"When will a cancelled purchase be reimbursed?", "expected":"refund"},
+  {"case":"holdout-tail", "query":"Stop the queue before restoring the previous release.", "expected":"long-tail"},
+  {"case":"holdout-trace", "query":"What caused TRACE_731?", "expected":"exact"},
+  {"case":"holdout-referent-expanded", "query":"客户已经退订，那笔钱何时能原路返回？", "expected":"refund"},
+  {"case":"holdout-unknown", "query":"What is the mass of Neptune?", "expected":null}
+]

@@ -115,18 +115,27 @@ def retrieve(
                     semantic_used = True
                     for item, windows in current:
                         if not windows or any(
-                            len(v) != backend.dim or not all(math.isfinite(n) for n in v)
+                            len(v["vector"]) != backend.dim
+                            or not all(math.isfinite(n) for n in v["vector"])
                             for v in windows
                         ):
                             raise ValueError("invalid persisted vector dimensions")
-                        best = max(windows, key=lambda v: _cosine_sim(query_vector, v))
-                        score = _cosine_sim(query_vector, best)
+                        best = max(windows, key=lambda v: _cosine_sim(query_vector, v["vector"]))
+                        score = _cosine_sim(query_vector, best["vector"])
                         # This is an eligibility floor, not an answer-confidence
                         # claim; corpus/model evaluation must calibrate it.
                         if score >= hub.semantic_min_score:
                             key = item["asset_id"]
                             assets[key] = item
-                            embeddings[key] = best
+                            item["semantic_match"] = dict(
+                                similarity=score,
+                                source_field=best["source_field"],
+                                char_start=best["start"],
+                                char_end=best["end"],
+                                offset_unit="unicode_code_points",
+                                aggregation="max_window_cosine",
+                            )
+                            embeddings[key] = best["vector"]
                             vector_hits.append(RetrievedItem(key, score, None, None))
                     vector_hits.sort(key=lambda hit: hit.score, reverse=True)
                     vector_hits = vector_hits[:CANDIDATES]

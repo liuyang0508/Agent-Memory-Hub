@@ -14,7 +14,7 @@ from typing import Protocol
 
 from .storage import database
 
-INDEX_VERSION = 2
+INDEX_VERSION = 3
 WINDOW = 700
 STRIDE = 550
 
@@ -52,22 +52,36 @@ class LocalSentenceTransformer:
         self.model_version = fingerprint.hexdigest()
         self.encoder = SentenceTransformerEmbedder(str(path), local_only=True)
         self.dim = self.encoder.dim
+        model = self.encoder._model
+        self.window_tokens = model.max_seq_length - model.tokenizer.num_special_tokens_to_add(False)
+        self.stride_tokens = max(1, self.window_tokens * 3 // 4)
 
     def embed(self, text: str) -> list[float]:
         return self.encoder.embed(text)
 
-    def split_text(self, text: str) -> list[str]:
-        # Character windows exceed this multilingual model's token limit for
-        # CJK. Slice actual tokens so late facts cannot silently truncate away.
-        model = self.encoder._model
-        tokenizer = model.tokenizer
-        size = model.max_seq_length - tokenizer.num_special_tokens_to_add(False)
-        ids = tokenizer.encode(text, add_special_tokens=False, truncation=False, verbose=False)
-        stride = max(1, size * 3 // 4)
-        return [
-            tokenizer.decode(ids[i : i + size], skip_special_tokens=True)
-            for i in range(0, max(1, len(ids)), stride)
-        ]
+    def split_windows(self, text: str) -> list[dict]:
+        # Keep tokenizer offsets into source text; decoded model input may have
+        # normalized spacing, so it must not itself be presented as a quotation.
+        tokenizer = self.encoder._model.tokenizer
+        encoded = tokenizer(
+            text,
+            add_special_tokens=False,
+            truncation=False,
+            return_offsets_mapping=True,
+            verbose=False,
+        )
+        ids, offsets = encoded["input_ids"], encoded["offset_mapping"]
+        windows = []
+        for i in range(0, max(1, len(ids)), self.stride_tokens):
+            end = min(i + self.window_tokens, len(ids))
+            windows.append(
+                dict(
+                    text=tokenizer.decode(ids[i:end], skip_special_tokens=True),
+                    start=offsets[i][0] if offsets else 0,
+                    end=offsets[end - 1][1] if offsets else 0,
+                )
+            )
+        return windows
 
 
 def descriptor(backend: SemanticBackend) -> dict:
@@ -80,6 +94,9 @@ def descriptor(backend: SemanticBackend) -> dict:
         index_version=INDEX_VERSION,
         window=WINDOW,
         stride=STRIDE,
+        token_window=getattr(backend, "window_tokens", None),
+        token_stride=getattr(backend, "stride_tokens", None),
+        aggregation="max_window_cosine",
     )
 
 
@@ -92,13 +109,26 @@ def vector(backend: SemanticBackend, text: str) -> list[float]:
     return result
 
 
-def text_windows(item: dict, backend: SemanticBackend) -> list[str]:
-    body = item.get("index_text") if item["kind"] == "transcript" else None
-    body = item["body"] if body is None else body
-    title = item.get("title", "")
-    if hasattr(backend, "split_text"):
-        return backend.split_text(title + "\n" + body)
-    return [title + "\n" + body[i : i + WINDOW] for i in range(0, max(1, len(body)), STRIDE)]
+def text_windows(item: dict, backend: SemanticBackend) -> list[dict]:
+    field = (
+        "index_text"
+        if item["kind"] == "transcript" and item.get("index_text") is not None
+        else "body"
+    )
+    body, title = item[field], item.get("title", "")
+    if hasattr(backend, "split_windows"):
+        windows = backend.split_windows(title + "\n" + body)
+        for window in windows:
+            window["start"] = max(0, window["start"] - len(title) - 1)
+            window["end"] = max(0, window["end"] - len(title) - 1)
+    else:
+        windows = [
+            dict(text=title + "\n" + body[i : i + WINDOW], start=i, end=min(len(body), i + WINDOW))
+            for i in range(0, max(1, len(body)), STRIDE)
+        ]
+    for window in windows:
+        window["source_field"] = field
+    return windows
 
 
 SCHEMA = """
@@ -139,7 +169,18 @@ def rebuild(hub, token: str, backend: SemanticBackend) -> dict:
         items = [json.loads(row["payload"]) for row in rows]
         items = [item for item in items if hub._retrieval_valid(db, item)]
     encoded = [
-        (item, json.dumps([vector(backend, text) for text in text_windows(item, backend)]))
+        (
+            item,
+            json.dumps(
+                [
+                    {
+                        **{k: v for k, v in window.items() if k != "text"},
+                        "vector": vector(backend, window["text"]),
+                    }
+                    for window in text_windows(item, backend)
+                ]
+            ),
+        )
         for item in items
     ]
     with database(hub.path) as db:

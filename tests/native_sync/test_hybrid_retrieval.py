@@ -210,3 +210,27 @@ def test_exact_authorized_asset_id_wins_over_semantic_association(tmp_path):
     hub.put(token, asset("other", title="", body="approval 复核"))
     hub.rebuild_semantic(token)
     assert hub.retrieve(token, "approval", limit=1)["items"][0]["asset_id"] == "approval"
+
+
+def test_semantic_window_points_at_current_original_body(tmp_path):
+    hub, token, _ = make(tmp_path)
+    item = hub.put(token, asset("answer", title="title", body="两人复核"))
+    hub.rebuild_semantic(token)
+    result = hub.retrieve(token, "approval")["items"][0]
+    window = result["semantic_match"]
+    assert window["source_field"] == "body"
+    assert window["offset_unit"] == "unicode_code_points"
+    assert item["body"][window["char_start"] : window["char_end"]] == "两人复核"
+    assert window["aggregation"] == "max_window_cosine"
+
+
+def test_transcript_window_does_not_mislabel_index_text_as_body(tmp_path):
+    hub, token, _ = make(tmp_path)
+    hub.put(
+        token, asset("history", kind="transcript", body="raw transcript", index_text="两人复核")
+    )
+    hub.rebuild_semantic(token)
+    result = hub.retrieve(token, "approval", kinds=["transcript"])["items"][0]
+    window = result["semantic_match"]
+    assert window["source_field"] == "index_text"
+    assert result["index_text"][window["char_start"] : window["char_end"]] == "两人复核"
