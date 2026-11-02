@@ -430,7 +430,9 @@ class OrganizationTools:
                         raise ValueError("invalid chunk index")
                     if "recall" in item:
                         recall = item["recall"]
-                        if not isinstance(recall, dict) or not isinstance(recall.get("routes"), dict):
+                        if not isinstance(recall, dict) or not isinstance(
+                            recall.get("routes"), dict
+                        ):
                             raise ValueError("invalid recall summary")
                         routes = {}
                         for route, rank in recall["routes"].items():

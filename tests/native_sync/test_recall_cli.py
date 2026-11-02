@@ -24,10 +24,24 @@ def test_serve_flags_reach_the_hub(tmp_path, monkeypatch):
     monkeypatch.setattr("uvicorn.run", lambda *a, **kw: None)
     result = CliRunner().invoke(
         cli.app,
-        ["serve", "--db", str(tmp_path / "hub.sqlite"), "--hopfield", "--no-decay", "--hopfield-beta", "4", "--hopfield-min-score", "0.3"],
+        [
+            "serve",
+            "--db",
+            str(tmp_path / "hub.sqlite"),
+            "--hopfield",
+            "--no-decay",
+            "--hopfield-beta",
+            "4",
+            "--hopfield-min-score",
+            "0.3",
+        ],
     )
     assert result.exit_code == 0, result.output
-    assert captured["hopfield"] is True and captured["decay"] is False and captured["hopfield_beta"] == 4.0
+    assert (
+        captured["hopfield"] is True
+        and captured["decay"] is False
+        and captured["hopfield_beta"] == 4.0
+    )
     assert captured["hopfield_min_score"] == 0.3
 
 
@@ -49,12 +63,32 @@ def test_recall_trace_table_and_feedback(live, tmp_path, monkeypatch):
     trace_id = json.loads(raw.output)[0]["trace_id"]
     detail = runner.invoke(cli.app, ["recall-trace", "--state", str(c.root), "--trace", trace_id])
     assert detail.exit_code == 0, detail.output
-    for expected in ("审批规则", "已注入上下文", "lexical·1", "semantic·未启用", "hopfield·未启用", "未知", "time_unknown_neutral"):
+    for expected in (
+        "审批规则",
+        "已注入上下文",
+        "lexical·1",
+        "semantic·未启用",
+        "hopfield·未启用",
+        "未知",
+        "time_unknown_neutral",
+    ):
         assert expected in detail.output, expected
     assert "两人复核" not in detail.output  # titles and identifiers only, never bodies
     feedback = runner.invoke(
         cli.app,
-        ["recall-feedback", "--state", str(c.root), "--trace", trace_id, "--asset", "fact", "--revision", "1", "--event", "cite"],
+        [
+            "recall-feedback",
+            "--state",
+            str(c.root),
+            "--trace",
+            trace_id,
+            "--asset",
+            "fact",
+            "--revision",
+            "1",
+            "--event",
+            "cite",
+        ],
     )
     assert feedback.exit_code == 0, feedback.output
     assert json.loads(feedback.output)["states"] == {"fact": "cited"}
@@ -62,6 +96,18 @@ def test_recall_trace_table_and_feedback(live, tmp_path, monkeypatch):
     assert "回答已采用" in after.output
     bad = runner.invoke(
         cli.app,
-        ["recall-feedback", "--state", str(c.root), "--trace", trace_id, "--asset", "fact", "--revision", "1", "--event", "nope"],
+        [
+            "recall-feedback",
+            "--state",
+            str(c.root),
+            "--trace",
+            trace_id,
+            "--asset",
+            "fact",
+            "--revision",
+            "1",
+            "--event",
+            "nope",
+        ],
     )
     assert bad.exit_code != 0

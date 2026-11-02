@@ -83,10 +83,34 @@ def corpus(hub: Hub, token: str) -> list[tuple[str, str, str]]:
         # Shares cues with the fresh rule, none with the association query.
         neighbour = f"{cues[2]}归{cues[3]}管理，{cues[1]}记录也由{cues[3]}保存。"
         # Titles carry no cue phrase so the cue counts in the bodies decide the vectors.
-        hub.put(token, asset(key + "-fresh", fresh, title="现行规范", source_meta=declared(type="feedback", modified="2026-11-01")))
-        hub.put(token, asset(key + "-stale", stale, title="旧做法", source_meta=declared(type="project", modified="2025-12-01")))
+        hub.put(
+            token,
+            asset(
+                key + "-fresh",
+                fresh,
+                title="现行规范",
+                source_meta=declared(type="feedback", modified="2026-11-01"),
+            ),
+        )
+        hub.put(
+            token,
+            asset(
+                key + "-stale",
+                stale,
+                title="旧做法",
+                source_meta=declared(type="project", modified="2025-12-01"),
+            ),
+        )
         hub.put(token, asset(key + "-neighbour", neighbour, title="补充说明"))
-        hub.put(token, asset(key + "-superseded", stale + " 作废。", title="作废", source_meta=declared(superseded_by=key + "-fresh")))
+        hub.put(
+            token,
+            asset(
+                key + "-superseded",
+                stale + " 作废。",
+                title="作废",
+                source_meta=declared(superseded_by=key + "-fresh"),
+            ),
+        )
         cases.append((key, f"{cues[0]}现在要怎么做？", key + "-fresh"))
         cases.append((key + "-assoc", f"{cues[0]}之后还要补什么材料？", key + "-neighbour"))
     for i in range(30):
@@ -94,7 +118,8 @@ def corpus(hub: Hub, token: str) -> list[tuple[str, str, str]]:
             token,
             asset(
                 f"noise-{i}",
-                "会话记录：" + "、".join(cue for _, (_, cues) in TOPICS.items() for cue in cues[:2]) * 6,
+                "会话记录："
+                + "、".join(cue for _, (_, cues) in TOPICS.items() for cue in cues[:2]) * 6,
                 path=f"rollout_summaries/noise-{i}.md",
                 product="codex-cli",
             ),
@@ -148,13 +173,18 @@ def run(model: str | None, output: Path | None) -> dict:
         for key, query, target in cases:
             if target.endswith("-fresh"):
                 trace = hub.retrieve(who["token"], query, limit=8)["retrieval"]["trace_id"]
-                hub.recall_feedback(who["token"], trace, [{"asset_id": target, "revision": 1, "event": "cite"}])
+                hub.recall_feedback(
+                    who["token"], trace, [{"asset_id": target, "revision": 1, "event": "cite"}]
+                )
         report["variants"]["hybrid+decay+hopfield+feedback"] = evaluate(hub, who["token"], cases)
         sample = hub.retrieve(who["token"], cases[0][1], limit=3, record=False)
         report["sample_trace"] = {
             "stages": sample["retrieval"]["stages"],
             "candidates": [
-                {k: c.get(k) for k in ("asset_id", "routes", "rank", "final_rank", "state", "nature")}
+                {
+                    k: c.get(k)
+                    for k in ("asset_id", "routes", "rank", "final_rank", "state", "nature")
+                }
                 for c in sample["trace"]["candidates"][:6]
             ],
         }
@@ -174,4 +204,8 @@ if __name__ == "__main__":
     parser.add_argument("--output", type=Path, default=None)
     args = parser.parse_args()
     result = run(args.model, args.output)
-    print(json.dumps({k: v for k, v in result.items() if k != "sample_trace"}, ensure_ascii=False, indent=2))
+    print(
+        json.dumps(
+            {k: v for k, v in result.items() if k != "sample_trace"}, ensure_ascii=False, indent=2
+        )
+    )

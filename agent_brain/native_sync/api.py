@@ -256,7 +256,9 @@ def create_app(hub: Hub) -> FastAPI:
         return bounded_retrieval(hub.retrieve(bearer(authorization), **data.model_dump()))
 
     @app.post("/native/v1/recall")
-    def recall(data: RecallInput, authorization: str | None = Header(default=None)) -> dict[str, Any]:
+    def recall(
+        data: RecallInput, authorization: str | None = Header(default=None)
+    ) -> dict[str, Any]:
         """Hook channel: hybrid ranking with full bodies for a bounded number of hits."""
         from .retrieval_view import _diagnostics
 
@@ -277,7 +279,9 @@ def create_app(hub: Hub) -> FastAPI:
 
     @app.get("/native/v1/recalls")
     def recalls(
-        trace_id: str | None = Query(default=None, min_length=24, max_length=24, pattern=r"^[a-f0-9]+$"),
+        trace_id: str | None = Query(
+            default=None, min_length=24, max_length=24, pattern=r"^[a-f0-9]+$"
+        ),
         limit: int = Query(default=20, ge=1, le=100),
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
@@ -292,7 +296,9 @@ def create_app(hub: Hub) -> FastAPI:
 
     @app.get("/native/v1/admin/recalls/data")
     def admin_recalls(
-        trace_id: str | None = Query(default=None, min_length=24, max_length=24, pattern=r"^[a-f0-9]+$"),
+        trace_id: str | None = Query(
+            default=None, min_length=24, max_length=24, pattern=r"^[a-f0-9]+$"
+        ),
         limit: int = Query(default=50, ge=1, le=100),
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:

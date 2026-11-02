@@ -33,7 +33,9 @@ SIGNAL_FIELDS = (
 )
 
 
-def signals_for(db: sqlite3.Connection, tenant: str, asset_ids: list[str]) -> dict[str, dict[str, Any]]:
+def signals_for(
+    db: sqlite3.Connection, tenant: str, asset_ids: list[str]
+) -> dict[str, dict[str, Any]]:
     """Current signal rows for the given assets; missing rows mean no signals."""
     result: dict[str, dict[str, Any]] = {}
     keys = list(dict.fromkeys(asset_ids))
@@ -79,7 +81,9 @@ def _advance(current: str, target: str) -> str:
         return current
 
 
-def _bump(db: sqlite3.Connection, tenant: str, asset_id: str, *, now: float, **changes: float) -> None:
+def _bump(
+    db: sqlite3.Connection, tenant: str, asset_id: str, *, now: float, **changes: float
+) -> None:
     db.execute(
         "INSERT OR IGNORE INTO recall_signals(tenant,asset_id) VALUES(?,?)", (tenant, asset_id)
     )
@@ -148,15 +152,24 @@ def apply_feedback(
         elif name == "cite":
             candidate["state"] = _advance(current, "cited")
             _bump(
-                db, who["tenant"], asset_id, now=now,
-                cited=1, support=1, gain=0.1, last_cited=now, last_feedback=now,
+                db,
+                who["tenant"],
+                asset_id,
+                now=now,
+                cited=1,
+                support=1,
+                gain=0.1,
+                last_cited=now,
+                last_feedback=now,
             )
         elif name == "support":
             _bump(db, who["tenant"], asset_id, now=now, support=1, gain=0.1, last_feedback=now)
         elif name == "contradict":
             _bump(db, who["tenant"], asset_id, now=now, contradict=1, gain=-0.2, last_feedback=now)
         elif name == "confirm":
-            _bump(db, who["tenant"], asset_id, now=now, support=1, confirmed_at=now, last_feedback=now)
+            _bump(
+                db, who["tenant"], asset_id, now=now, support=1, confirmed_at=now, last_feedback=now
+            )
         candidate.setdefault("events", []).append(
             {"event": name, "at": round(now, 3), "by": who["member_id"]}
         )

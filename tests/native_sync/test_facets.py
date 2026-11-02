@@ -79,7 +79,10 @@ def test_parse_time_accepts_iso_date_epoch_and_rejects_noise():
 
 def test_nature_prefers_declared_over_location_over_body_cues():
     declared = {"kind": "memory", "source_meta": {"declared": {"type": "user"}}}
-    assert facets.nature(declared, "topic_memory") == {"value": "preference", "provenance": "declared"}
+    assert facets.nature(declared, "topic_memory") == {
+        "value": "preference",
+        "provenance": "declared",
+    }
     status = {"kind": "memory", "source_meta": {"declared": {"status": "临时"}}}
     assert facets.nature(status, "topic_memory")["value"] == "project_state"
     assert facets.nature({"kind": "rule"}, "rule") == {"value": "rule", "provenance": "parsed"}
@@ -88,7 +91,9 @@ def test_nature_prefers_declared_over_location_over_body_cues():
     assert facets.nature({"kind": "transcript"}, "transcript")["value"] == "episode"
     inferred = facets.nature({"kind": "memory", "body": "灰度发布进行中，待验证"}, "topic_memory")
     assert inferred == {"value": "project_state", "provenance": "inferred"}
-    assert facets.nature({"kind": "memory", "body": "We decided to keep SQLite"}, "topic_memory") == {
+    assert facets.nature(
+        {"kind": "memory", "body": "We decided to keep SQLite"}, "topic_memory"
+    ) == {
         "value": "decision",
         "provenance": "inferred",
     }
@@ -101,7 +106,10 @@ def test_nature_prefers_declared_over_location_over_body_cues():
 def test_times_never_substitute_observation_for_content_time():
     record = {"path": "2026-01-10-plan.md", "observed_at": 1_800_000_000.0}
     result = facets.times(record)
-    assert result["content_created"] == {"value": facets.parse_time("2026-01-10"), "source": "parsed"}
+    assert result["content_created"] == {
+        "value": facets.parse_time("2026-01-10"),
+        "source": "parsed",
+    }
     assert result["content_modified"] is None
     assert result["observed"]["source"] == "server"
     assert facets.reference_time(result) == (facets.parse_time("2026-01-10"), "content_created")
@@ -125,24 +133,42 @@ def test_declared_filter_only_on_explicit_supersession_or_expiry():
         {"source_meta": {"declared": {"expires": "2026-01-01"}}}, now=now
     )
     assert expired["reason"] == "expired" and expired["at"].startswith("2026-01-01")
-    assert facets.declared_filter({"source_meta": {"declared": {"expires": "2099-01-01"}}}, now=now) is None
+    assert (
+        facets.declared_filter({"source_meta": {"declared": {"expires": "2099-01-01"}}}, now=now)
+        is None
+    )
 
 
 def test_decay_is_bounded_reranking_and_unknown_time_does_not_decay():
     now = facets.parse_time("2026-11-03")
-    fresh = {"kind": "memory", "source_meta": {"declared": {"type": "feedback", "modified": "2026-11-01"}}}
-    old = {"kind": "memory", "source_meta": {"declared": {"type": "project", "modified": "2026-01-01"}}}
+    fresh = {
+        "kind": "memory",
+        "source_meta": {"declared": {"type": "feedback", "modified": "2026-11-01"}},
+    }
+    old = {
+        "kind": "memory",
+        "source_meta": {"declared": {"type": "project", "modified": "2026-01-01"}},
+    }
     unknown = {"kind": "memory"}
     a, b, c = (facets.decay(r, "topic_memory", None, now=now) for r in (fresh, old, unknown))
     assert a["half_life_days"] == 365 and b["half_life_days"] == 21 and c["half_life_days"] == 60
     assert a["weight"] > b["weight"]
-    assert b["coefficient"] == 0.01 and b["weight"] == pytest.approx(1 + 0.05 * math.tanh(math.log(0.01)), abs=1e-5)
+    assert b["coefficient"] == 0.01 and b["weight"] == pytest.approx(
+        1 + 0.05 * math.tanh(math.log(0.01)), abs=1e-5
+    )
     assert c == {**c, "coefficient": 0.5, "reason": "time_unknown_neutral", "age_days": None}
     assert c["weight"] == pytest.approx(1 + 0.05 * math.tanh(math.log(0.5)), abs=1e-5)
     assert a["weight"] > c["weight"] > b["weight"]  # dated fresh > undated > dated stale
     assert all(0.95 <= r["weight"] <= 1.05 for r in (a, b, c))
-    boosted = facets.decay(fresh, "topic_memory", {"delivered": 80, "support": 10, "gain": 5}, now=now)
-    assert boosted["multipliers"] == {"access": 1.35, "support": 1.18, "gain": 1.15, "contradiction": 1.0}
+    boosted = facets.decay(
+        fresh, "topic_memory", {"delivered": 80, "support": 10, "gain": 5}, now=now
+    )
+    assert boosted["multipliers"] == {
+        "access": 1.35,
+        "support": 1.18,
+        "gain": 1.15,
+        "contradiction": 1.0,
+    }
     assert boosted["coefficient"] == 1.35
     contradicted = facets.decay(fresh, "topic_memory", {"contradict": 3}, now=now)
     assert contradicted["multipliers"]["contradiction"] == pytest.approx(0.76)

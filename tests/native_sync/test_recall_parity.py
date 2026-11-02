@@ -19,7 +19,9 @@ DISABLED = "未启用"
 
 def make(tmp_path, **options):
     hub = Hub(tmp_path / "hub.sqlite", **options)
-    who = hub.provision("one", "device")  # The Hub's default tenant, as the operator pages scope to it.
+    who = hub.provision(
+        "one", "device"
+    )  # The Hub's default tenant, as the operator pages scope to it.
     return hub, who
 
 
@@ -31,8 +33,22 @@ def test_fresher_declared_memory_outranks_stale_state_on_equal_lexical_score(tmp
     hub, who = make(tmp_path)
     # Equal term statistics and lengths give equal BM25 scores; distinct bodies avoid dedup.
     body = "灰度发布审批需要两人复核 "
-    hub.put(who["token"], asset("stale", body=body + "alpha", source_meta=declared(type="project", modified="2026-01-01")))
-    hub.put(who["token"], asset("fresh", body=body + "bravo", source_meta=declared(type="feedback", modified="2026-11-01")))
+    hub.put(
+        who["token"],
+        asset(
+            "stale",
+            body=body + "alpha",
+            source_meta=declared(type="project", modified="2026-01-01"),
+        ),
+    )
+    hub.put(
+        who["token"],
+        asset(
+            "fresh",
+            body=body + "bravo",
+            source_meta=declared(type="feedback", modified="2026-11-01"),
+        ),
+    )
     hub.put(who["token"], asset("undated", body=body + "delta"))
     result = hub.retrieve(who["token"], "审批复核")
     order = [i["asset_id"] for i in result["items"]]
@@ -70,9 +86,15 @@ def test_decay_can_be_disabled_and_is_reported_as_not_enabled(tmp_path):
 
 def test_declared_supersession_and_expiry_drop_candidates_except_exact_id(tmp_path):
     hub, who = make(tmp_path)
-    hub.put(who["token"], asset("old-rule", body="审批复核旧规则", source_meta=declared(superseded_by="new-rule")))
+    hub.put(
+        who["token"],
+        asset("old-rule", body="审批复核旧规则", source_meta=declared(superseded_by="new-rule")),
+    )
     hub.put(who["token"], asset("new-rule", body="审批复核新规则"))
-    hub.put(who["token"], asset("expired", body="审批复核临时通知", source_meta=declared(expires="2026-01-01")))
+    hub.put(
+        who["token"],
+        asset("expired", body="审批复核临时通知", source_meta=declared(expires="2026-01-01")),
+    )
     result = hub.retrieve(who["token"], "审批复核")
     assert [i["asset_id"] for i in result["items"]] == ["new-rule"]
     states = {c["asset_id"]: c for c in result["trace"]["candidates"]}
@@ -122,11 +144,22 @@ def test_hopfield_stage_adds_semantic_neighbours_the_query_missed(tmp_path):
     assert result["retrieval"]["candidates"] == {"lexical": 1, "semantic": 1, "hopfield": 1}
     neighbour = result["items"][1]
     assert neighbour["retrieval_ranks"] == {"lexical": None, "semantic": None, "hopfield": 1}
-    assert neighbour["recall"]["routes"] == {"lexical": None, "semantic": None, "hopfield": 1, "rerank": DISABLED}
+    assert neighbour["recall"]["routes"] == {
+        "lexical": None,
+        "semantic": None,
+        "hopfield": 1,
+        "rerank": DISABLED,
+    }
     assert 0.45 <= neighbour["hopfield_match"]["similarity"] < 1
     assert neighbour["score"] < result["items"][0]["score"]
-    stage = next(s for s in result["trace"]["candidates"][1]["stages"] if s["stage"] == "hopfield_expand")
-    assert stage["before_rank"] is None and stage["after_rank"] == 2 and stage["effect"].startswith("hopfield_added")
+    stage = next(
+        s for s in result["trace"]["candidates"][1]["stages"] if s["stage"] == "hopfield_expand"
+    )
+    assert (
+        stage["before_rank"] is None
+        and stage["after_rank"] == 2
+        and stage["effect"].startswith("hopfield_added")
+    )
     hub.hopfield = False
     off = hub.retrieve(who["token"], "sign-off")
     assert [i["asset_id"] for i in off["items"]] == ["hit"]
@@ -155,7 +188,10 @@ def test_trace_is_recorded_without_bodies_and_feedback_moves_states_and_signals(
         row = db.execute("SELECT * FROM recall_events WHERE trace_id=?", (trace_id,)).fetchone()
     assert secret not in row["payload"] and row["query_preview"] == "审批复核"
     stored = json.loads(row["payload"])
-    assert {c["asset_id"]: c["state"] for c in stored["candidates"]} == {"a": "selected", "b": "dropped:limit"}
+    assert {c["asset_id"]: c["state"] for c in stored["candidates"]} == {
+        "a": "selected",
+        "b": "dropped:limit",
+    }
     assert stored["candidates"][0]["title"] == "审批规则"
     assert hub.recall_feedback(
         who["token"],
@@ -170,10 +206,20 @@ def test_trace_is_recorded_without_bodies_and_feedback_moves_states_and_signals(
     listed = hub.recalls(who["token"])["traces"]
     assert listed[0]["trace_id"] == trace_id and listed[0]["counts"]["cited"] == 1
     full = hub.recalls(who["token"], trace_id=trace_id)["traces"][0]
-    assert [e["event"] for e in full["candidates"][0]["events"]] == ["packed", "emitted", "confirmed", "cite"]
+    assert [e["event"] for e in full["candidates"][0]["events"]] == [
+        "packed",
+        "emitted",
+        "confirmed",
+        "cite",
+    ]
     with database(hub.path) as db:
         signals = dict(db.execute("SELECT * FROM recall_signals WHERE asset_id='a'").fetchone())
-    assert (signals["delivered"], signals["confirmed"], signals["cited"], signals["support"]) == (1, 1, 1, 1)
+    assert (signals["delivered"], signals["confirmed"], signals["cited"], signals["support"]) == (
+        1,
+        1,
+        1,
+        1,
+    )
     assert signals["gain"] == pytest.approx(0.1) and signals["last_cited"] > 0
     # Feedback now participates in ranking and the trace shows it.
     again = hub.retrieve(who["token"], "审批复核")
@@ -189,15 +235,26 @@ def test_trace_is_recorded_without_bodies_and_feedback_moves_states_and_signals(
         with pytest.raises(ValueError):
             hub.recall_feedback(who["token"], trace_id, bad)
     with pytest.raises(ValueError):
-        hub.recall_feedback(who["token"], "0" * 24, [{"asset_id": "a", "revision": 1, "event": "cite"}])
+        hub.recall_feedback(
+            who["token"], "0" * 24, [{"asset_id": "a", "revision": 1, "event": "cite"}]
+        )
     other = hub.provision("two", "other-device")
     with pytest.raises(ValueError, match="recalling device"):
-        hub.recall_feedback(other["token"], trace_id, [{"asset_id": "a", "revision": 1, "event": "emitted"}])
-    assert hub.recall_feedback(other["token"], trace_id, [{"asset_id": "a", "revision": 1, "event": "support"}])["applied"] == 1
+        hub.recall_feedback(
+            other["token"], trace_id, [{"asset_id": "a", "revision": 1, "event": "emitted"}]
+        )
+    assert (
+        hub.recall_feedback(
+            other["token"], trace_id, [{"asset_id": "a", "revision": 1, "event": "support"}]
+        )["applied"]
+        == 1
+    )
     assert hub.recalls(other["token"])["traces"] == []  # Another device sees only its own traces.
     foreign = hub.provision("x", "d", tenant="elsewhere")
     with pytest.raises(ValueError, match="unknown recall trace"):
-        hub.recall_feedback(foreign["token"], trace_id, [{"asset_id": "a", "revision": 1, "event": "support"}])
+        hub.recall_feedback(
+            foreign["token"], trace_id, [{"asset_id": "a", "revision": 1, "event": "support"}]
+        )
 
 
 def test_query_preview_setting_and_unrecorded_trace_do_not_break_retrieval(tmp_path):
@@ -214,35 +271,60 @@ def test_query_preview_setting_and_unrecorded_trace_do_not_break_retrieval(tmp_p
 def test_http_recall_feedback_listing_and_admin_page(tmp_path):
     hub, who = make(tmp_path)
     hub.put(who["token"], asset("a", body="审批复核 FULL_BODY", title="审批"))
-    hub.put(who["token"], asset("chat", kind="transcript", body="审批复核 审批复核 审批复核 transcript noise"))
+    hub.put(
+        who["token"],
+        asset("chat", kind="transcript", body="审批复核 审批复核 审批复核 transcript noise"),
+    )
     api = TestClient(create_app(hub))
     headers = {"Authorization": "Bearer " + who["token"]}
     response = api.post("/native/v1/recall", json={"query": "审批复核"}, headers=headers)
     assert response.status_code == 200
     data = response.json()
-    assert [i["asset_id"] for i in data["items"]] == ["a"]  # transcript noise is out of the hook channel
+    assert [i["asset_id"] for i in data["items"]] == [
+        "a"
+    ]  # transcript noise is out of the hook channel
     assert data["items"][0]["body"] == "审批复核 FULL_BODY"
-    assert data["retrieval"]["trace_id"] == data["trace_id"] and data["retrieval"]["stages"]["decay"] == "on"
+    assert (
+        data["retrieval"]["trace_id"] == data["trace_id"]
+        and data["retrieval"]["stages"]["decay"] == "on"
+    )
     trace_id = data["trace_id"]
     feedback = api.post(
         "/native/v1/recall/feedback",
-        json={"trace_id": trace_id, "events": [{"asset_id": "a", "revision": 1, "event": "emitted"}]},
+        json={
+            "trace_id": trace_id,
+            "events": [{"asset_id": "a", "revision": 1, "event": "emitted"}],
+        },
         headers=headers,
     )
     assert feedback.status_code == 200 and feedback.json()["states"] == {"a": "emitted"}
-    assert api.post("/native/v1/recall/feedback", json={"trace_id": "nope", "events": []}, headers=headers).status_code == 422
-    assert api.post(
-        "/native/v1/recall/feedback",
-        json={"trace_id": "0" * 24, "events": [{"asset_id": "a", "revision": 1, "event": "cite"}]},
-        headers=headers,
-    ).status_code == 409
+    assert (
+        api.post(
+            "/native/v1/recall/feedback", json={"trace_id": "nope", "events": []}, headers=headers
+        ).status_code
+        == 422
+    )
+    assert (
+        api.post(
+            "/native/v1/recall/feedback",
+            json={
+                "trace_id": "0" * 24,
+                "events": [{"asset_id": "a", "revision": 1, "event": "cite"}],
+            },
+            headers=headers,
+        ).status_code
+        == 409
+    )
     listed = api.get("/native/v1/recalls", headers=headers).json()["traces"]
     assert listed[0]["trace_id"] == trace_id and listed[0]["channel"] == "hook"
     assert "FULL_BODY" not in json.dumps(listed, ensure_ascii=False)
     full = api.get("/native/v1/recalls?trace_id=" + trace_id, headers=headers).json()["traces"][0]
     assert full["candidates"][0]["state"] == "emitted"
     retrieve = api.post("/native/v1/retrieve", json={"query": "审批复核"}, headers=headers).json()
-    assert retrieve["retrieval"]["trace_id"] and retrieve["retrieval"]["stages"]["hopfield"] == DISABLED
+    assert (
+        retrieve["retrieval"]["trace_id"]
+        and retrieve["retrieval"]["stages"]["hopfield"] == DISABLED
+    )
     assert retrieve["items"][0]["recall"]["routes"]["lexical"] == 1
     assert retrieve["items"][0]["recall"]["state"] == "selected"
     operator = hub.admin_create("ops")
@@ -250,7 +332,9 @@ def test_http_recall_feedback_listing_and_admin_page(tmp_path):
     assert page.status_code == 200 and "召回明细" in page.text and operator not in page.text
     assert api.get("/native/v1/admin/recalls/data").status_code == 401
     assert api.get("/native/v1/admin/recalls/data", headers=headers).status_code == 401
-    admin_view = api.get("/native/v1/admin/recalls/data", headers={"Authorization": "Bearer " + operator})
+    admin_view = api.get(
+        "/native/v1/admin/recalls/data", headers={"Authorization": "Bearer " + operator}
+    )
     assert admin_view.status_code == 200
     assert len(admin_view.json()["traces"]) == 2 and "FULL_BODY" not in admin_view.text
 
@@ -283,7 +367,11 @@ def test_mcp_bridge_passes_trace_and_recall_summary_through(tmp_path):
             json.dumps(
                 {
                     "hub": f"http://127.0.0.1:{sock.getsockname()[1]}",
-                    "identity": {"tenant_id": "one", "member_id": who["member_id"], "token": who["token"]},
+                    "identity": {
+                        "tenant_id": "one",
+                        "member_id": who["member_id"],
+                        "token": who["token"],
+                    },
                 }
             )
         )

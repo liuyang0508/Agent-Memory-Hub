@@ -138,14 +138,21 @@ def _candidate(item: dict[str, Any]) -> dict[str, Any]:
             "routes": {
                 key: routes[key]
                 for key in ROUTES
-                if key in routes and (routes[key] is None or type(routes[key]) is int or isinstance(routes[key], str))
+                if key in routes
+                and (
+                    routes[key] is None or type(routes[key]) is int or isinstance(routes[key], str)
+                )
             },
         }
         for key, kind in (("final_rank", int), ("nature", str), ("state", str)):
             if isinstance(recall.get(key), kind) and not isinstance(recall.get(key), bool):
                 compact[key] = recall[key] if kind is int else _clip(recall[key], 32)
         weight = recall.get("decay_weight")
-        if isinstance(weight, (int, float)) and not isinstance(weight, bool) and math.isfinite(weight):
+        if (
+            isinstance(weight, (int, float))
+            and not isinstance(weight, bool)
+            and math.isfinite(weight)
+        ):
             compact["decay_weight"] = round(float(weight), 5)
         result["recall"] = compact
     return result

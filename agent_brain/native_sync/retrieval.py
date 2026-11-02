@@ -84,7 +84,9 @@ class _Trace:
 
 def _compact_times(times_set: dict[str, Any]) -> dict[str, Any]:
     return {
-        key: None if value is None else {"value": round(value["value"], 3), "source": value["source"]}
+        key: None
+        if value is None
+        else {"value": round(value["value"], 3), "source": value["source"]}
         for key, value in times_set.items()
     }
 
@@ -261,7 +263,9 @@ def retrieve(
     hopfield_used = bool(hub.hopfield and semantic_used and embeddings)
     hopfield_ranks: dict[str, int] = {}
     if hopfield_used:
-        seeds = [(h.id, h.score, embeddings[h.id]) for h in fused[:HOPFIELD_SEEDS] if h.id in embeddings]
+        seeds = [
+            (h.id, h.score, embeddings[h.id]) for h in fused[:HOPFIELD_SEEDS] if h.id in embeddings
+        ]
         before = trace.snapshot(fused)
         # The attractor forms over the whole authorized store (seeds included);
         # only assets no route has surfaced are added from it.

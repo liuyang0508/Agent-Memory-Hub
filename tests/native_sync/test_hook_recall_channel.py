@@ -27,21 +27,24 @@ def test_hook_recall_skips_transcript_noise_and_reports_delivery_states(live, tm
     assert len(metric["trace_id"]) == 24
     trace_id = metric["trace_id"]
     with database(c.path) as db:
-        reports = {
-            (r["asset"], r["event"]) for r in db.execute("SELECT * FROM recall_reports")
-        }
+        reports = {(r["asset"], r["event"]) for r in db.execute("SELECT * FROM recall_reports")}
         assert db.execute("SELECT trace_id FROM emitted_traces").fetchone()["trace_id"] == trace_id
     assert reports == {("fact", "packed"), ("fact", "emitted")}
     transcript = tmp_path / "transcript.jsonl"
     transcript.write_text(json.dumps(first, ensure_ascii=False))
-    second = hook(c.root, "UserPromptSubmit", prompt="审批复核要几个人", transcript_path=str(transcript))
+    second = hook(
+        c.root, "UserPromptSubmit", prompt="审批复核要几个人", transcript_path=str(transcript)
+    )
     assert not second.get("hookSpecificOutput", {}).get("additionalContext")
     with database(c.path) as db:
         reports = {
-            (r["trace_id"], r["asset"], r["event"]) for r in db.execute("SELECT * FROM recall_reports")
+            (r["trace_id"], r["asset"], r["event"])
+            for r in db.execute("SELECT * FROM recall_reports")
         }
     assert (trace_id, "fact", "confirmed") in reports
-    second_trace = json.loads((c.root / "hook-metrics.jsonl").read_text().splitlines()[-1])["trace_id"]
+    second_trace = json.loads((c.root / "hook-metrics.jsonl").read_text().splitlines()[-1])[
+        "trace_id"
+    ]
     assert (second_trace, "fact", "covered") in reports
     assert c.sync()["errors"] == []
     with database(c.path) as db:
@@ -50,7 +53,11 @@ def test_hook_recall_skips_transcript_noise_and_reports_delivery_states(live, tm
     assert traces[trace_id]["channel"] == "hook" and traces[trace_id]["counts"]["confirmed"] == 1
     assert traces[second_trace]["counts"].get("dropped:covered") == 1
     full = hub.recalls(c.config["identity"]["token"], trace_id=trace_id)["traces"][0]
-    assert [e["event"] for e in full["candidates"][0]["events"]] == ["packed", "emitted", "confirmed"]
+    assert [e["event"] for e in full["candidates"][0]["events"]] == [
+        "packed",
+        "emitted",
+        "confirmed",
+    ]
     assert "两人复核" not in json.dumps(full, ensure_ascii=False)
 
 
@@ -83,7 +90,11 @@ def test_fetch_falls_back_to_search_on_an_old_hub_and_keeps_other_errors():
         def recall(self, query, *, limit):
             return {"items": [{"asset_id": "a"}], "trace_id": "f" * 24, "private": 1}
 
-    assert fetch(New(), "q") == {"items": [{"asset_id": "a"}], "trace_id": "f" * 24, "channel": "recall"}
+    assert fetch(New(), "q") == {
+        "items": [{"asset_id": "a"}],
+        "trace_id": "f" * 24,
+        "channel": "recall",
+    }
 
 
 def test_reports_are_dropped_for_hubs_that_cannot_accept_them_and_kept_on_outage(tmp_path):

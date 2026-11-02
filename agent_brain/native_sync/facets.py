@@ -68,7 +68,9 @@ STATUS_TO_NATURE = {
 }
 # Weak body cues may only suggest the two natures a reader would otherwise
 # mistake for stable knowledge. They never override a declaration.
-_STATE_CUES = re.compile(r"待验证|待确认|进行中|阻塞|尚未|\bblocked\b|\bin progress\b|\btodo\b|\bwip\b|\bpending\b", re.I)
+_STATE_CUES = re.compile(
+    r"待验证|待确认|进行中|阻塞|尚未|\bblocked\b|\bin progress\b|\btodo\b|\bwip\b|\bpending\b", re.I
+)
 _DECISION_CUES = re.compile(r"决定|决策|决议|\bdecision\b|\bdecided\b", re.I)
 _FRONTMATTER = re.compile(r"\A---[ \t]*\r?\n(.*?)\r?\n---[ \t]*(?:\r?\n|\Z)", re.S)
 _WIKILINK = re.compile(r"\[\[([^\]\[|#\n]{1,256})(?:[#|][^\]\n]*)?\]\]")
@@ -184,7 +186,11 @@ def validate_source_meta(value: Any) -> dict[str, Any]:
     result: dict[str, Any] = {}
     if "mtime" in value:
         mtime = value["mtime"]
-        if isinstance(mtime, bool) or not isinstance(mtime, (int, float)) or parse_time(mtime) is None:
+        if (
+            isinstance(mtime, bool)
+            or not isinstance(mtime, (int, float))
+            or parse_time(mtime) is None
+        ):
             raise ValueError("invalid source metadata")
         result["mtime"] = float(mtime)
     if "declared" in value:
@@ -289,7 +295,10 @@ def declared_filter(record: dict[str, Any], *, now: float) -> dict[str, str] | N
         return {"reason": "superseded", "by": target[:128]}
     expiry = times(record)["expires"]
     if expiry and expiry["value"] < now:
-        return {"reason": "expired", "at": datetime.fromtimestamp(expiry["value"], timezone.utc).isoformat()}
+        return {
+            "reason": "expired",
+            "at": datetime.fromtimestamp(expiry["value"], timezone.utc).isoformat(),
+        }
     return None
 
 
