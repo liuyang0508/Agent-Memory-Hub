@@ -69,7 +69,7 @@ class RetrieveInput(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
     query: str = Field(max_length=8000)
-    limit: int = Field(default=8, ge=1, le=50)
+    limit: int = Field(default=8, ge=1, le=20)
     kinds: list[Literal["memory", "transcript", "rule", "skill", "config"]] | None = Field(
         default=None, max_length=5
     )

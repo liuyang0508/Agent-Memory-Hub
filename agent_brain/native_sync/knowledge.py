@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any
 from urllib.parse import unquote, urlsplit
 
 from .asset_roles import asset_role
+from .document_contract import DOCUMENT_FIELDS
 from .models import ReadInput, RelatedInput
 from .storage import database
 
@@ -202,16 +203,6 @@ class NativeKnowledge:
             )
         result = bytearray()
         parts: list[tuple[str, int]] = []
-        consistent = (
-            "product",
-            "kind",
-            "path",
-            "project",
-            "title",
-            "producer_member_id",
-            "producer_unknown",
-            "upstream",
-        )
         for index, row in enumerate(rows):
             part = json.loads(row["payload"])
             if (
@@ -224,7 +215,7 @@ class NativeKnowledge:
                 or part["asset_id"] != row["id"]
                 or part["revision"] != row["revision"]
                 or part["source_device_id"] != row["owner_device"]
-                or any(part.get(key) != item.get(key) for key in consistent)
+                or any(part.get(key) != item.get(key) for key in DOCUMENT_FIELDS)
             ):
                 raise KnowledgeConflict("incomplete_version")
             raw = part["body"].encode("utf8")
@@ -369,7 +360,18 @@ class NativeKnowledge:
                     except KnowledgeConflict:
                         continue
                     candidates.append(
-                        (target, "derived_from", {"field": "upstream", "index": index}, True)
+                        (
+                            target,
+                            "derived_from",
+                            {
+                                "field": "upstream",
+                                "index": index,
+                                "relation_scope": "asset",
+                                "target_revision_binding": "current_lookup",
+                                "original_target_revision": None,
+                            },
+                            True,
+                        )
                     )
                 history, clipped = self._history(db, token, item)
                 truncated |= clipped

@@ -245,7 +245,9 @@ def create_app(hub: Hub) -> FastAPI:
     def retrieve(
         data: RetrieveInput, authorization: str | None = Header(default=None)
     ) -> dict[str, Any]:
-        return hub.retrieve(bearer(authorization), **data.model_dump())
+        from .retrieval_view import bounded_retrieval
+
+        return bounded_retrieval(hub.retrieve(bearer(authorization), **data.model_dump()))
 
     @app.post("/native/v1/read")
     def read(data: ReadInput, authorization: str | None = Header(default=None)) -> dict[str, Any]:
