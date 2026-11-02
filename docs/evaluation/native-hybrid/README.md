@@ -180,3 +180,32 @@ document is incomplete if conflicting sibling rows exist. Such versions are
 excluded from default/hybrid retrieval and semantic rebuild until consistent;
 changing a part's path without changing its body cannot produce a verified
 retrieval candidate that the bounded reader rejects as an inconsistent version.
+
+## Incremental maintenance
+
+`rebuild_semantic(token)` now refreshes incrementally. If the complete descriptor
+and a source asset's revision/content hash match the stored generation, its
+existing windows are reused. New/changed assets alone are encoded. A changed
+model, token-window settings or index version invalidates reuse. Each refresh
+still checks complete source versions before preparation and again under the
+commit lock; changed or revoked state cannot reinsert an obsolete asset. Removed
+assets disappear when the next generation is atomically committed.
+
+The result additionally contains `encoded` and `reused`, counting source assets
+prepared during this refresh (not the number of windows/model calls).
+`indexed` counts committed current assets, while `skipped_changed` counts assets
+that changed between preparation and commit. Therefore a racing change can make
+`encoded + reused > indexed`; the skipped count explains the difference.
+A no-change refresh performs zero document embeddings. All database scans and
+validation remain local and scoped to the credential's organization; this is not
+an ANN or production-scale performance claim. Scheduling belongs to the separate
+explicit operator command, never hooks or source PUT, and no watcher is started
+by constructing a Hub or calling retrieve.
+
+`incremental-refresh.json` records an isolated REAL cached-model check: first
+build encoded 2/reused 0 with 2 embedding calls; unchanged refresh encoded 0/
+reused 2 with zero embedding calls; one updated asset encoded 1/reused 1 with
+one embedding call. The subsequent English query returned that asset's current
+revision 2 and updated Chinese body. The synthetic protocol tests additionally
+exercise model/hash invalidation, delete cleanup, concurrent source changes,
+rollback on revocation and no inference after credential revocation.

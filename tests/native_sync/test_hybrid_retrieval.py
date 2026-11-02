@@ -390,3 +390,96 @@ def test_multipart_completion_never_borrows_other_source_scope(tmp_path, differe
     )
     assert hub.retrieve(token, "approval")["items"] == []
     assert hub.rebuild_semantic(token)["indexed"] == 0
+
+
+def test_incremental_build_reuses_exact_windows_and_encodes_only_changes(tmp_path):
+    hub, token, backend = make(tmp_path)
+    for key in ["keep", "change", "delete"]:
+        hub.put(token, asset(key, body="approval " + key))
+    first = hub.rebuild_semantic(token)
+    assert (first["encoded"], first["reused"], first["indexed"]) == (3, 0, 3)
+    backend.seen.clear()
+    second = hub.rebuild_semantic(token)
+    assert (second["encoded"], second["reused"], second["indexed"]) == (0, 3, 3)
+    assert backend.seen == []
+    hub.put(token, asset("change", body="updated 复核", base_revision=1))
+    hub.put(token, asset("delete", deleted=True, body="", base_revision=1))
+    hub.put(token, asset("new", body="new approval"))
+    refreshed = hub.rebuild_semantic(token)
+    assert (refreshed["encoded"], refreshed["reused"], refreshed["indexed"]) == (2, 1, 3)
+    assert len(backend.seen) == 2
+    assert all("keep" not in text and "delete" not in text for text in backend.seen)
+    with database(hub.path) as db:
+        rows = db.execute(
+            "SELECT asset_id,revision FROM native_semantic_vectors ORDER BY asset_id"
+        ).fetchall()
+    assert [(r["asset_id"], r["revision"]) for r in rows] == [
+        ("change", 2),
+        ("keep", 1),
+        ("new", 1),
+    ]
+    backend.seen.clear()
+    backend.model_version = "new-model-version"
+    changed_model = hub.rebuild_semantic(token)
+    assert (changed_model["encoded"], changed_model["reused"]) == (3, 0)
+    assert len(backend.seen) == 3
+
+
+def test_reused_source_revision_is_rechecked_before_atomic_refresh(tmp_path):
+    hub, token, backend = make(tmp_path)
+    hub.put(token, asset("cached", body="approval"))
+    hub.rebuild_semantic(token)
+    hub.put(token, asset("fresh", body="fresh approval"))
+
+    def race():
+        backend.on_embed = None
+        hub.put(token, asset("cached", body="new unrelated", base_revision=1))
+
+    backend.on_embed = race
+    result = hub.rebuild_semantic(token)
+    assert (result["reused"], result["encoded"], result["indexed"], result["skipped_changed"]) == (
+        1,
+        1,
+        1,
+        1,
+    )
+    with database(hub.path) as db:
+        assert [r[0] for r in db.execute("SELECT asset_id FROM native_semantic_vectors")] == [
+            "fresh"
+        ]
+
+
+def test_revoked_refresh_does_not_replace_previous_generation(tmp_path):
+    hub, token, backend = make(tmp_path)
+    hub.put(token, asset("cached", body="approval"))
+    hub.rebuild_semantic(token)
+    hub.put(token, asset("fresh", body="fresh approval"))
+
+    def revoke():
+        backend.on_embed = None
+        with database(hub.path) as db:
+            db.execute("UPDATE devices SET revoked=1")
+
+    backend.on_embed = revoke
+    with pytest.raises(PermissionError):
+        hub.rebuild_semantic(token)
+    with database(hub.path) as db:
+        assert [r[0] for r in db.execute("SELECT asset_id FROM native_semantic_vectors")] == [
+            "cached"
+        ]
+    backend.seen.clear()
+    with pytest.raises(PermissionError):
+        hub.rebuild_semantic(token)
+    assert backend.seen == []
+
+
+def test_same_revision_with_mismatched_cached_hash_is_encoded_again(tmp_path):
+    hub, token, backend = make(tmp_path)
+    hub.put(token, asset("item", body="approval"))
+    hub.rebuild_semantic(token)
+    with database(hub.path) as db:
+        db.execute("UPDATE native_semantic_vectors SET content_hash='mismatch'")
+    backend.seen.clear()
+    result = hub.rebuild_semantic(token)
+    assert (result["reused"], result["encoded"]) == (0, 1)
+    assert len(backend.seen) == 1

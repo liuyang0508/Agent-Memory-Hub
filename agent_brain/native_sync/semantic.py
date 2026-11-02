@@ -155,8 +155,10 @@ def exists(db) -> bool:
 def rebuild(hub, token: str, backend: SemanticBackend) -> dict:
     """Build a tenant snapshot, then atomically replace its derived generation.
 
+    Reuse only the same model/index descriptor and exact source revision/hash.
     Concurrent source changes are skipped at commit and cannot resurrect a stale
     vector. Source deletes do not need a model or vector write on the put path.
+    encoded/reused count prepared assets (before skipped_changed), not windows.
     """
     config = descriptor(backend)
     with database(hub.path) as db:
@@ -168,21 +170,47 @@ def rebuild(hub, token: str, backend: SemanticBackend) -> dict:
         ).fetchall()
         items = [json.loads(row["payload"]) for row in rows]
         items = [item for item in items if hub._retrieval_valid(db, item)]
-    encoded = [
-        (
-            item,
-            json.dumps(
-                [
-                    {
-                        **{k: v for k, v in window.items() if k != "text"},
-                        "vector": vector(backend, window["text"]),
-                    }
-                    for window in text_windows(item, backend)
-                ]
-            ),
-        )
-        for item in items
-    ]
+        cached = {}
+        if exists(db):
+            previous = db.execute(
+                "SELECT descriptor FROM native_semantic_meta WHERE tenant=?", (who["tenant"],)
+            ).fetchone()
+            if previous and json.loads(previous["descriptor"]) == config:
+                cached = {
+                    row["asset_id"]: row["vectors"]
+                    for row in db.execute(
+                        "SELECT v.asset_id,v.vectors FROM native_semantic_vectors v "
+                        "JOIN assets a ON a.tenant=v.tenant AND a.id=v.asset_id "
+                        "AND a.revision=v.revision "
+                        "AND json_extract(a.payload,'$.content_hash')=v.content_hash "
+                        "WHERE v.tenant=?",
+                        (who["tenant"],),
+                    )
+                }
+    prepared = []
+    reused = 0
+    encoded = 0
+    for item in items:
+        previous_vectors = cached.get(item["asset_id"])
+        if previous_vectors is not None:
+            prepared.append((item, previous_vectors))
+            reused += 1
+        else:
+            prepared.append(
+                (
+                    item,
+                    json.dumps(
+                        [
+                            {
+                                **{k: v for k, v in window.items() if k != "text"},
+                                "vector": vector(backend, window["text"]),
+                            }
+                            for window in text_windows(item, backend)
+                        ]
+                    ),
+                )
+            )
+            encoded += 1
     with database(hub.path) as db:
         db.executescript(SCHEMA)
         db.execute("BEGIN IMMEDIATE")
@@ -191,7 +219,7 @@ def rebuild(hub, token: str, backend: SemanticBackend) -> dict:
             raise PermissionError("organization changed during semantic build")
         db.execute("DELETE FROM native_semantic_vectors WHERE tenant=?", (who["tenant"],))
         count = 0
-        for item, vectors in encoded:
+        for item, vectors in prepared:
             row = db.execute(
                 "SELECT revision,payload FROM assets WHERE tenant=? AND id=?",
                 (who["tenant"], item["asset_id"]),
@@ -212,4 +240,10 @@ def rebuild(hub, token: str, backend: SemanticBackend) -> dict:
             "INSERT OR REPLACE INTO native_semantic_meta VALUES(?,?)",
             (who["tenant"], json.dumps(config, sort_keys=True)),
         )
-    return {**config, "indexed": count, "skipped_changed": len(items) - count}
+    return {
+        **config,
+        "indexed": count,
+        "skipped_changed": len(items) - count,
+        "reused": reused,
+        "encoded": encoded,
+    }
