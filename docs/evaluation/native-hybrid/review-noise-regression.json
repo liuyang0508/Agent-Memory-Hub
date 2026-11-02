@@ -1,0 +1,82 @@
+{
+  "evaluation": "Isolated regression; real cached model, synthetic single-asset corpus",
+  "build": {
+    "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+    "model_version": "09dcfb3bf7f009c5a890f800bd3c33a5d3855be516640c2bcf46c17586cd9466",
+    "dimension": 384,
+    "index_version": 3,
+    "window": 700,
+    "stride": 550,
+    "token_window": 126,
+    "token_stride": 94,
+    "aggregation": "max_window_cosine",
+    "indexed": 1,
+    "skipped_changed": 0
+  },
+  "results": [
+    {
+      "query": "火星基地种植土豆的成本是多少",
+      "ids": [],
+      "retrieval": {
+        "mode": "hybrid",
+        "degraded": false,
+        "reasons": [],
+        "model": {
+          "aggregation": "max_window_cosine",
+          "dimension": 384,
+          "index_version": 3,
+          "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+          "model_version": "09dcfb3bf7f009c5a890f800bd3c33a5d3855be516640c2bcf46c17586cd9466",
+          "stride": 550,
+          "token_stride": 94,
+          "token_window": 126,
+          "window": 700
+        },
+        "reranked": false,
+        "mmr": false,
+        "candidates": {
+          "lexical": 0,
+          "semantic": 0
+        },
+        "semantic_index": {
+          "current": 1,
+          "eligible": 1
+        },
+        "answer_status": "no_match"
+      }
+    },
+    {
+      "query": "How many days does it take to receive a refund?",
+      "ids": [
+        "refund"
+      ],
+      "retrieval": {
+        "mode": "hybrid",
+        "degraded": false,
+        "reasons": [],
+        "model": {
+          "aggregation": "max_window_cosine",
+          "dimension": 384,
+          "index_version": 3,
+          "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+          "model_version": "09dcfb3bf7f009c5a890f800bd3c33a5d3855be516640c2bcf46c17586cd9466",
+          "stride": 550,
+          "token_stride": 94,
+          "token_window": 126,
+          "window": 700
+        },
+        "reranked": false,
+        "mmr": false,
+        "candidates": {
+          "lexical": 0,
+          "semantic": 1
+        },
+        "semantic_index": {
+          "current": 1,
+          "eligible": 1
+        },
+        "answer_status": "candidates_only"
+      }
+    }
+  ]
+}

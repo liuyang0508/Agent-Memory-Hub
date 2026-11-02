@@ -818,12 +818,12 @@ class Hub:
             # Stream bytes into the digest rather than constructing a full copy.
             import hashlib
 
+            from .document_contract import DOCUMENT_FIELDS
+
             part_rows = db.execute(
-                "SELECT id,revision,json_extract(payload,'$.body') body, "
-                "json_extract(payload,'$.part_index') part_index, "
-                "json_extract(payload,'$.part_count') part_count, "
-                "json_extract(payload,'$.encoding') encoding, "
-                "json_extract(payload,'$.deleted') deleted FROM assets "
+                "SELECT tenant,id,revision,owner_device,"
+                "json_extract(payload,'$.body') body, "
+                "json_remove(payload,'$.body','$.index_text') metadata FROM assets "
                 "WHERE tenant=? AND owner_device=? "
                 "AND json_extract(payload,'$.source_store')=? "
                 "AND json_extract(payload,'$.document_id')=? AND json_extract(payload,'$.document_hash')=? "
@@ -838,22 +838,31 @@ class Hub:
             )
             hashed = hashlib.sha256()
             versions = []
-            count = None
+            count = item.get("part_count", 1)
             for index, row in enumerate(part_rows):
-                if count is None:
-                    count = row["part_count"]
+                part = json.loads(row["metadata"])
                 if (
-                    row["deleted"]
-                    or row["part_index"] != index
-                    or row["part_count"] != count
-                    or row["encoding"] != "utf8"
+                    part.get("deleted")
+                    or part.get("part_index") != index
+                    or part.get("part_count") != count
+                    or part.get("encoding") != "utf8"
+                    or part.get("tenant_id") != row["tenant"]
+                    or part.get("asset_id") != row["id"]
+                    or part.get("revision") != row["revision"]
+                    or part.get("source_device_id") != row["owner_device"]
+                    or any(part.get(field) != item.get(field) for field in DOCUMENT_FIELDS)
+                    or part.get("body_hash") != digest(row["body"])
                 ):
                     return []
                 hashed.update(row["body"].encode())
                 versions.append((row["id"], row["revision"]))
             return (
                 versions
-                if len(versions) == count and hashed.hexdigest() == item["document_hash"]
+                if (
+                    len(versions) == count
+                    and (item["asset_id"], item["revision"]) in versions
+                    and hashed.hexdigest() == item["document_hash"]
+                )
                 else []
             )
         else:
@@ -1016,8 +1025,10 @@ class Hub:
 
         if item.get("deleted"):
             return False
-        if item.get("part_count", 1) == 1:
+        if not item.get("document_id") and item.get("part_count", 1) == 1:
             return bool(assembled([item]))
+        # Even a one-part declared document can have conflicting sibling rows.
+        # Use the same whole-version metadata contract as bounded document read.
         return (item["asset_id"], item["revision"]) in self._version_proof(db, item)
 
     def rebuild_semantic(self, token: str) -> dict:

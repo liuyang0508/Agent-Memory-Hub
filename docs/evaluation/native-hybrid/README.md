@@ -93,7 +93,7 @@ PYTHONPATH=. HF_HUB_OFFLINE=1 TOKENIZERS_PARALLELISM=false \
 ```
 
 `development-smoke.json` uses REAL cached embeddings with a synthetic temporary
-corpus. Its first 8 cases are the development set; the following 6 are frozen holdout. Answerable cases achieved Hit@3 6/6 (Top1 5/6); the two unanswerable/isolation
+corpus. Its first 8 cases are the development set; the following 6 are frozen holdout. At the initial freeze, answerable cases achieved Hit@3 6/6 (Top1 5/6); the two unanswerable/isolation
 queries returned empty. Cross-language retrieval had zero lexical hits and one
 correct semantic hit. Failure-summary interference and duplicates are included;
 an updated source demonstrates stale-vector exclusion and explicit partial-index
@@ -102,8 +102,9 @@ is an outstanding ranking-quality limitation, not a passed semantic-tail claim.
 Its best-window cosine is 0.2625, below the unchanged 0.45 eligibility floor.
 
 The six held-out query rewrites were saved in `holdout-queries.json` before their
-first execution; the report records that file's SHA256. No model, threshold,
-corpus or ranking tuning followed those results. The same synthetic corpus was
+first execution; the report records that file's SHA256. No model, threshold or corpus adjustment was made based on those outcomes.
+The later independent-review correction below changes general lexical eligibility;
+both the original frozen report and the subsequent regression report are retained. The same synthetic corpus was
 used, so this is held-out wording, not a sealed unseen-corpus/generalization test.
 For its 5 answerable queries, hybrid achieved Hit@3 and Top1 5/5, versus lexical
 2/5. Its one no-answer query was empty for both. The baseline uses the SAME
@@ -135,3 +136,47 @@ reranker performance and incremental background index refresh remain unverified.
 Source changes fall back to lexical until explicit rebuild; hooks never trigger
 builds. No old index backup is needed for rollback: remove model configuration
 and retain source assets/FTS; derived tables may be rebuilt in a later candidate.
+
+
+## Independent review corrections
+
+`post-review-smoke.json` is the latest replay after two independent review
+findings, with the frozen query file, model and 0.45 semantic floor unchanged.
+Natural-language CJK queries no longer OR every standalone character: they use
+the existing native tokenizer's contiguous bigrams (plus ASCII terms). Explicit
+one-character lookups remain available. This removes unrelated matches whose
+only overlap is isolated characters such as grammatical particles. It does not
+apply a lexical-overlap gate to semantic candidates.
+
+`review-noise-regression.json` records a separate real-model isolated regression:
+“火星基地种植土豆的成本是多少” returns no result from a refund policy sharing only
+single characters; an English refund paraphrase still finds that Chinese policy
+with zero lexical candidates and one semantic candidate.
+
+On the frozen suite replay, held-out wording remains Top1 5/5 plus one empty
+no-answer result (lexical baseline 2/5 plus that empty result). The development
+Chinese long-tail query now fails Hit@3: its former third-place match relied on
+single-character overlap. It still has semantic cosine 0.2625 and is not promoted
+by lowering the floor. Consequently the latest total is 13/14 checks, with the
+long-tail limitation explicitly retained. A different, unchanged held-out English
+tail query still succeeds through semantic retrieval with zero lexical candidates.
+Warm timing on this replay: held-out n=6 hybrid p50/p95 11.180/26.494 ms versus
+lexical 2.439/2.617 ms; these remain tiny local samples, not production claims.
+
+Source path role filtering now registers the existing `asset_role` implementation
+as a deterministic SQLite function. This keeps returned roles and SQL eligibility
+identical for `./`, repeated separators and backslash variants BEFORE LIMIT and
+vector/reranker selection. The asset API currently permits these source strings
+(only a maximum length constraint); they remain unchanged in source records.
+Tests populate 105 alias records to prove they cannot consume the default
+100-candidate lexical window and hide the topic record.
+
+Complete-document validation shares `DOCUMENT_FIELDS` with bounded reading.
+Every part must agree on product, kind, path, project, title, producer identity,
+unknown-producer status and upstream list, in addition to matching the SQL owner,
+source store, tenant and document/hash scope. Per-part body hashes, database versus
+payload identity and the anchor revision are checked. Even a nominal single-part
+document is incomplete if conflicting sibling rows exist. Such versions are
+excluded from default/hybrid retrieval and semantic rebuild until consistent;
+changing a part's path without changing its body cannot produce a verified
+retrieval candidate that the bounded reader rejects as an inconsistent version.

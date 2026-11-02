@@ -29,7 +29,12 @@ def retrieve(
         raise ValueError("query exceeds 8000 characters")
     if type(limit) is not int or not 1 <= limit <= 50:
         raise ValueError("limit must be 1 to 50")
-    terms = tokens(query)[:64]
+    # The native index has CJK unigrams for explicit character lookup and
+    # bigrams for lexical anchors (also used by recall.pack). A long query must
+    # not match solely on disconnected one-character overlap such as particles.
+    terms = [
+        term for term in tokens(query) if len(term) > 1 or term.isascii() or len(query.strip()) == 1
+    ][:64]
     reasons = []
     # Filtering happens inside SQL before LIMIT and before ANY model invocation.
     # Default memory requests omit supporting material. Explicit non-memory kinds
@@ -40,13 +45,16 @@ def retrieve(
         "json_extract(a.payload,'$.encoding')='utf8'",
         "json_extract(a.payload,'$.kind') IN (" + ",".join("?" for _ in kinds) + ")",
     ]
-    role_sql = "NOT (json_extract(a.payload,'$.kind')='memory' AND json_extract(a.payload,'$.product') IN ('codex-shared','codex-cli','codex-desktop','chatgpt-desktop') AND (substr(replace(json_extract(a.payload,'$.path'),char(92),'/'),1,18)='rollout_summaries/' OR json_extract(a.payload,'$.path')='raw_memories.md'))"
+    role_sql = "native_asset_role(json_extract(a.payload,'$.product'),json_extract(a.payload,'$.path'),json_extract(a.payload,'$.kind')) NOT IN ('conversation_summary','raw_memory')"
     if not include_evidence:
         filters.append(role_sql)
     if project_filter is not None:
         filters.append("json_extract(a.payload,'$.project')=?")
     predicate = " AND ".join(filters)
     with database(hub.path) as db:
+        # One normalization/classification implementation for returned roles and
+        # SQL eligibility, including ./, repeated separators and Windows paths.
+        db.create_function("native_asset_role", 3, asset_role, deterministic=True)
         who = hub._identity(db, token)
         db.execute("BEGIN")
         args = [who["tenant"], *kinds] + ([project_filter] if project_filter is not None else [])

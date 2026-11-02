@@ -234,3 +234,159 @@ def test_transcript_window_does_not_mislabel_index_text_as_body(tmp_path):
     window = result["semantic_match"]
     assert window["source_field"] == "index_text"
     assert result["index_text"][window["char_start"] : window["char_end"]] == "两人复核"
+
+
+def test_unrelated_chinese_query_with_only_single_character_overlap_abstains(tmp_path):
+    hub, token, _ = make(tmp_path)
+    hub.put(token, asset("refund", title="", body="退款的处理时限是七天。"))
+    result = hub.retrieve(token, "火星基地种植土豆的成本是多少")
+    assert result["items"] == []
+    assert result["retrieval"]["candidates"]["lexical"] == 0
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "./rollout_summaries/alias.md",
+        ".\\rollout_summaries\\alias.md",
+        "././rollout_summaries//alias.md",
+        "rollout_summaries/./alias.md",
+        "./raw_memories.md",
+        ".\\raw_memories.md",
+    ],
+)
+def test_roles_use_identical_path_normalization_before_sql_limit(tmp_path, path):
+    from agent_brain.native_sync.asset_roles import asset_role
+
+    hub, token, _ = make(tmp_path)
+    for i in range(105):
+        hub.put(
+            token,
+            asset(
+                "alias-" + str(i),
+                path=path,
+                title="approval",
+                body="approval failed no answer " + str(i),
+            ),
+        )
+    hub.put(
+        token, asset("topic", path="topic.md", title="", body="approval requires two reviewers")
+    )
+    assert asset_role("codex-cli", path, "memory") in {"conversation_summary", "raw_memory"}
+    result = hub.retrieve(token, "approval")
+    assert [i["asset_id"] for i in result["items"]] == ["topic"]
+    assert result["retrieval"]["semantic_index"]["eligible"] == 1
+    assert any(
+        i["role"] in {"conversation_summary", "raw_memory"}
+        for i in hub.retrieve(token, "approval", include_evidence=True)["items"]
+    )
+
+
+def test_asset_api_accepts_source_path_aliases_without_changing_source_identity(tmp_path):
+    from fastapi.testclient import TestClient
+    from agent_brain.native_sync.api import create_app
+
+    hub, token, _ = make(tmp_path)
+    client = TestClient(create_app(hub))
+    for i, path in enumerate(["./rollout_summaries/alias.md", ".\\raw_memories.md"]):
+        result = client.post(
+            "/native/v1/assets",
+            json=asset("alias" + str(i), path=path),
+            headers={"Authorization": "Bearer " + token},
+        )
+        assert result.status_code == 200
+        assert result.json()["path"] == path
+    assert hub.retrieve(token, "订单")["items"] == []
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("path", "renamed.md"),
+        ("project", "another-project"),
+        ("title", "renamed title"),
+        ("kind", "rule"),
+        ("upstream", ["reference"]),
+    ],
+)
+def test_multipart_metadata_mismatch_is_not_verified_or_embedded(tmp_path, field, value):
+    from agent_brain.native_sync.common import digest
+
+    hub, token, backend = make(tmp_path)
+    hub.put(token, asset("reference", body="other"))
+    common = dict(
+        title="",
+        path="doc.md",
+        document_id="doc",
+        document_hash=digest("approval detail"),
+        part_count=2,
+    )
+    hub.put(token, asset("p0", body="approval ", part_index=0, **common))
+    p1 = asset("p1", body="detail", part_index=1, **common)
+    hub.put(token, p1)
+    assert hub.retrieve(token, "approval")["items"][0]["asset_id"] == "p0"
+    hub.rebuild_semantic(token)
+    hub.put(token, {**p1, "base_revision": 1, field: value})
+    assert hub.retrieve(token, "approval")["items"] == []
+    backend.seen.clear()
+    assert hub.rebuild_semantic(token)["indexed"] == 1  # only reference
+    assert not any("approval" in text for text in backend.seen)
+
+
+def test_duplicate_single_part_document_identity_is_incomplete(tmp_path):
+    from agent_brain.native_sync.common import digest
+
+    hub, token, _ = make(tmp_path)
+    for key in ["p0", "p1"]:
+        hub.put(
+            token,
+            asset(
+                key, body="approval", document_id="duplicate-doc", document_hash=digest("approval")
+            ),
+        )
+    assert hub.retrieve(token, "approval")["items"] == []
+
+
+def test_multipart_body_hash_must_match_even_when_document_hash_is_valid(tmp_path):
+    from agent_brain.native_sync.common import digest
+
+    hub, token, _ = make(tmp_path)
+    for index, body in enumerate(["approval ", "detail"]):
+        hub.put(
+            token,
+            asset(
+                "p" + str(index),
+                body=body,
+                part_index=index,
+                part_count=2,
+                document_id="doc",
+                document_hash=digest("approval detail"),
+            ),
+        )
+    with database(hub.path) as db:
+        db.execute(
+            "UPDATE assets SET payload=json_set(payload,'$.body_hash','corrupt') WHERE id='p1'"
+        )
+    assert hub.retrieve(token, "approval")["items"] == []
+
+
+@pytest.mark.parametrize("different_scope", ["store", "owner", "tenant"])
+def test_multipart_completion_never_borrows_other_source_scope(tmp_path, different_scope):
+    from agent_brain.native_sync.common import digest
+
+    hub, token, _ = make(tmp_path)
+    other_token = token
+    other_store = "store-1"
+    if different_scope == "store":
+        other_store = "other-store"
+    else:
+        other_token = hub.provision(
+            "different", "different", tenant="one" if different_scope == "owner" else "two"
+        )["token"]
+    common = dict(document_id="shared-id", document_hash=digest("approval detail"), part_count=2)
+    hub.put(token, asset("p0", body="approval ", part_index=0, **common))
+    hub.put(
+        other_token, asset("p1", body="detail", source_store=other_store, part_index=1, **common)
+    )
+    assert hub.retrieve(token, "approval")["items"] == []
+    assert hub.rebuild_semantic(token)["indexed"] == 0

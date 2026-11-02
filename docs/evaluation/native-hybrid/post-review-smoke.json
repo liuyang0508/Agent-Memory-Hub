@@ -1,0 +1,758 @@
+{
+  "holdout_sha256": "ab2436d3a6e76114072cf8f5ac9aa08d070e9806ae37113d91d48902fa9f6f36",
+  "holdout_policy": "Frozen before first execution; no subsequent threshold/model tuning. Same synthetic corpus; not a sealed generalization test.",
+  "timing_note": "Single warm query per case; nearest-rank percentiles on tiny local corpus, excludes build/model load, not production latency.",
+  "timings": {
+    "development": {
+      "baseline_ms": {
+        "n": 8,
+        "p50_ms": 2.758,
+        "p95_ms": 3.537
+      },
+      "hybrid_ms": {
+        "n": 8,
+        "p50_ms": 26.824,
+        "p95_ms": 35.02
+      }
+    },
+    "holdout": {
+      "baseline_ms": {
+        "n": 6,
+        "p50_ms": 2.439,
+        "p95_ms": 2.617
+      },
+      "hybrid_ms": {
+        "n": 6,
+        "p50_ms": 11.18,
+        "p95_ms": 26.494
+      }
+    }
+  },
+  "evaluation": "development smoke; synthetic corpus, REAL cached multilingual encoder",
+  "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+  "build": {
+    "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+    "model_version": "09dcfb3bf7f009c5a890f800bd3c33a5d3855be516640c2bcf46c17586cd9466",
+    "dimension": 384,
+    "index_version": 3,
+    "window": 700,
+    "stride": 550,
+    "token_window": 126,
+    "token_stride": 94,
+    "aggregation": "max_window_cosine",
+    "indexed": 16,
+    "skipped_changed": 0
+  },
+  "elapsed_seconds": 4.741,
+  "cases": [
+    {
+      "case": "zh-paraphrase",
+      "split": "development",
+      "baseline_ids": [
+        "approval"
+      ],
+      "baseline_passed": true,
+      "baseline_ms": 2.935,
+      "hybrid_ms": 32.872,
+      "expected_semantic_window": {
+        "start": 0,
+        "end": 24,
+        "source_field": "body",
+        "max_cosine": 0.5125347558423405,
+        "eligible_at_configured_floor": true
+      },
+      "query": "部署之前找谁审核变更？",
+      "expected": "approval",
+      "first_relevant_rank": 1,
+      "ids": [
+        "approval"
+      ],
+      "passed": true,
+      "retrieval": {
+        "mode": "hybrid",
+        "degraded": true,
+        "reasons": [
+          "semantic_index_incomplete_rebuild_required"
+        ],
+        "model": {
+          "aggregation": "max_window_cosine",
+          "dimension": 384,
+          "index_version": 3,
+          "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+          "model_version": "09dcfb3bf7f009c5a890f800bd3c33a5d3855be516640c2bcf46c17586cd9466",
+          "stride": 550,
+          "token_stride": 94,
+          "token_window": 126,
+          "window": 700
+        },
+        "reranked": false,
+        "mmr": true,
+        "candidates": {
+          "lexical": 2,
+          "semantic": 2
+        },
+        "semantic_index": {
+          "current": 5,
+          "eligible": 6
+        },
+        "answer_status": "candidates_only"
+      }
+    },
+    {
+      "case": "cross-language",
+      "split": "development",
+      "baseline_ids": [],
+      "baseline_passed": false,
+      "baseline_ms": 2.758,
+      "hybrid_ms": 26.824,
+      "expected_semantic_window": {
+        "start": 0,
+        "end": 24,
+        "source_field": "body",
+        "max_cosine": 0.7286330873676877,
+        "eligible_at_configured_floor": true
+      },
+      "query": "How long does it take to get my money back after cancellation?",
+      "expected": "refund",
+      "first_relevant_rank": 1,
+      "ids": [
+        "refund"
+      ],
+      "passed": true,
+      "retrieval": {
+        "mode": "hybrid",
+        "degraded": true,
+        "reasons": [
+          "semantic_index_incomplete_rebuild_required"
+        ],
+        "model": {
+          "aggregation": "max_window_cosine",
+          "dimension": 384,
+          "index_version": 3,
+          "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+          "model_version": "09dcfb3bf7f009c5a890f800bd3c33a5d3855be516640c2bcf46c17586cd9466",
+          "stride": 550,
+          "token_stride": 94,
+          "token_window": 126,
+          "window": 700
+        },
+        "reranked": false,
+        "mmr": true,
+        "candidates": {
+          "lexical": 0,
+          "semantic": 1
+        },
+        "semantic_index": {
+          "current": 5,
+          "eligible": 6
+        },
+        "answer_status": "candidates_only"
+      }
+    },
+    {
+      "case": "synonym",
+      "split": "development",
+      "baseline_ids": [],
+      "baseline_passed": false,
+      "baseline_ms": 2.819,
+      "hybrid_ms": 28.404,
+      "expected_semantic_window": {
+        "start": 0,
+        "end": 24,
+        "source_field": "body",
+        "max_cosine": 0.7334152522195068,
+        "eligible_at_configured_floor": true
+      },
+      "query": "退款多久到账？",
+      "expected": "refund",
+      "first_relevant_rank": 1,
+      "ids": [
+        "refund"
+      ],
+      "passed": true,
+      "retrieval": {
+        "mode": "hybrid",
+        "degraded": true,
+        "reasons": [
+          "semantic_index_incomplete_rebuild_required"
+        ],
+        "model": {
+          "aggregation": "max_window_cosine",
+          "dimension": 384,
+          "index_version": 3,
+          "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+          "model_version": "09dcfb3bf7f009c5a890f800bd3c33a5d3855be516640c2bcf46c17586cd9466",
+          "stride": 550,
+          "token_stride": 94,
+          "token_window": 126,
+          "window": 700
+        },
+        "reranked": false,
+        "mmr": true,
+        "candidates": {
+          "lexical": 0,
+          "semantic": 1
+        },
+        "semantic_index": {
+          "current": 5,
+          "eligible": 6
+        },
+        "answer_status": "candidates_only"
+      }
+    },
+    {
+      "case": "exact-id",
+      "split": "development",
+      "baseline_ids": [
+        "exact"
+      ],
+      "baseline_passed": true,
+      "baseline_ms": 3.537,
+      "hybrid_ms": 35.02,
+      "expected_semantic_window": {
+        "start": 0,
+        "end": 25,
+        "source_field": "body",
+        "max_cosine": 0.6667972304972551,
+        "eligible_at_configured_floor": true
+      },
+      "query": "TRACE_731",
+      "expected": "exact",
+      "first_relevant_rank": 1,
+      "ids": [
+        "exact"
+      ],
+      "passed": true,
+      "retrieval": {
+        "mode": "hybrid",
+        "degraded": true,
+        "reasons": [
+          "semantic_index_incomplete_rebuild_required"
+        ],
+        "model": {
+          "aggregation": "max_window_cosine",
+          "dimension": 384,
+          "index_version": 3,
+          "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+          "model_version": "09dcfb3bf7f009c5a890f800bd3c33a5d3855be516640c2bcf46c17586cd9466",
+          "stride": 550,
+          "token_stride": 94,
+          "token_window": 126,
+          "window": 700
+        },
+        "reranked": false,
+        "mmr": true,
+        "candidates": {
+          "lexical": 1,
+          "semantic": 1
+        },
+        "semantic_index": {
+          "current": 5,
+          "eligible": 6
+        },
+        "answer_status": "candidates_only"
+      }
+    },
+    {
+      "case": "exact-asset-id",
+      "split": "development",
+      "baseline_ids": [
+        "approval"
+      ],
+      "baseline_passed": true,
+      "baseline_ms": 2.429,
+      "hybrid_ms": 29.453,
+      "expected_semantic_window": {
+        "start": 0,
+        "end": 24,
+        "source_field": "body",
+        "max_cosine": 0.30780324027155964,
+        "eligible_at_configured_floor": false
+      },
+      "query": "approval",
+      "expected": "approval",
+      "first_relevant_rank": 1,
+      "ids": [
+        "approval"
+      ],
+      "passed": true,
+      "retrieval": {
+        "mode": "hybrid",
+        "degraded": true,
+        "reasons": [
+          "semantic_index_incomplete_rebuild_required"
+        ],
+        "model": {
+          "aggregation": "max_window_cosine",
+          "dimension": 384,
+          "index_version": 3,
+          "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+          "model_version": "09dcfb3bf7f009c5a890f800bd3c33a5d3855be516640c2bcf46c17586cd9466",
+          "stride": 550,
+          "token_stride": 94,
+          "token_window": 126,
+          "window": 700
+        },
+        "reranked": false,
+        "mmr": false,
+        "candidates": {
+          "lexical": 1,
+          "semantic": 0
+        },
+        "semantic_index": {
+          "current": 5,
+          "eligible": 6
+        },
+        "answer_status": "candidates_only"
+      }
+    },
+    {
+      "case": "long-tail",
+      "split": "development",
+      "baseline_ids": [
+        "approval"
+      ],
+      "baseline_passed": false,
+      "baseline_ms": 2.848,
+      "hybrid_ms": 13.293,
+      "expected_semantic_window": {
+        "start": 2704,
+        "end": 2725,
+        "source_field": "body",
+        "max_cosine": 0.2624923340045808,
+        "eligible_at_configured_floor": false
+      },
+      "query": "怎样回滚到之前的部署？",
+      "expected": "long-tail",
+      "first_relevant_rank": null,
+      "ids": [
+        "approval"
+      ],
+      "passed": false,
+      "retrieval": {
+        "mode": "hybrid",
+        "degraded": true,
+        "reasons": [
+          "semantic_index_incomplete_rebuild_required"
+        ],
+        "model": {
+          "aggregation": "max_window_cosine",
+          "dimension": 384,
+          "index_version": 3,
+          "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+          "model_version": "09dcfb3bf7f009c5a890f800bd3c33a5d3855be516640c2bcf46c17586cd9466",
+          "stride": 550,
+          "token_stride": 94,
+          "token_window": 126,
+          "window": 700
+        },
+        "reranked": false,
+        "mmr": false,
+        "candidates": {
+          "lexical": 2,
+          "semantic": 0
+        },
+        "semantic_index": {
+          "current": 5,
+          "eligible": 6
+        },
+        "answer_status": "candidates_only"
+      }
+    },
+    {
+      "case": "no-answer",
+      "split": "development",
+      "baseline_ids": [],
+      "baseline_passed": true,
+      "baseline_ms": 2.323,
+      "hybrid_ms": 13.229,
+      "expected_semantic_window": null,
+      "query": "How many rings does Saturn have?",
+      "expected": null,
+      "first_relevant_rank": null,
+      "ids": [],
+      "passed": true,
+      "retrieval": {
+        "mode": "hybrid",
+        "degraded": true,
+        "reasons": [
+          "semantic_index_incomplete_rebuild_required"
+        ],
+        "model": {
+          "aggregation": "max_window_cosine",
+          "dimension": 384,
+          "index_version": 3,
+          "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+          "model_version": "09dcfb3bf7f009c5a890f800bd3c33a5d3855be516640c2bcf46c17586cd9466",
+          "stride": 550,
+          "token_stride": 94,
+          "token_window": 126,
+          "window": 700
+        },
+        "reranked": false,
+        "mmr": false,
+        "candidates": {
+          "lexical": 0,
+          "semantic": 0
+        },
+        "semantic_index": {
+          "current": 5,
+          "eligible": 6
+        },
+        "answer_status": "no_match"
+      }
+    },
+    {
+      "case": "isolation",
+      "split": "development",
+      "baseline_ids": [],
+      "baseline_passed": true,
+      "baseline_ms": 2.574,
+      "hybrid_ms": 26.702,
+      "expected_semantic_window": null,
+      "query": "SECRET_ISOLATION_CANARY",
+      "expected": null,
+      "first_relevant_rank": null,
+      "ids": [],
+      "passed": true,
+      "retrieval": {
+        "mode": "hybrid",
+        "degraded": true,
+        "reasons": [
+          "semantic_index_incomplete_rebuild_required"
+        ],
+        "model": {
+          "aggregation": "max_window_cosine",
+          "dimension": 384,
+          "index_version": 3,
+          "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+          "model_version": "09dcfb3bf7f009c5a890f800bd3c33a5d3855be516640c2bcf46c17586cd9466",
+          "stride": 550,
+          "token_stride": 94,
+          "token_window": 126,
+          "window": 700
+        },
+        "reranked": false,
+        "mmr": false,
+        "candidates": {
+          "lexical": 0,
+          "semantic": 0
+        },
+        "semantic_index": {
+          "current": 5,
+          "eligible": 6
+        },
+        "answer_status": "no_match"
+      }
+    },
+    {
+      "case": "holdout-signoff",
+      "split": "holdout",
+      "baseline_ids": [],
+      "baseline_passed": false,
+      "baseline_ms": 2.337,
+      "hybrid_ms": 26.494,
+      "expected_semantic_window": {
+        "start": 0,
+        "end": 24,
+        "source_field": "body",
+        "max_cosine": 0.4830893496457382,
+        "eligible_at_configured_floor": true
+      },
+      "query": "Who has to sign off the deployment checklist?",
+      "expected": "approval",
+      "first_relevant_rank": 1,
+      "ids": [
+        "approval"
+      ],
+      "passed": true,
+      "retrieval": {
+        "mode": "hybrid",
+        "degraded": true,
+        "reasons": [
+          "semantic_index_incomplete_rebuild_required"
+        ],
+        "model": {
+          "aggregation": "max_window_cosine",
+          "dimension": 384,
+          "index_version": 3,
+          "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+          "model_version": "09dcfb3bf7f009c5a890f800bd3c33a5d3855be516640c2bcf46c17586cd9466",
+          "stride": 550,
+          "token_stride": 94,
+          "token_window": 126,
+          "window": 700
+        },
+        "reranked": false,
+        "mmr": true,
+        "candidates": {
+          "lexical": 0,
+          "semantic": 2
+        },
+        "semantic_index": {
+          "current": 5,
+          "eligible": 6
+        },
+        "answer_status": "candidates_only"
+      }
+    },
+    {
+      "case": "holdout-reimbursement",
+      "split": "holdout",
+      "baseline_ids": [],
+      "baseline_passed": false,
+      "baseline_ms": 2.617,
+      "hybrid_ms": 26.03,
+      "expected_semantic_window": {
+        "start": 0,
+        "end": 24,
+        "source_field": "body",
+        "max_cosine": 0.6188381063713337,
+        "eligible_at_configured_floor": true
+      },
+      "query": "When will a cancelled purchase be reimbursed?",
+      "expected": "refund",
+      "first_relevant_rank": 1,
+      "ids": [
+        "refund"
+      ],
+      "passed": true,
+      "retrieval": {
+        "mode": "hybrid",
+        "degraded": true,
+        "reasons": [
+          "semantic_index_incomplete_rebuild_required"
+        ],
+        "model": {
+          "aggregation": "max_window_cosine",
+          "dimension": 384,
+          "index_version": 3,
+          "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+          "model_version": "09dcfb3bf7f009c5a890f800bd3c33a5d3855be516640c2bcf46c17586cd9466",
+          "stride": 550,
+          "token_stride": 94,
+          "token_window": 126,
+          "window": 700
+        },
+        "reranked": false,
+        "mmr": true,
+        "candidates": {
+          "lexical": 0,
+          "semantic": 1
+        },
+        "semantic_index": {
+          "current": 5,
+          "eligible": 6
+        },
+        "answer_status": "candidates_only"
+      }
+    },
+    {
+      "case": "holdout-tail",
+      "split": "holdout",
+      "baseline_ids": [],
+      "baseline_passed": false,
+      "baseline_ms": 2.439,
+      "hybrid_ms": 14.502,
+      "expected_semantic_window": {
+        "start": 2704,
+        "end": 2725,
+        "source_field": "body",
+        "max_cosine": 0.7001121098349907,
+        "eligible_at_configured_floor": true
+      },
+      "query": "Stop the queue before restoring the previous release.",
+      "expected": "long-tail",
+      "first_relevant_rank": 1,
+      "ids": [
+        "long-tail"
+      ],
+      "passed": true,
+      "retrieval": {
+        "mode": "hybrid",
+        "degraded": true,
+        "reasons": [
+          "semantic_index_incomplete_rebuild_required"
+        ],
+        "model": {
+          "aggregation": "max_window_cosine",
+          "dimension": 384,
+          "index_version": 3,
+          "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+          "model_version": "09dcfb3bf7f009c5a890f800bd3c33a5d3855be516640c2bcf46c17586cd9466",
+          "stride": 550,
+          "token_stride": 94,
+          "token_window": 126,
+          "window": 700
+        },
+        "reranked": false,
+        "mmr": true,
+        "candidates": {
+          "lexical": 0,
+          "semantic": 1
+        },
+        "semantic_index": {
+          "current": 5,
+          "eligible": 6
+        },
+        "answer_status": "candidates_only"
+      }
+    },
+    {
+      "case": "holdout-trace",
+      "split": "holdout",
+      "baseline_ids": [
+        "exact"
+      ],
+      "baseline_passed": true,
+      "baseline_ms": 2.305,
+      "hybrid_ms": 9.271,
+      "expected_semantic_window": {
+        "start": 0,
+        "end": 25,
+        "source_field": "body",
+        "max_cosine": 0.7517406733490728,
+        "eligible_at_configured_floor": true
+      },
+      "query": "What caused TRACE_731?",
+      "expected": "exact",
+      "first_relevant_rank": 1,
+      "ids": [
+        "exact"
+      ],
+      "passed": true,
+      "retrieval": {
+        "mode": "hybrid",
+        "degraded": true,
+        "reasons": [
+          "semantic_index_incomplete_rebuild_required"
+        ],
+        "model": {
+          "aggregation": "max_window_cosine",
+          "dimension": 384,
+          "index_version": 3,
+          "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+          "model_version": "09dcfb3bf7f009c5a890f800bd3c33a5d3855be516640c2bcf46c17586cd9466",
+          "stride": 550,
+          "token_stride": 94,
+          "token_window": 126,
+          "window": 700
+        },
+        "reranked": false,
+        "mmr": true,
+        "candidates": {
+          "lexical": 1,
+          "semantic": 1
+        },
+        "semantic_index": {
+          "current": 5,
+          "eligible": 6
+        },
+        "answer_status": "candidates_only"
+      }
+    },
+    {
+      "case": "holdout-referent-expanded",
+      "split": "holdout",
+      "baseline_ids": [
+        "refund",
+        "old"
+      ],
+      "baseline_passed": true,
+      "baseline_ms": 2.551,
+      "hybrid_ms": 11.18,
+      "expected_semantic_window": {
+        "start": 0,
+        "end": 24,
+        "source_field": "body",
+        "max_cosine": 0.7614728580827893,
+        "eligible_at_configured_floor": true
+      },
+      "query": "客户已经退订，那笔钱何时能原路返回？",
+      "expected": "refund",
+      "first_relevant_rank": 1,
+      "ids": [
+        "refund",
+        "old"
+      ],
+      "passed": true,
+      "retrieval": {
+        "mode": "hybrid",
+        "degraded": true,
+        "reasons": [
+          "semantic_index_incomplete_rebuild_required"
+        ],
+        "model": {
+          "aggregation": "max_window_cosine",
+          "dimension": 384,
+          "index_version": 3,
+          "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+          "model_version": "09dcfb3bf7f009c5a890f800bd3c33a5d3855be516640c2bcf46c17586cd9466",
+          "stride": 550,
+          "token_stride": 94,
+          "token_window": 126,
+          "window": 700
+        },
+        "reranked": false,
+        "mmr": true,
+        "candidates": {
+          "lexical": 2,
+          "semantic": 1
+        },
+        "semantic_index": {
+          "current": 5,
+          "eligible": 6
+        },
+        "answer_status": "candidates_only"
+      }
+    },
+    {
+      "case": "holdout-unknown",
+      "split": "holdout",
+      "baseline_ids": [],
+      "baseline_passed": true,
+      "baseline_ms": 2.51,
+      "hybrid_ms": 10.997,
+      "expected_semantic_window": null,
+      "query": "What is the mass of Neptune?",
+      "expected": null,
+      "first_relevant_rank": null,
+      "ids": [],
+      "passed": true,
+      "retrieval": {
+        "mode": "hybrid",
+        "degraded": true,
+        "reasons": [
+          "semantic_index_incomplete_rebuild_required"
+        ],
+        "model": {
+          "aggregation": "max_window_cosine",
+          "dimension": 384,
+          "index_version": 3,
+          "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+          "model_version": "09dcfb3bf7f009c5a890f800bd3c33a5d3855be516640c2bcf46c17586cd9466",
+          "stride": 550,
+          "token_stride": 94,
+          "token_window": 126,
+          "window": 700
+        },
+        "reranked": false,
+        "mmr": false,
+        "candidates": {
+          "lexical": 0,
+          "semantic": 0
+        },
+        "semantic_index": {
+          "current": 5,
+          "eligible": 6
+        },
+        "answer_status": "no_match"
+      }
+    }
+  ],
+  "passed": 13,
+  "total": 14,
+  "metric": "answerable Hit@3 plus empty-result checks; not all Top1",
+  "top1": 10,
+  "answerable": 11
+}
