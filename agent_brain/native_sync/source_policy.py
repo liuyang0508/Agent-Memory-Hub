@@ -53,5 +53,8 @@ def describe(config: dict[str, Any], sources: list[dict[str, Any]]) -> dict[str,
             if legacy
             else "仅启用类型的新内容和已选择历史可上传。"
         ),
-        "preservation": "关闭类型会暂停扫描和待上传队列；选择、原生文件及云端内容保留，重新启用可继续。",
+        "preservation": (
+            "关闭类型会暂停扫描和待上传队列；选择、原生文件及云端内容保留，重新启用可继续。"
+            "若后台正在同步，本次调整会等待该轮完成后生效，不会即时取消正在上传的一批内容。"
+        ),
     }
