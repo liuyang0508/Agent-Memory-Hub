@@ -96,6 +96,18 @@ CREATE INDEX IF NOT EXISTS changes_tenant ON changes(
     seq
 );
 
+-- Additive indexes for bounded explicit-reference and historical-version lookups.
+CREATE INDEX IF NOT EXISTS assets_source_path ON assets(
+    tenant, owner_device,
+    json_extract(payload,'$.source_store'),
+    json_extract(payload,'$.path')
+);
+CREATE INDEX IF NOT EXISTS changes_asset_revision ON changes(
+    tenant,
+    json_extract(payload,'$.asset_id'),
+    json_extract(payload,'$.revision')
+);
+
 -- Additive enterprise-login state; disabled instances never populate it.
 CREATE TABLE IF NOT EXISTS feishu_members(
     open_id TEXT PRIMARY KEY,

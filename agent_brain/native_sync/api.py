@@ -7,6 +7,7 @@ import sqlite3
 from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from .hub import Hub
+from .knowledge import KnowledgeConflict, NativeKnowledge
 from .models import (
     AdminRevokeInput,
     AdminSecretInput,
@@ -16,6 +17,9 @@ from .models import (
     FeishuRedeemInput,
     FeishuStartInput,
     SearchInput,
+    RetrieveInput,
+    ReadInput,
+    RelatedInput,
     RuntimeInviteInput,
 )
 
@@ -23,6 +27,11 @@ from .models import (
 def create_app(hub: Hub) -> FastAPI:
     """Build an independent HTTP facade; the Hub owns identity, tenant scope and transaction invariants."""
     app = FastAPI(title="AMH Native Organization Memory", docs_url=None, redoc_url=None)
+    knowledge = NativeKnowledge(hub)
+
+    @app.exception_handler(KnowledgeConflict)
+    async def knowledge_conflict(request: Any, error: KnowledgeConflict) -> JSONResponse:
+        return JSONResponse(status_code=409, content={"code": error.code, "detail": str(error)})
 
     @app.exception_handler(PermissionError)
     async def denied(request: Any, error: Any) -> JSONResponse:
@@ -231,6 +240,22 @@ def create_app(hub: Hub) -> FastAPI:
         data: SearchInput, authorization: str | None = Header(default=None)
     ) -> dict[str, Any]:
         return {"items": hub.search(bearer(authorization), **data.model_dump())}
+
+    @app.post("/native/v1/retrieve")
+    def retrieve(
+        data: RetrieveInput, authorization: str | None = Header(default=None)
+    ) -> dict[str, Any]:
+        return hub.retrieve(bearer(authorization), **data.model_dump())
+
+    @app.post("/native/v1/read")
+    def read(data: ReadInput, authorization: str | None = Header(default=None)) -> dict[str, Any]:
+        return knowledge.read(bearer(authorization), **data.model_dump())
+
+    @app.post("/native/v1/related")
+    def related(
+        data: RelatedInput, authorization: str | None = Header(default=None)
+    ) -> dict[str, Any]:
+        return knowledge.related(bearer(authorization), **data.model_dump())
 
     app.add_middleware(BodyLimit)
     # Transcript body/index payloads are repetitive. Negotiate standard gzip so

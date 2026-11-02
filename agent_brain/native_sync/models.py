@@ -64,6 +64,39 @@ class SearchInput(BaseModel):
     limit: int = Field(default=12, ge=1, le=50)
 
 
+class RetrieveInput(BaseModel):
+    """Semantic/lexical retrieval without caller-selected identity or tenant."""
+
+    model_config = ConfigDict(extra="forbid")
+    query: str = Field(max_length=8000)
+    limit: int = Field(default=8, ge=1, le=50)
+    kinds: list[Literal["memory", "transcript", "rule", "skill", "config"]] | None = Field(
+        default=None, max_length=5
+    )
+    include_evidence: bool = False
+    project_filter: str | None = Field(default=None, max_length=256)
+
+
+class ReadInput(BaseModel):
+    """An exact current asset revision; cursor is a UTF-8 byte offset, never a path."""
+
+    model_config = ConfigDict(extra="forbid")
+    asset_id: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_.-]+$")
+    revision: int = Field(ge=1, strict=True)
+    cursor: int = Field(default=0, ge=0, le=8 * 1024 * 1024, strict=True)
+    max_bytes: int = Field(default=12000, ge=4, le=64000, strict=True)
+
+
+class RelatedInput(BaseModel):
+    """Bounded traversal of recorded relations; no inferred business relationships."""
+
+    model_config = ConfigDict(extra="forbid")
+    asset_id: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_.-]+$")
+    revision: int = Field(ge=1, strict=True)
+    depth: int = Field(default=1, ge=1, le=3, strict=True)
+    limit: int = Field(default=10, ge=1, le=50, strict=True)
+
+
 class AdminRevokeInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     device_id: str = Field(min_length=1, max_length=128)
