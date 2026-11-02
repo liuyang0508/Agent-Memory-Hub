@@ -1,6 +1,6 @@
 # 组织记忆：存储与同步
 
-本分支包含待发布的组织检索增强。已发布版本的存储说明见 [1.3.3 文档](https://github.com/liuyang0508/Agent-Memory-Hub/blob/v1.3.3/agent_brain/native_sync/README.md)；候选行为和验证边界见[检索与按需阅读](../../docs/native-memory/retrieval.zh.md)。
+适用于 AMH 1.4.0。使用方法和验证边界见[检索与按需阅读](../../docs/native-memory/retrieval.zh.md)；旧版行为见 [1.3.3 文档](https://github.com/liuyang0508/Agent-Memory-Hub/blob/v1.3.3/agent_brain/native_sync/README.md)。
 
 组织记忆分为三层：产品维护原生记忆，AMH 客户端记录同步状态，云端 Hub 保存共享内容。上传的是文件内容及来源信息，不是产品数据库或整个目录的镜像。
 

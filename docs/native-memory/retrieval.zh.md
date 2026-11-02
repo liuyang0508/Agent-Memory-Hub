@@ -1,6 +1,6 @@
 # 组织记忆检索与按需阅读
 
-本文说明待发布候选实现。已安装客户端和线上服务不会因代码更新而自动切换。
+本文说明 AMH 1.4.0。已安装客户端需要升级并重新打开会话，才会加载新增组织工具。
 
 ## 共享什么
 
@@ -41,20 +41,24 @@ amh-native scope --none                # 确认后暂停所有类型
 语义模型只在服务端运行，只加载已有本地模型，不自动下载，不使用哈希向量冒充语义检索。未配置模型、没有索引或索引落后时，响应会明确说明降级原因。默认未启用语义模型；设置环境变量或启动参数不等于索引已经建好。
 
 ```sh
-# 服务端：模型需已缓存，embeddings依赖需已安装
-amh-native serve --db /var/lib/amh-native/hub.sqlite \
-  --semantic-model /opt/amh-models/multilingual-minilm \
-  --mmr-lambda 0.85
-
 # 在有权访问此数据库的维护环境内，以已授权组织身份构建派生索引
 amh-native semantic-index --db /var/lib/amh-native/hub.sqlite \
   --state /secure/amh-indexer-profile \
   --model /opt/amh-models/multilingual-minilm
 
-# 可选周期刷新：仅重新编码新增或变化内容
+# 资源足够且经过并发验收后才启用独立周期刷新；2GB主机勿与查询模型并行
+# 仅重新编码新增或变化内容
 amh-native semantic-index --db /var/lib/amh-native/hub.sqlite \
   --state /secure/amh-indexer-profile \
   --model /opt/amh-models/multilingual-minilm --watch --interval 60
+```
+
+完成索引后退出维护进程，再在服务端启用查询模型：
+
+```sh
+amh-native serve --db /var/lib/amh-native/hub.sqlite \
+  --semantic-model /opt/amh-models/multilingual-minilm \
+  --mmr-lambda 0.85
 ```
 
 索引默认只编码主题记忆与导航，不把聊天、会话摘要和原始提取材料全量载入模型；可用 `--kind` 和 `--include-evidence` 明确扩大范围。缩小索引范围不会删除源资料，超出已建范围的检索会提示降级。
