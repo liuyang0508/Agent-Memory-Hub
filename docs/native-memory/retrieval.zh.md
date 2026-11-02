@@ -67,6 +67,33 @@ amh-native serve --db /var/lib/amh-native/hub.sqlite \
 
 当前实现扫描已授权范围内的向量，并非 ANN；大语料、并发和内存使用需要单独验收。查询服务与独立索引维护进程会各持有模型，不应在未验证内存余量的低配主机上同时启用。重排器已有服务端注入接口，尚未验证真实重排模型的业务效果。
 
+## 排序阶段、衰减与召回明细
+
+从 1.4.1 之后的开发版起，`retrieve` 的阶段顺序固定为：
+
+```
+SQL 作用域过滤 → 关键词 ‖ 语义 ‖ Hopfield 联想 → RRF 合并 → 支持材料 ×0.55
+ → 重排器（未接线时显示「未启用」） → 声明式过滤 → 衰减与信号 → MMR → 精确 ID 置顶
+ → 版本复核、去重、截取条数
+```
+
+- **知识性质与来源层级**：每条候选按 `rule / preference / project_state / fact / decision / reference / episode / unknown` 分类，并注明依据是 `declared`（frontmatter 明说，如 Claude Code 的 `metadata.type`）、`parsed`（按位置或角色推断，如 rule 目录、导航文件、会话摘要）还是 `inferred`（正文弱特征，只给临时状态和决定两类）。
+- **可信时间**：内容产生、源文件更新、云端收录、最近送达、最近采用、最近确认、声明失效分别记录来源；拿不到就是「未知」，不会用收录时间冒充内容时间。客户端上传时随正文带上 `source_meta`（文件修改时间、frontmatter 子集、`[[wikilink]]`、标题），老 Hub 不认该字段时自动去掉再传。
+- **衰减与信号**：按知识性质取半衰期（规则 365 天、偏好/参考 180、决定 90、事实/未知 60、会话 30、临时状态 21），结合送达、采用、支持、反对、人工确认等信号算系数，只在 ±5% 内重排，不丢弃；时间未知按中性 0.5 处理。`serve --no-decay` 或环境变量 `AMH_NATIVE_DECAY=0` 关闭。
+- **声明式退场**：只有 frontmatter 明确写了 `superseded_by` 或已过 `expires` 才会过滤，精确 ID 查询不受影响；明细里记录被谁替代、何时失效。
+- **Hopfield 联想**：`serve --hopfield`（或 `AMH_NATIVE_HOPFIELD=1`）后，由融合结果形成吸引子，在已建语义索引的全部授权向量上找两条路都没召回的近邻；默认关闭，因为是全量扫描。关闭时明细显示「未启用」。
+- **召回明细**：每次检索生成 `trace_id`，服务端保留 30 天，不含正文；记录每条候选的召回方式（lexical / semantic / hopfield 名次）、各阶段前后名次与分数、本轮状态（候选 → 入选 → 已打包 → 已注入 → 模型已收到 → 回答已采用，或 dropped:limit / dedup / budget / covered / superseded / expired / revalidation）。Hook 在本机记录打包与注入状态，并在下一次 Hook 看到回执时记录「模型已收到」，由 worker 同步时批量上报。
+- **反馈**：`amh-native recall-feedback --trace <id> --asset <id> --revision <n> --event cite|support|contradict|confirm` 或 `POST /native/v1/recall/feedback`；只能对该次 trace 里出现过的候选反馈。MCP 工具保持只读，不提供反馈。
+
+```sh
+amh-native recall-trace                     # 本设备最近召回：时间/通道/问题/候选/入选/送达/阶段/trace
+amh-native recall-trace --trace <trace_id>  # 展开：排名、标题、内容形态、来源产品、项目、原生产者、召回方式、本轮状态、时间
+```
+
+管理员可在 `/native/v1/admin/recalls` 查看全组织记录（与看板同一管理令牌）。问题文本默认保留前 120 字便于排查，管理设置 `recall_query_preview=off` 后只保留摘要哈希。
+
+Hook 现在走 `POST /native/v1/recall`：与组织工具同一套混合排序，默认只取记忆与规则，不再把聊天记录切片当候选；老 Hub 返回 404 时回退到原来的 `/search`。合成语料的机制检查见 `benchmarks/native_recall_parity.py`，它只验证各阶段按设计生效，不是真实记忆上的质量证据。
+
 ## 正文与关系
 
 读取固定当前版本；翻页期间文档变化时返回 `stale_version`，需要重新搜索，不能拼接新旧页。多分片必须来源一致、顺序完整且内容摘要正确。单文档上限8MiB，分页和整次研究另有更小预算。

@@ -206,6 +206,7 @@ def serve(
     decay: bool = typer.Option(True, "--decay/--no-decay", help="按知识性质、可信时间和反馈信号做 ±5% 重排"),
     hopfield: bool = typer.Option(False, "--hopfield/--no-hopfield", help="启用 Hopfield 联想扩召（需语义索引，全量扫描）"),
     hopfield_beta: float = typer.Option(8.0, min=0.1, max=64),
+    hopfield_min_score: float = typer.Option(0.35, min=0, max=1, help="联想候选的相似度下限"),
 ) -> None:
     """运行独立组织 Hub；公网部署请在前面配置 HTTPS。"""
     import uvicorn
@@ -220,6 +221,7 @@ def serve(
         decay=decay,
         hopfield=hopfield,
         hopfield_beta=hopfield_beta,
+        hopfield_min_score=hopfield_min_score,
     )
     if hub.semantic_model:
         # Load before accepting requests: a cold model must not consume the

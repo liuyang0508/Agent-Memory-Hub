@@ -24,10 +24,11 @@ def test_serve_flags_reach_the_hub(tmp_path, monkeypatch):
     monkeypatch.setattr("uvicorn.run", lambda *a, **kw: None)
     result = CliRunner().invoke(
         cli.app,
-        ["serve", "--db", str(tmp_path / "hub.sqlite"), "--hopfield", "--no-decay", "--hopfield-beta", "4"],
+        ["serve", "--db", str(tmp_path / "hub.sqlite"), "--hopfield", "--no-decay", "--hopfield-beta", "4", "--hopfield-min-score", "0.3"],
     )
     assert result.exit_code == 0, result.output
     assert captured["hopfield"] is True and captured["decay"] is False and captured["hopfield_beta"] == 4.0
+    assert captured["hopfield_min_score"] == 0.3
 
 
 def test_recall_trace_table_and_feedback(live, tmp_path, monkeypatch):

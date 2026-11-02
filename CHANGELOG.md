@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Organization recall now carries the ranking signals the local brain had.**
+  Candidates are classified by knowledge nature (rule / preference / project
+  state / fact / decision / reference / episode) with a provenance tier, dated
+  from trusted times only (declared front matter, file mtime, server
+  observation — never one standing in for another), re-ranked within ±5% by a
+  forgetting curve plus delivery/citation/support/contradiction signals, and
+  retired only on an explicit `superseded_by` or past `expires`. Opt-in
+  Hopfield association (`serve --hopfield`) adds indexed neighbours neither
+  route surfaced.
+- **Every recall leaves a trace.** `retrieve` and the new hook channel
+  `POST /native/v1/recall` record, per candidate, the route ranks, each
+  stage's before/after rank and score, and the delivery state (candidate →
+  selected → packed → emitted → confirmed → cited, or why it was dropped).
+  Disabled stages read 「未启用」. Traces hold identifiers and titles, never
+  bodies, and expire after 30 days. See them with `amh-native recall-trace`,
+  the operator page `/native/v1/admin/recalls`, or `trace_id` in
+  `search_org_memory`.
+- **Feedback loop.** `amh-native recall-feedback` / `POST /native/v1/recall/feedback`
+  accept cite / support / contradict / confirm for a trace's candidates; the
+  hook reports packed / emitted / confirmed / budget / covered through the
+  worker. Signals feed the next ranking.
+- Clients upload bounded `source_meta` (mtime, declared front matter subset,
+  `[[wikilinks]]`, headings) with each document; a Hub that predates the
+  field is detected via `health` capabilities and the field is dropped.
+
+### Changed
+
+- The prompt-time hook no longer uses the lexical-only `/search`: it uses the
+  hybrid, role-filtered recall channel, so transcript chunks stop crowding
+  out curated memory. Old Hubs (HTTP 404) fall back to `/search`.
+- `hook-metrics.jsonl` lines gain `channel`, `trace_id`, `hits` and `packed`.
+
 ## [1.3.0] — 2026-11-01
 
 ### Changed

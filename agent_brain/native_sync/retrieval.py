@@ -269,7 +269,7 @@ def retrieve(
             seeds,
             window_vectors,
             beta=hub.hopfield_beta,
-            min_similarity=hub.semantic_min_score,
+            min_similarity=hub.hopfield_min_score,
             limit=CANDIDATES,
         )
         top = fused[0].score if fused else 1.0

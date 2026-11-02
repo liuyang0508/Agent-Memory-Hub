@@ -42,6 +42,7 @@ class Hub:
         decay: bool | None = None,
         hopfield: bool | None = None,
         hopfield_beta: float = 8.0,
+        hopfield_min_score: float = 0.35,
     ) -> None:
         self.path = Path(path)
         # Decay/signals re-rank by default; Hopfield association is opt-in
@@ -59,6 +60,12 @@ class Hub:
         if not math.isfinite(hopfield_beta) or hopfield_beta <= 0:
             raise ValueError("hopfield beta must be a positive number")
         self.hopfield_beta = float(hopfield_beta)
+        # The attractor already sits inside the retrieved cluster, so association
+        # uses a lower floor than direct query similarity. Still an eligibility
+        # floor, not a confidence claim.
+        if not 0 <= hopfield_min_score <= 1:
+            raise ValueError("hopfield floor must be between 0 and 1")
+        self.hopfield_min_score = float(hopfield_min_score)
         self.semantic_model = semantic_model or os.environ.get("AMH_NATIVE_SEMANTIC_MODEL")
         self._encoder = semantic_backend
         self._encoder_lock = threading.Lock()
