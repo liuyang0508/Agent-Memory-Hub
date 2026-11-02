@@ -11,9 +11,12 @@ import json
 import math
 import sqlite3
 from pathlib import Path
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any, Literal, NotRequired, Protocol, TypedDict, cast
 
 from .storage import database
+from .asset_roles import PRIMARY_MEMORY_SQL, asset_role
+from .common import KINDS
 
 if TYPE_CHECKING:
     from .hub import Hub
@@ -50,6 +53,8 @@ class IndexRefreshResult(SemanticDescriptor):
     skipped_changed: int
     reused: int
     encoded: int
+    kinds: list[str]
+    include_evidence: bool
 
 
 INDEX_VERSION = 3
@@ -199,7 +204,14 @@ def exists(db: sqlite3.Connection) -> bool:
     )
 
 
-def rebuild(hub: Hub, token: str, backend: SemanticBackend) -> IndexRefreshResult:
+def rebuild(
+    hub: Hub,
+    token: str,
+    backend: SemanticBackend,
+    *,
+    kinds: Sequence[str] | None = None,
+    include_evidence: bool = False,
+) -> IndexRefreshResult:
     """Build a tenant snapshot, then atomically replace its derived generation.
 
     Reuse only the same model/index descriptor and exact source revision/hash.
@@ -207,13 +219,29 @@ def rebuild(hub: Hub, token: str, backend: SemanticBackend) -> IndexRefreshResul
     vector. Source deletes do not need a model or vector write on the put path.
     encoded/reused count prepared assets (before skipped_changed), not windows.
     """
+    selected_kinds = ["memory"] if kinds is None else list(dict.fromkeys(kinds))
+    if not selected_kinds or not set(selected_kinds) <= KINDS.keys():
+        raise ValueError("invalid semantic index kinds")
+    if type(include_evidence) is not bool:
+        raise ValueError("include_evidence must be boolean")
+    filters = [
+        "a.tenant=?",
+        "json_extract(a.payload,'$.deleted')=0",
+        "json_extract(a.payload,'$.encoding')='utf8'",
+        "json_extract(a.payload,'$.kind') IN (" + ",".join("?" for _ in selected_kinds) + ")",
+    ]
+    if not include_evidence:
+        filters.append(PRIMARY_MEMORY_SQL)
+    predicate = " AND ".join(filters)
     config = descriptor(backend)
     with database(hub.path) as db:
+        db.create_function("native_asset_role", 3, asset_role, deterministic=True)
         who = hub._identity(db, token)
         db.execute("BEGIN")
+        scope = [who["tenant"], *selected_kinds]
         rows = db.execute(
-            "SELECT payload FROM assets WHERE tenant=? AND json_extract(payload,'$.deleted')=0 AND json_extract(payload,'$.encoding')='utf8'",
-            (who["tenant"],),
+            "SELECT a.payload FROM assets a WHERE " + predicate,
+            scope,
         ).fetchall()
         items: list[dict[str, Any]] = [json.loads(row["payload"]) for row in rows]
         items = [item for item in items if hub._retrieval_valid(db, item)]
@@ -230,8 +258,8 @@ def rebuild(hub: Hub, token: str, backend: SemanticBackend) -> IndexRefreshResul
                         "JOIN assets a ON a.tenant=v.tenant AND a.id=v.asset_id "
                         "AND a.revision=v.revision "
                         "AND json_extract(a.payload,'$.content_hash')=v.content_hash "
-                        "WHERE v.tenant=?",
-                        (who["tenant"],),
+                        "WHERE " + predicate,
+                        scope,
                     )
                 }
     prepared: list[tuple[dict[str, Any], str]] = []
@@ -293,4 +321,6 @@ def rebuild(hub: Hub, token: str, backend: SemanticBackend) -> IndexRefreshResul
         "skipped_changed": len(items) - count,
         "reused": reused,
         "encoded": encoded,
+        "kinds": selected_kinds,
+        "include_evidence": include_evidence,
     }

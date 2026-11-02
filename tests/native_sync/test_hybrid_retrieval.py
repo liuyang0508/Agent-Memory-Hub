@@ -229,7 +229,7 @@ def test_transcript_window_does_not_mislabel_index_text_as_body(tmp_path):
     hub.put(
         token, asset("history", kind="transcript", body="raw transcript", index_text="两人复核")
     )
-    hub.rebuild_semantic(token)
+    hub.rebuild_semantic(token, kinds=["transcript"])
     result = hub.retrieve(token, "approval", kinds=["transcript"])["items"][0]
     window = result["semantic_match"]
     assert window["source_field"] == "index_text"
@@ -483,3 +483,82 @@ def test_same_revision_with_mismatched_cached_hash_is_encoded_again(tmp_path):
     result = hub.rebuild_semantic(token)
     assert (result["reused"], result["encoded"]) == (0, 1)
     assert len(backend.seen) == 1
+
+
+def test_default_build_filters_large_supporting_assets_before_encoding(tmp_path):
+    hub, token, backend = make(tmp_path)
+    hub.put(token, asset("topic", path="topic.md", title="", body="TOPIC approval"))
+    hub.put(token, asset("navigation", path="MEMORY.md", title="", body="NAVIGATION approval"))
+    for i in range(12):
+        for prefix, kind, path in [
+            ("transcript", "transcript", "chat.jsonl"),
+            ("config", "config", "config.json"),
+            ("summary", "memory", "./rollout_summaries/session.md"),
+            ("raw", "memory", ".\\raw_memories.md"),
+        ]:
+            hub.put(
+                token,
+                asset(prefix + str(i), kind=kind, path=path, body="EXCLUDED_LARGE_CONTENT " * 1000),
+            )
+    result = hub.rebuild_semantic(token)
+    assert result["kinds"] == ["memory"] and result["include_evidence"] is False
+    assert result["indexed"] == result["encoded"] == 2
+    assert len(backend.seen) == 2 and not any("EXCLUDED" in text for text in backend.seen)
+    with database(hub.path) as db:
+        assert db.execute("SELECT count(*) FROM assets").fetchone()[0] == 50
+
+
+def test_explicit_scope_expansion_then_narrowing_preserves_sources_and_reports_partial(tmp_path):
+    import json
+
+    hub, token, backend = make(tmp_path)
+    for key, kind, path in [
+        ("topic", "memory", "topic.md"),
+        ("summary", "memory", "./rollout_summaries/s.md"),
+        ("transcript", "transcript", "chat.jsonl"),
+        ("config", "config", "config.json"),
+    ]:
+        hub.put(token, asset(key, kind=kind, path=path, title="", body="复核 " + key))
+    first = hub.rebuild_semantic(token)
+    assert (first["encoded"], first["reused"]) == (1, 0)
+    with database(hub.path) as db:
+        original_descriptor = json.loads(
+            db.execute("SELECT descriptor FROM native_semantic_meta").fetchone()[0]
+        )
+        sources = [tuple(row) for row in db.execute("SELECT * FROM assets ORDER BY id")]
+    backend.seen.clear()
+    expanded = hub.rebuild_semantic(
+        token, kinds=["memory", "transcript", "config"], include_evidence=True
+    )
+    assert (expanded["indexed"], expanded["encoded"], expanded["reused"]) == (4, 3, 1)
+    assert expanded["include_evidence"] is True
+    assert set(expanded["kinds"]) == {"memory", "transcript", "config"}
+    assert not hub.retrieve(token, "approval", kinds=["transcript"])["retrieval"]["degraded"]
+    backend.seen.clear()
+    narrowed = hub.rebuild_semantic(token)
+    assert (narrowed["indexed"], narrowed["encoded"], narrowed["reused"]) == (1, 0, 1)
+    assert backend.seen == []
+    with database(hub.path) as db:
+        assert (
+            json.loads(db.execute("SELECT descriptor FROM native_semantic_meta").fetchone()[0])
+            == original_descriptor
+        )
+        assert [tuple(row) for row in db.execute("SELECT * FROM assets ORDER BY id")] == sources
+        assert [row[0] for row in db.execute("SELECT asset_id FROM native_semantic_vectors")] == [
+            "topic"
+        ]
+    default = hub.retrieve(token, "approval")
+    assert not default["retrieval"]["degraded"]
+    wider = hub.retrieve(
+        token, "approval", kinds=["memory", "transcript", "config"], include_evidence=True
+    )
+    assert wider["retrieval"]["semantic_index"] == {"current": 1, "eligible": 4}
+    assert "semantic_index_incomplete_rebuild_required" in wider["retrieval"]["reasons"]
+
+
+@pytest.mark.parametrize("kinds", [[], ["invalid"], ["memory", "invalid"]])
+def test_build_rejects_unknown_or_empty_scope(tmp_path, kinds):
+    hub, token, backend = make(tmp_path)
+    with pytest.raises(ValueError, match="kinds"):
+        hub.rebuild_semantic(token, kinds=kinds)
+    assert backend.seen == []

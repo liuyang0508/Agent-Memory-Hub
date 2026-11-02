@@ -230,3 +230,28 @@ supporting evidence require explicit options. Index source selection and cached
 vector reads are filtered before loading payloads. The `serve` command preloads
 a configured local model before accepting requests, avoiding a cold-load timeout
 in the first short Hook or tool request.
+## Index selection on constrained servers
+
+`rebuild_semantic(token, *, kinds=None, include_evidence=False)` now defaults to
+`kinds=['memory']`, excluding conversation summaries and raw memory extraction.
+Both source payload selection and cached-vector selection use SQL filters before
+fetching rows. Retrieve and rebuild share the same role predicate and normalized
+`asset_role` function. Topic and navigation memories remain eligible; transcripts,
+configuration, rules and skills require explicit `kinds` selection. Supporting
+memory roles additionally require `include_evidence=True`.
+
+For example, `rebuild_semantic(token, kinds=['memory', 'transcript'],
+include_evidence=True)` explicitly expands the derived scope. The result reports
+`kinds` and `include_evidence`; these do not change the model descriptor, so exact
+current vectors within the newly selected scope remain reusable. Each refresh
+atomically replaces this organization's selected derived generation, rather than
+accumulating scopes. Narrowing removes out-of-scope vectors only, leaving every
+source asset unchanged. Later wider queries report
+`semantic_index_incomplete_rebuild_required` until their scope is rebuilt.
+
+The isolated scope regression creates 50 source assets, including 48 large
+transcript/config/summary/raw records. Default refresh encodes only the two
+topic/navigation records. Explicit expansion and subsequent narrowing verify
+vector reuse, unchanged source rows and explicit partial-index reporting. This
+limits unnecessary corpus work; it does not reduce the model's own resident
+memory requirement or establish a production memory-capacity guarantee.

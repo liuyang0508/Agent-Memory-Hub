@@ -4,6 +4,14 @@ from __future__ import annotations
 
 from pathlib import PurePosixPath
 
+# Shared eligibility fragment for an assets table aliased as `a`. Connections
+# register native_asset_role with the function below, so normalization is identical.
+PRIMARY_MEMORY_SQL = (
+    "native_asset_role(json_extract(a.payload,'$.product'),"
+    "json_extract(a.payload,'$.path'),json_extract(a.payload,'$.kind')) "
+    "NOT IN ('conversation_summary','raw_memory')"
+)
+
 CODEX_PRODUCTS = frozenset({"codex-shared", "codex-cli", "codex-desktop", "chatgpt-desktop"})
 
 

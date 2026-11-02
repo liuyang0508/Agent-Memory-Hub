@@ -12,7 +12,7 @@ import math
 from agent_brain.retrieval.fusion import rrf_fusion
 from agent_brain.retrieval.mmr import _cosine_sim, mmr_rerank
 from agent_brain.retrieval.types import RetrievedItem
-from .asset_roles import asset_role
+from .asset_roles import PRIMARY_MEMORY_SQL, asset_role
 from .common import tokens
 from .storage import database
 from . import semantic
@@ -58,9 +58,8 @@ def retrieve(
         "json_extract(a.payload,'$.encoding')='utf8'",
         "json_extract(a.payload,'$.kind') IN (" + ",".join("?" for _ in kinds) + ")",
     ]
-    role_sql = "native_asset_role(json_extract(a.payload,'$.product'),json_extract(a.payload,'$.path'),json_extract(a.payload,'$.kind')) NOT IN ('conversation_summary','raw_memory')"
     if not include_evidence:
-        filters.append(role_sql)
+        filters.append(PRIMARY_MEMORY_SQL)
     if project_filter is not None:
         filters.append("json_extract(a.payload,'$.project')=?")
     predicate = " AND ".join(filters)

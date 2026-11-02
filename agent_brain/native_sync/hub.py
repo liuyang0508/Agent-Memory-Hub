@@ -1035,15 +1035,17 @@ class Hub:
         # Use the same whole-version metadata contract as bounded document read.
         return (item["asset_id"], item["revision"]) in self._version_proof(db, item)
 
-    def rebuild_semantic(self, token: str) -> IndexRefreshResult:
-        """Explicit maintenance operation outside hooks and source-write locks."""
+    def rebuild_semantic(
+        self, token: str, *, kinds: Sequence[str] | None = None, include_evidence: bool = False
+    ) -> IndexRefreshResult:
+        """Refresh selected native vectors; default to topic/navigation memory only."""
         self.identity(token)
         from .semantic import rebuild
 
         backend, error = self._semantic_backend()
         if backend is None:
             raise ValueError(error or "semantic_model_not_configured")
-        return rebuild(self, token, backend)
+        return rebuild(self, token, backend, kinds=kinds, include_evidence=include_evidence)
 
     def retrieve(
         self,
