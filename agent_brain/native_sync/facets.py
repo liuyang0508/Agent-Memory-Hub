@@ -309,7 +309,7 @@ def decay(
 
     retention = 0.5 ** (age / half_life); access/support/gain/contradiction
     multipliers follow agent_brain/memory/recall/retrieval_decay.py. Without a
-    trusted reference time the coefficient is 1 and the reason says so.
+    trusted reference time retention is a neutral 0.5 and the reason says so.
     """
     signals = signals or {}
     kind = nature(record, role, body=body)
@@ -326,9 +326,11 @@ def decay(
         "contradiction": 1 - min(0.45, contradict * 0.08),
     }
     if reference is None:
+        # No trusted time: neither fresh nor stale. One half-life's retention
+        # keeps a dated recent memory ahead and a dated stale one behind.
         age_days = None
-        retention = 1.0
-        reason = "time_unknown_no_decay"
+        retention = 0.5
+        reason = "time_unknown_neutral"
     else:
         age_days = max(0.0, (now - reference) / 86400)
         retention = 0.5 ** (age_days / half_life)

@@ -137,7 +137,9 @@ def test_decay_is_bounded_reranking_and_unknown_time_does_not_decay():
     assert a["half_life_days"] == 365 and b["half_life_days"] == 21 and c["half_life_days"] == 60
     assert a["weight"] > b["weight"]
     assert b["coefficient"] == 0.01 and b["weight"] == pytest.approx(1 + 0.05 * math.tanh(math.log(0.01)), abs=1e-5)
-    assert c == {**c, "coefficient": 1.0, "weight": 1.0, "reason": "time_unknown_no_decay", "age_days": None}
+    assert c == {**c, "coefficient": 0.5, "reason": "time_unknown_neutral", "age_days": None}
+    assert c["weight"] == pytest.approx(1 + 0.05 * math.tanh(math.log(0.5)), abs=1e-5)
+    assert a["weight"] > c["weight"] > b["weight"]  # dated fresh > undated > dated stale
     assert all(0.95 <= r["weight"] <= 1.05 for r in (a, b, c))
     boosted = facets.decay(fresh, "topic_memory", {"delivered": 80, "support": 10, "gain": 5}, now=now)
     assert boosted["multipliers"] == {"access": 1.35, "support": 1.18, "gain": 1.15, "contradiction": 1.0}

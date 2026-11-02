@@ -155,6 +155,37 @@ CREATE VIRTUAL TABLE IF NOT EXISTS search_index USING fts5(
     asset_id UNINDEXED,
     terms
 );
+
+-- Additive recall ledger: counters per asset and bounded per-query traces (no bodies).
+CREATE TABLE IF NOT EXISTS recall_signals(
+    tenant TEXT NOT NULL,
+    asset_id TEXT NOT NULL,
+    delivered INTEGER NOT NULL DEFAULT 0,
+    confirmed INTEGER NOT NULL DEFAULT 0,
+    cited INTEGER NOT NULL DEFAULT 0,
+    support INTEGER NOT NULL DEFAULT 0,
+    contradict INTEGER NOT NULL DEFAULT 0,
+    gain REAL NOT NULL DEFAULT 0,
+    last_delivered REAL,
+    last_cited REAL,
+    last_feedback REAL,
+    confirmed_at REAL,
+    PRIMARY KEY(tenant,asset_id)
+);
+
+CREATE TABLE IF NOT EXISTS recall_events(
+    tenant TEXT NOT NULL,
+    trace_id TEXT NOT NULL,
+    created REAL NOT NULL,
+    device TEXT NOT NULL,
+    member TEXT NOT NULL,
+    channel TEXT NOT NULL,
+    query_digest TEXT NOT NULL,
+    query_preview TEXT NOT NULL,
+    payload TEXT NOT NULL,
+    PRIMARY KEY(tenant,trace_id)
+);
+CREATE INDEX IF NOT EXISTS recall_events_recent ON recall_events(tenant, created);
 """
 
 

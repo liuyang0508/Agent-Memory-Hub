@@ -15,6 +15,8 @@ from .knowledge import _source
 MAX_RESPONSE_BYTES = 12000
 MAX_EXCERPT_BYTES = 1200
 MAX_ITEMS = 20
+STAGES = ("lexical", "semantic", "hopfield", "rerank", "declared_filter", "decay", "mmr")
+ROUTES = ("lexical", "semantic", "hopfield", "rerank")
 
 
 def _clip(value: str, byte_limit: int) -> str:
@@ -40,11 +42,19 @@ def _diagnostics(result: dict[str, Any]) -> dict[str, Any]:
         "mmr": bool(raw.get("mmr", False)),
     }
     for group, fields in (
-        ("candidates", ("lexical", "semantic")),
+        ("candidates", ("lexical", "semantic", "hopfield")),
         ("semantic_index", ("current", "eligible")),
     ):
         values = raw.get(group, {})
         meta[group] = {key: values[key] for key in fields if type(values.get(key)) is int}
+    trace_id = raw.get("trace_id")
+    if isinstance(trace_id, str) and len(trace_id) == 24:
+        meta["trace_id"] = trace_id
+    stages = raw.get("stages")
+    if isinstance(stages, dict):
+        meta["stages"] = {
+            key: _clip(str(stages[key]), 16) for key in STAGES if isinstance(stages.get(key), str)
+        }
     model = raw.get("model")
     if isinstance(model, dict):
         meta["model"] = {
@@ -121,6 +131,23 @@ def _candidate(item: dict[str, Any]) -> dict[str, Any]:
     }
     if projection is not None:
         result["semantic_match"] = projection
+    recall = item.get("recall")
+    if isinstance(recall, dict):
+        routes = recall.get("routes") if isinstance(recall.get("routes"), dict) else {}
+        compact: dict[str, Any] = {
+            "routes": {
+                key: routes[key]
+                for key in ROUTES
+                if key in routes and (routes[key] is None or type(routes[key]) is int or isinstance(routes[key], str))
+            },
+        }
+        for key, kind in (("final_rank", int), ("nature", str), ("state", str)):
+            if isinstance(recall.get(key), kind) and not isinstance(recall.get(key), bool):
+                compact[key] = recall[key] if kind is int else _clip(recall[key], 32)
+        weight = recall.get("decay_weight")
+        if isinstance(weight, (int, float)) and not isinstance(weight, bool) and math.isfinite(weight):
+            compact["decay_weight"] = round(float(weight), 5)
+        result["recall"] = compact
     return result
 
 

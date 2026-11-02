@@ -86,6 +86,31 @@ class RetrieveInput(BaseModel):
     project_filter: str | None = Field(default=None, max_length=256)
 
 
+class RecallInput(BaseModel):
+    """Prompt-time hook recall over curated memory and rules; bodies return in full."""
+
+    model_config = ConfigDict(extra="forbid")
+    query: str = Field(max_length=8000)
+    limit: int = Field(default=8, ge=1, le=8)
+
+
+class RecallEvent(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    asset_id: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_.-]+$")
+    revision: int = Field(ge=1, strict=True)
+    event: Literal[
+        "packed", "emitted", "confirmed", "budget", "covered", "cite", "support", "contradict", "confirm"
+    ]
+
+
+class RecallFeedbackInput(BaseModel):
+    """Delivery states and knowledge feedback for candidates of one recorded trace."""
+
+    model_config = ConfigDict(extra="forbid")
+    trace_id: str = Field(min_length=24, max_length=24, pattern=r"^[a-f0-9]+$")
+    events: list[RecallEvent] = Field(min_length=1, max_length=64)
+
+
 class ReadInput(BaseModel):
     """An exact current asset revision; cursor is a UTF-8 byte offset, never a path."""
 

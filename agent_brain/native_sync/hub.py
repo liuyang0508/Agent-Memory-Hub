@@ -8,6 +8,7 @@ import sqlite3
 import threading
 
 import json
+import math
 import os
 import secrets
 import time
@@ -38,8 +39,26 @@ class Hub:
         semantic_min_score: float = 0.45,
         mmr_lambda: float | None = None,
         reranker: Callable[[str, list[dict[str, Any]]], Sequence[float]] | None = None,
+        decay: bool | None = None,
+        hopfield: bool | None = None,
+        hopfield_beta: float = 8.0,
     ) -> None:
         self.path = Path(path)
+        # Decay/signals re-rank by default; Hopfield association is opt-in
+        # because it scans every indexed vector. Environment pins both.
+        self.decay_enabled = (
+            os.environ.get("AMH_NATIVE_DECAY", "1") not in ("0", "false", "off")
+            if decay is None
+            else bool(decay)
+        )
+        self.hopfield = (
+            os.environ.get("AMH_NATIVE_HOPFIELD", "0") in ("1", "true", "on")
+            if hopfield is None
+            else bool(hopfield)
+        )
+        if not math.isfinite(hopfield_beta) or hopfield_beta <= 0:
+            raise ValueError("hopfield beta must be a positive number")
+        self.hopfield_beta = float(hopfield_beta)
         self.semantic_model = semantic_model or os.environ.get("AMH_NATIVE_SEMANTIC_MODEL")
         self._encoder = semantic_backend
         self._encoder_lock = threading.Lock()
@@ -349,7 +368,13 @@ class Hub:
 
     def admin_setting(self, token: str, key: str, value: str) -> None:
         """Store deployment settings; an empty value clears the key."""
-        allowed = {"feishu_app_id", "amh_hub_public_url", "feishu_tenant", "feishu_tenant_key"}
+        allowed = {
+            "feishu_app_id",
+            "amh_hub_public_url",
+            "feishu_tenant",
+            "feishu_tenant_key",
+            "recall_query_preview",
+        }
         if key not in allowed:
             raise ValueError("unknown setting")
         with database(self.path) as db:
@@ -1060,6 +1085,8 @@ class Hub:
         kinds: Sequence[str] | None = None,
         include_evidence: bool = False,
         project_filter: str | None = None,
+        channel: str = "tool",
+        record: bool = True,
     ) -> dict[str, Any]:
         from .retrieval import retrieve
 
@@ -1071,4 +1098,54 @@ class Hub:
             kinds=kinds,
             include_evidence=include_evidence,
             project_filter=project_filter,
+            channel=channel,
+            record=record,
         )
+
+    def recall(self, token: str, query: str, *, limit: int = 8) -> dict[str, Any]:
+        """Hook-channel recall: hybrid ranking over curated memory and rules, full bodies.
+
+        Replaces the lexical-only search for the prompt-time hook so transcript
+        chunks and supporting material cannot crowd out curated memory.
+        """
+        result = self.retrieve(token, query, limit=limit, kinds=["memory", "rule"], channel="hook")
+        return {
+            "items": result["items"],
+            "trace_id": result["retrieval"]["trace_id"],
+            "retrieval": result["retrieval"],
+        }
+
+    def recall_feedback(
+        self, token: str, trace_id: str, events: list[dict[str, Any]]
+    ) -> dict[str, Any]:
+        """Record delivery states and knowledge feedback against a recorded trace."""
+        from .recall_ledger import apply_feedback
+
+        with database(self.path) as db:
+            db.execute("BEGIN IMMEDIATE")
+            who = self._identity(db, token)
+            return apply_feedback(db, who, trace_id, events)
+
+    def recalls(
+        self, token: str, *, trace_id: str | None = None, limit: int = 20
+    ) -> dict[str, Any]:
+        """A member's own device's recent recall traces; identifiers and scores only."""
+        from .recall_ledger import list_traces
+
+        with database(self.path) as db:
+            who = self._identity(db, token)
+            traces = list_traces(
+                db, who["tenant"], device=who["device_id"], trace_id=trace_id, limit=limit
+            )
+        return {"traces": traces}
+
+    def admin_recalls(
+        self, token: str, *, trace_id: str | None = None, limit: int = 50
+    ) -> dict[str, Any]:
+        """Organization-wide recall traces for the operator page; no memory text."""
+        from .recall_ledger import list_traces
+
+        with database(self.path) as db:
+            self._admin(db, token)
+            traces = list_traces(db, self.tenant, trace_id=trace_id, limit=limit)
+        return {"traces": traces, "generated_at": time.time()}
