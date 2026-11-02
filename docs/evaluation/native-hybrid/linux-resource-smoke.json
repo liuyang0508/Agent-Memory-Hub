@@ -1,0 +1,36 @@
+{
+  "status": "passed_restricted_linux_offline_model_probe",
+  "scope": "synthetic texts only, no production corpus or service changes",
+  "platform": {
+    "os": "Alibaba Cloud Linux 3",
+    "glibc": "2.32",
+    "python": "3.11.13",
+    "arch": "x86_64",
+    "logical_cpus": 2,
+    "host_memory_gib": 1.83
+  },
+  "limits": {
+    "memory_mib": 900,
+    "cpu_percent": 50,
+    "nice": 10,
+    "runtime_seconds": 120
+  },
+  "result": {
+    "output_shape": [
+      2,
+      384
+    ],
+    "cosine": 0.7611191868782043,
+    "elapsed_seconds": 16.181,
+    "peak_rss_bytes": 824655872,
+    "exit_code": 0
+  },
+  "dependency_check": "passed",
+  "original_service_unchanged": true,
+  "remote_probe_cleaned": true,
+  "limitations": [
+    "No production-corpus indexing test",
+    "No concurrent query/index capacity test",
+    "Do not run two model processes on this host without separate validation"
+  ]
+}

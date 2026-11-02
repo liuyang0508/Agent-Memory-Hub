@@ -81,14 +81,14 @@ other asset/version/source references. This does not change source records.
 
 ## Reproduction and limits
 
-Used interpreter: `/Users/liuyang/amh-native-review-fixes/.venv/bin/python`.
+Used interpreter: `.venv/bin/python`.
 It already contained sentence-transformers, torch, and the local Hugging Face
 cache; no installation was needed. Cached model snapshot:
 `e8f8c211226b894fcb81acc59f3b34ba3efd5f42`, 384 dimensions.
 
 ```sh
 PYTHONPATH=. HF_HUB_OFFLINE=1 TOKENIZERS_PARALLELISM=false \
-  /Users/liuyang/amh-native-review-fixes/.venv/bin/python \
+  .venv/bin/python \
   benchmarks/native_hybrid_smoke.py --output /tmp/native-hybrid.json
 ```
 
@@ -209,3 +209,24 @@ one embedding call. The subsequent English query returned that asset's current
 revision 2 and updated Chinese body. The synthetic protocol tests additionally
 exercise model/hash invalidation, delete cleanup, concurrent source changes,
 rollback on revocation and no inference after credential revocation.
+
+## Host tool-loop and Linux resource evidence
+
+`agent-tools-smoke.json` records an actual isolated Codex CLI session against a
+synthetic HTTP Hub and stdio MCP: search, four document reads, explicit relation
+lookup, and reference reading; the two requested synthetic facts were correct.
+No shell/file/web tool ran. The 164-second elapsed time includes model connection
+retries and is not an MCP latency metric. This proves this specific host workflow,
+not the quality of arbitrary business answers or other desktop clients.
+
+`linux-resource-smoke.json` records an isolated Linux offline model run under
+900MiB/50%CPU/120-second constraints. Two synthetic sentences produced finite
+384-dimensional vectors, peak process RSS about 786MiB. The production service
+was unchanged. Production-corpus indexing and concurrent query/index memory use
+remain unverified; the 2GB machine must not assume two model processes fit safely.
+
+Operator `semantic-index` now defaults to primary memory roles; other kinds and
+supporting evidence require explicit options. Index source selection and cached
+vector reads are filtered before loading payloads. The `serve` command preloads
+a configured local model before accepting requests, avoiding a cold-load timeout
+in the first short Hook or tool request.

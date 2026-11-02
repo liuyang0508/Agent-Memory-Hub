@@ -107,6 +107,7 @@ def test_setup_only_starts_visible_sync_after_enable_confirmation(
     events = []
     monkeypatch.setattr(cli, "load", lambda state: c)
     monkeypatch.setattr(cli, "discover_products", lambda home: [])
+    monkeypatch.setattr(cli, "require_research_service", lambda hub: None)
     monkeypatch.setattr(history, "items", lambda *args, **kwargs: [])
     monkeypatch.setattr(cli, "install_hooks", lambda *args, **kwargs: events.append("install"))
     monkeypatch.setattr(cli, "initial_sync", lambda client: events.append("sync"))

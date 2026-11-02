@@ -62,7 +62,9 @@ import os, sqlite3, sys
 db = sqlite3.connect(sys.argv[1])
 db.execute("BEGIN IMMEDIATE")
 db.execute("UPDATE assets SET payload=json_set(payload, '$.body', 'uncommitted')")
-db.execute("INSERT INTO changes(tenant,payload) VALUES('linkcrux','uncommitted')")
+# Changes now has JSON expression indexes; keep the uncommitted fixture valid
+# JSON so this test still reaches the simulated process crash.
+db.execute("INSERT INTO changes(tenant,payload) VALUES('linkcrux',json_object('body','uncommitted'))")
 db.execute("DELETE FROM search_index")
 os._exit(42)
 """

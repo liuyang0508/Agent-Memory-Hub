@@ -12,6 +12,7 @@ import platform
 import socket
 import sqlite3
 import subprocess
+import time
 from pathlib import Path
 
 import typer
@@ -127,6 +128,26 @@ def load(state: Path) -> NativeClient:
     return NativeClient(state)
 
 
+def require_research_service(hub: str) -> None:
+    """Check capabilities before enrollment or installing tools against an older Hub."""
+    from .transport import Transport
+
+    try:
+        response = Transport(hub, timeout=5).call("health")
+    except (OSError, ValueError):
+        raise typer.BadParameter(
+            "暂时无法验证组织服务能力；尚未更改客户端配置，请稍后重试"
+        ) from None
+    capabilities = response.get("capabilities") if isinstance(response, dict) else None
+    if (
+        not isinstance(response, dict)
+        or response.get("service") != "amh-native"
+        or not isinstance(capabilities, list)
+        or "org-research-v1" not in capabilities
+    ):
+        raise typer.BadParameter("组织服务尚未支持按需检索工具，请管理员先升级 Hub，再继续安装")
+
+
 def all_selectable(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Every row except blocked ones: a blocked file can never be uploaded."""
     picked = [row for row in rows if row["risk"] != "blocked"]
@@ -175,13 +196,82 @@ def revoke(db: Path = typer.Option(...), device: str = typer.Option(...)) -> Non
 
 
 @app.command()
-def serve(db: Path = typer.Option(...), host: str = "127.0.0.1", port: int = 8787) -> None:
+def serve(
+    db: Path = typer.Option(...),
+    host: str = "127.0.0.1",
+    port: int = 8787,
+    semantic_model: str | None = typer.Option(None, help="服务端已缓存的语义模型，不自动下载"),
+    semantic_min_score: float = typer.Option(0.45, min=0, max=1),
+    mmr_lambda: float | None = typer.Option(None, min=0, max=1),
+) -> None:
     """运行独立组织 Hub；公网部署请在前面配置 HTTPS。"""
     import uvicorn
     from .api import create_app
     from .hub import Hub
 
-    uvicorn.run(create_app(Hub(db)), host=host, port=port, log_level="warning", access_log=False)
+    hub = Hub(
+        db,
+        semantic_model=semantic_model,
+        semantic_min_score=semantic_min_score,
+        mmr_lambda=mmr_lambda,
+    )
+    if hub.semantic_model:
+        # Load before accepting requests: a cold model must not consume the
+        # short Hook/tool request deadline. No source content is encoded here.
+        output = Console(stderr=True)
+        output.print("正在加载服务端本地语义模型；此阶段尚未接受检索请求。")
+        backend, error = hub._semantic_backend()
+        if backend is None:
+            output.print(f"语义模型未就绪（{error}）；检索将明确报告词法降级。", markup=False)
+    uvicorn.run(create_app(hub), host=host, port=port, log_level="warning", access_log=False)
+
+
+@app.command("semantic-index")
+def semantic_index(
+    db: Path = typer.Option(..., help="已有 Hub 数据库，仅在服务端维护"),
+    model: str = typer.Option(..., help="已缓存的模型名称或目录；不会下载"),
+    state: Path | None = typer.Option(None, help="已授权组织的私有客户端状态目录"),
+    kind: list[str] | None = typer.Option(None, help="索引类型，可重复；默认仅记忆"),
+    include_evidence: bool = typer.Option(False, help="明确包含会话摘要和原始提取材料"),
+    watch: bool = typer.Option(False, help="周期检查新增、更新和删除，仅编码变化内容"),
+    interval: float = typer.Option(60, min=5, max=86400),
+) -> None:
+    """构建或增量刷新派生语义索引；凭证从 --state 或 AMH_NATIVE_INDEX_TOKEN 读取。"""
+    from .hub import Hub
+
+    if not db.is_file() or db.is_symlink():
+        raise typer.BadParameter("--db 必须指向已有的普通 Hub 数据库文件")
+    token = os.environ.get("AMH_NATIVE_INDEX_TOKEN", "")
+    if state is not None:
+        config_path = state / "config.json"
+        try:
+            if state.is_symlink() or config_path.is_symlink() or config_path.stat().st_size > 16384:
+                raise ValueError("invalid profile")
+            profile = json.loads(config_path.read_text())
+            token = profile["identity"]["token"]
+        except (OSError, ValueError, TypeError, KeyError):
+            raise typer.BadParameter("无法读取已授权的私有状态目录") from None
+    if not isinstance(token, str) or not token:
+        raise typer.BadParameter(
+            "请指定 --state 或设置 AMH_NATIVE_INDEX_TOKEN；不要把凭证放进命令参数"
+        )
+    hub = Hub(db, semantic_model=model)
+    try:
+        while True:
+            # The Hub revalidates this device before inference and before commit.
+            result = hub.rebuild_semantic(token, kinds=kind, include_evidence=include_evidence)
+            emit({"semantic_index": result, "watch": watch})
+            if not watch:
+                return
+            time.sleep(interval)
+    except KeyboardInterrupt:
+        Console(stderr=True).print("索引维护已停止；已提交的索引保留。")
+    except PermissionError:
+        raise typer.BadParameter("组织凭证无效或已撤销，索引维护已停止") from None
+    except (OSError, ValueError, sqlite3.Error):
+        raise typer.BadParameter(
+            "索引构建失败；检查已缓存模型、服务端依赖和数据库。旧索引及原始内容保留。"
+        ) from None
 
 
 @app.command()
@@ -675,6 +765,7 @@ def setup(
     from . import history
 
     console.print("[bold]AMH · 组织共享第二大脑[/bold]")
+    require_research_service(hub)
     # A failed 1.3.1 --projection setup could leave only this preference behind.
     # It is not an enrolled identity. Keep it until login succeeds; adopt() accepts
     # only this exact harmless partial shape, never an existing identity/profile.

@@ -60,7 +60,11 @@ def create_app(hub: Hub) -> FastAPI:
     @app.get("/native/v1/health")
     def health() -> dict[str, Any]:
         """Liveness/protocol discovery; dependency failures must not cause restart loops."""
-        return {"protocol": 1, "service": "amh-native"}
+        return {
+            "protocol": 1,
+            "service": "amh-native",
+            "capabilities": ["org-research-v1"],
+        }
 
     @app.get("/native/v1/ready")
     def ready() -> JSONResponse:

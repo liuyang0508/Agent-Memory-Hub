@@ -195,6 +195,7 @@ def test_first_projection_setup_logs_in_before_writing_preferences(tmp_path, mon
 
     monkeypatch.setattr("agent_brain.native_sync.cli.feishu_login", login)
     monkeypatch.setattr("agent_brain.native_sync.cli.discover_products", lambda home: [])
+    monkeypatch.setattr("agent_brain.native_sync.cli.require_research_service", lambda hub: None)
     monkeypatch.setattr("agent_brain.native_sync.history.items", lambda *a, **k: [])
     result = CliRunner().invoke(
         app,

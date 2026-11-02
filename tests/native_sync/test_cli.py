@@ -1,4 +1,5 @@
 import json
+import pytest
 from typer.testing import CliRunner
 from agent_brain.native_sync.cli import app
 
@@ -74,3 +75,20 @@ def test_join_failure_does_not_print_invitation_from_traceback_locals(tmp_path):
     )
     assert result.returncode != 0
     assert secret not in result.stdout + result.stderr
+
+
+def test_setup_refuses_old_hub_before_enrollment_or_configuration(tmp_path, monkeypatch):
+    from agent_brain.native_sync import cli
+
+    monkeypatch.setattr(
+        "agent_brain.native_sync.transport.Transport.call",
+        lambda *args, **kwargs: {"service": "amh-native", "protocol": 1},
+    )
+    monkeypatch.setattr(cli, "feishu_login", lambda *a: pytest.fail("must not enroll"))
+    state, home = tmp_path / "state", tmp_path / "home"
+    result = runner.invoke(
+        app, ["setup", "--hub", "https://example.com", "--state", str(state), "--home", str(home)]
+    )
+    assert result.exit_code != 0
+    assert "先升级 Hub" in result.output
+    assert not state.exists() and not home.exists()
