@@ -439,3 +439,193 @@ def test_partial_first_setup_remains_not_connected_without_mutation(tmp_path):
     assert result["code"] == "not_connected"
     assert config.read_text() == original
     assert list(state.iterdir()) == [config]
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("title", "题" * 200),
+        ("path", "路" * 400 + ".md"),
+        ("project", "项" * 180),
+        ("path", "路" * 2048),
+    ],
+)
+def test_metadata_character_limits_preserve_legal_chinese_sources(hub, field, value):
+    candidate = hub.candidate()
+    candidate["source"][field] = value
+    hub.override = {"items": [candidate]}
+    tools = OrganizationTools(hub.state)
+    result = tools.search("question", project_filter="项" * 256)
+    assert result["ok"] and result["items"], result
+    assert result["items"][0]["source"][field] == value
+    assert hub.calls[-1][1]["project_filter"] == "项" * 256
+    assert len(json.dumps(result, ensure_ascii=False, separators=(",", ":")).encode()) <= 12000
+
+
+def test_document_id_and_reference_href_limits_are_characters(hub):
+    candidate = hub.candidate()
+    candidate["document_id"] = "文" * 100
+    hub.override = {"items": [candidate]}
+    tools = OrganizationTools(hub.state)
+    searched = tools.search("问" * 4000)
+    assert searched["ok"], searched
+    rid = searched["research_id"]
+    hub.override = None
+    _, page = hub.response("read", {"cursor": 0, "max_bytes": 100})
+    page["version"]["document_id"] = candidate["document_id"]
+    hub.override = page
+    assert tools.read("asset_a", 2, rid, max_bytes=100)["ok"]
+    root, target = hub.node(), hub.node()
+    root["version"]["document_id"] = candidate["document_id"]
+    target["asset_id"] = "asset_b"
+    href = "路" * 1000 + ".md"
+    hub.override = {
+        "root": root,
+        "items": [target],
+        "edges": [
+            {
+                "from": {"asset_id": "asset_a", "revision": 2},
+                "to": {"asset_id": "asset_b", "revision": 2},
+                "type": "explicit_reference",
+                "evidence": {"asset_id": "asset_a", "revision": 2, "href": href, "line": 1},
+            }
+        ],
+        "truncated": False,
+    }
+    graph = tools.related("asset_a", 2, rid)
+    assert graph["ok"] and graph["edges"][0]["evidence"]["href"] == href, graph
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "tenant_id",
+        "source_device_id",
+        "source_store",
+        "product",
+        "kind",
+        "path",
+        "project",
+        "title",
+        "producer_member_id",
+        "uploader_member_id",
+    ],
+)
+def test_read_rejects_changed_stable_source_fields_without_accepting_page(hub, field):
+    tools = OrganizationTools(hub.state)
+    rid = tools.search("question")["research_id"]
+    _, page = hub.response("read", {"cursor": 0, "max_bytes": 100})
+    page["source"][field] = "changed-source-field"
+    hub.override = page
+    before = copy.deepcopy(tools.researches[rid].locators)
+    response = tools.read("asset_a", 2, rid, max_bytes=100)
+    assert response["code"] == "invalid_response"
+    assert tools.researches[rid].locators == before
+    assert not tools.researches[rid].pages
+
+
+def test_source_name_changes_are_allowed_but_same_revision_source_rebinding_is_not(hub):
+    tools = OrganizationTools(hub.state)
+    rid = tools.search("question")["research_id"]
+    _, page = hub.response("read", {"cursor": 0, "max_bytes": 100})
+    page["source"]["producer_name"] = "新的显示名称"
+    page["source"]["uploader_name"] = "新上传者显示名"
+    hub.override = page
+    assert tools.read("asset_a", 2, rid, max_bytes=100)["ok"]
+    bad = hub.candidate()
+    bad["source"]["path"] = "invented.md"
+    hub.override = {"items": [bad]}
+    assert tools.search("second question", research_id=rid)["code"] == "invalid_response"
+    hub.override = None
+    _, graph = hub.response("related", {})
+    graph["root"]["source"]["path"] = "invented.md"
+    hub.override = graph
+    assert tools.related("asset_a", 2, rid)["code"] == "invalid_response"
+
+
+def test_explicit_revision_change_returns_stale_without_accepting_new_source(hub):
+    tools = OrganizationTools(hub.state)
+    rid = tools.search("question")["research_id"]
+    _, page = hub.response("read", {"cursor": 0, "max_bytes": 100})
+    page["revision"] = 3
+    hub.override = page
+    response = tools.read("asset_a", 2, rid, max_bytes=100)
+    assert response["code"] == "stale_version" and "Search again" in response["message"]
+    assert ("asset_a", 3) not in tools.researches[rid].locators
+
+
+def test_graph_explicit_metadata_budget_sentinel_preserves_locator_without_inventing_source(hub):
+    tools = OrganizationTools(hub.state)
+    rid = tools.search("question")["research_id"]
+    before = copy.deepcopy(tools.researches[rid].locators)
+    hub.override = {
+        "root": {"asset_id": "asset_a", "revision": 2, "metadata_available": False},
+        "items": [],
+        "edges": [],
+        "truncated": True,
+    }
+    response = tools.related("asset_a", 2, rid)
+    assert response["ok"] and response["truncated"]
+    assert response["root"] == hub.override["root"]
+    assert "source" not in response["root"] and "version" not in response["root"]
+    assert tools.researches[rid].locators == before
+
+
+@pytest.mark.parametrize(
+    "root,truncated,items",
+    [
+        ({"asset_id": "asset_a", "revision": 2}, True, []),
+        ({"asset_id": "asset_a", "revision": 2, "metadata_available": False}, False, []),
+        (
+            {"asset_id": "asset_a", "revision": 2, "metadata_available": False, "source": {}},
+            True,
+            [],
+        ),
+        (
+            {"asset_id": "asset_a", "revision": 2, "metadata_available": False},
+            True,
+            [{"asset_id": "other", "revision": 1}],
+        ),
+    ],
+)
+def test_graph_rejects_arbitrary_incomplete_metadata(hub, root, truncated, items):
+    tools = OrganizationTools(hub.state)
+    rid = tools.search("question")["research_id"]
+    hub.override = {"root": root, "items": items, "edges": [], "truncated": truncated}
+    assert tools.related("asset_a", 2, rid)["code"] == "invalid_response"
+
+
+def test_large_valid_graph_omits_whole_edges_and_nodes_within_wire_budget(hub):
+    tools = OrganizationTools(hub.state)
+    rid = tools.search("question")["research_id"]
+    nodes, edges = [], []
+    for index in range(10):
+        node = hub.node()
+        node["asset_id"] = f"target_{index}"
+        node["source"].update(title="T" * 512, project="P" * 200)
+        nodes.append(node)
+        edges.append(
+            {
+                "from": {"asset_id": "asset_a", "revision": 2},
+                "to": {"asset_id": node["asset_id"], "revision": 2},
+                "type": "explicit_reference",
+                "evidence": {
+                    "asset_id": "asset_a",
+                    "revision": 2,
+                    "href": f"target_{index}.md",
+                    "line": index + 1,
+                },
+            }
+        )
+    hub.override = {"root": hub.node(), "items": nodes, "edges": edges, "truncated": False}
+    assert len(json.dumps(hub.override).encode()) > 12000
+    graph = tools.related("asset_a", 2, rid)
+    assert graph["ok"] and graph["truncated"] and 0 < len(graph["items"]) < 10, graph
+    assert len(json.dumps(graph, ensure_ascii=False, separators=(",", ":")).encode()) <= 12000
+    assert all(
+        node["source"]["title"] == "T" * 512 and node["source"]["project"] == "P" * 200
+        for node in graph["items"]
+    )
+    accepted = {node["asset_id"] for node in graph["items"]}
+    assert {edge["to"]["asset_id"] for edge in graph["edges"]} == accepted
+    assert {asset for asset, _ in tools.researches[rid].locators} == accepted | {"asset_a"}

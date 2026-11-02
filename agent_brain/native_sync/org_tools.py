@@ -46,6 +46,18 @@ SOURCE_FIELDS = {
     "observed_at",
     "role",
 }
+# AssetInput and retrieval/read/related contracts count characters. Only excerpts,
+# pages and complete wire envelopes use UTF-8 byte budgets.
+SOURCE_CHARACTER_LIMITS = {
+    "path": 2048,
+    "title": 512,
+    "project": 256,
+    "source_store": 128,
+    "producer_name": 160,
+    "uploader_name": 160,
+}
+STABLE_SOURCE_FIELDS = SOURCE_FIELDS - {"producer_name", "uploader_name"}
+
 MESSAGES = {
     "not_connected": "Complete local organization pairing, then retry. No profile was created.",
     "paused": "Organization access is paused in this local profile.",
@@ -86,6 +98,12 @@ def _text(value: Any, limit: int = 512) -> str:
     return value
 
 
+def _characters(value: Any, limit: int) -> str:
+    if not isinstance(value, str) or len(value) > limit:
+        raise ValueError("invalid character-bounded text")
+    return value
+
+
 def _integer(value: Any, minimum: int = 0, maximum: int = 8 * 1024 * 1024) -> int:
     if type(value) is not int or not minimum <= value <= maximum:
         raise ValueError("invalid integer")
@@ -104,26 +122,43 @@ def _locator(value: Any) -> tuple[str, int]:
 def _source(value: Any) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ValueError("invalid source")
-    result = {}
+    result: dict[str, Any] = {}
     for key in SOURCE_FIELDS & value.keys():
         item = value[key]
-        if isinstance(item, str):
-            result[key] = _text(item, 1024 if key == "path" else 512)
-        elif item is None or type(item) in (bool, int, float):
+        if item is None:
+            result[key] = None
+        elif key == "producer_unknown":
+            if type(item) is not bool:
+                raise ValueError("invalid producer flag")
+            result[key] = item
+        elif key == "observed_at":
+            if type(item) not in (int, float) or not math.isfinite(item):
+                raise ValueError("invalid observation timestamp")
             result[key] = item
         else:
-            raise ValueError("invalid source field")
-    if _size(result) > 5000:
-        raise ValueError("source metadata too large")
+            result[key] = _characters(item, SOURCE_CHARACTER_LIMITS.get(key, 512))
     return result
+
+
+def _stable_source(source: dict[str, Any]) -> dict[str, Any]:
+    return {key: source.get(key) for key in STABLE_SOURCE_FIELDS}
+
+
+def _check_known_locator(research: Research, key: tuple[str, int], locator: dict[str, Any]) -> None:
+    old = research.locators.get(key)
+    if old is not None and any(
+        old[field] != locator[field]
+        for field in ("document_id", "document_hash", "source_identity")
+    ):
+        raise ValueError("source/version changed without a revision change")
 
 
 def _version(value: Any) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ValueError("invalid version")
     return {
-        "document_id": _text(value.get("document_id"), 256),
-        "document_hash": _text(value.get("document_hash"), 128),
+        "document_id": _characters(value.get("document_id"), 128),
+        "document_hash": _characters(value.get("document_hash"), 64),
         "anchor_revision": _integer(value.get("anchor_revision"), 1, 2**63 - 1),
     }
 
@@ -317,7 +352,7 @@ class OrganizationTools:
                 return started
             transport, research_id, research = started
             try:
-                query = _text(query, 8000).strip()
+                query = _characters(query, 8000).strip()
                 if not query or type(include_evidence) is not bool:
                     raise ValueError("invalid query")
                 _integer(limit, 1, 8)
@@ -325,7 +360,7 @@ class OrganizationTools:
                 if not kinds or len(kinds) > 5 or any(kind not in KINDS for kind in kinds):
                     raise ValueError("invalid kinds")
                 if project_filter is not None:
-                    _text(project_filter, 256)
+                    _characters(project_filter, 256)
             except (ValueError, TypeError):
                 return self._error("invalid_arguments", research_id)
             payload = dict(
@@ -366,8 +401,8 @@ class OrganizationTools:
                     ):
                         raise ValueError("invalid candidate")
                     document = {
-                        "document_id": _text(item.get("document_id"), 256),
-                        "document_hash": _text(item.get("document_hash"), 128),
+                        "document_id": _characters(item.get("document_id"), 128),
+                        "document_hash": _characters(item.get("document_hash"), 64),
                     }
                     field = item.get("excerpt_source_field")
                     start = _integer(item.get("excerpt_char_start"))
@@ -431,7 +466,12 @@ class OrganizationTools:
                         break
                     rows.append(row)
                     remaining -= len(excerpt.encode())
-                    locators[(asset, revision)] = {**document, "readable": True}
+                    locators[(asset, revision)] = {
+                        **document,
+                        "readable": True,
+                        "source_identity": _stable_source(row["source"]),
+                    }
+                    _check_known_locator(research, (asset, revision), locators[(asset, revision)])
                 info = response.get("retrieval", {})
                 if not isinstance(info, dict):
                     raise ValueError("invalid retrieval diagnostics")
@@ -525,15 +565,18 @@ class OrganizationTools:
             if isinstance(response, dict) and response.get("ok") is False:
                 return response
             try:
-                if (
-                    _locator(response) != (asset_id, revision)
-                    or _integer(response.get("cursor")) != cursor
-                ):
+                returned = _locator(response)
+                if returned[0] == asset_id and returned[1] != revision:
+                    return self._error("stale_version", research_id)
+                if returned != (asset_id, revision) or _integer(response.get("cursor")) != cursor:
                     raise ValueError("page identity mismatch")
                 text = _text(response.get("text"), requested)
                 count = len(text.encode())
                 version = _version(response.get("version"))
                 known = research.locators[(asset_id, revision)]
+                source = _source(response.get("source"))
+                if _stable_source(source) != known["source_identity"]:
+                    raise ValueError("page source identity mismatch")
                 if (
                     any(version[key] != known[key] for key in ("document_id", "document_hash"))
                     or version["anchor_revision"] != revision
@@ -563,7 +606,7 @@ class OrganizationTools:
                         "asset_id": asset_id,
                         "revision": revision,
                         "text": text,
-                        "source": _source(response.get("source")),
+                        "source": source,
                         "version": version,
                         "cursor": cursor,
                         "next_cursor": next_cursor,
@@ -620,6 +663,37 @@ class OrganizationTools:
                     raise ValueError("invalid relations")
                 if len(response["items"]) > limit or len(response["edges"]) > limit:
                     raise ValueError("too many relations")
+                root = response.get("root")
+                returned = _locator(root)
+                if returned[0] == asset_id and returned[1] != revision:
+                    return self._error("stale_version", research_id)
+                if isinstance(root, dict) and root.get("metadata_available") is False:
+                    if (
+                        set(root) != {"asset_id", "revision", "metadata_available"}
+                        or returned != (asset_id, revision)
+                        or response["items"]
+                        or response["edges"]
+                        or response.get("truncated") is not True
+                    ):
+                        raise ValueError("invalid unavailable root metadata")
+                    result = self._finish(
+                        {
+                            "root": dict(root),
+                            "items": [],
+                            "edges": [],
+                            "truncated": True,
+                            "relation_policy": "explicit_only",
+                            "missing": "The server response budget could not include root metadata; no relation metadata was accepted.",
+                        },
+                        transport,
+                        research_id,
+                        research,
+                        0,
+                        SEARCH_RESPONSE_BYTES,
+                    )
+                    if result.get("ok"):
+                        research.relations.add(key)
+                    return result
                 nodes: list[dict[str, Any]] = []
                 locators = {}
                 for item in [response["root"], *response["items"]]:
@@ -648,7 +722,9 @@ class OrganizationTools:
                         "document_id": version["document_id"],
                         "document_hash": version["document_hash"],
                         "readable": readable,
+                        "source_identity": _stable_source(nodes[-1]["source"]),
                     }
+                    _check_known_locator(research, (asset, rev), locators[(asset, rev)])
                 if _locator(nodes[0]) != (asset_id, revision) or not nodes[0]["readable"]:
                     raise ValueError("wrong relation root")
                 known = research.locators[(asset_id, revision)]
@@ -672,7 +748,7 @@ class OrganizationTools:
                     proof: dict[str, Any] = {"asset_id": origin[0], "revision": origin[1]}
                     if kind == "explicit_reference":
                         proof.update(
-                            href=_text(evidence.get("href"), 2048),
+                            href=_characters(evidence.get("href"), 2048),
                             line=_integer(evidence.get("line"), 1),
                         )
                     elif kind == "derived_from" and evidence.get("field") == "upstream":
@@ -707,23 +783,62 @@ class OrganizationTools:
                             "evidence": proof,
                         }
                     )
+                # Preserve complete node/edge metadata, omitting whole branches
+                # instead of rejecting a valid larger graph or clipping sources.
+                # The reserved bytes cover the research envelope and missing note.
+                graph_budget = SEARCH_RESPONSE_BYTES - 900
+                graph: dict[str, Any] = {
+                    "root": nodes[0],
+                    "items": [],
+                    "edges": [],
+                    "truncated": bool(response.get("truncated")),
+                    "relation_policy": "explicit_only",
+                }
+                accepted = {(asset_id, revision)}
+                omitted = False
+                if _size(graph) > graph_budget:
+                    graph["root"] = {
+                        "asset_id": asset_id,
+                        "revision": revision,
+                        "metadata_available": False,
+                    }
+                    graph["truncated"] = True
+                    graph["missing"] = (
+                        "The bridge response budget could not include root metadata; no relation metadata was accepted."
+                    )
+                    accepted = set()
+                else:
+                    node_map = {_locator(node): node for node in nodes}
+                    for edge in edges:
+                        origin, target = _locator(edge["from"]), _locator(edge["to"])
+                        if origin not in accepted:
+                            omitted = True
+                            continue
+                        new_nodes = [] if target in accepted else [node_map[target]]
+                        tentative = {
+                            **graph,
+                            "items": graph["items"] + new_nodes,
+                            "edges": graph["edges"] + [edge],
+                        }
+                        if _size(tentative) > graph_budget:
+                            omitted = True
+                            continue
+                        graph = tentative
+                        accepted.add(target)
+                    omitted |= len(accepted) < len(node_map)
+                    graph["truncated"] |= omitted
+                    if omitted:
+                        graph["missing"] = (
+                            "Some complete relation nodes/edges exceeded the bridge response budget and were omitted."
+                        )
                 result = self._finish(
-                    {
-                        "root": nodes[0],
-                        "items": nodes[1:],
-                        "edges": edges,
-                        "truncated": bool(response.get("truncated")),
-                        "relation_policy": "explicit_only",
-                    },
-                    transport,
-                    research_id,
-                    research,
-                    0,
-                    SEARCH_RESPONSE_BYTES,
+                    graph, transport, research_id, research, 0, SEARCH_RESPONSE_BYTES
                 )
                 if result.get("ok"):
                     research.relations.add(key)
-                    research.locators.update(locators)
+                    research.locators.update(
+                        {key: value for key, value in locators.items() if key in accepted}
+                    )
                 return result
             except (ValueError, TypeError, KeyError, AttributeError):
                 return self._error("invalid_response", research_id)
