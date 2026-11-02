@@ -203,6 +203,9 @@ def serve(
     semantic_model: str | None = typer.Option(None, help="服务端已缓存的语义模型，不自动下载"),
     semantic_min_score: float = typer.Option(0.45, min=0, max=1),
     mmr_lambda: float | None = typer.Option(None, min=0, max=1),
+    decay: bool = typer.Option(True, "--decay/--no-decay", help="按知识性质、可信时间和反馈信号做 ±5% 重排"),
+    hopfield: bool = typer.Option(False, "--hopfield/--no-hopfield", help="启用 Hopfield 联想扩召（需语义索引，全量扫描）"),
+    hopfield_beta: float = typer.Option(8.0, min=0.1, max=64),
 ) -> None:
     """运行独立组织 Hub；公网部署请在前面配置 HTTPS。"""
     import uvicorn
@@ -214,6 +217,9 @@ def serve(
         semantic_model=semantic_model,
         semantic_min_score=semantic_min_score,
         mmr_lambda=mmr_lambda,
+        decay=decay,
+        hopfield=hopfield,
+        hopfield_beta=hopfield_beta,
     )
     if hub.semantic_model:
         # Load before accepting requests: a cold model must not consume the
@@ -693,6 +699,135 @@ def sync(state: Path = DEFAULT_STATE) -> None:
 def search(query: str, state: Path = DEFAULT_STATE, project: str | None = None) -> None:
     """调试统一云检索，默认全组织；--project 为显式过滤。"""
     emit(load(state).search(query, project_filter=project))
+
+
+STATE_LABELS = {
+    "candidate": "候选未入选",
+    "selected": "入选未打包",
+    "packed": "已打包",
+    "emitted": "已注入上下文",
+    "confirmed": "模型已收到",
+    "cited": "回答已采用",
+    "dropped:limit": "超出条数",
+    "dropped:dedup": "重复去重",
+    "dropped:budget": "注入预算不足",
+    "dropped:covered": "本会话已送过",
+    "dropped:superseded": "已被替代",
+    "dropped:expired": "已失效",
+    "dropped:revalidation": "版本已变",
+}
+
+
+def _route_text(routes: dict[str, Any]) -> str:
+    parts = []
+    for name, rank in routes.items():
+        if rank is None:
+            continue
+        parts.append(f"{name}·{rank}" if isinstance(rank, int) else f"{name}·{rank}")
+    return " ".join(parts) or "—"
+
+
+def _time_text(times: dict[str, Any]) -> str:
+    for key in ("confirmed", "content_modified", "content_created"):
+        entry = times.get(key)
+        if entry:
+            stamp = time.strftime("%Y-%m-%d", time.localtime(entry["value"]))
+            return f"{stamp}（{key}·{entry['source']}）"
+    return "未知"
+
+
+@app.command("recall-trace")
+def recall_trace(
+    state: Path = DEFAULT_STATE,
+    trace: str | None = typer.Option(None, help="展开某一次召回；省略则列出本设备最近记录"),
+    limit: int = typer.Option(20, min=1, max=100),
+    as_json: bool = typer.Option(False, "--json", help="输出原始 JSON"),
+) -> None:
+    """召回明细：每条候选的召回方式、排名变化、本轮状态和时间，不含正文。"""
+    c = load(state)
+    traces = c.transport.recalls(trace_id=trace, limit=limit)
+    if as_json:
+        emit(traces)
+        return
+    if not traces:
+        console.print("没有召回记录。")
+        return
+    if trace is None:
+        table = Table(title="最近召回（本设备）")
+        for column in ("时间", "通道", "问题", "候选", "入选", "送达", "阶段", "trace"):
+            table.add_column(column)
+        for row in traces:
+            counts = row["counts"]
+            delivered = sum(counts.get(k, 0) for k in ("emitted", "confirmed", "cited"))
+            selected = delivered + counts.get("selected", 0) + counts.get("packed", 0)
+            table.add_row(
+                time.strftime("%m-%d %H:%M", time.localtime(row["created"])),
+                row["channel"],
+                row.get("query_preview") or "（未保存）",
+                str(counts["candidates"]),
+                str(selected),
+                str(delivered),
+                " ".join(f"{k}:{v}" for k, v in row.get("stages", {}).items()),
+                row["trace_id"],
+            )
+        console.print(table)
+        return
+    detail = traces[0]
+    console.print(
+        f"trace {detail['trace_id']} · {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(detail['created']))}"
+        f" · 通道 {detail['channel']} · 问题 {detail.get('query_preview') or '（未保存）'}"
+    )
+    console.print("阶段：" + " ".join(f"{k}:{v}" for k, v in detail.get("stages", {}).items()))
+    reasons = detail.get("retrieval", {}).get("reasons") or []
+    console.print("降级原因：" + ("、".join(reasons) if reasons else "无"))
+    table = Table()
+    for column in ("排名", "记忆标题", "内容形态", "来源产品", "组织/项目", "原生产者", "召回方式", "本轮状态", "时间"):
+        table.add_column(column)
+    for item in detail["candidates"]:
+        producer = item.get("producer") or {}
+        nature = item.get("nature") or {}
+        table.add_row(
+            f"{item.get('final_rank') or '—'}/{item.get('rank') or '—'}",
+            item.get("title") or item.get("path") or "",
+            f"{item.get('role')}·{nature.get('value', '未知')}",
+            str(item.get("product")),
+            str(item.get("project") or ""),
+            "未知" if producer.get("unknown") else str(producer.get("name")),
+            _route_text(item.get("routes", {})),
+            STATE_LABELS.get(item.get("state", ""), item.get("state", "")),
+            _time_text(item.get("times") or {}),
+        )
+    console.print(table)
+    for item in detail["candidates"]:
+        decay = item.get("decay")
+        console.print(
+            f"[bold]{item.get('title') or item.get('path')}[/bold] {item['asset_id']} r{item['revision']}"
+            + (f" · 衰减 半衰期{decay['half_life_days']}天 年龄{decay['age_days'] if decay['age_days'] is not None else '未知'} 权重{decay['weight']} {decay['reason']}" if decay else " · 衰减 未启用")
+            + (f" · 信号 {item['signals']}" if item.get("signals") else "")
+            + (f" · {item['state_detail']}" if item.get("state_detail") else "")
+        )
+        for stage in item.get("stages", []):
+            console.print(
+                f"    {stage['stage']:>18} {stage['before_rank'] or '—'} → {stage['after_rank'] or '—'}"
+                f"  {stage['before_score'] if stage['before_score'] is not None else '—'} → {stage['after_score'] if stage['after_score'] is not None else '—'}"
+                f"  {stage.get('effect', '')}",
+                markup=False,
+            )
+
+
+@app.command("recall-feedback")
+def recall_feedback(
+    trace: str = typer.Option(..., help="召回明细里的 trace_id"),
+    asset: str = typer.Option(..., help="候选的 asset_id"),
+    revision: int = typer.Option(..., min=1),
+    event: str = typer.Option(..., help="cite（回答采用）/ support / contradict / confirm（人工确认）"),
+    state: Path = DEFAULT_STATE,
+) -> None:
+    """对某次召回的候选记录反馈；之后的召回会据此调整排序。"""
+    if event not in ("cite", "support", "contradict", "confirm"):
+        raise typer.BadParameter("event 只能是 cite / support / contradict / confirm")
+    c = load(state)
+    emit(c.transport.recall_feedback(trace, [{"asset_id": asset, "revision": revision, "event": event}]))
 
 
 @app.command()

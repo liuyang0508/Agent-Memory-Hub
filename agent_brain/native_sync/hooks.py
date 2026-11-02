@@ -13,7 +13,16 @@ from pathlib import Path
 from .client import NativeClient
 from .common import atomic_text, digest
 from .storage import database, DB_TIMEOUT
-from .recall import pack
+from .recall import coverage_key, pack
+
+
+def _report(db: sqlite3.Connection, trace_id: str, keys: list[str], event: str) -> None:
+    """Queue one delivery state per recalled version; the worker uploads it later."""
+    rows = []
+    for key in keys:
+        asset_id, revision = key.split(":")[:2]
+        rows.append((trace_id, asset_id, int(revision), event, time.time()))
+    db.executemany("INSERT OR IGNORE INTO recall_reports VALUES(?,?,?,?,?)", rows)
 
 
 def run(root: Path, product: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -82,10 +91,19 @@ def _run(root: Path, product: str, payload: dict[str, Any]) -> dict[str, Any]:
                 rows = db.execute("SELECT * FROM emitted WHERE session=?", (session,)).fetchall()
                 for row in rows:
                     if row["marker"] in tail:
+                        keys = json.loads(row["keys_json"])
                         db.executemany(
                             "INSERT OR IGNORE INTO coverage VALUES(?,?,?)",
-                            [(session, epoch, k) for k in json.loads(row["keys_json"])],
+                            [(session, epoch, k) for k in keys],
                         )
+                        # The model demonstrably received this delivery: queue
+                        # the confirmation for the worker to report to the Hub.
+                        traced = db.execute(
+                            "SELECT trace_id FROM emitted_traces WHERE session=? AND marker=?",
+                            (session, row["marker"]),
+                        ).fetchone()
+                        if traced:
+                            _report(db, traced["trace_id"], keys, "confirmed")
         except OSError:
             pass
     with database(c.path) as db:
@@ -97,10 +115,19 @@ def _run(root: Path, product: str, payload: dict[str, Any]) -> dict[str, Any]:
         }
     started = time.monotonic()
     mode = "remote"
+    trace_id = None
+    channel = "search"
     try:
         from .query_worker import bounded_search
 
-        hits = bounded_search(root, prompt[:8000], timeout=1.2)
+        response = bounded_search(root, prompt[:8000], timeout=1.2)
+        # Test doubles may still answer with a bare list of records.
+        if isinstance(response, dict):
+            hits = response["items"]
+            trace_id = response.get("trace_id")
+            channel = response.get("channel", "recall")
+        else:
+            hits = response
     except PermissionError:
         c.revoke_local()
         mode = "denied"
@@ -150,9 +177,36 @@ def _run(root: Path, product: str, payload: dict[str, Any]) -> dict[str, Any]:
                     "INSERT OR REPLACE INTO emitted VALUES(?,?,?,?)",
                     (session, marker, json.dumps(keys), time.time()),
                 )
+                db.execute(
+                    "DELETE FROM emitted_traces WHERE marker IN "
+                    "(SELECT marker FROM emitted WHERE created<?)",
+                    (time.time() - 86400,),
+                )
                 db.execute("DELETE FROM emitted WHERE created<?", (time.time() - 86400,))
+                if trace_id:
+                    db.execute(
+                        "INSERT OR REPLACE INTO emitted_traces VALUES(?,?,?)",
+                        (session, marker, trace_id),
+                    )
         except (sqlite3.Error, OSError):
             pass  # Do not discard a completed recall for an unavailable receipt store.
+    if trace_id and hits:
+        # Delivery states for the Hub's trace: packed+emitted, covered (already
+        # in this session) or budget (ranked but no room). Identifiers only.
+        try:
+            with database(c.path) as db:
+                packed = {k.split(":excerpt:")[0] for k in keys}
+                for record in hits:
+                    key = coverage_key(record)
+                    if key in packed:
+                        _report(db, trace_id, [key], "packed")
+                        _report(db, trace_id, [key], "emitted")
+                    elif key in covered:
+                        _report(db, trace_id, [key], "covered")
+                    else:
+                        _report(db, trace_id, [key], "budget")
+        except (sqlite3.Error, OSError):
+            pass
     # Never log user prompts or memory bodies. Metrics are diagnostics: a
     # read-only state directory must not cost the member a recall they already
     # paid for, and `emitted` has already been written above.
@@ -164,6 +218,10 @@ def _run(root: Path, product: str, payload: dict[str, Any]) -> dict[str, Any]:
                         "event": event,
                         "product": product,
                         "mode": mode,
+                        "channel": channel,
+                        "trace_id": trace_id,
+                        "hits": len(hits),
+                        "packed": len({k.split(":excerpt:")[0] for k in keys}),
                         "elapsed_ms": round((time.monotonic() - started) * 1000),
                         "bytes": len(body.encode()),
                         "timestamp": time.time(),

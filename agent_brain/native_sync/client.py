@@ -765,6 +765,7 @@ class NativeClient:
                 pushed += 1
                 if progress:
                     progress("upload", pushed, len(pending))
+            errors.extend(self._report_recalls())
             # Upload acknowledgement can be lost after the Hub commits. Replaying
             # our changes repairs the base revision before the next idempotent retry.
             pages = 0
@@ -884,6 +885,41 @@ class NativeClient:
             if progress:
                 progress("refresh", pages, pages)
             return {"pushed": pushed, "errors": errors}
+
+    def _report_recalls(self) -> list[str]:
+        """Send queued delivery states per trace; drop what the Hub cannot accept, keep outages."""
+        from .transport import HubHTTPError
+
+        send = getattr(self.transport, "recall_feedback", None)
+        if send is None:
+            return []
+        with database(self.path) as db:
+            rows = db.execute(
+                "SELECT * FROM recall_reports ORDER BY trace_id, created LIMIT 640"
+            ).fetchall()
+        grouped: dict[str, list[dict[str, Any]]] = {}
+        for row in rows:
+            grouped.setdefault(row["trace_id"], []).append(
+                {"asset_id": row["asset"], "revision": row["revision"], "event": row["event"]}
+            )
+        errors: list[str] = []
+        for trace_id, events in grouped.items():
+            for start in range(0, len(events), 64):
+                batch = events[start : start + 64]
+                try:
+                    send(trace_id, batch)
+                except HubHTTPError as exc:
+                    # 404: a Hub without the ledger; 409/422: a trace it does not
+                    # know or will not accept. Either way the report is moot.
+                    if exc.http_status not in (404, 409, 422):
+                        raise
+                    errors.append(f"recall report {trace_id}: HTTP {exc.http_status}")
+                with database(self.path) as db:
+                    db.executemany(
+                        "DELETE FROM recall_reports WHERE trace_id=? AND asset=? AND revision=? AND event=?",
+                        [(trace_id, e["asset_id"], e["revision"], e["event"]) for e in batch],
+                    )
+        return errors
 
     def cached(self) -> list[dict[str, Any]]:
         """Return live replica parts; consumers must verify multipart completeness before applying."""

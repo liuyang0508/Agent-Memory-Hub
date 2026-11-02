@@ -293,4 +293,22 @@ CREATE TABLE IF NOT EXISTS emitted(
     created REAL,
     PRIMARY KEY(session,marker)
 );
+
+-- Additive: which Hub recall trace a delivery receipt belongs to, and the
+-- delivery states queued for the worker to report back (identifiers only).
+CREATE TABLE IF NOT EXISTS emitted_traces(
+    session TEXT,
+    marker TEXT,
+    trace_id TEXT,
+    PRIMARY KEY(session,marker)
+);
+
+CREATE TABLE IF NOT EXISTS recall_reports(
+    trace_id TEXT,
+    asset TEXT,
+    revision INTEGER,
+    event TEXT,
+    created REAL,
+    PRIMARY KEY(trace_id,asset,revision,event)
+);
 """
