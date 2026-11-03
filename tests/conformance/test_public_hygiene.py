@@ -225,3 +225,24 @@ def test_git_tracked_public_surface_has_no_sensitive_literals() -> None:
     findings = scan_git_public_surface(root)
 
     assert findings == [], format_findings(findings)
+
+
+def test_public_hygiene_allows_cookie_names_and_synthetic_fixture_values() -> None:
+    from agent_brain.evaluation.public_hygiene import scan_text
+
+    cookie = "__Host-" + "amh-admin-session"
+    fixture = "synthetic-" + "device-credential-DO-NOT-RETURN"
+    real = "p9V4mN2xQ7rS8tU3" + "wY6zA1bC5dE0fG"
+    findings = scan_text(
+        f'SESSION_COOKIE = "{cookie}"\n'
+        f'token = "{fixture}"\n'
+        f'token = "{real}"\n',
+        path="fixture.py",
+    )
+
+    # Only the genuinely high-entropy assignment remains: a cookie *name* with
+    # the RFC 6265bis prefix and a "synthetic-" fixture value are not secrets.
+    assert {(finding.rule, finding.match) for finding in findings} == {
+        ("secret_assignment", 'token = "' + real),
+        ("high_entropy_secret", real),
+    }

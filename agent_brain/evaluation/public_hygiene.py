@@ -46,7 +46,7 @@ _RULES: tuple[tuple[str, re.Pattern[str]], ...] = (
         re.compile(
             r"(?i)\b(?:api[_-]?key|access[_-]?key|secret|token|password|credential)"
             r"\b\s*[:=]\s*['\"]"
-            r"(?!(?:<|example|placeholder|redacted|dummy|test|xxx))"
+            r"(?!(?:<|example|placeholder|redacted|dummy|test|synthetic|xxx))"
             r"[A-Za-z0-9_./+=:-]{12,}"
         ),
     ),
@@ -553,6 +553,7 @@ def _is_high_entropy_secret_assignment(key: str, value: str) -> bool:
     if (
         _UUID_RE.fullmatch(normalized)
         or _looks_like_slug(normalized)
+        or _looks_like_cookie_name(normalized)
         or _looks_like_dotted_identifier(normalized)
         or _looks_like_path_literal(normalized)
     ):
@@ -594,6 +595,11 @@ def _looks_like_slug(value: str) -> bool:
     return bool(re.fullmatch(r"[a-z0-9]+(?:[-_][a-z0-9]+)+", value))
 
 
+def _looks_like_cookie_name(value: str) -> bool:
+    """A ``__Host-``/``__Secure-`` prefixed cookie *name* is protocol surface, not a secret."""
+    return bool(re.fullmatch(r"__(?:Host|Secure)-[A-Za-z0-9]+(?:[-_][A-Za-z0-9]+)*", value))
+
+
 def _looks_like_dotted_identifier(value: str) -> bool:
     return bool(re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+", value))
 
@@ -614,7 +620,18 @@ def _looks_like_placeholder(value: str) -> bool:
         return True
     if lowered.startswith(("<", "${", "$", "{{")):
         return True
-    return any(marker in lowered for marker in ("example", "placeholder", "redacted", "dummy", "changeme", "your-"))
+    return any(
+        marker in lowered
+        for marker in (
+            "example",
+            "placeholder",
+            "redacted",
+            "dummy",
+            "changeme",
+            "your-",
+            "synthetic",
+        )
+    )
 
 
 def _looks_like_jwt(value: str) -> bool:

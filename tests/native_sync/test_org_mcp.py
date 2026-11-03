@@ -19,7 +19,7 @@ from agent_brain.native_sync import org_tools
 from agent_brain.native_sync.org_tools import OrganizationTools
 from agent_brain.native_sync.transport import HubHTTPError, Transport
 
-TOKEN = "isolated-private-device-credential-DO-NOT-RETURN"
+TOKEN = "synthetic-isolated-device-credential-DO-NOT-RETURN"
 
 
 class SyntheticHub:
