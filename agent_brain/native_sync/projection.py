@@ -30,6 +30,72 @@ def publish(
     owner: str | None = None,
     before_write: Callable[[], None] = lambda: None,
 ) -> dict[str, Any]:
+    """Publish with compare-before-rollback for an interrupted policy-gated write.
+
+    Until the final manifest commits, undo only this call's unchanged writes.
+    Preserve concurrent user edits and report them instead of deleting content
+    whose current ownership cannot be established. This is exception recovery,
+    not a durable journal for an uncatchable process termination.
+    """
+    changes: list[tuple[Path, str | None, str | None]] = []
+
+    def write_text(path: Path, content: str) -> None:
+        previous = path.read_text() if path.exists() else None
+        changes.append((path, previous, digest(content)))
+        atomic_text(path, content)
+
+    def remove_file(path: Path) -> None:
+        previous = path.read_text()
+        changes.append((path, previous, None))
+        path.unlink()
+
+    try:
+        return _publish(
+            root,
+            product,
+            records,
+            owner=owner,
+            before_write=before_write,
+            write_text=write_text,
+            remove_file=remove_file,
+        )
+    except BaseException as error:
+        conflicts = []
+        for path, previous, expected in reversed(changes):
+            try:
+                if path.is_symlink():
+                    conflicts.append(str(path))
+                    continue
+                current = path.read_text() if path.exists() else None
+                if current == previous:
+                    continue  # The failed write never changed this destination.
+                current_hash = digest(current) if current is not None else None
+                if current_hash != expected:
+                    conflicts.append(str(path))
+                    continue
+                if previous is None:
+                    path.unlink(missing_ok=True)
+                else:
+                    atomic_text(path, previous)
+            except (OSError, UnicodeError):
+                conflicts.append(str(path))
+        if conflicts:
+            raise ValueError(
+                "projection interrupted; preserved concurrent edits: " + ", ".join(conflicts)
+            ) from error
+        raise
+
+
+def _publish(
+    root: Path,
+    product: str,
+    records: list[dict[str, Any]],
+    *,
+    owner: str | None = None,
+    before_write: Callable[[], None],
+    write_text: Callable[[Path, str], None],
+    remove_file: Callable[[Path], None],
+) -> dict[str, Any]:
     """Project complete organization memories into a product's native readable resources.
 
     Compare against the prior ownership manifest before replacing/deleting files.
@@ -139,13 +205,13 @@ def publish(
             conflicts.append(str(p))
             continue
         before_write()
-        atomic_text(p, content)
+        write_text(p, content)
         owned[name] = digest(content)
     for name in set(owned) - set(desired):
         p = folder / name
         if p.exists() and not p.is_symlink() and digest(p.read_text()) == owned[name]:
             before_write()
-            p.unlink()
+            remove_file(p)
             del owned[name]
         elif p.exists():
             conflicts.append(str(p))
@@ -197,7 +263,7 @@ def publish(
             conflicts.append(str(p))
             continue
         before_write()
-        atomic_text(p, content)
+        write_text(p, content)
         index_state[name] = digest(block.rstrip("\n"))
     before_write()
     atomic_json(

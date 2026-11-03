@@ -68,7 +68,7 @@ Fanout 不发送查询，不读取组织记忆，不持久化 prompt 或工具�
 
 ## 投影与 Cowork 边界
 
-双 Hub 建议保持默认 `--no-projection`。新投影 manifest 记录 profile owner；清理或覆盖不属于该 profile 的 manifest 会报告冲突。没有 owner 的旧 manifest 不自动认领或删除，须独立审查和清理；`status`/`storage-conflicts.json` 保留处理线索。用户编辑的托管文件仍会保留，关闭召回不等于已从产品磁盘移除这些手工编辑的副本。
+双 Hub 建议保持默认 `--no-projection`。新投影 manifest 记录 profile owner；清理或覆盖不属于该 profile 的 manifest 会报告冲突。没有 owner 的旧 manifest 不自动认领或删除，须独立审查和清理；`status`/`storage-conflicts.json` 保留处理线索。用户编辑的托管文件仍会保留，关闭召回不等于已从产品磁盘移除这些手工编辑的副本。 投影因策略关闭或其他可捕获异常中断时，会按本次写入哈希回滚未被修改的新文件、恢复此前版本；并发用户编辑保留并报告冲突。此机制不声称提供强制终止进程后的持久日志恢复。
 
 Cowork 有独立身份和运行时状态。新导出的宿主机绑定插件（setup 或 `cowork-connect --runtime-state ...`）将 runtime 通过 `recall-parent.json` 绑定宿主 profile 的召回开关；每次 Hook/MCP 请求重读，父 profile 缺失或禁用时不召回。旧插件包含冻结 runtime，必须升级并重新导出/导入，不能假设仅升级宿主包就改变了旧插件。已经配对的旧 Cowork runtime 仍需单独检查其实际绑定。
 

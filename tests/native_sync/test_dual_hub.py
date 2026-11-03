@@ -596,24 +596,112 @@ def test_detach_missing_hook_fields_is_idempotent_and_still_removes_mcp(tmp_path
 def test_migration_offline_root_remains_quarantined_after_unreviewed_restore(tmp_path):
     import importlib.util
 
-    script = Path(__file__).resolve().parents[2] / 'scripts/native-copy-approved.py'
-    spec = importlib.util.spec_from_file_location('copy_offline_root', script)
+    script = Path(__file__).resolve().parents[2] / "scripts/native-copy-approved.py"
+    spec = importlib.util.spec_from_file_location("copy_offline_root", script)
     migration = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(migration)
-    old, _ = profile(tmp_path, 'offline-old')
-    new, hub_new = profile(tmp_path, 'offline-new', disabled=True)
-    root = tmp_path / 'mounted'
+    old, _ = profile(tmp_path, "offline-old")
+    new, hub_new = profile(tmp_path, "offline-new", disabled=True)
+    root = tmp_path / "mounted"
     root.mkdir()
-    (root / 'excluded.md').write_text('excluded before root went offline')
-    old.register(root, 'codex-shared', '', 'memory')
-    detached = tmp_path / 'detached'
+    (root / "excluded.md").write_text("excluded before root went offline")
+    old.register(root, "codex-shared", "", "memory")
+    detached = tmp_path / "detached"
     root.rename(detached)
-    (detached / 'never-reviewed.md').write_text('unreviewed offline novahistory')
+    (detached / "never-reviewed.md").write_text("unreviewed offline novahistory")
     plan = migration.preview(old.root, new.root)
-    assert plan['sources'][0]['quarantined'] is True
+    assert plan["sources"][0]["quarantined"] is True
     migration.apply(plan)
     detached.rename(root)
     for _ in range(2):
-        assert new.sync()['pushed'] == 0
+        assert new.sync()["pushed"] == 0
         assert new.quarantined_sources()
-    assert hub_new.search(new.identity['token'], 'novahistory') == []
+    assert hub_new.search(new.identity["token"], "novahistory") == []
+
+
+def test_projection_disable_mid_publish_rolls_back_only_unchanged_own_writes(tmp_path):
+    c, _ = profile(tmp_path, "partial-projection")
+    source = tmp_path / "partial-source"
+    source.mkdir()
+    c.config["projection"] = True
+    atomic_json(c.root / "config.json", c.config)
+    c.register(source, "codex-shared", "", "memory")
+    (source / "fact.md").write_text("partial nova body")
+    c.sync()
+    records = c.cached()
+    destination = tmp_path / "partial-target"
+    destination.mkdir()
+    (destination / "MEMORY.md").write_text("user native prose")
+    calls = 0
+
+    def disable_on_third_write():
+        nonlocal calls
+        calls += 1
+        if calls == 3:
+            c.config["recall_enabled"] = False
+            atomic_json(c.root / "config.json", c.config)
+        c.require_recall()
+
+    with pytest.raises(ValueError, match="recall is disabled"):
+        publish(
+            destination,
+            "codex-cli",
+            records,
+            owner=str(c.root),
+            before_write=disable_on_third_write,
+        )
+    assert (destination / "MEMORY.md").read_text() == "user native prose"
+    assert not list((destination / "amh-org").glob("*.md"))
+    assert not (destination / "amh-org/manifest.json").exists()
+    # Updating an existing owned projection rolls back to its previous complete
+    # version, whose original manifest can still safely clean up after disable.
+    from agent_brain.native_sync.common import digest
+
+    restored = tmp_path / "restored-target"
+    publish(restored, "codex-cli", records, owner=str(c.root))
+    before = {
+        str(p.relative_to(restored)): p.read_bytes() for p in restored.rglob("*") if p.is_file()
+    }
+    updated_body = "replacement nova body"
+    updated = [
+        {
+            **records[0],
+            "body": updated_body,
+            "body_hash": digest(updated_body),
+            "document_hash": digest(updated_body),
+            "revision": records[0]["revision"] + 1,
+        }
+    ]
+    c.config["recall_enabled"] = True
+    atomic_json(c.root / "config.json", c.config)
+    calls = 0
+    with pytest.raises(ValueError, match="recall is disabled"):
+        publish(
+            restored, "codex-cli", updated, owner=str(c.root), before_write=disable_on_third_write
+        )
+    assert {
+        str(p.relative_to(restored)): p.read_bytes() for p in restored.rglob("*") if p.is_file()
+    } == before
+    assert cleanup(restored, "codex-cli", owner=str(c.root), allow_legacy=False)["conflicts"] == []
+    # Concurrent user edits to a file written earlier in this operation are
+    # not permission to delete it during rollback.
+    c.config["recall_enabled"] = True
+    atomic_json(c.root / "config.json", c.config)
+    calls = 0
+
+    def edit_then_disable():
+        nonlocal calls
+        calls += 1
+        if calls == 3:
+            next((destination / "amh-org").glob("*.md")).write_text("concurrent user edit")
+            c.config["recall_enabled"] = False
+            atomic_json(c.root / "config.json", c.config)
+        c.require_recall()
+
+    with pytest.raises(ValueError, match="preserved concurrent edits"):
+        publish(
+            destination, "codex-cli", records, owner=str(c.root), before_write=edit_then_disable
+        )
+    assert [p.read_text() for p in (destination / "amh-org").glob("*.md")] == [
+        "concurrent user edit"
+    ]
