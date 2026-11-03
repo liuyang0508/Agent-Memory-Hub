@@ -721,9 +721,10 @@ def detach_products(state: Path, *, apply: bool = False) -> dict[str, Any]:
             changes[path] = (original, changed)
         except (OSError, ValueError, TypeError, KeyError):
             conflicts.append(raw)
+    conflicts = sorted(set(conflicts))
     result = {
         "changed": [str(p) for p in changes],
-        "conflicts": sorted(set(conflicts)),
+        "conflicts": conflicts,
         "applied": False,
     }
     if conflicts or not apply:
@@ -731,8 +732,8 @@ def detach_products(state: Path, *, apply: bool = False) -> dict[str, Any]:
     # A concurrent product edit between preview and apply must not be discarded.
     for path, (original, _) in changes.items():
         if path.is_symlink() or path.read_text() != original:
-            result["conflicts"].append(str(path))
-    if result["conflicts"]:
+            conflicts.append(str(path))
+    if conflicts:
         return result
     for path, (_, changed) in changes.items():
         atomic_text(path, changed)
