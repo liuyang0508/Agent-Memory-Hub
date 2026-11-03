@@ -106,7 +106,9 @@ def test_revoked_device_does_not_fallback_to_cached_data(live, tmp_path):
     c = NativeClient.adopt(tmp_path / "client", url, hub.provision("李四", "Mac"), "Mac")
     c.sync()
     hub.revoke(c.identity["device_id"])
-    assert hook(c.root, "UserPromptSubmit", prompt="订单回调") == {}
+    revoked = hook(c.root, "UserPromptSubmit", prompt="订单回调")
+    assert "hookSpecificOutput" not in revoked  # No cached organization content.
+    assert "设备被拒绝" in revoked.get("systemMessage", "")
 
 
 def test_hook_install_idempotent_preserves_unrelated_and_uninstall_restores(tmp_path):

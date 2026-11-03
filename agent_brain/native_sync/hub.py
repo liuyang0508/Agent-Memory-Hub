@@ -23,6 +23,16 @@ if TYPE_CHECKING:
     from .semantic import IndexRefreshResult, SemanticBackend
 
 
+def _env_float(name: str) -> float | None:
+    value = os.environ.get(name, "").strip()
+    if not value:
+        return None
+    number = float(value)
+    if not 0 <= number <= 1:
+        raise ValueError(f"{name} must be between 0 and 1")
+    return number
+
+
 class Hub:
     """Single-node authority; each mutation commits assets, changes and FTS together.
 
@@ -37,13 +47,15 @@ class Hub:
         *,
         semantic_model: str | None = None,
         semantic_backend: SemanticBackend | None = None,
-        semantic_min_score: float = 0.45,
+        semantic_min_score: float | None = None,
         mmr_lambda: float | None = None,
         reranker: Callable[[str, list[dict[str, Any]]], Sequence[float]] | None = None,
         decay: bool | None = None,
         hopfield: bool | None = None,
         hopfield_beta: float = 8.0,
         hopfield_min_score: float = 0.35,
+        hook_min_score: float | None = None,
+        hook_margin: float | None = None,
     ) -> None:
         self.path = Path(path)
         # Decay/signals re-rank by default; Hopfield association is opt-in
@@ -70,13 +82,32 @@ class Hub:
         self.semantic_model = semantic_model or os.environ.get("AMH_NATIVE_SEMANTIC_MODEL")
         self._encoder = semantic_backend
         self._encoder_lock = threading.Lock()
-        self.semantic_min_score = semantic_min_score
-        if not 0 <= semantic_min_score <= 1 or (
+        # An explicit floor wins; otherwise a calibrated model manifest may set
+        # it when the model loads, else the historical 0.45.
+        self._semantic_floor_explicit = semantic_min_score is not None
+        self.semantic_min_score = 0.45 if semantic_min_score is None else semantic_min_score
+        if not 0 <= self.semantic_min_score <= 1 or (
             mmr_lambda is not None and not 0 <= mmr_lambda <= 1
         ):
             raise ValueError("semantic threshold and MMR lambda must be between 0 and 1")
         self.mmr_lambda = mmr_lambda
         self.reranker = reranker
+        # Prompt-time relevance gate; the model manifest supplies calibrated
+        # defaults, explicit settings or the environment override them.
+        self.hook_min_score = (
+            hook_min_score
+            if hook_min_score is not None
+            else _env_float("AMH_NATIVE_HOOK_MIN_SCORE")
+        )
+        self.hook_margin = (
+            hook_margin if hook_margin is not None else _env_float("AMH_NATIVE_HOOK_MARGIN")
+        )
+        self.semantic_state: dict[str, Any] = {
+            "state": "off" if not self.semantic_model else "loading"
+        }
+        # Parsed window vectors per (tenant, asset, revision, content hash):
+        # a query must not re-read and re-parse the whole index from SQLite.
+        self._vectors: dict[str, dict[tuple[str, int, str, str], Any]] = {}
         self._insights_refreshed: dict[str, float] = {}
         with database(self.path) as db:
             db.executescript(HUB_SCHEMA)
@@ -1099,15 +1130,18 @@ class Hub:
 
     def _semantic_backend(self) -> tuple[SemanticBackend | None, str | None]:
         """Explicit local model only; never downloads or hashes as a fallback."""
-        from .semantic import LocalSentenceTransformer, descriptor
+        from .semantic import descriptor, load_backend
 
         try:
             if self._encoder is None and self.semantic_model:
                 with self._encoder_lock:
                     if self._encoder is None:
-                        self._encoder = LocalSentenceTransformer(self.semantic_model)
+                        self._encoder = load_backend(self.semantic_model)
             if self._encoder is not None:
                 descriptor(self._encoder)
+                floor = getattr(self._encoder, "semantic_min_score", None)
+                if floor is not None and not self._semantic_floor_explicit:
+                    self.semantic_min_score = float(floor)
             return self._encoder, None
         except Exception as exc:
             return None, "semantic_model_unavailable:" + type(exc).__name__
@@ -1134,6 +1168,34 @@ class Hub:
         if backend is None:
             raise ValueError(error or "semantic_model_not_configured")
         return rebuild(self, token, backend, kinds=kinds, include_evidence=include_evidence)
+
+    def relevance_gate(self) -> tuple[float, float] | None:
+        """(floor, margin) for prompt-time recall, or None when no calibration exists."""
+        floor = self.hook_min_score
+        if floor is None:
+            floor = getattr(self._encoder, "hook_min_score", None)
+        if floor is None:
+            return None
+        margin = self.hook_margin
+        if margin is None:
+            margin = getattr(self._encoder, "hook_margin", None)
+        return float(floor), float(margin if margin is not None else 1.0)
+
+    def refresh_semantic_local(self, kinds: Sequence[str] = ("memory", "rule")) -> dict[str, Any]:
+        """Server-side index upkeep for every tenant; never called with a member token."""
+        from .semantic import rebuild
+
+        backend, error = self._semantic_backend()
+        if backend is None:
+            return {"state": "unavailable", "reason": error or "semantic_model_not_configured"}
+        with database(self.path) as db:
+            tenants = [row[0] for row in db.execute("SELECT DISTINCT tenant FROM assets")]
+        results = {}
+        for tenant in tenants:
+            result = rebuild(self, "", backend, kinds=list(kinds), tenant=tenant)
+            results[tenant] = {k: result[k] for k in ("indexed", "encoded", "reused")}
+        self.semantic_state = {"state": "ready", "model": backend.model_id, "tenants": results}
+        return self.semantic_state
 
     def retrieve(
         self,

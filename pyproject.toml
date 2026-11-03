@@ -31,6 +31,11 @@ dependencies = [
 embeddings = [
     "sentence-transformers>=3.0,<4",
 ]
+semantic = [
+    "onnxruntime>=1.20,<2",
+    "tokenizers>=0.20,<1",
+    "numpy>=1.26",
+]
 web = [
     "fastapi>=0.111,<1",
     "uvicorn[standard]>=0.30,<1",

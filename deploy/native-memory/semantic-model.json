@@ -1,0 +1,29 @@
+{
+  "name": "jina-embeddings-v2-base-zh-int8",
+  "repo": "Xenova/jina-embeddings-v2-base-zh",
+  "revision": "7cb68f86f20ff10431b272eb2142f242d911ab5f",
+  "license": "Apache-2.0",
+  "files": [
+    {
+      "path": "onnx/model_int8.onnx",
+      "sha256": "6a88e28e8713a442a8fbe4ca35256d3eab738027165dda23760bfb543ee8d54b"
+    },
+    {
+      "path": "tokenizer.json",
+      "sha256": "0046da43cc8c424b317f56b092b0512aaaa65c4f925d2f16af9d9eeb4d0ef902"
+    }
+  ],
+  "manifest": {
+    "model_id": "jinaai/jina-embeddings-v2-base-zh@int8-xenova-7cb68f86",
+    "onnx": "onnx/model_int8.onnx",
+    "tokenizer": "tokenizer.json",
+    "pooling": "mean",
+    "query_prefix": "",
+    "passage_prefix": "",
+    "max_tokens": 512,
+    "hook_min_score": 0.4,
+    "hook_margin": 0.08,
+    "semantic_min_score": 0.3
+  },
+  "calibration": "2026-11-04 org corpus replica: 55 answerable + 12 unanswerable prompts; hook top-1 85.5%, top-3 98.2%, unanswerable injected 2/12 (lexical-only baseline 65%/76%, 12/12)."
+}

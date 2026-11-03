@@ -23,7 +23,19 @@ Hub 1.4.2 支持飞书身份认证与明确管理员角色；首次授予、撤�
 
 短暂锁竞争允许重试。readiness 失败不应直接触发进程不断重启；liveness 与 readiness 分开使用。数据异常必须排查/恢复，不能靠删除数据库“修复”。
 
-`hook-metrics.jsonl` 每行还记录 `via`（`service` = 常驻 worker 的热连接，`worker` = 临时子进程）和 `budget_ms`（本次总预算）；`elapsed_ms` 贴着 `budget_ms` 且 `mode` 为 `unavailable`，说明链路往返超过预算，用 `amh-native recall-timeout` 查看或调整。
+`amh-native hook-stats` 汇总最近若干天的这些记录。`hook-metrics.jsonl` 每行还记录 `retrieval`（`hybrid` 或 `lexical`）、被跳过的提示记为 `mode: skipped` 和 `reason`，以及 `via`（`service` = 常驻 worker 的热连接，`worker` = 临时子进程）和 `budget_ms`（本次总预算）；`elapsed_ms` 贴着 `budget_ms` 且 `mode` 为 `unavailable`，说明链路往返超过预算，用 `amh-native recall-timeout` 查看或调整。
+
+## 语义检索（1.4.7 起）
+
+Hub 用本地 ONNX 模型做语义检索，不依赖 PyTorch，不在运行时联网。部署脚本按 `deploy/native-memory/semantic-model.json` 固定的仓库、修订和每个文件的 sha256 准备模型：GitHub 部署流水线在 Hub 缺少已校验的副本时代为下载并随包上传（Hub 主机访问不了 huggingface.co），手工执行 `upgrade.sh` 时依次尝试同目录 `model/`、`AMH_HF_ENDPOINT`、hf-mirror.com、huggingface.co。任何一步失败都不阻断升级，Hub 保持仅词法检索。模型目录 `/opt/amh-native/models/<名称>@<修订前12位>`，环境文件 `/etc/amh-native/semantic.env`。
+
+当前模型 jina-embeddings-v2-base-zh（int8，约 160 MB，中英双语，Apache-2.0）。选型依据：在组织记忆副本上用 55 条有答案、12 条无答案的中文提问对比了 9 个模型；仅词法时首位命中 65%、前三 76%，无答案的提问 12 条全被注入内容；该模型加召回门控后首位 85.5%、前三 98.2%，无答案的提问只有 2 条被注入。常驻内存约增加 400 MB；同等准确率的 gte-multilingual-base 和 bge-m3 需要 0.8–1.1 GB，在 2 GB 内存的主机上不采用。
+
+- 索引由 `serve` 自己维护：启动 30 秒后首轮全量编码，之后每 120 秒只编码新增或改动的记忆与规则（`--semantic-interval` 可调）；没有变化时不写库。
+- `GET /native/v1/health` 的 `semantic.state` 为 `ready` 时出现 `semantic-v1` 能力；`loading` 表示首轮未完成，`unavailable`/`error` 表示退回仅词法，原因写在召回明细的 `reasons` 里。
+- 召回门控只作用于提示时 Hook 通道：相似度低于下限（默认 0.40）或比最高分低出 0.08 的候选不注入；提示里的字面标识符（错误码、函数名、带下划线或点的词）在词法前三命中时保留。MCP 检索不过门控。阈值来自模型清单，可用 `AMH_NATIVE_HOOK_MIN_SCORE`、`AMH_NATIVE_HOOK_MARGIN` 覆盖，改阈值不触发重建索引。
+- 跳过语义：在部署机器上设置 `AMH_SEMANTIC=off` 再执行 `upgrade.sh`。
+- 其他 Hub（例如 platform.linkcrux.com）不在本仓库的部署流水线里，需要有权限的人在那台机器上用同一个 `upgrade.sh` 升级；Hub 能访问 hf-mirror.com 或把模型文件放在脚本同目录的 `model/` 下即可。
 
 ## 故障处理
 
