@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.9] — 2026-11-04
+
+### Added
+
+- Learned prompt-time relevance (`relevance.py`, gate `learned-v1`). The hook
+  injects a memory only when a calibrated logistic model rates it probably
+  relevant from eight signals: similarity, gap to the best match, the
+  memory's background similarity to a fixed bank of generic prompts (CSLS-
+  style hubness correction), the prompt's similarity to the whole store,
+  keyword rank, index role, content-term coverage and literal identifiers.
+  At most three memories per prompt; near-duplicates (the same note from
+  several products or devices, index sections cut at other offsets) fold
+  into one. MCP search stays ungated.
+- `amh-native recall-eval`: runs a gold set through hook-channel retrieval on
+  a snapshot of the Hub database without recording traces, and reports
+  hit@1/hit@3/MRR, precision of what was injected, abstention on
+  unanswerable prompts, injected count and latency, with bootstrap 95%
+  intervals, dev/test and per-tag splits, and a `--baseline` regression exit.
+- `amh-native recall-calibrate`: fits the gate on a gold set and picks its
+  threshold by grouped 5x5 cross-validation with the one-standard-error rule.
+- The shipped jina-v2-base-zh manifest carries the calibrated gate. On a
+  105-case gold set (cross-validated) hit@1 85.7%→87.8%, hit@3 92.2%→91.4%,
+  precision of injected memories 56.6%→74.4%, unanswerable prompts left
+  alone 64.3%→75.0%, memories per prompt 2.87→1.56.
+- Health reports `semantic.gate` and `relevance-gate-v1`; recall items carry
+  `recall.relevance`, shown as the table's 相关 column.
+
 ## [1.4.8] — 2026-11-04
 
 ### Changed

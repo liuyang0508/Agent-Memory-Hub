@@ -97,7 +97,7 @@ def test_server_upkeep_encodes_only_changes_and_reports_ready(tmp_path):
     assert again["encoded"] == 1 and again["reused"] == 1
     health = TestClient(create_app(hub)).get("/native/v1/health").json()
     assert "semantic-v1" in health["capabilities"]
-    assert health["semantic"] == {"state": "ready", "model": "gate-test-only"}
+    assert health["semantic"] == {"state": "ready", "model": "gate-test-only", "gate": "off"}
 
 
 def test_health_without_a_model_reports_off(tmp_path):

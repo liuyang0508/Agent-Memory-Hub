@@ -210,7 +210,7 @@ class LocalOnnxEncoder:
         self.pad_id = next((int(value) for value in pad_ids if value is not None), 0)
         self.model_id = str(manifest.get("model_id") or directory.name)
         # Gate thresholds tune ranking only; they must not force a re-index.
-        gate_keys = {"hook_min_score", "hook_margin", "semantic_min_score"}
+        gate_keys = {"hook_min_score", "hook_margin", "semantic_min_score", "hook_gate"}
         encoding = {k: v for k, v in manifest.items() if k not in gate_keys}
         self.model_version = hashlib.sha256(
             json.dumps(encoding, sort_keys=True).encode()
@@ -219,6 +219,8 @@ class LocalOnnxEncoder:
         self.hook_min_score = _unit(manifest.get("hook_min_score"))
         self.hook_margin = _unit(manifest.get("hook_margin"))
         self.semantic_min_score = _unit(manifest.get("semantic_min_score"))
+        gate = manifest.get("hook_gate")
+        self.hook_gate: dict[str, Any] | None = gate if isinstance(gate, dict) else None
         specials = len(self.tokenizer.encode("", add_special_tokens=True).ids)
         prefix = len(self.tokenizer.encode(self.passage_prefix, add_special_tokens=False).ids)
         self.window_tokens: int = max(1, self.max_tokens - specials - prefix)
