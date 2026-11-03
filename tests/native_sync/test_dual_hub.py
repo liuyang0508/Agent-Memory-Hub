@@ -591,3 +591,29 @@ def test_detach_missing_hook_fields_is_idempotent_and_still_removes_mcp(tmp_path
     assert json.loads(settings.read_text()) == data
     assert "amh-org" not in json.loads((home / ".claude.json").read_text())["mcpServers"]
     assert detach_products(state, apply=True)["conflicts"] == []
+
+
+def test_migration_offline_root_remains_quarantined_after_unreviewed_restore(tmp_path):
+    import importlib.util
+
+    script = Path(__file__).resolve().parents[2] / 'scripts/native-copy-approved.py'
+    spec = importlib.util.spec_from_file_location('copy_offline_root', script)
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+    old, _ = profile(tmp_path, 'offline-old')
+    new, hub_new = profile(tmp_path, 'offline-new', disabled=True)
+    root = tmp_path / 'mounted'
+    root.mkdir()
+    (root / 'excluded.md').write_text('excluded before root went offline')
+    old.register(root, 'codex-shared', '', 'memory')
+    detached = tmp_path / 'detached'
+    root.rename(detached)
+    (detached / 'never-reviewed.md').write_text('unreviewed offline novahistory')
+    plan = migration.preview(old.root, new.root)
+    assert plan['sources'][0]['quarantined'] is True
+    migration.apply(plan)
+    detached.rename(root)
+    for _ in range(2):
+        assert new.sync()['pushed'] == 0
+        assert new.quarantined_sources()
+    assert hub_new.search(new.identity['token'], 'novahistory') == []

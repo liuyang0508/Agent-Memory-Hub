@@ -114,7 +114,7 @@ def preview(source: Path, target: Path) -> dict[str, Any]:
                 | {
                     "files": approved,
                     "excluded": excluded,
-                    "quarantined": bool(quarantined) or root.is_symlink(),
+                    "quarantined": bool(quarantined) or unavailable,
                 }
             )
     return {
