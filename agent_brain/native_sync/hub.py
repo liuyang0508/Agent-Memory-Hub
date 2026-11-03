@@ -14,7 +14,7 @@ import secrets
 import time
 import uuid
 from pathlib import Path
-from .common import digest, tokens
+from .common import digest, source_product, tokens
 from .storage import database, HUB_SCHEMA, DB_TIMEOUT
 from .models import AssetInput
 from .admin_auth import AdminAuth, AdminCredential, WebAdminSession
@@ -805,8 +805,8 @@ class Hub:
             # authorship, so that direction stays refused.
             if previous and (
                 previous["source_store"],
-                previous["product"],
-            ) != (item["source_store"], item["product"]):
+                source_product(previous["product"]),
+            ) != (item["source_store"], source_product(item["product"])):
                 raise ValueError("source identity is immutable")
             if previous and previous["producer_unknown"] != item["producer_unknown"]:
                 if not (previous["producer_unknown"] and not item["producer_unknown"]):

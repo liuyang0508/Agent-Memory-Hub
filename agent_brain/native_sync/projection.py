@@ -113,7 +113,9 @@ def _publish(
     folder.mkdir(exist_ok=True)
     manifest_path = folder / "manifest.json"
     previous = json.loads(manifest_path.read_text()) if manifest_path.exists() else {}
-    if previous and owner is not None and previous.get("owner") != owner:
+    # Earlier releases wrote no owner. The profile that projects into its own
+    # registered target adopts that manifest; another owner is still a conflict.
+    if previous and owner is not None and previous.get("owner") not in (None, owner):
         return {"resources": 0, "conflicts": [str(manifest_path)], "pending": 0}
     owned = dict(previous.get("files", {}))
     conflicts = []

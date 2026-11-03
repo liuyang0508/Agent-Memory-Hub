@@ -27,6 +27,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Background synchronization uses a configurable 30-second request timeout and
   32-record / 45-second soft pass budget, prioritizes memory, retains pending
   work and rescans sources on the next pass. Hook/MCP deadlines are unchanged.
+  Records a Hub refuses move behind the rest of the queue, and every pass
+  attempts at least one upload even when a slow handshake spent its budget.
+- The shared Codex store is shown as `codex` in Hook, MCP, exports and admin
+  views. Uploads keep the stored `codex-shared` label: a Hub treats an asset's
+  product as immutable and Hubs before 1.4.6 do not know the new label, so
+  renaming on the wire would strand every existing Codex memory.
+- Projection manifests written before 1.4.6 carry no owner. The profile that
+  projects into its own target adopts them, so upgraded projections keep
+  updating and revocation or disabling recall still removes the copies.
 
 ### Compatibility
 

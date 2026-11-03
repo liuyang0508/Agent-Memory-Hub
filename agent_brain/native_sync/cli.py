@@ -704,7 +704,7 @@ def _empty_products(home: Path, rows: list[dict[str, Any]]) -> list[str]:
     produces memory, so listing it as "found" but absent from the checklist
     filters looks like a bug rather than "nothing here yet".
     """
-    present = {row["product"] for row in rows}
+    present = {source_product(str(row["product"])) for row in rows}
     names: list[str] = []
     for entry in discover_products(home):
         if not entry["detected"]:

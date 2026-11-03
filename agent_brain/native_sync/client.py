@@ -112,7 +112,7 @@ class NativeClient:
                         Path(target["root"]),
                         target["product"],
                         owner=str(self.root.resolve()),
-                        allow_legacy=False,
+                        allow_legacy=True,
                     )["conflicts"]
                 )
             if conflicts:
@@ -771,6 +771,13 @@ class NativeClient:
             attempted = 0
             upload_deferred = False
             with database(self.path) as db:
+                db.execute(
+                    "DELETE FROM outbox_rejections WHERE NOT EXISTS (SELECT 1 FROM outbox o "
+                    "WHERE o.asset=outbox_rejections.asset AND o.hash=outbox_rejections.hash)"
+                )
+                rejected = {
+                    r["asset"]: r["at"] for r in db.execute("SELECT * FROM outbox_rejections")
+                }
                 pending = [
                     row
                     for row in db.execute("SELECT * FROM outbox ORDER BY rowid")
@@ -778,7 +785,14 @@ class NativeClient:
                 ]
             # Preserve enqueue order within each class; current native memories
             # must not sit behind thousands of historical transcript parts.
-            pending.sort(key=lambda row: json.loads(row["payload"])["kind"] != "memory")
+            # Records the Hub refused go last, oldest refusal first.
+            pending.sort(
+                key=lambda row: (
+                    row["asset"] in rejected,
+                    rejected.get(row["asset"], 0.0),
+                    json.loads(row["payload"])["kind"] != "memory",
+                )
+            )
             quarantined = self.quarantined_sources()
             if progress:
                 progress("upload", 0, len(pending))
@@ -786,7 +800,11 @@ class NativeClient:
                 item = json.loads(row["payload"])
                 if not self.source_enabled(item["kind"]) or item["source_store"] in quarantined:
                     continue
-                if (max_uploads is not None and attempted >= max_uploads) or budget_exhausted():
+                # The pass budget may already be spent on a slow handshake; one
+                # attempt per pass still guarantees progress on a degraded link.
+                if (max_uploads is not None and attempted >= max_uploads) or (
+                    attempted and budget_exhausted()
+                ):
                     upload_deferred = True
                     break
                 attempted += 1
@@ -810,6 +828,13 @@ class NativeClient:
                         send_meta = False
                 except ValueError as exc:
                     errors.append(f"upload {item['asset_id']}: {type(exc).__name__}")
+                    # Rejected records move behind the rest of the queue, so a
+                    # permanent refusal cannot hold the head of every bounded pass.
+                    with database(self.path) as db:
+                        db.execute(
+                            "INSERT OR REPLACE INTO outbox_rejections VALUES(?,?,?)",
+                            (item["asset_id"], row["hash"], time.time()),
+                        )
                     continue
                 # Connection/auth failures propagate immediately: N queued assets
                 # must not turn an outage into N socket timeouts (or hide revocation).
@@ -822,6 +847,7 @@ class NativeClient:
                         "DELETE FROM outbox WHERE asset=? AND hash=?",
                         (item["asset_id"], row["hash"]),
                     )
+                    db.execute("DELETE FROM outbox_rejections WHERE asset=?", (item["asset_id"],))
                 pushed += 1
                 if progress:
                     progress("upload", pushed, len(pending))
@@ -1054,7 +1080,7 @@ class NativeClient:
                 Path(target["root"]),
                 target["product"],
                 owner=str(self.root.resolve()),
-                allow_legacy=False,
+                allow_legacy=True,
             )
 
     def search(self, query: str, **kwargs: Any) -> list[dict[str, Any]]:

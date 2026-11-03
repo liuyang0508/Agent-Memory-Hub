@@ -520,6 +520,8 @@ def export_cowork_plugin(
         from .profiles import organization_pin
 
         parent_config = json.loads((recall_state / "config.json").read_text())
+        runtime_state.mkdir(parents=True, exist_ok=True, mode=0o700)
+        runtime_state.chmod(0o700)
         atomic_json(
             runtime_state / "recall-parent.json",
             {"state": str(recall_state.resolve()), "pin": organization_pin(parent_config)},

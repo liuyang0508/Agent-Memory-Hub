@@ -47,6 +47,15 @@ def source_product(product: str) -> str:
     return "codex" if product == "codex-shared" else product
 
 
+def wire_product(product: str) -> str:
+    """The label a Hub stores for this source; immutable once an asset exists.
+
+    Hubs keep (source_store, product) fixed per asset and older Hubs only know
+    "codex-shared", so the display rename never reaches the wire.
+    """
+    return "codex-shared" if product == "codex" else product
+
+
 def digest(value: str) -> str:
     """Return the stable UTF-8 SHA-256 used for content/ownership comparison, not identity."""
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
