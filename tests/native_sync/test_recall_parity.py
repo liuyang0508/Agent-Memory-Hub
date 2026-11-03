@@ -188,14 +188,14 @@ def test_hopfield_stage_adds_semantic_neighbours_the_query_missed(tmp_path):
 
 def test_trace_is_recorded_without_bodies_and_feedback_moves_states_and_signals(tmp_path):
     hub, who = make(tmp_path)
-    secret = "BODY_CANARY_不得入账"
-    hub.put(who["token"], asset("a", body="审批复核 " + secret, title="审批规则"))
+    canary = "BODY_CANARY_不得入账"
+    hub.put(who["token"], asset("a", body="审批复核 " + canary, title="审批规则"))
     hub.put(who["token"], asset("b", body="审批复核另一条"))
     result = hub.retrieve(who["token"], "审批复核", limit=1)
     trace_id = result["retrieval"]["trace_id"]
     with database(hub.path) as db:
         row = db.execute("SELECT * FROM recall_events WHERE trace_id=?", (trace_id,)).fetchone()
-    assert secret not in row["payload"] and row["query_preview"] == "审批复核"
+    assert canary not in row["payload"] and row["query_preview"] == "审批复核"
     stored = json.loads(row["payload"])
     assert {c["asset_id"]: c["state"] for c in stored["candidates"]} == {
         "a": "selected",

@@ -176,14 +176,14 @@ def test_recall_passes_an_unrecorded_trace_through_as_null(api, monkeypatch):
 
 def test_validation_errors_carry_only_location_message_and_type(api):
     hub, who, client, headers = api
-    secret = "SECRET_BODY_不得回显"
+    canary = "SECRET_BODY_不得回显"
     response = client.post(
         "/native/v1/assets",
         headers=headers,
-        json=asset("n", body=secret, source_meta={"declared": {"body": "smuggled"}}),
+        json=asset("n", body=canary, source_meta={"declared": {"body": "smuggled"}}),
     )
     assert response.status_code == 422
-    assert secret not in response.text and "smuggled" not in response.text
+    assert canary not in response.text and "smuggled" not in response.text
     detail = response.json()["detail"]
     assert detail and all(set(entry) == {"loc", "msg", "type"} for entry in detail)
     assert detail[0]["loc"][-1] == "source_meta"

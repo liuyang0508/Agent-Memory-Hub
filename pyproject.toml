@@ -123,6 +123,7 @@ explicit_package_bases = true
 module = [
     "Foundation",
     "datasets",
+    "huggingface_hub",
     "litellm",
     "objc",
     "openai",

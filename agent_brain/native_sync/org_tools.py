@@ -434,7 +434,7 @@ class OrganizationTools:
                             recall.get("routes"), dict
                         ):
                             raise ValueError("invalid recall summary")
-                        routes = {}
+                        routes: dict[str, int | str | None] = {}
                         for route, rank in recall["routes"].items():
                             if route not in {"lexical", "semantic", "hopfield", "rerank"}:
                                 raise ValueError("invalid recall route")

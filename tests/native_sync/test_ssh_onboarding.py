@@ -52,7 +52,7 @@ def test_login_then_picker_reuses_one_port_without_remote_browser(tmp_path, monk
         member_id="m",
         member_name="Example",
         device_id="new",
-        token="synthetic-device-secret",
+        token="synthetic-device-credential",
     )
 
     class Transport:

@@ -4,6 +4,7 @@ Run: PYTHONPATH=. python benchmarks/native_hybrid_smoke.py --output /tmp/report.
 Uses only local cached weights and temporary synthetic assets; no production writes.
 """
 
+from typing import Any
 import argparse
 import hashlib
 import math
@@ -19,7 +20,7 @@ from agent_brain.retrieval.mmr import _cosine_sim
 MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 
 
-def value(key, body, **kw):
+def value(key: str, body: str, **kw: Any) -> dict[str, Any]:
     return dict(
         asset_id=key,
         source_store="synthetic-eval",
@@ -33,7 +34,7 @@ def value(key, body, **kw):
     )
 
 
-def run():
+def run() -> dict[str, Any]:
     start = time.monotonic()
     with tempfile.TemporaryDirectory(prefix="amh-native-semantic-eval-") as temp:
         hub = Hub(Path(temp) / "hub.sqlite", semantic_model=MODEL, mmr_lambda=0.85)
@@ -103,6 +104,7 @@ def run():
                         (who["tenant_id"], target),
                     ).fetchone()
                 windows = json.loads(row["vectors"])
+                assert hub._encoder is not None  # the Hub was built with a semantic model
                 query_vector = hub._encoder.embed(query)
                 best = max(windows, key=lambda w: _cosine_sim(query_vector, w["vector"]))
                 diagnostic = {k: v for k, v in best.items() if k != "vector"}
@@ -143,7 +145,7 @@ def run():
                 )
             )
 
-        def timing(split, key):
+        def timing(split: str, key: str) -> dict[str, Any]:
             values = sorted(c[key] for c in observations if c["split"] == split)
             return dict(
                 n=len(values),

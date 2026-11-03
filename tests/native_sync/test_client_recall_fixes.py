@@ -338,9 +338,10 @@ def test_recall_trace_rejects_malformed_trace_ids_and_explains_old_hubs(tmp_path
         ],
     )
 
-    # Typer wraps usage errors in a box, so compare without layout characters.
+    # Typer wraps usage errors in a box and, where the runner looks like a colour
+    # terminal (GitHub Actions does), colours it; compare without either.
     def collapse(text):
-        return re.sub(r"[\s│╭╮╰╯─]", "", text)
+        return re.sub(r"\x1b\[[0-9;]*m|[\s│╭╮╰╯─]", "", text)
 
     assert feedback.exit_code != 0 and collapse(cli.TRACE_ID_HINT) in collapse(feedback.output)
     assert "Traceback" not in feedback.output
