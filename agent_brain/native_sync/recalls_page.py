@@ -93,6 +93,10 @@ const stateText = (s) => s && s.startsWith("dropped:") ? `<span class="pill drop
   ["packed","emitted","confirmed","cited"].includes(s) ? `<span class="pill ok">${esc(s)}</span>` : `<span class="pill">${esc(s || "candidate")}</span>`;
 let memberNames = {};
 const memberName = (id) => memberNames[id] || (id ? String(id).slice(0, 8) + "…" : "未知");
+const askingText = (a) => {
+  if (!a || (!a.product && !a.project)) return `<span class="muted">未报</span>`;
+  return esc(a.product || "？") + (a.project ? ` <span class="muted">/ ${esc(a.project)}</span>` : "");
+};
 const timeOf = (c) => {
   const t = c.times || {};
   for (const k of ["confirmed", "content_modified", "content_created"]) if (t[k]) return fmtTime(t[k].value) + "（" + k + "·" + t[k].source + "）";
@@ -170,10 +174,11 @@ async function load() {
 function renderList(traces) {
   if (!traces.length) return `<div class="card empty">暂无召回记录</div>`;
   return `<div class="card"><table>
-    <thead><tr><th>时间</th><th>通道</th><th>成员</th><th>问题</th><th class="num">候选</th><th class="num">入选</th><th class="num">已送达</th><th>阶段</th><th>trace</th></tr></thead>
+    <thead><tr><th>时间</th><th>通道</th><th>成员</th><th>发问自</th><th>问题</th><th class="num">候选</th><th class="num">入选</th><th class="num">已送达</th><th>阶段</th><th>trace</th></tr></thead>
     <tbody>${traces.map(t => `<tr>
       <td class="muted">${fmtTime(t.created)}</td><td>${esc(t.channel)}</td>
       <td>${esc(memberName(t.member))}</td>
+      <td>${askingText(t.asking)}</td>
       <td>${esc(t.query_preview || "（未保存问题文本）")}</td>
       <td class="num">${t.counts.candidates}</td><td class="num">${(t.counts.selected||0)+(t.counts.packed||0)+(t.counts.emitted||0)+(t.counts.confirmed||0)+(t.counts.cited||0)}</td>
       <td class="num">${(t.counts.emitted||0)+(t.counts.confirmed||0)+(t.counts.cited||0)}</td>
@@ -189,6 +194,7 @@ function renderTrace(t) {
     <dt>时间</dt><dd>${fmtTime(t.created)}</dd>
     <dt>通道</dt><dd>${esc(t.channel)}</dd>
     <dt>问题</dt><dd>${esc(t.query_preview || "（未保存问题文本）")} <span class="muted">· ${t.query_chars} 字</span></dd>
+    <dt>发问自</dt><dd>${askingText(t.asking)}${t.asking && t.asking.session_digest ? ` <span class="muted mono">任务 ${esc(t.asking.session_digest)}</span>` : ""}</dd>
     <dt>阶段</dt><dd>${Object.entries(t.stages||{}).map(([k,v]) => `<span class="pill ${v===OFF?"off":""}">${esc(k)}·${esc(v)}</span>`).join("")}</dd>
     <dt>降级原因</dt><dd>${(t.retrieval && t.retrieval.reasons || []).map(r => esc(r)).join("、") || "无"}</dd>
   </dl></div>`;

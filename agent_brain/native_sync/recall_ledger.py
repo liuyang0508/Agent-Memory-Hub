@@ -253,6 +253,7 @@ def summary(trace: dict[str, Any], *, top: int = 8) -> dict[str, Any]:
         "member": trace["member"],
         "query_digest": trace["query_digest"],
         "query_preview": trace.get("query_preview", ""),
+        "asking": trace.get("asking") or {},
         "stages": trace.get("stages", {}),
         "retrieval": trace.get("retrieval", {}),
         "counts": {"candidates": len(candidates), **counts},

@@ -37,8 +37,13 @@ GAP_SCAN = 500
 GAP_RECENT = 20
 GAP_REPEATED = 10
 TOP_ASSETS = 50
-# Distinct recalling members tracked per asset and day; beyond it only counts grow.
+# Distinct recalling members / tasks tracked per asset and day; beyond it only counts grow.
 MEMBERS_PER_ASSET_DAY = 200
+TASKS_PER_ASSET_DAY = 500
+# Distinct task digests tracked per (member, channel) and day.
+SESSIONS_PER_ROW = 1000
+TOP_PROJECTS = 20
+UNKNOWN = "未知"
 TITLE_CHARS = 80
 
 STAGES = ("trigger", "retrieve", "deliver", "receipt", "cite", "feedback")
@@ -138,6 +143,11 @@ def depth(state: str) -> int:
         return 0
 
 
+def _blank_bucket() -> dict[str, Any]:
+    """Counts kept per asking-side product and project inside a rollup row."""
+    return {"traces": 0, "no_match": 0, "funnel": {stage: 0 for stage in FUNNEL}}
+
+
 def _blank_recall() -> dict[str, Any]:
     return {
         "traces": 0,
@@ -150,6 +160,9 @@ def _blank_recall() -> dict[str, Any]:
         "reasons": {},
         "dropped": {},
         "devices": [],
+        "products": {},
+        "projects": {},
+        "sessions": [],
     }
 
 
@@ -163,6 +176,7 @@ def _blank_asset() -> dict[str, Any]:
         "producer_name": None,
         "funnel": {stage: 0 for stage in FUNNEL},
         "members": {},
+        "tasks": {},
         "cross_member": 0,
         "last": 0.0,
     }
@@ -189,6 +203,13 @@ def summarize(
         channel = str(trace.get("channel") or "")
         row = recall.setdefault((member, channel), _blank_recall())
         candidates = trace.get("candidates") or []
+        raw_asking = trace.get("asking")
+        asking = raw_asking if isinstance(raw_asking, dict) else {}
+        product = str(asking.get("product") or "")
+        project = str(asking.get("project") or "")
+        session = str(asking.get("session_digest") or "")
+        if session and session not in row["sessions"] and len(row["sessions"]) < SESSIONS_PER_ROW:
+            row["sessions"].append(session)
         row["traces"] += 1
         row["candidates"] += len(candidates)
         row["query_chars"] += int(trace.get("query_chars") or 0)
@@ -204,13 +225,14 @@ def summarize(
             row["devices"].append(device)
         created = float(trace.get("created") or 0)
         matched = False
+        delta = {stage: 0 for stage in FUNNEL}
         for candidate in candidates:
             state = str(candidate.get("state") or "candidate")
             reached = depth(state)
             matched = matched or reached >= 1
             for index, stage in enumerate(FUNNEL):
                 if index <= reached:
-                    row["funnel"][stage] += 1
+                    delta[stage] += 1
             if state.startswith("dropped:"):
                 _count(row["dropped"], state[8:] or "unknown")
             asset_id = str(candidate.get("asset_id") or "")
@@ -235,10 +257,21 @@ def summarize(
                 member in item["members"] or len(item["members"]) < MEMBERS_PER_ASSET_DAY
             ):
                 item["members"][member] = max(int(item["members"].get(member, -1)), reached)
+            if session and (session in item["tasks"] or len(item["tasks"]) < TASKS_PER_ASSET_DAY):
+                item["tasks"][session] = max(int(item["tasks"].get(session, -1)), reached)
             if reached >= EMITTED and item["producer"] and member != item["producer"]:
                 item["cross_member"] += 1
-        if not matched:
-            row["no_match"] += 1
+        for bucket in (
+            row,
+            row["products"].setdefault(product, _blank_bucket()),
+            row["projects"].setdefault(project, _blank_bucket()),
+        ):
+            if bucket is not row:
+                bucket["traces"] += 1
+            if not matched:
+                bucket["no_match"] += 1
+            for stage in FUNNEL:
+                bucket["funnel"][stage] += delta[stage]
     return recall, assets
 
 
@@ -326,9 +359,19 @@ def _merge_recall(target: dict[str, Any], payload: dict[str, Any]) -> None:
     for key in ("modes", "reasons", "dropped"):
         for name, count in (payload.get(key) or {}).items():
             target[key][name] = target[key].get(name, 0) + int(count)
+    for key in ("products", "projects"):
+        for name, bucket in (payload.get(key) or {}).items():
+            into = target[key].setdefault(name, _blank_bucket())
+            into["traces"] += int(bucket.get("traces") or 0)
+            into["no_match"] += int(bucket.get("no_match") or 0)
+            for stage in FUNNEL:
+                into["funnel"][stage] += int((bucket.get("funnel") or {}).get(stage) or 0)
     for device in payload.get("devices") or []:
         if device not in target["devices"]:
             target["devices"].append(device)
+    for session in payload.get("sessions") or []:
+        if session not in target["sessions"]:
+            target["sessions"].append(session)
 
 
 def _merge_asset(target: dict[str, Any], payload: dict[str, Any]) -> None:
@@ -339,6 +382,8 @@ def _merge_asset(target: dict[str, Any], payload: dict[str, Any]) -> None:
         target["funnel"][stage] += int((payload.get("funnel") or {}).get(stage) or 0)
     for member, reached in (payload.get("members") or {}).items():
         target["members"][member] = max(int(target["members"].get(member, -1)), int(reached))
+    for task, reached in (payload.get("tasks") or {}).items():
+        target["tasks"][task] = max(int(target["tasks"].get(task, -1)), int(reached))
     target["cross_member"] += int(payload.get("cross_member") or 0)
 
 
@@ -353,7 +398,26 @@ def _public_counts(row: dict[str, Any]) -> dict[str, Any]:
         "confirmed": row["funnel"]["confirmed"],
         "cited": row["funnel"]["cited"],
         "devices": len(row["devices"]),
+        "tasks": len(row["sessions"]),
     }
+
+
+def _bucket_counts(name: str, bucket: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "name": name or UNKNOWN,
+        "traces": bucket["traces"],
+        "no_match": bucket["no_match"],
+        "selected": bucket["funnel"]["selected"],
+        "emitted": bucket["funnel"]["emitted"],
+        "confirmed": bucket["funnel"]["confirmed"],
+        "cited": bucket["funnel"]["cited"],
+    }
+
+
+def _buckets(store: dict[str, dict[str, Any]], limit: int | None = None) -> list[dict[str, Any]]:
+    # Busiest first; among equals the unknown bucket goes last, then by name.
+    ranked = sorted(store.items(), key=lambda item: (-item[1]["traces"], item[0] == "", item[0]))
+    return [_bucket_counts(name, bucket) for name, bucket in ranked[:limit]]
 
 
 def _ranked(store: dict[str, int]) -> list[dict[str, Any]]:
@@ -437,6 +501,7 @@ def report(
                 "assets_used": set(),
                 "funnel": {stage: 0 for stage in FUNNEL},
                 "consumers": set(),
+                "tasks": set(),
                 "cross_member": 0,
             },
         )
@@ -449,6 +514,9 @@ def report(
         for member, reached in item["members"].items():
             if member != producer and int(reached) >= EMITTED:
                 entry["consumers"].add(member)
+        for task, reached in item["tasks"].items():
+            if int(reached) >= EMITTED:
+                entry["tasks"].add(task)
 
     since_rollup = db.execute(
         "SELECT min(day) FROM recall_daily WHERE tenant=?", (tenant,)
@@ -505,7 +573,10 @@ def report(
             "assets_hit": len(assets),
             "assets_used": len(used_assets),
             "cross_member_emitted": sum(a["cross_member"] for a in assets.values()),
+            "tasks_active": len(total["sessions"]),
         },
+        "by_asking_product": _buckets(total["products"]),
+        "by_asking_project": _buckets(total["projects"], TOP_PROJECTS),
         "by_day": [{"day": day, **_public_counts(by_day[day])} for day in window],
         "by_channel": [
             {"channel": channel, **_public_counts(row)}
@@ -531,6 +602,7 @@ def report(
                 **{stage: item["funnel"][stage] for stage in FUNNEL},
                 "members_selected": sum(1 for d in item["members"].values() if int(d) >= 1),
                 "members_emitted": sum(1 for d in item["members"].values() if int(d) >= EMITTED),
+                "tasks_emitted": sum(1 for d in item["tasks"].values() if int(d) >= EMITTED),
                 "cross_member": item["cross_member"],
                 "last": item["last"],
             }
@@ -546,6 +618,7 @@ def report(
                 "confirmed": entry["funnel"]["confirmed"],
                 "cited": entry["funnel"]["cited"],
                 "consumers": len(entry["consumers"]),
+                "tasks": len(entry["tasks"]),
                 "cross_member": entry["cross_member"],
             }
             for producer, entry in sorted(

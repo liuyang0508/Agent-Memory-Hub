@@ -126,9 +126,26 @@ PAGE = """<!doctype html>
       </div>
     </div>
 
+    <div class="grid two">
+      <div>
+        <h2>按发问产品 <small>召回从哪个产品发起</small></h2>
+        <div class="card"><table>
+          <thead><tr><th>产品</th><th class="num">召回</th><th class="num">无结果</th><th class="num">已注入</th><th class="num">回执</th><th class="num">引用</th></tr></thead>
+          <tbody id="askingProducts"></tbody>
+        </table></div>
+      </div>
+      <div>
+        <h2>按发问项目 <small>发起召回的目录所属项目；未登记的目录记为未知</small></h2>
+        <div class="card"><table>
+          <thead><tr><th>项目</th><th class="num">召回</th><th class="num">无结果</th><th class="num">已注入</th><th class="num">回执</th><th class="num">引用</th></tr></thead>
+          <tbody id="askingProjects"></tbody>
+        </table></div>
+      </div>
+    </div>
+
     <h2>按成员 <small>仅管理员可见；召回次数不代表工作量</small></h2>
     <div class="card"><table>
-      <thead><tr><th>成员</th><th class="num">召回</th><th class="num">无结果</th><th class="num">已注入</th><th class="num">回执</th><th class="num">引用</th><th class="num">设备</th></tr></thead>
+      <thead><tr><th>成员</th><th class="num">召回</th><th class="num">无结果</th><th class="num">已注入</th><th class="num">回执</th><th class="num">引用</th><th class="num">任务</th><th class="num">设备</th></tr></thead>
       <tbody id="members"></tbody>
     </table></div>
 
@@ -151,13 +168,13 @@ PAGE = """<!doctype html>
 
     <h2>被用到的记忆 <small>按引用、回执、注入排序</small></h2>
     <div class="card"><table>
-      <thead><tr><th>记忆</th><th>产品 / 项目</th><th>原生产者</th><th class="num">命中</th><th class="num">入选</th><th class="num">已注入</th><th class="num">回执</th><th class="num">引用</th><th class="num">注入到几位成员</th><th class="num">跨成员</th></tr></thead>
+      <thead><tr><th>记忆</th><th>产品 / 项目</th><th>原生产者</th><th class="num">命中</th><th class="num">入选</th><th class="num">已注入</th><th class="num">回执</th><th class="num">引用</th><th class="num">注入到几位成员</th><th class="num">注入到几个任务</th><th class="num">跨成员</th></tr></thead>
       <tbody id="assets"></tbody>
     </table></div>
 
     <h2>贡献与复用 <small>按原生产者汇总；「消费者」不含本人</small></h2>
     <div class="card"><table>
-      <thead><tr><th>成员</th><th class="num">命中过的记忆</th><th class="num">被注入过的记忆</th><th class="num">注入次数</th><th class="num">回执</th><th class="num">引用</th><th class="num">消费者</th><th class="num">跨成员注入</th></tr></thead>
+      <thead><tr><th>成员</th><th class="num">命中过的记忆</th><th class="num">被注入过的记忆</th><th class="num">注入次数</th><th class="num">回执</th><th class="num">引用</th><th class="num">消费者</th><th class="num">任务</th><th class="num">跨成员注入</th></tr></thead>
       <tbody id="producers"></tbody>
     </table></div>
 
@@ -221,6 +238,7 @@ function render(d) {
     ["已送达（回执）", t.confirmed, "转录里看到了投放标记"],
     ["已引用", t.cited, "显式反馈，未打则为零"],
     ["活跃成员", t.members_active, "窗口内发起过召回"],
+    ["独立任务", t.tasks_active, "按会话 / 研究去重，老客户端不报则为零"],
     ["被用到的记忆", t.assets_used + " / " + t.assets_hit, "注入过 / 命中过"],
     ["跨成员复用", t.cross_member_emitted, "注入给非作者的次数"],
   ];
@@ -254,7 +272,9 @@ function render(d) {
 
   const counts = (r) => `<td class="num">${r.traces}</td><td class="num">${r.no_match}</td><td class="num">${r.emitted}</td><td class="num">${r.confirmed}</td><td class="num">${r.cited}</td>`;
   rows("channels", d.by_channel.map(c => `<tr><td>${esc(c.channel)}</td>${counts(c)}</tr>`).join(""), 6);
-  rows("members", d.by_member.map(m => `<tr><td>${esc(m.name)}</td>${counts(m)}<td class="num">${m.devices}</td></tr>`).join(""), 7);
+  rows("members", d.by_member.map(m => `<tr><td>${esc(m.name)}</td>${counts(m)}<td class="num">${m.tasks}</td><td class="num">${m.devices}</td></tr>`).join(""), 8);
+  rows("askingProducts", d.by_asking_product.map(p => `<tr><td>${esc(p.name)}</td>${counts(p)}</tr>`).join(""), 6);
+  rows("askingProjects", d.by_asking_project.map(p => `<tr><td>${esc(p.name)}</td>${counts(p)}</tr>`).join(""), 6);
 
   rows("modes", d.modes.map(m => `<tr><td>检索模式 · ${esc(m.name)}</td><td class="num">${m.count}</td></tr>`).join("") +
     d.reasons.map(m => `<tr><td>降级 · ${esc(m.name)}</td><td class="num">${m.count}</td></tr>`).join(""), 2);
@@ -266,11 +286,11 @@ function render(d) {
     <td>${esc(a.producer)}</td>
     <td class="num">${a.candidate}</td><td class="num">${a.selected}</td><td class="num">${a.emitted}</td>
     <td class="num">${a.confirmed}</td><td class="num">${a.cited}</td>
-    <td class="num">${a.members_emitted}</td><td class="num">${a.cross_member}</td></tr>`).join(""), 10);
+    <td class="num">${a.members_emitted}</td><td class="num">${a.tasks_emitted}</td><td class="num">${a.cross_member}</td></tr>`).join(""), 11);
 
   rows("producers", d.by_producer.map(p => `<tr><td>${esc(p.name)}</td>
     <td class="num">${p.assets_hit}</td><td class="num">${p.assets_used}</td><td class="num">${p.emitted}</td>
-    <td class="num">${p.confirmed}</td><td class="num">${p.cited}</td><td class="num">${p.consumers}</td><td class="num">${p.cross_member}</td></tr>`).join(""), 8);
+    <td class="num">${p.confirmed}</td><td class="num">${p.cited}</td><td class="num">${p.consumers}</td><td class="num">${p.tasks}</td><td class="num">${p.cross_member}</td></tr>`).join(""), 9);
 
   const g = d.gaps;
   document.getElementById("gapsNote").textContent =

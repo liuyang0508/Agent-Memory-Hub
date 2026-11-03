@@ -29,6 +29,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The recall ledger page filters by member, channel and day, shows member
   names, and accepts the Feishu administrator session
   (`/admin/login?target=recalls`); the operator page links to both pages.
+- **Asking-side context (capability `asking-context-v1`).** `/recall` and
+  `/retrieve` accept an optional `asking` block — hosting product, the
+  project the device registered for its working directory, and a 16-hex
+  digest of the session or research — stored on the trace as hints only:
+  identity and scope still come from the device credential, and nothing is
+  inferred when a hint is missing. The hook sends product, registered
+  project and a hashed session id; the MCP server sends its `--product`
+  label (the installer now writes one per client: claude-code, codex-cli,
+  cowork) and a hashed research id. Both fall back to a request without
+  the block when a Hub predates the capability. The insight page rolls
+  recalls up by asking product and project, counts distinct tasks per
+  asset, producer and member, and the ledger page shows where each recall
+  came from.
 
 ## [1.4.3] — 2026-11-03
 

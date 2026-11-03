@@ -33,6 +33,34 @@ def _display_text(record: dict[str, Any]) -> str:
     return text if isinstance(text, str) else ""
 
 
+def _project_for(c: NativeClient, cwd: Any) -> str:
+    """The project this device registered for the working directory; empty when unknown.
+
+    The deepest registered source root containing ``cwd`` wins. Nothing is
+    inferred from the directory name: an unregistered directory is unknown.
+    """
+    if not isinstance(cwd, str) or not cwd:
+        return ""
+    try:
+        with database(c.path) as db:
+            rows = db.execute(
+                "SELECT root, project FROM sources WHERE project IS NOT NULL AND project != ''"
+            ).fetchall()
+    except (sqlite3.Error, OSError):
+        return ""
+    here = Path(cwd)
+    best, depth = "", -1
+    for row in rows:
+        root = Path(str(row["root"] or ""))
+        try:
+            here.relative_to(root)
+        except ValueError:
+            continue
+        if len(root.parts) > depth:
+            best, depth = str(row["project"])[:256], len(root.parts)
+    return best
+
+
 def run(root: Path, product: str, payload: dict[str, Any]) -> dict[str, Any]:
     """Handle one host event with a short database lock budget, restoring the prior context on every exit."""
     context = DB_TIMEOUT.set(0.04)
@@ -137,7 +165,12 @@ def _run(root: Path, product: str, payload: dict[str, Any]) -> dict[str, Any]:
     try:
         from .query_worker import bounded_search
 
-        response = bounded_search(root, prompt[:8000], timeout=1.2)
+        asking = {
+            "product": product,
+            "project": _project_for(c, payload.get("cwd")),
+            "session_digest": digest(session)[:16],
+        }
+        response = bounded_search(root, prompt[:8000], timeout=1.2, asking=asking)
         # Test doubles may still answer with a bare list of records.
         if isinstance(response, dict):
             hits = response["items"]

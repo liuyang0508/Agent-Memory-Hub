@@ -104,6 +104,7 @@ def create_app(hub: Hub) -> FastAPI:
                 "admin-feishu-session-v1",
                 "recall-parity-v1",
                 "insights-v1",
+                "asking-context-v1",
             ],
         }
 
@@ -387,7 +388,12 @@ def create_app(hub: Hub) -> FastAPI:
         """Hook channel: hybrid ranking with full bodies for a bounded number of hits."""
         from .retrieval_view import _diagnostics
 
-        result = hub.recall(bearer(authorization), data.query, limit=data.limit)
+        result = hub.recall(
+            bearer(authorization),
+            data.query,
+            limit=data.limit,
+            asking=data.asking.model_dump() if data.asking else None,
+        )
         return {
             "items": recall_items(result["items"]),
             "trace_id": result["trace_id"],

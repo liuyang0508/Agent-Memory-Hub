@@ -1146,6 +1146,7 @@ class Hub:
         project_filter: str | None = None,
         channel: str = "tool",
         record: bool = True,
+        asking: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         from .retrieval import retrieve
 
@@ -1159,15 +1160,25 @@ class Hub:
             project_filter=project_filter,
             channel=channel,
             record=record,
+            asking=asking,
         )
 
-    def recall(self, token: str, query: str, *, limit: int = 8) -> dict[str, Any]:
+    def recall(
+        self,
+        token: str,
+        query: str,
+        *,
+        limit: int = 8,
+        asking: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         """Hook-channel recall: hybrid ranking over curated memory and rules, full bodies.
 
         Replaces the lexical-only search for the prompt-time hook so transcript
         chunks and supporting material cannot crowd out curated memory.
         """
-        result = self.retrieve(token, query, limit=limit, kinds=["memory", "rule"], channel="hook")
+        result = self.retrieve(
+            token, query, limit=limit, kinds=["memory", "rule"], channel="hook", asking=asking
+        )
         return {
             "items": result["items"],
             "trace_id": result["retrieval"]["trace_id"],
