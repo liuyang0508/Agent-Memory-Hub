@@ -22,7 +22,7 @@ from agent_brain.native_sync.common import (
     request_timeout,
 )
 from agent_brain.native_sync.hub import Hub
-from agent_brain.native_sync.install import install_hooks
+from agent_brain.native_sync.install import OWNER, install_hooks
 from agent_brain.native_sync.recall_service import RecallService, ServiceUnavailable, request
 from agent_brain.native_sync.transport import HubHTTPError, WarmTransport
 from agent_brain.native_sync.worker import work
@@ -226,7 +226,7 @@ def test_recall_timeout_command_rewrites_the_host_hook_timeout(live, tmp_path, m
     def prompt_timeout():
         settings = json.loads((home / ".claude/settings.json").read_text())
         entries = settings["hooks"]["UserPromptSubmit"]
-        return [h["timeout"] for e in entries for h in e["hooks"] if "amh" in h["command"]]
+        return [h["timeout"] for e in entries for h in e["hooks"] if OWNER in h["command"]]
 
     assert prompt_timeout() == [2]
     runner = CliRunner()
