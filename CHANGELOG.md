@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.8] — 2026-11-04
+
+### Changed
+
+- Claude Code and Cowork print a hook message as plain text, so the recall
+  table there is now box-drawn and padded by terminal display width (CJK
+  counts two columns), with no Markdown marks. Codex keeps the Markdown table
+  inside the organization block.
+
+### Added
+
+- `amh-native claude-mod --output DIR` writes a Claude Code mod that draws each
+  recall as a transcript row: a colored title and one-line summary, with the
+  call, parameters and table behind an expand/collapse button. The mod marks
+  the sessions it draws for; the hook then writes its view to
+  `recall-view/<session>.json` instead of a message, and a stale mark brings
+  the plain message back.
+
 ## [1.4.7] — 2026-11-04
 
 ### Added

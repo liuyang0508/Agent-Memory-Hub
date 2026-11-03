@@ -9,6 +9,9 @@ Three pure helpers, no I/O:
   topic. Ported from the local hook's admission list and extended for Chinese.
 * ``render`` builds the call line, the parameters and a table of every
   recalled memory with its rank, routes, similarity and delivery state.
+  Hosts that print a hook message as plain text (Claude Code's transcript,
+  Cowork) get a box-drawn table padded by display width; Markdown is kept for
+  context the model reads.
 """
 
 from __future__ import annotations
@@ -212,6 +215,56 @@ def _kind(record: dict[str, Any]) -> str:
     return kind + ("·" + role if role else "")
 
 
+STATE_SHORT = {"packed": "已注入", "covered": "已注入过", "budget": "超预算", "empty": "无正文"}
+
+
+def _width(text: str) -> int:
+    """Terminal columns: wide and fullwidth characters take two, combining marks none."""
+    total = 0
+    for ch in text:
+        if unicodedata.combining(ch):
+            continue
+        total += 2 if unicodedata.east_asian_width(ch) in ("W", "F") else 1
+    return total
+
+
+def _fit(text: str, width: int) -> str:
+    """Clip to ``width`` columns (marking the cut with "..") and pad with spaces.
+
+    Only ASCII marks are added, since East Asian "ambiguous" characters such as
+    "…" or "·" are one column in some terminals and two in others.
+    """
+    text = " ".join(str(text).split())
+    if _width(text) > width:
+        kept, used = [], 0
+        for ch in text:
+            step = _width(ch)
+            if used + step > width - 2:
+                break
+            kept.append(ch)
+            used += step
+        text = "".join(kept) + ".."
+    return text + " " * (width - _width(text))
+
+
+def _box(headers: list[str], rows: list[list[str]], widths: list[int]) -> list[str]:
+    def line(left: str, mid: str, right: str) -> str:
+        return left + mid.join("─" * (w + 2) for w in widths) + right
+
+    def cells(values: list[str]) -> str:
+        return "│" + "│".join(" " + _fit(v, w) + " " for v, w in zip(values, widths)) + "│"
+
+    out = [line("┌", "┬", "┐"), cells(headers), line("├", "┼", "┤")]
+    out += [cells(row) for row in rows]
+    out.append(line("└", "┴", "┘"))
+    return out
+
+
+def _plain(text: str) -> str:
+    """Box cells avoid ambiguous-width marks."""
+    return text.replace("·", " ").replace("—", "-").replace("§", "#").replace("…", "..")
+
+
 def render(
     *,
     hub: str,
@@ -226,8 +279,13 @@ def render(
     hits: list[dict[str, Any]],
     states: dict[str, str],
     display: str,
+    style: str = "markdown",
 ) -> str:
-    """Call line, parameters and the recalled-memory table, as Markdown."""
+    """Call line, parameters and the recalled-memory table.
+
+    ``style`` is "markdown" for context the model reads and "box" for a hook
+    message the host prints verbatim.
+    """
     base = hub.rstrip("/") or "Hub"
     retrieval = retrieval or {}
     packed = sum(1 for s in states.values() if s == "packed")
@@ -254,13 +312,15 @@ def render(
     )
     lines.append(
         "入参：查询「"
-        + _cell(query, 80)
+        + _cell(query, 40 if style == "box" else 80)
         + f"」（{len(query)} 字）· 产品 {asking.get('product') or '未知'} · 项目 "
         + (asking.get("project") or "未登记")
         + f" · 会话 {asking.get('session_digest') or '—'}"
     )
     if not hits:
-        return "\n".join(lines)
+        return _as_plain("\n".join(lines)) if style == "box" else "\n".join(lines)
+    if style == "box":
+        return _as_plain("\n".join(lines)) + "\n" + "\n".join(_box_table(hits, states))
     lines += [
         "",
         "| # | 记忆 | 类型 | 来源 | 作者 | 项目 | 版本 | 更新 | 命中路由 | 相似度 | 本轮 |",
@@ -294,4 +354,49 @@ def render(
 
 
 def render_skip(reason: str, query: str) -> str:
-    return f"**组织记忆召回** · 跳过：{SKIP_TEXT.get(reason, reason)}（「{_cell(query, 24)}」）"
+    return f"组织记忆召回 · 跳过：{SKIP_TEXT.get(reason, reason)}（「{_cell(query, 24)}」）"
+
+
+def _as_plain(text: str) -> str:
+    """Header lines without Markdown emphasis or code marks."""
+    return text.replace("**", "").replace("`", "")
+
+
+def _box_table(hits: list[dict[str, Any]], states: dict[str, str]) -> list[str]:
+    from .recall import coverage_key
+
+    with_project = any(record.get("project") for record in hits)
+    headers = ["#", "记忆", "类型", "来源", "作者"]
+    widths = [1, 22, 4, 11, 10]
+    if with_project:
+        headers.append("项目")
+        widths.append(10)
+    headers += ["版本 更新", "命中路由", "相似", "本轮"]
+    widths += [9, 13, 4, 8]
+    rows = []
+    for rank, record in enumerate(hits, 1):
+        product = source_product(str(record.get("product") or ""))
+        role = str(record.get("role") or "")
+        kind = {"navigation": "索引", "conversation_summary": "摘要"}.get(role) or _kind(
+            record
+        ).split("·")[0]
+        producer = _producer(record)
+        if producer.startswith("未知（") and producer.endswith("上传）"):
+            producer = producer[3:-1]  # "敖丙上传": the uploader, the author unknown
+        row = [
+            str(rank),
+            _plain(_title(record)).replace(" #", " "),
+            kind,
+            PRODUCTS.get(product, product),
+            producer,
+        ]
+        if with_project:
+            row.append(str(record.get("project") or "-"))
+        row += [
+            f"r{record.get('revision', '?')} {_plain(_updated(record))}",
+            _plain(_routes(record)),
+            _plain(_similarity(record)),
+            STATE_SHORT.get(states.get(coverage_key(record), ""), "-"),
+        ]
+        rows.append(row)
+    return _box(headers, rows, widths)
