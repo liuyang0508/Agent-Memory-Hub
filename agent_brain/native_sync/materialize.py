@@ -8,7 +8,7 @@ import binascii
 import hashlib
 import json
 from pathlib import Path, PurePosixPath
-from .common import atomic_json, digest
+from .common import atomic_json, digest, source_product
 
 
 def assembled(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -155,7 +155,7 @@ def materialize(
                     "asset": r["asset_id"],
                     "producer": r["producer_member_id"],
                     "name": r["producer_name"],
-                    "product": r["product"],
+                    "product": source_product(r["product"]),
                     "path": r["path"],
                 }
                 for r in records

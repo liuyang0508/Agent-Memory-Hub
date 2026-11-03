@@ -18,7 +18,8 @@ PAIRING_MAX_TTL = 7 * 24 * 60 * 60
 PRODUCTS = {
     "claude-code": "Claude Code",
     "codex-cli": "Codex CLI",
-    "codex-shared": "Codex（CLI/桌面共用存储，原始入口未区分）",
+    "codex": "Codex",
+    "codex-shared": "Codex",  # Accept records written by earlier clients.
     "cowork": "Claude Cowork",
     "codex-desktop": "Codex 客户端",
     "chatgpt-desktop": "ChatGPT 客户端",
@@ -36,6 +37,11 @@ KINDS = {
 def display_name(kind: str) -> str:
     """Human label for a source kind; unknown kinds stay visible rather than being hidden."""
     return KINDS.get(kind, kind)
+
+
+def source_product(product: str) -> str:
+    """Use the current source label without rewriting historical identities or bodies."""
+    return "codex" if product == "codex-shared" else product
 
 
 def digest(value: str) -> str:

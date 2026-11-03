@@ -103,7 +103,7 @@ Claude Code、Codex CLI 和桌面本地 Codex 请**新建会话**。旧会话可
 
 升级已有设备时，可运行 `amh-native scope` 查看范围；需要收紧为仅记忆时运行 `amh-native scope --kind memory` 并确认。调整范围会等待正在执行的整轮上传结束，不撤回已上传内容。
 
-CLI 和桌面共用的文件可能标为 `codex-shared`：这表示无法从同一份文件证明具体入口，不代表另一个成员。
+CLI 和桌面共用的文件可能标为 `codex`：这表示无法从同一份文件证明具体入口，不代表另一个成员。
 
 ## 七、接入 Claude Cowork
 

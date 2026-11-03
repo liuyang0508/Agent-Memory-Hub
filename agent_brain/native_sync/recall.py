@@ -7,7 +7,7 @@ import json
 import posixpath
 import re
 from urllib.parse import unquote, urlsplit
-from .common import digest, tokens
+from .common import digest, source_product, tokens
 
 
 def coverage_key(record: dict[str, Any]) -> str:
@@ -114,7 +114,7 @@ def pack(
             break
         origins = []
         for r in rows:
-            origin = {"name": r["producer_name"], "product": r["product"]}
+            origin = {"name": r["producer_name"], "product": source_product(r["product"])}
             # Names are not identity keys. Disambiguate same-name members, while
             # keeping full IDs and versions in machine coverage/provenance only.
             if len(names[r["producer_name"]]) > 1:

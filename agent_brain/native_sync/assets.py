@@ -7,7 +7,7 @@ import json
 import re
 from pathlib import Path, PurePosixPath
 from typing import Any, Callable
-from .common import atomic_bytes, atomic_json, atomic_text, digest
+from .common import atomic_bytes, atomic_json, atomic_text, digest, source_product
 from .materialize import complete_snapshot
 
 
@@ -15,7 +15,7 @@ def provenance(record: dict[str, Any]) -> str:
     """Render original member/product/version metadata for explicitly activated behavior assets."""
     return json.dumps(
         {
-            k: record[k]
+            k: source_product(record[k]) if k == "product" else record[k]
             for k in (
                 "producer_member_id",
                 "producer_name",
@@ -188,7 +188,7 @@ def apply_config(
     before_write: Callable[[], None] = lambda: None,
 ) -> dict[str, Any]:
     """Apply portable fields only; unrelated fields and tables remain intact."""
-    codex = {"codex-cli", "codex-desktop", "chatgpt-desktop", "codex-shared"}
+    codex = {"codex-cli", "codex-desktop", "chatgpt-desktop", "codex", "codex-shared"}
     if (record["product"] in codex) != (product in codex):
         raise ValueError("cross-family model/settings fields require an explicit semantic mapping")
     if record["kind"] != "config":

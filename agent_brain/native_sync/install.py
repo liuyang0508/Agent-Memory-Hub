@@ -41,7 +41,7 @@ def discover(home: Path) -> list[dict[str, Any]]:
     # The ChatGPT desktop app manages Codex memory on this host ("Codex 记忆 →
     # 本地主机" in its settings), and that store is ~/.codex/memories. It is the
     # same directory Codex CLI and the Codex app use, so the three share one
-    # store; rows are deduplicated by absolute path and labelled codex-shared.
+    # store; rows are deduplicated by absolute path and labelled codex.
     codex_store = home / ".codex/memories"
     if (Path("/Applications") / "ChatGPT.app").exists():
         result.append(

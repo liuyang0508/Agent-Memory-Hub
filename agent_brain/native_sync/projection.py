@@ -6,7 +6,7 @@ from typing import Any, Callable
 
 import json
 from pathlib import Path
-from .common import atomic_json, atomic_text, digest
+from .common import atomic_json, atomic_text, digest, source_product
 
 START = "<!-- amh-native-org:start -->"
 END = "<!-- amh-native-org:end -->"
@@ -156,7 +156,7 @@ def _publish(
             continue
         name = digest(r["tenant_id"] + ":" + r["asset_id"]) + ".md"
         metadata = {
-            k: r[k]
+            k: source_product(r[k]) if k == "product" else r[k]
             for k in [
                 "tenant_id",
                 "asset_id",

@@ -1061,7 +1061,7 @@ class Hub:
                 if (
                     item["kind"] == "memory"
                     and item["product"]
-                    in ("codex-shared", "codex-cli", "codex-desktop", "chatgpt-desktop")
+                    in ("codex", "codex-shared", "codex-cli", "codex-desktop", "chatgpt-desktop")
                     and (
                         item["path"].startswith("rollout_summaries/")
                         or item["path"] == "raw_memories.md"

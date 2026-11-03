@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from .transport import HubHTTPError, Transport, validate_url
+from .common import source_product
 
 MAX_CALLS = 12
 MAX_SEARCHES = 3
@@ -138,6 +139,8 @@ def _source(value: Any) -> dict[str, Any]:
             result[key] = item
         else:
             result[key] = _characters(item, SOURCE_CHARACTER_LIMITS.get(key, 512))
+            if key == "product":
+                result[key] = source_product(result[key])
     return result
 
 

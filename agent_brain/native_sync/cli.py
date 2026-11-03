@@ -687,7 +687,7 @@ def _empty_products(home: Path, rows: list[dict[str, Any]]) -> list[str]:
         if not entry["detected"]:
             continue
         source = (
-            "codex-shared"
+            "codex"
             if entry["product"] in ("codex-cli", "codex-desktop", "chatgpt-desktop")
             else entry["product"]
         )
@@ -1235,7 +1235,7 @@ def setup(
             if kind == "memory":
                 root.mkdir(parents=True, exist_ok=True)
             source_product = (
-                "codex-shared"
+                "codex"
                 if product["product"] in ("codex-cli", "codex-desktop", "chatgpt-desktop")
                 else product["product"]
             )
