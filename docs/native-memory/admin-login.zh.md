@@ -1,6 +1,6 @@
 # 用飞书身份进入管理后台
 
-适用于 Hub 1.4.2。管理员打开 `/native/v1/admin` 后自动进入飞书身份认证，授权成功且已具备 Hub 管理员角色时返回后台。数据看板 `/native/v1/admin/dashboard` 共享同一浏览器会话。
+适用于 Hub 1.4.2。管理员打开 `/native/v1/admin` 后自动进入飞书身份认证，授权成功且已具备 Hub 管理员角色时返回后台。数据看板 `/native/v1/admin/dashboard`、记忆洞察 `/native/v1/admin/insights` 和召回明细 `/native/v1/admin/recalls` 共享同一浏览器会话。
 
 飞书可能要求首次授权或重新登录；能在飞书里打开应用不代表自动拥有 Hub 管理员权限。无权限的账号会收到明确提示。现有设备同步与召回继续使用自己的设备凭据，无需重装客户端。
 

@@ -48,9 +48,10 @@ PAGE = """<!doctype html>
 <body>
 <div class="wrap">
   <h1>组织记忆 · 召回明细</h1>
-  <p class="sub">每次召回记录候选的召回方式、排名变化和本轮状态；不含记忆正文。已用飞书登录管理后台的管理员直接可看；否则粘贴 Hub 主机签发的管理令牌。</p>
+  <p class="sub">每次召回记录候选的召回方式、排名变化和本轮状态；不含记忆正文。已用飞书登录管理后台的管理员直接可看；否则粘贴 Hub 主机签发的管理令牌。<a href="/native/v1/admin/insights">记忆洞察</a> · <a href="/native/v1/admin/dashboard">数据看板</a></p>
 
   <div id="login" class="card">
+    <p><a href="/native/v1/admin/login?target=recalls">使用飞书登录</a></p>
     <div class="row">
       <input id="token" type="password" placeholder="管理令牌" size="44" autocomplete="off">
       <button class="primary" onclick="saveToken()">进入</button>
@@ -61,8 +62,17 @@ PAGE = """<!doctype html>
   <div id="ops">
     <div class="row" style="margin-bottom:8px">
       <input id="traceInput" placeholder="trace_id（可选）" size="30" class="mono">
+      <select id="member" onchange="load()"><option value="">全部成员</option></select>
+      <select id="channel" onchange="load()">
+        <option value="">全部通道</option>
+        <option value="hook">hook（Claude Code / Cowork）</option>
+        <option value="tool">tool（MCP）</option>
+        <option value="cli">cli</option>
+        <option value="benchmark">benchmark</option>
+      </select>
+      <input id="day" type="date" onchange="load()">
       <button onclick="load()">查询</button>
-      <button onclick="document.getElementById('traceInput').value='';load()">最近记录</button>
+      <button onclick="resetFilters()">最近记录</button>
       <span class="muted" id="stamp"></span>
       <span class="muted" id="opsError"></span>
       <button onclick="logout()" style="margin-left:auto">退出</button>
@@ -81,6 +91,8 @@ const routeText = (r) => Object.entries(r || {}).map(([k, v]) =>
   v === null || v === undefined ? "" : `<span class="pill">${esc(k)}#${esc(v)}</span>`).join("");
 const stateText = (s) => s && s.startsWith("dropped:") ? `<span class="pill drop">${esc(s)}</span>` :
   ["packed","emitted","confirmed","cited"].includes(s) ? `<span class="pill ok">${esc(s)}</span>` : `<span class="pill">${esc(s || "candidate")}</span>`;
+let memberNames = {};
+const memberName = (id) => memberNames[id] || (id ? String(id).slice(0, 8) + "…" : "未知");
 const timeOf = (c) => {
   const t = c.times || {};
   for (const k of ["confirmed", "content_modified", "content_created"]) if (t[k]) return fmtTime(t[k].value) + "（" + k + "·" + t[k].source + "）";
@@ -93,6 +105,21 @@ function saveToken() {
   token = v; sessionStorage.setItem("amh_dash", v); load();
 }
 function logout() { sessionStorage.removeItem("amh_dash"); location.reload(); }
+function resetFilters() {
+  for (const id of ["traceInput", "member", "channel", "day"]) document.getElementById(id).value = "";
+  load();
+}
+function fillMembers(members) {
+  const select = document.getElementById("member");
+  if (!members) return;
+  memberNames = Object.fromEntries(members.map(m => [m.id, m.name]));
+  if (select.options.length > 1) return;
+  for (const m of members) {
+    const option = document.createElement("option");
+    option.value = m.id; option.textContent = m.name;
+    select.appendChild(option);
+  }
+}
 
 // Before login the login card is the only visible place; after login the
 // operations row is. A rejected token always brings the login card back.
@@ -115,12 +142,19 @@ async function load() {
   // explicit host-minted token is the operator fallback and never mixes with it.
   const init = { credentials: "same-origin", cache: "no-store", headers: {} };
   if (token) init.headers["Authorization"] = "Bearer " + token;
+  const params = new URLSearchParams();
+  if (trace) params.set("trace_id", trace);
+  for (const key of ["member", "channel", "day"]) {
+    const value = document.getElementById(key).value;
+    if (value && !trace) params.set(key, value);
+  }
+  const query = params.toString();
   let r;
   try {
-    r = await fetch("/native/v1/admin/recalls/data" + (trace ? "?trace_id=" + encodeURIComponent(trace) : ""), init);
+    r = await fetch("/native/v1/admin/recalls/data" + (query ? "?" + query : ""), init);
   } catch (e) { fail("网络错误", false); return; }
   if (r.status === 401) { fail(token ? "令牌无效或已撤销" : "未登录：请先在管理后台用飞书登录，或输入管理令牌", true); return; }
-  if (r.status === 422) { fail("trace_id 格式错误：应为 24 位小写十六进制", false); return; }
+  if (r.status === 422) { fail(trace ? "trace_id 格式错误：应为 24 位小写十六进制" : "筛选条件格式错误", false); return; }
   if (!r.ok) { fail("读取失败（HTTP " + r.status + "）", false); return; }
   let d;
   try { d = await r.json(); } catch (e) { fail("响应无法解析", false); return; }
@@ -129,15 +163,17 @@ async function load() {
   document.getElementById("loginError").textContent = "";
   document.getElementById("opsError").textContent = "";
   document.getElementById("stamp").textContent = "数据时间 " + fmtTime(d.generated_at);
+  fillMembers(d.members);
   document.getElementById("content").innerHTML = trace ? renderTrace(d.traces[0]) : renderList(d.traces);
 }
 
 function renderList(traces) {
   if (!traces.length) return `<div class="card empty">暂无召回记录</div>`;
   return `<div class="card"><table>
-    <thead><tr><th>时间</th><th>通道</th><th>问题</th><th class="num">候选</th><th class="num">入选</th><th class="num">已送达</th><th>阶段</th><th>trace</th></tr></thead>
+    <thead><tr><th>时间</th><th>通道</th><th>成员</th><th>问题</th><th class="num">候选</th><th class="num">入选</th><th class="num">已送达</th><th>阶段</th><th>trace</th></tr></thead>
     <tbody>${traces.map(t => `<tr>
       <td class="muted">${fmtTime(t.created)}</td><td>${esc(t.channel)}</td>
+      <td>${esc(memberName(t.member))}</td>
       <td>${esc(t.query_preview || "（未保存问题文本）")}</td>
       <td class="num">${t.counts.candidates}</td><td class="num">${(t.counts.selected||0)+(t.counts.packed||0)+(t.counts.emitted||0)+(t.counts.confirmed||0)+(t.counts.cited||0)}</td>
       <td class="num">${(t.counts.emitted||0)+(t.counts.confirmed||0)+(t.counts.cited||0)}</td>

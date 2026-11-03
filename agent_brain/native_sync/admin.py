@@ -55,6 +55,8 @@ PAGE = """<!doctype html>
     <button onclick="logout()">退出</button>
     <span id="who" class="muted"></span>
     <a href="/native/v1/admin/dashboard">数据看板</a>
+    <a href="/native/v1/admin/insights">记忆洞察</a>
+    <a href="/native/v1/admin/recalls">召回明细</a>
   </div>
 
   <h2>成员</h2>

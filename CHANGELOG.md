@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Insight page `/native/v1/admin/insights` (capability `insights-v1`).**
+  Recall usage rolled up by day from the ledger: the delivery funnel
+  (hit → selected → packed → emitted → receipt seen → cited), counts per
+  channel and per member, retrieval modes and degradation reasons, why
+  candidates were dropped, which memories were actually delivered and to how
+  many members, reuse across members per producer, and knowledge gaps (prompts
+  that matched nothing, grouped by repeat). An observability matrix states per
+  product surface which stages are observed, explicit, not recorded or
+  unobservable, and the page shows the collection start date instead of
+  counting earlier use as zero. Member-level figures are operator-only.
+- Rollups live in the additive `recall_daily` / `asset_daily` tables. Days
+  inside the trace TTL are recomputed from the raw traces (states keep moving
+  as deliveries and feedback arrive); a day is frozen the moment its traces
+  expire, so history outlives the 30-day ledger. Expiry now purges whole
+  calendar days, so a trace can outlive the TTL by at most one day. `serve`
+  refreshes the rollup hourly and the page refreshes it on demand when it is
+  older than ten minutes.
+- The recall ledger page filters by member, channel and day, shows member
+  names, and accepts the Feishu administrator session
+  (`/admin/login?target=recalls`); the operator page links to both pages.
+
 ## [1.4.3] — 2026-11-03
 
 ### Added
