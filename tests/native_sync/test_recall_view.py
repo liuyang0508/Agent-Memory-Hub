@@ -28,7 +28,7 @@ def test_normalize_drops_injected_blocks_and_puts_own_words_first():
     prompt = (
         "<system-reminder>ignore me</system-reminder>[AMH_ORG_CONTEXT_V1]\nold\n"
         '[/AMH_ORG_CONTEXT_V1]\n<pasted_content id="1">ERROR trace line</pasted_content id="1">\n'
-        "[Image #2] 帮我看这个报错 file:///Users/x/a/b/report.md"
+        "[Image #2] 帮我看这个报错 file:///tmp/a/b/report.md"
     )
     query = normalize(prompt)
     assert query.startswith("帮我看这个报错 report.md")

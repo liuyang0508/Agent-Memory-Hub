@@ -172,7 +172,7 @@ class LocalOnnxEncoder:
 
     def __init__(self, directory: Path) -> None:
         import numpy as np
-        import onnxruntime as ort  # type: ignore[import-untyped]
+        import onnxruntime as ort
         from tokenizers import Tokenizer
 
         manifest_path = directory / MANIFEST

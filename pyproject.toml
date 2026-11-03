@@ -130,12 +130,17 @@ module = [
     "datasets",
     "huggingface_hub",
     "litellm",
+    "numpy",
+    "numpy.*",
     "objc",
+    "onnxruntime",
+    "onnxruntime.*",
     "openai",
     "pypdf",
     "sentence_transformers",
     "sentence_transformers.*",
     "sqlite_vec",
+    "tokenizers",
     "yaml",
 ]
 ignore_missing_imports = true
