@@ -1,0 +1,52 @@
+{
+  "passed": true,
+  "case": "rewrite",
+  "returncode": 0,
+  "tools": [
+    "search_org_memory",
+    "search_org_memory",
+    "read_org_memory"
+  ],
+  "queries": [
+    "怎样回滚到之前的部署？",
+    "部署回滚 恢复历史版本 操作步骤"
+  ],
+  "answer": {
+    "steps": [
+      "1. 先停止队列。",
+      "2. 再切换到上个发布版本。",
+      "已核对 zinnia 项目《release》原文：“恢复旧配置需要先停止队列，再切换到上个发布版本。”资料未提供具体命令或后续验证步骤。"
+    ],
+    "source_assets": [
+      "asset_298889f8b29a4caea8e5f959abfd5cd3__p000000（revision 1，release.md）"
+    ]
+  },
+  "elapsed_seconds": 156.64,
+  "usage": {
+    "input_tokens": 109021,
+    "cached_input_tokens": 81280,
+    "cache_write_input_tokens": 0,
+    "output_tokens": 366,
+    "reasoning_output_tokens": 0
+  },
+  "event_types": [
+    "error",
+    "item.completed",
+    "item.started",
+    "thread.started",
+    "turn.completed",
+    "turn.started"
+  ],
+  "item_types": [
+    "agent_message",
+    "error",
+    "mcp_tool_call"
+  ],
+  "errors": [
+    "Reconnecting... 2/5 (request timed out)",
+    "Reconnecting... 3/5 (request timed out)",
+    "Reconnecting... 4/5 (request timed out)",
+    "Reconnecting... 5/5 (request timed out)"
+  ],
+  "stderr_tail": ""
+}

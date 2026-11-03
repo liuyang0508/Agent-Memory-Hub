@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-from .common import PRODUCTS
+from .common import PRODUCTS, PAIRING_DEFAULT_TTL, PAIRING_MAX_TTL
+from .facets import validate_source_meta
 
 
 class AssetInput(BaseModel):
@@ -29,6 +30,14 @@ class AssetInput(BaseModel):
     deleted: bool = False
     producer_unknown: bool = False
     upstream: list[str] = Field(default_factory=list, max_length=100)
+    # Client-captured hints (file mtime, declared front matter, links). Bounded
+    # here and treated as declarations, never as authenticated facts.
+    source_meta: dict[str, Any] | None = None
+
+    @field_validator("source_meta")
+    @classmethod
+    def bounded_source_meta(cls, value: dict[str, Any] | None) -> dict[str, Any] | None:
+        return validate_source_meta(value) or None
 
     @model_validator(mode="after")
     def valid_parts(self) -> "AssetInput":
@@ -62,6 +71,72 @@ class SearchInput(BaseModel):
     project_hint: str = Field(default="", max_length=256)
     project_filter: str | None = Field(default=None, max_length=256)
     limit: int = Field(default=12, ge=1, le=50)
+
+
+class RetrieveInput(BaseModel):
+    """Semantic/lexical retrieval without caller-selected identity or tenant."""
+
+    model_config = ConfigDict(extra="forbid")
+    query: str = Field(max_length=8000)
+    limit: int = Field(default=8, ge=1, le=20)
+    kinds: list[Literal["memory", "transcript", "rule", "skill", "config"]] | None = Field(
+        default=None, max_length=5
+    )
+    include_evidence: bool = False
+    project_filter: str | None = Field(default=None, max_length=256)
+
+
+class RecallInput(BaseModel):
+    """Prompt-time hook recall over curated memory and rules; bodies return in full."""
+
+    model_config = ConfigDict(extra="forbid")
+    query: str = Field(max_length=8000)
+    limit: int = Field(default=8, ge=1, le=8)
+
+
+class RecallEvent(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    asset_id: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_.-]+$")
+    revision: int = Field(ge=1, strict=True)
+    event: Literal[
+        "packed",
+        "emitted",
+        "confirmed",
+        "budget",
+        "covered",
+        "cite",
+        "support",
+        "contradict",
+        "confirm",
+    ]
+
+
+class RecallFeedbackInput(BaseModel):
+    """Delivery states and knowledge feedback for candidates of one recorded trace."""
+
+    model_config = ConfigDict(extra="forbid")
+    trace_id: str = Field(min_length=24, max_length=24, pattern=r"^[a-f0-9]+$")
+    events: list[RecallEvent] = Field(min_length=1, max_length=64)
+
+
+class ReadInput(BaseModel):
+    """An exact current asset revision; cursor is a UTF-8 byte offset, never a path."""
+
+    model_config = ConfigDict(extra="forbid")
+    asset_id: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_.-]+$")
+    revision: int = Field(ge=1, strict=True)
+    cursor: int = Field(default=0, ge=0, le=8 * 1024 * 1024, strict=True)
+    max_bytes: int = Field(default=12000, ge=4, le=64000, strict=True)
+
+
+class RelatedInput(BaseModel):
+    """Bounded traversal of recorded relations; no inferred business relationships."""
+
+    model_config = ConfigDict(extra="forbid")
+    asset_id: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_.-]+$")
+    revision: int = Field(ge=1, strict=True)
+    depth: int = Field(default=1, ge=1, le=3, strict=True)
+    limit: int = Field(default=10, ge=1, le=50, strict=True)
 
 
 class AdminRevokeInput(BaseModel):
@@ -98,6 +173,7 @@ class FeishuRedeemInput(BaseModel):
 
 
 class RuntimeInviteInput(BaseModel):
-    """Identity and lifetime are server-owned; no caller-selected membership fields."""
+    """Authenticated sponsor may request bounded onboarding time, never membership."""
 
     model_config = ConfigDict(extra="forbid")
+    ttl_seconds: int = Field(default=PAIRING_DEFAULT_TTL, ge=60, le=PAIRING_MAX_TTL, strict=True)

@@ -1,0 +1,42 @@
+{
+  "passed": true,
+  "returncode": 0,
+  "tools": [
+    "search_org_memory",
+    "read_org_memory",
+    "read_org_memory",
+    "read_org_memory",
+    "read_org_memory",
+    "related_org_memory",
+    "read_org_memory"
+  ],
+  "answer": {
+    "reviewers": 3,
+    "rollback_authorizer": "duty incident commander",
+    "source_assets": [
+      "asset_2375fc6cad1e4e2ab2d454373b45f35a__p000000",
+      "asset_de18972c32044ba1bd857dc4b16228ee__p000000"
+    ]
+  },
+  "elapsed_seconds": 164.06,
+  "event_types": [
+    "error",
+    "item.completed",
+    "item.started",
+    "thread.started",
+    "turn.completed",
+    "turn.started"
+  ],
+  "item_types": [
+    "agent_message",
+    "error",
+    "mcp_tool_call"
+  ],
+  "errors": [
+    "Reconnecting... 2/5 (request timed out)",
+    "Reconnecting... 3/5 (request timed out)",
+    "Reconnecting... 4/5 (request timed out)",
+    "Reconnecting... 5/5 (request timed out)"
+  ],
+  "stderr_tail": ""
+}

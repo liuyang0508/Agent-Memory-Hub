@@ -9,6 +9,28 @@ from urllib import request, error, parse
 import ipaddress
 
 
+SAFE_ERROR_CODES = frozenset(
+    {
+        "stale_version",
+        "incomplete_version",
+        "asset_unavailable",
+        "invalid_version",
+        "invalid_cursor",
+        "document_too_large",
+        "unsupported_encoding",
+    }
+)
+
+
+class HubHTTPError(ValueError):
+    """Finite public errors; never include response bodies, URLs or credentials."""
+
+    def __init__(self, http_status: int, code: str = "request_rejected") -> None:
+        self.http_status = http_status
+        self.code = code if code in SAFE_ERROR_CODES else "request_rejected"
+        super().__init__(f"Hub HTTP {http_status}: {self.code}")
+
+
 class NoRedirect(request.HTTPRedirectHandler):
     """Reject redirect-based host changes so a device token never follows an unexpected destination."""
 
@@ -42,7 +64,7 @@ class Transport:
 
     def call(self, path: str, data: Any = None) -> Any:
         """Issue one bounded request; classify auth, transient and record errors for the owning retry layer."""
-        headers = {"Content-Type": "application/json"}
+        headers = {"Content-Type": "application/json", "Accept-Encoding": "gzip"}
         if self.token:
             headers["Authorization"] = "Bearer " + self.token
         req = request.Request(
@@ -69,13 +91,38 @@ class Transport:
                     raw.extend(chunk)
                     if len(raw) > 8_000_000:
                         raise ValueError("Hub response too large")
+                if response.headers.get("Content-Encoding", "").lower() == "gzip":
+                    import gzip
+                    import io
+
+                    # Bound decoded bytes too: a compressed response must not
+                    # bypass the existing memory limit or become a gzip bomb.
+                    with gzip.GzipFile(fileobj=io.BytesIO(raw)) as compressed:
+                        decoded = compressed.read(8_000_001)
+                    if len(decoded) > 8_000_000:
+                        raise ValueError("Hub decoded response too large")
+                    raw = bytearray(decoded)
+                if time.monotonic() >= deadline:
+                    raise TimeoutError("Hub response deadline exceeded")
                 return json.loads(raw)
         except error.HTTPError as exc:
             if exc.code in (401, 403):
+                exc.close()
                 raise PermissionError("organization access rejected") from None
             if exc.code in (408, 429) or 500 <= exc.code <= 599:
+                exc.close()
                 raise OSError(f"Hub temporarily unavailable: HTTP {exc.code}") from None
-            raise ValueError(f"Hub HTTP {exc.code}") from None
+            code = "request_rejected"
+            try:
+                # Parse only a small finite error envelope, never arbitrary detail.
+                body = json.loads(exc.read(4096))
+                if isinstance(body, dict) and body.get("code") in SAFE_ERROR_CODES:
+                    code = body["code"]
+            except (ValueError, TypeError, OSError):
+                pass
+            finally:
+                exc.close()
+            raise HubHTTPError(exc.code, code) from None
 
     def enroll(self, ticket: str, device_name: str) -> Any:
         return self.call("enroll", {"ticket": ticket, "device_name": device_name})
@@ -83,11 +130,32 @@ class Transport:
     def me(self) -> Any:
         return self.call("me")
 
+    def capabilities(self) -> list[str]:
+        """Unauthenticated protocol discovery; a malformed answer means no capabilities."""
+        value = self.call("health")
+        found = value.get("capabilities") if isinstance(value, dict) else None
+        return [c for c in found if isinstance(c, str)] if isinstance(found, list) else []
+
     def put(self, value: Any) -> Any:
         return self.call("assets", value)
 
-    def changes(self, cursor: int) -> Any:
-        return self.call(f"changes?cursor={cursor}&limit=10")
+    def changes(self, cursor: int, *, metadata_only: bool = False) -> Any:
+        return self.call(
+            f"changes?cursor={cursor}&limit=10&metadata_only={str(metadata_only).lower()}"
+        )
 
     def search(self, query: str, **kwargs: Any) -> Any:
         return self.call("search", {"query": query, **kwargs})["items"]
+
+    def recall(self, query: str, *, limit: int = 8) -> Any:
+        """Hook-channel hybrid recall; an old Hub answers 404 and the caller falls back."""
+        return self.call("recall", {"query": query, "limit": limit})
+
+    def recall_feedback(self, trace_id: str, events: list[dict[str, Any]]) -> Any:
+        return self.call("recall/feedback", {"trace_id": trace_id, "events": events})
+
+    def recalls(self, *, trace_id: str | None = None, limit: int = 20) -> Any:
+        query = "recalls?limit=%d" % limit + (
+            "&trace_id=" + parse.quote(trace_id, safe="") if trace_id else ""
+        )
+        return self.call(query)["traces"]

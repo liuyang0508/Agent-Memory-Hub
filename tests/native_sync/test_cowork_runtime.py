@@ -258,7 +258,11 @@ def test_created_file_observation_survives_pairing_and_async_baseline(live, tmp_
     assert not (state / "config.json").exists()
     runtime = enroll_runtime(state, policy, connection)
     runtime.sync()
-    assert [r["body"] for r in runtime.cached()] == ["created while pairing"]
+    assert runtime.cached() == []  # Cloud-only runtime persists provenance, not shared bodies.
+    assert (
+        hub.search(runtime.identity["token"], "created while pairing")[0]["body"]
+        == "created while pairing"
+    )
     assert not list((state / "runtime-observations").glob("*.json"))
 
 
@@ -481,7 +485,9 @@ def test_host_binding_refuses_connection_inside_distributable_plugin(tmp_path):
         )
 
 
-def test_cowork_host_project_scope_uses_observed_native_store_when_env_is_missing(tmp_path, monkeypatch):
+def test_cowork_host_project_scope_uses_observed_native_store_when_env_is_missing(
+    tmp_path, monkeypatch
+):
     """The host-loop version supplies the project memory path, but omits its UUID env."""
     import uuid
 
@@ -492,20 +498,20 @@ def test_cowork_host_project_scope_uses_observed_native_store_when_env_is_missin
     monkeypatch.setenv("CLAUDE_COWORK_MEMORY_PATH_OVERRIDE", str(root))
     state = tmp_path / "state"
     queue_observation(state, {"hook_event_name": "SessionStart"})
-    observation = json.loads(next((state / "runtime-observations").glob('*.json')).read_text())
-    assert observation['project'] == project
+    observation = json.loads(next((state / "runtime-observations").glob("*.json")).read_text())
+    assert observation["project"] == project
     hub = Hub(tmp_path / "hub.sqlite")
     c = client(tmp_path, hub, "cowork-reader")
     observe_native_root(c, {}, root_value=str(root))
-    assert c.sources()[0]['project'] == project
+    assert c.sources()[0]["project"] == project
 
 
 def test_unknown_cowork_root_does_not_invent_project_identity(tmp_path, monkeypatch):
-    root = tmp_path / 'spaces' / 'not-a-project-id' / 'memory'
+    root = tmp_path / "spaces" / "not-a-project-id" / "memory"
     root.mkdir(parents=True)
-    monkeypatch.delenv('CLAUDE_PROJECT_UUID', raising=False)
-    monkeypatch.setenv('CLAUDE_COWORK_MEMORY_PATH_OVERRIDE', str(root))
-    state = tmp_path / 'state'
-    queue_observation(state, {'hook_event_name': 'SessionStart'})
-    observation = json.loads(next((state / 'runtime-observations').glob('*.json')).read_text())
-    assert observation['project'] == ''
+    monkeypatch.delenv("CLAUDE_PROJECT_UUID", raising=False)
+    monkeypatch.setenv("CLAUDE_COWORK_MEMORY_PATH_OVERRIDE", str(root))
+    state = tmp_path / "state"
+    queue_observation(state, {"hook_event_name": "SessionStart"})
+    observation = json.loads(next((state / "runtime-observations").glob("*.json")).read_text())
+    assert observation["project"] == ""

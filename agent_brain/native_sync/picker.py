@@ -15,12 +15,14 @@ import html
 import http.server
 import json
 import threading
-from typing import Any
+from typing import Any, cast
 import webbrowser
 
 from .common import display_name
 
 MAX_PORT_ATTEMPTS = 5
+# The page sends a short list of row indexes; anything larger is not a selection.
+MAX_BODY_BYTES = 64 * 1024
 
 PAGE = """<!doctype html>
 <html lang="zh-CN">
@@ -55,9 +57,11 @@ PAGE = """<!doctype html>
 </head>
 <body>
 <h1>选择要共享的记忆</h1>
-<p class="sub">勾选的内容会上传到组织 Hub，全组织成员可检索正文。未勾选的文件一个字节都不会离开这台机器。</p>
+<p class="sub">本页用于新增历史选择。勾选内容会上传到组织 Hub，由有权限的成员检索；未勾选的历史不会因此新增上传。已有选择继续生效，取消本页勾选或跳过不会撤销它们。</p>
 
 __EMPTY__
+__SCOPE__
+<p class="muted">隐私标记仅是自动提示，不代表完整审查。含密钥文件不可选。选择当前未启用的类型后，终端会要求确认该类型的后续自动同步。</p>
 
 <div class="row">
   <input id="q" placeholder="按文件名或标题筛选" size="28">
@@ -72,9 +76,9 @@ __EMPTY__
   <input id="since" type="date">
   <label class="muted" for="until">到</label>
   <input id="until" type="date">
-  <button onclick="pick('clean')">选中全部无标记</button>
-  <button onclick="pick('all')">全选（不含含密钥）</button>
-  <button onclick="pick('none')">全部取消</button>
+  <button onclick="pick('clean')">选中可见无标记</button>
+  <button onclick="pick('all')">全选可见项（不含密钥）</button>
+  <button onclick="pick('none')">取消本次全部勾选</button>
 </div>
 
 <table>
@@ -83,15 +87,16 @@ __EMPTY__
 </table>
 
 <div class="bar">
-  <span>已选 <span id="count">0</span> 个文件</span>
+  <span>本次新增选择 <span id="count">0</span> 个文件</span>
   <span class="muted" id="note"></span>
   <span style="flex:1"></span>
-  <button onclick="submitSelection(false)">不上传，跳过</button>
+  <button onclick="submitSelection(false)">跳过新增选择</button>
   <button class="primary" onclick="submitSelection(true)">确认并继续</button>
 </div>
 
 <script>
 const ROWS = __ROWS__;
+const SELECTED = new Set();
 const fmt = (t) => new Date(t * 1000).toLocaleString("zh-CN");
 const esc = (v) => String(v ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\\"":"&quot;"}[c]));
 
@@ -135,9 +140,9 @@ function render() {
     const badge = r.risk === "clean" ? "" :
       `<span class="risk ${r.risk}">${r.risk === "blocked" ? "含密钥，不会上传" : esc(r.reasons.join("、"))}</span>`;
     parts.push(`<tr>
-      <td><input type="checkbox" data-i="${r.i}" ${r.risk === "blocked" ? "disabled" : ""} onchange="update()"></td>
+      <td><input type="checkbox" data-i="${r.i}" ${r.risk === "blocked" ? "disabled" : ""} ${SELECTED.has(r.i) ? "checked" : ""} onchange="toggleSelection(this)"></td>
       <td class="name">${esc(r.name)}</td>
-      <td>${esc(r.title)}</td>
+      <td>${esc(r.title)}${r.previously_selected ? '<div class="muted">已有选择（本次取消不撤销）</div>' : ""}${r.scope_enabled === false ? '<div class="muted">类型当前暂停</div>' : ""}</td>
       <td class="muted">${(r.bytes/1024).toFixed(0)} KB</td>
       <td class="muted">${fmt(r.mtime)}</td>
       <td>${badge}</td></tr>`);
@@ -146,30 +151,32 @@ function render() {
   update();
 }
 
-function pick(mode) {
-  const ids = new Set(visible().filter(r => r.risk !== "blocked").map(r => r.i));
-  document.querySelectorAll("#rows input[type=checkbox]").forEach(cb => {
-    const i = Number(cb.dataset.i);
-    const row = ROWS[i];
-    if (!ids.has(i)) { if (mode === "none") cb.checked = false; return; }
-    cb.checked = mode === "all" || (mode === "clean" && row.risk === "clean");
-    if (mode === "none") cb.checked = false;
-  });
+function toggleSelection(cb) {
+  const i = Number(cb.dataset.i);
+  if (cb.checked) SELECTED.add(i); else SELECTED.delete(i);
   update();
 }
 
+function pick(mode) {
+  if (mode === "none") SELECTED.clear();
+  else for (const r of visible()) {
+    if (r.risk !== "blocked" && (mode === "all" || r.risk === "clean")) SELECTED.add(r.i);
+  }
+  render();
+}
+
 function update() {
-  const boxes = [...document.querySelectorAll("#rows input[type=checkbox]")].filter(c => c.checked);
-  document.getElementById("count").textContent = boxes.length;
-  const risky = boxes.filter(c => ROWS[Number(c.dataset.i)].risk === "sensitive").length;
-  document.getElementById("note").textContent = risky ? `其中 ${risky} 个带隐私标记` : "";
+  document.getElementById("count").textContent = SELECTED.size;
+  const risky = [...SELECTED].filter(i => ROWS[i].risk === "sensitive").length;
+  const visibleIds = new Set(visible().map(r => r.i));
+  const hidden = [...SELECTED].filter(i => !visibleIds.has(i)).length;
+  document.getElementById("note").textContent = `其中 ${risky} 个带隐私标记，${hidden} 个在当前筛选之外（仍保留）`;
 }
 
 async function submitSelection(withSelection) {
-  const picked = withSelection
-    ? [...document.querySelectorAll("#rows input[type=checkbox]")].filter(c => c.checked).map(c => Number(c.dataset.i))
-    : [];
-  await fetch("/submit", { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({ picked }) });
+  const picked = withSelection ? [...SELECTED] : [];
+  const response = await fetch("/submit", { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({ picked }) });
+  if (!response.ok) { alert("提交失败，请重试；本次勾选仍保留。"); return; }
   document.body.innerHTML = "<h1>已提交，可以关闭此页面回到终端。</h1>";
 }
 
@@ -195,6 +202,7 @@ def _payload(rows: list[dict[str, Any]]) -> str:
             "mtime": row["mtime"],
             "risk": row["risk"],
             "reasons": list(row.get("reasons") or []),
+            **{key: row[key] for key in ("previously_selected", "scope_enabled") if key in row},
         }
         for index, row in enumerate(rows)
     ]
@@ -213,12 +221,29 @@ def _empty_note(products: list[str] | None) -> str:
     )
 
 
+def _scope_note(scope: dict[str, Any] | None) -> str:
+    if scope is None:
+        return '<p class="muted">新安装默认仅同步记忆；其他类型需明确启用。</p>'
+    names = "、".join(display_name(k) for k in scope["enabled_kinds"]) or "全部暂停"
+    return (
+        "<p><strong>当前自动同步类型："
+        + html.escape(names)
+        + "</strong><br>"
+        + html.escape(scope["note"])
+        + "<br>"
+        + html.escape(scope["preservation"])
+        + "</p>"
+    )
+
+
 def serve(
     rows: list[dict[str, Any]],
     *,
     open_browser: bool = True,
     timeout: float = 1800,
     empty_products: list[str] | None = None,
+    scope: dict[str, Any] | None = None,
+    port: int = 0,
 ) -> list[dict[str, Any]]:
     """Show the checklist and return the ticked rows; empty means the member skipped.
 
@@ -240,9 +265,12 @@ def serve(
             self.wfile.write(body)
 
         def do_GET(self) -> None:
+            # Order matters: fill the static notice before injecting row data,
+            # otherwise a file literally named __EMPTY__ would be replaced too.
             page = (
-                PAGE.replace("__ROWS__", _payload(rows))
+                PAGE.replace("__SCOPE__", _scope_note(scope))
                 .replace("__EMPTY__", _empty_note(empty_products))
+                .replace("__ROWS__", _payload(rows))
                 .encode()
             )
             self._send(200, page, "text/html; charset=utf-8")
@@ -251,10 +279,33 @@ def serve(
             if self.path != "/submit":
                 self._send(404, b"not found", "text/plain; charset=utf-8")
                 return
-            length = int(self.headers.get("Content-Length") or 0)
+            # Any open tab can reach a loopback port, and a text/plain POST skips
+            # the CORS preflight entirely. Require the content type this page
+            # sends and refuse an Origin that is not ours.
+            ctype = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+            origin = self.headers.get("Origin")
+            expected = {f"http://127.0.0.1:{port}", f"http://localhost:{port}"}
+            if ctype != "application/json" or (origin and origin not in expected):
+                self._send(403, b"forbidden", "text/plain; charset=utf-8")
+                return
+            try:
+                length = int(self.headers.get("Content-Length") or 0)
+            except ValueError:
+                length = -1
+            if not 0 <= length <= MAX_BODY_BYTES:
+                self._send(400, b"bad request", "text/plain; charset=utf-8")
+                return
             try:
                 data = json.loads(self.rfile.read(length) or b"{}")
-                picked = [int(i) for i in data.get("picked") or []]
+                # A list or a bare string parsed fine but then crashed on .get,
+                # which dropped the connection and left the CLI waiting out its
+                # full timeout.
+                if not isinstance(data, dict):
+                    raise TypeError("payload must be an object")
+                raw = data.get("picked", [])
+                if not isinstance(raw, list) or any(type(i) is not int for i in raw):
+                    raise TypeError("picked must contain integer indexes")
+                picked = list(dict.fromkeys(raw))
             except (ValueError, TypeError):
                 self._send(400, b"bad request", "text/plain; charset=utf-8")
                 return
@@ -267,7 +318,7 @@ def serve(
         def log_message(self, *args: Any) -> None:
             return
 
-    server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+    server = http.server.HTTPServer(("127.0.0.1", port), Handler)
     port = server.server_address[1]
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -280,4 +331,6 @@ def serve(
             raise TimeoutError("selection page timed out")
     finally:
         server.shutdown()
-    return holder.get("picked", [])
+        server.server_close()
+        thread.join()
+    return cast(list[dict[str, Any]], holder.get("picked", []))

@@ -1,12 +1,18 @@
 """Dedicated native-memory service; no imports of legacy web/brain state."""
 
 from __future__ import annotations
-from typing import Any
+from typing import Any, Literal
+from collections.abc import Awaitable, Callable
 import sqlite3
+import hmac
+from urllib.parse import urlsplit
 
-from fastapi import FastAPI, Header, HTTPException, Query
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi import FastAPI, Header, HTTPException, Query, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from .hub import Hub
+from .admin_auth import (AdminAuth, AdminCredential, WebAdminSession, FLOW_COOKIE, SESSION_COOKIE, STATE_TTL, SESSION_TTL)
+from .knowledge import KnowledgeConflict, NativeKnowledge
 from .models import (
     AdminRevokeInput,
     AdminSecretInput,
@@ -16,6 +22,11 @@ from .models import (
     FeishuRedeemInput,
     FeishuStartInput,
     SearchInput,
+    RecallFeedbackInput,
+    RecallInput,
+    RetrieveInput,
+    ReadInput,
+    RelatedInput,
     RuntimeInviteInput,
 )
 
@@ -23,6 +34,23 @@ from .models import (
 def create_app(hub: Hub) -> FastAPI:
     """Build an independent HTTP facade; the Hub owns identity, tenant scope and transaction invariants."""
     app = FastAPI(title="AMH Native Organization Memory", docs_url=None, redoc_url=None)
+    knowledge = NativeKnowledge(hub)
+    admin_auth = AdminAuth(hub)
+
+    @app.middleware("http")
+    async def private_admin_responses(
+        request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
+        response = await call_next(request)
+        if request.url.path.startswith("/native/v1/admin"):
+            response.headers["Cache-Control"] = "no-store"
+            response.headers["Referrer-Policy"] = "no-referrer"
+            response.headers["X-Content-Type-Options"] = "nosniff"
+        return response
+
+    @app.exception_handler(KnowledgeConflict)
+    async def knowledge_conflict(request: Any, error: KnowledgeConflict) -> JSONResponse:
+        return JSONResponse(status_code=409, content={"code": error.code, "detail": str(error)})
 
     @app.exception_handler(PermissionError)
     async def denied(request: Any, error: Any) -> JSONResponse:
@@ -30,12 +58,34 @@ def create_app(hub: Hub) -> FastAPI:
 
     @app.exception_handler(ValueError)
     async def conflict(request: Any, error: Any) -> JSONResponse:
-        return JSONResponse(status_code=409, content={"detail": str(error)})
+        # Never echo an arbitrary exception message: some carry SQL, paths or
+        # decoder internals. Messages this service raises on purpose are short
+        # and lowercase; anything longer is treated as internal.
+        detail = str(error)
+        if len(detail) > 200:
+            detail = "request rejected"
+        return JSONResponse(status_code=409, content={"detail": detail})
 
     @app.exception_handler(sqlite3.Error)
     async def storage_unavailable(request: Any, error: Any) -> JSONResponse:
         # Retry belongs to clients, not an unbounded server-side retry loop.
         return JSONResponse(status_code=503, content={"detail": "storage unavailable"})
+
+    @app.exception_handler(RequestValidationError)
+    async def invalid_request(request: Any, error: RequestValidationError) -> JSONResponse:
+        # Location, message and type only. FastAPI's default handler echoes the
+        # offending input, which can be a whole memory body; and when that
+        # input holds NaN/Infinity the echo itself fails to render, turning a
+        # 422 into a 409 with decoder text that clients misread.
+        detail = [
+            {
+                "loc": [part for part in item.get("loc", ()) if isinstance(part, (str, int))],
+                "msg": str(item.get("msg", ""))[:200],
+                "type": str(item.get("type", ""))[:64],
+            }
+            for item in error.errors()[:20]
+        ]
+        return JSONResponse(status_code=422, content={"detail": detail})
 
     def bearer(value: Any) -> str:
         if not value or not value.startswith("Bearer "):
@@ -45,7 +95,11 @@ def create_app(hub: Hub) -> FastAPI:
     @app.get("/native/v1/health")
     def health() -> dict[str, Any]:
         """Liveness/protocol discovery; dependency failures must not cause restart loops."""
-        return {"protocol": 1, "service": "amh-native"}
+        return {
+            "protocol": 1,
+            "service": "amh-native",
+            "capabilities": ["org-research-v1", "admin-feishu-session-v1", "recall-parity-v1"],
+        }
 
     @app.get("/native/v1/ready")
     def ready() -> JSONResponse:
@@ -65,10 +119,69 @@ def create_app(hub: Hub) -> FastAPI:
             config = feishu.load(hub.setting)
         except ValueError:
             return {"available": False}
-        return {"available": config is not None}
+        return {
+            "available": bool(
+                config
+                and (
+                    config.allowed_tenants
+                    or hub.setting("feishu_tenant_key")
+                    or hub.prepare_legacy_provider(config.app_id)
+                )
+            )
+        }
 
-    def operator(authorization: str | None) -> str:
-        return bearer(authorization)
+    def operator(request: Request, authorization: str | None) -> AdminCredential:
+        # An explicit Bearer header never falls back to a browser cookie.
+        if authorization is not None:
+            return bearer(authorization)
+        token = request.cookies.get(SESSION_COOKIE, "")
+        session = admin_auth.session(token)
+        if request.method not in ("GET", "HEAD"):
+            origin = urlsplit(admin_auth.config().public_url)
+            expected = origin.scheme + "://" + origin.netloc
+            if (request.headers.get("origin") != expected or not hmac.compare_digest(
+                    request.headers.get("x-amh-csrf", "").encode(), session["csrf"].encode())):
+                raise HTTPException(403, "same-origin administrator action required")
+        return WebAdminSession(token)
+
+    def web_redirect(destination: str) -> RedirectResponse:
+        response = RedirectResponse(destination, status_code=303)
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["Referrer-Policy"] = "no-referrer"
+        response.delete_cookie(FLOW_COOKIE, path="/", secure=True, httponly=True, samesite="lax")
+        return response
+
+    @app.get("/native/v1/admin/login")
+    def admin_login(request: Request, target: Literal["admin", "dashboard"] = "admin") -> Any:
+        from . import feishu
+
+        try:
+            config = admin_auth.config()
+            state, browser = admin_auth.begin(target, request.cookies.get(FLOW_COOKIE, ""))
+        except ValueError:
+            return web_redirect("/native/v1/admin?login=unavailable")
+        response = web_redirect(feishu.authorize_url(config, state))
+        response.set_cookie(FLOW_COOKIE, browser, max_age=STATE_TTL, path="/", secure=True,
+                            httponly=True, samesite="lax")
+        return response
+
+    @app.get("/native/v1/admin/session")
+    def admin_session(request: Request) -> JSONResponse:
+        response = JSONResponse(admin_auth.session(request.cookies.get(SESSION_COOKIE, "")))
+        response.headers["Cache-Control"] = "no-store"
+        return response
+
+    @app.post("/native/v1/admin/logout")
+    def admin_logout(request: Request) -> JSONResponse:
+        try:
+            operator(request, None)
+        except PermissionError:
+            pass  # An already expired session may still clear its stale cookie.
+        admin_auth.logout(request.cookies.get(SESSION_COOKIE, ""))
+        response = JSONResponse({"signed_out": True})
+        response.delete_cookie(SESSION_COOKIE, path="/", secure=True, httponly=True, samesite="lax")
+        response.headers["Cache-Control"] = "no-store"
+        return response
 
     @app.get("/native/v1/admin")
     def admin_page() -> HTMLResponse:
@@ -77,29 +190,48 @@ def create_app(hub: Hub) -> FastAPI:
 
         return HTMLResponse(admin.html())
 
+    @app.get("/native/v1/admin/dashboard")
+    def admin_dashboard_page() -> HTMLResponse:
+        """Activity dashboard; the page holds no credential and no memory text."""
+        from . import dashboard
+
+        return HTMLResponse(dashboard.html())
+
+    @app.get("/native/v1/admin/dashboard/data")
+    def admin_dashboard(
+        request: Request,
+        days: int = Query(default=30, ge=1, le=365),
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        """Aggregate activity for the operator dashboard; counts only, no memory text."""
+        return hub.admin_dashboard(operator(request, authorization), days=days)
+
     @app.get("/native/v1/admin/overview")
-    def admin_overview(authorization: str | None = Header(default=None)) -> dict[str, Any]:
-        return hub.admin_overview(operator(authorization))
+    def admin_overview(request: Request, authorization: str | None = Header(default=None)) -> dict[str, Any]:
+        return hub.admin_overview(operator(request, authorization))
 
     @app.post("/native/v1/admin/revoke")
     def admin_revoke(
+        request: Request,
         data: AdminRevokeInput, authorization: str | None = Header(default=None)
     ) -> dict[str, Any]:
-        hub.admin_revoke(operator(authorization), data.device_id)
+        hub.admin_revoke(operator(request, authorization), data.device_id)
         return {"revoked": data.device_id}
 
     @app.post("/native/v1/admin/settings")
     def admin_settings(
+        request: Request,
         data: AdminSettingInput, authorization: str | None = Header(default=None)
     ) -> dict[str, Any]:
-        hub.admin_setting(operator(authorization), data.key, data.value)
+        hub.admin_setting(operator(request, authorization), data.key, data.value)
         return {"saved": data.key}
 
     @app.post("/native/v1/admin/secret")
     def admin_secret(
+        request: Request,
         data: AdminSecretInput, authorization: str | None = Header(default=None)
     ) -> dict[str, Any]:
-        hub.admin_secret_set(operator(authorization), data.app_secret)
+        hub.admin_secret_set(operator(request, authorization), data.app_secret)
         return {"saved": "feishu_app_secret"}
 
     @app.post("/native/v1/auth/feishu/start")
@@ -113,17 +245,51 @@ def create_app(hub: Hub) -> FastAPI:
             raise HTTPException(503, str(exc)) from None
         if config is None:
             raise HTTPException(503, "this Hub does not offer enterprise login")
+        hub.prepare_legacy_provider(config.app_id)
         state = hub.feishu_begin(data.port)
-        return {"authorize_url": feishu.authorize_url(config, state), "redirect_uri": config.redirect_uri}
+        return {
+            "authorize_url": feishu.authorize_url(config, state),
+            "redirect_uri": config.redirect_uri,
+        }
 
     @app.get("/native/v1/auth/feishu/callback")
     def feishu_callback(
+        request: Request,
         code: str = Query(default=""),
         state: str = Query(default=""),
         error: str = Query(default=""),
     ) -> Any:
         """Consume the code, then hand a one-use ticket to the caller's loopback listener."""
         from . import feishu
+
+        if state.startswith("admin."):
+            browser = request.cookies.get(FLOW_COOKIE, "")
+            try:
+                admin_auth.check(state, browser)
+            except ValueError:
+                return web_redirect("/native/v1/admin?login=expired")
+            if error or not code:
+                return web_redirect("/native/v1/admin?login=cancelled")
+            try:
+                web_config = admin_auth.config()
+                provider_token = feishu.exchange_code(web_config, code)
+                identity = feishu.user_identity(provider_token)
+            except (ValueError, OSError):
+                return web_redirect("/native/v1/admin?login=unavailable")
+            try:
+                session, destination = admin_auth.complete(
+                    state, browser, identity, request.cookies.get(SESSION_COOKIE, "")
+                )
+            except PermissionError:
+                response = web_redirect("/native/v1/admin?login=denied")
+                response.delete_cookie(SESSION_COOKIE, path="/", secure=True, httponly=True, samesite="lax")
+                return response
+            except ValueError:
+                return web_redirect("/native/v1/admin?login=expired")
+            response = web_redirect(destination)
+            response.set_cookie(SESSION_COOKIE, session, max_age=SESSION_TTL, path="/",
+                                secure=True, httponly=True, samesite="lax")
+            return response
 
         if error:
             raise HTTPException(400, "authorization declined")
@@ -143,9 +309,15 @@ def create_app(hub: Hub) -> FastAPI:
             raise HTTPException(409, str(exc)) from None
         token = feishu.exchange_code(config, code)
         identity = feishu.user_identity(token)
-        if not config.accepts(identity["tenant_key"]):
+        hub.prepare_legacy_provider(config.app_id)
+        if not hub.feishu_accept_tenant(
+            identity["tenant_key"],
+            config.allowed_tenants,
+            app_id=config.app_id,
+            verified_identity=identity,
+        ):
             raise HTTPException(403, "this Feishu tenant is not served by this Hub")
-        port, ticket = hub.feishu_complete(state, identity)
+        port, ticket = hub.feishu_complete(state, identity, app_id=config.app_id)
         response = RedirectResponse(
             "http://127.0.0.1:%d/?ticket=%s" % (port, ticket), status_code=303
         )
@@ -171,7 +343,7 @@ def create_app(hub: Hub) -> FastAPI:
     def runtime_invite(
         data: RuntimeInviteInput, authorization: str | None = Header(default=None)
     ) -> dict[str, Any]:
-        return hub.runtime_invite(bearer(authorization))
+        return hub.runtime_invite(bearer(authorization), ttl_seconds=data.ttl_seconds)
 
     @app.post("/native/v1/assets")
     def put(data: AssetInput, authorization: str | None = Header(default=None)) -> dict[str, Any]:
@@ -181,9 +353,10 @@ def create_app(hub: Hub) -> FastAPI:
     def changes(
         cursor: int = Query(default=0, ge=0),
         limit: int = Query(default=100, ge=1, le=100),
+        metadata_only: bool = False,
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
-        return hub.changes(bearer(authorization), cursor, limit)
+        return hub.changes(bearer(authorization), cursor, limit, metadata_only=metadata_only)
 
     @app.post("/native/v1/search")
     def search(
@@ -191,8 +364,160 @@ def create_app(hub: Hub) -> FastAPI:
     ) -> dict[str, Any]:
         return {"items": hub.search(bearer(authorization), **data.model_dump())}
 
+    @app.post("/native/v1/retrieve")
+    def retrieve(
+        data: RetrieveInput, authorization: str | None = Header(default=None)
+    ) -> dict[str, Any]:
+        from .retrieval_view import bounded_retrieval
+
+        return bounded_retrieval(hub.retrieve(bearer(authorization), **data.model_dump()))
+
+    @app.post("/native/v1/recall")
+    def recall(
+        data: RecallInput, authorization: str | None = Header(default=None)
+    ) -> dict[str, Any]:
+        """Hook channel: hybrid ranking with full bodies for a bounded number of hits."""
+        from .retrieval_view import _diagnostics
+
+        result = hub.recall(bearer(authorization), data.query, limit=data.limit)
+        return {
+            "items": recall_items(result["items"]),
+            "trace_id": result["trace_id"],
+            "retrieval": _diagnostics({"retrieval": result["retrieval"]}),
+        }
+
+    @app.post("/native/v1/recall/feedback")
+    def recall_feedback(
+        data: RecallFeedbackInput, authorization: str | None = Header(default=None)
+    ) -> dict[str, Any]:
+        return hub.recall_feedback(
+            bearer(authorization), data.trace_id, [e.model_dump() for e in data.events]
+        )
+
+    @app.get("/native/v1/recalls")
+    def recalls(
+        trace_id: str | None = Query(
+            default=None, min_length=24, max_length=24, pattern=r"^[a-f0-9]+$"
+        ),
+        limit: int = Query(default=20, ge=1, le=100),
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        return hub.recalls(bearer(authorization), trace_id=trace_id, limit=limit)
+
+    @app.get("/native/v1/admin/recalls")
+    def admin_recalls_page() -> HTMLResponse:
+        """Recall ledger page; the page holds no credential and no memory text."""
+        from . import recalls_page
+
+        return HTMLResponse(recalls_page.html())
+
+    @app.get("/native/v1/admin/recalls/data")
+    def admin_recalls(
+        request: Request,
+        trace_id: str | None = Query(
+            default=None, min_length=24, max_length=24, pattern=r"^[a-f0-9]+$"
+        ),
+        limit: int = Query(default=50, ge=1, le=100),
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        return hub.admin_recalls(operator(request, authorization), trace_id=trace_id, limit=limit)
+
+    @app.post("/native/v1/read")
+    def read(data: ReadInput, authorization: str | None = Header(default=None)) -> dict[str, Any]:
+        return knowledge.read(bearer(authorization), **data.model_dump())
+
+    @app.post("/native/v1/related")
+    def related(
+        data: RelatedInput, authorization: str | None = Header(default=None)
+    ) -> dict[str, Any]:
+        return knowledge.related(bearer(authorization), **data.model_dump())
+
     app.add_middleware(BodyLimit)
+    # Transcript body/index payloads are repetitive. Negotiate standard gzip so
+    # the network does not erase the gains from bounded candidate verification.
+    from starlette.middleware.gzip import GZipMiddleware
+
+    app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=4)
     return app
+
+
+# What recall.pack, coverage_key, the hook's provenance allowlist (evidence.FIELDS)
+# and lineage.covered_records read. Ranking internals (score, retrieval_ranks,
+# duplicate_sources, source_meta, hopfield_match, observed_at, content_hash)
+# and the index_text of non-transcripts never leave the Hub on this channel.
+RECALL_ITEM_FIELDS = (
+    "asset_id",
+    "revision",
+    "tenant_id",
+    "source_device_id",
+    "source_store",
+    "product",
+    "project",
+    "kind",
+    "path",
+    "title",
+    "role",
+    "body_hash",
+    "document_id",
+    "document_hash",
+    "part_index",
+    "part_count",
+    "deleted",
+    "producer_unknown",
+    "producer_member_id",
+    "producer_name",
+    "uploader_member_id",
+    "uploader_name",
+    "upstream",
+    "verified",
+)
+RECALL_MATCH_FIELDS = (
+    "similarity",
+    "source_field",
+    "char_start",
+    "char_end",
+    "offset_unit",
+    "aggregation",
+)
+RECALL_TRACE_FIELDS = ("trace_id", "routes", "final_rank", "nature", "decay_weight", "state")
+RECALL_BODY_BYTES = 64 * 1024
+RECALL_TOTAL_BYTES = 512 * 1024
+
+
+def recall_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Project hook-channel records to the fields the hook uses, with bounded text.
+
+    The hook packs at most 4KB into the prompt, while the client refuses any
+    response over 8MB; a handful of large memories therefore meant that nothing
+    was injected at all. Bodies are cut at a UTF-8 character boundary to 64KB
+    each and 512KB in total and flagged ``body_truncated``. body_hash still
+    names the full source version, which is what coverage keys identify.
+    """
+    remaining = RECALL_TOTAL_BYTES
+    projected: list[dict[str, Any]] = []
+    for item in items:
+        out = {key: item[key] for key in RECALL_ITEM_FIELDS if key in item}
+        for group, fields in (
+            ("semantic_match", RECALL_MATCH_FIELDS),
+            ("recall", RECALL_TRACE_FIELDS),
+        ):
+            block = item.get(group)
+            if isinstance(block, dict):
+                out[group] = {key: block[key] for key in fields if key in block}
+        texts = ["body"] + (["index_text"] if item.get("kind") == "transcript" else [])
+        for field in texts:
+            text = item.get(field)
+            if not isinstance(text, str):
+                continue
+            encoded = text.encode()
+            budget = max(0, min(RECALL_BODY_BYTES, remaining))
+            if len(encoded) > budget:
+                text = encoded[:budget].decode("utf8", errors="ignore")
+                out[field + "_truncated"] = True
+            out[field] = text
+            remaining -= len(text.encode())
+        projected.append(out)
+    return projected
 
 
 class BodyLimit:

@@ -6,6 +6,7 @@ from typing import Any
 
 import json
 import plistlib
+import platform
 import re
 import shlex
 import shutil
@@ -127,6 +128,88 @@ def native_reading_config(text: str) -> str:
     return tomlkit.dumps(data)
 
 
+ORG_MCP_NAME = "amh-org"
+ORG_MCP_MODULE = "agent_brain.native_sync.org_mcp"
+
+
+def org_mcp_server(state: Path, *, policy_path: str | None = None) -> dict[str, Any]:
+    """Point at the installed client; credentials remain in the runtime profile."""
+    args = ["--state", str(state.resolve())]
+    if policy_path is not None:
+        args.extend(["--policy", policy_path])
+    argv = runtime_argv(ORG_MCP_MODULE, *args)
+    return {"command": argv[0], "args": argv[1:]}
+
+
+def _check_mcp_owner(current: Any, desired: dict[str, Any], receipt: dict[str, Any]) -> None:
+    if current is not None and current != desired and current != receipt.get("after"):
+        raise ValueError(
+            "amh-org MCP entry already exists or was edited; review it before installing"
+        )
+
+
+def _codex_mcp(text: str, server: dict[str, Any], previous: dict[str, Any]) -> str:
+    from collections.abc import MutableMapping
+    import tomlkit
+
+    document = tomlkit.parse(text)
+    if "mcp_servers" not in document:
+        document["mcp_servers"] = tomlkit.table()
+    servers = document["mcp_servers"]
+    if not isinstance(servers, MutableMapping):
+        raise ValueError("mcp_servers must be a TOML table")
+    _check_mcp_owner(servers.get(ORG_MCP_NAME), server, previous)
+    servers[ORG_MCP_NAME] = server
+    return tomlkit.dumps(document)
+
+
+def _save_mcp_receipt(
+    saved: dict[str, Any], path: Path, before: Any, after: Any, format: str
+) -> None:
+    entries = saved.setdefault("mcp", {})
+    entries.setdefault(str(path), {"before": before, "format": format})
+    entries[str(path)]["after"] = after
+
+
+def _restore_mcp(path: Path, entry: dict[str, Any]) -> bool:
+    """Restore only our server when unrelated configuration changed after install."""
+    if not path.exists():
+        return True
+    if path.is_symlink():
+        return False
+    try:
+        if entry["format"] == "toml":
+            import tomlkit
+
+            document = tomlkit.parse(path.read_text())
+            servers = document.get("mcp_servers", {})
+        else:
+            document = json.loads(path.read_text())
+            if not isinstance(document, dict):
+                return False
+            servers = document.get("mcpServers", {})
+        from collections.abc import MutableMapping
+
+        if not isinstance(servers, MutableMapping):
+            return False
+        current = servers.get(ORG_MCP_NAME)
+        if current == entry.get("before"):
+            return True  # Already restored (including a full-file receipt restore).
+        if current != entry["after"]:
+            return False  # The member edited this entry; never replace it.
+        if entry.get("before") is None:
+            del servers[ORG_MCP_NAME]
+        else:
+            servers[ORG_MCP_NAME] = entry["before"]
+        if entry["format"] == "toml":
+            atomic_text(path, tomlkit.dumps(document))
+        else:
+            atomic_json(path, document)
+        return True
+    except (ValueError, TypeError, OSError):
+        return False
+
+
 def install_hooks(home: Path, state: Path, *, products: list[str]) -> list[str]:
     """Prevalidate client settings, then install owned callbacks/read flags with reversible receipts."""
     home, state = Path(home).resolve(), Path(state).resolve()
@@ -134,6 +217,7 @@ def install_hooks(home: Path, state: Path, *, products: list[str]) -> list[str]:
     receipt = state / "install-receipt.json"
     saved = json.loads(receipt.read_text()) if receipt.exists() else {"json": {}, "text": {}}
     report = []
+    mcp_server = org_mcp_server(state)
     destinations = {}
     if "claude-code" in products:
         destinations[home / ".claude/settings.json"] = "claude-code"
@@ -154,14 +238,30 @@ def install_hooks(home: Path, state: Path, *, products: list[str]) -> list[str]:
                 for entry in entries
             ):
                 raise ValueError("invalid Hook entries: " + str(path))
+    claude_config = home / ".claude.json"
+    if "claude-code" in products:
+        if claude_config.is_symlink():
+            raise ValueError("refusing to replace symlink: " + str(claude_config))
+        data = json.loads(claude_config.read_text()) if claude_config.exists() else {}
+        if not isinstance(data, dict) or not isinstance(data.get("mcpServers", {}), dict):
+            raise ValueError("invalid user MCP configuration: " + str(claude_config))
+        _check_mcp_owner(
+            data.get("mcpServers", {}).get(ORG_MCP_NAME),
+            mcp_server,
+            saved.get("mcp", {}).get(str(claude_config), {}),
+        )
     config_path = home / ".codex/config.toml"
     if any(p in products for p in ("codex-cli", "codex-desktop", "chatgpt-desktop")):
         from agent_brain.agent_integrations.codex_config import remove_mcp_block
 
         if config_path.is_symlink():
             raise ValueError("refusing to replace symlink: " + str(config_path))
-        native_reading_config(
-            remove_mcp_block(config_path.read_text() if config_path.exists() else "")
+        _codex_mcp(
+            native_reading_config(
+                remove_mcp_block(config_path.read_text() if config_path.exists() else "")
+            ),
+            mcp_server,
+            saved.get("mcp", {}).get(str(config_path), {}),
         )
     for path, product in destinations.items():
         original = json.loads(path.read_text()) if path.exists() else {}
@@ -200,6 +300,19 @@ def install_hooks(home: Path, state: Path, *, products: list[str]) -> list[str]:
         atomic_json(receipt, saved)  # Recovery record is durable before mutation.
         atomic_json(path, data)
         report.append(str(path))
+    if "claude-code" in products:
+        original = json.loads(claude_config.read_text()) if claude_config.exists() else {}
+        data = json.loads(json.dumps(original))
+        servers = data.setdefault("mcpServers", {})
+        _save_mcp_receipt(saved, claude_config, servers.get(ORG_MCP_NAME), mcp_server, "json")
+        servers[ORG_MCP_NAME] = mcp_server
+        saved["json"].setdefault(
+            str(claude_config), {"before": original, "existed": claude_config.exists()}
+        )
+        saved["json"][str(claude_config)]["after"] = data
+        atomic_json(receipt, saved)
+        atomic_json(claude_config, data)
+        report.append(str(claude_config))
     # Disable only recognized AMH-owned discipline text; retain all user prose.
     for path in [home / ".claude/CLAUDE.md", home / ".codex/AGENTS.md"]:
         if not path.exists():
@@ -232,7 +345,20 @@ def install_hooks(home: Path, state: Path, *, products: list[str]) -> list[str]:
         )
 
         original = codex_config.read_text() if codex_config.exists() else ""
-        changed = native_reading_config(remove_mcp_block(original))
+        import tomllib
+
+        _save_mcp_receipt(
+            saved,
+            codex_config,
+            tomllib.loads(original).get("mcp_servers", {}).get(ORG_MCP_NAME),
+            mcp_server,
+            "toml",
+        )
+        changed = _codex_mcp(
+            native_reading_config(remove_mcp_block(original)),
+            mcp_server,
+            saved.get("mcp", {}).get(str(codex_config), {}),
+        )
         already_trusted = set(trusted_hashes(original).values())
         hooks_path = (home / ".codex/hooks.json").resolve()
         hooks_data = json.loads(hooks_path.read_text())["hooks"]
@@ -272,7 +398,14 @@ def uninstall_hooks(home: Path, state: Path) -> list[str]:
         path = Path(raw)
         if not path.exists():
             continue
-        data = json.loads(path.read_text())
+        if path.is_symlink():
+            conflicts.append(raw)
+            continue
+        try:
+            data = json.loads(path.read_text())
+        except (ValueError, OSError):
+            conflicts.append(raw)
+            continue
         if data != entry["after"]:
             conflicts.append(raw)
             continue  # Never discard edits made after install.
@@ -282,12 +415,15 @@ def uninstall_hooks(home: Path, state: Path) -> list[str]:
             path.unlink()
     for raw, entry in saved["text"].items():
         path = Path(raw)
-        if path.exists() and path.read_text() == entry["after"]:
+        if not path.is_symlink() and path.exists() and path.read_text() == entry["after"]:
             if entry.get("existed", True):
                 atomic_text(path, entry["before"])
             else:
                 path.unlink()
         else:
+            conflicts.append(raw)
+    for raw, entry in saved.get("mcp", {}).items():
+        if not _restore_mcp(Path(raw), entry) and raw not in conflicts:
             conflicts.append(raw)
     if not conflicts:
         receipt.unlink()
@@ -338,15 +474,27 @@ def export_cowork_plugin(
         root / "commands/doctor.md",
         root / "runtime/agent_brain/__init__.py",
     ]
-    atomic_json(
-        root / ".claude-plugin/plugin.json",
-        {
-            "name": "amh-native-org",
-            "version": "0.1.0",
-            "description": "组织原生记忆同步与召回",
-            "author": {"name": "Agent Memory Hub"},
-        },
-    )
+    from agent_brain._version import __version__
+
+    host_mcp = runtime_state is not None and platform.system() == "Darwin"
+    manifest: dict[str, Any] = {
+        "name": "amh-native-org",
+        "version": __version__,
+        "description": (
+            "组织原生记忆同步与只读检索工具（需完成本机配对）"
+            if host_mcp
+            else "组织原生记忆 Hook；只读检索工具需绑定 macOS 主机后导出"
+        ),
+        "author": {"name": "Agent Memory Hub"},
+    }
+    if host_mcp:
+        assert runtime_state is not None
+        manifest["mcpServers"] = {
+            ORG_MCP_NAME: org_mcp_server(
+                runtime_state, policy_path="${CLAUDE_PLUGIN_ROOT}/runtime/connection-policy.json"
+            )
+        }
+    atomic_json(root / ".claude-plugin/plugin.json", manifest)
     runtime = root / "runtime/agent_brain/native_sync"
     runtime.mkdir(parents=True, exist_ok=True)
     atomic_text(runtime.parent / "__init__.py", "")
@@ -354,10 +502,13 @@ def export_cowork_plugin(
         "__init__.py",
         "common.py",
         "contracts.py",
+        "evidence.py",
+        "facets.py",
         "storage.py",
         "transport.py",
         "projection.py",
         "source.py",
+        "source_policy.py",
         "materialize.py",
         "worker.py",
         "lineage.py",
@@ -389,6 +540,11 @@ python3 "${CLAUDE_PLUGIN_ROOT}/runtime/entry.py" --policy "${CLAUDE_PLUGIN_ROOT}
 """.replace(
             "__STATE_ARGUMENT__",
             " --state " + shlex.quote(str(runtime_state)) if runtime_state is not None else "",
+        )
+        + (
+            "\n只读组织工具已声明：search_org_memory、read_org_memory、related_org_memory。首次配对完成前工具返回 not_connected；不代表已经连接或通过验收。\n"
+            if host_mcp
+            else "\n当前包未声明只读组织检索 MCP。请在 macOS 主机安装 AMH 客户端并显式绑定持久运行目录后重新导出。\n"
         ),
     )
     arguments = [
@@ -434,7 +590,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/runtime/entry.py" --policy "${CLAUDE_PLUGIN_ROOT}
     return root
 
 
-def launch_agent(state: Path, home: Path, *, install: bool = True) -> Path:
+def launch_agent(state: Path, home: Path, *, install: bool = True, background: bool = False) -> Path:
     """Write the macOS worker plist (or locate it); loading/unloading belongs to the CLI."""
     label = "com.amh.native." + digest(str(state.resolve()))[:12]
     path = home / "Library/LaunchAgents" / f"{label}.plist"
@@ -450,6 +606,7 @@ def launch_agent(state: Path, home: Path, *, install: bool = True) -> Path:
         "EnvironmentVariables": {"PYTHONPATH": str(root)},
         "RunAtLoad": True,
         "KeepAlive": True,
+        **({"LimitLoadToSessionType": "Background"} if background else {}),
         "StandardOutPath": str(state / "worker.log"),
         "StandardErrorPath": str(state / "worker-error.log"),
     }

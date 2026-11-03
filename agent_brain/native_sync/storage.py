@@ -77,6 +77,14 @@ CREATE TABLE IF NOT EXISTS assets(
     PRIMARY KEY(tenant,id)
 );
 
+-- Complete-version lookups must not scan every JSON payload in the tenant.
+CREATE INDEX IF NOT EXISTS assets_document_version ON assets(
+    tenant, owner_device,
+    json_extract(payload,'$.source_store'),
+    json_extract(payload,'$.document_id'),
+    json_extract(payload,'$.document_hash')
+);
+
 CREATE TABLE IF NOT EXISTS changes(
     seq INTEGER PRIMARY KEY AUTOINCREMENT,
     tenant TEXT NOT NULL,
@@ -88,12 +96,33 @@ CREATE INDEX IF NOT EXISTS changes_tenant ON changes(
     seq
 );
 
+-- Additive indexes for bounded explicit-reference and historical-version lookups.
+CREATE INDEX IF NOT EXISTS assets_source_path ON assets(
+    tenant, owner_device,
+    json_extract(payload,'$.source_store'),
+    json_extract(payload,'$.path')
+);
+CREATE INDEX IF NOT EXISTS changes_asset_revision ON changes(
+    tenant,
+    json_extract(payload,'$.asset_id'),
+    json_extract(payload,'$.revision')
+);
+
 -- Additive enterprise-login state; disabled instances never populate it.
 CREATE TABLE IF NOT EXISTS feishu_members(
     open_id TEXT PRIMARY KEY,
     member TEXT NOT NULL
 );
 
+-- New identities carry their provider namespace. Legacy mappings stay intact
+-- until a host administrator explicitly scopes them; names are never keys.
+CREATE TABLE IF NOT EXISTS feishu_accounts(
+    app_id TEXT NOT NULL,
+    tenant_key TEXT NOT NULL,
+    open_id TEXT NOT NULL,
+    member TEXT NOT NULL,
+    PRIMARY KEY(app_id,tenant_key,open_id)
+);
 CREATE TABLE IF NOT EXISTS feishu_states(
     hash TEXT PRIMARY KEY,
     port INTEGER NOT NULL,
@@ -116,6 +145,34 @@ CREATE TABLE IF NOT EXISTS admins(
     revoked INTEGER DEFAULT 0
 );
 
+-- Browser administrator login is separate from device and recovery credentials.
+-- Additive tables: existing clients and prior Hub releases retain their data.
+CREATE TABLE IF NOT EXISTS admin_web_roles(
+    app_id TEXT NOT NULL,
+    tenant_key TEXT NOT NULL,
+    open_id TEXT NOT NULL,
+    member TEXT NOT NULL,
+    granted REAL NOT NULL,
+    revoked INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY(app_id,tenant_key,open_id)
+);
+CREATE TABLE IF NOT EXISTS admin_web_states(
+    hash TEXT PRIMARY KEY,
+    browser_hash TEXT NOT NULL,
+    config_hash TEXT NOT NULL,
+    target TEXT NOT NULL,
+    expires REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS admin_web_sessions(
+    hash TEXT PRIMARY KEY,
+    app_id TEXT NOT NULL,
+    tenant_key TEXT NOT NULL,
+    open_id TEXT NOT NULL,
+    config_hash TEXT NOT NULL,
+    csrf TEXT NOT NULL,
+    expires REAL NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS settings(
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -126,6 +183,37 @@ CREATE VIRTUAL TABLE IF NOT EXISTS search_index USING fts5(
     asset_id UNINDEXED,
     terms
 );
+
+-- Additive recall ledger: counters per asset and bounded per-query traces (no bodies).
+CREATE TABLE IF NOT EXISTS recall_signals(
+    tenant TEXT NOT NULL,
+    asset_id TEXT NOT NULL,
+    delivered INTEGER NOT NULL DEFAULT 0,
+    confirmed INTEGER NOT NULL DEFAULT 0,
+    cited INTEGER NOT NULL DEFAULT 0,
+    support INTEGER NOT NULL DEFAULT 0,
+    contradict INTEGER NOT NULL DEFAULT 0,
+    gain REAL NOT NULL DEFAULT 0,
+    last_delivered REAL,
+    last_cited REAL,
+    last_feedback REAL,
+    confirmed_at REAL,
+    PRIMARY KEY(tenant,asset_id)
+);
+
+CREATE TABLE IF NOT EXISTS recall_events(
+    tenant TEXT NOT NULL,
+    trace_id TEXT NOT NULL,
+    created REAL NOT NULL,
+    device TEXT NOT NULL,
+    member TEXT NOT NULL,
+    channel TEXT NOT NULL,
+    query_digest TEXT NOT NULL,
+    query_preview TEXT NOT NULL,
+    payload TEXT NOT NULL,
+    PRIMARY KEY(tenant,trace_id)
+);
+CREATE INDEX IF NOT EXISTS recall_events_recent ON recall_events(tenant, created);
 """
 
 
@@ -164,6 +252,10 @@ CREATE TABLE IF NOT EXISTS outbox(
     hash TEXT
 );
 
+CREATE TABLE IF NOT EXISTS lineage_records(
+    asset TEXT PRIMARY KEY,
+    payload TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS replica(
     asset TEXT PRIMARY KEY,
     payload TEXT
@@ -228,5 +320,23 @@ CREATE TABLE IF NOT EXISTS emitted(
     keys_json TEXT,
     created REAL,
     PRIMARY KEY(session,marker)
+);
+
+-- Additive: which Hub recall trace a delivery receipt belongs to, and the
+-- delivery states queued for the worker to report back (identifiers only).
+CREATE TABLE IF NOT EXISTS emitted_traces(
+    session TEXT,
+    marker TEXT,
+    trace_id TEXT,
+    PRIMARY KEY(session,marker)
+);
+
+CREATE TABLE IF NOT EXISTS recall_reports(
+    trace_id TEXT,
+    asset TEXT,
+    revision INTEGER,
+    event TEXT,
+    created REAL,
+    PRIMARY KEY(trace_id,asset,revision,event)
 );
 """

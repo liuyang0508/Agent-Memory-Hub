@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from .client import NativeClient
-from .common import atomic_json, digest, runtime_argv
+from .common import atomic_json, digest, runtime_argv, PAIRING_MAX_TTL
 from .storage import DB_TIMEOUT
 from .runtime_sources import native_project_id, queue_observation
 from .transport import Transport, validate_url
@@ -41,12 +41,16 @@ def read_object(path: Path) -> dict[str, Any]:
 
 
 def export_connection(state: Path, destination: Path) -> dict[str, str]:
-    """Issue a one-use runtime ticket; return public pins suitable for a plugin package."""
+    """Issue a seven-day one-use setup ticket outside the plugin; return public pins.
+
+    Longer setup time is a bounded exposure tradeoff, not a reusable device
+    credential. Sponsor revocation still invalidates every unused ticket.
+    """
     client = NativeClient(state)
     if destination.is_symlink():
         raise ValueError("connection destination must not be a symlink")
     transport = Transport(client.config["hub"], client.identity["token"])
-    ticket = transport.call("runtime-invites", {})
+    ticket = transport.call("runtime-invites", {"ttl_seconds": PAIRING_MAX_TTL})
     policy = {
         "hub": transport.url,
         "member_id": client.identity["member_id"],

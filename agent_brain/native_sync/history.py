@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from .client import NativeClient
 from .common import PRODUCTS, digest
@@ -77,6 +77,11 @@ def title_of(path: Path, body: str) -> str:
 SCREEN_PREFIX = 64 * 1024
 
 
+def file_version(stat: Any) -> list[int]:
+    """Cheap stable version for the local chooser; includes replacement and metadata changes."""
+    return [stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns]
+
+
 def peek(path: Path) -> str:
     """Read only the head of a file for screening and titling.
 
@@ -137,6 +142,8 @@ def items(
                 try:
                     stat = path.stat()
                     head = peek(path)
+                    if file_version(stat) != file_version(path.stat()):
+                        continue
                 except (OSError, ValueError, UnicodeError):
                     continue
                 if stat.st_size > MAX_BYTES:
@@ -159,21 +166,62 @@ def items(
                         "title": title_of(path, head),
                         "bytes": stat.st_size,
                         "mtime": stat.st_mtime,
+                        "version": file_version(stat),
                         "risk": verdict["risk"],
                         "reasons": verdict["reasons"],
                     }
                 )
-    rows.sort(key=lambda r: (r["product"], CATEGORY_ORDER.index(r["kind"]) if r["kind"] in CATEGORY_ORDER else 99, r["path"]))
+    rows.sort(
+        key=lambda r: (
+            r["product"],
+            CATEGORY_ORDER.index(r["kind"]) if r["kind"] in CATEGORY_ORDER else 99,
+            r["path"],
+        )
+    )
     return rows
 
 
-def import_paths(client: NativeClient, home: Path, selected: list[dict[str, Any]]) -> dict[str, Any]:
+def annotate_selection(client: NativeClient, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Attach prior decisions without re-reading bodies or treating checkboxes as revocation."""
+    from .storage import database
+
+    with database(client.path) as db:
+        existing = {
+            (
+                str(Path(row["root"]) if row["file_source"] else Path(row["root"]) / row["path"]),
+                row["kind"],
+            )
+            for row in db.execute(
+                "SELECT s.root,s.file_source,s.kind,p.path FROM snapshots p "
+                "JOIN sources s ON s.id=p.source WHERE p.selected=1"
+            )
+        }
+    return [
+        dict(
+            row,
+            previously_selected=(row["path"], row["kind"]) in existing,
+            scope_enabled=client.source_enabled(row["kind"]),
+        )
+        for row in rows
+    ]
+
+
+def import_paths(
+    client: NativeClient,
+    home: Path,
+    selected: list[dict[str, Any]],
+    *,
+    progress: Callable[[str, int, int | None], None] | None = None,
+) -> dict[str, Any]:
     """Select exactly the ticked files; nothing else from their categories is touched.
 
     The category is registered first so later changes in it sync automatically,
     then only the chosen paths are marked selected. That keeps the history
     decision a one-time pre-install step rather than an ongoing question.
     """
+    disabled = sorted({row["kind"] for row in selected if not client.source_enabled(row["kind"])})
+    if disabled:
+        raise ValueError("confirm upload scope before importing: " + ", ".join(disabled))
     by_root: dict[tuple[str, str, str], list[dict[str, Any]]] = {}
     for row in selected:
         by_root.setdefault((row["root"], row["product"], row["kind"]), []).append(row)
@@ -181,16 +229,29 @@ def import_paths(client: NativeClient, home: Path, selected: list[dict[str, Any]
     taken = 0
     rejected: list[str] = []
     late_sensitive: list[dict[str, Any]] = []
+    checked = 0
     for (root_path, product, kind), rows in by_root.items():
         root = Path(root_path)
+        if progress:
+            progress("prepare", checked, None)
         sid = client.register(root, product, "", kind)
         registered += 1
         selection: dict[str, str] = {}
         for row in rows:
+            if progress:
+                progress("check", checked, len(selected))
+            checked += 1
             absolute = row["path"]
             path = Path(absolute)
             try:
+                expected_version = row.get("version")
+                if expected_version is None or file_version(path.stat()) != expected_version:
+                    rejected.append(absolute)
+                    continue
                 body = source_text(path, kind)
+                if file_version(path.stat()) != expected_version:
+                    rejected.append(absolute)
+                    continue
             except (ValueError, OSError, UnicodeError):
                 rejected.append(absolute)
                 continue
@@ -217,6 +278,8 @@ def import_paths(client: NativeClient, home: Path, selected: list[dict[str, Any]
             taken += len(selection)
         if kind == "memory":
             _record_target(client, root, product)
+    if progress:
+        progress("check", checked, len(selected))
     return {
         "roots": registered,
         "selected": taken,
@@ -272,11 +335,7 @@ def screen(body: str) -> dict[str, Any]:
     blocked = sorted({label for pattern, label in BLOCKING_PATTERNS if re.search(pattern, body)})
     if blocked:
         return {"risk": "blocked", "reasons": blocked}
-    sensitive = sorted(
-        {label for pattern, label in SENSITIVE_PATTERNS if re.search(pattern, body)}
-    )
+    sensitive = sorted({label for pattern, label in SENSITIVE_PATTERNS if re.search(pattern, body)})
     if sensitive:
         return {"risk": "sensitive", "reasons": sensitive}
     return {"risk": "clean", "reasons": []}
-
-

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Callable
 
 import json
 import time
@@ -12,6 +12,11 @@ from .common import atomic_json, digest, tokens
 from .storage import database, CLIENT_SCHEMA
 from .transport import Transport, validate_url
 from .contracts import SyncTransport
+from .source_policy import (
+    describe as describe_scope,
+    enabled as enabled_kinds,
+    policy as scope_policy,
+)
 
 from .source import source_text, read_document, files, enqueue_document, queue_delete
 
@@ -38,8 +43,82 @@ class NativeClient:
         )
         with database(self.path) as db:
             db.executescript(CLIENT_SCHEMA)
+        self.configure_storage()
 
-    @classmethod
+    def _refresh_profile(self) -> None:
+        """Observe persisted policy under worker.lock; never reuse a changed identity."""
+        path = self.root / "config.json"
+        if path.exists():
+            config = json.loads(path.read_text())
+            if config.get("identity") != self.identity:
+                raise ValueError("profile identity changed; reload client")
+            self.config = config
+
+    def configure_storage(self) -> bool:
+        """Serialize cache migration with synchronization; a busy worker performs it.
+
+        Hook construction must not wait for a slow upload. The worker rechecks
+        persisted policy after network calls and before writing shared content.
+        """
+        import fcntl
+
+        with (self.root / "worker.lock").open("a") as lock:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                return False
+            self._refresh_profile()
+            self._configure_storage_locked()
+            return True
+
+    def _configure_storage_locked(self) -> None:
+        """Migrate only AMH caches while holding worker.lock; preserve sources/outbox."""
+        from .evidence import metadata
+
+        mode = "projection" if self.projection_enabled() else "cloud"
+        with database(self.path) as db:
+            old = db.execute("SELECT value FROM meta WHERE key='storage-policy-v1'").fetchone()
+            if old and old["value"] == mode:
+                return
+            db.execute("PRAGMA secure_delete=ON")
+            if mode == "cloud":
+                for table in ("replica", "recall_sources"):
+                    for row in db.execute(f"SELECT payload FROM {table}").fetchall():
+                        record = json.loads(row["payload"])
+                        previous = db.execute(
+                            "SELECT payload FROM lineage_records WHERE asset=?",
+                            (record["asset_id"],),
+                        ).fetchone()
+                        if (
+                            not previous
+                            or json.loads(previous["payload"])["revision"] <= record["revision"]
+                        ):
+                            db.execute(
+                                "INSERT OR REPLACE INTO lineage_records VALUES(?,?)",
+                                (record["asset_id"], json.dumps(metadata(record))),
+                            )
+                    db.execute(f"DELETE FROM {table}")
+            # Refill metadata with Hub-verified proofs on migration, or full
+            # content only after explicit projection opt-in.
+            db.execute("DELETE FROM meta WHERE key='cursor'")
+        if mode == "cloud":
+            from .projection import cleanup
+
+            conflicts = []
+            for target in self.targets(enabled_only=False):
+                conflicts.extend(cleanup(Path(target["root"]), target["product"])["conflicts"])
+            if conflicts:
+                atomic_json(
+                    self.root / "storage-conflicts.json", {"preserved_user_edits": conflicts}
+                )
+            cache = self.root / "recall-cache"
+            if cache.is_dir() and not cache.is_symlink():
+                for path in cache.glob("*.md"):
+                    if not path.is_symlink() and digest(path.read_text()) == path.stem:
+                        path.unlink()
+        with database(self.path) as db:
+            db.execute("INSERT OR REPLACE INTO meta VALUES('storage-policy-v1',?)", (mode,))
+
     @classmethod
     def adopt(
         cls,
@@ -57,16 +136,23 @@ class NativeClient:
         A paired runtime pins the member it was issued for, so a Hub answering
         with someone else's identity is refused rather than silently adopted.
         """
-        if (Path(root) / "config.json").exists():
-            raise ValueError("profile already joined; choose a new profile for another Hub/device")
+        existing = Path(root) / "config.json"
+        if existing.exists():
+            partial = json.loads(existing.read_text())
+            if (
+                not isinstance(partial, dict)
+                or set(partial) != {"projection"}
+                or not isinstance(partial["projection"], bool)
+            ):
+                raise ValueError(
+                    "profile already joined; choose a new profile for another Hub/device"
+                )
         required = ("tenant_id", "member_id", "member_name", "device_id", "token")
         if not isinstance(identity, dict) or any(
             not isinstance(identity.get(k), str) or not identity[k] for k in required
         ):
             raise ValueError("invalid login response; local identity was not written")
-        if expected_identity and any(
-            identity.get(k) != v for k, v in expected_identity.items()
-        ):
+        if expected_identity and any(identity.get(k) != v for k, v in expected_identity.items()):
             raise PermissionError("runtime enrollment does not match the pinned member")
         atomic_json(
             Path(root) / "config.json",
@@ -75,6 +161,7 @@ class NativeClient:
                 "identity": identity,
                 "targets": [],
                 "device_name": device_name,
+                "source_policy": scope_policy(),
             },
         )
         return cls(root)
@@ -83,6 +170,36 @@ class NativeClient:
         """Return registered source metadata without reading or uploading source bodies."""
         with database(self.path) as db:
             return [dict(r) for r in db.execute("SELECT * FROM sources")]
+
+    def source_scope(self) -> dict[str, Any]:
+        """Read-only review; old profiles retain their original behavior."""
+        result = describe_scope(self.config, self.sources())
+        with database(self.path) as db:
+            result["paused_pending"] = sum(
+                json.loads(row["payload"])["kind"] not in result["enabled_kinds"]
+                for row in db.execute("SELECT payload FROM outbox")
+            )
+        return result
+
+    def set_source_scope(self, kinds: list[str]) -> dict[str, Any]:
+        """Persist an already confirmed scope, serialized with any active upload.
+
+        No outbox rows, selection bits, source bindings or remote assets are removed.
+        A busy worker must finish before this operation returns successfully.
+        """
+        import fcntl
+
+        chosen = scope_policy(kinds)
+        with (self.root / "worker.lock").open("a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            self._refresh_profile()
+            self.config["source_policy"] = chosen
+            self.config.setdefault("identity", self.identity)
+            atomic_json(self.root / "config.json", self.config)
+        return self.source_scope()
+
+    def source_enabled(self, kind: str) -> bool:
+        return kind in enabled_kinds(self.config)
 
     def projection_enabled(self) -> bool:
         """Whether organization memory may be copied into this machine's product stores.
@@ -94,9 +211,14 @@ class NativeClient:
         """
         return bool(self.config.get("projection"))
 
-    def targets(self) -> list[dict[str, Any]]:
-        """Merge configured/discovered native destinations by resolved path to avoid duplicate writes."""
-        if not self.projection_enabled():
+    def targets(self, *, enabled_only: bool = True) -> list[dict[str, Any]]:
+        """Merge configured/discovered native destinations by resolved path to avoid duplicate writes.
+
+        enabled_only=False returns the destinations on record regardless of the
+        projection setting, so revocation can clear copies written by an earlier
+        release that had projection switched on.
+        """
+        if enabled_only and not self.projection_enabled():
             return []
         with database(self.path) as db:
             dynamic = [dict(row) for row in db.execute("SELECT root,product FROM dynamic_targets")]
@@ -227,6 +349,14 @@ class NativeClient:
             raise ValueError("history changed; preview again")
         with database(self.path) as db:
             for p in selections:
+                row = db.execute(
+                    "SELECT asset FROM snapshots WHERE source=? AND path=?", (sid, p)
+                ).fetchone()
+                if row:
+                    db.execute(
+                        "INSERT OR REPLACE INTO meta VALUES(?,?)",
+                        ("selected-version:" + row["asset"], selections[p]),
+                    )
                 db.execute(
                     "UPDATE snapshots SET selected=1,hash=? WHERE source=? AND path=?", ("", sid, p)
                 )
@@ -253,8 +383,17 @@ class NativeClient:
                 raise ValueError("history changed; preview again")
         with database(self.path) as db:
             for rel in selections:
+                row = db.execute(
+                    "SELECT asset FROM snapshots WHERE source=? AND path=?", (sid, rel)
+                ).fetchone()
+                if row:
+                    db.execute(
+                        "INSERT OR REPLACE INTO meta VALUES(?,?)",
+                        ("selected-version:" + row["asset"], selections[rel]),
+                    )
                 db.execute(
-                    "UPDATE snapshots SET selected=1,hash=? WHERE source=? AND path=?", ("", sid, rel)
+                    "UPDATE snapshots SET selected=1,hash=? WHERE source=? AND path=?",
+                    ("", sid, rel),
                 )
 
     def refresh_excluded_history(self) -> None:
@@ -265,12 +404,20 @@ class NativeClient:
         """
         quarantined = self.quarantined_sources()
         for source in self.sources():
+            if not self.source_enabled(source["kind"]):
+                continue
             if source["id"] in quarantined:
                 continue
             root = Path(source["root"])
             if not root.exists():
                 continue
-            for p in files(root, source["kind"]):
+            try:
+                candidates = list(files(root, source["kind"]))
+            except OSError:
+                # Unreadable is not empty: record nothing and leave the
+                # existing history hashes alone.
+                continue
+            for p in candidates:
                 rel = p.name if source["file_source"] else str(p.relative_to(root))
                 stat = p.stat()
                 with database(self.path) as db:
@@ -310,6 +457,8 @@ class NativeClient:
         self.refresh_excluded_history()
         quarantined = self.quarantined_sources()
         for source in self.sources():
+            if not self.source_enabled(source["kind"]):
+                continue
             if source["id"] in quarantined:
                 errors.append("source identity changed: " + source["id"])
                 continue
@@ -317,8 +466,15 @@ class NativeClient:
             if not (root.parent.is_dir() if source["file_source"] else root.is_dir()):
                 errors.append("source unavailable: " + source["id"])
                 continue
+            try:
+                candidates = list(files(root, source["kind"]))
+            except OSError as exc:
+                # Unreadable is not empty. Skipping the pass keeps the existing
+                # snapshots intact; the next successful scan reconciles them.
+                errors.append("source unreadable: " + source["id"] + ": " + str(exc))
+                continue
             seen = set()
-            for p in files(root, source["kind"]):
+            for p in candidates:
                 rel = p.name if source["file_source"] else str(p.relative_to(root))
                 seen.add(rel)
                 with database(self.path) as db:
@@ -363,13 +519,24 @@ class NativeClient:
                 body, encoding, h = doc
                 if row is not None and row["hash"] == "" and not row["unknown"]:
                     with database(self.path) as db:
+                        # An explicit tick answers the history question in
+                        # advance. Without this check the guard below would
+                        # un-select the file the member just chose, because its
+                        # content is by definition in history_hashes.
+                        explicit = (
+                            db.execute(
+                                "SELECT 1 FROM meta WHERE key=?",
+                                ("selected-version:" + row["asset"],),
+                            ).fetchone()
+                            is not None
+                        )
                         prior_parts = db.execute(
                             "SELECT 1 FROM source_parts WHERE base=? LIMIT 1", (row["asset"],)
                         ).fetchone()
                         excluded_copy = db.execute(
                             "SELECT 1 FROM history_hashes WHERE hash=?", (h,)
                         ).fetchone()
-                        if not prior_parts and excluded_copy:
+                        if not prior_parts and excluded_copy and not explicit:
                             db.execute(
                                 "UPDATE snapshots SET selected=0,unknown=1,hash=? WHERE source=? AND path=?",
                                 (h, source["id"], rel),
@@ -378,7 +545,7 @@ class NativeClient:
                                 "INSERT OR REPLACE INTO aliases VALUES(?,?,?,?)",
                                 (source["id"], rel, "[]", "needs-history-review"),
                             )
-                    if not prior_parts and excluded_copy:
+                    if not prior_parts and excluded_copy and not explicit:
                         errors.append("history review required: " + source["id"] + "/" + rel)
                         continue
                 if row is not None and row["hash"] == h:
@@ -415,10 +582,14 @@ class NativeClient:
                     continue
                 aid = row["asset"] if row else "asset_" + uuid.uuid4().hex
                 unknown = bool(row["unknown"]) if row else False
-                if source["kind"] == "memory" and not unknown:
+                if source["kind"] == "memory":
                     from .lineage import classify_copy
 
-                    action, refs = classify_copy(self, h)
+                    action, refs = classify_copy(self, h, exclude_document=aid)
+                    # An explicitly shared exact historical copy may refer to its
+                    # known original. It must never create a new producer identity.
+                    if unknown and action:
+                        action = "alias"
                     if action:
                         with database(self.path) as db:
                             if row is not None:
@@ -453,7 +624,9 @@ class NativeClient:
                         (source["id"], rel),
                     ).fetchone()
                     upstream = json.loads(alias["refs"]) if alias else []
-                    enqueue_document(db, source, rel, aid, doc, unknown, upstream)
+                    enqueue_document(
+                        db, source, rel, aid, doc, unknown, upstream, mtime=stat.st_mtime
+                    )
                     db.execute(
                         "INSERT OR REPLACE INTO snapshots VALUES(?,?,?,?,?,?,?)",
                         (source["id"], rel, h, 1, aid, 0, int(unknown)),
@@ -463,11 +636,22 @@ class NativeClient:
                     "SELECT * FROM snapshots WHERE source=? AND selected=1", (source["id"],)
                 ).fetchall()
                 for row in rows:
-                    if row["path"] in seen or row["hash"] == "<deleted>":
+                    if row["path"] in seen:
                         continue
                     for part in db.execute(
                         "SELECT * FROM source_parts WHERE base=?", (row["asset"],)
                     ).fetchall():
+                        queued = db.execute(
+                            "SELECT payload FROM outbox WHERE asset=?", (part["asset"],)
+                        ).fetchone()
+                        if (
+                            row["hash"] == "<deleted>"
+                            and json.loads(part["payload"]).get("deleted")
+                            and (not queued or json.loads(queued["payload"]).get("deleted"))
+                        ):
+                            continue
+                        # A stale live queue entry must not supersede a local
+                        # tombstone when replay merely advances its base revision.
                         queue_delete(db, part)
                     db.execute(
                         "UPDATE snapshots SET hash=? WHERE source=? AND path=?",
@@ -500,7 +684,9 @@ class NativeClient:
                 for row in db.execute("SELECT key FROM meta WHERE key LIKE ?", (prefix + "%",))
             }
 
-    def sync(self) -> dict[str, Any]:
+    def sync(
+        self, *, progress: Callable[[str, int, int | None], None] | None = None
+    ) -> dict[str, Any]:
         """Capture locally, upload, replay changes, then publish native resources.
 
         A connection/auth failure stops this pass without removing queued data.
@@ -514,22 +700,57 @@ class NativeClient:
                 fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError:
                 return {"busy": True}
+            self._refresh_profile()
+            self._configure_storage_locked()
             from .runtime_sources import process_observations, quarantine_changed_roots
 
+            if progress:
+                progress("scan", 0, None)
             errors = process_observations(self)
             errors.extend(self.scan())  # Persist source changes before any network request.
+            if progress:
+                progress("connect", 0, None)
             self.transport.me()  # revoked devices cannot use this as a successful refresh
             errors.extend(quarantine_changed_roots(self))
+            # A Hub that predates source_meta rejects unknown fields outright.
+            # Ask once per pass; a transport without the probe is a current one.
+            probe = getattr(self.transport, "capabilities", None)
+            send_meta = True
+            if probe is not None:
+                try:
+                    send_meta = "recall-parity-v1" in probe()
+                except (OSError, ValueError, TimeoutError):
+                    send_meta = False
             pushed = 0
             with database(self.path) as db:
-                pending = db.execute("SELECT * FROM outbox").fetchall()
+                pending = [
+                    row
+                    for row in db.execute("SELECT * FROM outbox")
+                    if self.source_enabled(json.loads(row["payload"])["kind"])
+                ]
             quarantined = self.quarantined_sources()
+            if progress:
+                progress("upload", 0, len(pending))
             for row in pending:
                 item = json.loads(row["payload"])
-                if item["source_store"] in quarantined:
+                if not self.source_enabled(item["kind"]) or item["source_store"] in quarantined:
                     continue
+                if not send_meta:
+                    item.pop("source_meta", None)
                 try:
-                    saved = self.transport.put(item)
+                    try:
+                        saved = self.transport.put(item)
+                    except ValueError as exc:
+                        # One retry without the optional hints covers a Hub whose
+                        # health endpoint is newer than its asset contract.
+                        if getattr(exc, "http_status", None) != 422 or "source_meta" not in item:
+                            raise
+                        item.pop("source_meta")
+                        saved = self.transport.put(item)
+                        # Only a retry that succeeded proves the field itself was
+                        # the problem; an asset rejected for its own reasons must
+                        # not strip the hints from everything queued after it.
+                        send_meta = False
                 except ValueError as exc:
                     errors.append(f"upload {item['asset_id']}: {type(exc).__name__}")
                     continue
@@ -545,14 +766,24 @@ class NativeClient:
                         (item["asset_id"], row["hash"]),
                     )
                 pushed += 1
+                if progress:
+                    progress("upload", pushed, len(pending))
+            errors.extend(self._report_recalls())
             # Upload acknowledgement can be lost after the Hub commits. Replaying
             # our changes repairs the base revision before the next idempotent retry.
             pages = 0
+            if progress:
+                progress("refresh", 0, None)
             while pages < 100:
                 with database(self.path) as db:
                     row = db.execute("SELECT value FROM meta WHERE key='cursor'").fetchone()
                 cursor = int(row["value"]) if row else 0
-                response = self.transport.changes(cursor)
+                projection = self.projection_enabled()
+                response = self.transport.changes(cursor, metadata_only=not projection)
+                self._refresh_profile()
+                if projection != self.projection_enabled():
+                    self._configure_storage_locked()
+                    continue  # Re-fetch from the migrated cursor under the new policy.
                 with database(self.path) as db:
                     for item in response["items"]:
                         if item["source_device_id"] == self.identity["device_id"]:
@@ -560,6 +791,18 @@ class NativeClient:
                                 "UPDATE source_parts SET revision=MAX(revision,?) WHERE asset=?",
                                 (item["revision"], item["asset_id"]),
                             )
+                            local_part = db.execute(
+                                "SELECT * FROM source_parts WHERE asset=?", (item["asset_id"],)
+                            ).fetchone()
+                            if (
+                                local_part
+                                and json.loads(local_part["payload"]).get("deleted")
+                                and not item["deleted"]
+                            ):
+                                # An older process may have resurrected a source
+                                # we already removed. Preserve the local tombstone
+                                # and requeue it at the acknowledged remote revision.
+                                queue_delete(db, local_part)
                             queued = db.execute(
                                 "SELECT payload FROM outbox WHERE asset=?", (item["asset_id"],)
                             ).fetchone()
@@ -572,10 +815,45 @@ class NativeClient:
                                         "UPDATE outbox SET payload=?,hash=? WHERE asset=?",
                                         (encoded, digest(encoded), item["asset_id"]),
                                     )
+                        from .evidence import metadata
+
                         db.execute(
-                            "INSERT OR REPLACE INTO replica VALUES(?,?)",
-                            (item["asset_id"], json.dumps(item, ensure_ascii=False)),
+                            "INSERT OR REPLACE INTO lineage_records VALUES(?,?)",
+                            (item["asset_id"], json.dumps(metadata(item), ensure_ascii=False)),
                         )
+                        if self.projection_enabled():
+                            db.execute(
+                                "INSERT OR REPLACE INTO replica VALUES(?,?)",
+                                (item["asset_id"], json.dumps(item, ensure_ascii=False)),
+                            )
+                    # A completed document proves earlier parts too: their delta
+                    # events may have been consumed while the upload was partial.
+                    for proof in response.get("proofs", []):
+                        scope = tuple(proof["scope"])
+                        for asset, revision in proof["parts"]:
+                            row = db.execute(
+                                "SELECT payload FROM lineage_records WHERE asset=?", (asset,)
+                            ).fetchone()
+                            if row is None:
+                                continue
+                            record = json.loads(row["payload"])
+                            actual = (
+                                record["tenant_id"],
+                                record["source_device_id"],
+                                record["source_store"],
+                                record.get("document_id") or record["asset_id"],
+                                record.get("document_hash") or record["body_hash"],
+                            )
+                            if (
+                                actual == scope
+                                and record["revision"] == revision
+                                and not record["deleted"]
+                            ):
+                                record["verified"] = True
+                                db.execute(
+                                    "UPDATE lineage_records SET payload=? WHERE asset=?",
+                                    (json.dumps(record), asset),
+                                )
                     # Replica rows and cursor are one commit: a crash cannot skip
                     # data by advancing the cursor ahead of its applied page.
                     db.execute(
@@ -585,8 +863,12 @@ class NativeClient:
                         "INSERT OR REPLACE INTO meta VALUES('last_auth',?)", (str(time.time()),)
                     )
                 pages += 1
+                if progress:
+                    progress("refresh", pages, None)
                 if not response["items"]:
                     break
+            self._refresh_profile()
+            self._configure_storage_locked()
             from .projection import publish
 
             for target in self.targets():
@@ -598,14 +880,72 @@ class NativeClient:
                     "last_sync": time.time(),
                     "pushed": pushed,
                     "pending": self.pending_count(),
+                    "paused_pending": self.source_scope()["paused_pending"],
                     "origin_review_count": len(self.origin_reviews()),
                     "errors": errors,
                 },
             )
+            if progress:
+                progress("refresh", pages, pages)
             return {"pushed": pushed, "errors": errors}
+
+    def _report_recalls(self) -> list[str]:
+        """Send queued delivery states per trace; drop what the Hub cannot accept, keep outages.
+
+        Nothing here may abort the sync pass: changes replay and projection must
+        proceed even while the feedback endpoint keeps failing.
+        """
+        from .transport import HubHTTPError
+
+        send = getattr(self.transport, "recall_feedback", None)
+        if send is None:
+            return []
+        with database(self.path) as db:
+            # The Hub forgets a trace after 30 days; a report older than that
+            # can only ever be refused, so stop carrying it.
+            db.execute("DELETE FROM recall_reports WHERE created<?", (time.time() - 30 * 86400,))
+            rows = db.execute(
+                "SELECT * FROM recall_reports ORDER BY trace_id, created LIMIT 640"
+            ).fetchall()
+        grouped: dict[str, list[dict[str, Any]]] = {}
+        for row in rows:
+            grouped.setdefault(row["trace_id"], []).append(
+                {"asset_id": row["asset"], "revision": row["revision"], "event": row["event"]}
+            )
+        errors: list[str] = []
+        for trace_id, events in grouped.items():
+            for start in range(0, len(events), 64):
+                batch = events[start : start + 64]
+                try:
+                    send(trace_id, batch)
+                except HubHTTPError as exc:
+                    errors.append(f"recall report {trace_id}: HTTP {exc.http_status}")
+                    # 404: a Hub without the ledger; 409/422: a trace it does not
+                    # know or will not accept. Either way the report is moot.
+                    # Any other status keeps the rows for a later pass.
+                    if exc.http_status not in (404, 409, 422):
+                        continue
+                except OSError:
+                    # Outage (5xx, 408/429, socket): keep every remaining row
+                    # rather than turn one unreachable endpoint into a socket
+                    # timeout per trace; the next pass retries from here.
+                    errors.append(f"recall report {trace_id}: unavailable")
+                    return errors
+                except ValueError as exc:
+                    # A malformed answer for this trace; the next trace may be fine.
+                    errors.append(f"recall report {trace_id}: {type(exc).__name__}")
+                    continue
+                with database(self.path) as db:
+                    db.executemany(
+                        "DELETE FROM recall_reports WHERE trace_id=? AND asset=? AND revision=? AND event=?",
+                        [(trace_id, e["asset_id"], e["revision"], e["event"]) for e in batch],
+                    )
+        return errors
 
     def cached(self) -> list[dict[str, Any]]:
         """Return live replica parts; consumers must verify multipart completeness before applying."""
+        if not self.projection_enabled():
+            return []
         with database(self.path) as db:
             items = [json.loads(r["payload"]) for r in db.execute("SELECT payload FROM replica")]
         return [i for i in items if not i["deleted"]]
@@ -615,8 +955,9 @@ class NativeClient:
         with database(self.path) as db:
             db.execute("DELETE FROM replica")
             db.execute("DELETE FROM recall_sources")
+            db.execute("DELETE FROM lineage_records")
             db.execute("DELETE FROM meta WHERE key='last_auth'")
-        from .projection import publish
+        from .projection import cleanup
 
         # Recall no longer copies bodies to disk, but a machine upgraded from an
         # earlier release may still hold them; clear them on revocation.
@@ -625,8 +966,8 @@ class NativeClient:
             for path in cache.glob("*.md"):
                 if not path.is_symlink() and digest(path.read_text()) == path.stem:
                     path.unlink()
-        for target in self.targets():
-            publish(Path(target["root"]), target["product"], [])
+        for target in self.targets(enabled_only=False):
+            cleanup(Path(target["root"]), target["product"])
 
     def search(self, query: str, **kwargs: Any) -> list[dict[str, Any]]:
         """Query the enrolled organization through the injected transport; do not impose project scope."""
@@ -636,6 +977,8 @@ class NativeClient:
         """Rank cached parts deterministically; the caller must enforce the offline authorization window."""
         from .materialize import assembled
 
+        if not self.projection_enabled():
+            return []
         records = self.cached()
         # A sync page may stop halfway through a document. Match the Hub's
         # completeness rule while retaining part identities for recall coverage.
