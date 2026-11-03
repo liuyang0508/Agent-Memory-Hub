@@ -6,6 +6,7 @@ from typing import Any
 
 import argparse
 import json
+import re
 import sqlite3
 import sys
 import time
@@ -19,6 +20,39 @@ from .recall_view import DISPLAY_KEY, DISPLAY_MODES, admit, normalize, render, r
 # Hosts that show a hook's systemMessage to the member. Codex shows the injected
 # context itself, so its table travels inside the organization block instead.
 VISIBLE_MESSAGE_PRODUCTS = frozenset({"claude-code", "cowork"})
+# A Claude Code mod can draw the recall as a collapsible transcript row. It
+# marks each session it draws for under ``rich-display/``; the hook then writes
+# the view for it under ``recall-view/`` instead of a plain-text systemMessage.
+PANEL_PRODUCTS = frozenset({"claude-code"})
+_SESSION_FILE = re.compile(r"[^A-Za-z0-9_-]")
+
+
+def _hand_to_panel(root: Path, product: str, payload: dict[str, Any], view: str) -> bool:
+    """Write the view for a mod drawing this session; True when one is."""
+    session_id = payload.get("session_id")
+    if product not in PANEL_PRODUCTS or not isinstance(session_id, str) or not session_id:
+        return False
+    name = _SESSION_FILE.sub("", session_id)[:128]
+    try:
+        # The mod refreshes its mark before each prompt; a stale one means it
+        # is no longer loaded, so the plain message comes back.
+        if not name or time.time() - (root / "rich-display" / name).stat().st_mtime > 120:
+            return False
+    except OSError:
+        return False
+    first, _, rest = view.partition("\n")
+    panel = {
+        "version": 1,
+        "written_at": time.time(),
+        "summary": first,
+        "lines": rest.split("\n") if rest else [],
+    }
+    try:
+        (root / "recall-view").mkdir(mode=0o700, exist_ok=True)
+        atomic_text(root / "recall-view" / (name + ".json"), json.dumps(panel, ensure_ascii=False))
+    except OSError:
+        return False
+    return True
 
 
 def _report(db: sqlite3.Connection, trace_id: str, keys: list[str], event: str) -> None:
@@ -149,7 +183,10 @@ def _run(root: Path, product: str, payload: dict[str, Any]) -> dict[str, Any]:
         except OSError:
             pass
         if display != "off" and product in VISIBLE_MESSAGE_PRODUCTS:
-            return {"systemMessage": render_skip(skip_reason, query)}
+            skipped = render_skip(skip_reason, query)
+            if _hand_to_panel(root, product, payload, skipped):
+                return {}
+            return {"systemMessage": skipped}
         return {}
     # Confirm prior delivery only if visible in the host's transcript.
     transcript = payload.get("transcript_path")
@@ -296,6 +333,7 @@ def _run(root: Path, product: str, payload: dict[str, Any]) -> dict[str, Any]:
             hits=hits,
             states=states,
             display=display,
+            style="box" if product in VISIBLE_MESSAGE_PRODUCTS else "markdown",
         )
     if body and view and product not in VISIBLE_MESSAGE_PRODUCTS:
         # Inside the organization block, so transcript capture strips it too.
@@ -370,7 +408,11 @@ def _run(root: Path, product: str, payload: dict[str, Any]) -> dict[str, Any]:
     if not c.recall_enabled():
         return {}
     output: dict[str, Any] = {}
-    if view and product in VISIBLE_MESSAGE_PRODUCTS:
+    if (
+        view
+        and product in VISIBLE_MESSAGE_PRODUCTS
+        and not _hand_to_panel(root, product, payload, view)
+    ):
         output["systemMessage"] = view
     if body:
         output["hookSpecificOutput"] = {"hookEventName": event, "additionalContext": body}

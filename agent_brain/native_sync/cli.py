@@ -1238,6 +1238,23 @@ def cowork_plugin(output: Path = typer.Option(...)) -> None:
     )
 
 
+@app.command("claude-mod")
+def claude_mod(
+    output: Path = typer.Option(..., help="mod 输出目录（Claude Code 插件目录）"),
+    state: Path = DEFAULT_STATE,
+) -> None:
+    """生成 Claude Code mod：把每次召回画成可展开/收起的彩色记录行。"""
+    from .claude_mod import export_claude_mod
+
+    folder = export_claude_mod(output, state)
+    emit(
+        {
+            "mod": str(folder),
+            "status": "用 claude --plugin-dir 加载，或把目录加入 CLAUDE_CODE_PLUGIN_DIRS",
+        }
+    )
+
+
 @app.command("cowork-connect")
 def cowork_connect(
     output: Path = typer.Option(..., help="无凭证的成员绑定插件输出目录"),

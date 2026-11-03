@@ -127,7 +127,9 @@ def test_claude_code_sees_the_table_as_a_message(live, tmp_path):
         "prompt": "订单 验签 密钥",
     }
     result = hooks.run(c.root, "claude-code", payload)
-    assert "| 1 | 订单验签 |" in result["systemMessage"]
+    message = result["systemMessage"]
+    assert "**" not in message and "| 1 |" not in message
+    assert any(line.startswith("│ 1 │ 订单验签") for line in message.splitlines())
     context = result["hookSpecificOutput"]["additionalContext"]
     assert "订单回调验签" in context and "| # | 记忆 |" not in context
 
@@ -188,3 +190,78 @@ def test_cli_sets_display_and_summarizes_hook_metrics(live, tmp_path):
     assert stats["prompts"] == 3 and stats["skipped"] == 1
     assert stats["skip_reasons"] == {"acknowledgement": 1} and stats["with_hits"] >= 1
     assert stats["elapsed_ms"]["p50"] is not None
+
+
+def test_box_table_lines_up_mixed_width_text():
+    from agent_brain.native_sync.recall_view import _width
+
+    view = render(
+        hub="https://h",
+        query="订单验签失败怎么办" * 10,
+        asking={"product": "claude-code"},
+        budget=3.0,
+        elapsed_ms=5,
+        via="service",
+        mode="remote",
+        retrieval={"mode": "hybrid"},
+        trace_id=None,
+        hits=[
+            _record(),
+            _record(
+                asset_id="b", title="很长的中文标题" * 6, producer_name=None, uploader_name="张三"
+            ),
+            _record(asset_id="c", title="MEMORY", path="MEMORY.md", part_index=0, part_count=4),
+        ],
+        states={"a:3:h": "packed", "b:3:h": "covered"},
+        display="table",
+        style="box",
+    )
+    lines = view.splitlines()
+    table = [line for line in lines if line[:1] in "┌│├└"]
+    assert len(table) == 7 and len({_width(line) for line in table}) == 1
+    assert "**" not in view and "`" not in view
+    assert not any(mark in line for line in table for mark in "…·—§")
+    assert "张三上传" in view and "已注入过" in view and "MEMORY.md 1/4" in view
+    assert "项目" in table[1]  # a hit carries a project, so the column is shown
+
+
+def test_a_fresh_mod_mark_moves_the_view_into_a_panel_file(live, tmp_path):
+    import os
+
+    hub, url = live
+    seeded(hub)
+    c = NativeClient.adopt(tmp_path / "state", url, hub.provision("李四", "Mac"), "Mac")
+    payload = {
+        "hook_event_name": "UserPromptSubmit",
+        "session_id": "sess-1/../x",
+        "prompt": "订单 验签 密钥",
+    }
+    mark = c.root / "rich-display" / "sess-1x"
+    mark.parent.mkdir()
+    mark.write_text("1")
+    drawn = hooks.run(c.root, "claude-code", payload)
+    assert "systemMessage" not in drawn and "hookSpecificOutput" in drawn
+    panel = json.loads((c.root / "recall-view" / "sess-1x.json").read_text())
+    assert panel["summary"].startswith("组织记忆召回")
+    assert any(line.startswith("│ 1 │ 订单验签") for line in panel["lines"])
+    skipped = hooks.run(c.root, "claude-code", {**payload, "prompt": "好的"})
+    assert skipped == {}
+    assert "跳过" in json.loads((c.root / "recall-view" / "sess-1x.json").read_text())["summary"]
+    # A stale mark (mod unloaded) or another host falls back to the message.
+    os.utime(mark, (0, 0))
+    assert "systemMessage" in hooks.run(c.root, "claude-code", payload)
+    mark.write_text("1")
+    assert "systemMessage" in hooks.run(c.root, "cowork", payload)
+
+
+def test_claude_mod_export_binds_the_state_directory(tmp_path):
+    from agent_brain.native_sync.claude_mod import export_claude_mod
+
+    folder = export_claude_mod(tmp_path / "mod", tmp_path / 'state "x"')
+    register = (folder / "hooks" / "register.tsx").read_text()
+    assert "__AMH_STATE__" not in register
+    assert json.dumps(str((tmp_path / 'state "x"').resolve())) in register
+    assert json.loads((folder / ".claude-plugin" / "plugin.json").read_text())["name"] == (
+        "amh-recall-view"
+    )
+    assert (folder / "types" / "index.d.ts").exists()
