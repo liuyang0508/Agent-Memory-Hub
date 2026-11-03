@@ -23,7 +23,7 @@ from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn, TimeEl
 
 from .client import NativeClient
 from . import source_policy
-from .common import PRODUCTS, PAIRING_MAX_TTL, atomic_json, display_name
+from .common import PRODUCTS, PAIRING_MAX_TTL, atomic_json, display_name, source_product
 from .storage import database
 from .install import (
     discover as discover_products,
@@ -847,7 +847,7 @@ def recall_trace(
             f"{item.get('final_rank') or '—'}/{item.get('rank') or '—'}",
             item.get("title") or item.get("path") or "",
             f"{item.get('role')}·{nature.get('value', '未知')}",
-            str(item.get("product")),
+            source_product(str(item.get("product"))),
             str(item.get("project") or ""),
             "未知" if producer.get("unknown") else str(producer.get("name")),
             _route_text(item.get("routes", {})),

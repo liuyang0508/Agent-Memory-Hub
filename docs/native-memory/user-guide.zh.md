@@ -266,3 +266,23 @@ Cowork 执行过首次任务后，再检查其独立运行时：
 ## 两个 Hub：独立同步，主 Hub 召回
 
 客户端1.4.5支持按profile独立关闭召回、保持同步，以及只同步安装模式。迁移前须保留旧排除历史并审查新Hub的共享计划；操作顺序与Cowork边界见[双Hub说明](dual-hub.zh.md)。
+
+
+### 按 Hub 独立控制上传和召回
+
+用 `--state` 指定本机对应 Hub 的配置目录。下面以默认目录为例；其他 Hub 使用安装时选择的独立目录。
+
+```sh
+# 关闭召回，保留上传
+amh-native recall --state ~/.amh-native-sync --disable
+# 恢复召回
+amh-native recall --state ~/.amh-native-sync --enable
+# 暂停所有类型上传，保留召回；按提示确认
+amh-native scope --state ~/.amh-native-sync --none
+# 将上传范围设为仅长期记忆；按提示确认
+amh-native scope --state ~/.amh-native-sync --kind memory
+# 查看上传范围和召回状态
+amh-native status --state ~/.amh-native-sync
+```
+
+`scope` 设置的是完整上传范围，不是增量开关。`memory` 指产品维护的长期记忆；其他类型是会话记录 `transcript`、规则 `rule`、技能 `skill`、配置 `config`。需要多个类型时重复 `--kind`。关闭上传保留选择、队列和云端内容，正在执行的一轮同步结束后生效。已有会话中的上下文不会因关闭召回而撤回，验证时请新建会话。
