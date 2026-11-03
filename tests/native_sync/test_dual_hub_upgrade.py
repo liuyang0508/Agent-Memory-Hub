@@ -121,7 +121,7 @@ def test_an_ownerless_manifest_from_an_earlier_release_is_adopted_then_cleaned(t
     assert not manifest.exists()
 
 
-@pytest.mark.skipif(not hasattr(__import__("os"), "geteuid"), reason="POSIX permissions")
+@pytest.mark.skipif(not hasattr(__import__("os"), "geteuid"), reason="requires POSIX os.geteuid")
 def test_cowork_runtime_state_is_created_owner_only(tmp_path):
     from agent_brain.native_sync.common import atomic_json
     from agent_brain.native_sync.install import export_cowork_plugin

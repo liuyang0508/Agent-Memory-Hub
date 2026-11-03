@@ -70,17 +70,28 @@ def test_table_lists_call_parameters_and_each_memory():
         hits=[
             _record(),
             _record(asset_id="b", title="其他", producer_name=None, uploader_name="张三"),
+            _record(
+                asset_id="c",
+                title="MEMORY",
+                path="MEMORY.md",
+                part_index=2,
+                part_count=15,
+                retrieval_ranks=None,
+                recall={"routes": {"lexical": 4, "semantic": 2, "hopfield": "disabled"}},
+            ),
         ],
         states={"a:3:h": "packed", "b:3:h": "budget"},
         display="table",
     )
-    assert "混合（词法+语义）" in view and "命中 2 条 · 注入 1 条" in view
+    assert "混合（词法+语义）" in view and "命中 3 条 · 注入 1 条" in view
     assert "POST https://hub.example.com/native/v1/recall" in view
     assert "订单验签失败怎么办" in view and "项目 orders" in view
     row = next(line for line in view.splitlines() if line.startswith("| 1 |"))
     assert "订单验签" in row and "Codex" in row and "敖丙" in row and "r3" in row
     assert "词法2·语义1" in row and "0.73" in row and "已注入" in row
     assert "未知（张三上传）" in view and "超出注入预算" in view
+    third = next(line for line in view.splitlines() if line.startswith("| 3 |"))
+    assert "MEMORY.md §3/15" in third and "词法4·语义2" in third
 
 
 def test_summary_mode_is_one_line():

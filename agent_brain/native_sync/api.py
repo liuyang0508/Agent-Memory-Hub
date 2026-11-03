@@ -545,6 +545,7 @@ RECALL_ITEM_FIELDS = (
     "uploader_name",
     "upstream",
     "verified",
+    "observed_at",
 )
 RECALL_MATCH_FIELDS = (
     "similarity",

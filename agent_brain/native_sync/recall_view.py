@@ -167,7 +167,9 @@ def _producer(record: dict[str, Any]) -> str:
 
 
 def _routes(record: dict[str, Any]) -> str:
-    ranks = record.get("retrieval_ranks") or {}
+    trace = record.get("recall")
+    routes = trace.get("routes") if isinstance(trace, dict) else None
+    ranks = routes if isinstance(routes, dict) else record.get("retrieval_ranks") or {}
     labels = (("lexical", "词法"), ("semantic", "语义"), ("hopfield", "联想"))
     parts = [f"{label}{ranks[key]}" for key, label in labels if isinstance(ranks.get(key), int)]
     return "·".join(parts) or "—"
@@ -185,6 +187,19 @@ def _updated(record: dict[str, Any]) -> str:
         if isinstance(value, (int, float)) and value > 0:
             return datetime.fromtimestamp(value).strftime("%m-%d")
     return "—"
+
+
+def _title(record: dict[str, Any]) -> str:
+    """Navigation files share generic titles; name the file and the part instead."""
+    path = str(record.get("path") or "")
+    name = path.rsplit("/", 1)[-1]
+    title = str(record.get("title") or "")
+    if not title or title.lower() in {"memory", "memory_summary", "claude", "agents"}:
+        title = name or title
+    count, index = record.get("part_count"), record.get("part_index")
+    if isinstance(count, int) and count > 1 and isinstance(index, int):
+        title += f" §{index + 1}/{count}"
+    return title
 
 
 def _kind(record: dict[str, Any]) -> str:
@@ -254,7 +269,7 @@ def render(
     for rank, record in enumerate(hits, 1):
         from .recall import coverage_key
 
-        title = record.get("title") or str(record.get("path") or "").rsplit("/", 1)[-1]
+        title = _title(record)
         product = source_product(str(record.get("product") or ""))
         lines.append(
             "| "

@@ -88,7 +88,6 @@ def test_recall_small_memory_is_returned_verbatim_with_hook_fields_only(api):
         "source_meta",
         "index_text",
         "content_hash",
-        "observed_at",
         "encoding",
         "hopfield_match",
     } & set(item)
