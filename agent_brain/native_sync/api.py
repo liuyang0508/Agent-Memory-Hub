@@ -1,12 +1,16 @@
 """Dedicated native-memory service; no imports of legacy web/brain state."""
 
 from __future__ import annotations
-from typing import Any
+from typing import Any, Literal
+from collections.abc import Awaitable, Callable
 import sqlite3
+import hmac
+from urllib.parse import urlsplit
 
-from fastapi import FastAPI, Header, HTTPException, Query
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi import FastAPI, Header, HTTPException, Query, Request
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from .hub import Hub
+from .admin_auth import (AdminAuth, AdminCredential, WebAdminSession, FLOW_COOKIE, SESSION_COOKIE, STATE_TTL, SESSION_TTL)
 from .knowledge import KnowledgeConflict, NativeKnowledge
 from .models import (
     AdminRevokeInput,
@@ -28,6 +32,18 @@ def create_app(hub: Hub) -> FastAPI:
     """Build an independent HTTP facade; the Hub owns identity, tenant scope and transaction invariants."""
     app = FastAPI(title="AMH Native Organization Memory", docs_url=None, redoc_url=None)
     knowledge = NativeKnowledge(hub)
+    admin_auth = AdminAuth(hub)
+
+    @app.middleware("http")
+    async def private_admin_responses(
+        request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
+        response = await call_next(request)
+        if request.url.path.startswith("/native/v1/admin"):
+            response.headers["Cache-Control"] = "no-store"
+            response.headers["Referrer-Policy"] = "no-referrer"
+            response.headers["X-Content-Type-Options"] = "nosniff"
+        return response
 
     @app.exception_handler(KnowledgeConflict)
     async def knowledge_conflict(request: Any, error: KnowledgeConflict) -> JSONResponse:
@@ -63,7 +79,7 @@ def create_app(hub: Hub) -> FastAPI:
         return {
             "protocol": 1,
             "service": "amh-native",
-            "capabilities": ["org-research-v1"],
+            "capabilities": ["org-research-v1", "admin-feishu-session-v1"],
         }
 
     @app.get("/native/v1/ready")
@@ -95,8 +111,58 @@ def create_app(hub: Hub) -> FastAPI:
             )
         }
 
-    def operator(authorization: str | None) -> str:
-        return bearer(authorization)
+    def operator(request: Request, authorization: str | None) -> AdminCredential:
+        # An explicit Bearer header never falls back to a browser cookie.
+        if authorization is not None:
+            return bearer(authorization)
+        token = request.cookies.get(SESSION_COOKIE, "")
+        session = admin_auth.session(token)
+        if request.method not in ("GET", "HEAD"):
+            origin = urlsplit(admin_auth.config().public_url)
+            expected = origin.scheme + "://" + origin.netloc
+            if (request.headers.get("origin") != expected or not hmac.compare_digest(
+                    request.headers.get("x-amh-csrf", "").encode(), session["csrf"].encode())):
+                raise HTTPException(403, "same-origin administrator action required")
+        return WebAdminSession(token)
+
+    def web_redirect(destination: str) -> RedirectResponse:
+        response = RedirectResponse(destination, status_code=303)
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["Referrer-Policy"] = "no-referrer"
+        response.delete_cookie(FLOW_COOKIE, path="/", secure=True, httponly=True, samesite="lax")
+        return response
+
+    @app.get("/native/v1/admin/login")
+    def admin_login(request: Request, target: Literal["admin", "dashboard"] = "admin") -> Any:
+        from . import feishu
+
+        try:
+            config = admin_auth.config()
+            state, browser = admin_auth.begin(target, request.cookies.get(FLOW_COOKIE, ""))
+        except ValueError:
+            return web_redirect("/native/v1/admin?login=unavailable")
+        response = web_redirect(feishu.authorize_url(config, state))
+        response.set_cookie(FLOW_COOKIE, browser, max_age=STATE_TTL, path="/", secure=True,
+                            httponly=True, samesite="lax")
+        return response
+
+    @app.get("/native/v1/admin/session")
+    def admin_session(request: Request) -> JSONResponse:
+        response = JSONResponse(admin_auth.session(request.cookies.get(SESSION_COOKIE, "")))
+        response.headers["Cache-Control"] = "no-store"
+        return response
+
+    @app.post("/native/v1/admin/logout")
+    def admin_logout(request: Request) -> JSONResponse:
+        try:
+            operator(request, None)
+        except PermissionError:
+            pass  # An already expired session may still clear its stale cookie.
+        admin_auth.logout(request.cookies.get(SESSION_COOKIE, ""))
+        response = JSONResponse({"signed_out": True})
+        response.delete_cookie(SESSION_COOKIE, path="/", secure=True, httponly=True, samesite="lax")
+        response.headers["Cache-Control"] = "no-store"
+        return response
 
     @app.get("/native/v1/admin")
     def admin_page() -> HTMLResponse:
@@ -114,35 +180,39 @@ def create_app(hub: Hub) -> FastAPI:
 
     @app.get("/native/v1/admin/dashboard/data")
     def admin_dashboard(
+        request: Request,
         days: int = Query(default=30, ge=1, le=365),
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
         """Aggregate activity for the operator dashboard; counts only, no memory text."""
-        return hub.admin_dashboard(operator(authorization), days=days)
+        return hub.admin_dashboard(operator(request, authorization), days=days)
 
     @app.get("/native/v1/admin/overview")
-    def admin_overview(authorization: str | None = Header(default=None)) -> dict[str, Any]:
-        return hub.admin_overview(operator(authorization))
+    def admin_overview(request: Request, authorization: str | None = Header(default=None)) -> dict[str, Any]:
+        return hub.admin_overview(operator(request, authorization))
 
     @app.post("/native/v1/admin/revoke")
     def admin_revoke(
+        request: Request,
         data: AdminRevokeInput, authorization: str | None = Header(default=None)
     ) -> dict[str, Any]:
-        hub.admin_revoke(operator(authorization), data.device_id)
+        hub.admin_revoke(operator(request, authorization), data.device_id)
         return {"revoked": data.device_id}
 
     @app.post("/native/v1/admin/settings")
     def admin_settings(
+        request: Request,
         data: AdminSettingInput, authorization: str | None = Header(default=None)
     ) -> dict[str, Any]:
-        hub.admin_setting(operator(authorization), data.key, data.value)
+        hub.admin_setting(operator(request, authorization), data.key, data.value)
         return {"saved": data.key}
 
     @app.post("/native/v1/admin/secret")
     def admin_secret(
+        request: Request,
         data: AdminSecretInput, authorization: str | None = Header(default=None)
     ) -> dict[str, Any]:
-        hub.admin_secret_set(operator(authorization), data.app_secret)
+        hub.admin_secret_set(operator(request, authorization), data.app_secret)
         return {"saved": "feishu_app_secret"}
 
     @app.post("/native/v1/auth/feishu/start")
@@ -165,12 +235,42 @@ def create_app(hub: Hub) -> FastAPI:
 
     @app.get("/native/v1/auth/feishu/callback")
     def feishu_callback(
+        request: Request,
         code: str = Query(default=""),
         state: str = Query(default=""),
         error: str = Query(default=""),
     ) -> Any:
         """Consume the code, then hand a one-use ticket to the caller's loopback listener."""
         from . import feishu
+
+        if state.startswith("admin."):
+            browser = request.cookies.get(FLOW_COOKIE, "")
+            try:
+                admin_auth.check(state, browser)
+            except ValueError:
+                return web_redirect("/native/v1/admin?login=expired")
+            if error or not code:
+                return web_redirect("/native/v1/admin?login=cancelled")
+            try:
+                web_config = admin_auth.config()
+                provider_token = feishu.exchange_code(web_config, code)
+                identity = feishu.user_identity(provider_token)
+            except (ValueError, OSError):
+                return web_redirect("/native/v1/admin?login=unavailable")
+            try:
+                session, destination = admin_auth.complete(
+                    state, browser, identity, request.cookies.get(SESSION_COOKIE, "")
+                )
+            except PermissionError:
+                response = web_redirect("/native/v1/admin?login=denied")
+                response.delete_cookie(SESSION_COOKIE, path="/", secure=True, httponly=True, samesite="lax")
+                return response
+            except ValueError:
+                return web_redirect("/native/v1/admin?login=expired")
+            response = web_redirect(destination)
+            response.set_cookie(SESSION_COOKIE, session, max_age=SESSION_TTL, path="/",
+                                secure=True, httponly=True, samesite="lax")
+            return response
 
         if error:
             raise HTTPException(400, "authorization declined")

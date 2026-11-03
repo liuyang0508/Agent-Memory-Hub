@@ -5,8 +5,8 @@ products and devices, how much, and whether anything has gone quiet. It renders
 counts and metadata only — never memory text — so the page is safe to leave open
 on a shared screen.
 
-The page holds no credential of its own: the operator pastes the token minted on
-the host, and the browser keeps it in sessionStorage only.
+Feishu browser sessions are shared with the administrator page. A host-issued
+recovery token remains an explicit operator fallback.
 """
 
 from __future__ import annotations
@@ -67,17 +67,21 @@ PAGE = """<!doctype html>
 <body>
 <div class="wrap">
   <h1>组织记忆 · 数据看板</h1>
-  <p class="sub">统计口径来自设备实际上传的内容，不含记忆正文。粘贴在 Hub 主机签发的管理令牌后查看。</p>
+  <p class="sub">统计口径来自设备实际上传的内容，不含记忆正文。使用已获管理员权限的飞书账号查看。</p>
 
   <div id="login" class="card">
+    <p><a href="/native/v1/admin/login?target=dashboard" onclick="beginAdminLogin('dashboard'); return false;">使用飞书登录</a></p>
+    <p class="muted" id="loginError" role="status"></p>
+    <details><summary>主机管理员运维入口</summary>
     <div class="row">
       <input id="token" type="password" placeholder="管理令牌" size="44" autocomplete="off">
       <button class="primary" onclick="saveToken()">进入</button>
-      <span class="muted" id="loginError"></span>
+
     </div>
     <p class="muted" style="font-size:12.5px;margin:10px 0 0">
       在 Hub 主机执行 <code>amh-native admin --db &lt;库&gt; --label 你的名字</code> 取得令牌，只显示一次。
     </p>
+    </details>
   </div>
 
   <div id="ops">
@@ -144,7 +148,8 @@ PAGE = """<!doctype html>
 </div>
 
 <script>
-let token = sessionStorage.getItem("amh_dash") || "";
+/* AMH_ADMIN_SESSION */
+let token = sessionStorage.getItem("amh_dash") || sessionStorage.getItem("amh_admin") || "";
 const fmtBytes = (n) => n < 1024 ? n + " B" : n < 1048576 ? (n/1024).toFixed(1) + " KB" : (n/1048576).toFixed(1) + " MB";
 const fmtTime = (t) => t ? new Date(t * 1000).toLocaleString("zh-CN") : "—";
 const esc = (v) => String(v ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
@@ -155,15 +160,16 @@ function saveToken() {
   if (!v) return;
   token = v; sessionStorage.setItem("amh_dash", v); load();
 }
-function logout() { sessionStorage.removeItem("amh_dash"); location.reload(); }
+function logout() { return signOutAdmin(); }
 
 async function load() {
+  if (!token && !await ensureAdminSession("loginError", "dashboard")) return;
   const days = document.getElementById("days").value;
   let r;
   try {
-    r = await fetch("/native/v1/admin/dashboard/data?days=" + days, { headers: { "Authorization": "Bearer " + token } });
+    r = await fetch("/native/v1/admin/dashboard/data?days=" + days, { headers: token ? { "Authorization": "Bearer " + token } : {} });
   } catch (e) { document.getElementById("loginError").textContent = "网络错误"; return; }
-  if (r.status === 401) { document.getElementById("loginError").textContent = "令牌无效或已撤销"; return; }
+  if (r.status === 401) { document.getElementById("ops").style.display = "none"; document.getElementById("login").style.display = "block"; document.getElementById("loginError").textContent = "登录已过期或权限已撤销，请重新登录。"; return; }
   if (!r.ok) { document.getElementById("loginError").textContent = "读取失败"; return; }
   const d = await r.json();
   document.getElementById("login").style.display = "none";
@@ -229,7 +235,7 @@ function render(d) {
   rows("projects", d.top_projects.map(p => `<tr><td>${esc(p.project)}</td><td class="num">${p.assets}</td></tr>`).join(""), 2);
 }
 
-if (token) load();
+load();
 </script>
 </body>
 </html>
@@ -238,4 +244,6 @@ if (token) load();
 
 def html() -> str:
     """Return the dashboard page; it carries no secret and no memory content."""
-    return PAGE
+    from .admin_ui import SCRIPT
+
+    return PAGE.replace("/* AMH_ADMIN_SESSION */", SCRIPT)

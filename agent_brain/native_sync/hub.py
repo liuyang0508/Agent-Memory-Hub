@@ -16,6 +16,7 @@ from pathlib import Path
 from .common import digest, tokens
 from .storage import database, HUB_SCHEMA, DB_TIMEOUT
 from .models import AssetInput
+from .admin_auth import AdminAuth, AdminCredential, WebAdminSession
 
 if TYPE_CHECKING:
     from .semantic import IndexRefreshResult, SemanticBackend
@@ -140,14 +141,17 @@ class Hub:
             db.execute("INSERT INTO admins VALUES(?,?,?,0)", (digest(token), label, time.time()))
         return token
 
-    def _admin(self, db: sqlite3.Connection, token: str) -> None:
+    def _admin(self, db: sqlite3.Connection, token: AdminCredential) -> None:
+        if isinstance(token, WebAdminSession):
+            AdminAuth(self).resolve(db, token.token)
+            return
         row = db.execute(
             "SELECT 1 FROM admins WHERE hash=? AND revoked=0", (digest(token),)
         ).fetchone()
         if row is None:
             raise PermissionError("operator credential invalid or revoked")
 
-    def admin_overview(self, token: str) -> dict[str, Any]:
+    def admin_overview(self, token: AdminCredential) -> dict[str, Any]:
         """Members, devices and pending invitations; never includes any secret."""
         with database(self.path) as db:
             self._admin(db, token)
@@ -177,7 +181,7 @@ class Hub:
             }
         return {"members": members, "devices": devices, "settings": settings}
 
-    def admin_dashboard(self, token: str, *, days: int = 30) -> dict[str, Any]:
+    def admin_dashboard(self, token: AdminCredential, *, days: int = 30) -> dict[str, Any]:
         """Aggregates for the operator dashboard; counts and metadata only, never memory text.
 
         Every number here is derived from what devices actually uploaded, so a
@@ -342,28 +346,31 @@ class Hub:
         tenant = row[0]["tenant"] if len(row) == 1 else ""
         return self.provision(name, device_name, tenant=tenant)
 
-    def admin_revoke(self, token: str, device_id: str) -> None:
+    def admin_revoke(self, token: AdminCredential, device_id: str) -> None:
         with database(self.path) as db:
+            db.execute("BEGIN IMMEDIATE")
             self._admin(db, token)
-        self.revoke(device_id)
+            db.execute("UPDATE devices SET revoked=1 WHERE id=?", (device_id,))
 
-    def admin_setting(self, token: str, key: str, value: str) -> None:
+    def admin_setting(self, token: AdminCredential, key: str, value: str) -> None:
         """Store deployment settings; an empty value clears the key."""
         allowed = {"feishu_app_id", "amh_hub_public_url", "feishu_tenant", "feishu_tenant_key"}
         if key not in allowed:
             raise ValueError("unknown setting")
         with database(self.path) as db:
+            db.execute("BEGIN IMMEDIATE")
             self._admin(db, token)
             if value:
                 db.execute("INSERT OR REPLACE INTO settings VALUES(?,?)", (key, value))
             else:
                 db.execute("DELETE FROM settings WHERE key=?", (key,))
 
-    def admin_secret_set(self, token: str, app_secret: str) -> None:
+    def admin_secret_set(self, token: AdminCredential, app_secret: str) -> None:
         """Store the application secret separately so it is never read back by the page."""
         if not app_secret.strip():
             raise ValueError("app secret required")
         with database(self.path) as db:
+            db.execute("BEGIN IMMEDIATE")
             self._admin(db, token)
             db.execute(
                 "INSERT OR REPLACE INTO settings VALUES('feishu_app_secret',?)", (app_secret,)

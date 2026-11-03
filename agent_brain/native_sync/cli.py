@@ -165,6 +165,23 @@ def admin(db: Path = typer.Option(...), label: str = typer.Option(...)) -> None:
     emit({"admin": Hub(db).admin_create(label), "label": label, "note": "只显示一次"})
 
 
+@app.command("admin-role")
+def admin_role(
+    db: Path = typer.Option(...),
+    member: str = typer.Option("", help="已完成飞书登录的稳定成员 ID；省略时列出管理员角色"),
+    grant: bool = typer.Option(False, "--grant", help="授予该飞书账号 Hub 管理员权限"),
+    revoke: bool = typer.Option(False, "--revoke", help="撤销权限并使该账号所有后台会话立即失效"),
+) -> None:
+    """仅在 Hub 主机管理飞书管理员角色；不按姓名匹配，不改变设备凭据。"""
+    from .hub import Hub
+    from .admin_auth import AdminAuth
+
+    if (grant and revoke) or (bool(member) != (grant or revoke)):
+        raise typer.BadParameter("指定 --member 和 --grant 或 --revoke；不带这些参数则列出角色")
+    auth = AdminAuth(Hub(db))
+    emit(auth.set_role(member, enabled=grant) if member else {"roles": auth.roles()})
+
+
 @app.command("scope-feishu-identities")
 def scope_feishu_identities(
     db: Path = typer.Option(...),

@@ -145,6 +145,34 @@ CREATE TABLE IF NOT EXISTS admins(
     revoked INTEGER DEFAULT 0
 );
 
+-- Browser administrator login is separate from device and recovery credentials.
+-- Additive tables: existing clients and prior Hub releases retain their data.
+CREATE TABLE IF NOT EXISTS admin_web_roles(
+    app_id TEXT NOT NULL,
+    tenant_key TEXT NOT NULL,
+    open_id TEXT NOT NULL,
+    member TEXT NOT NULL,
+    granted REAL NOT NULL,
+    revoked INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY(app_id,tenant_key,open_id)
+);
+CREATE TABLE IF NOT EXISTS admin_web_states(
+    hash TEXT PRIMARY KEY,
+    browser_hash TEXT NOT NULL,
+    config_hash TEXT NOT NULL,
+    target TEXT NOT NULL,
+    expires REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS admin_web_sessions(
+    hash TEXT PRIMARY KEY,
+    app_id TEXT NOT NULL,
+    tenant_key TEXT NOT NULL,
+    open_id TEXT NOT NULL,
+    config_hash TEXT NOT NULL,
+    csrf TEXT NOT NULL,
+    expires REAL NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS settings(
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
