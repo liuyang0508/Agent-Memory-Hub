@@ -249,6 +249,21 @@ def serve(
         backend, error = hub._semantic_backend()
         if backend is None:
             output.print(f"语义模型未就绪（{error}）；检索将明确报告词法降级。", markup=False)
+    import sqlite3
+    import threading
+    import time as clock
+
+    def roll_up_insights() -> None:
+        # Hourly rollup keeps recall history even when nobody opens the insight
+        # page for weeks; the page also refreshes on demand when it is stale.
+        while True:
+            clock.sleep(3600)
+            try:
+                hub.refresh_insights()
+            except (sqlite3.Error, OSError):
+                continue
+
+    threading.Thread(target=roll_up_insights, name="amh-insights", daemon=True).start()
     uvicorn.run(create_app(hub), host=host, port=port, log_level="warning", access_log=False)
 
 

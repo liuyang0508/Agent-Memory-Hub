@@ -91,7 +91,7 @@ amh-native recall-trace                     # 本设备最近召回：时间/通
 amh-native recall-trace --trace <trace_id>  # 展开：排名、标题、内容形态、来源产品、项目、原生产者、召回方式、本轮状态、时间
 ```
 
-管理员可在 `/native/v1/admin/recalls` 查看全组织记录（与看板同一管理令牌，数据接口是 `/native/v1/admin/recalls/data`）。注意隐私：Hook 通道把用户的提示词当查询，明细默认保留其前 120 字、存 30 天、管理员可见。关闭方法：
+管理员可在 `/native/v1/admin/recalls` 查看全组织记录（与看板同一管理令牌或飞书会话，数据接口是 `/native/v1/admin/recalls/data`，可按成员、通道、日期筛选）；`/native/v1/admin/insights` 把账本按天汇总成投放漏斗、各通道与成员次数、记忆复用和知识缺口，原始明细按整天过期、过期前先冻结当天汇总，所以汇总比 30 天账本活得久。 1.4.4 起客户端在召回请求里附带「发问侧」提示：产品、本机登记的来源项目（按工作目录匹配，未登记就是未知）、会话或研究 ID 的 16 位哈希；它们只进明细和汇总，不决定身份和范围，老 Hub 收到会拒绝，客户端自动去掉重发。注意隐私：Hook 通道把用户的提示词当查询，明细默认保留其前 120 字、存 30 天、管理员可见。关闭方法：
 
 ```sh
 curl -X POST https://<hub>/native/v1/admin/settings \

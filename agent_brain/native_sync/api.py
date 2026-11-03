@@ -10,6 +10,7 @@ from urllib.parse import urlsplit
 from fastapi import FastAPI, Header, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
+from . import insights
 from .hub import Hub
 from .admin_auth import (AdminAuth, AdminCredential, WebAdminSession, FLOW_COOKIE, SESSION_COOKIE, STATE_TTL, SESSION_TTL)
 from .knowledge import KnowledgeConflict, NativeKnowledge
@@ -98,7 +99,13 @@ def create_app(hub: Hub) -> FastAPI:
         return {
             "protocol": 1,
             "service": "amh-native",
-            "capabilities": ["org-research-v1", "admin-feishu-session-v1", "recall-parity-v1"],
+            "capabilities": [
+                "org-research-v1",
+                "admin-feishu-session-v1",
+                "recall-parity-v1",
+                "insights-v1",
+                "asking-context-v1",
+            ],
         }
 
     @app.get("/native/v1/ready")
@@ -152,7 +159,9 @@ def create_app(hub: Hub) -> FastAPI:
         return response
 
     @app.get("/native/v1/admin/login")
-    def admin_login(request: Request, target: Literal["admin", "dashboard"] = "admin") -> Any:
+    def admin_login(
+        request: Request, target: Literal["admin", "dashboard", "insights", "recalls"] = "admin"
+    ) -> Any:
         from . import feishu
 
         try:
@@ -379,7 +388,12 @@ def create_app(hub: Hub) -> FastAPI:
         """Hook channel: hybrid ranking with full bodies for a bounded number of hits."""
         from .retrieval_view import _diagnostics
 
-        result = hub.recall(bearer(authorization), data.query, limit=data.limit)
+        result = hub.recall(
+            bearer(authorization),
+            data.query,
+            limit=data.limit,
+            asking=data.asking.model_dump() if data.asking else None,
+        )
         return {
             "items": recall_items(result["items"]),
             "trace_id": result["trace_id"],
@@ -418,9 +432,40 @@ def create_app(hub: Hub) -> FastAPI:
             default=None, min_length=24, max_length=24, pattern=r"^[a-f0-9]+$"
         ),
         limit: int = Query(default=50, ge=1, le=100),
+        member: str | None = Query(default=None, max_length=128, pattern=r"^[\w.:-]+$"),
+        channel: Literal["hook", "tool", "cli", "benchmark"] | None = Query(default=None),
+        day: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
-        return hub.admin_recalls(operator(request, authorization), trace_id=trace_id, limit=limit)
+        if day is not None:
+            try:
+                insights.day_bounds(day)
+            except ValueError:
+                raise HTTPException(422, "day must be a calendar date")
+        return hub.admin_recalls(
+            operator(request, authorization),
+            trace_id=trace_id,
+            limit=limit,
+            member=member,
+            channel=channel,
+            day=day,
+        )
+
+    @app.get("/native/v1/admin/insights")
+    def admin_insights_page() -> HTMLResponse:
+        """Insight page; the page holds no credential and no memory text."""
+        from . import insights_page
+
+        return HTMLResponse(insights_page.html())
+
+    @app.get("/native/v1/admin/insights/data")
+    def admin_insights(
+        request: Request,
+        days: int = Query(default=30, ge=1, le=365),
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        """Recall usage rolled up by day; counts, identifiers and titles only."""
+        return hub.admin_insights(operator(request, authorization), days=days)
 
     @app.post("/native/v1/read")
     def read(data: ReadInput, authorization: str | None = Header(default=None)) -> dict[str, Any]:

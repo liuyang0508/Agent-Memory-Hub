@@ -178,9 +178,12 @@ class Research:
 
 
 class OrganizationTools:
-    def __init__(self, state: Path, policy: Path | None = None) -> None:
+    def __init__(self, state: Path, policy: Path | None = None, *, product: str = "") -> None:
         self.state = Path(state)
         self.policy = policy
+        # Which product hosts this server, for the Hub's insight rollups only.
+        self.product = str(product or "")[:64]
+        self._asking_rejected = False
         self.researches: dict[str, Research] = {}
         self.lock = threading.RLock()
 
@@ -296,6 +299,10 @@ class OrganizationTools:
         research_id: str,
         research: Research,
     ) -> Any:
+        from .profiles import recall_allowed
+
+        if not recall_allowed(self.state):
+            return self._error("recall_disabled", research_id)
         try:
             result = transport.call(path, payload)
             if isinstance(result, dict) and "ok" in result:
@@ -387,7 +394,32 @@ class OrganizationTools:
             if len(research.searches) >= MAX_SEARCHES:
                 return self._error("budget_exhausted", research_id)
             research.searches.add(key)
-            response = self._request(transport, "retrieve", payload, research_id, research)
+            # One research is one task; its id is hashed so the Hub never sees it.
+            asking = (
+                None
+                if self._asking_rejected
+                else {
+                    "product": self.product,
+                    "session_digest": hashlib.sha256(research_id.encode()).hexdigest()[:16],
+                }
+            )
+            response = self._request(
+                transport,
+                "retrieve",
+                dict(payload, asking=asking) if asking else payload,
+                research_id,
+                research,
+            )
+            if (
+                asking
+                and isinstance(response, dict)
+                and response.get("ok") is False
+                and response.get("http_status") == 422
+            ):
+                # A Hub before asking-context-v1 rejects the extra field; the
+                # search still has to be answered, only the hints are lost.
+                self._asking_rejected = True
+                response = self._request(transport, "retrieve", payload, research_id, research)
             if isinstance(response, dict) and response.get("ok") is False:
                 return response
             try:

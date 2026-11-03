@@ -11,7 +11,22 @@ from .transport import HubHTTPError, Transport
 from .common import runtime_argv
 
 
-def fetch(transport: Any, query: str, *, limit: int = 8) -> dict[str, Any]:
+def _recall(transport: Any, query: str, limit: int, asking: dict[str, Any] | None) -> Any:
+    if not asking:
+        return transport.recall(query, limit=limit)
+    try:
+        return transport.recall(query, limit=limit, asking=asking)
+    except HubHTTPError as exc:
+        # A Hub before asking-context-v1 rejects the extra field; the recall
+        # itself is still answered, only the insight hints are lost.
+        if exc.http_status != 422:
+            raise
+        return transport.recall(query, limit=limit)
+
+
+def fetch(
+    transport: Any, query: str, *, limit: int = 8, asking: dict[str, Any] | None = None
+) -> dict[str, Any]:
     """Prefer the hybrid hook channel; a Hub or gateway without it still answers via search.
 
     404/405/501 mean the path does not exist on this Hub. A denial is retried on
@@ -19,7 +34,7 @@ def fetch(transport: Any, query: str, *, limit: int = 8) -> dict[str, Any]:
     look like a revoked device, which would wipe this machine's recall state.
     """
     try:
-        result = transport.recall(query, limit=limit)
+        result = _recall(transport, query, limit, asking)
         items = result.get("items") if isinstance(result, dict) else None
         if not isinstance(items, list):
             raise ValueError("invalid recall response")
@@ -37,7 +52,9 @@ def fetch(transport: Any, query: str, *, limit: int = 8) -> dict[str, Any]:
     return {"items": transport.search(query, limit=limit), "trace_id": None, "channel": "search"}
 
 
-def bounded_search(state: Path, query: str, *, timeout: float) -> dict[str, Any]:
+def bounded_search(
+    state: Path, query: str, *, timeout: float, asking: dict[str, Any] | None = None
+) -> dict[str, Any]:
     """Kill the isolated network process at the deadline; propagate explicit denial separately from outage."""
     from .profiles import recall_allowed
 
@@ -46,7 +63,7 @@ def bounded_search(state: Path, query: str, *, timeout: float) -> dict[str, Any]
     try:
         result = subprocess.run(
             runtime_argv("agent_brain.native_sync.query_worker", str(state.resolve())),
-            input=json.dumps({"query": query}),
+            input=json.dumps({"query": query, "asking": asking}),
             text=True,
             capture_output=True,
             timeout=timeout,
@@ -73,7 +90,17 @@ if __name__ == "__main__":
         config = json.loads((Path(sys.argv[1]) / "config.json").read_text())
         payload = json.load(sys.stdin)
         transport = Transport(config["hub"], config["identity"]["token"], timeout=1.0)
-        print(json.dumps(fetch(transport, payload["query"], limit=8)))
+        asking = payload.get("asking")
+        print(
+            json.dumps(
+                fetch(
+                    transport,
+                    payload["query"],
+                    limit=8,
+                    asking=asking if isinstance(asking, dict) else None,
+                )
+            )
+        )
     except PermissionError:
         raise SystemExit(3)
     except Exception:

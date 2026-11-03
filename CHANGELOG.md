@@ -7,6 +7,71 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.5] — 2026-11-03
+
+### Added
+
+- Independent per-device Hub profiles with background uploads to both Hubs and
+  an explicit per-profile recall switch. Sync-only setup keeps product Hook/MCP
+  ownership with one primary profile; receipt-based detach/activation preserves
+  user settings and backup workers.
+- Bounded Claude Code source-observation forwarding and a reviewed migration
+  plan that preserves excluded-history hashes, missing-path denials and offline
+  root quarantine without copying credentials, queues or cloud cursors.
+
+### Fixed
+
+- Recall policy is rechecked across Hook, MCP, cache and projection/asset-write
+  boundaries. Interrupted projection writes roll back only unchanged owned
+  content, preserving concurrent user edits.
+- Background synchronization uses a configurable 30-second request timeout and
+  32-record / 45-second soft pass budget, prioritizes memory, retains pending
+  work and rescans sources on the next pass. Hook/MCP deadlines are unchanged.
+
+### Compatibility
+
+- Retains the published 1.4.4 insights and asking-context functionality. Asking
+  hints are optional on recall/retrieve and retry without hints on an older Hub;
+  asset uploads do not acquire this field. Upgrade Hubs for insight rollups.
+
+## [1.4.4] — 2026-11-03
+
+### Added
+
+- **Insight page `/native/v1/admin/insights` (capability `insights-v1`).**
+  Recall usage rolled up by day from the ledger: the delivery funnel
+  (hit → selected → packed → emitted → receipt seen → cited), counts per
+  channel and per member, retrieval modes and degradation reasons, why
+  candidates were dropped, which memories were actually delivered and to how
+  many members, reuse across members per producer, and knowledge gaps (prompts
+  that matched nothing, grouped by repeat). An observability matrix states per
+  product surface which stages are observed, explicit, not recorded or
+  unobservable, and the page shows the collection start date instead of
+  counting earlier use as zero. Member-level figures are operator-only.
+- Rollups live in the additive `recall_daily` / `asset_daily` tables. Days
+  inside the trace TTL are recomputed from the raw traces (states keep moving
+  as deliveries and feedback arrive); a day is frozen the moment its traces
+  expire, so history outlives the 30-day ledger. Expiry now purges whole
+  calendar days, so a trace can outlive the TTL by at most one day. `serve`
+  refreshes the rollup hourly and the page refreshes it on demand when it is
+  older than ten minutes.
+- The recall ledger page filters by member, channel and day, shows member
+  names, and accepts the Feishu administrator session
+  (`/admin/login?target=recalls`); the operator page links to both pages.
+- **Asking-side context (capability `asking-context-v1`).** `/recall` and
+  `/retrieve` accept an optional `asking` block — hosting product, the
+  project the device registered for its working directory, and a 16-hex
+  digest of the session or research — stored on the trace as hints only:
+  identity and scope still come from the device credential, and nothing is
+  inferred when a hint is missing. The hook sends product, registered
+  project and a hashed session id; the MCP server sends its `--product`
+  label (the installer now writes one per client: claude-code, codex-cli,
+  cowork) and a hashed research id. Both fall back to a request without
+  the block when a Hub predates the capability. The insight page rolls
+  recalls up by asking product and project, counts distinct tasks per
+  asset, producer and member, and the ledger page shows where each recall
+  came from.
+
 ## [1.4.3] — 2026-11-03
 
 ### Added
