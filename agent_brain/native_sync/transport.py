@@ -155,5 +155,7 @@ class Transport:
         return self.call("recall/feedback", {"trace_id": trace_id, "events": events})
 
     def recalls(self, *, trace_id: str | None = None, limit: int = 20) -> Any:
-        query = "recalls?limit=%d" % limit + ("&trace_id=" + trace_id if trace_id else "")
+        query = "recalls?limit=%d" % limit + (
+            "&trace_id=" + parse.quote(trace_id, safe="") if trace_id else ""
+        )
         return self.call(query)["traces"]

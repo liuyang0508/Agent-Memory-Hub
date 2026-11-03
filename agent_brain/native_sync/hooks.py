@@ -25,6 +25,14 @@ def _report(db: sqlite3.Connection, trace_id: str, keys: list[str], event: str) 
     db.executemany("INSERT OR IGNORE INTO recall_reports VALUES(?,?,?,?,?)", rows)
 
 
+def _display_text(record: dict[str, Any]) -> str:
+    """The text pack() would inject: transcripts use their index text, everything else the body."""
+    text = record.get("index_text") if record.get("kind") == "transcript" else None
+    if text is None:
+        text = record.get("body")
+    return text if isinstance(text, str) else ""
+
+
 def run(root: Path, product: str, payload: dict[str, Any]) -> dict[str, Any]:
     """Handle one host event with a short database lock budget, restoring the prior context on every exit."""
     context = DB_TIMEOUT.set(0.04)
@@ -62,6 +70,7 @@ def _run(root: Path, product: str, payload: dict[str, Any]) -> dict[str, Any]:
             epoch = str(time.time_ns())
             db.execute("INSERT OR REPLACE INTO meta VALUES(?,?)", ("epoch:" + session, epoch))
             db.execute("DELETE FROM emitted WHERE session=?", (session,))
+            db.execute("DELETE FROM emitted_traces WHERE session=?", (session,))
             db.execute("DELETE FROM coverage WHERE session=?", (session,))
             db.execute("DELETE FROM native_proofs WHERE session=?", (session,))
     if event in ("SessionStart", "PostToolUse"):
@@ -104,6 +113,14 @@ def _run(root: Path, product: str, payload: dict[str, Any]) -> dict[str, Any]:
                         ).fetchone()
                         if traced:
                             _report(db, traced["trace_id"], keys, "confirmed")
+                            # One confirmation per delivery: the marker stays in
+                            # the transcript for the rest of the session, so the
+                            # trace link is consumed here while `emitted` keeps
+                            # covering the keys.
+                            db.execute(
+                                "DELETE FROM emitted_traces WHERE session=? AND marker=?",
+                                (session, row["marker"]),
+                            )
         except OSError:
             pass
     with database(c.path) as db:
@@ -177,12 +194,12 @@ def _run(root: Path, product: str, payload: dict[str, Any]) -> dict[str, Any]:
                     "INSERT OR REPLACE INTO emitted VALUES(?,?,?,?)",
                     (session, marker, json.dumps(keys), time.time()),
                 )
-                db.execute(
-                    "DELETE FROM emitted_traces WHERE marker IN "
-                    "(SELECT marker FROM emitted WHERE created<?)",
-                    (time.time() - 86400,),
-                )
                 db.execute("DELETE FROM emitted WHERE created<?", (time.time() - 86400,))
+                # Trace links whose receipt is gone (expired, compacted or already
+                # confirmed) are orphans; never let them accumulate.
+                db.execute(
+                    "DELETE FROM emitted_traces WHERE marker NOT IN (SELECT marker FROM emitted)"
+                )
                 if trace_id:
                     db.execute(
                         "INSERT OR REPLACE INTO emitted_traces VALUES(?,?,?)",
@@ -196,12 +213,17 @@ def _run(root: Path, product: str, payload: dict[str, Any]) -> dict[str, Any]:
         try:
             with database(c.path) as db:
                 packed = {k.split(":excerpt:")[0] for k in keys}
+                # An excerpt delivery covers under a `:excerpt:<digest>` key; the
+                # Hub tracks the version, so compare on the version key alone.
+                seen = {k.split(":excerpt:")[0] for k in covered}
                 for record in hits:
+                    if record.get("deleted") or not _display_text(record).strip():
+                        continue  # pack() never injects these; there is no state to report.
                     key = coverage_key(record)
                     if key in packed:
                         _report(db, trace_id, [key], "packed")
                         _report(db, trace_id, [key], "emitted")
-                    elif key in covered:
+                    elif key in seen:
                         _report(db, trace_id, [key], "covered")
                     else:
                         _report(db, trace_id, [key], "budget")

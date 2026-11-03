@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable, Iterator, cast
+from typing import Any, Callable, Iterator, NoReturn, cast
 
 from contextlib import contextmanager
 
 import json
 import os
 import platform
+import re
 import socket
 import sqlite3
 import subprocess
@@ -203,8 +204,8 @@ def serve(
     semantic_model: str | None = typer.Option(None, help="服务端已缓存的语义模型，不自动下载"),
     semantic_min_score: float = typer.Option(0.45, min=0, max=1),
     mmr_lambda: float | None = typer.Option(None, min=0, max=1),
-    decay: bool = typer.Option(True, "--decay/--no-decay", help="按知识性质、可信时间和反馈信号做 ±5% 重排"),
-    hopfield: bool = typer.Option(False, "--hopfield/--no-hopfield", help="启用 Hopfield 联想扩召（需语义索引，全量扫描）"),
+    decay: bool | None = typer.Option(None, "--decay/--no-decay", help="按知识性质、可信时间和反馈信号做小幅重排（下调最多 5%、上调最多约 3%）；不传时读 AMH_NATIVE_DECAY（默认开启）"),
+    hopfield: bool | None = typer.Option(None, "--hopfield/--no-hopfield", help="启用 Hopfield 联想扩召（需语义索引，全量扫描）；不传时读 AMH_NATIVE_HOPFIELD（默认关闭）"),
     hopfield_beta: float = typer.Option(8.0, min=0.1, max=64),
     hopfield_min_score: float = typer.Option(0.35, min=0, max=1, help="联想候选的相似度下限"),
 ) -> None:
@@ -719,6 +720,10 @@ STATE_LABELS = {
     "dropped:revalidation": "版本已变",
 }
 
+TRACE_ID = re.compile(r"[a-f0-9]{24}")
+TRACE_ID_HINT = "trace_id 应为 24 位小写十六进制字符，可从 recall-trace 列表的 trace 列复制"
+OLD_HUB_HINT = "当前 Hub 不支持召回明细，请升级 Hub"
+
 
 def _route_text(routes: dict[str, Any]) -> str:
     parts = []
@@ -746,8 +751,24 @@ def recall_trace(
     as_json: bool = typer.Option(False, "--json", help="输出原始 JSON"),
 ) -> None:
     """召回明细：每条候选的召回方式、排名变化、本轮状态和时间，不含正文。"""
+    from .transport import HubHTTPError
+
+    def fail(message: str) -> NoReturn:
+        if as_json:
+            emit({"error": message})
+        else:
+            console.print(message, markup=False, style="red")
+        raise typer.Exit(1)
+
+    if trace is not None and not TRACE_ID.fullmatch(trace):
+        fail(TRACE_ID_HINT)
     c = load(state)
-    traces = c.transport.recalls(trace_id=trace, limit=limit)
+    try:
+        traces = c.transport.recalls(trace_id=trace, limit=limit)
+    except HubHTTPError as error:
+        fail(OLD_HUB_HINT if error.http_status == 404 else str(error))
+    except (OSError, ValueError) as error:
+        fail(str(error))
     if as_json:
         emit(traces)
         return
@@ -756,8 +777,10 @@ def recall_trace(
         return
     if trace is None:
         table = Table(title="最近召回（本设备）")
-        for column in ("时间", "通道", "问题", "候选", "入选", "送达", "阶段", "trace"):
+        for column in ("时间", "通道", "问题", "候选", "入选", "送达", "阶段"):
             table.add_column(column)
+        # The id must stay copyable on a narrow terminal: never truncate it.
+        table.add_column("trace", no_wrap=True, min_width=24)
         for row in traces:
             counts = row["counts"]
             delivered = sum(counts.get(k, 0) for k in ("emitted", "confirmed", "cited"))
@@ -828,6 +851,8 @@ def recall_feedback(
     """对某次召回的候选记录反馈；之后的召回会据此调整排序。"""
     if event not in ("cite", "support", "contradict", "confirm"):
         raise typer.BadParameter("event 只能是 cite / support / contradict / confirm")
+    if not TRACE_ID.fullmatch(trace):
+        raise typer.BadParameter(TRACE_ID_HINT, param_hint="--trace")
     c = load(state)
     emit(c.transport.recall_feedback(trace, [{"asset_id": asset, "revision": revision, "event": event}]))
 

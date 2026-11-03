@@ -45,6 +45,32 @@ def test_serve_flags_reach_the_hub(tmp_path, monkeypatch):
     assert captured["hopfield_min_score"] == 0.3
 
 
+def test_serve_without_flags_leaves_decay_and_hopfield_to_the_environment(tmp_path, monkeypatch):
+    """B2: an omitted flag is None so Hub.__init__ reads AMH_NATIVE_DECAY / AMH_NATIVE_HOPFIELD."""
+    captured = {}
+
+    class FakeHub:
+        semantic_model = None
+
+        def __init__(self, db, **options):
+            captured.update(options)
+
+    monkeypatch.setattr("agent_brain.native_sync.hub.Hub", FakeHub)
+    monkeypatch.setattr("uvicorn.run", lambda *a, **kw: None)
+    monkeypatch.setenv("AMH_NATIVE_DECAY", "0")
+    monkeypatch.setenv("AMH_NATIVE_HOPFIELD", "1")
+    result = CliRunner().invoke(cli.app, ["serve", "--db", str(tmp_path / "hub.sqlite")])
+    assert result.exit_code == 0, result.output
+    assert captured["decay"] is None and captured["hopfield"] is None
+    real = Hub(tmp_path / "real.sqlite", decay=captured["decay"], hopfield=captured["hopfield"])
+    assert real.decay_enabled is False and real.hopfield is True
+    explicit = CliRunner().invoke(
+        cli.app, ["serve", "--db", str(tmp_path / "hub.sqlite"), "--decay", "--no-hopfield"]
+    )
+    assert explicit.exit_code == 0, explicit.output
+    assert captured["decay"] is True and captured["hopfield"] is False
+
+
 def test_recall_trace_table_and_feedback(live, tmp_path, monkeypatch):
     from rich.console import Console
 

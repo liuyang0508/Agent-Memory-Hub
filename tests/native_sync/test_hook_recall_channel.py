@@ -98,14 +98,16 @@ def test_fetch_falls_back_to_search_on_an_old_hub_and_keeps_other_errors():
 
 
 def test_reports_are_dropped_for_hubs_that_cannot_accept_them_and_kept_on_outage(tmp_path):
+    import time
+
     from agent_brain.native_sync.hub import Hub
     from test_client import DirectTransport, client
 
     hub = Hub(tmp_path / "hub.sqlite")
     c = client(tmp_path, hub, "张三")
     with database(c.path) as db:
-        db.execute("INSERT INTO recall_reports VALUES('a','x',1,'packed',0)")
-        db.execute("INSERT INTO recall_reports VALUES('b','y',1,'packed',0)")
+        db.execute("INSERT INTO recall_reports VALUES('a','x',1,'packed',?)", (time.time(),))
+        db.execute("INSERT INTO recall_reports VALUES('b','y',1,'packed',?)", (time.time(),))
 
     class Flaky(DirectTransport):
         def __init__(self, hub, identity):
@@ -120,10 +122,8 @@ def test_reports_are_dropped_for_hubs_that_cannot_accept_them_and_kept_on_outage
 
     transport = Flaky(hub, c.identity)
     c.transport = transport
-    try:
-        c.sync()
-    except OSError:
-        pass
+    # The outage is reported, never raised: the rest of the sync pass still runs.
+    assert c.sync()["errors"] == ["recall report a: HTTP 409", "recall report b: unavailable"]
     with database(c.path) as db:
         remaining = [r["trace_id"] for r in db.execute("SELECT trace_id FROM recall_reports")]
     assert remaining == ["b"] and transport.calls == ["a", "b"]

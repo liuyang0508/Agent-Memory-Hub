@@ -12,7 +12,12 @@ from .common import runtime_argv
 
 
 def fetch(transport: Any, query: str, *, limit: int = 8) -> dict[str, Any]:
-    """Prefer the hybrid hook channel; a Hub without it (HTTP 404) still answers via search."""
+    """Prefer the hybrid hook channel; a Hub or gateway without it still answers via search.
+
+    404/405/501 mean the path does not exist on this Hub. A denial is retried on
+    the legacy path first: a gateway that only guards the newer path must not
+    look like a revoked device, which would wipe this machine's recall state.
+    """
     try:
         result = transport.recall(query, limit=limit)
         items = result.get("items") if isinstance(result, dict) else None
@@ -25,8 +30,10 @@ def fetch(transport: Any, query: str, *, limit: int = 8) -> dict[str, Any]:
             "channel": "recall",
         }
     except HubHTTPError as exc:
-        if exc.http_status != 404:
+        if exc.http_status not in (404, 405, 501):
             raise
+    except PermissionError:
+        pass  # Only a denial on /search below proves the device itself was rejected.
     return {"items": transport.search(query, limit=limit), "trace_id": None, "channel": "search"}
 
 

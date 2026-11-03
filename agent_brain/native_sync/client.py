@@ -746,8 +746,11 @@ class NativeClient:
                         if getattr(exc, "http_status", None) != 422 or "source_meta" not in item:
                             raise
                         item.pop("source_meta")
-                        send_meta = False
                         saved = self.transport.put(item)
+                        # Only a retry that succeeded proves the field itself was
+                        # the problem; an asset rejected for its own reasons must
+                        # not strip the hints from everything queued after it.
+                        send_meta = False
                 except ValueError as exc:
                     errors.append(f"upload {item['asset_id']}: {type(exc).__name__}")
                     continue
@@ -887,13 +890,20 @@ class NativeClient:
             return {"pushed": pushed, "errors": errors}
 
     def _report_recalls(self) -> list[str]:
-        """Send queued delivery states per trace; drop what the Hub cannot accept, keep outages."""
+        """Send queued delivery states per trace; drop what the Hub cannot accept, keep outages.
+
+        Nothing here may abort the sync pass: changes replay and projection must
+        proceed even while the feedback endpoint keeps failing.
+        """
         from .transport import HubHTTPError
 
         send = getattr(self.transport, "recall_feedback", None)
         if send is None:
             return []
         with database(self.path) as db:
+            # The Hub forgets a trace after 30 days; a report older than that
+            # can only ever be refused, so stop carrying it.
+            db.execute("DELETE FROM recall_reports WHERE created<?", (time.time() - 30 * 86400,))
             rows = db.execute(
                 "SELECT * FROM recall_reports ORDER BY trace_id, created LIMIT 640"
             ).fetchall()
@@ -909,11 +919,22 @@ class NativeClient:
                 try:
                     send(trace_id, batch)
                 except HubHTTPError as exc:
+                    errors.append(f"recall report {trace_id}: HTTP {exc.http_status}")
                     # 404: a Hub without the ledger; 409/422: a trace it does not
                     # know or will not accept. Either way the report is moot.
+                    # Any other status keeps the rows for a later pass.
                     if exc.http_status not in (404, 409, 422):
-                        raise
-                    errors.append(f"recall report {trace_id}: HTTP {exc.http_status}")
+                        continue
+                except OSError:
+                    # Outage (5xx, 408/429, socket): keep every remaining row
+                    # rather than turn one unreachable endpoint into a socket
+                    # timeout per trace; the next pass retries from here.
+                    errors.append(f"recall report {trace_id}: unavailable")
+                    return errors
+                except ValueError as exc:
+                    # A malformed answer for this trace; the next trace may be fine.
+                    errors.append(f"recall report {trace_id}: {type(exc).__name__}")
+                    continue
                 with database(self.path) as db:
                     db.executemany(
                         "DELETE FROM recall_reports WHERE trace_id=? AND asset=? AND revision=? AND event=?",
