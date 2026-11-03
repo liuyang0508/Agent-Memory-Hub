@@ -34,6 +34,19 @@ def fixtures_dir() -> Path:
 
 
 @pytest.fixture(autouse=True)
+def forget_callers_ssh_session(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep the installer's SSH auto-detection out of tests.
+
+    ``amh-native setup`` looks at ``SSH_CONNECTION``/``SSH_TTY`` to decide whether
+    to offer port forwarding; when the test suite itself runs over SSH that extra
+    prompt swallows the scripted "y" answers. Tests that exercise the detection
+    set the variables explicitly.
+    """
+    for name in ("SSH_CONNECTION", "SSH_TTY", "SSH_CLIENT"):
+        monkeypatch.delenv(name, raising=False)
+
+
+@pytest.fixture(autouse=True)
 def prevent_repo_root_awareness_leak() -> None:
     """Fail fast if tests leak adapter workspace awareness into the repo root."""
     repo_agents = Path(__file__).resolve().parents[1] / "AGENTS.md"
