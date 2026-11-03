@@ -23,6 +23,8 @@ Hub 1.4.2 支持飞书身份认证与明确管理员角色；首次授予、撤�
 
 短暂锁竞争允许重试。readiness 失败不应直接触发进程不断重启；liveness 与 readiness 分开使用。数据异常必须排查/恢复，不能靠删除数据库“修复”。
 
+`hook-metrics.jsonl` 每行还记录 `via`（`service` = 常驻 worker 的热连接，`worker` = 临时子进程）和 `budget_ms`（本次总预算）；`elapsed_ms` 贴着 `budget_ms` 且 `mode` 为 `unavailable`，说明链路往返超过预算，用 `amh-native recall-timeout` 查看或调整。
+
 ## 故障处理
 
 | 故障 | 当前行为 | 运维动作 |

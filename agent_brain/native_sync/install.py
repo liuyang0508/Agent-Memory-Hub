@@ -11,7 +11,16 @@ import re
 import shlex
 import shutil
 from pathlib import Path
-from .common import PRODUCTS, atomic_json, atomic_text, digest, legacy_memory_command, runtime_argv
+from .common import (
+    PRODUCTS,
+    atomic_json,
+    atomic_text,
+    digest,
+    legacy_memory_command,
+    runtime_argv,
+    hook_timeout,
+    recall_budget,
+)
 
 EVENTS = ("SessionStart", "UserPromptSubmit", "PostToolUse", "Stop", "PostCompact")
 OWNER = "agent_brain.native_sync.hooks"
@@ -221,6 +230,13 @@ def install_hooks(home: Path, state: Path, *, products: list[str]) -> list[str]:
     receipt = state / "install-receipt.json"
     saved = json.loads(receipt.read_text()) if receipt.exists() else {"json": {}, "text": {}}
     report = []
+    # The host kills the prompt hook on its own clock; keep that clock ahead of
+    # the recall budget this profile has configured.
+    try:
+        profile = json.loads((state / "config.json").read_text())
+    except (OSError, ValueError):
+        profile = {}
+    prompt_timeout = hook_timeout(recall_budget(profile))
     claude_mcp = org_mcp_server(state, product="claude-code")
     codex_mcp = org_mcp_server(state, product="codex-cli")
     destinations = {}
@@ -296,7 +312,7 @@ def install_hooks(home: Path, state: Path, *, products: list[str]) -> list[str]:
             handler = {
                 "type": "command",
                 "command": command,
-                "timeout": 2 if event == "UserPromptSubmit" else 1,
+                "timeout": prompt_timeout if event == "UserPromptSubmit" else 1,
             }
             hooks.setdefault(event, []).append({"hooks": [handler]})
         if isinstance(data.get("mcpServers"), dict):
@@ -521,6 +537,7 @@ def export_cowork_plugin(
         "lineage.py",
         "discovery.py",
         "query_worker.py",
+        "recall_service.py",
         "client.py",
         "cowork_runtime.py",
         "runtime_sources.py",
@@ -597,7 +614,9 @@ python3 "${CLAUDE_PLUGIN_ROOT}/runtime/entry.py" --policy "${CLAUDE_PLUGIN_ROOT}
     return root
 
 
-def launch_agent(state: Path, home: Path, *, install: bool = True, background: bool = False) -> Path:
+def launch_agent(
+    state: Path, home: Path, *, install: bool = True, background: bool = False
+) -> Path:
     """Write the macOS worker plist (or locate it); loading/unloading belongs to the CLI."""
     label = "com.amh.native." + digest(str(state.resolve()))[:12]
     path = home / "Library/LaunchAgents" / f"{label}.plist"
