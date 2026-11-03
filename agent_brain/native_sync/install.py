@@ -677,7 +677,7 @@ def detach_products(state: Path, *, apply: bool = False) -> dict[str, Any]:
                     for handler in group.get("hooks", [])
                     if _managed(handler.get("command", ""))
                 ]
-                if not owned:
+                if not owned or event not in desired.get("hooks", {}):
                     continue
                 current_groups = desired.get("hooks", {}).get(event, [])
                 kept = []

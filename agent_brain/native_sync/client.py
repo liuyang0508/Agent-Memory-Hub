@@ -213,6 +213,10 @@ class NativeClient:
 
         return recall_allowed(self.root, self.config)
 
+    def require_recall(self) -> None:
+        if not self.recall_enabled():
+            raise ValueError("organization recall is disabled; no shared content may be written")
+
     def projection_enabled(self) -> bool:
         """Whether organization memory may be copied into this machine's product stores.
 
@@ -892,6 +896,7 @@ class NativeClient:
                     target["product"],
                     self.cached(),
                     owner=str(self.root.resolve()),
+                    before_write=self.require_recall,
                 )
                 errors.extend(result["conflicts"])
             atomic_json(
@@ -968,7 +973,8 @@ class NativeClient:
             return []
         with database(self.path) as db:
             items = [json.loads(r["payload"]) for r in db.execute("SELECT payload FROM replica")]
-        return [i for i in items if not i["deleted"]]
+        result = [i for i in items if not i["deleted"]]
+        return result if self.projection_enabled() else []
 
     def revoke_local(self) -> None:
         """Clear authorized recall state and untouched managed projections; retain local source/outbox data."""
@@ -1030,4 +1036,5 @@ class NativeClient:
             score = len(wanted & set(tokens(r["title"] + " " + searchable)))
             if score:
                 items.append((score, r))
-        return [r for _, r in sorted(items, key=lambda x: x[0], reverse=True)[:12]]
+        result = [r for _, r in sorted(items, key=lambda x: x[0], reverse=True)[:12]]
+        return result if self.projection_enabled() else []

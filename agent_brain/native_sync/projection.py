@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Callable
 
 import json
 from pathlib import Path
@@ -23,7 +23,12 @@ def strip_managed(text: str) -> str:
 
 
 def publish(
-    root: Path, product: str, records: list[dict[str, Any]], *, owner: str | None = None
+    root: Path,
+    product: str,
+    records: list[dict[str, Any]],
+    *,
+    owner: str | None = None,
+    before_write: Callable[[], None] = lambda: None,
 ) -> dict[str, Any]:
     """Project complete organization memories into a product's native readable resources.
 
@@ -31,6 +36,7 @@ def publish(
     Preserve user edits and each incomplete document's prior complete projection;
     other documents continue updating. Return conflicts rather than overwrite them.
     """
+    before_write()
     root = Path(root)
     if root.is_symlink():
         raise ValueError("native memory root must not be a symlink")
@@ -132,11 +138,13 @@ def publish(
         ):
             conflicts.append(str(p))
             continue
+        before_write()
         atomic_text(p, content)
         owned[name] = digest(content)
     for name in set(owned) - set(desired):
         p = folder / name
         if p.exists() and not p.is_symlink() and digest(p.read_text()) == owned[name]:
+            before_write()
             p.unlink()
             del owned[name]
         elif p.exists():
@@ -188,8 +196,10 @@ def publish(
         if p.exists() and p.read_text() != before:
             conflicts.append(str(p))
             continue
+        before_write()
         atomic_text(p, content)
         index_state[name] = digest(block.rstrip("\n"))
+    before_write()
     atomic_json(
         manifest_path,
         {

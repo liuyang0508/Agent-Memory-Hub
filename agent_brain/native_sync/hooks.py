@@ -262,6 +262,8 @@ def _run(root: Path, product: str, payload: dict[str, Any]) -> dict[str, Any]:
         pass
     if not body:
         return {}
+    if not c.recall_enabled():
+        return {}
     return {"hookSpecificOutput": {"hookEventName": event, "additionalContext": body}}
 
 

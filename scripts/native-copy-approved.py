@@ -14,6 +14,7 @@ import fcntl
 import json
 from pathlib import Path
 import sqlite3
+import uuid
 from typing import Any
 
 from agent_brain.native_sync.client import NativeClient
@@ -22,6 +23,7 @@ from agent_brain.native_sync.history import screen
 from agent_brain.native_sync.profiles import profile_pin, recall_allowed
 from agent_brain.native_sync.source import source_text
 from agent_brain.native_sync.source_policy import enabled, policy
+from agent_brain.native_sync.storage import database
 
 
 def read_config(state: Path) -> dict[str, Any]:
@@ -49,25 +51,41 @@ def preview(source: Path, target: Path) -> dict[str, Any]:
     with sqlite3.connect((source / "state.sqlite").as_uri() + "?mode=ro", uri=True) as db:
         db.row_factory = sqlite3.Row
         db.execute("BEGIN")
+        denied_hashes = [r[0] for r in db.execute("SELECT hash FROM history_hashes ORDER BY hash")]
+        counts["denied_hashes"] = len(denied_hashes)
         for row in db.execute("SELECT * FROM sources ORDER BY root,kind").fetchall():
             item = dict(row)
             snapshots = db.execute(
-                "SELECT path,selected FROM snapshots WHERE source=? ORDER BY path", (item["id"],)
+                "SELECT s.path,s.hash,s.selected,i.device,i.inode FROM snapshots s "
+                "LEFT JOIN file_identity i ON i.source=s.source AND i.path=s.path "
+                "WHERE s.source=? ORDER BY s.path",
+                (item["id"],),
             ).fetchall()
             quarantined = db.execute(
                 "SELECT 1 FROM meta WHERE key=?", ("quarantined-source:" + item["id"],)
             ).fetchone()
-            if quarantined or item["kind"] not in kinds:
-                counts["skipped_quarantined" if quarantined else "skipped_scope"] += len(snapshots)
-                continue
             root = Path(item["root"])
-            if root.is_symlink() or not root.exists():
-                counts["skipped_missing_root"] += len(snapshots)
-                continue
+            unavailable = root.is_symlink() or not root.exists()
+            excluded = [
+                {key: row[key] for key in ("path", "hash", "device", "inode")}
+                for row in snapshots
+                if not row["selected"]
+            ]
+            counts["denied_paths"] += len(excluded)
             approved = []
             for snapshot in snapshots:
                 if not snapshot["selected"]:
                     counts["skipped_unselected"] += 1
+                    continue
+                if quarantined or item["kind"] not in kinds or unavailable:
+                    reason = (
+                        "quarantined"
+                        if quarantined
+                        else "scope"
+                        if item["kind"] not in kinds
+                        else "missing_root"
+                    )
+                    counts["skipped_" + reason] += 1
                     continue
                 rel = snapshot["path"]
                 path = root if item["file_source"] else root / rel
@@ -92,11 +110,16 @@ def preview(source: Path, target: Path) -> dict[str, Any]:
             # Include empty, enabled roots so future new files remain independent;
             # registration baselines every current unapproved file as excluded.
             selections.append(
-                {key: item[key] for key in ("root", "product", "project", "kind")}
-                | {"files": approved}
+                {key: item[key] for key in ("root", "product", "project", "kind", "file_source")}
+                | {
+                    "files": approved,
+                    "excluded": excluded,
+                    "quarantined": bool(quarantined) or root.is_symlink(),
+                }
             )
     return {
-        "version": 1,
+        "version": 2,
+        "denied_hashes": denied_hashes,
         "source": str(source),
         "target": str(target),
         "source_pin": profile_pin(old),
@@ -126,17 +149,70 @@ def apply(plan: dict[str, Any]) -> dict[str, Any]:
         client.config["discovery_roots"] = plan["discovery_roots"]
         atomic_json(target / "config.json", client.config)
         selected = 0
-        for source_item in plan["sources"]:
-            sid = client.register(
-                Path(source_item["root"]),
-                source_item["product"],
-                source_item["project"],
-                source_item["kind"],
+        with database(client.path) as db:
+            db.executemany(
+                "INSERT OR IGNORE INTO history_hashes VALUES(?)",
+                [(value,) for value in plan["denied_hashes"]],
             )
+        for source_item in plan["sources"]:
+            root = Path(source_item["root"])
+            if root.exists() and not root.is_symlink():
+                sid = client.register(
+                    root, source_item["product"], source_item["project"], source_item["kind"]
+                )
+            else:
+                # A known source may be offline. Retain local denial tombstones
+                # under fresh IDs, without creating the directory or granting history.
+                with database(client.path) as db:
+                    row = db.execute(
+                        "SELECT id FROM sources WHERE root=? AND kind=?",
+                        (str(root), source_item["kind"]),
+                    ).fetchone()
+                    sid = row["id"] if row else "src_" + uuid.uuid4().hex
+                    if not row:
+                        db.execute(
+                            "INSERT INTO sources VALUES(?,?,?,?,?,?)",
+                            (
+                                sid,
+                                str(root),
+                                source_item["product"],
+                                source_item["project"],
+                                source_item["kind"],
+                                source_item["file_source"],
+                            ),
+                        )
+            with database(client.path) as db:
+                if source_item["quarantined"]:
+                    db.execute(
+                        "INSERT OR REPLACE INTO meta VALUES(?,?)",
+                        (
+                            "quarantined-source:" + sid,
+                            "imported source requires independent review",
+                        ),
+                    )
+                for denied in source_item["excluded"]:
+                    existing = db.execute(
+                        "SELECT selected FROM snapshots WHERE source=? AND path=?",
+                        (sid, denied["path"]),
+                    ).fetchone()
+                    if existing and existing["selected"]:
+                        raise ValueError(
+                            "target already selected a source-denied path; review target choices"
+                        )
+                    db.execute(
+                        "INSERT OR IGNORE INTO snapshots VALUES(?,?,?,?,?,?,?)",
+                        (sid, denied["path"], denied["hash"], 0, "asset_" + uuid.uuid4().hex, 0, 1),
+                    )
+                    if denied["device"] is not None and denied["inode"] is not None:
+                        db.execute(
+                            "INSERT OR IGNORE INTO file_identity VALUES(?,?,?,?)",
+                            (sid, denied["path"], denied["device"], denied["inode"]),
+                        )
             versions = {item["path"]: item["hash"] for item in source_item["files"]}
             # select_targets re-reads selected bodies immediately before marking
             # versions; normal scan retains its normal source sanitization.
-            client.select_targets(sid, versions)
+            if versions:
+                client.select_targets(sid, versions)
             selected += len(versions)
     return {
         "applied": True,

@@ -139,7 +139,15 @@ def observe_backups(
 
 
 def process_source_observations(client: Any) -> list[str]:
-    """Worker-only discovery; batch witnessed creates before baselining each root."""
+    """Worker-only discovery; permanent invalid creates become excluded review entries.
+
+    Transient filesystem/database failures leave the original event retryable.
+    Terminal events leave the bounded active queue only after denial metadata is
+    durable. Fresh sibling creates are registered together before denials.
+    """
+    import sqlite3
+    import uuid
+    from .common import atomic_json
     from .discovery import observe
     from .source import read_document
     from .storage import database
@@ -148,6 +156,7 @@ def process_source_observations(client: Any) -> list[str]:
     if not folder.is_dir() or folder.is_symlink():
         return []
     events = []
+    rejected = []
     errors = []
     fresh_roots: dict[Path, set[str]] = {}
     client.refresh_excluded_history()
@@ -156,17 +165,43 @@ def process_source_observations(client: Any) -> list[str]:
         for r in client.config.get("discovery_roots", [])
         if r["product"] == "claude-code"
     ]
+
+    def location(source: Path) -> tuple[Path, str] | None:
+        for watcher in watchers:
+            if not source.is_absolute() or not source.is_relative_to(watcher):
+                continue
+            relative = source.relative_to(watcher)
+            if ".." in relative.parts or not source.resolve().is_relative_to(watcher):
+                continue
+            if (
+                len(relative.parts) >= 3
+                and relative.parts[1] == "memory"
+                and source.suffix == ".md"
+            ):
+                root = watcher / relative.parts[0] / "memory"
+                return root, str(source.relative_to(root))
+        return None
+
     for path in sorted(folder.glob("*.json"))[:1024]:
+        raw = None
+        source = None
         try:
-            if path.is_symlink() or path.stat().st_size > 16384:
-                raise ValueError("invalid observation")
+            if path.is_symlink():
+                raise ValueError("invalid observation symlink")
             raw = path.read_bytes()
+            if len(raw) > 16384:
+                raise ValueError("invalid observation size")
             item = json.loads(raw)
-            if not isinstance(item, dict):
+            if not isinstance(item, dict) or any(
+                not isinstance(item.get(key), str) for key in ("session", "epoch")
+            ):
                 raise ValueError("invalid observation")
             event = item["hook_event_name"]
             if event == "PostToolUse":
                 source = Path(item["path"])
+                scoped = location(source)
+                if scoped is None:
+                    raise ValueError("observation outside authorized roots")
                 stat = source.stat()
                 if source.is_symlink() or item["identity"] != [
                     stat.st_dev,
@@ -176,35 +211,76 @@ def process_source_observations(client: Any) -> list[str]:
                     stat.st_ctime_ns,
                 ]:
                     raise ValueError("witnessed create changed; history review required")
-                source = source.resolve()
-                for watcher in watchers:
-                    if not source.is_relative_to(watcher):
-                        continue
-                    relative = source.relative_to(watcher)
-                    if (
-                        len(relative.parts) < 3
-                        or relative.parts[1] != "memory"
-                        or source.suffix != ".md"
-                    ):
-                        continue
-                    root = watcher / relative.parts[0] / "memory"
-                    document = read_document(source, "memory")
-                    with database(client.path) as db:
-                        denied = (
-                            document
-                            and db.execute(
-                                "SELECT 1 FROM history_hashes WHERE hash=?", (document[2],)
-                            ).fetchone()
-                        )
-                    if document and not denied:
-                        fresh_roots.setdefault(root, set()).add(str(source.relative_to(root)))
+                root, relative = scoped
+                document = read_document(source, "memory")
+                with database(client.path) as db:
+                    denied = (
+                        document
+                        and db.execute(
+                            "SELECT 1 FROM history_hashes WHERE hash=?", (document[2],)
+                        ).fetchone()
+                    )
+                if document and not denied:
+                    fresh_roots.setdefault(root, set()).add(relative)
             elif event != "SessionStart":
                 raise ValueError("invalid source event")
             events.append((path, raw, item))
-        except (OSError, ValueError, TypeError, KeyError) as exc:
-            errors.append("source observation: " + str(exc))
+        except (FileNotFoundError, ValueError, TypeError, KeyError) as exc:
+            rejected.append((path, raw, source, str(exc)))
+        except (OSError, sqlite3.Error) as exc:
+            errors.append("source observation retry: " + type(exc).__name__)
     for root, fresh in fresh_roots.items():
         client.register(root, "claude-code", "", "memory", fresh_files=fresh)
+    for path, raw, source, reason in rejected:
+        try:
+            scoped = location(source) if source is not None else None
+            if scoped:
+                root, relative = scoped
+                if root.is_dir() and not root.is_symlink():
+                    sid = client.register(root, "claude-code", "", "memory")
+                else:
+                    # Missing/replaced root is not evidence of a new empty source.
+                    # Quarantine it until independent review, retaining path denial.
+                    with database(client.path) as db:
+                        row = db.execute(
+                            "SELECT id FROM sources WHERE root=? AND kind='memory'", (str(root),)
+                        ).fetchone()
+                        sid = row["id"] if row else "src_" + uuid.uuid4().hex
+                        if not row:
+                            db.execute(
+                                "INSERT INTO sources VALUES(?,?,?,?,?,?)",
+                                (sid, str(root), "claude-code", "", "memory", 0),
+                            )
+                        db.execute(
+                            "INSERT OR REPLACE INTO meta VALUES(?,?)",
+                            (
+                                "quarantined-source:" + sid,
+                                "invalid observed source requires review",
+                            ),
+                        )
+                with database(client.path) as db:
+                    db.execute(
+                        "INSERT OR IGNORE INTO snapshots VALUES(?,?,?,?,?,?,?)",
+                        (sid, relative, "", 0, "asset_" + uuid.uuid4().hex, 0, 1),
+                    )
+                    db.execute(
+                        "INSERT OR IGNORE INTO aliases VALUES(?,?,?,?)",
+                        (sid, relative, "[]", "needs-history-review"),
+                    )
+            # Metadata-only review marker replaces an unusable active event. Do
+            # not copy raw corrupt payloads; they need not obey our event schema.
+            review = client.root / "source-observation-review"
+            atomic_json(
+                review / path.name,
+                {"path": str(source) if scoped else None, "reason": reason[:500]},
+            )
+            if path.is_symlink():
+                path.unlink()
+            elif raw is not None and path.exists() and path.read_bytes() == raw:
+                path.unlink()
+            errors.append("source observation needs history review: " + path.name)
+        except (OSError, sqlite3.Error) as exc:
+            errors.append("source observation retry: " + type(exc).__name__)
     for path, raw, item in events:
         try:
             if item["hook_event_name"] == "SessionStart":

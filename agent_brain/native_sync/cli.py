@@ -1313,7 +1313,8 @@ def export_assets(
     """无损导出共享聊天、规则、skills、可迁移配置，保留来源清单。"""
     from .materialize import materialize
 
-    emit(materialize(destination, load(state).cached(), kinds=set(kind)))
+    c = load(state)
+    emit(materialize(destination, c.cached(), kinds=set(kind), before_write=c.require_recall))
 
 
 @app.command("activate-skills")
@@ -1325,9 +1326,10 @@ def skills_activate(
     """将明确选择的组织技能装入产品原生 skills 目录。"""
     from .assets import activate_skills
 
+    c = load(state)
     rows = [
         r
-        for r in load(state).cached()
+        for r in c.cached()
         if r["source_store"] == source_store and r["kind"] == "skill"
     ]
     emit(
@@ -1341,7 +1343,7 @@ def skills_activate(
         ]
     )
     if typer.confirm("确认将所选组织技能应用到目录（空集合会停用已托管技能）？", default=False):
-        emit(activate_skills(destination, rows, source_store=source_store))
+        emit(activate_skills(destination, rows, source_store=source_store, before_write=c.require_recall))
 
 
 @app.command("activate-rules")
@@ -1353,12 +1355,14 @@ def rules_activate(
     """把已选择规则写入指定项目 CLAUDE.md / AGENTS.md 托管区块。"""
     from .assets import activate_rules
 
+    c = load(state)
     rows = [
-        r for r in load(state).cached() if r["source_store"] == source_store and r["kind"] == "rule"
+        r for r in c.cached() if r["source_store"] == source_store and r["kind"] == "rule"
     ]
+    c.require_recall()
     emit([{"path": r["path"], "producer": r["producer_name"], "body": r["body"]} for r in rows])
     if rows and typer.confirm("确认用所选规则替换指定项目的组织规则托管区块？", default=False):
-        emit(activate_rules(instructions, rows))
+        emit(activate_rules(instructions, rows, before_write=c.require_recall))
 
 
 @app.command("apply-config")
@@ -1372,17 +1376,19 @@ def config_apply(
     from .assets import apply_config, provenance
     from .materialize import assembled
 
+    c = load(state)
     rows = [
         r
-        for r in assembled(load(state).cached())
+        for r in assembled(c.cached())
         if r["asset_id"] == asset and r["kind"] == "config"
     ]
     if len(rows) != 1:
         raise typer.BadParameter("configuration asset not found or incompletely downloaded")
+    c.require_recall()
     console.print(provenance(rows[0]), markup=False)
     console.print(rows[0]["body"], markup=False)
     if typer.confirm("确认将兼容字段应用到指定配置文件？", default=False):
-        emit(apply_config(destination, rows[0], product))
+        emit(apply_config(destination, rows[0], product, before_write=c.require_recall))
 
 
 def main() -> None:

@@ -343,6 +343,8 @@ class OrganizationTools:
         if _size(result) > limit:
             return self._error("invalid_response", research_id)
         research.content_bytes += content_bytes
+        if not recall_allowed(self.state):
+            return self._error("recall_disabled", research_id)
         return result
 
     def search(

@@ -354,8 +354,18 @@ def test_cli_recall_and_foreign_hook_guard(tmp_path):
     assert not (c.root / "paused").exists()
     enabled = runner.invoke(cli.app, ["recall", "--state", str(c.root), "--enable"])
     assert enabled.exit_code == 0 and json.loads(enabled.output)["recall_enabled"]
-    activated = runner.invoke(cli.app, ["activate-products", "--state", str(c.root),
-        "--home", str(tmp_path / "activated-home"), "--product", "codex-cli"])
+    activated = runner.invoke(
+        cli.app,
+        [
+            "activate-products",
+            "--state",
+            str(c.root),
+            "--home",
+            str(tmp_path / "activated-home"),
+            "--product",
+            "codex-cli",
+        ],
+    )
     assert activated.exit_code == 0, activated.output
     assert (tmp_path / "activated-home/.codex/hooks.json").exists()
     home = tmp_path / "home"
@@ -368,3 +378,216 @@ def test_cli_recall_and_foreign_hook_guard(tmp_path):
     with pytest.raises(ValueError, match="detach"):
         install_hooks(home, tmp_path / "new", products=["claude-code"])
     assert (home / ".claude/settings.json").read_bytes() == before
+
+
+def test_migration_preserves_deleted_and_renamed_history_denials(tmp_path):
+    import importlib.util
+    import shutil
+
+    script = Path(__file__).resolve().parents[2] / "scripts/native-copy-approved.py"
+    spec = importlib.util.spec_from_file_location("copy_denials", script)
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+    old, old_hub = profile(tmp_path, "old-denials")
+    new, new_hub = profile(tmp_path, "new-denials", disabled=True)
+    root = tmp_path / "history"
+    root.mkdir()
+    (root / "deleted.md").write_text("never approved historical oldbody")
+    (root / "renamed.md").write_text("never approved original inode")
+    (root / "another.md").write_text("never approved another historical")
+    old.register(root, "codex-shared", "", "memory")
+    # Missing original paths must survive migration, including identity denial
+    # for a file renamed and edited without going through the old scanner.
+    (root / "deleted.md").unlink()
+    (root / "renamed.md").rename(root / "new-name.md")
+    (root / "new-name.md").write_text("changed unapproved retained inode")
+    plan = migration.preview(old.root, new.root)
+    assert plan["version"] == 2 and plan["counts"]["denied_hashes"] >= 3
+    assert plan["counts"]["denied_paths"] == 3
+    migration.apply(plan)
+    (root / "deleted.md").write_text("different unapproved path content")
+    (root / "copied-old.md").write_text("never approved historical oldbody")
+    (root / "fresh.md").write_text("new allowed novafresh")
+    old.sync()
+    new.sync()
+    for c, hub in ((old, old_hub), (new, new_hub)):
+        assert hub.search(c.identity["token"], "unapproved") == []
+        assert hub.search(c.identity["token"], "oldbody") == []
+        assert len(hub.search(c.identity["token"], "novafresh")) == 1
+    # The entire old registered root can be absent during migration as well.
+    offline, offline_hub = profile(tmp_path, "offline-target", disabled=True)
+    shutil.rmtree(root)
+    plan = migration.preview(old.root, offline.root)
+    migration.apply(plan)
+    root.mkdir()
+    (root / "deleted.md").write_text("yet another unapproved recreation")
+    offline.sync()
+    assert offline_hub.search(offline.identity["token"], "unapproved") == []
+
+
+def test_cached_and_local_search_recheck_policy_after_materialization(tmp_path, monkeypatch):
+    from contextlib import contextmanager
+    from agent_brain.native_sync import client as client_module, materialize
+
+    c, _ = profile(tmp_path, "race-cache")
+    root = tmp_path / "race-source"
+    root.mkdir()
+    c.config["projection"] = True
+    atomic_json(c.root / "config.json", c.config)
+    c.register(root, "codex-shared", "", "memory")
+    (root / "fact.md").write_text("race nova body")
+    c.sync()
+    real_database = client_module.database
+
+    @contextmanager
+    def disable_after_read(path):
+        with real_database(path) as db:
+            yield db
+        c.config["recall_enabled"] = False
+        atomic_json(c.root / "config.json", c.config)
+
+    monkeypatch.setattr(client_module, "database", disable_after_read)
+    assert c.cached() == []
+    monkeypatch.setattr(client_module, "database", real_database)
+    c.config["recall_enabled"] = True
+    atomic_json(c.root / "config.json", c.config)
+    real_assembled = materialize.assembled
+
+    def disable_during_assembly(records):
+        result = real_assembled(records)
+        c.config["recall_enabled"] = False
+        atomic_json(c.root / "config.json", c.config)
+        return result
+
+    monkeypatch.setattr(materialize, "assembled", disable_during_assembly)
+    assert c.local_search("nova") == []
+
+
+def test_projection_export_and_activation_guard_actual_write_boundaries(tmp_path, monkeypatch):
+    from agent_brain.native_sync import materialize, assets
+
+    c, _ = profile(tmp_path, "race-write")
+    root = tmp_path / "write-source"
+    root.mkdir()
+    c.config["projection"] = True
+    atomic_json(c.root / "config.json", c.config)
+    c.register(root, "codex-shared", "", "memory")
+    (root / "fact.md").write_text("race nova body")
+    c.sync()
+    records = c.cached()
+    original = materialize.assembled
+
+    def disable_during_assembly(rows):
+        result = original(rows)
+        c.config["recall_enabled"] = False
+        atomic_json(c.root / "config.json", c.config)
+        return result
+
+    monkeypatch.setattr(materialize, "assembled", disable_during_assembly)
+    for action, destination in (
+        (
+            lambda p: publish(
+                p, "codex-cli", records, owner=str(c.root), before_write=c.require_recall
+            ),
+            tmp_path / "publish-race",
+        ),
+        (
+            lambda p: materialize.materialize(
+                p, records, kinds={"memory"}, before_write=c.require_recall
+            ),
+            tmp_path / "export-race",
+        ),
+    ):
+        c.config["recall_enabled"] = True
+        atomic_json(c.root / "config.json", c.config)
+        with pytest.raises(ValueError, match="recall is disabled"):
+            action(destination)
+        assert not list(destination.rglob("*.md"))
+    rule = {**records[0], "kind": "rule"}
+    # CLI confirmation can take arbitrarily long: policy must be reread on apply.
+    c.config["recall_enabled"] = False
+    atomic_json(c.root / "config.json", c.config)
+    destination = tmp_path / "rules.md"
+    with pytest.raises(ValueError, match="recall is disabled"):
+        assets.activate_rules(destination, [rule], before_write=c.require_recall)
+    assert not destination.exists()
+
+
+def test_permanently_stale_observations_leave_queue_with_denials(tmp_path, monkeypatch):
+    from agent_brain.native_sync.profiles import process_source_observations
+
+    primary, _ = profile(tmp_path, "observation-primary")
+    backup, hub_b = profile(tmp_path, "observation-backup", disabled=True)
+    watcher = tmp_path / ".claude/projects"
+    backup.config["discovery_roots"] = [{"product": "claude-code", "root": str(watcher)}]
+    atomic_json(backup.root / "config.json", backup.config)
+    primary.config["observation_targets"] = [
+        {"state": str(backup.root), "pin": profile_pin(backup.config)}
+    ]
+    root = watcher / "new/memory"
+    root.mkdir(parents=True)
+    for name in ("changed", "missing", "fresh"):
+        path = root / (name + ".md")
+        path.write_text("observed " + name)
+        observe_backups(
+            primary,
+            "claude-code",
+            {
+                "hook_event_name": "PostToolUse",
+                "tool_name": "Write",
+                "tool_input": {"file_path": str(path)},
+                "tool_response": {"type": "create"},
+            },
+            "s",
+            "0",
+        )
+    (root / "changed.md").write_text("changed after observed history")
+    (root / "missing.md").unlink()
+    backup.sync()
+    assert not list((backup.root / "source-observations").glob("*.json"))
+    assert len(list((backup.root / "source-observation-review").glob("*.json"))) == 2
+    (root / "missing.md").write_text("reappeared without approval")
+    backup.sync()
+    assert hub_b.search(backup.identity["token"], "history") == []
+    assert hub_b.search(backup.identity["token"], "approval") == []
+    assert hub_b.search(backup.identity["token"], "fresh")
+    # Transient IO does not consume the event: it can retry after the mount recovers.
+    path = root / "transient.md"
+    path.write_text("transient nova")
+    observe_backups(
+        primary,
+        "claude-code",
+        {
+            "hook_event_name": "PostToolUse",
+            "tool_name": "Write",
+            "tool_input": {"file_path": str(path)},
+            "tool_response": {"type": "create"},
+        },
+        "s",
+        "0",
+    )
+    real_stat = Path.stat
+
+    def transient_stat(self, *a, **kw):
+        if self == path:
+            raise PermissionError("temporary filesystem access denial")
+        return real_stat(self, *a, **kw)
+
+    monkeypatch.setattr(Path, "stat", transient_stat)
+    assert any("retry" in item for item in process_source_observations(backup))
+    assert list((backup.root / "source-observations").glob("*.json"))
+
+
+def test_detach_missing_hook_fields_is_idempotent_and_still_removes_mcp(tmp_path):
+    home, state = tmp_path / "detached-home", tmp_path / "detached-state"
+    install_hooks(home, state, products=["claude-code", "codex-cli"])
+    settings = home / ".claude/settings.json"
+    data = json.loads(settings.read_text())
+    data.pop("hooks")
+    data["userSetting"] = "keep"
+    atomic_json(settings, data)
+    result = detach_products(state, apply=True)
+    assert result["applied"] and result["conflicts"] == []
+    assert json.loads(settings.read_text()) == data
+    assert "amh-org" not in json.loads((home / ".claude.json").read_text())["mcpServers"]
+    assert detach_products(state, apply=True)["conflicts"] == []
