@@ -1150,6 +1150,140 @@ def recall_display(
     )
 
 
+@contextmanager
+def _eval_hub(db: Path, model: str | None, tenant: str) -> Iterator[tuple[Any, str]]:
+    """A Hub on a consistent snapshot of ``db`` with a private evaluation reader."""
+    import tempfile
+
+    from .hub import Hub
+
+    with tempfile.TemporaryDirectory(prefix="amh-recall-eval-") as work:
+        copy = Path(work) / "hub.sqlite"
+        # sqlite backup: the live server keeps running and is never written.
+        source = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+        target = sqlite3.connect(copy)
+        with target:
+            source.backup(target)
+        source.close()
+        target.close()
+        hub = Hub(copy, semantic_model=model, semantic_min_score=None)
+        if not tenant:
+            with database(copy) as conn:
+                tenants = [r[0] for r in conn.execute("SELECT DISTINCT tenant FROM assets LIMIT 2")]
+            if len(tenants) != 1:
+                raise typer.BadParameter("several organizations on this Hub: pass --tenant")
+            tenant = tenants[0]
+        yield hub, tenant
+
+
+@app.command("recall-eval")
+def recall_eval(
+    db: Path = typer.Option(..., help="Hub 数据库（只读：在临时副本上评测）"),
+    gold: Path = typer.Option(..., help="评测问题集 JSON/JSONL"),
+    tenant: str = typer.Option("", help="组织 tenant；单组织 Hub 可省略"),
+    model: str | None = typer.Option(None, help="语义模型目录；默认取 AMH_NATIVE_SEMANTIC_MODEL"),
+    out: Path | None = typer.Option(None, help="完整报告输出路径"),
+    baseline: Path | None = typer.Option(None, help="对比的上一份报告；退步超过容差时退出码 1"),
+    tolerance: float = typer.Option(0.02, help="回归容差"),
+) -> None:
+    """用问题集评测召回质量（命中率、精确率、拒答率、时延），不写入任何召回记录。"""
+    from .recall_eval import evaluate, load_gold, regressions
+
+    cases = load_gold(gold)
+    with _eval_hub(db, model, tenant) as (hub, org):
+        hub.refresh_semantic_local()
+        token = hub.provision("召回评测", "recall-eval", tenant=org)["token"]
+        report = evaluate(hub, token, cases)
+        report["gate"] = hub.gate_state()
+        report["semantic"] = hub.semantic_state
+    report["gold"] = {"path": str(gold), "cases": len(cases)}
+    if out:
+        atomic_json(out, report)
+    found = regressions(report, json.loads(baseline.read_text())) if baseline else []
+    emit(
+        {
+            "gate": report["gate"],
+            "overall": report["overall"],
+            **{split: report[split] for split in ("dev", "test") if split in report},
+            "regressions": found,
+        }
+    )
+    if found:
+        raise typer.Exit(1)
+
+
+@app.command("recall-calibrate")
+def recall_calibrate(
+    db: Path = typer.Option(..., help="Hub 数据库（只读：在临时副本上校准）"),
+    gold: Path = typer.Option(..., help="评测问题集 JSON/JSONL"),
+    out: Path = typer.Option(..., help="门控模型输出（AMH_NATIVE_HOOK_GATE 或模型清单 hook_gate）"),
+    tenant: str = typer.Option("", help="组织 tenant；单组织 Hub 可省略"),
+    model: str | None = typer.Option(None, help="语义模型目录；默认取 AMH_NATIVE_SEMANTIC_MODEL"),
+    max_items: int = typer.Option(3, min=1, max=8, help="每次最多注入条数"),
+    dedup: float = typer.Option(0.5, min=0.05, max=1.0, help="近重复折叠的包含度阈值"),
+) -> None:
+    """用问题集拟合召回相关性模型，按分组交叉验证选阈值，输出可部署的门控模型。"""
+    from datetime import datetime, timezone
+
+    from .recall_eval import load_gold, relevant
+    from .relevance import BANK, Candidate, GateModel, cross_validate, fit, shingles
+
+    cases = load_gold(gold)
+    collecting = GateModel(
+        mean=[0.0] * 8, scale=[1.0] * 8, weights=[0.0] * 8, bias=0.0, threshold=0.5
+    )
+    judged: list[tuple[dict[str, Any], list[Candidate]]] = []
+    with _eval_hub(db, model, tenant) as (hub, org):
+        hub._gate_source = collecting.to_dict()
+        hub.gate_collect = True
+        hub.refresh_semantic_local()
+        token = hub.provision("召回评测", "recall-eval", tenant=org)["token"]
+        model_id = hub.semantic_state.get("model")
+        for case in cases:
+            items = hub.retrieve(
+                token,
+                case["query"],
+                limit=50,
+                kinds=["memory", "rule"],
+                channel="hook",
+                record=False,
+            )["items"]
+            judged.append(
+                (
+                    case,
+                    [
+                        Candidate(
+                            values=list(item["gate_features"]),
+                            relevant=bool(case["expect"]) and relevant(item, case["expect"]),
+                            shingles=shingles(str(item.get("body") or "")),
+                            duplicate_key=(str(item.get("body_hash")), str(item.get("role"))),
+                        )
+                        for item in items
+                        if "gate_features" in item
+                    ],
+                )
+            )
+    rows = [c.values for _, candidates in judged for c in candidates]
+    labels = [1.0 if c.relevant else 0.0 for _, candidates in judged for c in candidates]
+    fitted = fit(rows, labels)
+    fitted.max_items, fitted.dedup = max_items, dedup
+    report = cross_validate(judged)
+    fitted.threshold = report["best"]["threshold"]
+    fitted.calibration = {
+        "date": datetime.now(timezone.utc).date().isoformat(),
+        "model": model_id,
+        "cases": len(cases),
+        "answerable": sum(1 for case in cases if case["expect"]),
+        "candidates": len(rows),
+        "bank": len(BANK),
+        "cross_validated": report["best"],
+        "standard_error": report["standard_error"],
+        "utility": "0.3*hit@1 + 0.2*hit@3 + 0.25*precision + 0.25*abstention",
+    }
+    atomic_json(out, fitted.to_dict())
+    emit({"gate": str(out), "best": report["best"], "table": report["table"]})
+
+
 @app.command("hook-stats")
 def hook_stats(
     state: Path = DEFAULT_STATE,

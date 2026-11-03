@@ -56,6 +56,7 @@ class Hub:
         hopfield_min_score: float = 0.35,
         hook_min_score: float | None = None,
         hook_margin: float | None = None,
+        hook_gate: dict[str, Any] | None = None,
     ) -> None:
         self.path = Path(path)
         # Decay/signals re-rank by default; Hopfield association is opt-in
@@ -102,6 +103,17 @@ class Hub:
         self.hook_margin = (
             hook_margin if hook_margin is not None else _env_float("AMH_NATIVE_HOOK_MARGIN")
         )
+        # Learned prompt-time relevance (relevance.GateModel): an explicit model,
+        # else AMH_NATIVE_HOOK_GATE (a JSON file), else the model manifest.
+        self._gate_source = hook_gate
+        self._gate: Any = None
+        self._gate_error: str | None = None
+        # Calibration mode: the gate scores and keeps every candidate it judges.
+        self.gate_collect = False
+        # Generic-prompt bank vectors per model version, and each indexed
+        # revision's background similarity to them (relevance.doc_bg).
+        self._bank: dict[str, Any] = {}
+        self._background: dict[str, dict[tuple[str, int, str, str], float]] = {}
         self.semantic_state: dict[str, Any] = {
             "state": "off" if not self.semantic_model else "loading"
         }
@@ -1167,7 +1179,80 @@ class Hub:
         backend, error = self._semantic_backend()
         if backend is None:
             raise ValueError(error or "semantic_model_not_configured")
-        return rebuild(self, token, backend, kinds=kinds, include_evidence=include_evidence)
+        result = rebuild(self, token, backend, kinds=kinds, include_evidence=include_evidence)
+        if self.gate_model() is not None:
+            self.warm_gate(backend)
+        return result
+
+    def gate_model(self) -> Any:
+        """The learned relevance model for prompt-time recall, or None (floor gate)."""
+        from .relevance import GateModel
+
+        if self._gate is not None or self._gate_error is not None:
+            return self._gate
+        source = self._gate_source
+        try:
+            if source is None and os.environ.get("AMH_NATIVE_HOOK_GATE"):
+                source = json.loads(Path(os.environ["AMH_NATIVE_HOOK_GATE"]).read_text())
+            if source is None:
+                source = getattr(self._encoder, "hook_gate", None)
+            if source is None:
+                return None
+            self._gate = GateModel.from_dict(source)
+        except Exception as exc:
+            self._gate_error = "hook_gate_invalid:" + type(exc).__name__
+        return self._gate
+
+    def gate_state(self) -> str:
+        model = self.gate_model()
+        if model is not None:
+            return str(model.version)
+        return self._gate_error or ("floor" if self.relevance_gate() else "off")
+
+    def warm_gate(self, backend: Any) -> bool:
+        """Encode the generic-prompt bank once per model version (index upkeep, not hooks)."""
+        from .relevance import BANK
+        from .semantic import query_vector
+
+        version = str(getattr(backend, "model_version", ""))
+        if version in self._bank:
+            return True
+        try:
+            import numpy as np
+
+            rows = np.asarray([query_vector(backend, text) for text in BANK], dtype=np.float64)
+            rows /= np.where(np.linalg.norm(rows, axis=1) == 0, 1.0, np.linalg.norm(rows, axis=1))[
+                :, None
+            ]
+        except Exception:
+            return False
+        self._bank = {version: rows}
+        return True
+
+    def gate_background(
+        self, tenant: str, backend: Any, windows: dict[str, tuple[Any, list[Any]]]
+    ) -> dict[str, float] | None:
+        """Each asset's background similarity to the generic bank; None until warmed."""
+        from .relevance import top_mean
+
+        bank = self._bank.get(str(getattr(backend, "model_version", "")))
+        if bank is None:
+            return None
+        import numpy as np
+
+        cache = self._background.setdefault(tenant, {})
+        result: dict[str, float] = {}
+        for asset_id, (vector_key, stored) in windows.items():
+            if vector_key not in cache:
+                matrix = np.asarray([w["vector"] for w in stored], dtype=np.float64)
+                norms = np.linalg.norm(matrix, axis=1)
+                matrix /= np.where(norms == 0, 1.0, norms)[:, None]
+                cache[vector_key] = top_mean([float(v) for v in (bank @ matrix.T).max(axis=1)])
+            result[asset_id] = cache[vector_key]
+        live = {key for key, _ in windows.values()}
+        if len(cache) > 2 * max(len(live), 64):
+            self._background[tenant] = {k: v for k, v in cache.items() if k in live}
+        return result
 
     def relevance_gate(self) -> tuple[float, float] | None:
         """(floor, margin) for prompt-time recall, or None when no calibration exists."""
@@ -1194,6 +1279,8 @@ class Hub:
         for tenant in tenants:
             result = rebuild(self, "", backend, kinds=list(kinds), tenant=tenant)
             results[tenant] = {k: result[k] for k in ("indexed", "encoded", "reused")}
+        if self.gate_model() is not None:
+            self.warm_gate(backend)
         self.semantic_state = {"state": "ready", "model": backend.model_id, "tenants": results}
         return self.semantic_state
 

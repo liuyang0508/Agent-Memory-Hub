@@ -112,14 +112,19 @@ def create_app(hub: Hub) -> FastAPI:
             "asking-context-v1",
         ]
         state = dict(getattr(hub, "semantic_state", {}) or {})
+        semantic = {k: state[k] for k in ("state", "model") if k in state}
         if state.get("state") == "ready":
             capabilities.append("semantic-v1")
+            gate = hub.gate_state()
+            semantic["gate"] = gate
+            if gate.startswith("learned-"):
+                capabilities.append("relevance-gate-v1")
         return {
             "protocol": 1,
             "service": "amh-native",
             "capabilities": capabilities,
-            # Model name and index state only; no counts, paths or tenants.
-            "semantic": {k: state[k] for k in ("state", "model") if k in state},
+            # Model name, index and gate state only; no counts, paths or tenants.
+            "semantic": semantic,
         }
 
     @app.get("/native/v1/ready")

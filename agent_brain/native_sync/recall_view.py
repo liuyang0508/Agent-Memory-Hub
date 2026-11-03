@@ -179,6 +179,11 @@ def _routes(record: dict[str, Any]) -> str:
 
 
 def _similarity(record: dict[str, Any]) -> str:
+    """The learned relevance probability when the Hub has one, else raw similarity."""
+    trace = record.get("recall")
+    chance = trace.get("relevance") if isinstance(trace, dict) else None
+    if isinstance(chance, (int, float)) and 0 <= chance <= 1:
+        return f"{round(chance * 100)}%"
     match = record.get("semantic_match") or {}
     value = match.get("similarity") if isinstance(match, dict) else None
     return f"{value:.2f}" if isinstance(value, (int, float)) else "—"
@@ -323,7 +328,7 @@ def render(
         return _as_plain("\n".join(lines)) + "\n" + "\n".join(_box_table(hits, states))
     lines += [
         "",
-        "| # | 记忆 | 类型 | 来源 | 作者 | 项目 | 版本 | 更新 | 命中路由 | 相似度 | 本轮 |",
+        "| # | 记忆 | 类型 | 来源 | 作者 | 项目 | 版本 | 更新 | 命中路由 | 相关度 | 本轮 |",
         "|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     for rank, record in enumerate(hits, 1):
@@ -371,7 +376,7 @@ def _box_table(hits: list[dict[str, Any]], states: dict[str, str]) -> list[str]:
     if with_project:
         headers.append("项目")
         widths.append(10)
-    headers += ["版本 更新", "命中路由", "相似", "本轮"]
+    headers += ["版本 更新", "命中路由", "相关", "本轮"]
     widths += [9, 13, 4, 8]
     rows = []
     for rank, record in enumerate(hits, 1):

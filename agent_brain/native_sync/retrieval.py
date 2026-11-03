@@ -24,7 +24,7 @@ from agent_brain.retrieval.fusion import rrf_fusion
 from agent_brain.retrieval.hopfield import hopfield_expand
 from agent_brain.retrieval.mmr import _cosine_sim, mmr_rerank
 from agent_brain.retrieval.types import RetrievedItem
-from . import facets, recall_ledger, semantic
+from . import facets, recall_ledger, relevance, semantic
 from .asset_roles import PRIMARY_MEMORY_SQL, asset_role
 from .common import digest, tokens
 from .storage import DB_TIMEOUT, database
@@ -311,9 +311,11 @@ def retrieve(
             ):
                 stored_key = (row["asset_id"], row["revision"], row["content_hash"], generation)
                 fresh[stored_key] = json.loads(row["vectors"])
+        stored_windows: dict[str, tuple[tuple[str, int, str, str], list[Any]]] = {}
         for item, cached_key in valid:
             if cached_key in fresh:
                 current.append((item, fresh[cached_key]))
+                stored_windows[item["asset_id"]] = (cached_key, fresh[cached_key])
         # Only the current generation stays in memory.
         hub._vectors[who["tenant"]] = fresh
     vector_hits: list[RetrievedItem] = []
@@ -323,6 +325,10 @@ def retrieve(
     # Hopfield expansion looks at the whole authorized store, not just hits.
     window_vectors: dict[str, list[float]] = {}
     indexed_items: dict[str, dict[str, Any]] = {}
+    # Every indexed asset's best-window similarity, below the floor included:
+    # the learned gate reads the prompt's similarity to the whole store.
+    all_scores: dict[str, float] = {}
+    backend: Any = None
     if metadata is None:
         reasons.append("semantic_index_not_built")
     else:
@@ -338,6 +344,7 @@ def retrieve(
             found_embeddings: dict[str, list[float]] = {}
             found_vectors: dict[str, list[float]] = {}
             found_items: dict[str, dict[str, Any]] = {}
+            found_scores: dict[str, float] = {}
             try:
                 if semantic.descriptor(backend) != metadata:
                     reasons.append("semantic_index_model_mismatch_rebuild_required")
@@ -352,6 +359,7 @@ def retrieve(
                             raise ValueError("invalid persisted vector dimensions")
                         best, score = _best_window(query_vector, windows)
                         key = item["asset_id"]
+                        found_scores[key] = score
                         found_vectors[key] = best["vector"]
                         found_items[key] = item
                         # This is an eligibility floor, not an answer-confidence
@@ -375,6 +383,7 @@ def retrieve(
                     embeddings = found_embeddings
                     window_vectors = found_vectors
                     indexed_items = found_items
+                    all_scores = found_scores
             except Exception as exc:
                 reasons.append("semantic_query_failed:" + type(exc).__name__)
                 vector_hits = []
@@ -382,6 +391,7 @@ def retrieve(
                 embeddings = {}
                 window_vectors = {}
                 indexed_items = {}
+                all_scores = {}
         if len(current) < eligible_count:
             reasons.append("semantic_index_incomplete_rebuild_required")
     fused = rrf_fusion(lex_hits, vector_hits, rrf_k=60, bm25_weight=1.0, vector_weight=1.0)
@@ -477,6 +487,10 @@ def retrieve(
         trace.row(key)["routes"]["rerank"] = rerank_state if rerank_state != "on" else None
     results: list[dict[str, Any]] = []
     duplicates: dict[tuple[str, str], dict[str, Any]] = {}
+    # Prompt-time recall folds near-duplicates (one note uploaded by several
+    # products or devices, or index sections cut at other boundaries).
+    near_duplicate: float | None = None
+    kept_shingles: list[tuple[str, set[str]]] = []
     decay_used = bool(hub.decay_enabled)
     mmr_used = hub.mmr_lambda is not None and bool(embeddings)
     # Recheck revocation and revisions after potentially slow model work. An
@@ -557,7 +571,80 @@ def retrieve(
             before = trace.snapshot(fused)
             fused.sort(key=lambda hit: hit.id != query.strip())
             trace.stage("exact_pin", before, trace.snapshot(fused))
-        gate = hub.relevance_gate() if semantic_used and channel == "hook" else None
+        model = hub.gate_model() if semantic_used and channel == "hook" else None
+        background = (
+            hub.gate_background(who["tenant"], backend, stored_windows)
+            if model is not None
+            else None
+        )
+        if model is not None and background is None:
+            reasons.append("gate_background_pending")
+            model = None
+        gate = (
+            hub.relevance_gate() if model is None and semantic_used and channel == "hook" else None
+        )
+        if model is not None and background is not None:
+            # Learned relevance: inject only what the calibrated model rates
+            # probably relevant (see relevance.py), at most model.max_items,
+            # near-duplicates folded below.
+            before = trace.snapshot(fused)
+            query_bg = relevance.top_mean(list(all_scores.values()))
+            ranked = sorted(all_scores, key=lambda k: -all_scores[k])
+            pool = set(ranked[: relevance.POOL_SEMANTIC]) | {
+                hit.id
+                for hit in fused
+                if (route_ranks.get(hit.id, (None, None))[0] or 99) <= relevance.POOL_LEXICAL
+            }
+            best_similarity = all_scores[ranked[0]] if ranked else 0.0
+            neutral = sorted(background.values())[len(background) // 2] if background else 0.0
+            wanted = relevance.query_terms(query)
+            anchors = identifiers(query)
+            judged: list[tuple[float, RetrievedItem]] = []
+            effects = {}
+            for hit in fused:
+                if hit.id == query.strip():
+                    judged.append((2.0, hit))
+                    continue
+                if hit.id not in pool:
+                    trace.drop(hit.id, "relevance_gate", {"reason": "outside_pool"})
+                    continue
+                item = assets[hit.id]
+                lexical_rank = route_ranks.get(hit.id, (None, None))[0]
+                values = relevance.features(
+                    sim=all_scores.get(hit.id, query_bg),
+                    top=best_similarity,
+                    doc_bg=background.get(hit.id, neutral),
+                    query_bg=query_bg,
+                    lexical_rank=lexical_rank,
+                    navigation=item.get("role") == "navigation",
+                    query_terms_=wanted,
+                    text=str(item.get("title") or "") + "\n" + str(item.get("body") or ""),
+                    anchors=anchors,
+                )
+                probability = model.probability(values)
+                anchored = values[-1] > 0 and (lexical_rank or 99) <= relevance.POOL_LEXICAL
+                trace.row(hit.id)["gate"] = {
+                    "probability": round(probability, 4),
+                    "threshold": model.threshold,
+                    **({"anchor": True} if anchored else {}),
+                }
+                if hub.gate_collect:
+                    item["gate_features"] = values
+                if hub.gate_collect or probability >= model.threshold or anchored:
+                    judged.append((probability, hit))
+                    effects[hit.id] = "p=%.3f" % probability
+                else:
+                    trace.drop(
+                        hit.id,
+                        "relevance_gate",
+                        {"probability": round(probability, 4), "threshold": model.threshold},
+                    )
+            judged.sort(key=lambda pair: -pair[0])
+            fused = [hit for _, hit in judged]
+            trace.stage("relevance_gate", before, trace.snapshot(fused), effects)
+            if not hub.gate_collect:
+                limit = min(limit, model.max_items)
+                near_duplicate = model.dedup
         if gate is not None:
             # Prompt-time injection must be able to say "nothing relevant": a
             # keyword overlap alone is not relevance. Keep candidates the model
@@ -632,9 +719,24 @@ def retrieve(
                 )
                 trace.drop(hit.id, "dedup", {"kept": duplicates[duplicate_key]["asset_id"]})
                 continue
+            if near_duplicate is not None:
+                text_shingles = relevance.shingles(str(item.get("body") or ""))
+                twin = next(
+                    (
+                        kept_id
+                        for kept_id, other in kept_shingles
+                        if relevance.containment(text_shingles, other) >= near_duplicate
+                    ),
+                    None,
+                )
+                if twin is not None:
+                    trace.drop(hit.id, "near_duplicate", {"kept": twin})
+                    continue
             if len(results) >= limit:
                 trace.drop(hit.id, "limit", {"limit": limit})
                 continue
+            if near_duplicate is not None:
+                kept_shingles.append((hit.id, text_shingles))
             item.update(score=hit.score, verified=True, duplicate_sources=[])
             item["retrieval_ranks"] = dict(
                 lexical=hit.bm25_rank,
@@ -653,7 +755,9 @@ def retrieve(
         "declared_filter": "on",
         "decay": "on" if decay_used else DISABLED,
         "mmr": "on" if mmr_used else DISABLED,
-        "relevance_gate": "on" if gate is not None else DISABLED,
+        "relevance_gate": (
+            model.version if model is not None else "on" if gate is not None else DISABLED
+        ),
     }
     trace_id: str | None = secrets.token_hex(12)
     for item in results:
@@ -665,6 +769,7 @@ def retrieve(
             "nature": row["nature"]["value"],
             "decay_weight": row["decay"]["weight"] if "decay" in row else None,
             "state": row["state"],
+            "relevance": (row.get("gate") or {}).get("probability"),
         }
     preview_on = (
         str(preview_setting["value"]).strip().lower() if preview_setting else "on"
