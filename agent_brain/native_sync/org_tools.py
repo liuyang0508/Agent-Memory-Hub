@@ -61,6 +61,7 @@ STABLE_SOURCE_FIELDS = SOURCE_FIELDS - {"producer_name", "uploader_name"}
 MESSAGES = {
     "not_connected": "Complete local organization pairing, then retry. No profile was created.",
     "paused": "Organization access is paused in this local profile.",
+    "recall_disabled": "Organization recall is disabled in this profile; background uploads remain independent.",
     "profile_invalid": "The local organization profile is invalid; review it locally.",
     "policy_mismatch": "The profile does not match the pinned organization/member.",
     "policy_invalid": "The public connection policy is unavailable or invalid.",
@@ -207,6 +208,10 @@ class OrganizationTools:
     def _connect(self) -> tuple[Transport, str]:
         if (self.state / "paused").exists():
             raise RuntimeError("paused")
+        from .profiles import recall_allowed
+
+        if not recall_allowed(self.state):
+            raise RuntimeError("recall_disabled")
         path = self.state / "config.json"
         if not path.exists():
             raise RuntimeError("not_connected")
@@ -317,6 +322,10 @@ class OrganizationTools:
         content_bytes: int,
         limit: int,
     ) -> dict[str, Any]:
+        from .profiles import recall_allowed
+
+        if not recall_allowed(self.state):
+            return self._error("recall_disabled", research_id)
         if content_bytes > MAX_CONTENT_BYTES - research.content_bytes:
             return self._error("invalid_response", research_id)
         if transport.token and transport.token in json.dumps(result, ensure_ascii=False):

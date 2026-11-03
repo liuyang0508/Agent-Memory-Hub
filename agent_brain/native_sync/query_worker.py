@@ -39,6 +39,10 @@ def fetch(transport: Any, query: str, *, limit: int = 8) -> dict[str, Any]:
 
 def bounded_search(state: Path, query: str, *, timeout: float) -> dict[str, Any]:
     """Kill the isolated network process at the deadline; propagate explicit denial separately from outage."""
+    from .profiles import recall_allowed
+
+    if not recall_allowed(state):
+        return {"items": [], "trace_id": None, "channel": "disabled"}
     try:
         result = subprocess.run(
             runtime_argv("agent_brain.native_sync.query_worker", str(state.resolve())),
@@ -61,6 +65,11 @@ def bounded_search(state: Path, query: str, *, timeout: float) -> dict[str, Any]
 
 if __name__ == "__main__":
     try:
+        from .profiles import recall_allowed
+
+        if not recall_allowed(Path(sys.argv[1])):
+            print(json.dumps({"items": [], "trace_id": None, "channel": "disabled"}))
+            raise SystemExit(0)
         config = json.loads((Path(sys.argv[1]) / "config.json").read_text())
         payload = json.load(sys.stdin)
         transport = Transport(config["hub"], config["identity"]["token"], timeout=1.0)

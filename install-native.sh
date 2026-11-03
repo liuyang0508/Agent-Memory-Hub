@@ -11,6 +11,8 @@ VERIFY=false
 SERVICE=true
 SSH_MODE=""
 WEB_PORT=""
+SYNC_ONLY=false
+PROJECTION=""
 WHEEL=""
 # The release workflow substitutes the placeholder below with the tag it
 # publishes from; a checkout keeps it and builds its own wheel instead.
@@ -32,6 +34,8 @@ while [ "$#" -gt 0 ]; do
     --dry-run) DRY=true; shift ;;
     --verify-only) VERIFY=true; shift ;;
     --no-service) SERVICE=false; shift ;;
+    --sync-only) SYNC_ONLY=true; shift ;;
+    --projection|--no-projection) PROJECTION="$1"; shift ;;
     --ssh|--no-ssh) SSH_MODE="$1"; shift ;;
     --web-port) [ "$#" -ge 2 ] || exit 2; WEB_PORT="$2"; shift 2 ;;
     *) echo "Unknown organization memory option: $1" >&2; exit 2 ;;
@@ -48,6 +52,7 @@ if [ "$DRY" = true ]; then
   echo "Hub: $HUB"
   echo "State: $STATE"
   echo "Venv: $VENV"
+  echo "Sync only: $SYNC_ONLY; projection: ${PROJECTION:-default}"
   echo "Browser mode: ${SSH_MODE:-auto}; port: ${WEB_PORT:-auto}"
   echo 'Source checkout left on disk: none (wheel install)'
   exit 0
@@ -133,6 +138,8 @@ if [ "$SERVICE" = false ]; then
 else
   set -- setup --hub "$HUB" --state "$STATE"
 fi
+[ "$SYNC_ONLY" = false ] || set -- "$@" --sync-only
+[ -z "$PROJECTION" ] || set -- "$@" "$PROJECTION"
 [ -z "$SSH_MODE" ] || set -- "$@" "$SSH_MODE"
 [ -z "$WEB_PORT" ] || set -- "$@" --web-port "$WEB_PORT"
 if [ -t 0 ]; then

@@ -22,7 +22,9 @@ def strip_managed(text: str) -> str:
     return text[:start] + text[end + len(END) :].removeprefix("\n")
 
 
-def publish(root: Path, product: str, records: list[dict[str, Any]]) -> dict[str, Any]:
+def publish(
+    root: Path, product: str, records: list[dict[str, Any]], *, owner: str | None = None
+) -> dict[str, Any]:
     """Project complete organization memories into a product's native readable resources.
 
     Compare against the prior ownership manifest before replacing/deleting files.
@@ -39,6 +41,8 @@ def publish(root: Path, product: str, records: list[dict[str, Any]]) -> dict[str
     folder.mkdir(exist_ok=True)
     manifest_path = folder / "manifest.json"
     previous = json.loads(manifest_path.read_text()) if manifest_path.exists() else {}
+    if previous and owner is not None and previous.get("owner") != owner:
+        return {"resources": 0, "conflicts": [str(manifest_path)], "pending": 0}
     owned = dict(previous.get("files", {}))
     conflicts = []
     desired = {}
@@ -189,6 +193,7 @@ def publish(root: Path, product: str, records: list[dict[str, Any]]) -> dict[str
     atomic_json(
         manifest_path,
         {
+            "owner": owner,
             "files": owned,
             "indexes": index_state,
             "documents": documents,
@@ -199,7 +204,9 @@ def publish(root: Path, product: str, records: list[dict[str, Any]]) -> dict[str
     return {"resources": len(entries), "conflicts": conflicts, "pending": pending}
 
 
-def cleanup(root: Path, product: str) -> dict[str, Any]:
+def cleanup(
+    root: Path, product: str, *, owner: str | None = None, allow_legacy: bool = True
+) -> dict[str, Any]:
     """Remove only verified AMH-owned resources; never create a target or index.
 
     A user-edited resource/navigation block remains untouched and is reported as
@@ -216,6 +223,12 @@ def cleanup(root: Path, product: str) -> dict[str, Any]:
         return {"conflicts": []}
     try:
         previous = json.loads(manifest.read_text())
+        if owner is not None and (
+            previous.get("owner") not in (None, owner)
+            or previous.get("owner") is None
+            and not allow_legacy
+        ):
+            return {"conflicts": [str(manifest)]}
         owned = dict(previous["files"])
         indexes = dict(previous.get("indexes", {}))
     except (ValueError, KeyError, TypeError):

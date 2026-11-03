@@ -106,7 +106,14 @@ class NativeClient:
 
             conflicts = []
             for target in self.targets(enabled_only=False):
-                conflicts.extend(cleanup(Path(target["root"]), target["product"])["conflicts"])
+                conflicts.extend(
+                    cleanup(
+                        Path(target["root"]),
+                        target["product"],
+                        owner=str(self.root.resolve()),
+                        allow_legacy=False,
+                    )["conflicts"]
+                )
             if conflicts:
                 atomic_json(
                     self.root / "storage-conflicts.json", {"preserved_user_edits": conflicts}
@@ -201,6 +208,11 @@ class NativeClient:
     def source_enabled(self, kind: str) -> bool:
         return kind in enabled_kinds(self.config)
 
+    def recall_enabled(self) -> bool:
+        from .profiles import recall_allowed
+
+        return recall_allowed(self.root, self.config)
+
     def projection_enabled(self) -> bool:
         """Whether organization memory may be copied into this machine's product stores.
 
@@ -209,7 +221,7 @@ class NativeClient:
         other people's memories onto this disk is a data-placement decision the
         member has to make explicitly, not a side effect of joining.
         """
-        return bool(self.config.get("projection"))
+        return self.recall_enabled() and bool(self.config.get("projection"))
 
     def targets(self, *, enabled_only: bool = True) -> list[dict[str, Any]]:
         """Merge configured/discovered native destinations by resolved path to avoid duplicate writes.
@@ -706,7 +718,10 @@ class NativeClient:
 
             if progress:
                 progress("scan", 0, None)
-            errors = process_observations(self)
+            from .profiles import process_source_observations
+
+            errors = process_source_observations(self)
+            errors.extend(process_observations(self))
             errors.extend(self.scan())  # Persist source changes before any network request.
             if progress:
                 progress("connect", 0, None)
@@ -872,7 +887,12 @@ class NativeClient:
             from .projection import publish
 
             for target in self.targets():
-                result = publish(Path(target["root"]), target["product"], self.cached())
+                result = publish(
+                    Path(target["root"]),
+                    target["product"],
+                    self.cached(),
+                    owner=str(self.root.resolve()),
+                )
                 errors.extend(result["conflicts"])
             atomic_json(
                 self.root / "status.json",
@@ -967,11 +987,19 @@ class NativeClient:
                 if not path.is_symlink() and digest(path.read_text()) == path.stem:
                     path.unlink()
         for target in self.targets(enabled_only=False):
-            cleanup(Path(target["root"]), target["product"])
+            cleanup(
+                Path(target["root"]),
+                target["product"],
+                owner=str(self.root.resolve()),
+                allow_legacy=False,
+            )
 
     def search(self, query: str, **kwargs: Any) -> list[dict[str, Any]]:
         """Query the enrolled organization through the injected transport; do not impose project scope."""
-        return list(self.transport.search(query, **kwargs))
+        if not self.recall_enabled():
+            return []
+        items = list(self.transport.search(query, **kwargs))
+        return items if self.recall_enabled() else []
 
     def local_search(self, query: str, project_filter: str | None = None) -> list[dict[str, Any]]:
         """Rank cached parts deterministically; the caller must enforce the offline authorization window."""
