@@ -1,6 +1,6 @@
 # 组织第二大脑：安装与使用手册
 
-适用版本：AMH 1.4.5。面向 macOS 成员；试点组织 linkcrux，组织地址 `https://aihub0508.com`。核对日期：2026-11-03。
+适用版本：AMH 1.4.6。面向 macOS 成员；试点组织 linkcrux，组织地址 `https://platform.linkcrux.com`。核对日期：2026-11-03。
 
 ## 一、你能用它做什么
 
@@ -26,15 +26,17 @@
 先正常结束正在运行的 AI 任务。按 `Command + 空格`，搜索“终端”并打开。完整复制下面一条命令执行：
 
 ```bash
-curl -fsSL https://github.com/liuyang0508/agent-memory-hub/releases/latest/download/install.sh | sh -s -- --org-memory --hub https://aihub0508.com
+curl -fsSL https://github.com/liuyang0508/agent-memory-hub/releases/latest/download/install.sh | sh -s -- --org-memory --hub https://platform.linkcrux.com
 ```
+
+已接入旧 `aihub0508.com` 的设备，请按[双 Hub 切换说明](dual-hub.zh.md)保留旧同步状态、独立登记新连接，不要直接修改旧配置里的 Hub 地址。
 
 保留 `--org-memory`；省略它会进入旧 AMH 的安装流程。不需要 `sudo`。下载期间等待输出，不要反复启动安装。
 
 需要固定安装本手册版本时，用下面这条代替：
 
 ```bash
-curl -fsSL https://github.com/liuyang0508/agent-memory-hub/releases/download/v1.4.5/install.sh | sh -s -- --org-memory --hub https://aihub0508.com
+curl -fsSL https://github.com/liuyang0508/agent-memory-hub/releases/download/v1.4.6/install.sh | sh -s -- --org-memory --hub https://platform.linkcrux.com
 ```
 
 其他组织把最后的地址替换为管理员提供的 HTTPS 地址，不要填邮箱、账号或 SSH 地址。
@@ -54,7 +56,7 @@ curl -fsSL https://github.com/liuyang0508/agent-memory-hub/releases/download/v1.
 2. **在远端 SSH 终端**执行：
 
    ```bash
-   curl -fsSL https://github.com/liuyang0508/agent-memory-hub/releases/latest/download/install.sh | sh -s -- --org-memory --hub https://aihub0508.com --ssh
+   curl -fsSL https://github.com/liuyang0508/agent-memory-hub/releases/latest/download/install.sh | sh -s -- --org-memory --hub https://platform.linkcrux.com --ssh
    ```
 
 3. 安装器提示端口转发已启动时按回车。看到授权提示后，在**本机浏览器**打开 `http://127.0.0.1:8765/`，按飞书页面完成授权。
@@ -101,14 +103,14 @@ Claude Code、Codex CLI 和桌面本地 Codex 请**新建会话**。旧会话可
 
 升级已有设备时，可运行 `amh-native scope` 查看范围；需要收紧为仅记忆时运行 `amh-native scope --kind memory` 并确认。调整范围会等待正在执行的整轮上传结束，不撤回已上传内容。
 
-CLI 和桌面共用的文件可能标为 `codex-shared`：这表示无法从同一份文件证明具体入口，不代表另一个成员。
+CLI 和桌面共用的文件可能标为 `codex`：这表示无法从同一份文件证明具体入口，不代表另一个成员。
 
 ## 七、接入 Claude Cowork
 
 1. 安装器会在 Finder 定位 `cowork-plugin.zip`，默认位于 `~/.amh-native-sync/cowork-plugin.zip`。
 2. 打开 Claude 桌面应用，进入 **Customize → Plugins → Add plugin → Upload**。
 3. 选择刚生成的 ZIP，完成导入；已有同名插件时，核对后选择替换。
-4. 确认 **Amh native org** 已启用，版本为 1.4.5。本机绑定的插件还提供组织只读 MCP 工具；在新任务中使用。
+4. 确认 **Amh native org** 已启用，版本为 1.4.6。本机绑定的插件还提供组织只读 MCP 工具；在新任务中使用。
 
 文件选择窗口看不到隐藏目录时，按 **Command + Shift + G**，粘贴终端显示的 ZIP 完整路径，再按回车和“打开”。无需解压。
 5. 在 Cowork 新建任务，触发首次配对。
@@ -141,7 +143,7 @@ Cowork 执行过首次任务后，再检查其独立运行时：
 
 应与主客户端是同一成员、不同设备。未登记时，先核对插件启用状态与首次任务。
 
-检查版本，本文版本应输出 `1.4.5`：
+检查版本，本文版本应输出 `1.4.6`：
 
 ```bash
 "$HOME/.amh-native/venv/bin/python" -c 'from importlib.metadata import version; print(version("agent-memory-hub"))'
@@ -198,7 +200,7 @@ Cowork 执行过首次任务后，再检查其独立运行时：
 希望组织记忆同时成为本地原生资源时，可明确选择：
 
 ```bash
-"$HOME/.local/bin/amh-native" setup --hub https://aihub0508.com --projection
+"$HOME/.local/bin/amh-native" setup --hub https://platform.linkcrux.com --projection
 ```
 
 这会重新走向导，并允许本机保存组织正文副本。共享规则、技能和配置也不等于自动激活，应用这些资产需明确选择，进阶操作见同目录 README。
@@ -239,7 +241,7 @@ Cowork 执行过首次任务后，再检查其独立运行时：
 | 飞书企业不符、无权限 | 核对当前企业，请管理员检查应用发布状态与可用范围，不发送密码。 |
 | 授权完成但终端未成功 | 查看终端错误；超时后重跑向导，不复用旧回调地址。 |
 | 历史选择页打不开 | 按终端提示处理；之后可用 `import --no-web` 改为终端选择。 |
-| 待上传一直不下降 | 查看 `status` 中错误、网络和暂停状态；执行一次 `sync` 获取具体错误。 |
+| 待上传一直不下降 | 查看 `status` 的 `pending`、错误和暂停状态；后台按批次继续上传，`upload_deferred` 表示留队而非丢弃。请求与批次设置见[后台同步预算](dual-hub.zh.md#后台同步的请求与单轮预算)。手动 `sync` 仍尝试完整队列并显示具体错误。 |
 | 云检索有结果，但产品未召回 | 新建会话；检查 Hook 启用/批准、提问相关性和超时。CLI 查询成功不能代替产品验收。 |
 | 跨境或高延迟网络下组织召回总是超时（`hook-metrics.jsonl` 里 `mode` 为 `unavailable`、`elapsed_ms` 贴着 `budget_ms`） | 后台 worker 会保持到 Hub 的连接，每次召回只花一个往返（`via` 为 `service`）；仍不够就 `amh-native recall-timeout 3` 调大总预算（秒，默认 1.2，宿主 Hook 超时随之重写），然后新建会话让产品重新加载 Hook 配置。 |
 | Cowork 不生效 | 检查插件版本与启用状态、新建任务、核对独立运行时；CC 正常不代表 Cowork 正常。 |
@@ -261,3 +263,27 @@ Cowork 执行过首次任务后，再检查其独立运行时：
 新会话中的组织工具可在首搜无匹配时改写查询，按固定版本读取全文并查询明确引用关系。每次问题最多3次不同搜索、12次工具调用和32000字节正文/摘录；达到预算会说明缺失，不保证所有问题都有答案。详见[检索与按需阅读](retrieval.zh.md)。
 
 本版未完整迁移旧 AMH 的霍普菲尔德联想、遗忘曲线、反馈衰减及逐条召回明细视图。模型索引未建好或落后时，会明确报告词法降级；关闭类别不会删除已上传资料。
+
+## 两个 Hub：独立同步，主 Hub 召回
+
+客户端1.4.6支持按profile独立关闭召回、保持同步，以及只同步安装模式。迁移前须保留旧排除历史并审查新Hub的共享计划；操作顺序与Cowork边界见[双Hub说明](dual-hub.zh.md)。
+
+
+### 按 Hub 独立控制上传和召回
+
+用 `--state` 指定本机对应 Hub 的配置目录。下面以默认目录为例；其他 Hub 使用安装时选择的独立目录。
+
+```sh
+# 关闭召回，保留上传
+amh-native recall --state ~/.amh-native-sync --disable
+# 恢复召回
+amh-native recall --state ~/.amh-native-sync --enable
+# 暂停所有类型上传，保留召回；按提示确认
+amh-native scope --state ~/.amh-native-sync --none
+# 将上传范围设为仅长期记忆；按提示确认
+amh-native scope --state ~/.amh-native-sync --kind memory
+# 查看上传范围和召回状态
+amh-native status --state ~/.amh-native-sync
+```
+
+`scope` 设置的是完整上传范围，不是增量开关。`memory` 指产品维护的长期记忆；其他类型是会话记录 `transcript`、规则 `rule`、技能 `skill`、配置 `config`。需要多个类型时重复 `--kind`。关闭上传保留选择、队列和云端内容，正在执行的一轮同步结束后生效。已有会话中的上下文不会因关闭召回而撤回，验证时请新建会话。

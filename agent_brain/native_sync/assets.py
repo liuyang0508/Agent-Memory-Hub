@@ -6,8 +6,8 @@ import base64
 import json
 import re
 from pathlib import Path, PurePosixPath
-from typing import Any
-from .common import atomic_bytes, atomic_json, atomic_text, digest
+from typing import Any, Callable
+from .common import atomic_bytes, atomic_json, atomic_text, digest, source_product
 from .materialize import complete_snapshot
 
 
@@ -15,7 +15,7 @@ def provenance(record: dict[str, Any]) -> str:
     """Render original member/product/version metadata for explicitly activated behavior assets."""
     return json.dumps(
         {
-            k: record[k]
+            k: source_product(record[k]) if k == "product" else record[k]
             for k in (
                 "producer_member_id",
                 "producer_name",
@@ -30,9 +30,14 @@ def provenance(record: dict[str, Any]) -> str:
 
 
 def activate_skills(
-    root: Path, records: list[dict[str, Any]], *, source_store: str | None = None
+    root: Path,
+    records: list[dict[str, Any]],
+    *,
+    source_store: str | None = None,
+    before_write: Callable[[], None] = lambda: None,
 ) -> dict[str, Any]:
     """Apply a complete source-scoped skill snapshot; preserve user changes and unrelated sources."""
+    before_write()
     root = Path(root)
     if root.is_symlink():
         raise ValueError("native skill root must not be symlink")
@@ -101,6 +106,7 @@ def activate_skills(
         if len(staged) != len(entries):
             continue  # Do not activate half a package.
         for p, key, raw, wanted in staged:
+            before_write()
             atomic_bytes(p, raw)
             owned[key] = wanted
         installed.append(name)
@@ -112,6 +118,7 @@ def activate_skills(
         if not p.exists():
             owned.pop(key, None)
         elif not p.is_symlink() and digest(p.read_bytes().hex()) == owned[key]:
+            before_write()
             p.unlink()
             owned.pop(key, None)
         else:
@@ -124,11 +131,14 @@ def activate_skills(
         }
     )
     package_sources = {name: value for name, value in package_sources.items() if name in active}
+    before_write()
     atomic_json(manifest, {"files": owned, "packages": active, "package_sources": package_sources})
     return {"packages": len(active), "names": active, "updated": installed, "conflicts": conflicts}
 
 
-def activate_rules(path: Path, records: list[dict[str, Any]]) -> dict[str, Any]:
+def activate_rules(
+    path: Path, records: list[dict[str, Any]], *, before_write: Callable[[], None] = lambda: None
+) -> dict[str, Any]:
     """Replace the owned rules block only after complete-snapshot and edit checks; never auto-activate."""
     path = Path(path)
     start = "<!-- amh-native-rules:start -->"
@@ -163,14 +173,22 @@ def activate_rules(path: Path, records: list[dict[str, Any]]) -> dict[str, Any]:
     if path.exists() and path.read_text() != original:
         raise ValueError("instructions changed; retry")
     content = content.rstrip("\n") + "\n" + block + "\n"
+    before_write()
     atomic_json(receipt, {"block_hash": digest(block), "before": previous.get("before", original)})
+    before_write()
     atomic_text(path, content)
     return {"rules": len(parts), "path": str(path)}
 
 
-def apply_config(path: Path, record: dict[str, Any], product: str) -> dict[str, Any]:
+def apply_config(
+    path: Path,
+    record: dict[str, Any],
+    product: str,
+    *,
+    before_write: Callable[[], None] = lambda: None,
+) -> dict[str, Any]:
     """Apply portable fields only; unrelated fields and tables remain intact."""
-    codex = {"codex-cli", "codex-desktop", "chatgpt-desktop", "codex-shared"}
+    codex = {"codex-cli", "codex-desktop", "chatgpt-desktop", "codex", "codex-shared"}
     if (record["product"] in codex) != (product in codex):
         raise ValueError("cross-family model/settings fields require an explicit semantic mapping")
     if record["kind"] != "config":
@@ -213,6 +231,7 @@ def apply_config(path: Path, record: dict[str, Any], product: str) -> dict[str, 
         raise ValueError("configuration changed; preview again")
     backup = path.parent / ("." + path.name + ".amh-native-config.json")
     previous = json.loads(backup.read_text()) if backup.exists() else {}
+    before_write()
     atomic_json(
         backup,
         {
@@ -221,5 +240,6 @@ def apply_config(path: Path, record: dict[str, Any], product: str) -> dict[str, 
             "after_hash": digest(updated),
         },
     )
+    before_write()
     atomic_text(path, updated)
     return {"applied": list(selected), "skipped": sorted(set(values) - allowed), "path": str(path)}

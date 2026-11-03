@@ -1,14 +1,14 @@
 """Lossless organization asset export; never executes or overwrites user edits."""
 
 from __future__ import annotations
-from typing import Any
+from typing import Any, Callable
 
 import base64
 import binascii
 import hashlib
 import json
 from pathlib import Path, PurePosixPath
-from .common import atomic_json, digest
+from .common import atomic_json, digest, source_product
 
 
 def assembled(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -79,8 +79,15 @@ def complete_snapshot(records: list[dict[str, Any]], kinds: set[str]) -> list[di
     return complete
 
 
-def materialize(root: Path, records: list[dict[str, Any]], *, kinds: set[str]) -> dict[str, Any]:
+def materialize(
+    root: Path,
+    records: list[dict[str, Any]],
+    *,
+    kinds: set[str],
+    before_write: Callable[[], None] = lambda: None,
+) -> dict[str, Any]:
     """Export selected asset kinds under source-scoped paths; preserve edits and never execute content."""
+    before_write()
     root = Path(root)
     if root.is_symlink():
         raise ValueError("destination must not be symlink")
@@ -120,6 +127,7 @@ def materialize(root: Path, records: list[dict[str, Any]], *, kinds: set[str]) -
         p.parent.mkdir(parents=True, exist_ok=True)
         from .common import atomic_bytes
 
+        before_write()
         atomic_bytes(p, raw)
         next_owned[key] = want
     # Only remove exports belonging to the selected kinds, and only if untouched.
@@ -132,10 +140,12 @@ def materialize(root: Path, records: list[dict[str, Any]], *, kinds: set[str]) -
             and not p.is_symlink()
             and hashlib.sha256(p.read_bytes()).hexdigest() == owned[key]
         ):
+            before_write()
             p.unlink()
             next_owned.pop(key, None)
         elif p.exists():
             conflicts.append(str(p))
+    before_write()
     atomic_json(
         manifest,
         {
@@ -145,7 +155,7 @@ def materialize(root: Path, records: list[dict[str, Any]], *, kinds: set[str]) -
                     "asset": r["asset_id"],
                     "producer": r["producer_member_id"],
                     "name": r["producer_name"],
-                    "product": r["product"],
+                    "product": source_product(r["product"]),
                     "path": r["path"],
                 }
                 for r in records

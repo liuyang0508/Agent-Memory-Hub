@@ -66,7 +66,7 @@ amh-native sync
 
 Claude Code 新项目会通过 SessionStart / 成功的新建记忆事件登记来源；新发现目录中的既有文件仍按历史处理。启用后请新建会话，旧会话可能保留原有上下文。
 
-来源类型包含 `memory`、`transcript`、`rule`、`skill`、`config`。安装器发现常见来源；特殊目录可以显式绑定。Codex CLI 与桌面共用存储时只采集一次；无法从文件证明具体入口的自动绑定标为 `codex-shared`，不伪造 CLI/桌面生产归属。项目未知时仍允许全组织检索。
+来源类型包含 `memory`、`transcript`、`rule`、`skill`、`config`。安装器发现常见来源；特殊目录可以显式绑定。Codex CLI 与桌面共用存储时只采集一次；无法从文件证明具体入口的自动绑定标为 `codex`，不伪造 CLI/桌面生产归属。项目未知时仍允许全组织检索。
 
 ## 上传、召回与原生读取
 

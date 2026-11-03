@@ -50,7 +50,7 @@ def discover(home: Path) -> list[dict[str, Any]]:
     # The ChatGPT desktop app manages Codex memory on this host ("Codex 记忆 →
     # 本地主机" in its settings), and that store is ~/.codex/memories. It is the
     # same directory Codex CLI and the Codex app use, so the three share one
-    # store; rows are deduplicated by absolute path and labelled codex-shared.
+    # store; rows are deduplicated by absolute path and labelled codex.
     codex_store = home / ".codex/memories"
     if (Path("/Applications") / "ChatGPT.app").exists():
         result.append(
@@ -226,6 +226,10 @@ def _restore_mcp(path: Path, entry: dict[str, Any]) -> bool:
 def install_hooks(home: Path, state: Path, *, products: list[str]) -> list[str]:
     """Prevalidate client settings, then install owned callbacks/read flags with reversible receipts."""
     home, state = Path(home).resolve(), Path(state).resolve()
+    from .profiles import recall_allowed
+
+    if not recall_allowed(state):
+        raise ValueError("recall-disabled profile cannot install product integrations")
     state.mkdir(parents=True, exist_ok=True, mode=0o700)
     receipt = state / "install-receipt.json"
     saved = json.loads(receipt.read_text()) if receipt.exists() else {"json": {}, "text": {}}
@@ -259,6 +263,18 @@ def install_hooks(home: Path, state: Path, *, products: list[str]) -> list[str]:
                 for entry in entries
             ):
                 raise ValueError("invalid Hook entries: " + str(path))
+        previous = saved.get("json", {}).get(str(path), {}).get("after", {}).get("hooks", {})
+        owned = [
+            h for entries in previous.values() for entry in entries for h in entry.get("hooks", [])
+        ]
+        for entries in data.get("hooks", {}).values():
+            for entry in entries:
+                for handler in entry.get("hooks", []):
+                    if _managed(handler.get("command", "")) and handler not in owned:
+                        raise ValueError(
+                            "another profile or edited native Hook exists; detach it explicitly: "
+                            + str(path)
+                        )
     claude_config = home / ".claude.json"
     if "claude-code" in products:
         if claude_config.is_symlink():
@@ -457,6 +473,7 @@ def export_cowork_plugin(
     policy: dict[str, str] | None = None,
     runtime_state: Path | None = None,
     connection_file: Path | None = None,
+    recall_state: Path | None = None,
 ) -> Path:
     """Export stdlib Hooks; optional explicit host paths avoid ephemeral Cowork data.
 
@@ -497,6 +514,18 @@ def export_cowork_plugin(
     ]
     from agent_brain._version import __version__
 
+    if recall_state is not None:
+        if runtime_state is None or not recall_state.is_absolute():
+            raise ValueError("recall parent requires an absolute host runtime binding")
+        from .profiles import organization_pin
+
+        parent_config = json.loads((recall_state / "config.json").read_text())
+        runtime_state.mkdir(parents=True, exist_ok=True, mode=0o700)
+        runtime_state.chmod(0o700)
+        atomic_json(
+            runtime_state / "recall-parent.json",
+            {"state": str(recall_state.resolve()), "pin": organization_pin(parent_config)},
+        )
     host_mcp = runtime_state is not None and platform.system() == "Darwin"
     manifest: dict[str, Any] = {
         "name": "amh-native-org",
@@ -530,6 +559,7 @@ def export_cowork_plugin(
         "storage.py",
         "transport.py",
         "projection.py",
+        "profiles.py",
         "source.py",
         "source_policy.py",
         "materialize.py",
@@ -638,3 +668,102 @@ def launch_agent(
     }
     atomic_text(path, plistlib.dumps(data).decode())
     return path
+
+
+def detach_products(state: Path, *, apply: bool = False) -> dict[str, Any]:
+    """Remove only receipt-owned native callbacks/MCP; keep all unrelated values.
+
+    Preview is the default. Every destination is prevalidated before mutation.
+    Changed owned entries are conflicts, never permission to overwrite. Native
+    reading flags, legacy integrations and discipline prose are not restored.
+    This deliberately does not stop the profile's synchronization service.
+    """
+    import copy
+    import tomlkit
+
+    state = Path(state).resolve()
+    receipt = state / "install-receipt.json"
+    if not receipt.exists():
+        return {"changed": [], "conflicts": [], "applied": False}
+    saved = json.loads(receipt.read_text())
+    changes: dict[Path, tuple[str, str]] = {}
+    conflicts: list[str] = []
+    for raw, entry in saved.get("json", {}).items():
+        path = Path(raw)
+        if not path.exists():
+            continue
+        try:
+            if path.is_symlink():
+                raise ValueError("symlink")
+            original = path.read_text()
+            data = json.loads(original)
+            desired = copy.deepcopy(data)
+            for event, groups in entry["after"].get("hooks", {}).items():
+                owned = [
+                    handler
+                    for group in groups
+                    for handler in group.get("hooks", [])
+                    if _managed(handler.get("command", ""))
+                ]
+                if not owned or event not in desired.get("hooks", {}):
+                    continue
+                current_groups = desired.get("hooks", {}).get(event, [])
+                kept = []
+                for group in current_groups:
+                    handlers = []
+                    for handler in group.get("hooks", []):
+                        if handler in owned:
+                            continue
+                        if _managed(handler.get("command", "")):
+                            raise ValueError("owned hook edited or replaced")
+                        handlers.append(handler)
+                    if handlers:
+                        kept.append({**group, "hooks": handlers})
+                desired["hooks"][event] = kept
+            if desired != data:
+                changes[path] = (original, json.dumps(desired, ensure_ascii=False, indent=2) + "\n")
+        except (OSError, ValueError, TypeError, KeyError):
+            conflicts.append(raw)
+    for raw, entry in saved.get("mcp", {}).items():
+        path = Path(raw)
+        if not path.exists():
+            continue
+        try:
+            if path.is_symlink():
+                raise ValueError("symlink")
+            original = path.read_text()
+            content = changes.get(path, (original, original))[1]
+            document = tomlkit.parse(content) if entry["format"] == "toml" else json.loads(content)
+            servers = document.get("mcp_servers" if entry["format"] == "toml" else "mcpServers", {})
+            current = servers.get(ORG_MCP_NAME)
+            if current is None:
+                continue
+            if current != entry["after"]:
+                raise ValueError("owned MCP entry edited or replaced")
+            del servers[ORG_MCP_NAME]
+            changed = (
+                tomlkit.dumps(document)
+                if entry["format"] == "toml"
+                else json.dumps(document, ensure_ascii=False, indent=2) + "\n"
+            )
+            changes[path] = (original, changed)
+        except (OSError, ValueError, TypeError, KeyError):
+            conflicts.append(raw)
+    conflicts = sorted(set(conflicts))
+    result = {
+        "changed": [str(p) for p in changes],
+        "conflicts": conflicts,
+        "applied": False,
+    }
+    if conflicts or not apply:
+        return result
+    # A concurrent product edit between preview and apply must not be discarded.
+    for path, (original, _) in changes.items():
+        if path.is_symlink() or path.read_text() != original:
+            conflicts.append(str(path))
+    if conflicts:
+        return result
+    for path, (_, changed) in changes.items():
+        atomic_text(path, changed)
+    result["applied"] = True
+    return result

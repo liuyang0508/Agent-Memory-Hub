@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Callable
 
 import json
 from pathlib import Path
-from .common import atomic_json, atomic_text, digest
+from .common import atomic_json, atomic_text, digest, source_product
 
 START = "<!-- amh-native-org:start -->"
 END = "<!-- amh-native-org:end -->"
@@ -22,13 +22,87 @@ def strip_managed(text: str) -> str:
     return text[:start] + text[end + len(END) :].removeprefix("\n")
 
 
-def publish(root: Path, product: str, records: list[dict[str, Any]]) -> dict[str, Any]:
+def publish(
+    root: Path,
+    product: str,
+    records: list[dict[str, Any]],
+    *,
+    owner: str | None = None,
+    before_write: Callable[[], None] = lambda: None,
+) -> dict[str, Any]:
+    """Publish with compare-before-rollback for an interrupted policy-gated write.
+
+    Until the final manifest commits, undo only this call's unchanged writes.
+    Preserve concurrent user edits and report them instead of deleting content
+    whose current ownership cannot be established. This is exception recovery,
+    not a durable journal for an uncatchable process termination.
+    """
+    changes: list[tuple[Path, str | None, str | None]] = []
+
+    def write_text(path: Path, content: str) -> None:
+        previous = path.read_text() if path.exists() else None
+        changes.append((path, previous, digest(content)))
+        atomic_text(path, content)
+
+    def remove_file(path: Path) -> None:
+        previous = path.read_text()
+        changes.append((path, previous, None))
+        path.unlink()
+
+    try:
+        return _publish(
+            root,
+            product,
+            records,
+            owner=owner,
+            before_write=before_write,
+            write_text=write_text,
+            remove_file=remove_file,
+        )
+    except BaseException as error:
+        conflicts = []
+        for path, previous, expected in reversed(changes):
+            try:
+                if path.is_symlink():
+                    conflicts.append(str(path))
+                    continue
+                current = path.read_text() if path.exists() else None
+                if current == previous:
+                    continue  # The failed write never changed this destination.
+                current_hash = digest(current) if current is not None else None
+                if current_hash != expected:
+                    conflicts.append(str(path))
+                    continue
+                if previous is None:
+                    path.unlink(missing_ok=True)
+                else:
+                    atomic_text(path, previous)
+            except (OSError, UnicodeError):
+                conflicts.append(str(path))
+        if conflicts:
+            raise ValueError(
+                "projection interrupted; preserved concurrent edits: " + ", ".join(conflicts)
+            ) from error
+        raise
+
+
+def _publish(
+    root: Path,
+    product: str,
+    records: list[dict[str, Any]],
+    *,
+    owner: str | None = None,
+    before_write: Callable[[], None],
+    write_text: Callable[[Path, str], None],
+    remove_file: Callable[[Path], None],
+) -> dict[str, Any]:
     """Project complete organization memories into a product's native readable resources.
 
     Compare against the prior ownership manifest before replacing/deleting files.
     Preserve user edits and each incomplete document's prior complete projection;
     other documents continue updating. Return conflicts rather than overwrite them.
     """
+    before_write()
     root = Path(root)
     if root.is_symlink():
         raise ValueError("native memory root must not be a symlink")
@@ -39,6 +113,10 @@ def publish(root: Path, product: str, records: list[dict[str, Any]]) -> dict[str
     folder.mkdir(exist_ok=True)
     manifest_path = folder / "manifest.json"
     previous = json.loads(manifest_path.read_text()) if manifest_path.exists() else {}
+    # Earlier releases wrote no owner. The profile that projects into its own
+    # registered target adopts that manifest; another owner is still a conflict.
+    if previous and owner is not None and previous.get("owner") not in (None, owner):
+        return {"resources": 0, "conflicts": [str(manifest_path)], "pending": 0}
     owned = dict(previous.get("files", {}))
     conflicts = []
     desired = {}
@@ -80,7 +158,7 @@ def publish(root: Path, product: str, records: list[dict[str, Any]]) -> dict[str
             continue
         name = digest(r["tenant_id"] + ":" + r["asset_id"]) + ".md"
         metadata = {
-            k: r[k]
+            k: source_product(r[k]) if k == "product" else r[k]
             for k in [
                 "tenant_id",
                 "asset_id",
@@ -128,12 +206,14 @@ def publish(root: Path, product: str, records: list[dict[str, Any]]) -> dict[str
         ):
             conflicts.append(str(p))
             continue
-        atomic_text(p, content)
+        before_write()
+        write_text(p, content)
         owned[name] = digest(content)
     for name in set(owned) - set(desired):
         p = folder / name
         if p.exists() and not p.is_symlink() and digest(p.read_text()) == owned[name]:
-            p.unlink()
+            before_write()
+            remove_file(p)
             del owned[name]
         elif p.exists():
             conflicts.append(str(p))
@@ -184,11 +264,14 @@ def publish(root: Path, product: str, records: list[dict[str, Any]]) -> dict[str
         if p.exists() and p.read_text() != before:
             conflicts.append(str(p))
             continue
-        atomic_text(p, content)
+        before_write()
+        write_text(p, content)
         index_state[name] = digest(block.rstrip("\n"))
+    before_write()
     atomic_json(
         manifest_path,
         {
+            "owner": owner,
             "files": owned,
             "indexes": index_state,
             "documents": documents,
@@ -199,7 +282,9 @@ def publish(root: Path, product: str, records: list[dict[str, Any]]) -> dict[str
     return {"resources": len(entries), "conflicts": conflicts, "pending": pending}
 
 
-def cleanup(root: Path, product: str) -> dict[str, Any]:
+def cleanup(
+    root: Path, product: str, *, owner: str | None = None, allow_legacy: bool = True
+) -> dict[str, Any]:
     """Remove only verified AMH-owned resources; never create a target or index.
 
     A user-edited resource/navigation block remains untouched and is reported as
@@ -216,6 +301,12 @@ def cleanup(root: Path, product: str) -> dict[str, Any]:
         return {"conflicts": []}
     try:
         previous = json.loads(manifest.read_text())
+        if owner is not None and (
+            previous.get("owner") not in (None, owner)
+            or previous.get("owner") is None
+            and not allow_legacy
+        ):
+            return {"conflicts": [str(manifest)]}
         owned = dict(previous["files"])
         indexes = dict(previous.get("indexes", {}))
     except (ValueError, KeyError, TypeError):

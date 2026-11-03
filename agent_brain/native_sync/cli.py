@@ -23,7 +23,7 @@ from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn, TimeEl
 
 from .client import NativeClient
 from . import source_policy
-from .common import PRODUCTS, PAIRING_MAX_TTL, atomic_json, display_name
+from .common import PRODUCTS, PAIRING_MAX_TTL, atomic_json, display_name, source_product
 from .storage import database
 from .install import (
     discover as discover_products,
@@ -704,13 +704,13 @@ def _empty_products(home: Path, rows: list[dict[str, Any]]) -> list[str]:
     produces memory, so listing it as "found" but absent from the checklist
     filters looks like a bug rather than "nothing here yet".
     """
-    present = {row["product"] for row in rows}
+    present = {source_product(str(row["product"])) for row in rows}
     names: list[str] = []
     for entry in discover_products(home):
         if not entry["detected"]:
             continue
         source = (
-            "codex-shared"
+            "codex"
             if entry["product"] in ("codex-cli", "codex-desktop", "chatgpt-desktop")
             else entry["product"]
         )
@@ -880,7 +880,7 @@ def recall_trace(
             f"{item.get('final_rank') or '—'}/{item.get('rank') or '—'}",
             item.get("title") or item.get("path") or "",
             f"{item.get('role')}·{nature.get('value', '未知')}",
-            str(item.get("product")),
+            source_product(str(item.get("product"))),
             str(item.get("project") or ""),
             "未知" if producer.get("unknown") else str(producer.get("name")),
             _route_text(item.get("routes", {})),
@@ -932,18 +932,110 @@ def recall_feedback(
     )
 
 
+@app.command("recall")
+def recall_policy(
+    state: Path = DEFAULT_STATE,
+    enabled: bool | None = typer.Option(None, "--enable/--disable"),
+) -> None:
+    """查看或更改本 profile 召回；不会暂停上传 worker。"""
+    c = load(state)
+    if enabled is not None:
+        c.config["recall_enabled"] = enabled
+        if enabled:
+            c.config["sync_only"] = False
+        atomic_json(state / "config.json", c.config)
+        c.configure_storage()
+    conflicts = state / "storage-conflicts.json"
+    emit(
+        {
+            "state": str(state.resolve()),
+            "recall_enabled": c.recall_enabled(),
+            "sync_only": bool(c.config.get("sync_only")),
+            "uploads_paused": (state / "paused").exists(),
+            "projection_conflicts": json.loads(conflicts.read_text()) if conflicts.exists() else {},
+        }
+    )
+
+
+@app.command("observe-to")
+def observe_to(
+    target: Path = typer.Option(...),
+    state: Path = DEFAULT_STATE,
+    remove: bool = False,
+) -> None:
+    """显式授权主 profile 向只上传 profile 转发 Claude Code 来源发现（最多 4 个）。"""
+    from .profiles import profile_pin
+
+    c = load(state)
+    target = target.resolve()
+    if target == state.resolve():
+        raise typer.BadParameter("source and target profiles must differ")
+    peers = [p for p in c.config.get("observation_targets", []) if p["state"] != str(target)]
+    if not remove:
+        backup = load(target)
+        if backup.recall_enabled():
+            raise typer.BadParameter("target must have recall disabled before linking")
+        if len(peers) >= 4:
+            raise typer.BadParameter("at most four observation targets")
+        peers.append({"state": str(target), "pin": profile_pin(backup.config)})
+    c.config["observation_targets"] = peers
+    atomic_json(state / "config.json", c.config)
+    emit({"observation_targets": peers})
+
+
+@app.command("activate-products")
+def activate_products(
+    product: list[str] = typer.Option(..., "--product"),
+    state: Path = DEFAULT_STATE,
+    home: Path = typer.Option(Path.home()),
+) -> None:
+    """显式接入已准备好的主 profile；不重新选择历史，不重启独立 worker。"""
+    c = load(state)
+    if not c.recall_enabled():
+        raise typer.BadParameter("enable recall explicitly before activation")
+    supported = {"codex-cli", "codex-desktop", "chatgpt-desktop", "claude-code"}
+    if not product or set(product) - supported:
+        raise typer.BadParameter(
+            "choose Codex or Claude Code products; Cowork needs its own plugin"
+        )
+    emit({"installed": install_hooks(home, state, products=product)})
+
+
+@app.command("detach-products")
+def detach_products(
+    state: Path = DEFAULT_STATE,
+    apply: bool = False,
+) -> None:
+    """预览或精确移除 receipt 所属 Hook/MCP；保留 worker/来源/队列及用户配置。"""
+    from .install import detach_products as detach
+
+    result = detach(state, apply=apply)
+    emit(result)
+    if result["conflicts"]:
+        raise typer.Exit(1)
+
+
 @app.command()
 def status(state: Path = DEFAULT_STATE) -> None:
+    from .worker import sync_settings
+
     c = load(state)
     summary = {
+        "sync_worker": sync_settings(c.config),
         "identity": {k: v for k, v in c.identity.items() if k != "token"},
         "hub": c.config.get("hub"),
+        "recall_enabled": c.recall_enabled(),
+        "sync_only": bool(c.config.get("sync_only", False)),
+        "paused": (state / "paused").exists(),
+        "observation_targets": c.config.get("observation_targets", []),
         "sources": c.sources(),
         "targets": c.targets(),
         "pending": c.pending_count(),
         "scope": c.source_scope(),
         "origin_reviews": c.origin_reviews(),
     }
+    if (state / "storage-conflicts.json").exists():
+        summary["projection_conflicts"] = json.loads((state / "storage-conflicts.json").read_text())
     if (state / "status.json").exists():
         summary["worker"] = json.loads((state / "status.json").read_text())
     summary["recall"] = _recall_settings(state, c)
@@ -1070,6 +1162,7 @@ def cowork_connect(
         policy=policy,
         runtime_state=runtime_state.expanduser().resolve() if runtime_state else None,
         connection_file=connection if runtime_state else None,
+        recall_state=state.resolve() if runtime_state else None,
     )
     emit(
         {
@@ -1102,11 +1195,10 @@ def setup(
     state: Path = DEFAULT_STATE,
     home: Path = typer.Option(Path.home()),
     service: bool = True,
-    ssh: bool | None = typer.Option(
-        None, "--ssh/--no-ssh", help="使用本机浏览器安装远端设备；默认检测 SSH"
-    ),
-    web_port: int = typer.Option(
-        0, min=0, max=65535, help="浏览器端口；SSH 默认 8765，本机默认随机"
+    ssh: bool | None = typer.Option(None, "--ssh/--no-ssh", help="使用本机浏览器安装远端设备；默认检测 SSH"),
+    web_port: int = typer.Option(0, min=0, max=65535, help="浏览器端口；SSH 默认 8765，本机默认随机"),
+    sync_only: bool = typer.Option(
+        False, help="只同步上传；禁用召回，不安装产品 Hook、MCP 或 Cowork 插件"
     ),
     projection: bool = typer.Option(
         False,
@@ -1116,6 +1208,8 @@ def setup(
     """终端分步安装：检查产品、飞书登录、挑选历史、确认配置。"""
     from . import history
 
+    if sync_only and projection:
+        raise typer.BadParameter("--sync-only cannot enable projection")
     console.print("[bold]AMH · 组织共享第二大脑[/bold]")
     require_research_service(hub)
     remote, port = browser_mode(ssh, web_port)
@@ -1148,6 +1242,13 @@ def setup(
             raise typer.BadParameter("不同 Hub 必须使用独立 --state；不能把旧队列发给新组织")
         console.print("已使用现有身份；如需换账号请指定新的 --state")
     c.config["projection"] = bool(projection)
+    if sync_only:
+        c.config["recall_enabled"] = False
+        c.config["sync_only"] = True
+    elif c.config.get("sync_only"):
+        raise typer.BadParameter(
+            "sync-only profile: explicitly enable recall before product activation"
+        )
     atomic_json(c.root / "config.json", c.config)
     c.configure_storage()
     console.print(
@@ -1218,6 +1319,9 @@ def setup(
     for product in found:
         if not product["detected"]:
             continue
+        if sync_only and product["product"] == "cowork":
+            console.print("Cowork 有独立运行时；sync-only 不接入或替换该插件。")
+            continue
         if product["product"] != "cowork" and not typer.confirm(
             "接入 " + product["name"] + "？", default=True
         ):
@@ -1237,7 +1341,7 @@ def setup(
             if kind == "memory":
                 root.mkdir(parents=True, exist_ok=True)
             source_product = (
-                "codex-shared"
+                "codex"
                 if product["product"] in ("codex-cli", "codex-desktop", "chatgpt-desktop")
                 else product["product"]
             )
@@ -1251,13 +1355,15 @@ def setup(
             console.print(f"{label}：{kind} · {root}", markup=False)
     console.print("接入产品：" + "、".join(PRODUCTS[p] for p in chosen))
     console.print(
-        "将启用：产品原生记忆、后台上传、Hook 组织召回、本地原生组织资源。原生生成由产品执行，可能使用产品额度；已有 AMH 托管自动链路将隔离。"
+        "将启用：独立后台上传；不安装产品 Hook/MCP/Cowork，不提供组织召回。"
+        if sync_only
+        else "将启用：产品原生记忆、后台上传、Hook 组织召回、本地原生组织资源。原生生成由产品执行，可能使用产品额度；已有 AMH 托管自动链路将隔离。"
     )
     if not typer.confirm("确认配置并启用？", default=False):
         console.print("已登记身份与选择；尚未安装 Hook 或启动上传。")
         return
     cowork_artifacts: tuple[Path, Path] | None = None
-    if "cowork" in chosen:
+    if "cowork" in chosen and not sync_only:
         from .cowork_runtime import PAIRING_FILENAME, export_connection
 
         connection = state / "cowork-connection" / PAIRING_FILENAME
@@ -1269,12 +1375,14 @@ def setup(
                 policy=policy,
                 runtime_state=(state / "cowork-runtime").resolve() if host_runtime else None,
                 connection_file=connection.resolve() if host_runtime else None,
+                recall_state=state.resolve() if host_runtime else None,
             )
             cowork_artifacts = plugin, connection
         except (OSError, ValueError) as exc:
             console.print(f"Cowork 配对准备失败（{type(exc).__name__}）；尚未修改客户端配置。")
             raise typer.Exit(1) from None
-    install_hooks(home, state, products=chosen)
+    if not sync_only:
+        install_hooks(home, state, products=chosen)
     if cowork_artifacts:
         plugin, connection = cowork_artifacts
         console.print(
@@ -1329,7 +1437,8 @@ def export_assets(
     """无损导出共享聊天、规则、skills、可迁移配置，保留来源清单。"""
     from .materialize import materialize
 
-    emit(materialize(destination, load(state).cached(), kinds=set(kind)))
+    c = load(state)
+    emit(materialize(destination, c.cached(), kinds=set(kind), before_write=c.require_recall))
 
 
 @app.command("activate-skills")
@@ -1341,9 +1450,10 @@ def skills_activate(
     """将明确选择的组织技能装入产品原生 skills 目录。"""
     from .assets import activate_skills
 
+    c = load(state)
     rows = [
         r
-        for r in load(state).cached()
+        for r in c.cached()
         if r["source_store"] == source_store and r["kind"] == "skill"
     ]
     emit(
@@ -1357,7 +1467,7 @@ def skills_activate(
         ]
     )
     if typer.confirm("确认将所选组织技能应用到目录（空集合会停用已托管技能）？", default=False):
-        emit(activate_skills(destination, rows, source_store=source_store))
+        emit(activate_skills(destination, rows, source_store=source_store, before_write=c.require_recall))
 
 
 @app.command("activate-rules")
@@ -1369,12 +1479,14 @@ def rules_activate(
     """把已选择规则写入指定项目 CLAUDE.md / AGENTS.md 托管区块。"""
     from .assets import activate_rules
 
+    c = load(state)
     rows = [
-        r for r in load(state).cached() if r["source_store"] == source_store and r["kind"] == "rule"
+        r for r in c.cached() if r["source_store"] == source_store and r["kind"] == "rule"
     ]
+    c.require_recall()
     emit([{"path": r["path"], "producer": r["producer_name"], "body": r["body"]} for r in rows])
     if rows and typer.confirm("确认用所选规则替换指定项目的组织规则托管区块？", default=False):
-        emit(activate_rules(instructions, rows))
+        emit(activate_rules(instructions, rows, before_write=c.require_recall))
 
 
 @app.command("apply-config")
@@ -1388,17 +1500,19 @@ def config_apply(
     from .assets import apply_config, provenance
     from .materialize import assembled
 
+    c = load(state)
     rows = [
         r
-        for r in assembled(load(state).cached())
+        for r in assembled(c.cached())
         if r["asset_id"] == asset and r["kind"] == "config"
     ]
     if len(rows) != 1:
         raise typer.BadParameter("configuration asset not found or incompletely downloaded")
+    c.require_recall()
     console.print(provenance(rows[0]), markup=False)
     console.print(rows[0]["body"], markup=False)
     if typer.confirm("确认将兼容字段应用到指定配置文件？", default=False):
-        emit(apply_config(destination, rows[0], product))
+        emit(apply_config(destination, rows[0], product, before_write=c.require_recall))
 
 
 def main() -> None:

@@ -57,6 +57,10 @@ def bounded_search(
     state: Path, query: str, *, timeout: float, asking: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     """Kill the isolated network process at the deadline; propagate explicit denial separately from outage."""
+    from .profiles import recall_allowed
+
+    if not recall_allowed(state):
+        return {"items": [], "trace_id": None, "channel": "disabled"}
     try:
         result = subprocess.run(
             runtime_argv("agent_brain.native_sync.query_worker", str(state.resolve())),
@@ -86,7 +90,10 @@ def recall(
     fails hands the error straight back: it already spent the budget.
     """
     from .recall_service import ServiceUnavailable, request
+    from .profiles import recall_allowed
 
+    if not recall_allowed(state):
+        return {"items": [], "trace_id": None, "channel": "disabled"}, "disabled"
     started = time.monotonic()
     try:
         message = {
@@ -95,7 +102,10 @@ def recall(
             "limit": 8,
             "timeout": max(0.1, budget - 0.05),
         }
-        return request(state, message, timeout=budget), "service"
+        result = request(state, message, timeout=budget)
+        if not recall_allowed(state):
+            return {"items": [], "trace_id": None, "channel": "disabled"}, "disabled"
+        return result, "service"
     except ServiceUnavailable:
         pass
     remaining = budget - (time.monotonic() - started)
@@ -106,6 +116,11 @@ def recall(
 
 if __name__ == "__main__":
     try:
+        from .profiles import recall_allowed
+
+        if not recall_allowed(Path(sys.argv[1])):
+            print(json.dumps({"items": [], "trace_id": None, "channel": "disabled"}))
+            raise SystemExit(0)
         config = json.loads((Path(sys.argv[1]) / "config.json").read_text())
         payload = json.load(sys.stdin)
         transport = Transport(

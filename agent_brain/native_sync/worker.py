@@ -11,9 +11,49 @@ import sys
 import threading
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, TypedDict
 from .client import NativeClient
 from .common import atomic_json, runtime_argv
+from .transport import Transport
+
+
+class SyncSettings(TypedDict):
+    request_timeout_seconds: float
+    max_uploads: int
+    pass_budget_seconds: float
+
+
+def sync_settings(config: dict[str, Any]) -> SyncSettings:
+    """Validated per-profile background settings; no Hook/MCP timeout changes."""
+    values = config.get("sync_worker", {})
+    allowed = {"request_timeout_seconds", "max_uploads", "pass_budget_seconds"}
+    if not isinstance(values, dict) or set(values) - allowed:
+        raise ValueError("invalid sync_worker configuration")
+    timeout = values.get("request_timeout_seconds", 30)
+    budget = values.get("pass_budget_seconds", 45)
+    maximum = values.get("max_uploads", 32)
+    for name, value, upper in (
+        ("request_timeout_seconds", timeout, 120),
+        ("pass_budget_seconds", budget, 300),
+    ):
+        if type(value) not in (int, float) or not math.isfinite(value) or not 1 <= value <= upper:
+            raise ValueError(f"sync_worker.{name} must be finite and between 1 and {upper}")
+    if type(maximum) is not int or not 1 <= maximum <= 1000:
+        raise ValueError("sync_worker.max_uploads must be an integer between 1 and 1000")
+    return {
+        "request_timeout_seconds": float(timeout),
+        "max_uploads": maximum,
+        "pass_budget_seconds": float(budget),
+    }
+
+
+def background_client(state: Path, config: dict[str, Any], settings: SyncSettings) -> NativeClient:
+    return NativeClient(
+        state,
+        transport=Transport(
+            config["hub"], config["identity"]["token"], timeout=settings["request_timeout_seconds"]
+        ),
+    )
 
 
 def work(state: Path, interval: float = 10, *, stop: threading.Event | None = None) -> None:
@@ -37,9 +77,10 @@ def work(state: Path, interval: float = 10, *, stop: threading.Event | None = No
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             return
-        c = NativeClient(state)
         config_path = state / "config.json"
-        last_config: Any = json.loads(config_path.read_text()) if config_path.exists() else None
+        last_config = json.loads(config_path.read_text())
+        settings = sync_settings(last_config)
+        c = background_client(state, last_config, settings)
         service: RecallService | None = None
         try:
             candidate = RecallService(state)
@@ -66,25 +107,37 @@ def work(state: Path, interval: float = 10, *, stop: threading.Event | None = No
                             # device token, and this long-lived process would otherwise
                             # keep authenticating with the old one — a permanent 401
                             # followed by revoke_local() and a 60s cooldown, forever.
-                            last_config = config
-                            c = NativeClient(state)
+                            updated_settings = sync_settings(config)
+                            updated_client = background_client(state, config, updated_settings)
+                            c, settings, last_config = updated_client, updated_settings, config
                             if service is not None:
                                 service.configure(config)
-                        c.sync()
+                        c.sync(
+                            max_uploads=settings["max_uploads"],
+                            pass_budget_seconds=settings["pass_budget_seconds"],
+                        )
                         backoff = interval
                         cooling_down = False
                     except PermissionError:
                         c.revoke_local()
                         atomic_json(
                             state / "status.json",
-                            {"error": "device revoked; re-enroll required", "time": time.time()},
+                            {
+                                "error": "device revoked; re-enroll required",
+                                "time": time.time(),
+                                "sync_limits": dict(settings),
+                            },
                         )
                         backoff = 60
                         cooling_down = True
                     except Exception as exc:
                         atomic_json(
                             state / "status.json",
-                            {"error": type(exc).__name__, "time": time.time()},
+                            {
+                                "error": type(exc).__name__,
+                                "time": time.time(),
+                                "sync_limits": dict(settings),
+                            },
                         )
                         backoff = min(max(interval, backoff * 2), 60)
                         cooling_down = True

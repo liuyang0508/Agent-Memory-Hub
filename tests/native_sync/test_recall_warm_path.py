@@ -249,3 +249,32 @@ def test_recall_timeout_command_rewrites_the_host_hook_timeout(live, tmp_path, m
         "hook_timeout_seconds": 4,
         "resident_service": False,
     }
+
+
+def test_warm_service_respects_disabled_backup_and_mid_request_disable(
+    live, short_state, monkeypatch
+):
+    from agent_brain.native_sync.common import atomic_json
+
+    hub, url = live
+    c = NativeClient.adopt(short_state, url, hub.provision("reader", "mac"), "mac")
+    service = RecallService(c.root)
+    service.configure(c.config)
+    calls = []
+
+    def disable_while_fetching(*args, **kwargs):
+        calls.append(True)
+        atomic_json(c.root / "config.json", {**c.config, "recall_enabled": False})
+        return {"items": [{"body": "must not escape"}], "trace_id": None, "channel": "recall"}
+
+    monkeypatch.setattr(recall_service, "fetch", disable_while_fetching)
+    try:
+        response = service.answer({"query": "test"})
+        assert response["result"]["channel"] == "disabled"
+        assert response["result"]["items"] == []
+        assert len(calls) == 1
+        response = service.answer({"query": "again"})
+        assert response["result"]["items"] == []
+        assert len(calls) == 1
+    finally:
+        service.close()

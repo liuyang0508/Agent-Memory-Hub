@@ -272,6 +272,12 @@ CREATE TABLE IF NOT EXISTS outbox(
     hash TEXT
 );
 
+CREATE TABLE IF NOT EXISTS outbox_rejections(
+    asset TEXT PRIMARY KEY,
+    hash TEXT NOT NULL,
+    at REAL NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS lineage_records(
     asset TEXT PRIMARY KEY,
     payload TEXT NOT NULL

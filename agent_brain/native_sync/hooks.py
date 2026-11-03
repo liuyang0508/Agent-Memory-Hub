@@ -105,6 +105,11 @@ def _run(root: Path, product: str, payload: dict[str, Any]) -> dict[str, Any]:
         from .discovery import observe
 
         observe(c, product, payload, session, epoch)
+        from .profiles import observe_backups
+
+        observe_backups(c, product, payload, session, epoch)
+    if not c.recall_enabled():
+        return {}
     if event == "PostToolUse":
         from .lineage import record_tool_coverage
 
@@ -193,6 +198,8 @@ def _run(root: Path, product: str, payload: dict[str, Any]) -> dict[str, Any]:
             row = db.execute("SELECT value FROM meta WHERE key='last_auth'").fetchone()
         hits = c.local_search(prompt) if row and time.time() - float(row["value"]) < 900 else []
         mode = "cache" if hits else "unavailable"
+    if not c.recall_enabled():
+        return {}
     if mode == "remote":
         # Valid authorized results remain usable even while the async worker
         # owns SQLite's writer lock. Provenance bookkeeping is best effort;
@@ -295,6 +302,8 @@ def _run(root: Path, product: str, payload: dict[str, Any]) -> dict[str, Any]:
     except OSError:
         pass
     if not body:
+        return {}
+    if not c.recall_enabled():
         return {}
     return {"hookSpecificOutput": {"hookEventName": event, "additionalContext": body}}
 

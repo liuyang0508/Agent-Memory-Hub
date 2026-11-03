@@ -11,7 +11,7 @@ import json
 import re
 from pathlib import Path
 from .projection import strip_managed
-from .common import legacy_memory_command
+from .common import legacy_memory_command, wire_product
 from .facets import source_meta
 
 SECRET_NAMES = {
@@ -310,7 +310,7 @@ def enqueue_document(
             asset_id=aid,
             base_revision=rev,
             source_store=source["id"],
-            product=source["product"],
+            product=wire_product(source["product"]),
             project=source["project"],
             kind=source["kind"],
             path=rel,

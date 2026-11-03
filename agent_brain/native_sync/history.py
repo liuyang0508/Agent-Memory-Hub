@@ -129,7 +129,7 @@ def items(
     seen: set[str] = set()
     for product in products:
         source_product = (
-            "codex-shared"
+            "codex"
             if product in ("codex-cli", "codex-desktop", "chatgpt-desktop")
             else product
         )

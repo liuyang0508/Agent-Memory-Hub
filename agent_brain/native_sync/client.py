@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, Callable
 
 import json
+import math
 import time
 import uuid
 from pathlib import Path
@@ -106,7 +107,14 @@ class NativeClient:
 
             conflicts = []
             for target in self.targets(enabled_only=False):
-                conflicts.extend(cleanup(Path(target["root"]), target["product"])["conflicts"])
+                conflicts.extend(
+                    cleanup(
+                        Path(target["root"]),
+                        target["product"],
+                        owner=str(self.root.resolve()),
+                        allow_legacy=True,
+                    )["conflicts"]
+                )
             if conflicts:
                 atomic_json(
                     self.root / "storage-conflicts.json", {"preserved_user_edits": conflicts}
@@ -201,6 +209,15 @@ class NativeClient:
     def source_enabled(self, kind: str) -> bool:
         return kind in enabled_kinds(self.config)
 
+    def recall_enabled(self) -> bool:
+        from .profiles import recall_allowed
+
+        return recall_allowed(self.root, self.config)
+
+    def require_recall(self) -> None:
+        if not self.recall_enabled():
+            raise ValueError("organization recall is disabled; no shared content may be written")
+
     def projection_enabled(self) -> bool:
         """Whether organization memory may be copied into this machine's product stores.
 
@@ -209,7 +226,7 @@ class NativeClient:
         other people's memories onto this disk is a data-placement decision the
         member has to make explicitly, not a side effect of joining.
         """
-        return bool(self.config.get("projection"))
+        return self.recall_enabled() and bool(self.config.get("projection"))
 
     def targets(self, *, enabled_only: bool = True) -> list[dict[str, Any]]:
         """Merge configured/discovered native destinations by resolved path to avoid duplicate writes.
@@ -685,15 +702,33 @@ class NativeClient:
             }
 
     def sync(
-        self, *, progress: Callable[[str, int, int | None], None] | None = None
+        self,
+        *,
+        progress: Callable[[str, int, int | None], None] | None = None,
+        max_uploads: int | None = None,
+        pass_budget_seconds: float | None = None,
     ) -> dict[str, Any]:
         """Capture locally, upload, replay changes, then publish native resources.
 
         A connection/auth failure stops this pass without removing queued data.
         Record conflicts remain pending while unrelated records can progress.
-        The caller owns retry scheduling and revoked-device cleanup.
+        The caller owns retry scheduling and revoked-device cleanup. Optional
+        background limits yield between requests, retaining the outbox. At least
+        one changes page is replayed even after the network budget is consumed,
+        so a large upload backlog cannot indefinitely starve cursor repair.
+        Local scan/projection work is outside this soft network-time budget.
+        Omitting limits preserves the manual full-upload behavior.
         """
         import fcntl
+
+        if max_uploads is not None and (type(max_uploads) is not int or max_uploads < 1):
+            raise ValueError("max_uploads must be a positive integer")
+        if pass_budget_seconds is not None and (
+            isinstance(pass_budget_seconds, bool)
+            or not math.isfinite(pass_budget_seconds)
+            or pass_budget_seconds <= 0
+        ):
+            raise ValueError("pass_budget_seconds must be finite and positive")
 
         with (self.root / "worker.lock").open("a") as lock:
             try:
@@ -706,28 +741,58 @@ class NativeClient:
 
             if progress:
                 progress("scan", 0, None)
-            errors = process_observations(self)
+            from .profiles import process_source_observations
+
+            errors = process_source_observations(self)
+            errors.extend(process_observations(self))
             errors.extend(self.scan())  # Persist source changes before any network request.
             if progress:
                 progress("connect", 0, None)
+            network_started = time.monotonic()
+            deadline = (
+                network_started + pass_budget_seconds if pass_budget_seconds is not None else None
+            )
+
+            def budget_exhausted() -> bool:
+                return deadline is not None and time.monotonic() >= deadline
+
             self.transport.me()  # revoked devices cannot use this as a successful refresh
             errors.extend(quarantine_changed_roots(self))
             # A Hub that predates source_meta rejects unknown fields outright.
             # Ask once per pass; a transport without the probe is a current one.
             probe = getattr(self.transport, "capabilities", None)
             send_meta = True
-            if probe is not None:
+            if probe is not None and not budget_exhausted():
                 try:
                     send_meta = "recall-parity-v1" in probe()
                 except (OSError, ValueError, TimeoutError):
                     send_meta = False
             pushed = 0
+            attempted = 0
+            upload_deferred = False
             with database(self.path) as db:
+                db.execute(
+                    "DELETE FROM outbox_rejections WHERE NOT EXISTS (SELECT 1 FROM outbox o "
+                    "WHERE o.asset=outbox_rejections.asset AND o.hash=outbox_rejections.hash)"
+                )
+                rejected = {
+                    r["asset"]: r["at"] for r in db.execute("SELECT * FROM outbox_rejections")
+                }
                 pending = [
                     row
-                    for row in db.execute("SELECT * FROM outbox")
+                    for row in db.execute("SELECT * FROM outbox ORDER BY rowid")
                     if self.source_enabled(json.loads(row["payload"])["kind"])
                 ]
+            # Preserve enqueue order within each class; current native memories
+            # must not sit behind thousands of historical transcript parts.
+            # Records the Hub refused go last, oldest refusal first.
+            pending.sort(
+                key=lambda row: (
+                    row["asset"] in rejected,
+                    rejected.get(row["asset"], 0.0),
+                    json.loads(row["payload"])["kind"] != "memory",
+                )
+            )
             quarantined = self.quarantined_sources()
             if progress:
                 progress("upload", 0, len(pending))
@@ -735,6 +800,14 @@ class NativeClient:
                 item = json.loads(row["payload"])
                 if not self.source_enabled(item["kind"]) or item["source_store"] in quarantined:
                     continue
+                # The pass budget may already be spent on a slow handshake; one
+                # attempt per pass still guarantees progress on a degraded link.
+                if (max_uploads is not None and attempted >= max_uploads) or (
+                    attempted and budget_exhausted()
+                ):
+                    upload_deferred = True
+                    break
+                attempted += 1
                 if not send_meta:
                     item.pop("source_meta", None)
                 try:
@@ -745,6 +818,8 @@ class NativeClient:
                         # health endpoint is newer than its asset contract.
                         if getattr(exc, "http_status", None) != 422 or "source_meta" not in item:
                             raise
+                        if budget_exhausted():
+                            raise  # Keep the record and report its failed first attempt.
                         item.pop("source_meta")
                         saved = self.transport.put(item)
                         # Only a retry that succeeded proves the field itself was
@@ -753,6 +828,13 @@ class NativeClient:
                         send_meta = False
                 except ValueError as exc:
                     errors.append(f"upload {item['asset_id']}: {type(exc).__name__}")
+                    # Rejected records move behind the rest of the queue, so a
+                    # permanent refusal cannot hold the head of every bounded pass.
+                    with database(self.path) as db:
+                        db.execute(
+                            "INSERT OR REPLACE INTO outbox_rejections VALUES(?,?,?)",
+                            (item["asset_id"], row["hash"], time.time()),
+                        )
                     continue
                 # Connection/auth failures propagate immediately: N queued assets
                 # must not turn an outage into N socket timeouts (or hide revocation).
@@ -765,16 +847,19 @@ class NativeClient:
                         "DELETE FROM outbox WHERE asset=? AND hash=?",
                         (item["asset_id"], row["hash"]),
                     )
+                    db.execute("DELETE FROM outbox_rejections WHERE asset=?", (item["asset_id"],))
                 pushed += 1
                 if progress:
                     progress("upload", pushed, len(pending))
-            errors.extend(self._report_recalls())
+            errors.extend(self._report_recalls(deadline=deadline))
             # Upload acknowledgement can be lost after the Hub commits. Replaying
             # our changes repairs the base revision before the next idempotent retry.
             pages = 0
             if progress:
                 progress("refresh", 0, None)
             while pages < 100:
+                if pages and budget_exhausted():
+                    break
                 with database(self.path) as db:
                     row = db.execute("SELECT value FROM meta WHERE key='cursor'").fetchone()
                 cursor = int(row["value"]) if row else 0
@@ -867,18 +952,33 @@ class NativeClient:
                     progress("refresh", pages, None)
                 if not response["items"]:
                     break
+            network_budget_exhausted = budget_exhausted()
             self._refresh_profile()
             self._configure_storage_locked()
             from .projection import publish
 
             for target in self.targets():
-                result = publish(Path(target["root"]), target["product"], self.cached())
+                result = publish(
+                    Path(target["root"]),
+                    target["product"],
+                    self.cached(),
+                    owner=str(self.root.resolve()),
+                    before_write=self.require_recall,
+                )
                 errors.extend(result["conflicts"])
             atomic_json(
                 self.root / "status.json",
                 {
                     "last_sync": time.time(),
                     "pushed": pushed,
+                    "upload_attempts": attempted,
+                    "upload_deferred": upload_deferred,
+                    "budget_exhausted": network_budget_exhausted,
+                    "sync_limits": {
+                        "max_uploads": max_uploads,
+                        "pass_budget_seconds": pass_budget_seconds,
+                        "request_timeout_seconds": getattr(self.transport, "timeout", None),
+                    },
                     "pending": self.pending_count(),
                     "paused_pending": self.source_scope()["paused_pending"],
                     "origin_review_count": len(self.origin_reviews()),
@@ -887,9 +987,15 @@ class NativeClient:
             )
             if progress:
                 progress("refresh", pages, pages)
-            return {"pushed": pushed, "errors": errors}
+            return {
+                "pushed": pushed,
+                "errors": errors,
+                "upload_deferred": upload_deferred,
+                "budget_exhausted": network_budget_exhausted,
+                "pending": self.pending_count(),
+            }
 
-    def _report_recalls(self) -> list[str]:
+    def _report_recalls(self, *, deadline: float | None = None) -> list[str]:
         """Send queued delivery states per trace; drop what the Hub cannot accept, keep outages.
 
         Nothing here may abort the sync pass: changes replay and projection must
@@ -915,6 +1021,8 @@ class NativeClient:
         errors: list[str] = []
         for trace_id, events in grouped.items():
             for start in range(0, len(events), 64):
+                if deadline is not None and time.monotonic() >= deadline:
+                    return errors
                 batch = events[start : start + 64]
                 try:
                     send(trace_id, batch)
@@ -948,7 +1056,8 @@ class NativeClient:
             return []
         with database(self.path) as db:
             items = [json.loads(r["payload"]) for r in db.execute("SELECT payload FROM replica")]
-        return [i for i in items if not i["deleted"]]
+        result = [i for i in items if not i["deleted"]]
+        return result if self.projection_enabled() else []
 
     def revoke_local(self) -> None:
         """Clear authorized recall state and untouched managed projections; retain local source/outbox data."""
@@ -967,11 +1076,19 @@ class NativeClient:
                 if not path.is_symlink() and digest(path.read_text()) == path.stem:
                     path.unlink()
         for target in self.targets(enabled_only=False):
-            cleanup(Path(target["root"]), target["product"])
+            cleanup(
+                Path(target["root"]),
+                target["product"],
+                owner=str(self.root.resolve()),
+                allow_legacy=True,
+            )
 
     def search(self, query: str, **kwargs: Any) -> list[dict[str, Any]]:
         """Query the enrolled organization through the injected transport; do not impose project scope."""
-        return list(self.transport.search(query, **kwargs))
+        if not self.recall_enabled():
+            return []
+        items = list(self.transport.search(query, **kwargs))
+        return items if self.recall_enabled() else []
 
     def local_search(self, query: str, project_filter: str | None = None) -> list[dict[str, Any]]:
         """Rank cached parts deterministically; the caller must enforce the offline authorization window."""
@@ -1002,4 +1119,5 @@ class NativeClient:
             score = len(wanted & set(tokens(r["title"] + " " + searchable)))
             if score:
                 items.append((score, r))
-        return [r for _, r in sorted(items, key=lambda x: x[0], reverse=True)[:12]]
+        result = [r for _, r in sorted(items, key=lambda x: x[0], reverse=True)[:12]]
+        return result if self.projection_enabled() else []

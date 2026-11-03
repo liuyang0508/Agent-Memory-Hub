@@ -12,7 +12,7 @@ PRIMARY_MEMORY_SQL = (
     "NOT IN ('conversation_summary','raw_memory')"
 )
 
-CODEX_PRODUCTS = frozenset({"codex-shared", "codex-cli", "codex-desktop", "chatgpt-desktop"})
+CODEX_PRODUCTS = frozenset({"codex", "codex-shared", "codex-cli", "codex-desktop", "chatgpt-desktop"})
 
 
 def asset_role(product: str, path: str, kind: str) -> str:

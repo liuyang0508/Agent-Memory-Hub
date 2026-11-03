@@ -1,6 +1,6 @@
 # 组织记忆：存储与同步
 
-适用于 AMH 1.4.5。使用方法和验证边界见[检索与按需阅读](../../docs/native-memory/retrieval.zh.md)；旧版行为见 [1.3.3 文档](https://github.com/liuyang0508/Agent-Memory-Hub/blob/v1.3.3/agent_brain/native_sync/README.md)。
+适用于 AMH 1.4.6。使用方法和验证边界见[检索与按需阅读](../../docs/native-memory/retrieval.zh.md)；旧版行为见 [1.3.3 文档](https://github.com/liuyang0508/Agent-Memory-Hub/blob/v1.3.3/agent_brain/native_sync/README.md)。
 
 组织记忆分为三层：产品维护原生记忆，AMH 客户端记录同步状态，云端 Hub 保存共享内容。上传的是文件内容及来源信息，不是产品数据库或整个目录的镜像。
 
@@ -11,6 +11,8 @@
 | 云端 Hub | `hub.sqlite` | 保存组织内容、来源、版本、全文检索索引及可选的派生语义索引 |
 
 新加入设备默认仅同步原生记忆；聊天、规则、技能和配置需明确启用。旧配置保留原范围并提示审查，可通过 `amh-native scope` 查看和调整。
+
+双 Hub 独立上传、主 Hub 单独召回的设置与切换见[双 Hub 配置](../../docs/native-memory/dual-hub.zh.md)。
 
 ## 产品原生记忆
 
@@ -117,7 +119,7 @@
 - 默认不会用云端旧内容覆盖原生记忆。上传失败保留队列重试；两次扫描之间的每个中间修改版本不保证留存。
 - 默认按问题从云端召回，不自动把整批组织记忆写入各产品。`--projection` 可显式启用本地组织资源，但不会关闭 Hook 查询。
 
-安装步骤见[用户手册](https://github.com/liuyang0508/Agent-Memory-Hub/blob/v1.4.5/docs/native-memory/user-guide.zh.md)，技术边界见[架构说明](https://github.com/liuyang0508/Agent-Memory-Hub/blob/v1.4.0/docs/native-memory/architecture.zh.md)，故障处理见[运维说明](https://github.com/liuyang0508/Agent-Memory-Hub/blob/v1.4.0/docs/native-memory/operations.zh.md)。
+安装步骤见[用户手册](https://github.com/liuyang0508/Agent-Memory-Hub/blob/v1.4.6/docs/native-memory/user-guide.zh.md)，技术边界见[架构说明](https://github.com/liuyang0508/Agent-Memory-Hub/blob/v1.4.0/docs/native-memory/architecture.zh.md)，故障处理见[运维说明](https://github.com/liuyang0508/Agent-Memory-Hub/blob/v1.4.0/docs/native-memory/operations.zh.md)。
 
 组织只读工具支持搜索、固定版本正文分页和明确关系查询；循环由宿主 Agent 执行，不放进 Hook。未配置真实模型或未构建索引时明确降级，不能将代码支持等同于语义召回已启用。
 

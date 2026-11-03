@@ -21,6 +21,7 @@ import time
 from pathlib import Path
 from typing import Any
 from .common import recall_budget
+from .profiles import recall_allowed
 from .query_worker import fetch
 from .transport import HubHTTPError, WarmTransport, validate_url
 
@@ -200,6 +201,11 @@ class RecallService:
         limit = message.get("limit", 8)
         timeout = message.get("timeout")
         with self.lock:
+            if (self.state / "paused").exists() or not recall_allowed(self.state):
+                return {
+                    "ok": True,
+                    "result": {"items": [], "trace_id": None, "channel": "disabled"},
+                }
             transport = self.transport
             if transport is None:
                 return {"ok": False, "error": "unavailable"}
@@ -213,6 +219,11 @@ class RecallService:
                     limit=limit if isinstance(limit, int) and 1 <= limit <= 8 else 8,
                     asking=asking if isinstance(asking, dict) else None,
                 )
+                if (self.state / "paused").exists() or not recall_allowed(self.state):
+                    return {
+                        "ok": True,
+                        "result": {"items": [], "trace_id": None, "channel": "disabled"},
+                    }
                 self.served += 1
                 return {"ok": True, "result": result}
             except PermissionError:
@@ -237,6 +248,10 @@ class RecallService:
             with self.lock:
                 transport = self.transport
                 if transport is None:
+                    continue
+                if (self.state / "paused").exists() or not recall_allowed(self.state):
+                    transport.close()
+                    self.last_touch = now
                     continue
                 if now - self.last_use > self.idle_limit:
                     transport.close()

@@ -45,8 +45,9 @@ def test_natural_question_promotes_curated_memory_above_verbose_transcripts(tmp_
     assert next(i for i, r in enumerate(hits, 1) if r["asset_id"] == "answer") <= 2
 
 
+@pytest.mark.parametrize("source_product", ["codex", "codex-shared"])
 @pytest.mark.parametrize("support_path", ["rollout_summaries/review-{i}.md", "raw_memories.md"])
-def test_codex_supporting_memory_does_not_crowd_out_topic_fact(tmp_path, support_path):
+def test_codex_supporting_memory_does_not_crowd_out_topic_fact(tmp_path, support_path, source_product):
     hub = Hub(tmp_path / "hub.sqlite")
     who = hub.provision("Author", "device")
     question = "青岚项目的审批要求是什么？请注明记忆来源；没有资料请说未找到，不要猜测。"
@@ -55,7 +56,7 @@ def test_codex_supporting_memory_does_not_crowd_out_topic_fact(tmp_path, support
             who["token"],
             asset(
                 f"summary{i}",
-                product="codex-shared",
+                product=source_product,
                 path=support_path.format(i=i),
                 kind="memory",
                 title="青岚项目审批要求检索记录",
@@ -271,3 +272,14 @@ def test_worker_write_lock_does_not_discard_successful_remote_recall(live, tmp_p
     finally:
         writer.rollback()
         writer.close()
+
+
+def test_legacy_codex_source_is_displayed_without_rewriting_identity(tmp_path):
+    hub = Hub(tmp_path / "hub.sqlite")
+    who = hub.provision("Author", "device")
+    saved = hub.put(who["token"], asset("legacy-codex", product="codex-shared"))
+    text, delivered = pack([saved], covered=set(), max_bytes=4096)
+    assert '"product":"codex"' in text
+    assert "codex-shared" not in text
+    assert delivered == [coverage_key(saved)]
+    assert saved["product"] == "codex-shared"

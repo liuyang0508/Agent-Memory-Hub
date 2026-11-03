@@ -267,3 +267,21 @@ def test_installer_labels_each_mcp_entry_with_its_product(tmp_path):
     assert "--product" not in org_mcp_server(tmp_path)["args"]
     plain = org_mcp_server(tmp_path, policy_path="p.json", product="cowork")
     assert plain["args"][-4:] == ["--policy", "p.json", "--product", "cowork"]
+
+
+def test_old_hub_hint_retry_rechecks_profile_recall_switch(synthetic_hub):  # noqa: F811
+    """A policy change while the first HTTP request runs also gates its fallback."""
+    hub = synthetic_hub
+    tools = OrganizationTools(hub.state, product="codex-cli")
+
+    def disable_on_validation(path, payload):
+        assert path == "retrieve" and "asking" in payload
+        config = json.loads((hub.state / "config.json").read_text())
+        config["recall_enabled"] = False
+        (hub.state / "config.json").write_text(json.dumps(config))
+        return 422, {"detail": [{"loc": ["body", "asking"], "type": "extra"}]}
+
+    hub.response = disable_on_validation
+    result = tools.search("question")
+    assert result["code"] == "recall_disabled"
+    assert len(hub.calls) == 1

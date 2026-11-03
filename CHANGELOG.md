@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.6] — 2026-11-03
+
+### Added
+
+- Independent per-device Hub profiles with background uploads to both Hubs and
+  an explicit per-profile recall switch. Sync-only setup keeps product Hook/MCP
+  ownership with one primary profile; receipt-based detach/activation preserves
+  user settings and backup workers.
+- Bounded Claude Code source-observation forwarding and a reviewed migration
+  plan that preserves excluded-history hashes, missing-path denials and offline
+  root quarantine without copying credentials, queues or cloud cursors.
+
+### Fixed
+
+- Recall policy is rechecked across Hook, MCP, cache and projection/asset-write
+  boundaries. Interrupted projection writes roll back only unchanged owned
+  content, preserving concurrent user edits.
+- Background synchronization uses a configurable 30-second request timeout and
+  32-record / 45-second soft pass budget, prioritizes memory, retains pending
+  work and rescans sources on the next pass. Hook/MCP deadlines are unchanged.
+  Records a Hub refuses move behind the rest of the queue, and every pass
+  attempts at least one upload even when a slow handshake spent its budget.
+- The shared Codex store is shown as `codex` in Hook, MCP, exports and admin
+  views. Uploads keep the stored `codex-shared` label: a Hub treats an asset's
+  product as immutable and Hubs before 1.4.6 do not know the new label, so
+  renaming on the wire would strand every existing Codex memory.
+- Projection manifests written before 1.4.6 carry no owner. The profile that
+  projects into its own target adopts them, so upgraded projections keep
+  updating and revocation or disabling recall still removes the copies.
+
+### Compatibility
+
+- Retains the published 1.4.4 insights and asking-context functionality. Asking
+  hints are optional on recall/retrieve and retry without hints on an older Hub;
+  asset uploads do not acquire this field. Upgrade Hubs for insight rollups.
 ## [1.4.5] — 2026-11-03
 
 ### Added

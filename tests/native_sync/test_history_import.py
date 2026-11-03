@@ -56,7 +56,7 @@ def test_items_covers_every_product_and_never_double_counts_shared_store(tmp_pat
     assert ("claude-code", "transcript") in kinds
     # Codex CLI, desktop and ChatGPT share one store; each file appears once.
     codex_rules = [
-        row for row in rows if row["product"] == "codex-shared" and row["kind"] == "rule"
+        row for row in rows if row["product"] == "codex" and row["kind"] == "rule"
     ]
     assert len(codex_rules) == 1
     paths = [row["path"] for row in rows]

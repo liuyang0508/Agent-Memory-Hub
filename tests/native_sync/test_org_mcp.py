@@ -629,3 +629,14 @@ def test_large_valid_graph_omits_whole_edges_and_nodes_within_wire_budget(hub):
     accepted = {node["asset_id"] for node in graph["items"]}
     assert {edge["to"]["asset_id"] for edge in graph["edges"]} == accepted
     assert {asset for asset, _ in tools.researches[rid].locators} == accepted | {"asset_a"}
+
+
+def test_legacy_codex_source_label_keeps_version_identity():
+    legacy = {"product": "codex-shared", "source_device_id": "same-device", "path": "topic.md"}
+    current = {**legacy, "product": "codex"}
+    assert org_tools._source(legacy) == current
+    assert legacy["product"] == "codex-shared"
+    assert org_tools._stable_source(org_tools._source(legacy)) == org_tools._stable_source(
+        org_tools._source(current)
+    )
+    assert org_tools._source({"product": "claude-code"}) == {"product": "claude-code"}

@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from .transport import HubHTTPError, Transport, validate_url
+from .common import source_product
 
 MAX_CALLS = 12
 MAX_SEARCHES = 3
@@ -61,6 +62,7 @@ STABLE_SOURCE_FIELDS = SOURCE_FIELDS - {"producer_name", "uploader_name"}
 MESSAGES = {
     "not_connected": "Complete local organization pairing, then retry. No profile was created.",
     "paused": "Organization access is paused in this local profile.",
+    "recall_disabled": "Organization recall is disabled in this profile; background uploads remain independent.",
     "profile_invalid": "The local organization profile is invalid; review it locally.",
     "policy_mismatch": "The profile does not match the pinned organization/member.",
     "policy_invalid": "The public connection policy is unavailable or invalid.",
@@ -137,6 +139,8 @@ def _source(value: Any) -> dict[str, Any]:
             result[key] = item
         else:
             result[key] = _characters(item, SOURCE_CHARACTER_LIMITS.get(key, 512))
+            if key == "product":
+                result[key] = source_product(result[key])
     return result
 
 
@@ -210,6 +214,10 @@ class OrganizationTools:
     def _connect(self) -> tuple[Transport, str]:
         if (self.state / "paused").exists():
             raise RuntimeError("paused")
+        from .profiles import recall_allowed
+
+        if not recall_allowed(self.state):
+            raise RuntimeError("recall_disabled")
         path = self.state / "config.json"
         if not path.exists():
             raise RuntimeError("not_connected")
@@ -294,6 +302,10 @@ class OrganizationTools:
         research_id: str,
         research: Research,
     ) -> Any:
+        from .profiles import recall_allowed
+
+        if not recall_allowed(self.state):
+            return self._error("recall_disabled", research_id)
         try:
             result = transport.call(path, payload)
             if isinstance(result, dict) and "ok" in result:
@@ -320,6 +332,10 @@ class OrganizationTools:
         content_bytes: int,
         limit: int,
     ) -> dict[str, Any]:
+        from .profiles import recall_allowed
+
+        if not recall_allowed(self.state):
+            return self._error("recall_disabled", research_id)
         if content_bytes > MAX_CONTENT_BYTES - research.content_bytes:
             return self._error("invalid_response", research_id)
         if transport.token and transport.token in json.dumps(result, ensure_ascii=False):
@@ -337,6 +353,8 @@ class OrganizationTools:
         if _size(result) > limit:
             return self._error("invalid_response", research_id)
         research.content_bytes += content_bytes
+        if not recall_allowed(self.state):
+            return self._error("recall_disabled", research_id)
         return result
 
     def search(

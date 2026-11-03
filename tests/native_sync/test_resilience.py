@@ -144,15 +144,18 @@ def test_hook_wake_storm_cannot_bypass_worker_failure_backoff(tmp_path, monkeypa
 
     state = tmp_path / "state"
     state.mkdir()
-    (state / "config.json").write_text("{}")
+    (state / "config.json").write_text(
+        '{"hub":"https://worker.example.com","identity":{"token":"synthetic"}}'
+    )
     now = [0.0]
     attempts = []
 
     class OfflineClient:
-        def __init__(self, root):
-            pass
+        def __init__(self, root, *, transport):
+            assert transport.timeout == 30
 
-        def sync(self):
+        def sync(self, **limits):
+            assert limits == {"max_uploads": 32, "pass_budget_seconds": 45}
             attempts.append(now[0])
             raise OSError("offline")
 
@@ -171,3 +174,9 @@ def test_hook_wake_storm_cannot_bypass_worker_failure_backoff(tmp_path, monkeypa
     with pytest.raises(KeyboardInterrupt):
         worker.work(state)
     assert attempts == [0, 20, 60]
+    import json
+
+    assert (
+        json.loads((state / "status.json").read_text())["sync_limits"]["request_timeout_seconds"]
+        == 30
+    )
