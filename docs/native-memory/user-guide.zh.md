@@ -1,6 +1,6 @@
 # 组织第二大脑：安装与使用手册
 
-适用版本：AMH 1.4.5。面向 macOS 成员；试点组织 linkcrux，组织地址 `https://platform.linkcrux.com`。核对日期：2026-11-03。
+适用版本：AMH 1.4.6。面向 macOS 成员；试点组织 linkcrux，组织地址 `https://platform.linkcrux.com`。核对日期：2026-11-03。
 
 ## 一、你能用它做什么
 
@@ -36,7 +36,7 @@ curl -fsSL https://github.com/liuyang0508/agent-memory-hub/releases/latest/downl
 需要固定安装本手册版本时，用下面这条代替：
 
 ```bash
-curl -fsSL https://github.com/liuyang0508/agent-memory-hub/releases/download/v1.4.5/install.sh | sh -s -- --org-memory --hub https://platform.linkcrux.com
+curl -fsSL https://github.com/liuyang0508/agent-memory-hub/releases/download/v1.4.6/install.sh | sh -s -- --org-memory --hub https://platform.linkcrux.com
 ```
 
 其他组织把最后的地址替换为管理员提供的 HTTPS 地址，不要填邮箱、账号或 SSH 地址。
@@ -110,7 +110,7 @@ CLI 和桌面共用的文件可能标为 `codex`：这表示无法从同一份�
 1. 安装器会在 Finder 定位 `cowork-plugin.zip`，默认位于 `~/.amh-native-sync/cowork-plugin.zip`。
 2. 打开 Claude 桌面应用，进入 **Customize → Plugins → Add plugin → Upload**。
 3. 选择刚生成的 ZIP，完成导入；已有同名插件时，核对后选择替换。
-4. 确认 **Amh native org** 已启用，版本为 1.4.5。本机绑定的插件还提供组织只读 MCP 工具；在新任务中使用。
+4. 确认 **Amh native org** 已启用，版本为 1.4.6。本机绑定的插件还提供组织只读 MCP 工具；在新任务中使用。
 
 文件选择窗口看不到隐藏目录时，按 **Command + Shift + G**，粘贴终端显示的 ZIP 完整路径，再按回车和“打开”。无需解压。
 5. 在 Cowork 新建任务，触发首次配对。
@@ -143,7 +143,7 @@ Cowork 执行过首次任务后，再检查其独立运行时：
 
 应与主客户端是同一成员、不同设备。未登记时，先核对插件启用状态与首次任务。
 
-检查版本，本文版本应输出 `1.4.5`：
+检查版本，本文版本应输出 `1.4.6`：
 
 ```bash
 "$HOME/.amh-native/venv/bin/python" -c 'from importlib.metadata import version; print(version("agent-memory-hub"))'
@@ -243,6 +243,7 @@ Cowork 执行过首次任务后，再检查其独立运行时：
 | 历史选择页打不开 | 按终端提示处理；之后可用 `import --no-web` 改为终端选择。 |
 | 待上传一直不下降 | 查看 `status` 的 `pending`、错误和暂停状态；后台按批次继续上传，`upload_deferred` 表示留队而非丢弃。请求与批次设置见[后台同步预算](dual-hub.zh.md#后台同步的请求与单轮预算)。手动 `sync` 仍尝试完整队列并显示具体错误。 |
 | 云检索有结果，但产品未召回 | 新建会话；检查 Hook 启用/批准、提问相关性和超时。CLI 查询成功不能代替产品验收。 |
+| 跨境或高延迟网络下组织召回总是超时（`hook-metrics.jsonl` 里 `mode` 为 `unavailable`、`elapsed_ms` 贴着 `budget_ms`） | 后台 worker 会保持到 Hub 的连接，每次召回只花一个往返（`via` 为 `service`）；仍不够就 `amh-native recall-timeout 3` 调大总预算（秒，默认 1.2，宿主 Hook 超时随之重写），然后新建会话让产品重新加载 Hook 配置。 |
 | Cowork 不生效 | 检查插件版本与启用状态、新建任务、核对独立运行时；CC 正常不代表 Cowork 正常。 |
 | 说已记住但没有共享 | 确认实际写入位置、来源绑定及历史选择；产品可能延迟生成或限制写入。 |
 | 需要换组织 | 独立状态目录重新登记，由管理员指导；不要直接改旧配置 URL 把旧队列发到新组织。 |
@@ -265,7 +266,7 @@ Cowork 执行过首次任务后，再检查其独立运行时：
 
 ## 两个 Hub：独立同步，主 Hub 召回
 
-客户端1.4.5支持按profile独立关闭召回、保持同步，以及只同步安装模式。迁移前须保留旧排除历史并审查新Hub的共享计划；操作顺序与Cowork边界见[双Hub说明](dual-hub.zh.md)。
+客户端1.4.6支持按profile独立关闭召回、保持同步，以及只同步安装模式。迁移前须保留旧排除历史并审查新Hub的共享计划；操作顺序与Cowork边界见[双Hub说明](dual-hub.zh.md)。
 
 
 ### 按 Hub 独立控制上传和召回

@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.4.5] — 2026-11-03
+## [1.4.6] — 2026-11-03
 
 ### Added
 
@@ -33,6 +33,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Retains the published 1.4.4 insights and asking-context functionality. Asking
   hints are optional on recall/retrieve and retry without hints on an older Hub;
   asset uploads do not acquire this field. Upgrade Hubs for insight rollups.
+## [1.4.5] — 2026-11-03
+
+### Added
+
+- **Warm recall path.** The background worker now hosts a resident recall
+  service on a Unix socket in the state directory and keeps one connection to
+  the Hub open (`WarmTransport`), so a prompt-time recall costs one round trip
+  instead of a TCP handshake, a TLS handshake and the request. The hook tries
+  the service first and falls back to the killable subprocess when no worker
+  is running. The connection is kept warm only while hooks are using it.
+- **Configurable recall budget.** `recall_timeout_seconds` in `config.json`
+  (or `AMH_RECALL_TIMEOUT`) sets the total prompt-time budget, default 1.2 s,
+  clamped to 0.3–10 s. `amh-native recall-timeout [SECONDS]` shows or sets it
+  and rewrites the installed hook entries so the host's own timeout stays
+  ahead of the budget. `amh-native status` reports the effective budget and
+  whether the resident service is listening. `hook-metrics.jsonl` lines gain
+  `via` and `budget_ms`.
 
 ## [1.4.4] — 2026-11-03
 

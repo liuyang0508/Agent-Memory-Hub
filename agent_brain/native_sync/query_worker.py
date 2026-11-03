@@ -5,10 +5,11 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any
 from .transport import HubHTTPError, Transport
-from .common import runtime_argv
+from .common import recall_budget, request_timeout, runtime_argv
 
 
 def _recall(transport: Any, query: str, limit: int, asking: dict[str, Any] | None) -> Any:
@@ -80,6 +81,39 @@ def bounded_search(
     return response
 
 
+def recall(
+    state: Path, query: str, *, budget: float, asking: dict[str, Any] | None = None
+) -> tuple[dict[str, Any], str]:
+    """The resident service first (one warm round trip); the killable subprocess when it is absent.
+
+    Returns the response and which path answered. A service that exists but
+    fails hands the error straight back: it already spent the budget.
+    """
+    from .recall_service import ServiceUnavailable, request
+    from .profiles import recall_allowed
+
+    if not recall_allowed(state):
+        return {"items": [], "trace_id": None, "channel": "disabled"}, "disabled"
+    started = time.monotonic()
+    try:
+        message = {
+            "query": query,
+            "asking": asking,
+            "limit": 8,
+            "timeout": max(0.1, budget - 0.05),
+        }
+        result = request(state, message, timeout=budget)
+        if not recall_allowed(state):
+            return {"items": [], "trace_id": None, "channel": "disabled"}, "disabled"
+        return result, "service"
+    except ServiceUnavailable:
+        pass
+    remaining = budget - (time.monotonic() - started)
+    if remaining < 0.1:
+        raise TimeoutError("cloud recall deadline exceeded")
+    return bounded_search(state, query, timeout=remaining, asking=asking), "worker"
+
+
 if __name__ == "__main__":
     try:
         from .profiles import recall_allowed
@@ -89,7 +123,11 @@ if __name__ == "__main__":
             raise SystemExit(0)
         config = json.loads((Path(sys.argv[1]) / "config.json").read_text())
         payload = json.load(sys.stdin)
-        transport = Transport(config["hub"], config["identity"]["token"], timeout=1.0)
+        transport = Transport(
+            config["hub"],
+            config["identity"]["token"],
+            timeout=request_timeout(recall_budget(config)),
+        )
         asking = payload.get("asking")
         print(
             json.dumps(

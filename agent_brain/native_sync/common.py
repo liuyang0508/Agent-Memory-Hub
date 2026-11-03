@@ -1,6 +1,9 @@
 """Small, dependency-free primitives shared by the native client and Hub."""
 
 from __future__ import annotations
+import math
+from collections.abc import Mapping
+from typing import Any
 
 
 import hashlib
@@ -117,3 +120,41 @@ def runtime_argv(module: str, *arguments: str) -> list[str]:
         f"runpy.run_module({module!r}, run_name='__main__')"
     )
     return [sys.executable, "-I", "-c", bootstrap, *arguments]
+
+
+# --- prompt-time recall budget ------------------------------------------------
+# One prompt-time recall has a total budget (process start, network, packing).
+# The default suits a nearby Hub; a long path (another country, a flaky link)
+# needs more, and the host's own hook timeout must stay ahead of it.
+RECALL_BUDGET_KEY = "recall_timeout_seconds"
+RECALL_BUDGET_ENV = "AMH_RECALL_TIMEOUT"
+RECALL_BUDGET_DEFAULT = 1.2
+RECALL_BUDGET_MIN = 0.3
+RECALL_BUDGET_MAX = 10.0
+WORKER_START_MARGIN = 0.2  # spawning the request subprocess costs this much of the budget
+HOOK_TIMEOUT_MARGIN = 0.8  # packing and delivery after the recall, before the host gives up
+
+
+def recall_budget(config: Any, *, environ: Mapping[str, str] | None = None) -> float:
+    """Seconds one prompt-time recall may take: AMH_RECALL_TIMEOUT, else config.json, clamped."""
+    environ = os.environ if environ is None else environ
+    raw: Any = environ.get(RECALL_BUDGET_ENV)
+    if raw in (None, ""):
+        raw = config.get(RECALL_BUDGET_KEY) if isinstance(config, dict) else None
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return RECALL_BUDGET_DEFAULT
+    if not math.isfinite(value):
+        return RECALL_BUDGET_DEFAULT
+    return min(max(value, RECALL_BUDGET_MIN), RECALL_BUDGET_MAX)
+
+
+def request_timeout(budget: float) -> float:
+    """Network time left for a request issued from a freshly spawned subprocess."""
+    return max(RECALL_BUDGET_MIN, budget - WORKER_START_MARGIN)
+
+
+def hook_timeout(budget: float) -> int:
+    """Whole seconds the host may wait for the prompt hook: the budget plus delivery headroom."""
+    return max(2, math.ceil(budget + HOOK_TIMEOUT_MARGIN))
