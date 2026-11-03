@@ -248,6 +248,7 @@ def test_recall_timeout_command_rewrites_the_host_hook_timeout(live, tmp_path, m
         "env_override": None,
         "hook_timeout_seconds": 4,
         "resident_service": False,
+        "display": "table",
     }
 
 

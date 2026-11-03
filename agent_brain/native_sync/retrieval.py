@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any
 import secrets
 import sqlite3
 import json
+import re
 import math
 import time
 
@@ -151,6 +152,41 @@ def _compact_times(times_set: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+_IDENTIFIER = re.compile(r"[A-Za-z0-9][A-Za-z0-9_./-]*[A-Za-z0-9]")
+
+
+def identifiers(query: str) -> list[str]:
+    """Literal technical tokens: digits, underscores, dotted or slashed paths, camelCase."""
+    found = []
+    for token in _IDENTIFIER.findall(query):
+        if len(token) < 3:
+            continue
+        if (
+            any(ch.isdigit() for ch in token)
+            or any(ch in token for ch in "_./-")
+            or re.search(r"[a-z][A-Z]", token)
+        ):
+            found.append(token.casefold())
+    return list(dict.fromkeys(found))
+
+
+def _best_window(
+    query_vector: list[float], windows: list[semantic.StoredWindow]
+) -> tuple[semantic.StoredWindow, float]:
+    """Highest cosine window; vectorized when numpy is installed with the semantic extra."""
+    try:
+        import numpy as np
+    except ImportError:
+        best = max(windows, key=lambda v: _cosine_sim(query_vector, v["vector"]))
+        return best, _cosine_sim(query_vector, best["vector"])
+    matrix = np.asarray([w["vector"] for w in windows], dtype=np.float64)
+    query = np.asarray(query_vector, dtype=np.float64)
+    norms = np.linalg.norm(matrix, axis=1) * (np.linalg.norm(query) or 1.0)
+    sims = (matrix @ query) / np.where(norms == 0, 1.0, norms)
+    index = int(np.argmax(sims))
+    return windows[index], float(sims[index])
+
+
 def retrieve(
     hub: Hub,
     token: str,
@@ -244,7 +280,7 @@ def retrieve(
                 # Only current authorized revisions are loaded from the derived
                 # store; stale/deleted/cross-org rows cannot reach ranking models.
                 indexed = db.execute(
-                    "SELECT a.payload,v.vectors FROM native_semantic_vectors v JOIN assets a ON a.tenant=v.tenant AND a.id=v.asset_id AND a.revision=v.revision AND json_extract(a.payload,'$.content_hash')=v.content_hash WHERE "
+                    "SELECT a.payload,v.revision,v.content_hash FROM native_semantic_vectors v JOIN assets a ON a.tenant=v.tenant AND a.id=v.asset_id AND a.revision=v.revision AND json_extract(a.payload,'$.content_hash')=v.content_hash WHERE "
                     + predicate,
                     args,
                 ).fetchall()
@@ -252,10 +288,34 @@ def retrieve(
             "SELECT count(*) FROM assets a WHERE " + predicate, args
         ).fetchone()[0]
         current: list[tuple[dict[str, Any], list[semantic.StoredWindow]]] = []
+        generation = json.dumps(metadata, sort_keys=True) if metadata else ""
+        cache = hub._vectors.get(who["tenant"], {})
+        fresh: dict[tuple[str, int, str, str], Any] = {}
+        missing: list[str] = []
+        valid: list[tuple[dict[str, Any], tuple[str, int, str, str]]] = []
         for row in indexed:
             item = json.loads(row["payload"])
             if hub._retrieval_valid(db, item):
-                current.append((item, json.loads(row["vectors"])))
+                vector_key = (item["asset_id"], row["revision"], row["content_hash"], generation)
+                valid.append((item, vector_key))
+                if vector_key in cache:
+                    fresh[vector_key] = cache[vector_key]
+                else:
+                    missing.append(item["asset_id"])
+        for start in range(0, len(missing), 400):
+            chunk = missing[start : start + 400]
+            for row in db.execute(
+                "SELECT asset_id,revision,content_hash,vectors FROM native_semantic_vectors "
+                "WHERE tenant=? AND asset_id IN (" + ",".join("?" for _ in chunk) + ")",
+                [who["tenant"], *chunk],
+            ):
+                stored_key = (row["asset_id"], row["revision"], row["content_hash"], generation)
+                fresh[stored_key] = json.loads(row["vectors"])
+        for item, cached_key in valid:
+            if cached_key in fresh:
+                current.append((item, fresh[cached_key]))
+        # Only the current generation stays in memory.
+        hub._vectors[who["tenant"]] = fresh
     vector_hits: list[RetrievedItem] = []
     semantic_used = False
     embeddings: dict[str, list[float]] = {}
@@ -282,7 +342,7 @@ def retrieve(
                 if semantic.descriptor(backend) != metadata:
                     reasons.append("semantic_index_model_mismatch_rebuild_required")
                 elif query.strip():
-                    query_vector = semantic.vector(backend, query)
+                    query_vector = semantic.query_vector(backend, query)
                     for item, windows in current:
                         if not windows or any(
                             len(v["vector"]) != backend.dim
@@ -290,8 +350,7 @@ def retrieve(
                             for v in windows
                         ):
                             raise ValueError("invalid persisted vector dimensions")
-                        best = max(windows, key=lambda v: _cosine_sim(query_vector, v["vector"]))
-                        score = _cosine_sim(query_vector, best["vector"])
+                        best, score = _best_window(query_vector, windows)
                         key = item["asset_id"]
                         found_vectors[key] = best["vector"]
                         found_items[key] = item
@@ -498,6 +557,49 @@ def retrieve(
             before = trace.snapshot(fused)
             fused.sort(key=lambda hit: hit.id != query.strip())
             trace.stage("exact_pin", before, trace.snapshot(fused))
+        gate = hub.relevance_gate() if semantic_used and channel == "hook" else None
+        if gate is not None:
+            # Prompt-time injection must be able to say "nothing relevant": a
+            # keyword overlap alone is not relevance. Keep candidates the model
+            # rates above the floor and near the best match, plus literal
+            # identifiers from the prompt (error codes, symbols) that keyword
+            # search ranked near the top. Calibrated per model on the org corpus.
+            floor, margin = gate
+            gate_scores = {
+                hit.id: (assets[hit.id].get("semantic_match") or {}).get("similarity")
+                for hit in fused
+            }
+            scored = [v for v in gate_scores.values() if isinstance(v, (int, float))]
+            top_similarity = max(scored) if scored else None
+            anchors = identifiers(query)
+            before = trace.snapshot(fused)
+            kept, effects = [], {}
+            for hit in fused:
+                value = gate_scores.get(hit.id)
+                passes = (
+                    isinstance(value, (int, float))
+                    and top_similarity is not None
+                    and value >= floor
+                    and value >= top_similarity - margin
+                )
+                if not passes and anchors and (route_ranks.get(hit.id, (None, None))[0] or 99) <= 3:
+                    item = assets[hit.id]
+                    text = (
+                        str(item.get("title", "")) + "\n" + str(item.get("body", ""))
+                    ).casefold()
+                    if any(anchor in text for anchor in anchors):
+                        passes = True
+                        effects[hit.id] = "identifier"
+                if passes or hit.id == query.strip():
+                    kept.append(hit)
+                else:
+                    trace.drop(
+                        hit.id,
+                        "relevance_gate",
+                        {"similarity": value, "floor": floor, "margin": margin},
+                    )
+            fused = kept
+            trace.stage("relevance_gate", before, trace.snapshot(fused), effects)
         for position, hit in enumerate(fused, 1):
             item = assets[hit.id]
             row = trace.row(hit.id)
@@ -551,6 +653,7 @@ def retrieve(
         "declared_filter": "on",
         "decay": "on" if decay_used else DISABLED,
         "mmr": "on" if mmr_used else DISABLED,
+        "relevance_gate": "on" if gate is not None else DISABLED,
     }
     trace_id: str | None = secrets.token_hex(12)
     for item in results:

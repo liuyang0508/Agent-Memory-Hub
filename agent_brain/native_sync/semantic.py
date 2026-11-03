@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import os
 import sqlite3
 from pathlib import Path
 from collections.abc import Sequence
@@ -136,6 +137,158 @@ class LocalSentenceTransformer:
         return windows
 
 
+MANIFEST = "amh-semantic.json"
+POOLING = ("mean", "cls")
+
+
+def _fingerprint(paths: Sequence[Path]) -> str:
+    digest = hashlib.sha256()
+    for path in paths:
+        digest.update(path.name.encode())
+        with path.open("rb") as stream:
+            while block := stream.read(1024 * 1024):
+                digest.update(block)
+    return digest.hexdigest()
+
+
+def _unit(value: Any) -> float | None:
+    if value is None:
+        return None
+    number = float(value)
+    if not 0 <= number <= 1:
+        raise ValueError("gate thresholds must be between 0 and 1")
+    return number
+
+
+class LocalOnnxEncoder:
+    """Quantized ONNX encoder for small CPU-only Hubs: no torch, never downloads.
+
+    A model directory holds the ONNX graph, its tokenizer.json and an
+    amh-semantic.json manifest naming pooling and query/passage prefixes. The
+    manifest is part of the fingerprint, so changing a prefix forces a rebuild.
+    """
+
+    semantic = True
+
+    def __init__(self, directory: Path) -> None:
+        import numpy as np
+        import onnxruntime as ort
+        from tokenizers import Tokenizer
+
+        manifest_path = directory / MANIFEST
+        manifest = json.loads(manifest_path.read_text())
+        if not isinstance(manifest, dict):
+            raise ValueError("invalid semantic model manifest")
+        onnx_path = directory / str(manifest["onnx"])
+        tokenizer_path = directory / str(manifest.get("tokenizer", "tokenizer.json"))
+        for path in (onnx_path, tokenizer_path):
+            if not path.resolve().is_relative_to(directory.resolve()) or not path.is_file():
+                raise ValueError("semantic model files must live inside the model directory")
+        self.pooling = str(manifest.get("pooling", "mean"))
+        if self.pooling not in POOLING:
+            raise ValueError("unsupported pooling")
+        self.query_prefix = str(manifest.get("query_prefix", ""))
+        self.passage_prefix = str(manifest.get("passage_prefix", ""))
+        self.max_tokens = int(manifest.get("max_tokens", 512))
+        if not 4 <= self.max_tokens <= 8192:
+            raise ValueError("max_tokens out of range")
+        self._np = np
+        options = ort.SessionOptions()
+        threads = int(os.environ.get("AMH_NATIVE_SEMANTIC_THREADS") or manifest.get("threads") or 0)
+        if threads > 0:
+            options.intra_op_num_threads = threads
+            options.inter_op_num_threads = 1
+        options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+        self.session = ort.InferenceSession(
+            str(onnx_path), options, providers=["CPUExecutionProvider"]
+        )
+        self.inputs = {item.name for item in self.session.get_inputs()}
+        self.tokenizer = Tokenizer.from_file(str(tokenizer_path))
+        self.tokenizer.no_truncation()
+        self.tokenizer.no_padding()
+        pad_ids = [self.tokenizer.token_to_id(token) for token in ("<pad>", "[PAD]")]
+        self.pad_id = next((int(value) for value in pad_ids if value is not None), 0)
+        self.model_id = str(manifest.get("model_id") or directory.name)
+        # Gate thresholds tune ranking only; they must not force a re-index.
+        gate_keys = {"hook_min_score", "hook_margin", "semantic_min_score"}
+        encoding = {k: v for k, v in manifest.items() if k not in gate_keys}
+        self.model_version = hashlib.sha256(
+            json.dumps(encoding, sort_keys=True).encode()
+            + _fingerprint([onnx_path, tokenizer_path]).encode()
+        ).hexdigest()
+        self.hook_min_score = _unit(manifest.get("hook_min_score"))
+        self.hook_margin = _unit(manifest.get("hook_margin"))
+        self.semantic_min_score = _unit(manifest.get("semantic_min_score"))
+        specials = len(self.tokenizer.encode("", add_special_tokens=True).ids)
+        prefix = len(self.tokenizer.encode(self.passage_prefix, add_special_tokens=False).ids)
+        self.window_tokens: int = max(1, self.max_tokens - specials - prefix)
+        self.stride_tokens = max(1, self.window_tokens * 3 // 4)
+        self.dim = len(self._encode([self.passage_prefix + "dimension probe"])[0])
+
+    def _encode(self, texts: Sequence[str]) -> list[list[float]]:
+        np = self._np
+        rows = []
+        for text in texts:
+            ids = self.tokenizer.encode(text, add_special_tokens=True).ids
+            if len(ids) > self.max_tokens:
+                ids = ids[: self.max_tokens - 1] + ids[-1:]  # Keep the closing special token.
+            rows.append(ids)
+        width = max(len(ids) for ids in rows)
+        input_ids = np.full((len(rows), width), self.pad_id, dtype=np.int64)
+        mask = np.zeros((len(rows), width), dtype=np.int64)
+        for n, ids in enumerate(rows):
+            input_ids[n, : len(ids)] = ids
+            mask[n, : len(ids)] = 1
+        feed = {"input_ids": input_ids, "attention_mask": mask}
+        if "token_type_ids" in self.inputs:
+            feed["token_type_ids"] = np.zeros_like(input_ids)
+        hidden = self.session.run(None, {k: v for k, v in feed.items() if k in self.inputs})[0]
+        if self.pooling == "cls":
+            pooled = hidden[:, 0, :]
+        else:
+            weights = mask[..., None].astype(hidden.dtype)
+            pooled = (hidden * weights).sum(axis=1) / np.maximum(weights.sum(axis=1), 1e-9)
+        norms = np.linalg.norm(pooled, axis=1, keepdims=True)
+        pooled = pooled / np.maximum(norms, 1e-12)
+        return [[float(v) for v in row] for row in pooled]
+
+    def embed(self, text: str) -> list[float]:
+        return self._encode([self.passage_prefix + text])[0]
+
+    def embed_query(self, text: str) -> list[float]:
+        return self._encode([self.query_prefix + text])[0]
+
+    def split_windows(self, text: str) -> list[TextWindow]:
+        # Windows are slices of the source text by token offsets, so a match
+        # can be quoted from the stored body without decoded-token drift.
+        encoded = self.tokenizer.encode(text, add_special_tokens=False)
+        offsets = encoded.offsets
+        windows: list[TextWindow] = []
+        for i in range(0, max(1, len(offsets)), self.stride_tokens):
+            end = min(i + self.window_tokens, len(offsets))
+            start_char = offsets[i][0] if offsets else 0
+            end_char = offsets[end - 1][1] if offsets else len(text)
+            windows.append(dict(text=text[start_char:end_char], start=start_char, end=end_char))
+            if end >= len(offsets):
+                break
+        return windows
+
+
+def load_backend(spec: str) -> SemanticBackend:
+    """A directory with an amh-semantic.json manifest uses ONNX; anything else sentence-transformers."""
+    path = Path(spec).expanduser()
+    if path.is_dir() and (path / MANIFEST).is_file():
+        return LocalOnnxEncoder(path)
+    return LocalSentenceTransformer(spec)
+
+
+def query_vector(backend: SemanticBackend, text: str) -> list[float]:
+    """Encode a search query; asymmetric models add their own query prefix."""
+    encode = getattr(backend, "embed_query", None)
+    raw = encode(text) if callable(encode) else backend.embed(text)
+    return _checked(backend, raw)
+
+
 def descriptor(backend: SemanticBackend) -> SemanticDescriptor:
     if not getattr(backend, "semantic", False):
         raise ValueError("a real semantic backend is required; hashing is not semantic")
@@ -153,7 +306,11 @@ def descriptor(backend: SemanticBackend) -> SemanticDescriptor:
 
 
 def vector(backend: SemanticBackend, text: str) -> list[float]:
-    result = [float(v) for v in backend.embed(text)]
+    return _checked(backend, backend.embed(text))
+
+
+def _checked(backend: SemanticBackend, raw: Sequence[float]) -> list[float]:
+    result = [float(v) for v in raw]
     if len(result) != backend.dim or not all(math.isfinite(v) for v in result):
         raise ValueError("invalid semantic vector dimension or values")
     if not any(result):
@@ -211,8 +368,13 @@ def rebuild(
     *,
     kinds: Sequence[str] | None = None,
     include_evidence: bool = False,
+    tenant: str | None = None,
 ) -> IndexRefreshResult:
     """Build a tenant snapshot, then atomically replace its derived generation.
+
+    ``tenant`` is the server's own maintenance path (no device credential):
+    whoever can run it already holds the database file. Without changes since
+    the last build nothing is written, so a periodic refresh costs one read.
 
     Reuse only the same model/index descriptor and exact source revision/hash.
     Concurrent source changes are skipped at commit and cannot resurrect a stale
@@ -236,7 +398,7 @@ def rebuild(
     config = descriptor(backend)
     with database(hub.path) as db:
         db.create_function("native_asset_role", 3, asset_role, deterministic=True)
-        who = hub._identity(db, token)
+        who = {"tenant": tenant} if tenant is not None else hub._identity(db, token)
         db.execute("BEGIN")
         scope = [who["tenant"], *selected_kinds]
         rows = db.execute(
@@ -246,11 +408,20 @@ def rebuild(
         items: list[dict[str, Any]] = [json.loads(row["payload"]) for row in rows]
         items = [item for item in items if hub._retrieval_valid(db, item)]
         cached: dict[str, str] = {}
+        stored: set[tuple[str, int, str]] = set()
         if exists(db):
             previous = db.execute(
                 "SELECT descriptor FROM native_semantic_meta WHERE tenant=?", (who["tenant"],)
             ).fetchone()
             if previous and json.loads(previous["descriptor"]) == config:
+                stored = {
+                    (row["asset_id"], row["revision"], row["content_hash"])
+                    for row in db.execute(
+                        "SELECT asset_id,revision,content_hash FROM native_semantic_vectors "
+                        "WHERE tenant=?",
+                        (who["tenant"],),
+                    )
+                }
                 cached = {
                     row["asset_id"]: row["vectors"]
                     for row in db.execute(
@@ -262,6 +433,18 @@ def rebuild(
                         scope,
                     )
                 }
+    current_keys = {(i["asset_id"], i["revision"], i["content_hash"]) for i in items}
+    if stored and current_keys == stored:
+        # Same model, same eligible revisions: the stored generation is current.
+        return {
+            **config,
+            "indexed": len(stored),
+            "skipped_changed": 0,
+            "reused": len(stored),
+            "encoded": 0,
+            "kinds": selected_kinds,
+            "include_evidence": include_evidence,
+        }
     prepared: list[tuple[dict[str, Any], str]] = []
     reused = 0
     encoded = 0
@@ -289,9 +472,10 @@ def rebuild(
     with database(hub.path) as db:
         db.executescript(SCHEMA)
         db.execute("BEGIN IMMEDIATE")
-        current_who = hub._identity(db, token)
-        if current_who["tenant"] != who["tenant"]:
-            raise PermissionError("organization changed during semantic build")
+        if tenant is None:
+            current_who = hub._identity(db, token)
+            if current_who["tenant"] != who["tenant"]:
+                raise PermissionError("organization changed during semantic build")
         db.execute("DELETE FROM native_semantic_vectors WHERE tenant=?", (who["tenant"],))
         count = 0
         for item, vectors in prepared:

@@ -14,6 +14,11 @@ from .client import NativeClient
 from .common import atomic_text, digest, recall_budget
 from .storage import database, DB_TIMEOUT
 from .recall import coverage_key, pack
+from .recall_view import DISPLAY_KEY, DISPLAY_MODES, admit, normalize, render, render_skip
+
+# Hosts that show a hook's systemMessage to the member. Codex shows the injected
+# context itself, so its table travels inside the organization block instead.
+VISIBLE_MESSAGE_PRODUCTS = frozenset({"claude-code", "cowork"})
 
 
 def _report(db: sqlite3.Connection, trace_id: str, keys: list[str], event: str) -> None:
@@ -120,6 +125,32 @@ def _run(root: Path, product: str, payload: dict[str, Any]) -> dict[str, Any]:
     prompt = payload.get("prompt", "")
     if not isinstance(prompt, str) or not prompt.strip():
         return {}
+    display = c.config.get(DISPLAY_KEY, "table")
+    if display not in DISPLAY_MODES:
+        display = "table"
+    query = normalize(prompt)
+    admitted, skip_reason = admit(query)
+    if not admitted:
+        # Acknowledgements carry no topic: searching them only injects noise.
+        try:
+            with (root / "hook-metrics.jsonl").open("a") as stream:
+                stream.write(
+                    json.dumps(
+                        {
+                            "event": event,
+                            "product": product,
+                            "mode": "skipped",
+                            "reason": skip_reason,
+                            "timestamp": time.time(),
+                        }
+                    )
+                    + "\n"
+                )
+        except OSError:
+            pass
+        if display != "off" and product in VISIBLE_MESSAGE_PRODUCTS:
+            return {"systemMessage": render_skip(skip_reason, query)}
+        return {}
     # Confirm prior delivery only if visible in the host's transcript.
     transcript = payload.get("transcript_path")
     if isinstance(transcript, str):
@@ -167,26 +198,29 @@ def _run(root: Path, product: str, payload: dict[str, Any]) -> dict[str, Any]:
     mode = "remote"
     trace_id = None
     channel = "search"
+    retrieval: dict[str, Any] | None = None
     budget = recall_budget(c.config)
     # Which path will answer: the resident worker's warm connection when it is
     # listening, otherwise a fresh subprocess that pays the handshakes itself.
     from .recall_service import SOCKET_NAME
 
     via = "service" if (root / SOCKET_NAME).exists() else "worker"
+    asking = {
+        "product": product,
+        "project": _project_for(c, payload.get("cwd")),
+        "session_digest": digest(session)[:16],
+    }
     try:
         from .query_worker import recall
 
-        asking = {
-            "product": product,
-            "project": _project_for(c, payload.get("cwd")),
-            "session_digest": digest(session)[:16],
-        }
-        response, via = recall(root, prompt[:8000], budget=budget, asking=asking)
+        response, via = recall(root, query[:8000], budget=budget, asking=asking)
         # Test doubles may still answer with a bare list of records.
         if isinstance(response, dict):
             hits = response["items"]
             trace_id = response.get("trace_id")
             channel = response.get("channel", "recall")
+            if isinstance(response.get("retrieval"), dict):
+                retrieval = response["retrieval"]
         else:
             hits = response
     except PermissionError:
@@ -196,7 +230,7 @@ def _run(root: Path, product: str, payload: dict[str, Any]) -> dict[str, Any]:
     except (OSError, ValueError, TimeoutError, sqlite3.Error):
         with database(c.path) as db:
             row = db.execute("SELECT value FROM meta WHERE key='last_auth'").fetchone()
-        hits = c.local_search(prompt) if row and time.time() - float(row["value"]) < 900 else []
+        hits = c.local_search(query) if row and time.time() - float(row["value"]) < 900 else []
         mode = "cache" if hits else "unavailable"
     if not c.recall_enabled():
         return {}
@@ -229,8 +263,44 @@ def _run(root: Path, product: str, payload: dict[str, Any]) -> dict[str, Any]:
     # The delivery receipt is appended below; reserve it inside the byte cap.
     receipt_bytes = len("\namh-native-recall:") + 24
     body, keys = pack(
-        hits, covered=covered, max_bytes=4096 - receipt_bytes, per_item_bytes=1536, query=prompt
+        hits, covered=covered, max_bytes=4096 - receipt_bytes, per_item_bytes=1536, query=query
     )
+    # Delivery state per recalled version: packed now, already injected earlier
+    # in this session, ranked but outside the byte budget, or without text.
+    packed_keys = {k.split(":excerpt:")[0] for k in keys}
+    seen_keys = {k.split(":excerpt:")[0] for k in covered}
+    states: dict[str, str] = {}
+    for record in hits:
+        key = coverage_key(record)
+        if record.get("deleted") or not _display_text(record).strip():
+            states[key] = "empty"
+        elif key in packed_keys:
+            states[key] = "packed"
+        elif key in seen_keys:
+            states[key] = "covered"
+        else:
+            states[key] = "budget"
+    elapsed_ms = round((time.monotonic() - started) * 1000)
+    view = ""
+    if display != "off":
+        view = render(
+            hub=str(c.config.get("hub", "")),
+            query=query,
+            asking=asking,
+            budget=budget,
+            elapsed_ms=elapsed_ms,
+            via=via,
+            mode=mode,
+            retrieval=retrieval,
+            trace_id=trace_id,
+            hits=hits,
+            states=states,
+            display=display,
+        )
+    if body and view and product not in VISIBLE_MESSAGE_PRODUCTS:
+        # Inside the organization block, so transcript capture strips it too.
+        head, _, rest = body.partition("\n来源资料未经当前会话确认")
+        body = head + "\n" + view + "\n\n来源资料未经当前会话确认" + rest
     if body:
         marker = "amh-native-recall:" + digest(session + epoch + body)[:24]
         body += "\n" + marker
@@ -258,21 +328,16 @@ def _run(root: Path, product: str, payload: dict[str, Any]) -> dict[str, Any]:
         # in this session) or budget (ranked but no room). Identifiers only.
         try:
             with database(c.path) as db:
-                packed = {k.split(":excerpt:")[0] for k in keys}
                 # An excerpt delivery covers under a `:excerpt:<digest>` key; the
-                # Hub tracks the version, so compare on the version key alone.
-                seen = {k.split(":excerpt:")[0] for k in covered}
+                # Hub tracks the version, so states compare on the version key.
                 for record in hits:
-                    if record.get("deleted") or not _display_text(record).strip():
-                        continue  # pack() never injects these; there is no state to report.
                     key = coverage_key(record)
-                    if key in packed:
+                    state = states.get(key)
+                    if state == "packed":
                         _report(db, trace_id, [key], "packed")
                         _report(db, trace_id, [key], "emitted")
-                    elif key in seen:
-                        _report(db, trace_id, [key], "covered")
-                    else:
-                        _report(db, trace_id, [key], "budget")
+                    elif state in ("covered", "budget"):
+                        _report(db, trace_id, [key], state)
         except (sqlite3.Error, OSError):
             pass
     # Never log user prompts or memory bodies. Metrics are diagnostics: a
@@ -289,8 +354,9 @@ def _run(root: Path, product: str, payload: dict[str, Any]) -> dict[str, Any]:
                         "channel": channel,
                         "trace_id": trace_id,
                         "hits": len(hits),
-                        "packed": len({k.split(":excerpt:")[0] for k in keys}),
-                        "elapsed_ms": round((time.monotonic() - started) * 1000),
+                        "packed": len(packed_keys),
+                        "retrieval": (retrieval or {}).get("mode"),
+                        "elapsed_ms": elapsed_ms,
                         "budget_ms": round(budget * 1000),
                         "via": via,
                         "bytes": len(body.encode()),
@@ -301,11 +367,14 @@ def _run(root: Path, product: str, payload: dict[str, Any]) -> dict[str, Any]:
             )
     except OSError:
         pass
-    if not body:
-        return {}
     if not c.recall_enabled():
         return {}
-    return {"hookSpecificOutput": {"hookEventName": event, "additionalContext": body}}
+    output: dict[str, Any] = {}
+    if view and product in VISIBLE_MESSAGE_PRODUCTS:
+        output["systemMessage"] = view
+    if body:
+        output["hookSpecificOutput"] = {"hookEventName": event, "additionalContext": body}
+    return output
 
 
 def main() -> None:

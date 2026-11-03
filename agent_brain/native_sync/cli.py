@@ -219,7 +219,9 @@ def serve(
     host: str = "127.0.0.1",
     port: int = 8787,
     semantic_model: str | None = typer.Option(None, help="服务端已缓存的语义模型，不自动下载"),
-    semantic_min_score: float = typer.Option(0.45, min=0, max=1),
+    semantic_min_score: float | None = typer.Option(
+        None, min=0, max=1, help="语义候选下限；不传时用模型清单的校准值，否则 0.45"
+    ),
     mmr_lambda: float | None = typer.Option(None, min=0, max=1),
     decay: bool | None = typer.Option(
         None,
@@ -233,6 +235,9 @@ def serve(
     ),
     hopfield_beta: float = typer.Option(8.0, min=0.1, max=64),
     hopfield_min_score: float = typer.Option(0.35, min=0, max=1, help="联想候选的相似度下限"),
+    semantic_interval: float = typer.Option(
+        120, min=10, max=86400, help="服务端语义索引的增量维护间隔（秒）"
+    ),
 ) -> None:
     """运行独立组织 Hub；公网部署请在前面配置 HTTPS。"""
     import uvicorn
@@ -272,6 +277,21 @@ def serve(
                 continue
 
     threading.Thread(target=roll_up_insights, name="amh-insights", daemon=True).start()
+
+    def maintain_semantic_index() -> None:
+        # Encode only new or changed memory and rule revisions; an unchanged
+        # store costs one read per pass. Failures leave the last index in place.
+        # The first pass waits until the service has answered readiness checks.
+        clock.sleep(min(30.0, semantic_interval))
+        while True:
+            try:
+                hub.refresh_semantic_local()
+            except Exception as exc:  # noqa: BLE001 - keep serving lexical results
+                hub.semantic_state = {"state": "error", "reason": type(exc).__name__}
+            clock.sleep(semantic_interval)
+
+    if hub.semantic_model:
+        threading.Thread(target=maintain_semantic_index, name="amh-semantic", daemon=True).start()
     uvicorn.run(create_app(hub), host=host, port=port, log_level="warning", access_log=False)
 
 
@@ -1053,6 +1073,7 @@ def _recall_settings(state: Path, c: NativeClient) -> dict[str, Any]:
         "env_override": os.environ.get(RECALL_BUDGET_ENV),
         "hook_timeout_seconds": hook_timeout(budget),
         "resident_service": (state / SOCKET_NAME).exists(),
+        "display": c.config.get("recall_display", "table"),
     }
 
 
@@ -1099,6 +1120,85 @@ def recall_timeout(
             "hook_timeout_seconds": hook_timeout(seconds),
             "hooks_rewritten": rewritten,
             "note": "常驻 worker 会在下一轮读取新配置；宿主需要重新加载 Hook 配置后新超时才生效。",
+        }
+    )
+
+
+@app.command("recall-display")
+def recall_display(
+    state: Path = DEFAULT_STATE,
+    mode: str | None = typer.Argument(
+        None, help="table：调用、入参和记忆表格；summary：一行摘要；off：不显示。省略则只查看。"
+    ),
+) -> None:
+    """查看或设置提示时组织召回在对话里的展示方式。"""
+    from .recall_view import DISPLAY_KEY, DISPLAY_MODES
+
+    c = load(state)
+    if mode is None:
+        emit({"display": c.config.get(DISPLAY_KEY, "table"), "modes": list(DISPLAY_MODES)})
+        return
+    if mode not in DISPLAY_MODES:
+        raise typer.BadParameter("可选：" + " / ".join(DISPLAY_MODES))
+    c.config[DISPLAY_KEY] = mode
+    atomic_json(state / "config.json", c.config)
+    emit(
+        {
+            "display": mode,
+            "note": "下一条提示起生效；Claude Code 与 Cowork 以消息显示，Codex 显示在注入块里。",
+        }
+    )
+
+
+@app.command("hook-stats")
+def hook_stats(
+    state: Path = DEFAULT_STATE,
+    days: float = typer.Option(7, min=0.1, max=365, help="统计最近多少天"),
+) -> None:
+    """本机提示时召回的汇总：走了哪条路、命中与注入、跳过原因、耗时分位。不含提示原文。"""
+    path = state / "hook-metrics.jsonl"
+    cutoff = time.time() - days * 86400
+    rows = []
+    if path.is_file():
+        for line in path.read_text(errors="ignore").splitlines():
+            try:
+                row = json.loads(line)
+            except ValueError:
+                continue
+            if row.get("event") == "UserPromptSubmit" and row.get("timestamp", 0) >= cutoff:
+                rows.append(row)
+
+    def count(key: str, subset: list[dict[str, Any]] | None = None) -> dict[str, int]:
+        result: dict[str, int] = {}
+        for row in rows if subset is None else subset:
+            value = str(row.get(key) or "—")
+            result[value] = result.get(value, 0) + 1
+        return dict(sorted(result.items(), key=lambda kv: -kv[1]))
+
+    searched = [r for r in rows if r.get("mode") != "skipped"]
+    elapsed = sorted(
+        r["elapsed_ms"] for r in searched if isinstance(r.get("elapsed_ms"), (int, float))
+    )
+
+    def pct(q: float) -> float | None:
+        return elapsed[min(len(elapsed) - 1, int(q * len(elapsed)))] if elapsed else None
+
+    emit(
+        {
+            "days": days,
+            "prompts": len(rows),
+            "skipped": len(rows) - len(searched),
+            "skip_reasons": count("reason", [r for r in rows if r.get("mode") == "skipped"]),
+            "modes": count("mode"),
+            "retrieval": count("retrieval"),
+            "via": count("via"),
+            "with_hits": sum(1 for r in searched if r.get("hits")),
+            "injected": sum(1 for r in searched if r.get("packed")),
+            "elapsed_ms": {
+                "p50": pct(0.5),
+                "p90": pct(0.9),
+                "max": elapsed[-1] if elapsed else None,
+            },
         }
     )
 
@@ -1195,8 +1295,12 @@ def setup(
     state: Path = DEFAULT_STATE,
     home: Path = typer.Option(Path.home()),
     service: bool = True,
-    ssh: bool | None = typer.Option(None, "--ssh/--no-ssh", help="使用本机浏览器安装远端设备；默认检测 SSH"),
-    web_port: int = typer.Option(0, min=0, max=65535, help="浏览器端口；SSH 默认 8765，本机默认随机"),
+    ssh: bool | None = typer.Option(
+        None, "--ssh/--no-ssh", help="使用本机浏览器安装远端设备；默认检测 SSH"
+    ),
+    web_port: int = typer.Option(
+        0, min=0, max=65535, help="浏览器端口；SSH 默认 8765，本机默认随机"
+    ),
     sync_only: bool = typer.Option(
         False, help="只同步上传；禁用召回，不安装产品 Hook、MCP 或 Cowork 插件"
     ),
@@ -1451,11 +1555,7 @@ def skills_activate(
     from .assets import activate_skills
 
     c = load(state)
-    rows = [
-        r
-        for r in c.cached()
-        if r["source_store"] == source_store and r["kind"] == "skill"
-    ]
+    rows = [r for r in c.cached() if r["source_store"] == source_store and r["kind"] == "skill"]
     emit(
         [
             {
@@ -1467,7 +1567,11 @@ def skills_activate(
         ]
     )
     if typer.confirm("确认将所选组织技能应用到目录（空集合会停用已托管技能）？", default=False):
-        emit(activate_skills(destination, rows, source_store=source_store, before_write=c.require_recall))
+        emit(
+            activate_skills(
+                destination, rows, source_store=source_store, before_write=c.require_recall
+            )
+        )
 
 
 @app.command("activate-rules")
@@ -1480,9 +1584,7 @@ def rules_activate(
     from .assets import activate_rules
 
     c = load(state)
-    rows = [
-        r for r in c.cached() if r["source_store"] == source_store and r["kind"] == "rule"
-    ]
+    rows = [r for r in c.cached() if r["source_store"] == source_store and r["kind"] == "rule"]
     c.require_recall()
     emit([{"path": r["path"], "producer": r["producer_name"], "body": r["body"]} for r in rows])
     if rows and typer.confirm("确认用所选规则替换指定项目的组织规则托管区块？", default=False):
@@ -1501,11 +1603,7 @@ def config_apply(
     from .materialize import assembled
 
     c = load(state)
-    rows = [
-        r
-        for r in assembled(c.cached())
-        if r["asset_id"] == asset and r["kind"] == "config"
-    ]
+    rows = [r for r in assembled(c.cached()) if r["asset_id"] == asset and r["kind"] == "config"]
     if len(rows) != 1:
         raise typer.BadParameter("configuration asset not found or incompletely downloaded")
     c.require_recall()

@@ -112,7 +112,7 @@ jobs:
           python -m pip download --only-binary=:all: --python-version 311 --implementation cp \
             --abi cp311 --abi abi3 --abi none \
             --platform manylinux_2_28_x86_64 --platform manylinux2014_x86_64 \
-            --dest dist/wheelhouse "$wheel[web]" >/dev/null
+            --dest dist/wheelhouse "$wheel[web,semantic]" >/dev/null
           python - <<'PY'
           from pathlib import Path
           import hashlib, json
@@ -140,8 +140,45 @@ jobs:
           stage=$(ssh -i ~/.ssh/aihub_key -p "$AIHUB_SSH_PORT" "$remote" 'mktemp -d /tmp/amh-native-upgrade.XXXXXXXX')
           ssh -i ~/.ssh/aihub_key -p "$AIHUB_SSH_PORT" "$remote" "mkdir -p '$stage/wheelhouse'"
           scp -i ~/.ssh/aihub_key -P "$AIHUB_SSH_PORT" dist/wheelhouse/*.whl "$remote:$stage/wheelhouse/"
-          scp -i ~/.ssh/aihub_key -P "$AIHUB_SSH_PORT" dist/bundle.json deploy/native-memory/upgrade.sh "$remote:$stage/"
+          scp -i ~/.ssh/aihub_key -P "$AIHUB_SSH_PORT" dist/bundle.json deploy/native-memory/upgrade.sh \
+            deploy/native-memory/semantic-model.json "$remote:$stage/"
           echo "NATIVE_STAGE=$stage" >> "$GITHUB_ENV"
+
+      - name: Stage the pinned semantic model when the Hub lacks it
+        if: env.NATIVE_ENABLED == 'true'
+        run: |
+          set -euo pipefail
+          remote="${AIHUB_SSH_USER}@${AIHUB_SSH_HOST}"
+          spec=deploy/native-memory/semantic-model.json
+          python - "$spec" > dist/model-checks.txt <<'PY'
+          import json, sys
+          spec = json.load(open(sys.argv[1]))
+          root = "/opt/amh-native/models/" + spec["name"] + "@" + spec["revision"][:12]
+          for f in spec["files"]:
+              print(f"{f['sha256']}  {root}/{f['path']}")
+          PY
+          if ssh -i ~/.ssh/aihub_key -p "$AIHUB_SSH_PORT" "$remote" 'sha256sum -c --status - 2>/dev/null' < dist/model-checks.txt; then
+            echo "semantic model already present on the Hub"
+            exit 0
+          fi
+          # The Hub host cannot reach huggingface.co; the runner fetches and verifies.
+          python - "$spec" <<'PY'
+          import hashlib, json, sys, urllib.request
+          from pathlib import Path
+          spec = json.loads(Path(sys.argv[1]).read_text())
+          for f in spec["files"]:
+              dest = Path("dist/model") / f["path"]
+              dest.parent.mkdir(parents=True, exist_ok=True)
+              url = f"https://huggingface.co/{spec['repo']}/resolve/{spec['revision']}/{f['path']}"
+              with urllib.request.urlopen(url, timeout=120) as response, dest.open("wb") as out:
+                  for block in iter(lambda: response.read(1 << 20), b""):
+                      out.write(block)
+              if hashlib.sha256(dest.read_bytes()).hexdigest() != f["sha256"]:
+                  sys.exit(f"checksum mismatch for {f['path']}")
+          print("model files verified")
+          PY
+          ssh -i ~/.ssh/aihub_key -p "$AIHUB_SSH_PORT" "$remote" "mkdir -p '$NATIVE_STAGE/model'"
+          scp -r -i ~/.ssh/aihub_key -P "$AIHUB_SSH_PORT" dist/model/. "$remote:$NATIVE_STAGE/model/"
 
       - name: Upgrade service and verify readiness
         if: env.NATIVE_ENABLED == 'true'

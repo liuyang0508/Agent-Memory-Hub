@@ -171,6 +171,7 @@ def test_worker_retries_without_hints_on_a_hub_that_predates_them():
         "items": [{"asset_id": "a"}],
         "trace_id": "c" * 24,
         "channel": "recall",
+        "retrieval": {"mode": None, "reasons": []},
     }
     assert calls == [asking, None]
 

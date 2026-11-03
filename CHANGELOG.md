@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.7] — 2026-11-04
+
+### Added
+
+- Semantic retrieval on small CPU-only Hubs: a quantized ONNX encoder
+  (onnxruntime + tokenizers, no PyTorch) loaded from a model directory with an
+  `amh-semantic.json` manifest. The deploy pins jina-embeddings-v2-base-zh by
+  revision and sha256; the workflow stages verified files when the Hub cannot
+  reach Hugging Face, and a failed fetch leaves the Hub on lexical ranking.
+- `serve` maintains the semantic index itself, encoding only new or changed
+  memory and rule revisions; health reports `semantic.state` and advertises
+  `semantic-v1` when ready. Parsed vectors are cached per index generation.
+- A prompt-time relevance gate (hook channel only): candidates below the
+  model's calibrated floor or too far below the best match are not injected,
+  except literal identifiers from the prompt that keyword search ranked high.
+  On a replica of the organization corpus this moved top-1 from 65% to 85.5%,
+  top-3 from 76% to 98.2%, and unanswerable prompts that still received
+  memories from 12/12 to 2/12.
+- The prompt hook shows what it did: the call, its parameters and a table of
+  every recalled memory with rank, source, author, revision, routes,
+  similarity and delivery state. Claude Code and Cowork show it as a message,
+  Codex inside the injected block. `amh-native recall-display` switches
+  between table, summary and off; `amh-native hook-stats` summarizes recent
+  recalls without prompt text.
+- Acknowledgements such as "1", "好的" or "继续" are not searched, and host
+  reminders, earlier organization context and attachment placeholders are
+  removed from the search query; pasted material follows the member's words.
+
 ## [1.4.6] — 2026-11-03
 
 ### Added

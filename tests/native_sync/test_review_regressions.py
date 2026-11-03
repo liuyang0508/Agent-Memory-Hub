@@ -111,17 +111,15 @@ def test_native_read_records_only_visible_full_resource_coverage(live, tmp_path)
             "tool_response": {"content": resource.read_text()},
         },
     )
-    assert (
-        run(
-            b.root,
-            "claude-code",
-            {
-                "session_id": "native",
-                "hook_event_name": "UserPromptSubmit",
-                "prompt": "NATIVE_READ_CANARY",
-            },
-        )
-        == {}
+    # Nothing new is injected; the member still sees the recall table.
+    assert "hookSpecificOutput" not in run(
+        b.root,
+        "claude-code",
+        {
+            "session_id": "native",
+            "hook_event_name": "UserPromptSubmit",
+            "prompt": "NATIVE_READ_CANARY",
+        },
     )
 
 

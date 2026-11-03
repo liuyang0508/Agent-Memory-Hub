@@ -40,10 +40,19 @@ def fetch(
         if not isinstance(items, list):
             raise ValueError("invalid recall response")
         trace_id = result.get("trace_id")
+        raw: dict[str, Any] = (
+            result["retrieval"] if isinstance(result.get("retrieval"), dict) else {}
+        )
+        reasons: list[Any] = raw["reasons"] if isinstance(raw.get("reasons"), list) else []
         return {
             "items": items,
             "trace_id": trace_id if isinstance(trace_id, str) and len(trace_id) == 24 else None,
             "channel": "recall",
+            # Shown to the member: how the Hub ranked this answer and why it degraded.
+            "retrieval": {
+                "mode": raw.get("mode") if raw.get("mode") in ("hybrid", "lexical") else None,
+                "reasons": [str(r)[:80] for r in reasons[:4]],
+            },
         }
     except HubHTTPError as exc:
         if exc.http_status not in (404, 405, 501):

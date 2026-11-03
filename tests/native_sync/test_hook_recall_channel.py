@@ -94,6 +94,7 @@ def test_fetch_falls_back_to_search_on_an_old_hub_and_keeps_other_errors():
         "items": [{"asset_id": "a"}],
         "trace_id": "f" * 24,
         "channel": "recall",
+        "retrieval": {"mode": None, "reasons": []},
     }
 
 

@@ -58,11 +58,92 @@ fi
 cp "$wheel" "$version_dir/"
 [ -d "$version_dir/venv" ] || python3.11 -m venv "$version_dir/venv"
 "$version_dir/venv/bin/pip" --isolated --no-cache-dir install --timeout 30 --retries 2 \
-  --no-index --find-links "$wheelhouse" "$version_dir/$(basename "$wheel")[web]" \
+  --no-index --find-links "$wheelhouse" "$version_dir/$(basename "$wheel")[web,semantic]" \
   > "$backup/install.log" 2>&1 || { echo 'install failed; see install.log' >&2; exit 1; }
 
 id amh-native >/dev/null 2>&1 || useradd --system --user-group \
   --home-dir /var/lib/amh-native --shell /sbin/nologin amh-native
+
+# Optional semantic retrieval: pinned model files from a Hugging Face mirror,
+# each checked against its sha256. Shared across releases, fetched once. Any
+# failure leaves the Hub on lexical ranking; it never fails the upgrade.
+spec="$(dirname "$0")/semantic-model.json"
+semantic_env=/etc/amh-native/semantic.env
+if [ -f "$spec" ] && [ "${AMH_SEMANTIC:-on}" != off ]; then
+  if model_dir=$(AMH_HF_ENDPOINT="${AMH_HF_ENDPOINT:-}" "$version_dir/venv/bin/python" - "$spec" 2>>"$backup/semantic.log" <<'PY'
+import hashlib, json, os, sys, tempfile, urllib.request
+from pathlib import Path
+spec = json.loads(Path(sys.argv[1]).read_text())
+target = Path(os.environ.get("AMH_MODEL_ROOT") or "/opt/amh-native/models") / (spec["name"] + "@" + spec["revision"][:12])
+def good(path, sha):
+    if not path.is_file():
+        return False
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for block in iter(lambda: stream.read(1 << 20), b""):
+            digest.update(block)
+    return digest.hexdigest() == sha
+class Redirect(urllib.request.HTTPRedirectHandler):
+    def http_error_308(self, req, fp, code, msg, headers):
+        return self.http_error_302(req, fp, code, msg, headers)
+urllib.request.install_opener(urllib.request.build_opener(Redirect))
+# Files staged next to this script by the deploy workflow come first; the
+# mirrors only serve manual installs. Every source is checked by sha256.
+staged = Path(sys.argv[1]).parent / "model"
+if not all(good(target / f["path"], f["sha256"]) for f in spec["files"]):
+    endpoints = [e for e in (os.environ.get("AMH_HF_ENDPOINT"), "https://hf-mirror.com", "https://huggingface.co") if e]
+    if staged.is_dir():
+        endpoints.insert(0, "file://" + str(staged))
+    target.parent.mkdir(parents=True, exist_ok=True)
+    stage = Path(tempfile.mkdtemp(prefix=".fetch-", dir=target.parent))
+    for f in spec["files"]:
+        dest = stage / f["path"]
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        for endpoint in endpoints:
+            url = (
+                f"{endpoint}/{f['path']}"
+                if endpoint.startswith("file://")
+                else f"{endpoint}/{spec['repo']}/resolve/{spec['revision']}/{f['path']}"
+            )
+            try:
+                with urllib.request.urlopen(url, timeout=60) as response, dest.open("wb") as out:
+                    for block in iter(lambda: response.read(1 << 20), b""):
+                        out.write(block)
+            except OSError as exc:
+                print(f"fetch failed {endpoint} {f['path']}: {exc}", file=sys.stderr)
+                continue
+            if good(dest, f["sha256"]):
+                break
+            print(f"checksum mismatch {endpoint} {f['path']}", file=sys.stderr)
+        else:
+            sys.exit(f"could not fetch {f['path']}")
+    (stage / "amh-semantic.json").write_text(json.dumps(spec["manifest"], ensure_ascii=False))
+    for path in stage.rglob("*"):
+        path.chmod(0o755 if path.is_dir() else 0o644)
+    stage.chmod(0o755)
+    if target.exists():
+        import shutil
+        shutil.rmtree(target)
+    stage.rename(target)
+manifest = target / "amh-semantic.json"
+if json.loads(manifest.read_text()) != spec["manifest"]:
+    manifest.write_text(json.dumps(spec["manifest"], ensure_ascii=False))
+print(target)
+PY
+  ); then
+    install -d -m 750 -o root -g amh-native /etc/amh-native
+    printf 'AMH_NATIVE_SEMANTIC_MODEL=%s\nAMH_NATIVE_SEMANTIC_THREADS=%s\n' "$model_dir" "${AMH_SEMANTIC_THREADS:-2}" \
+      > "$semantic_env.next"
+    chown root:amh-native "$semantic_env.next"
+    chmod 640 "$semantic_env.next"
+    mv -f "$semantic_env.next" "$semantic_env"
+    echo "semantic_model=$model_dir"
+  else
+    echo 'semantic model unavailable; Hub stays on lexical ranking (see semantic.log)' >&2
+    rm -f "$semantic_env"
+  fi
+fi
+
 install -d -o amh-native -g amh-native -m 700 /var/lib/amh-native
 
 # Switch atomically: a half-written symlink would leave the service pointing nowhere.
@@ -82,6 +163,7 @@ ExecStart=/opt/amh-native/current/venv/bin/amh-native serve --db /var/lib/amh-na
 Environment=PYTHONNOUSERSITE=1
 Environment=PYTHONDONTWRITEBYTECODE=1
 EnvironmentFile=-/etc/amh-native/feishu.env
+EnvironmentFile=-/etc/amh-native/semantic.env
 Restart=on-failure
 RestartSec=3
 UMask=0077
@@ -101,7 +183,8 @@ systemctl enable "$service" >/dev/null 2>&1 || true
 systemctl restart "$service"
 
 ready=0
-for _ in $(seq 1 60); do
+# A semantic model loads before the service accepts requests.
+for _ in $(seq 1 180); do
   if curl -fsS --max-time 2 http://127.0.0.1:8787/native/v1/ready >/dev/null 2>&1; then
     ready=1
     break

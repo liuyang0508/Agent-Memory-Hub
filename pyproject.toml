@@ -31,6 +31,11 @@ dependencies = [
 embeddings = [
     "sentence-transformers>=3.0,<4",
 ]
+semantic = [
+    "onnxruntime>=1.20,<2",
+    "tokenizers>=0.20,<1",
+    "numpy>=1.26",
+]
 web = [
     "fastapi>=0.111,<1",
     "uvicorn[standard]>=0.30,<1",
@@ -56,6 +61,7 @@ dev = [
     "pytest-cov>=5.0",
     "ruff>=0.5",
     "mypy>=1.10",
+    "numpy>=1.26",
 ]
 
 [project.scripts]
@@ -125,12 +131,17 @@ module = [
     "datasets",
     "huggingface_hub",
     "litellm",
+    "numpy",
+    "numpy.*",
     "objc",
+    "onnxruntime",
+    "onnxruntime.*",
     "openai",
     "pypdf",
     "sentence_transformers",
     "sentence_transformers.*",
     "sqlite_vec",
+    "tokenizers",
     "yaml",
 ]
 ignore_missing_imports = true

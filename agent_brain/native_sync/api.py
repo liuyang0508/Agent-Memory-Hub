@@ -12,7 +12,15 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from . import insights
 from .hub import Hub
-from .admin_auth import (AdminAuth, AdminCredential, WebAdminSession, FLOW_COOKIE, SESSION_COOKIE, STATE_TTL, SESSION_TTL)
+from .admin_auth import (
+    AdminAuth,
+    AdminCredential,
+    WebAdminSession,
+    FLOW_COOKIE,
+    SESSION_COOKIE,
+    STATE_TTL,
+    SESSION_TTL,
+)
 from .knowledge import KnowledgeConflict, NativeKnowledge
 from .models import (
     AdminRevokeInput,
@@ -96,16 +104,22 @@ def create_app(hub: Hub) -> FastAPI:
     @app.get("/native/v1/health")
     def health() -> dict[str, Any]:
         """Liveness/protocol discovery; dependency failures must not cause restart loops."""
+        capabilities = [
+            "org-research-v1",
+            "admin-feishu-session-v1",
+            "recall-parity-v1",
+            "insights-v1",
+            "asking-context-v1",
+        ]
+        state = dict(getattr(hub, "semantic_state", {}) or {})
+        if state.get("state") == "ready":
+            capabilities.append("semantic-v1")
         return {
             "protocol": 1,
             "service": "amh-native",
-            "capabilities": [
-                "org-research-v1",
-                "admin-feishu-session-v1",
-                "recall-parity-v1",
-                "insights-v1",
-                "asking-context-v1",
-            ],
+            "capabilities": capabilities,
+            # Model name and index state only; no counts, paths or tenants.
+            "semantic": {k: state[k] for k in ("state", "model") if k in state},
         }
 
     @app.get("/native/v1/ready")
@@ -146,8 +160,9 @@ def create_app(hub: Hub) -> FastAPI:
         if request.method not in ("GET", "HEAD"):
             origin = urlsplit(admin_auth.config().public_url)
             expected = origin.scheme + "://" + origin.netloc
-            if (request.headers.get("origin") != expected or not hmac.compare_digest(
-                    request.headers.get("x-amh-csrf", "").encode(), session["csrf"].encode())):
+            if request.headers.get("origin") != expected or not hmac.compare_digest(
+                request.headers.get("x-amh-csrf", "").encode(), session["csrf"].encode()
+            ):
                 raise HTTPException(403, "same-origin administrator action required")
         return WebAdminSession(token)
 
@@ -170,8 +185,15 @@ def create_app(hub: Hub) -> FastAPI:
         except ValueError:
             return web_redirect("/native/v1/admin?login=unavailable")
         response = web_redirect(feishu.authorize_url(config, state))
-        response.set_cookie(FLOW_COOKIE, browser, max_age=STATE_TTL, path="/", secure=True,
-                            httponly=True, samesite="lax")
+        response.set_cookie(
+            FLOW_COOKIE,
+            browser,
+            max_age=STATE_TTL,
+            path="/",
+            secure=True,
+            httponly=True,
+            samesite="lax",
+        )
         return response
 
     @app.get("/native/v1/admin/session")
@@ -216,29 +238,28 @@ def create_app(hub: Hub) -> FastAPI:
         return hub.admin_dashboard(operator(request, authorization), days=days)
 
     @app.get("/native/v1/admin/overview")
-    def admin_overview(request: Request, authorization: str | None = Header(default=None)) -> dict[str, Any]:
+    def admin_overview(
+        request: Request, authorization: str | None = Header(default=None)
+    ) -> dict[str, Any]:
         return hub.admin_overview(operator(request, authorization))
 
     @app.post("/native/v1/admin/revoke")
     def admin_revoke(
-        request: Request,
-        data: AdminRevokeInput, authorization: str | None = Header(default=None)
+        request: Request, data: AdminRevokeInput, authorization: str | None = Header(default=None)
     ) -> dict[str, Any]:
         hub.admin_revoke(operator(request, authorization), data.device_id)
         return {"revoked": data.device_id}
 
     @app.post("/native/v1/admin/settings")
     def admin_settings(
-        request: Request,
-        data: AdminSettingInput, authorization: str | None = Header(default=None)
+        request: Request, data: AdminSettingInput, authorization: str | None = Header(default=None)
     ) -> dict[str, Any]:
         hub.admin_setting(operator(request, authorization), data.key, data.value)
         return {"saved": data.key}
 
     @app.post("/native/v1/admin/secret")
     def admin_secret(
-        request: Request,
-        data: AdminSecretInput, authorization: str | None = Header(default=None)
+        request: Request, data: AdminSecretInput, authorization: str | None = Header(default=None)
     ) -> dict[str, Any]:
         hub.admin_secret_set(operator(request, authorization), data.app_secret)
         return {"saved": "feishu_app_secret"}
@@ -291,13 +312,22 @@ def create_app(hub: Hub) -> FastAPI:
                 )
             except PermissionError:
                 response = web_redirect("/native/v1/admin?login=denied")
-                response.delete_cookie(SESSION_COOKIE, path="/", secure=True, httponly=True, samesite="lax")
+                response.delete_cookie(
+                    SESSION_COOKIE, path="/", secure=True, httponly=True, samesite="lax"
+                )
                 return response
             except ValueError:
                 return web_redirect("/native/v1/admin?login=expired")
             response = web_redirect(destination)
-            response.set_cookie(SESSION_COOKIE, session, max_age=SESSION_TTL, path="/",
-                                secure=True, httponly=True, samesite="lax")
+            response.set_cookie(
+                SESSION_COOKIE,
+                session,
+                max_age=SESSION_TTL,
+                path="/",
+                secure=True,
+                httponly=True,
+                samesite="lax",
+            )
             return response
 
         if error:
@@ -515,6 +545,7 @@ RECALL_ITEM_FIELDS = (
     "uploader_name",
     "upstream",
     "verified",
+    "observed_at",
 )
 RECALL_MATCH_FIELDS = (
     "similarity",
