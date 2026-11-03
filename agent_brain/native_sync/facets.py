@@ -11,6 +11,7 @@ from __future__ import annotations
 import math
 import posixpath
 import re
+from collections.abc import Collection, Mapping
 from datetime import datetime, timezone
 from typing import Any
 
@@ -47,6 +48,13 @@ DECLARED_KEYS = (
 DECLARED_VALUE_CHARS = 200
 MAX_LINKS = 64
 MAX_SECTIONS = 32
+# Epoch bounds shared by the client (mtime capture) and the Hub (parse_time):
+# 2100-01-01 is the upper bound; a 13-digit value is read as milliseconds.
+MAX_EPOCH = 4102444800
+MILLISECOND_EPOCH = 1e12
+# Body cues only count near the top of a document: the title and the first
+# lines after front matter, where a writer states what the note is.
+CUE_LINES = 5
 # Claude Code auto-memory ``metadata.type`` values, mapped onto knowledge nature.
 TYPE_TO_NATURE = {
     "user": "preference",
@@ -77,38 +85,56 @@ _WIKILINK = re.compile(r"\[\[([^\]\[|#\n]{1,256})(?:[#|][^\]\n]*)?\]\]")
 _HEADING = re.compile(r"^#{2,3}[ \t]+(.+?)[ \t]*#*[ \t]*$", re.M)
 _FENCE = re.compile(r"^ {0,3}(?:`{3,}|~{3,}).*?^ {0,3}(?:`{3,}|~{3,})[ \t]*$", re.M | re.S)
 _DATE = re.compile(r"(?<!\d)(\d{4})-(\d{2})-(\d{2})(?!\d)")
+# A calendar date with optional single-digit month/day and either separator,
+# followed by whatever time part the writer added.
+_LOOSE_DATE = re.compile(r"(\d{4})[-/](\d{1,2})[-/](\d{1,2})(.*)", re.S)
+_DATE_ONLY = re.compile(r"\d{4}-\d{2}-\d{2}")
 
 
-def _scalar(value: str) -> str:
+def _scalar(value: str) -> str | None:
+    """A quoted or bare scalar; flow sequences/mappings (``[a, b]``, ``{k: v}``) are not scalars."""
     value = value.strip()
     if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
         value = value[1:-1]
+    elif value[:1] in "[{":
+        return None
     return value[:DECLARED_VALUE_CHARS]
 
 
 def frontmatter(text: str) -> dict[str, str]:
     """Flatten a leading YAML-like block: top-level scalars plus one nested level.
 
-    This is deliberately not a YAML parser: lists, anchors and multi-line values
-    are ignored. A nested key never overrides a top-level key of the same name.
+    This is deliberately not a YAML parser: lists (block or flow), anchors,
+    multi-line values and anything nested deeper than one level are ignored.
+    A nested key never overrides a top-level key of the same name. A leading
+    byte-order mark is tolerated.
     """
-    match = _FRONTMATTER.match(text)
+    match = _FRONTMATTER.match(text.lstrip("﻿"))
     if not match:
         return {}
     top: dict[str, str] = {}
     nested: dict[str, str] = {}
+    nested_indent: int | None = None
     for line in match.group(1).splitlines():
         if not line.strip() or line.lstrip().startswith("#"):
             continue
         indent = len(line) - len(line.lstrip(" "))
         key, sep, value = line.strip().partition(":")
+        if indent == 0:
+            nested_indent = None
+        elif nested_indent is None or indent < nested_indent:
+            nested_indent = indent
+        elif indent > nested_indent:
+            continue  # third level and deeper
         if not sep or not re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", key):
             continue
+        scalar = _scalar(value) if value.strip() else None
+        if scalar is None:
+            continue
         if indent == 0:
-            if value.strip():
-                top[key] = _scalar(value)
-        elif value.strip():
-            nested.setdefault(key, _scalar(value))
+            top[key] = scalar
+        else:
+            nested.setdefault(key, scalar)
     return {**nested, **top}
 
 
@@ -124,28 +150,52 @@ def sections(text: str) -> list[str]:
     return list(dict.fromkeys(h for h in found if h))[:MAX_SECTIONS]
 
 
-def parse_time(value: Any) -> float | None:
-    """Epoch seconds from ISO-8601, ``YYYY-MM-DD`` or a numeric epoch; otherwise None."""
+def _normalize_date(text: str) -> str:
+    """``2026-11-3`` / ``2026/1/3`` → ``2026-11-03``; anything else is returned as is."""
+    match = _LOOSE_DATE.fullmatch(text)
+    if not match:
+        return text
+    year, month, day, rest = match.groups()
+    return f"{year}-{int(month):02d}-{int(day):02d}{rest}"
+
+
+def parse_time(value: Any, *, end_of_day: bool = False) -> float | None:
+    """Epoch seconds from ISO-8601, a calendar date or a numeric epoch; otherwise None.
+
+    Dates accept single-digit month/day and ``/`` separators. A 13-digit number
+    is read as milliseconds. With ``end_of_day`` a date without a time part
+    means the last second of that day in UTC (for ``expires``-style bounds).
+    """
     if isinstance(value, bool):
         return None
     if isinstance(value, (int, float)):
-        return float(value) if math.isfinite(value) and 0 < value < 4102444800 else None
+        try:
+            number = float(value)
+        except OverflowError:
+            return None
+        if not math.isfinite(number):
+            return None
+        if number >= MILLISECOND_EPOCH:
+            number /= 1000
+        return number if 0 < number < MAX_EPOCH else None
     if not isinstance(value, str):
         return None
     text = value.strip()
     if not text:
         return None
-    if re.fullmatch(r"\d{9,10}(\.\d+)?", text):
+    if re.fullmatch(r"\d{9,13}(\.\d+)?", text):
         return parse_time(float(text))
-    if re.fullmatch(r"\d{4}/\d{2}/\d{2}", text):
-        text = text.replace("/", "-")
+    text = _normalize_date(text)
     try:
         parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
     except ValueError:
         return None
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=timezone.utc)
-    return parsed.timestamp()
+    stamp = parsed.timestamp()
+    if end_of_day and _DATE_ONLY.fullmatch(text):
+        stamp += 86399
+    return stamp
 
 
 def filename_date(path: str) -> float | None:
@@ -163,7 +213,9 @@ def declared(text: str) -> dict[str, str]:
 def source_meta(text: str, *, mtime: float | None) -> dict[str, Any]:
     """What a client captures beside the body; the Hub treats all of it as untrusted hints."""
     result: dict[str, Any] = {}
-    if mtime is not None and math.isfinite(mtime) and mtime > 0:
+    # The same bounds the Hub's parse_time enforces; a bad clock (year 2103)
+    # must not get the whole upload refused for one hint.
+    if mtime is not None and math.isfinite(mtime) and 0 < mtime < MAX_EPOCH:
         result["mtime"] = float(mtime)
     block = declared(text)
     if block:
@@ -199,7 +251,8 @@ def validate_source_meta(value: Any) -> dict[str, Any]:
             raise ValueError("invalid source metadata")
         if not all(isinstance(v, str) and len(v) <= DECLARED_VALUE_CHARS for v in block.values()):
             raise ValueError("invalid source metadata")
-        result["declared"] = dict(block)
+        if block:
+            result["declared"] = dict(block)
     for key, limit, chars in (("links", MAX_LINKS, 256), ("sections", MAX_SECTIONS, 80)):
         if key in value:
             items = value[key]
@@ -209,7 +262,10 @@ def validate_source_meta(value: Any) -> dict[str, Any]:
                 or not all(isinstance(i, str) and 0 < len(i) <= chars for i in items)
             ):
                 raise ValueError("invalid source metadata")
-            result[key] = list(items)
+            if items:
+                result[key] = list(items)
+    # Empty containers carry nothing: {"links": []} is the same as no metadata,
+    # so it neither changes the content hash nor bumps a revision.
     return result
 
 
@@ -219,8 +275,25 @@ def _declared_of(record: dict[str, Any]) -> dict[str, str]:
     return block if isinstance(block, dict) else {}
 
 
+def superseded_target(record: dict[str, Any]) -> str:
+    """The declared ``superseded_by`` asset id (bounded), or an empty string."""
+    return str(_declared_of(record).get("superseded_by", "")).strip()[:128]
+
+
+def _cue_head(title: Any, body: str) -> str:
+    """Where body cues may count: the title plus the first lines after front matter."""
+    text = _FRONTMATTER.sub("", body.lstrip("﻿")[:4000], count=1)
+    lines = [line for line in text.splitlines() if line.strip()][:CUE_LINES]
+    return (str(title or "") + "\n" + "\n".join(lines))[:4000]
+
+
 def nature(record: dict[str, Any], role: str, *, body: str | None = None) -> dict[str, str]:
-    """Knowledge nature with its provenance tier; declared beats parsed beats inferred."""
+    """Knowledge nature with its provenance tier; declared beats parsed beats inferred.
+
+    Body cues (``进行中``, ``decided`` …) are weak evidence: they only count in
+    the title or the first CUE_LINES non-blank lines of the body, never from a
+    passing mention deep inside an otherwise stable document.
+    """
     block = _declared_of(record)
     for key in ("nature", "type"):
         value = TYPE_TO_NATURE.get(str(block.get(key, "")).strip().lower())
@@ -238,7 +311,7 @@ def nature(record: dict[str, Any], role: str, *, body: str | None = None) -> dic
         return {"value": "episode", "provenance": "parsed"}
     text = body if body is not None else record.get("body")
     if isinstance(text, str) and text:
-        sample = text[:4000]
+        sample = _cue_head(record.get("title"), text)
         if _STATE_CUES.search(sample):
             return {"value": "project_state", "provenance": "inferred"}
         if _DECISION_CUES.search(sample):
@@ -247,14 +320,20 @@ def nature(record: dict[str, Any], role: str, *, body: str | None = None) -> dic
 
 
 def times(record: dict[str, Any], signals: dict[str, Any] | None = None) -> dict[str, Any]:
-    """The trusted-time set. Each entry is ``{"value": epoch, "source": tier}`` or None."""
+    """The trusted-time set. Each entry is ``{"value": epoch, "source": tier}`` or None.
+
+    ``content_modified`` is declared only (``modified`` / ``updated``). The file
+    system mtime is its own entry, ``file_mtime``: it is often a clone or copy
+    time, so it must not masquerade as when the content was written. A pure
+    ``expires`` date runs to the last second of that day (UTC).
+    """
     block = _declared_of(record)
     meta = record.get("source_meta") if isinstance(record.get("source_meta"), dict) else {}
     signals = signals or {}
 
-    def pick(*candidates: tuple[Any, str]) -> dict[str, Any] | None:
+    def pick(*candidates: tuple[Any, str], end_of_day: bool = False) -> dict[str, Any] | None:
         for raw, source in candidates:
-            value = parse_time(raw)
+            value = parse_time(raw, end_of_day=end_of_day)
             if value is not None:
                 return {"value": value, "source": source}
         return None
@@ -268,38 +347,67 @@ def times(record: dict[str, Any], signals: dict[str, Any] | None = None) -> dict
         "content_modified": pick(
             (block.get("modified"), "declared"),
             (block.get("updated"), "declared"),
-            (meta.get("mtime"), "parsed"),
         ),
+        "file_mtime": pick((meta.get("mtime"), "parsed")),
         "observed": pick((record.get("observed_at"), "server")),
         "last_delivered": pick((signals.get("last_delivered"), "server")),
         "last_cited": pick((signals.get("last_cited"), "server")),
         "confirmed": pick((signals.get("confirmed_at"), "server")),
-        "expires": pick((block.get("expires"), "declared"), (block.get("valid_until"), "declared")),
+        "expires": pick(
+            (block.get("expires"), "declared"),
+            (block.get("valid_until"), "declared"),
+            end_of_day=True,
+        ),
     }
 
 
 def reference_time(times_set: dict[str, Any]) -> tuple[float | None, str]:
-    """Decay reference: confirmation, else content modification, else creation; never observation."""
-    for key in ("confirmed", "content_modified", "content_created"):
+    """Decay reference, most trusted first: confirmed > declared modification >
+    creation (declared or file-name date) > file mtime. Never the Hub's observation."""
+    for key in ("confirmed", "content_modified", "content_created", "file_mtime"):
         entry = times_set.get(key)
         if entry:
             return float(entry["value"]), key
     return None, UNKNOWN
 
 
-def declared_filter(record: dict[str, Any], *, now: float) -> dict[str, str] | None:
-    """Only an explicit declaration retires a memory: ``superseded_by`` or a past ``expires``."""
-    block = _declared_of(record)
-    target = str(block.get("superseded_by", "")).strip()
+def declared_filter(
+    record: dict[str, Any],
+    *,
+    now: float,
+    existing: Mapping[str, str | None] | Collection[str] | None = None,
+) -> dict[str, Any] | None:
+    """Only an explicit declaration retires a memory: ``superseded_by`` or a past ``expires``.
+
+    Returns None (keep), a drop verdict ``{"reason": "superseded" | "expired", …}``,
+    or a kept note with ``"drop": False`` when a ``superseded_by`` cannot be
+    honoured. ``existing`` is the set of declared targets the Hub confirmed to
+    exist (undeleted) in this organization; as a mapping it also carries each
+    target's own ``superseded_by`` so an A↔B cycle can be recognized. Without
+    it the declaration is taken at its word, as before.
+    """
+    target = superseded_target(record)
+    note: dict[str, Any] | None = None
     if target:
-        return {"reason": "superseded", "by": target[:128]}
+        if target == str(record.get("asset_id", "")):
+            note = {"reason": "superseded_self", "by": target, "drop": False}
+        elif existing is not None and target not in existing:
+            note = {"reason": "superseded_target_missing", "by": target, "drop": False}
+        elif (
+            isinstance(existing, Mapping)
+            and existing.get(target)
+            and existing[target] == record.get("asset_id")
+        ):
+            note = {"reason": "superseded_cycle", "by": target, "drop": False}
+        else:
+            return {"reason": "superseded", "by": target}
     expiry = times(record)["expires"]
     if expiry and expiry["value"] < now:
         return {
             "reason": "expired",
             "at": datetime.fromtimestamp(expiry["value"], timezone.utc).isoformat(),
         }
-    return None
+    return note
 
 
 def _clamp(value: float, low: float, high: float) -> float:
@@ -319,6 +427,11 @@ def decay(
     retention = 0.5 ** (age / half_life); access/support/gain/contradiction
     multipliers follow agent_brain/memory/recall/retrieval_decay.py. Without a
     trusted reference time retention is a neutral 0.5 and the reason says so.
+
+    weight = 1 + 0.05·tanh(ln coefficient) with the coefficient clamped to
+    [0.01, e]. Actual range: at most −5% downward; upward at most about +3.8%
+    in principle, but the multipliers' product is naturally ≤ 1.83 (1.35 ×
+    1.18 × 1.15) and retention ≤ 1, so a real memory gains at most about +2.7%.
     """
     signals = signals or {}
     kind = nature(record, role, body=body)
@@ -347,7 +460,7 @@ def decay(
     coefficient = retention
     for factor in multipliers.values():
         coefficient *= factor
-    coefficient = _clamp(coefficient, 0.01, 1.35)
+    coefficient = _clamp(coefficient, 0.01, math.e)
     weight = 1 + 0.05 * math.tanh(math.log(coefficient))
     return {
         "nature": kind,

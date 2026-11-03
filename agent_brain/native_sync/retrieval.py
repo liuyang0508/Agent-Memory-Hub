@@ -1,9 +1,10 @@
 """Authorized native hybrid recall with explicit degraded-state reporting and a ranking trace.
 
 Stage order (each stage records before/after rank and score per candidate):
-scope filter in SQL → lexical ‖ semantic ‖ Hopfield candidates → RRF → supporting
-weight → optional reranker → declared supersession/expiry filter → decay and
-signals → optional MMR → exact-id pin → revalidation, dedup and limit.
+scope filter in SQL → lexical ‖ semantic → RRF → Hopfield association (appended
+to the fused list, not re-fused) → supporting weight ×0.55 → optional reranker
+→ signals → declared supersession/expiry filter → decay → optional MMR →
+exact-id pin → revalidation, dedup and limit.
 Disabled stages are reported as 「未启用」 rather than left blank.
 """
 
@@ -25,7 +26,7 @@ from agent_brain.retrieval.types import RetrievedItem
 from . import facets, recall_ledger, semantic
 from .asset_roles import PRIMARY_MEMORY_SQL, asset_role
 from .common import digest, tokens
-from .storage import database
+from .storage import DB_TIMEOUT, database
 
 if TYPE_CHECKING:
     from .hub import Hub
@@ -37,9 +38,55 @@ CANDIDATES = 100
 HOPFIELD_SEEDS = 20
 HOPFIELD_SCORE = 0.85
 DISABLED = "未启用"
+# Hopfield was enabled but no fused candidate carried a vector to seed it with.
+NO_SEEDS = "no_seeds"
 TRACE_CANDIDATES = 50
 TITLE_CHARS = 80
 QUERY_PREVIEW_CHARS = 120
+# MMR re-orders at least this many of the top candidates; the rest keep their order.
+MMR_MIN_TOP_K = 8
+# Trace persistence is best effort: it must never hold a hook past its deadline.
+TRACE_WRITE_TIMEOUT = 0.3
+
+
+def _weighted(score: float, weight: float) -> float:
+    """Apply a multiplicative weight so that it pulls in the same direction for negative scores."""
+    return score + (weight - 1.0) * abs(score)
+
+
+def _record_trace(hub: Hub, tenant: str, payload: dict[str, Any]) -> bool:
+    """Persist the trace on a short-timeout connection; False when the lock or write fails."""
+    token = DB_TIMEOUT.set(min(TRACE_WRITE_TIMEOUT, DB_TIMEOUT.get()))
+    try:
+        with database(hub.path) as db:
+            db.execute("BEGIN IMMEDIATE")
+            recall_ledger.record_trace(db, tenant, payload)
+        return True
+    except (sqlite3.Error, OSError):
+        return False
+    finally:
+        DB_TIMEOUT.reset(token)
+
+
+def _existing_targets(
+    db: sqlite3.Connection, tenant: str, targets: set[str]
+) -> dict[str, str | None]:
+    """Declared ``superseded_by`` targets that exist undeleted here, each with its own target."""
+    found: dict[str, str | None] = {}
+    keys = sorted(targets)
+    for start in range(0, len(keys), 400):
+        chunk = keys[start : start + 400]
+        rows = db.execute(
+            "SELECT id, json_extract(payload,'$.source_meta.declared.superseded_by') target "
+            "FROM assets WHERE tenant=? AND json_extract(payload,'$.deleted')=0 AND id IN ("
+            + ",".join("?" for _ in chunk)
+            + ")",
+            [tenant, *chunk],
+        ).fetchall()
+        for row in rows:
+            target = row["target"]
+            found[row["id"]] = str(target).strip()[:128] if isinstance(target, str) else None
+    return found
 
 
 class _Trace:
@@ -209,12 +256,19 @@ def retrieve(
         if backend is None:
             reasons.append(error or "semantic_model_not_configured")
         else:
+            # The semantic pass fills private dicts and merges them only after
+            # every stored vector was checked: a failure halfway leaves no
+            # ghost candidate behind in assets or the trace.
+            matched: dict[str, dict[str, Any]] = {}
+            found_hits: list[RetrievedItem] = []
+            found_embeddings: dict[str, list[float]] = {}
+            found_vectors: dict[str, list[float]] = {}
+            found_items: dict[str, dict[str, Any]] = {}
             try:
                 if semantic.descriptor(backend) != metadata:
                     reasons.append("semantic_index_model_mismatch_rebuild_required")
                 elif query.strip():
                     query_vector = semantic.vector(backend, query)
-                    semantic_used = True
                     for item, windows in current:
                         if not windows or any(
                             len(v["vector"]) != backend.dim
@@ -225,12 +279,12 @@ def retrieve(
                         best = max(windows, key=lambda v: _cosine_sim(query_vector, v["vector"]))
                         score = _cosine_sim(query_vector, best["vector"])
                         key = item["asset_id"]
-                        window_vectors[key] = best["vector"]
-                        indexed_items[key] = item
+                        found_vectors[key] = best["vector"]
+                        found_items[key] = item
                         # This is an eligibility floor, not an answer-confidence
                         # claim; corpus/model evaluation must calibrate it.
                         if score >= hub.semantic_min_score:
-                            assets[key] = item
+                            matched[key] = item
                             item["semantic_match"] = dict(
                                 similarity=score,
                                 source_field=best["source_field"],
@@ -239,10 +293,15 @@ def retrieve(
                                 offset_unit="unicode_code_points",
                                 aggregation="max_window_cosine",
                             )
-                            embeddings[key] = best["vector"]
-                            vector_hits.append(RetrievedItem(key, score, None, None))
-                    vector_hits.sort(key=lambda hit: hit.score, reverse=True)
-                    vector_hits = vector_hits[:CANDIDATES]
+                            found_embeddings[key] = best["vector"]
+                            found_hits.append(RetrievedItem(key, score, None, None))
+                    found_hits.sort(key=lambda hit: hit.score, reverse=True)
+                    semantic_used = True
+                    vector_hits = found_hits[:CANDIDATES]
+                    assets.update(matched)
+                    embeddings = found_embeddings
+                    window_vectors = found_vectors
+                    indexed_items = found_items
             except Exception as exc:
                 reasons.append("semantic_query_failed:" + type(exc).__name__)
                 vector_hits = []
@@ -259,22 +318,33 @@ def retrieve(
         item["role"] = asset_role(item["product"], item["path"], item["kind"])
     # Hopfield association: an attractor formed from the fused seeds pulls in
     # indexed assets that neither route surfaced. It runs at candidate level so
-    # every later filter and weight applies to the expanded set as well.
-    hopfield_used = bool(hub.hopfield and semantic_used and embeddings)
+    # every later filter and weight applies to the expanded set as well. Any
+    # fused hit with an indexed vector seeds it, lexical hits included.
+    hopfield_on = bool(hub.hopfield and semantic_used)
+    seeds = (
+        [
+            (h.id, h.score, window_vectors[h.id])
+            for h in fused[:HOPFIELD_SEEDS]
+            if h.id in window_vectors
+        ]
+        if hopfield_on
+        else []
+    )
+    hopfield_used = bool(seeds)
+    hopfield_state = "on" if hopfield_used else NO_SEEDS if hopfield_on else DISABLED
     hopfield_ranks: dict[str, int] = {}
     if hopfield_used:
-        seeds = [
-            (h.id, h.score, embeddings[h.id]) for h in fused[:HOPFIELD_SEEDS] if h.id in embeddings
-        ]
         before = trace.snapshot(fused)
         # The attractor forms over the whole authorized store (seeds included);
-        # only assets no route has surfaced are added from it.
+        # only assets no route has surfaced are added from it, and the limit
+        # counts those additions, not the already-known neighbours.
         _, found = hopfield_expand(
             seeds,
             window_vectors,
             beta=hub.hopfield_beta,
             min_similarity=hub.hopfield_min_score,
             limit=CANDIDATES,
+            exclude=set(assets),
         )
         top = fused[0].score if fused else 1.0
         effects: dict[str, Any] = {}
@@ -298,7 +368,7 @@ def retrieve(
         trace.row(key)["routes"] = {
             "lexical": lexical_rank,
             "semantic": semantic_rank if semantic_used else DISABLED,
-            "hopfield": hopfield_ranks.get(key) if hopfield_used else DISABLED,
+            "hopfield": hopfield_ranks.get(key) if hopfield_used else hopfield_state,
         }
     # Supporting records can be requested, but repetition is not evidence that
     # they should outrank topic facts. Exact ID lookup retains its lexical rank.
@@ -346,11 +416,20 @@ def retrieve(
         signals = recall_ledger.signals_for(db, who["tenant"], [h.id for h in fused])
         # Declared retirement: only an explicit superseded_by or past expires
         # drops a candidate, and never the exact asset the caller asked for.
+        # A superseded_by is honoured only when its target exists here: a
+        # typo, a not-yet-synced successor, a self-reference or an A↔B cycle
+        # keeps the candidate and notes why on its trace row.
+        targets = {t for hit in fused if (t := facets.superseded_target(assets[hit.id]))}
+        existing = _existing_targets(db, who["tenant"], targets) if targets else {}
         before = trace.snapshot(fused)
         kept: list[RetrievedItem] = []
         for hit in fused:
-            verdict = facets.declared_filter(assets[hit.id], now=now)
-            if verdict and hit.id != query.strip():
+            verdict = facets.declared_filter(assets[hit.id], now=now, existing=existing)
+            if verdict and not verdict.get("drop", True):
+                trace.row(hit.id)["declared_filter"] = {
+                    k: v for k, v in verdict.items() if k != "drop"
+                }
+            elif verdict and hit.id != query.strip():
                 trace.drop(hit.id, verdict["reason"], verdict)
                 continue
             kept.append(hit)
@@ -384,13 +463,20 @@ def retrieve(
                     )
                 }
                 effects[hit.id] = "x%.4f" % verdict_decay["weight"]
-                weighted.append(replace(hit, score=hit.score * verdict_decay["weight"]))
+                # Reranker scores may be negative logits: the weight must
+                # still move a fresher memory up, so it scales the magnitude.
+                weighted.append(replace(hit, score=_weighted(hit.score, verdict_decay["weight"])))
             weighted.sort(key=lambda hit: hit.score, reverse=True)
             fused = weighted
             trace.stage("decay", before, trace.snapshot(fused), effects)
         if mmr_used:
             before = trace.snapshot(fused)
-            fused = mmr_rerank(fused, embeddings, top_k=len(fused), lambda_=hub.mmr_lambda)
+            # Diversify only the head that can still reach the caller; the
+            # tail keeps its order (MMR cost grows with top_k × candidates).
+            top_k = min(len(fused), max(limit * 3, MMR_MIN_TOP_K))
+            head = mmr_rerank(fused, embeddings, top_k=top_k, lambda_=hub.mmr_lambda)
+            chosen = {hit.id for hit in head}
+            fused = head + [hit for hit in fused if hit.id not in chosen]
             trace.stage("mmr", before, trace.snapshot(fused))
         if exact:
             # An exact authorized asset identifier is a deterministic lookup, even
@@ -446,7 +532,7 @@ def retrieve(
     stages = {
         "lexical": "on",
         "semantic": "on" if semantic_used else DISABLED,
-        "hopfield": "on" if hopfield_used else DISABLED,
+        "hopfield": hopfield_state,
         "rerank": rerank_state,
         "declared_filter": "on",
         "decay": "on" if decay_used else DISABLED,
@@ -463,9 +549,19 @@ def retrieve(
             "decay_weight": row["decay"]["weight"] if "decay" in row else None,
             "state": row["state"],
         }
-    preview_on = (preview_setting["value"] if preview_setting else "on") != "off"
+    preview_on = (
+        str(preview_setting["value"]).strip().lower() if preview_setting else "on"
+    ) != "off"
+    # Returned results come first so every item is inside the bounded trace
+    # and its delivery feedback can be matched; the rest follow by rank.
     ordered = sorted(
-        trace.rows.items(), key=lambda pair: (pair[1].get("rank") is None, pair[1].get("rank", 0))
+        trace.rows.items(),
+        key=lambda pair: (
+            pair[1].get("final_rank") is None,
+            pair[1].get("final_rank") or 0,
+            pair[1].get("rank") is None,
+            pair[1].get("rank") or 0,
+        ),
     )
     payload = {
         "trace_id": trace_id,
@@ -508,13 +604,15 @@ def retrieve(
             for key, row in ordered[:TRACE_CANDIDATES]
         ],
     }
-    if record:
-        try:
-            with database(hub.path) as db:
-                db.execute("BEGIN IMMEDIATE")
-                recall_ledger.record_trace(db, who["tenant"], payload)
-        except (sqlite3.Error, OSError):
-            reasons.append("recall_trace_not_recorded")
+    if record and not _record_trace(hub, who["tenant"], payload):
+        # Nothing to report feedback against: a trace id that was never
+        # stored would only earn the client a 409 for every delivery event.
+        reasons.append("recall_trace_not_recorded")
+        payload["retrieval"]["reasons"].append("recall_trace_not_recorded")
+        trace_id = None
+        payload["trace_id"] = None
+        for item in results:
+            item["recall"]["trace_id"] = None
     return {
         "items": results,
         "retrieval": {

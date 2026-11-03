@@ -2,6 +2,7 @@
 
 import json
 import math
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi.testclient import TestClient
@@ -29,6 +30,12 @@ def declared(**block):
     return {"declared": {k: str(v) for k, v in block.items()}}
 
 
+def days_ago(days):
+    """A calendar date relative to today: retrieve() uses the real clock, so the
+    fixtures must age with it rather than drift past a half-life on some future date."""
+    return (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d")
+
+
 def test_fresher_declared_memory_outranks_stale_state_on_equal_lexical_score(tmp_path):
     hub, who = make(tmp_path)
     # Equal term statistics and lengths give equal BM25 scores; distinct bodies avoid dedup.
@@ -38,7 +45,7 @@ def test_fresher_declared_memory_outranks_stale_state_on_equal_lexical_score(tmp
         asset(
             "stale",
             body=body + "alpha",
-            source_meta=declared(type="project", modified="2026-01-01"),
+            source_meta=declared(type="project", modified=days_ago(300)),
         ),
     )
     hub.put(
@@ -46,7 +53,7 @@ def test_fresher_declared_memory_outranks_stale_state_on_equal_lexical_score(tmp
         asset(
             "fresh",
             body=body + "bravo",
-            source_meta=declared(type="feedback", modified="2026-11-01"),
+            source_meta=declared(type="feedback", modified=days_ago(2)),
         ),
     )
     hub.put(who["token"], asset("undated", body=body + "delta"))
@@ -77,7 +84,9 @@ def test_fresher_declared_memory_outranks_stale_state_on_equal_lexical_score(tmp
 
 def test_decay_can_be_disabled_and_is_reported_as_not_enabled(tmp_path):
     hub, who = make(tmp_path, decay=False)
-    hub.put(who["token"], asset("a", body="审批复核", source_meta=declared(modified="2020-01-01")))
+    hub.put(
+        who["token"], asset("a", body="审批复核", source_meta=declared(modified=days_ago(2000)))
+    )
     result = hub.retrieve(who["token"], "审批复核")
     assert result["retrieval"]["stages"]["decay"] == DISABLED
     assert result["items"][0]["recall"]["decay_weight"] is None
@@ -93,7 +102,7 @@ def test_declared_supersession_and_expiry_drop_candidates_except_exact_id(tmp_pa
     hub.put(who["token"], asset("new-rule", body="审批复核新规则"))
     hub.put(
         who["token"],
-        asset("expired", body="审批复核临时通知", source_meta=declared(expires="2026-01-01")),
+        asset("expired", body="审批复核临时通知", source_meta=declared(expires=days_ago(30))),
     )
     result = hub.retrieve(who["token"], "审批复核")
     assert [i["asset_id"] for i in result["items"]] == ["new-rule"]
