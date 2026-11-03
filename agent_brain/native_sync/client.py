@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, Callable
 
 import json
+import math
 import time
 import uuid
 from pathlib import Path
@@ -701,15 +702,33 @@ class NativeClient:
             }
 
     def sync(
-        self, *, progress: Callable[[str, int, int | None], None] | None = None
+        self,
+        *,
+        progress: Callable[[str, int, int | None], None] | None = None,
+        max_uploads: int | None = None,
+        pass_budget_seconds: float | None = None,
     ) -> dict[str, Any]:
         """Capture locally, upload, replay changes, then publish native resources.
 
         A connection/auth failure stops this pass without removing queued data.
         Record conflicts remain pending while unrelated records can progress.
-        The caller owns retry scheduling and revoked-device cleanup.
+        The caller owns retry scheduling and revoked-device cleanup. Optional
+        background limits yield between requests, retaining the outbox. At least
+        one changes page is replayed even after the network budget is consumed,
+        so a large upload backlog cannot indefinitely starve cursor repair.
+        Local scan/projection work is outside this soft network-time budget.
+        Omitting limits preserves the manual full-upload behavior.
         """
         import fcntl
+
+        if max_uploads is not None and (type(max_uploads) is not int or max_uploads < 1):
+            raise ValueError("max_uploads must be a positive integer")
+        if pass_budget_seconds is not None and (
+            isinstance(pass_budget_seconds, bool)
+            or not math.isfinite(pass_budget_seconds)
+            or pass_budget_seconds <= 0
+        ):
+            raise ValueError("pass_budget_seconds must be finite and positive")
 
         with (self.root / "worker.lock").open("a") as lock:
             try:
@@ -729,24 +748,37 @@ class NativeClient:
             errors.extend(self.scan())  # Persist source changes before any network request.
             if progress:
                 progress("connect", 0, None)
+            network_started = time.monotonic()
+            deadline = (
+                network_started + pass_budget_seconds if pass_budget_seconds is not None else None
+            )
+
+            def budget_exhausted() -> bool:
+                return deadline is not None and time.monotonic() >= deadline
+
             self.transport.me()  # revoked devices cannot use this as a successful refresh
             errors.extend(quarantine_changed_roots(self))
             # A Hub that predates source_meta rejects unknown fields outright.
             # Ask once per pass; a transport without the probe is a current one.
             probe = getattr(self.transport, "capabilities", None)
             send_meta = True
-            if probe is not None:
+            if probe is not None and not budget_exhausted():
                 try:
                     send_meta = "recall-parity-v1" in probe()
                 except (OSError, ValueError, TimeoutError):
                     send_meta = False
             pushed = 0
+            attempted = 0
+            upload_deferred = False
             with database(self.path) as db:
                 pending = [
                     row
-                    for row in db.execute("SELECT * FROM outbox")
+                    for row in db.execute("SELECT * FROM outbox ORDER BY rowid")
                     if self.source_enabled(json.loads(row["payload"])["kind"])
                 ]
+            # Preserve enqueue order within each class; current native memories
+            # must not sit behind thousands of historical transcript parts.
+            pending.sort(key=lambda row: json.loads(row["payload"])["kind"] != "memory")
             quarantined = self.quarantined_sources()
             if progress:
                 progress("upload", 0, len(pending))
@@ -754,6 +786,10 @@ class NativeClient:
                 item = json.loads(row["payload"])
                 if not self.source_enabled(item["kind"]) or item["source_store"] in quarantined:
                     continue
+                if (max_uploads is not None and attempted >= max_uploads) or budget_exhausted():
+                    upload_deferred = True
+                    break
+                attempted += 1
                 if not send_meta:
                     item.pop("source_meta", None)
                 try:
@@ -764,6 +800,8 @@ class NativeClient:
                         # health endpoint is newer than its asset contract.
                         if getattr(exc, "http_status", None) != 422 or "source_meta" not in item:
                             raise
+                        if budget_exhausted():
+                            raise  # Keep the record and report its failed first attempt.
                         item.pop("source_meta")
                         saved = self.transport.put(item)
                         # Only a retry that succeeded proves the field itself was
@@ -787,13 +825,15 @@ class NativeClient:
                 pushed += 1
                 if progress:
                     progress("upload", pushed, len(pending))
-            errors.extend(self._report_recalls())
+            errors.extend(self._report_recalls(deadline=deadline))
             # Upload acknowledgement can be lost after the Hub commits. Replaying
             # our changes repairs the base revision before the next idempotent retry.
             pages = 0
             if progress:
                 progress("refresh", 0, None)
             while pages < 100:
+                if pages and budget_exhausted():
+                    break
                 with database(self.path) as db:
                     row = db.execute("SELECT value FROM meta WHERE key='cursor'").fetchone()
                 cursor = int(row["value"]) if row else 0
@@ -886,6 +926,7 @@ class NativeClient:
                     progress("refresh", pages, None)
                 if not response["items"]:
                     break
+            network_budget_exhausted = budget_exhausted()
             self._refresh_profile()
             self._configure_storage_locked()
             from .projection import publish
@@ -904,6 +945,14 @@ class NativeClient:
                 {
                     "last_sync": time.time(),
                     "pushed": pushed,
+                    "upload_attempts": attempted,
+                    "upload_deferred": upload_deferred,
+                    "budget_exhausted": network_budget_exhausted,
+                    "sync_limits": {
+                        "max_uploads": max_uploads,
+                        "pass_budget_seconds": pass_budget_seconds,
+                        "request_timeout_seconds": getattr(self.transport, "timeout", None),
+                    },
                     "pending": self.pending_count(),
                     "paused_pending": self.source_scope()["paused_pending"],
                     "origin_review_count": len(self.origin_reviews()),
@@ -912,9 +961,15 @@ class NativeClient:
             )
             if progress:
                 progress("refresh", pages, pages)
-            return {"pushed": pushed, "errors": errors}
+            return {
+                "pushed": pushed,
+                "errors": errors,
+                "upload_deferred": upload_deferred,
+                "budget_exhausted": network_budget_exhausted,
+                "pending": self.pending_count(),
+            }
 
-    def _report_recalls(self) -> list[str]:
+    def _report_recalls(self, *, deadline: float | None = None) -> list[str]:
         """Send queued delivery states per trace; drop what the Hub cannot accept, keep outages.
 
         Nothing here may abort the sync pass: changes replay and projection must
@@ -940,6 +995,8 @@ class NativeClient:
         errors: list[str] = []
         for trace_id, events in grouped.items():
             for start in range(0, len(events), 64):
+                if deadline is not None and time.monotonic() >= deadline:
+                    return errors
                 batch = events[start : start + 64]
                 try:
                     send(trace_id, batch)

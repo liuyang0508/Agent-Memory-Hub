@@ -959,8 +959,11 @@ def detach_products(
 
 @app.command()
 def status(state: Path = DEFAULT_STATE) -> None:
+    from .worker import sync_settings
+
     c = load(state)
     summary = {
+        "sync_worker": sync_settings(c.config),
         "identity": {k: v for k, v in c.identity.items() if k != "token"},
         "hub": c.config.get("hub"),
         "recall_enabled": c.recall_enabled(),
