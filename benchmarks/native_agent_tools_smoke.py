@@ -8,6 +8,8 @@ This is a tool-integration smoke test, not a recall-quality benchmark.
 
 from __future__ import annotations
 
+from typing import Any
+
 import argparse
 import json
 import os
@@ -28,7 +30,7 @@ from agent_brain.native_sync.client import NativeClient
 from agent_brain.native_sync.hub import Hub
 
 
-def run(binary: str, *, case: str = "references") -> dict:
+def run(binary: str, *, case: str = "references") -> dict[str, Any]:
     account_home = Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex")))
     auth = account_home / "auth.json"
     if not auth.is_file():

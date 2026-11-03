@@ -151,7 +151,7 @@ def apply_feedback(
     applied = ignored = noop = 0
     for event in events:
         name = event.get("event")
-        asset_id = event.get("asset_id")
+        asset_id = str(event.get("asset_id") or "")
         candidate = candidates.get(asset_id)
         if name not in EVENTS or candidate is None:
             raise ValueError("feedback event does not match a trace candidate")

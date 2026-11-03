@@ -133,7 +133,8 @@ def _candidate(item: dict[str, Any]) -> dict[str, Any]:
         result["semantic_match"] = projection
     recall = item.get("recall")
     if isinstance(recall, dict):
-        routes = recall.get("routes") if isinstance(recall.get("routes"), dict) else {}
+        raw_routes = recall.get("routes")
+        routes: dict[str, Any] = raw_routes if isinstance(raw_routes, dict) else {}
         compact: dict[str, Any] = {
             "routes": {
                 key: routes[key]

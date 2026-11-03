@@ -348,7 +348,7 @@ def times(record: dict[str, Any], signals: dict[str, Any] | None = None) -> dict
             (block.get("modified"), "declared"),
             (block.get("updated"), "declared"),
         ),
-        "file_mtime": pick((meta.get("mtime"), "parsed")),
+        "file_mtime": pick(((meta or {}).get("mtime"), "parsed")),
         "observed": pick((record.get("observed_at"), "server")),
         "last_delivered": pick((signals.get("last_delivered"), "server")),
         "last_cited": pick((signals.get("last_cited"), "server")),

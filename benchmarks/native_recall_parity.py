@@ -14,6 +14,8 @@ not drift as the calendar moves.
 
 from __future__ import annotations
 
+from typing import Any
+
 import argparse
 import hashlib
 import json
@@ -71,7 +73,7 @@ class CueBackend:
         return [v / norm for v in vector]
 
 
-def asset(key: str, body: str, **extra):
+def asset(key: str, body: str, **extra: Any) -> dict[str, Any]:
     value = dict(
         asset_id=key,
         source_store="synthetic-eval",
@@ -86,7 +88,7 @@ def asset(key: str, body: str, **extra):
     return value
 
 
-def declared(**block):
+def declared(**block: Any) -> dict[str, dict[str, str]]:
     return {"declared": {k: str(v) for k, v in block.items()}}
 
 
@@ -162,7 +164,9 @@ def corpus(hub: Hub, token: str, *, competing_noise: bool = False) -> list[tuple
     return cases
 
 
-def evaluate(hub: Hub, token: str, cases, *, k: int = 3) -> dict:
+def evaluate(
+    hub: Hub, token: str, cases: list[tuple[str, str, str]], *, k: int = 3
+) -> dict[str, Any]:
     hits = packed = fresh_first = topics = 0
     ranks = []
     for name, query, target in cases:
@@ -190,9 +194,9 @@ def evaluate(hub: Hub, token: str, cases, *, k: int = 3) -> dict:
     }
 
 
-def run_group(model: str | None, *, competing_noise: bool) -> tuple[dict, dict]:
+def run_group(model: str | None, *, competing_noise: bool) -> tuple[dict[str, Any], dict[str, Any]]:
     """All variants on one fresh Hub; returns (variants, sample_trace)."""
-    variants: dict = {}
+    variants: dict[str, Any] = {}
     with tempfile.TemporaryDirectory(prefix="amh-recall-parity-") as temp:
         path = Path(temp) / "hub.sqlite"
         backend = None if model else CueBackend()
@@ -229,9 +233,9 @@ def run_group(model: str | None, *, competing_noise: bool) -> tuple[dict, dict]:
     return variants, sample_trace
 
 
-def run(model: str | None, output: Path | None) -> dict:
+def run(model: str | None, output: Path | None) -> dict[str, Any]:
     started = time.monotonic()
-    report: dict = {
+    report: dict[str, Any] = {
         "model": model or CueBackend.model_id,
         "note": NOTE,
         "dates": {"fresh": days_ago(FRESH_DAYS), "stale": days_ago(STALE_DAYS)},

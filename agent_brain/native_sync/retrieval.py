@@ -538,7 +538,7 @@ def retrieve(
         "decay": "on" if decay_used else DISABLED,
         "mmr": "on" if mmr_used else DISABLED,
     }
-    trace_id = secrets.token_hex(12)
+    trace_id: str | None = secrets.token_hex(12)
     for item in results:
         row = trace.rows[item["asset_id"]]
         item["recall"] = {
