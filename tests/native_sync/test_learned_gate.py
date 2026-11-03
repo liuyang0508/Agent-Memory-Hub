@@ -300,3 +300,18 @@ def test_health_names_the_gate(tmp_path):
     health = TestClient(create_app(hub)).get("/native/v1/health").json()
     assert health["semantic"]["gate"] == "learned-v1"
     assert "relevance-gate-v1" in health["capabilities"]
+
+
+def test_the_recall_api_returns_the_relevance_probability(tmp_path):
+    from fastapi.testclient import TestClient
+
+    from agent_brain.native_sync.api import create_app
+
+    hub, token = topic_hub(tmp_path, sim_only())
+    response = TestClient(create_app(hub)).post(
+        "/native/v1/recall",
+        json={"query": "approval 审批"},
+        headers={"Authorization": "Bearer " + token},
+    )
+    items = response.json()["items"]
+    assert items and all(0.5 <= item["recall"]["relevance"] <= 1 for item in items)
