@@ -8,6 +8,7 @@ import sqlite3
 import threading
 
 import json
+import math
 import os
 import secrets
 import time
@@ -38,8 +39,33 @@ class Hub:
         semantic_min_score: float = 0.45,
         mmr_lambda: float | None = None,
         reranker: Callable[[str, list[dict[str, Any]]], Sequence[float]] | None = None,
+        decay: bool | None = None,
+        hopfield: bool | None = None,
+        hopfield_beta: float = 8.0,
+        hopfield_min_score: float = 0.35,
     ) -> None:
         self.path = Path(path)
+        # Decay/signals re-rank by default; Hopfield association is opt-in
+        # because it scans every indexed vector. Environment pins both.
+        self.decay_enabled = (
+            os.environ.get("AMH_NATIVE_DECAY", "1") not in ("0", "false", "off")
+            if decay is None
+            else bool(decay)
+        )
+        self.hopfield = (
+            os.environ.get("AMH_NATIVE_HOPFIELD", "0") in ("1", "true", "on")
+            if hopfield is None
+            else bool(hopfield)
+        )
+        if not math.isfinite(hopfield_beta) or hopfield_beta <= 0:
+            raise ValueError("hopfield beta must be a positive number")
+        self.hopfield_beta = float(hopfield_beta)
+        # The attractor already sits inside the retrieved cluster, so association
+        # uses a lower floor than direct query similarity. Still an eligibility
+        # floor, not a confidence claim.
+        if not 0 <= hopfield_min_score <= 1:
+            raise ValueError("hopfield floor must be between 0 and 1")
+        self.hopfield_min_score = float(hopfield_min_score)
         self.semantic_model = semantic_model or os.environ.get("AMH_NATIVE_SEMANTIC_MODEL")
         self._encoder = semantic_backend
         self._encoder_lock = threading.Lock()
@@ -349,9 +375,22 @@ class Hub:
 
     def admin_setting(self, token: str, key: str, value: str) -> None:
         """Store deployment settings; an empty value clears the key."""
-        allowed = {"feishu_app_id", "amh_hub_public_url", "feishu_tenant", "feishu_tenant_key"}
+        allowed = {
+            "feishu_app_id",
+            "amh_hub_public_url",
+            "feishu_tenant",
+            "feishu_tenant_key",
+            "recall_query_preview",
+        }
         if key not in allowed:
             raise ValueError("unknown setting")
+        if key == "recall_query_preview":
+            # Retrieval compares this value literally. Accept the two documented
+            # states in any case, or empty to clear; a typo such as "Off" must
+            # not silently keep recording prompt previews.
+            value = value.strip().lower()
+            if value not in ("", "on", "off"):
+                raise ValueError("recall_query_preview must be on or off")
         with database(self.path) as db:
             self._admin(db, token)
             if value:
@@ -722,14 +761,22 @@ class Hub:
             and not item["deleted"]
         ):
             raise ValueError("transcript metadata is not shareable")
-        # Hash content and its meaning, not the transport's base revision.
-        content_hash = digest(
-            json.dumps(
-                {k: v for k, v in item.items() if k != "base_revision"},
-                sort_keys=True,
-                ensure_ascii=False,
-            )
-        )
+        # Hash content and its meaning, not the transport's base revision. An
+        # absent source_meta is removed first so records from clients that
+        # predate the field keep byte-identical payloads and hashes. The file
+        # mtime is a filesystem observation, not content: a re-scan after a
+        # reinstall carries a new mtime and must still replay idempotently, so
+        # it rides outside the hash while declared/links/sections stay inside.
+        if not item.get("source_meta"):
+            item.pop("source_meta", None)
+        hashed = {k: v for k, v in item.items() if k != "base_revision"}
+        if "mtime" in (item.get("source_meta") or {}):
+            rest = {k: v for k, v in item["source_meta"].items() if k != "mtime"}
+            if rest:
+                hashed["source_meta"] = rest
+            else:
+                del hashed["source_meta"]
+        content_hash = digest(json.dumps(hashed, sort_keys=True, ensure_ascii=False))
         with database(self.path) as db:
             db.execute("BEGIN IMMEDIATE")
             who = self._identity(db, token)
@@ -740,7 +787,7 @@ class Hub:
             if old and old["owner_device"] != who["device_id"]:
                 raise ValueError("asset belongs to another source device")
             if previous and previous["content_hash"] == content_hash:
-                return previous
+                return self._refresh_mtime(db, who["tenant"], item, previous)
             if item["base_revision"] != (old["revision"] if old else 0):
                 raise ValueError("revision conflict; fetch current revision before retry")
             # source_store and product identify the origin and stay immutable.
@@ -781,6 +828,16 @@ class Hub:
                 (who["tenant"], item["asset_id"], record["revision"], who["device_id"], encoded),
             )
             db.execute("INSERT INTO changes(tenant,payload) VALUES(?,?)", (who["tenant"], encoded))
+            # New text, new chance: contradictions were filed against the old
+            # revision and must not keep pressing the corrected one down. The
+            # delivery/citation/support history is about the asset and stays.
+            # A negative gain came from contradictions, so it floors at zero
+            # rather than being replayed exactly. Replays return above this.
+            db.execute(
+                "UPDATE recall_signals SET contradict=0, gain=max(gain,0) "
+                "WHERE tenant=? AND asset_id=? AND (contradict>0 OR gain<0)",
+                (who["tenant"], item["asset_id"]),
+            )
             db.execute(
                 "DELETE FROM search_index WHERE tenant=? AND asset_id=?",
                 (who["tenant"], item["asset_id"]),
@@ -797,6 +854,29 @@ class Hub:
                     (who["tenant"], item["asset_id"], " ".join(words)),
                 )
             return record
+
+    @staticmethod
+    def _refresh_mtime(
+        db: sqlite3.Connection, tenant: str, item: dict[str, Any], previous: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Carry a replayed payload's newer mtime onto the stored record in place.
+
+        Same content, same revision, no change event and no index rebuild: the
+        semantic vectors key on (revision, content_hash) and replicas follow the
+        changes log, while mtime is only a hint for the time facets. A payload
+        without an mtime (an older client) leaves the stored one alone.
+        """
+        mtime = (item.get("source_meta") or {}).get("mtime")
+        stored = previous.get("source_meta")
+        stored = stored if isinstance(stored, dict) else {}
+        if mtime is None or stored.get("mtime") == mtime:
+            return previous
+        refreshed = {**previous, "source_meta": {**stored, "mtime": mtime}}
+        db.execute(
+            "UPDATE assets SET payload=? WHERE tenant=? AND id=?",
+            (json.dumps(refreshed, ensure_ascii=False), tenant, item["asset_id"]),
+        )
+        return refreshed
 
     @staticmethod
     def _version_proof(db: sqlite3.Connection, item: dict[str, Any]) -> list[tuple[str, int]]:
@@ -1056,6 +1136,8 @@ class Hub:
         kinds: Sequence[str] | None = None,
         include_evidence: bool = False,
         project_filter: str | None = None,
+        channel: str = "tool",
+        record: bool = True,
     ) -> dict[str, Any]:
         from .retrieval import retrieve
 
@@ -1067,4 +1149,64 @@ class Hub:
             kinds=kinds,
             include_evidence=include_evidence,
             project_filter=project_filter,
+            channel=channel,
+            record=record,
         )
+
+    def recall(self, token: str, query: str, *, limit: int = 8) -> dict[str, Any]:
+        """Hook-channel recall: hybrid ranking over curated memory and rules, full bodies.
+
+        Replaces the lexical-only search for the prompt-time hook so transcript
+        chunks and supporting material cannot crowd out curated memory.
+        """
+        result = self.retrieve(token, query, limit=limit, kinds=["memory", "rule"], channel="hook")
+        return {
+            "items": result["items"],
+            "trace_id": result["retrieval"]["trace_id"],
+            "retrieval": result["retrieval"],
+        }
+
+    def recall_feedback(
+        self, token: str, trace_id: str, events: list[dict[str, Any]]
+    ) -> dict[str, Any]:
+        """Record delivery states and knowledge feedback against a recorded trace."""
+        from .recall_ledger import apply_feedback
+
+        with database(self.path) as db:
+            db.execute("BEGIN IMMEDIATE")
+            who = self._identity(db, token)
+            return apply_feedback(db, who, trace_id, events)
+
+    def recalls(
+        self, token: str, *, trace_id: str | None = None, limit: int = 20
+    ) -> dict[str, Any]:
+        """A member's own device's recent recall traces; identifiers and scores only."""
+        from .recall_ledger import list_traces
+
+        with database(self.path) as db:
+            who = self._identity(db, token)
+            traces = list_traces(
+                db, who["tenant"], device=who["device_id"], trace_id=trace_id, limit=limit
+            )
+            self._mask_query_preview(db, traces)
+        return {"traces": traces}
+
+    def admin_recalls(
+        self, token: str, *, trace_id: str | None = None, limit: int = 50
+    ) -> dict[str, Any]:
+        """Organization-wide recall traces for the operator page; no memory text."""
+        from .recall_ledger import list_traces
+
+        with database(self.path) as db:
+            self._admin(db, token)
+            traces = list_traces(db, self.tenant, trace_id=trace_id, limit=limit)
+            self._mask_query_preview(db, traces)
+        return {"traces": traces, "generated_at": time.time()}
+
+    @staticmethod
+    def _mask_query_preview(db: sqlite3.Connection, traces: list[dict[str, Any]]) -> None:
+        """Switching previews off also stops previously recorded prompt text from being read."""
+        row = db.execute("SELECT value FROM settings WHERE key='recall_query_preview'").fetchone()
+        if row and str(row["value"]).strip().lower() == "off":
+            for trace in traces:
+                trace["query_preview"] = ""
