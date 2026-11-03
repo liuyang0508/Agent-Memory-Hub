@@ -5,6 +5,7 @@ from typing import Any
 import sqlite3
 
 from fastapi import FastAPI, Header, HTTPException, Query
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from .hub import Hub
 from .knowledge import KnowledgeConflict, NativeKnowledge
@@ -53,6 +54,22 @@ def create_app(hub: Hub) -> FastAPI:
     async def storage_unavailable(request: Any, error: Any) -> JSONResponse:
         # Retry belongs to clients, not an unbounded server-side retry loop.
         return JSONResponse(status_code=503, content={"detail": "storage unavailable"})
+
+    @app.exception_handler(RequestValidationError)
+    async def invalid_request(request: Any, error: RequestValidationError) -> JSONResponse:
+        # Location, message and type only. FastAPI's default handler echoes the
+        # offending input, which can be a whole memory body; and when that
+        # input holds NaN/Infinity the echo itself fails to render, turning a
+        # 422 into a 409 with decoder text that clients misread.
+        detail = [
+            {
+                "loc": [part for part in item.get("loc", ()) if isinstance(part, (str, int))],
+                "msg": str(item.get("msg", ""))[:200],
+                "type": str(item.get("type", ""))[:64],
+            }
+            for item in error.errors()[:20]
+        ]
+        return JSONResponse(status_code=422, content={"detail": detail})
 
     def bearer(value: Any) -> str:
         if not value or not value.startswith("Bearer "):
@@ -264,7 +281,7 @@ def create_app(hub: Hub) -> FastAPI:
 
         result = hub.recall(bearer(authorization), data.query, limit=data.limit)
         return {
-            "items": result["items"],
+            "items": recall_items(result["items"]),
             "trace_id": result["trace_id"],
             "retrieval": _diagnostics({"retrieval": result["retrieval"]}),
         }
@@ -321,6 +338,85 @@ def create_app(hub: Hub) -> FastAPI:
 
     app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=4)
     return app
+
+
+# What recall.pack, coverage_key, the hook's provenance allowlist (evidence.FIELDS)
+# and lineage.covered_records read. Ranking internals (score, retrieval_ranks,
+# duplicate_sources, source_meta, hopfield_match, observed_at, content_hash)
+# and the index_text of non-transcripts never leave the Hub on this channel.
+RECALL_ITEM_FIELDS = (
+    "asset_id",
+    "revision",
+    "tenant_id",
+    "source_device_id",
+    "source_store",
+    "product",
+    "project",
+    "kind",
+    "path",
+    "title",
+    "role",
+    "body_hash",
+    "document_id",
+    "document_hash",
+    "part_index",
+    "part_count",
+    "deleted",
+    "producer_unknown",
+    "producer_member_id",
+    "producer_name",
+    "uploader_member_id",
+    "uploader_name",
+    "upstream",
+    "verified",
+)
+RECALL_MATCH_FIELDS = (
+    "similarity",
+    "source_field",
+    "char_start",
+    "char_end",
+    "offset_unit",
+    "aggregation",
+)
+RECALL_TRACE_FIELDS = ("trace_id", "routes", "final_rank", "nature", "decay_weight", "state")
+RECALL_BODY_BYTES = 64 * 1024
+RECALL_TOTAL_BYTES = 512 * 1024
+
+
+def recall_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Project hook-channel records to the fields the hook uses, with bounded text.
+
+    The hook packs at most 4KB into the prompt, while the client refuses any
+    response over 8MB; a handful of large memories therefore meant that nothing
+    was injected at all. Bodies are cut at a UTF-8 character boundary to 64KB
+    each and 512KB in total and flagged ``body_truncated``. body_hash still
+    names the full source version, which is what coverage keys identify.
+    """
+    remaining = RECALL_TOTAL_BYTES
+    projected: list[dict[str, Any]] = []
+    for item in items:
+        out = {key: item[key] for key in RECALL_ITEM_FIELDS if key in item}
+        for group, fields in (
+            ("semantic_match", RECALL_MATCH_FIELDS),
+            ("recall", RECALL_TRACE_FIELDS),
+        ):
+            block = item.get(group)
+            if isinstance(block, dict):
+                out[group] = {key: block[key] for key in fields if key in block}
+        texts = ["body"] + (["index_text"] if item.get("kind") == "transcript" else [])
+        for field in texts:
+            text = item.get(field)
+            if not isinstance(text, str):
+                continue
+            encoded = text.encode()
+            budget = max(0, min(RECALL_BODY_BYTES, remaining))
+            if len(encoded) > budget:
+                text = encoded[:budget].decode("utf8", errors="ignore")
+                out[field + "_truncated"] = True
+            out[field] = text
+            remaining -= len(text.encode())
+        projected.append(out)
+    return projected
 
 
 class BodyLimit:

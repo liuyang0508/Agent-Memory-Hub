@@ -2,14 +2,18 @@
 
 import json
 
+import pytest
 from fastapi.testclient import TestClient
 
 from agent_brain.native_sync.api import create_app
+from agent_brain.native_sync.common import digest
 from agent_brain.native_sync.hub import Hub
+from agent_brain.native_sync.models import AssetInput
 from agent_brain.native_sync.storage import database
 from agent_brain.native_sync.transport import HubHTTPError
 from test_client import DirectTransport, client
 from test_hub import asset
+from test_hybrid_retrieval import SyntheticBackend
 
 MEMORY = """---
 name: approvals
@@ -118,3 +122,91 @@ def test_http_contract_bounds_source_meta(tmp_path):
     ):
         response = api.post("/native/v1/assets", headers=headers, json=asset("n", source_meta=bad))
         assert response.status_code == 422, bad
+
+
+def hash_of(value, *, keep_meta):
+    """``keep_meta=False`` is the v1.4.1 formula: the validated payload minus
+    base_revision, with no source_meta field at all. ``keep_meta=True`` is the
+    same digest over a payload whose source_meta is passed through as given."""
+    item = AssetInput.model_validate(value).model_dump()
+    if not keep_meta or not item.get("source_meta"):
+        item.pop("source_meta", None)
+    return digest(
+        json.dumps(
+            {k: v for k, v in item.items() if k != "base_revision"},
+            sort_keys=True,
+            ensure_ascii=False,
+        )
+    )
+
+
+def test_content_hash_matches_v141_without_source_meta_and_ignores_mtime(tmp_path):
+    hub = Hub(tmp_path / "hub.sqlite")
+    who = hub.provision("one", "device")
+    plain = hub.put(who["token"], asset("plain"))
+    assert plain["content_hash"] == hash_of(asset("plain"), keep_meta=False)
+    # mtime rides outside the hash: an mtime-only source_meta hashes like no meta at all.
+    stamped = hub.put(who["token"], asset("stamped", source_meta={"mtime": 1700000000}))
+    assert stamped["content_hash"] == hash_of(asset("stamped"), keep_meta=False)
+    assert stamped["source_meta"] == {"mtime": 1700000000.0}
+    # Declared front matter, links and sections still change the meaning, so the hash:
+    # it is the digest over the payload with source_meta minus its mtime.
+    hints = {"declared": {"type": "feedback"}, "links": ["x"]}
+    declared = hub.put(who["token"], asset("declared", source_meta={"mtime": 1700000000, **hints}))
+    assert declared["content_hash"] != hash_of(asset("declared"), keep_meta=False)
+    assert declared["content_hash"] == hash_of(asset("declared", source_meta=hints), keep_meta=True)
+    assert declared["source_meta"] == {"mtime": 1700000000.0, **hints}
+    with pytest.raises(ValueError, match="revision conflict"):
+        hub.put(who["token"], asset("declared", source_meta={"declared": {"type": "user"}}))
+
+
+def test_mtime_only_change_replays_in_place_without_revision_or_index_rebuild(tmp_path):
+    backend = SyntheticBackend()
+    hub = Hub(tmp_path / "hub.sqlite", semantic_backend=backend)
+    who = hub.provision("one", "device")
+    meta = {"mtime": 1700000000, "declared": {"type": "feedback"}, "sections": ["规则"]}
+    first = hub.put(who["token"], asset("m", body="审批需要两人复核", source_meta=meta))
+    assert hub.rebuild_semantic(who["token"])["indexed"] == 1
+    # A re-scan after reinstall: same file, new stat mtime, base_revision back at 0.
+    replay = hub.put(
+        who["token"],
+        asset("m", body="审批需要两人复核", source_meta={**meta, "mtime": 1700009999}),
+    )
+    assert replay["revision"] == 1 and replay["content_hash"] == first["content_hash"]
+    assert replay["source_meta"] == {**meta, "mtime": 1700009999.0}
+    with database(hub.path) as db:
+        stored = json.loads(
+            db.execute("SELECT payload FROM assets WHERE id='m'").fetchone()["payload"]
+        )
+        changes = db.execute("SELECT count(*) FROM changes").fetchone()[0]
+    assert stored["source_meta"]["mtime"] == 1700009999.0 and stored["revision"] == 1
+    assert changes == 1  # No change event: replicas and peers have nothing new to replay.
+    result = hub.retrieve(who["token"], "复核")
+    assert "semantic_index_incomplete_rebuild_required" not in result["retrieval"]["reasons"]
+    assert result["retrieval"]["semantic_index"] == {"current": 1, "eligible": 1}
+    assert result["items"][0]["source_meta"]["mtime"] == 1700009999.0
+    refreshed = hub.rebuild_semantic(who["token"])
+    assert refreshed["reused"] == 1 and refreshed["encoded"] == 0
+    # The same hints without an mtime (a store that cannot stat) replay the same
+    # content and leave the stored mtime alone rather than erasing it.
+    bare = hub.put(
+        who["token"],
+        asset(
+            "m",
+            body="审批需要两人复核",
+            source_meta={"declared": {"type": "feedback"}, "sections": ["规则"]},
+        ),
+    )
+    assert bare["revision"] == 1 and bare["source_meta"]["mtime"] == 1700009999.0
+    # The same mtime replayed again is a plain idempotent replay with no write.
+    again = hub.put(
+        who["token"],
+        asset("m", body="审批需要两人复核", source_meta={**meta, "mtime": 1700009999}),
+    )
+    assert again == replay
+    # Dropping the declared hints is a content change and still needs the base revision.
+    with pytest.raises(ValueError, match="revision conflict"):
+        hub.put(who["token"], asset("m", body="审批需要两人复核"))
+    assert (
+        hub.put(who["token"], asset("m", body="审批需要两人复核", base_revision=1))["revision"] == 2
+    )

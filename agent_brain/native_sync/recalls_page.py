@@ -64,6 +64,7 @@ PAGE = """<!doctype html>
       <button onclick="load()">查询</button>
       <button onclick="document.getElementById('traceInput').value='';load()">最近记录</button>
       <span class="muted" id="stamp"></span>
+      <span class="muted" id="opsError"></span>
       <button onclick="logout()" style="margin-left:auto">退出</button>
     </div>
     <div id="content"></div>
@@ -93,17 +94,36 @@ function saveToken() {
 }
 function logout() { sessionStorage.removeItem("amh_dash"); location.reload(); }
 
+// Before login the login card is the only visible place; after login the
+// operations row is. A rejected token always brings the login card back.
+function fail(message, relogin) {
+  const loggedIn = document.getElementById("ops").style.display === "block";
+  if (relogin || !loggedIn) {
+    document.getElementById("ops").style.display = "none";
+    document.getElementById("login").style.display = "";
+    document.getElementById("loginError").textContent = message;
+    document.getElementById("opsError").textContent = "";
+    return;
+  }
+  document.getElementById("opsError").textContent = message;
+}
+
 async function load() {
   const trace = document.getElementById("traceInput").value.trim();
+  if (trace && !/^[a-f0-9]{24}$/.test(trace)) { fail("trace_id 格式错误：应为 24 位小写十六进制", false); return; }
   let r;
   try {
     r = await fetch("/native/v1/admin/recalls/data" + (trace ? "?trace_id=" + encodeURIComponent(trace) : ""), { headers: { "Authorization": "Bearer " + token } });
-  } catch (e) { document.getElementById("loginError").textContent = "网络错误"; return; }
-  if (r.status === 401) { document.getElementById("loginError").textContent = "令牌无效或已撤销"; return; }
-  if (!r.ok) { document.getElementById("loginError").textContent = "读取失败"; return; }
-  const d = await r.json();
+  } catch (e) { fail("网络错误", false); return; }
+  if (r.status === 401) { fail("令牌无效或已撤销", true); return; }
+  if (r.status === 422) { fail("trace_id 格式错误：应为 24 位小写十六进制", false); return; }
+  if (!r.ok) { fail("读取失败（HTTP " + r.status + "）", false); return; }
+  let d;
+  try { d = await r.json(); } catch (e) { fail("响应无法解析", false); return; }
   document.getElementById("login").style.display = "none";
   document.getElementById("ops").style.display = "block";
+  document.getElementById("loginError").textContent = "";
+  document.getElementById("opsError").textContent = "";
   document.getElementById("stamp").textContent = "数据时间 " + fmtTime(d.generated_at);
   document.getElementById("content").innerHTML = trace ? renderTrace(d.traces[0]) : renderList(d.traces);
 }
