@@ -11,7 +11,7 @@ import sys
 import time
 from pathlib import Path
 from .client import NativeClient
-from .common import atomic_text, digest
+from .common import atomic_text, digest, recall_budget
 from .storage import database, DB_TIMEOUT
 from .recall import coverage_key, pack
 
@@ -162,15 +162,21 @@ def _run(root: Path, product: str, payload: dict[str, Any]) -> dict[str, Any]:
     mode = "remote"
     trace_id = None
     channel = "search"
+    budget = recall_budget(c.config)
+    # Which path will answer: the resident worker's warm connection when it is
+    # listening, otherwise a fresh subprocess that pays the handshakes itself.
+    from .recall_service import SOCKET_NAME
+
+    via = "service" if (root / SOCKET_NAME).exists() else "worker"
     try:
-        from .query_worker import bounded_search
+        from .query_worker import recall
 
         asking = {
             "product": product,
             "project": _project_for(c, payload.get("cwd")),
             "session_digest": digest(session)[:16],
         }
-        response = bounded_search(root, prompt[:8000], timeout=1.2, asking=asking)
+        response, via = recall(root, prompt[:8000], budget=budget, asking=asking)
         # Test doubles may still answer with a bare list of records.
         if isinstance(response, dict):
             hits = response["items"]
@@ -278,6 +284,8 @@ def _run(root: Path, product: str, payload: dict[str, Any]) -> dict[str, Any]:
                         "hits": len(hits),
                         "packed": len({k.split(":excerpt:")[0] for k in keys}),
                         "elapsed_ms": round((time.monotonic() - started) * 1000),
+                        "budget_ms": round(budget * 1000),
+                        "via": via,
                         "bytes": len(body.encode()),
                         "timestamp": time.time(),
                     }

@@ -7,6 +7,8 @@ import json
 import math
 import random
 import subprocess
+import sys
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -14,14 +16,18 @@ from .client import NativeClient
 from .common import atomic_json, runtime_argv
 
 
-def work(state: Path, interval: float = 10) -> None:
+def work(state: Path, interval: float = 10, *, stop: threading.Event | None = None) -> None:
     """Run one worker per profile; Hook wakeups coalesce and never bypass failure cooldown.
 
     Sync owns its own transaction/lock boundaries. This loop owns retries only;
     restart is safe because neither queued uploads nor replica cursors live in RAM.
     Jitter disperses reconnects when an organization's Hub recovers after an outage.
+    The same process hosts the resident recall service, so prompt hooks reuse
+    one warm Hub connection instead of paying the handshakes every time.
     """
     import fcntl
+
+    from .recall_service import RecallService
 
     if not math.isfinite(interval) or not 0 < interval <= 60:
         raise ValueError("worker interval must be greater than zero and at most 60 seconds")
@@ -34,45 +40,62 @@ def work(state: Path, interval: float = 10) -> None:
         c = NativeClient(state)
         config_path = state / "config.json"
         last_config: Any = json.loads(config_path.read_text()) if config_path.exists() else None
+        service: RecallService | None = None
+        try:
+            candidate = RecallService(state)
+            candidate.configure(last_config)
+            candidate.start()
+            service = candidate
+        except OSError as exc:
+            # Sync matters more than the warm path; hooks fall back to the
+            # subprocess. One line in worker.log says why (no paths, no token).
+            print(f"resident recall service unavailable: {type(exc).__name__}", file=sys.stderr)
         next_run = 0.0
         backoff = interval
         cooling_down = False
-        while True:
-            wake = state / "wake"
-            due = time.monotonic() >= next_run or (wake.exists() and not cooling_down)
-            if not (state / "paused").exists() and due:
-                wake.unlink(missing_ok=True)
-                try:
-                    config = json.loads(config_path.read_text())
-                    if config != last_config:
-                        # Rebuild on any config change: a re-enrolment issues a new
-                        # device token, and this long-lived process would otherwise
-                        # keep authenticating with the old one — a permanent 401
-                        # followed by revoke_local() and a 60s cooldown, forever.
-                        last_config = config
-                        c = NativeClient(state)
-                    c.sync()
-                    backoff = interval
-                    cooling_down = False
-                except PermissionError:
-                    c.revoke_local()
-                    atomic_json(
-                        state / "status.json",
-                        {"error": "device revoked; re-enroll required", "time": time.time()},
-                    )
-                    backoff = 60
-                    cooling_down = True
-                except Exception as exc:
-                    atomic_json(
-                        state / "status.json", {"error": type(exc).__name__, "time": time.time()}
-                    )
-                    backoff = min(max(interval, backoff * 2), 60)
-                    cooling_down = True
-                # Preserve the wake marker during cooldown; one catch-up pass will
-                # observe every file's latest state once the deadline has elapsed.
-                delay = random.uniform(backoff / 2, backoff) if cooling_down else interval
-                next_run = time.monotonic() + delay
-            time.sleep(0.5)
+        try:
+            while stop is None or not stop.is_set():
+                wake = state / "wake"
+                due = time.monotonic() >= next_run or (wake.exists() and not cooling_down)
+                if not (state / "paused").exists() and due:
+                    wake.unlink(missing_ok=True)
+                    try:
+                        config = json.loads(config_path.read_text())
+                        if config != last_config:
+                            # Rebuild on any config change: a re-enrolment issues a new
+                            # device token, and this long-lived process would otherwise
+                            # keep authenticating with the old one — a permanent 401
+                            # followed by revoke_local() and a 60s cooldown, forever.
+                            last_config = config
+                            c = NativeClient(state)
+                            if service is not None:
+                                service.configure(config)
+                        c.sync()
+                        backoff = interval
+                        cooling_down = False
+                    except PermissionError:
+                        c.revoke_local()
+                        atomic_json(
+                            state / "status.json",
+                            {"error": "device revoked; re-enroll required", "time": time.time()},
+                        )
+                        backoff = 60
+                        cooling_down = True
+                    except Exception as exc:
+                        atomic_json(
+                            state / "status.json",
+                            {"error": type(exc).__name__, "time": time.time()},
+                        )
+                        backoff = min(max(interval, backoff * 2), 60)
+                        cooling_down = True
+                    # Preserve the wake marker during cooldown; one catch-up pass will
+                    # observe every file's latest state once the deadline has elapsed.
+                    delay = random.uniform(backoff / 2, backoff) if cooling_down else interval
+                    next_run = time.monotonic() + delay
+                time.sleep(0.5)
+        finally:
+            if service is not None:
+                service.close()
 
 
 def ensure_worker(state: Path) -> None:

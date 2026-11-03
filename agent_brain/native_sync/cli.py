@@ -221,8 +221,16 @@ def serve(
     semantic_model: str | None = typer.Option(None, help="服务端已缓存的语义模型，不自动下载"),
     semantic_min_score: float = typer.Option(0.45, min=0, max=1),
     mmr_lambda: float | None = typer.Option(None, min=0, max=1),
-    decay: bool | None = typer.Option(None, "--decay/--no-decay", help="按知识性质、可信时间和反馈信号做小幅重排（下调最多 5%、上调最多约 3%）；不传时读 AMH_NATIVE_DECAY（默认开启）"),
-    hopfield: bool | None = typer.Option(None, "--hopfield/--no-hopfield", help="启用 Hopfield 联想扩召（需语义索引，全量扫描）；不传时读 AMH_NATIVE_HOPFIELD（默认关闭）"),
+    decay: bool | None = typer.Option(
+        None,
+        "--decay/--no-decay",
+        help="按知识性质、可信时间和反馈信号做小幅重排（下调最多 5%、上调最多约 3%）；不传时读 AMH_NATIVE_DECAY（默认开启）",
+    ),
+    hopfield: bool | None = typer.Option(
+        None,
+        "--hopfield/--no-hopfield",
+        help="启用 Hopfield 联想扩召（需语义索引，全量扫描）；不传时读 AMH_NATIVE_HOPFIELD（默认关闭）",
+    ),
     hopfield_beta: float = typer.Option(8.0, min=0.1, max=64),
     hopfield_min_score: float = typer.Option(0.35, min=0, max=1, help="联想候选的相似度下限"),
 ) -> None:
@@ -322,7 +330,9 @@ def discover(home: Path = typer.Option(Path.home())) -> None:
 
 def browser_mode(ssh: bool | None, web_port: int) -> tuple[bool, int]:
     """One loopback port and one tunnel for sequential login and selection pages."""
-    remote = bool(os.environ.get("SSH_CONNECTION") or os.environ.get("SSH_TTY")) if ssh is None else ssh
+    remote = (
+        bool(os.environ.get("SSH_CONNECTION") or os.environ.get("SSH_TTY")) if ssh is None else ssh
+    )
     port = web_port or (8765 if remote else 0)
     if remote:
         console.print(
@@ -339,8 +349,13 @@ def browser_mode(ssh: bool | None, web_port: int) -> tuple[bool, int]:
 
 
 def feishu_login(
-    hub: str, state: Path, device_name: str, timeout: float = 300,
-    *, port: int = 0, open_browser: bool = True,
+    hub: str,
+    state: Path,
+    device_name: str,
+    timeout: float = 300,
+    *,
+    port: int = 0,
+    open_browser: bool = True,
 ) -> dict[str, Any]:
     """Authorize in the browser, then write the profile; shared by setup and login.
 
@@ -428,8 +443,12 @@ def login(
     state: Path = DEFAULT_STATE,
     device_name: str = socket.gethostname(),
     timeout: float = 300,
-    ssh: bool | None = typer.Option(None, "--ssh/--no-ssh", help="本机浏览器经端口转发授权；默认检测 SSH"),
-    web_port: int = typer.Option(0, min=0, max=65535, help="浏览器端口；SSH 默认 8765，本机默认随机"),
+    ssh: bool | None = typer.Option(
+        None, "--ssh/--no-ssh", help="本机浏览器经端口转发授权；默认检测 SSH"
+    ),
+    web_port: int = typer.Option(
+        0, min=0, max=65535, help="浏览器端口；SSH 默认 8765，本机默认随机"
+    ),
 ) -> None:
     """飞书登录加入组织：浏览器授权后自动登记设备。"""
     remote, port = browser_mode(ssh, web_port)
@@ -525,8 +544,12 @@ def import_history(
     web: bool = typer.Option(True, help="在浏览器里勾选；--no-web 回到终端逐条"),
     yes: bool = False,
     dry_run: bool = False,
-    ssh: bool | None = typer.Option(None, "--ssh/--no-ssh", help="通过本机浏览器选择；默认检测 SSH"),
-    web_port: int = typer.Option(0, min=0, max=65535, help="浏览器端口；SSH 默认 8765，本机默认随机"),
+    ssh: bool | None = typer.Option(
+        None, "--ssh/--no-ssh", help="通过本机浏览器选择；默认检测 SSH"
+    ),
+    web_port: int = typer.Option(
+        0, min=0, max=65535, help="浏览器端口；SSH 默认 8765，本机默认随机"
+    ),
 ) -> None:
     """导入安装前的历史记忆：浏览器里勾选（--no-web 回终端），此后新增自动同步。"""
     from . import history
@@ -838,7 +861,17 @@ def recall_trace(
     reasons = detail.get("retrieval", {}).get("reasons") or []
     console.print("降级原因：" + ("、".join(reasons) if reasons else "无"))
     table = Table()
-    for column in ("排名", "记忆标题", "内容形态", "来源产品", "组织/项目", "原生产者", "召回方式", "本轮状态", "时间"):
+    for column in (
+        "排名",
+        "记忆标题",
+        "内容形态",
+        "来源产品",
+        "组织/项目",
+        "原生产者",
+        "召回方式",
+        "本轮状态",
+        "时间",
+    ):
         table.add_column(column)
     for item in detail["candidates"]:
         producer = item.get("producer") or {}
@@ -859,7 +892,11 @@ def recall_trace(
         decay = item.get("decay")
         console.print(
             f"[bold]{item.get('title') or item.get('path')}[/bold] {item['asset_id']} r{item['revision']}"
-            + (f" · 衰减 半衰期{decay['half_life_days']}天 年龄{decay['age_days'] if decay['age_days'] is not None else '未知'} 权重{decay['weight']} {decay['reason']}" if decay else " · 衰减 未启用")
+            + (
+                f" · 衰减 半衰期{decay['half_life_days']}天 年龄{decay['age_days'] if decay['age_days'] is not None else '未知'} 权重{decay['weight']} {decay['reason']}"
+                if decay
+                else " · 衰减 未启用"
+            )
             + (f" · 信号 {item['signals']}" if item.get("signals") else "")
             + (f" · {item['state_detail']}" if item.get("state_detail") else "")
         )
@@ -877,7 +914,9 @@ def recall_feedback(
     trace: str = typer.Option(..., help="召回明细里的 trace_id"),
     asset: str = typer.Option(..., help="候选的 asset_id"),
     revision: int = typer.Option(..., min=1),
-    event: str = typer.Option(..., help="cite（回答采用）/ support / contradict / confirm（人工确认）"),
+    event: str = typer.Option(
+        ..., help="cite（回答采用）/ support / contradict / confirm（人工确认）"
+    ),
     state: Path = DEFAULT_STATE,
 ) -> None:
     """对某次召回的候选记录反馈；之后的召回会据此调整排序。"""
@@ -886,7 +925,11 @@ def recall_feedback(
     if not TRACE_ID.fullmatch(trace):
         raise typer.BadParameter(TRACE_ID_HINT, param_hint="--trace")
     c = load(state)
-    emit(c.transport.recall_feedback(trace, [{"asset_id": asset, "revision": revision, "event": event}]))
+    emit(
+        c.transport.recall_feedback(
+            trace, [{"asset_id": asset, "revision": revision, "event": event}]
+        )
+    )
 
 
 @app.command()
@@ -903,7 +946,69 @@ def status(state: Path = DEFAULT_STATE) -> None:
     }
     if (state / "status.json").exists():
         summary["worker"] = json.loads((state / "status.json").read_text())
+    summary["recall"] = _recall_settings(state, c)
     emit(summary)
+
+
+def _recall_settings(state: Path, c: NativeClient) -> dict[str, Any]:
+    from .common import RECALL_BUDGET_ENV, RECALL_BUDGET_KEY, hook_timeout, recall_budget
+    from .recall_service import SOCKET_NAME
+
+    budget = recall_budget(c.config)
+    return {
+        "timeout_seconds": budget,
+        "configured": c.config.get(RECALL_BUDGET_KEY),
+        "env_override": os.environ.get(RECALL_BUDGET_ENV),
+        "hook_timeout_seconds": hook_timeout(budget),
+        "resident_service": (state / SOCKET_NAME).exists(),
+    }
+
+
+def _installed_products(home: Path, state: Path) -> list[str]:
+    """Products whose hook files this profile installed, from the receipt."""
+    receipt = state / "install-receipt.json"
+    try:
+        saved = json.loads(receipt.read_text())
+    except (OSError, ValueError):
+        return []
+    written = set(saved.get("json", {})) | set(saved.get("text", {}))
+    products = []
+    if str(home / ".claude/settings.json") in written:
+        products.append("claude-code")
+    if str(home / ".codex/hooks.json") in written:
+        products.append("codex-cli")
+    return products
+
+
+@app.command("recall-timeout")
+def recall_timeout(
+    state: Path = DEFAULT_STATE,
+    seconds: float | None = typer.Argument(
+        None, help="提示时召回的总预算（秒）；省略则只查看。跨境或高延迟链路可调大。"
+    ),
+) -> None:
+    """查看或设置提示时召回的总预算；宿主 Hook 超时随之重写。"""
+    from .common import RECALL_BUDGET_KEY, RECALL_BUDGET_MAX, RECALL_BUDGET_MIN, hook_timeout
+
+    c = load(state)
+    if seconds is None:
+        emit(_recall_settings(state, c))
+        return
+    if not (RECALL_BUDGET_MIN <= seconds <= RECALL_BUDGET_MAX):
+        raise typer.BadParameter(f"取值范围 {RECALL_BUDGET_MIN}–{RECALL_BUDGET_MAX} 秒")
+    c.config[RECALL_BUDGET_KEY] = seconds
+    atomic_json(state / "config.json", c.config)
+    home = Path.home()
+    products = _installed_products(home, state)
+    rewritten = install_hooks(home, state, products=products) if products else []
+    emit(
+        {
+            "recall_timeout_seconds": seconds,
+            "hook_timeout_seconds": hook_timeout(seconds),
+            "hooks_rewritten": rewritten,
+            "note": "常驻 worker 会在下一轮读取新配置；宿主需要重新加载 Hook 配置后新超时才生效。",
+        }
+    )
 
 
 @app.command()
@@ -997,8 +1102,12 @@ def setup(
     state: Path = DEFAULT_STATE,
     home: Path = typer.Option(Path.home()),
     service: bool = True,
-    ssh: bool | None = typer.Option(None, "--ssh/--no-ssh", help="使用本机浏览器安装远端设备；默认检测 SSH"),
-    web_port: int = typer.Option(0, min=0, max=65535, help="浏览器端口；SSH 默认 8765，本机默认随机"),
+    ssh: bool | None = typer.Option(
+        None, "--ssh/--no-ssh", help="使用本机浏览器安装远端设备；默认检测 SSH"
+    ),
+    web_port: int = typer.Option(
+        0, min=0, max=65535, help="浏览器端口；SSH 默认 8765，本机默认随机"
+    ),
     projection: bool = typer.Option(
         False,
         help="把组织记忆也存成各产品本地的原生文件；默认关闭，召回走云端实时检索",
@@ -1028,7 +1137,9 @@ def setup(
     console.print("组织服务地址：" + hub)
     if not joined:
         console.print("\n第 1 步：用飞书账号登录")
-        identity = feishu_login(hub, state, socket.gethostname(), port=port, open_browser=not remote)
+        identity = feishu_login(
+            hub, state, socket.gethostname(), port=port, open_browser=not remote
+        )
         c = load(state)
         console.print(f"登录成功：{identity['member_name']}")
     else:
@@ -1070,9 +1181,8 @@ def setup(
                 picked = picker.serve(
                     rows,
                     port=port,
-                    open_browser=not remote and bool(
-                        __import__("os").environ.get("DISPLAY") or _sys.platform == "darwin"
-                    ),
+                    open_browser=not remote
+                    and bool(__import__("os").environ.get("DISPLAY") or _sys.platform == "darwin"),
                     empty_products=_empty_products(home, rows),
                     scope=c.source_scope(),
                 )
