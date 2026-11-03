@@ -428,6 +428,40 @@ class OrganizationTools:
                     }
                     if row["part_index"] >= row["part_count"]:
                         raise ValueError("invalid chunk index")
+                    if "recall" in item:
+                        recall = item["recall"]
+                        if not isinstance(recall, dict) or not isinstance(
+                            recall.get("routes"), dict
+                        ):
+                            raise ValueError("invalid recall summary")
+                        routes = {}
+                        for route, rank in recall["routes"].items():
+                            if route not in {"lexical", "semantic", "hopfield", "rerank"}:
+                                raise ValueError("invalid recall route")
+                            if rank is None or (type(rank) is int and rank >= 1):
+                                routes[route] = rank
+                            elif isinstance(rank, str):
+                                routes[route] = _text(rank, 16)
+                            else:
+                                raise ValueError("invalid recall rank")
+                        row["recall"] = {"routes": routes}
+                        for key in ("final_rank", "nature", "state", "decay_weight"):
+                            if key not in recall:
+                                continue
+                            value = recall[key]
+                            if key == "final_rank":
+                                row["recall"][key] = _integer(value, 1, 50)
+                            elif key == "decay_weight":
+                                if (
+                                    isinstance(value, bool)
+                                    or not isinstance(value, (int, float))
+                                    or not math.isfinite(value)
+                                    or not 0.9 <= value <= 1.1
+                                ):
+                                    raise ValueError("invalid decay weight")
+                                row["recall"][key] = float(value)
+                            else:
+                                row["recall"][key] = _text(value, 32)
                     if "semantic_match" in item:
                         match = item["semantic_match"]
                         if not isinstance(match, dict):
@@ -488,6 +522,18 @@ class OrganizationTools:
                     if not isinstance(info["reasons"], list) or len(info["reasons"]) > 10:
                         raise ValueError("invalid retrieval reasons")
                     retrieval["reasons"] = [_text(reason, 160) for reason in info["reasons"]]
+                if "trace_id" in info:
+                    trace_id = info["trace_id"]
+                    if not isinstance(trace_id, str) or not re.fullmatch(r"[a-f0-9]{24}", trace_id):
+                        raise ValueError("invalid trace id")
+                    retrieval["trace_id"] = trace_id
+                if "stages" in info:
+                    stages = info["stages"]
+                    if not isinstance(stages, dict) or len(stages) > 8:
+                        raise ValueError("invalid retrieval stages")
+                    retrieval["stages"] = {
+                        _text(key, 16): _text(value, 16) for key, value in stages.items()
+                    }
                 if _size(retrieval) > 1700:
                     raise ValueError("retrieval diagnostics too large")
                 result = self._finish(

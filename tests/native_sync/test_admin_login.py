@@ -293,3 +293,20 @@ def test_admin_responses_are_not_cached(scene):
     assert client.get(ADMIN + "/session").headers["cache-control"] == "no-store"
     sign_in(client)
     assert client.get(ADMIN + "/overview").headers["cache-control"] == "no-store"
+
+
+def test_recall_ledger_accepts_feishu_session_and_manual_token(scene):
+    hub, auth, identity, device, client = scene
+    data = ADMIN + "/recalls/data"
+    assert client.get(data).status_code == 401  # neither cookie nor token
+    page = client.get(ADMIN + "/recalls").text
+    assert 'credentials: "same-origin"' in page and "飞书" in page
+    sign_in(client)
+    assert client.cookies.get(SESSION_COOKIE)
+    traces = client.get(data)
+    assert traces.status_code == 200 and traces.json()["traces"] == []
+    stranger = TestClient(create_app(hub), base_url=BASE, follow_redirects=False)
+    token = hub.admin_create("recovery")
+    assert stranger.get(data, headers={"Authorization": "Bearer " + token}).status_code == 200
+    auth.set_role(device["member_id"], enabled=False)
+    assert client.get(data).status_code in (401, 403)

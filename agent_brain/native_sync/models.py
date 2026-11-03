@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from .common import PRODUCTS, PAIRING_DEFAULT_TTL, PAIRING_MAX_TTL
+from .facets import validate_source_meta
 
 
 class AssetInput(BaseModel):
@@ -29,6 +30,14 @@ class AssetInput(BaseModel):
     deleted: bool = False
     producer_unknown: bool = False
     upstream: list[str] = Field(default_factory=list, max_length=100)
+    # Client-captured hints (file mtime, declared front matter, links). Bounded
+    # here and treated as declarations, never as authenticated facts.
+    source_meta: dict[str, Any] | None = None
+
+    @field_validator("source_meta")
+    @classmethod
+    def bounded_source_meta(cls, value: dict[str, Any] | None) -> dict[str, Any] | None:
+        return validate_source_meta(value) or None
 
     @model_validator(mode="after")
     def valid_parts(self) -> "AssetInput":
@@ -75,6 +84,39 @@ class RetrieveInput(BaseModel):
     )
     include_evidence: bool = False
     project_filter: str | None = Field(default=None, max_length=256)
+
+
+class RecallInput(BaseModel):
+    """Prompt-time hook recall over curated memory and rules; bodies return in full."""
+
+    model_config = ConfigDict(extra="forbid")
+    query: str = Field(max_length=8000)
+    limit: int = Field(default=8, ge=1, le=8)
+
+
+class RecallEvent(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    asset_id: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_.-]+$")
+    revision: int = Field(ge=1, strict=True)
+    event: Literal[
+        "packed",
+        "emitted",
+        "confirmed",
+        "budget",
+        "covered",
+        "cite",
+        "support",
+        "contradict",
+        "confirm",
+    ]
+
+
+class RecallFeedbackInput(BaseModel):
+    """Delivery states and knowledge feedback for candidates of one recorded trace."""
+
+    model_config = ConfigDict(extra="forbid")
+    trace_id: str = Field(min_length=24, max_length=24, pattern=r"^[a-f0-9]+$")
+    events: list[RecallEvent] = Field(min_length=1, max_length=64)
 
 
 class ReadInput(BaseModel):

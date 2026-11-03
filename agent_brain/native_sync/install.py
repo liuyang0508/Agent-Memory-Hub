@@ -503,6 +503,7 @@ def export_cowork_plugin(
         "common.py",
         "contracts.py",
         "evidence.py",
+        "facets.py",
         "storage.py",
         "transport.py",
         "projection.py",

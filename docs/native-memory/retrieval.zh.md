@@ -59,6 +59,7 @@ amh-native semantic-index --db /var/lib/amh-native/hub.sqlite \
 amh-native serve --db /var/lib/amh-native/hub.sqlite \
   --semantic-model /opt/amh-models/multilingual-minilm \
   --mmr-lambda 0.85
+# 可选：--no-decay 关闭衰减重排；--hopfield --hopfield-min-score 0.35 开启联想扩召
 ```
 
 索引默认只编码主题记忆与导航，不把聊天、会话摘要和原始提取材料全量载入模型；可用 `--kind` 和 `--include-evidence` 明确扩大范围。缩小索引范围不会删除源资料，超出已建范围的检索会提示降级。
@@ -66,6 +67,41 @@ amh-native serve --db /var/lib/amh-native/hub.sqlite \
 凭证也可由维护进程的私有环境变量 `AMH_NATIVE_INDEX_TOKEN` 提供，不要写入命令参数、插件包或日志。凭证撤销后维护停止。模型计算不占用 SQLite 写事务；提交前再次核对源版本，删除或更新不会继续使用旧向量。索引绑定模型文件摘要、维度和分窗版本，不匹配就要求重建。配置模型的服务启动时先加载模型再接受请求，部署健康检查应预留冷启动时间。
 
 当前实现扫描已授权范围内的向量，并非 ANN；大语料、并发和内存使用需要单独验收。查询服务与独立索引维护进程会各持有模型，不应在未验证内存余量的低配主机上同时启用。重排器已有服务端注入接口，尚未验证真实重排模型的业务效果。
+
+## 排序阶段、衰减与召回明细
+
+从 1.4.1 之后的开发版起，`retrieve` 的阶段顺序固定为：
+
+```
+SQL 作用域过滤 → 关键词 ‖ 语义 → RRF 合并 → Hopfield 联想（只追加两条路都没召回的近邻）
+ → 支持材料 ×0.55 → 重排器（未接线时显示「未启用」） → 声明式过滤 → 衰减与信号 → MMR
+ → 精确 ID 置顶 → 版本复核、去重、截取条数
+```
+
+- **知识性质与来源层级**：每条候选按 `rule / preference / project_state / fact / decision / reference / episode / unknown` 分类，并注明依据是 `declared`（frontmatter 明说，如 Claude Code 的 `metadata.type`）、`parsed`（按位置或角色推断，如 rule 目录、导航文件、会话摘要）还是 `inferred`（正文弱特征，只给临时状态和决定两类）。
+- **可信时间**：内容产生、源文件更新、云端收录、最近送达、最近采用、最近确认、声明失效分别记录来源；拿不到就是「未知」，不会用收录时间冒充内容时间。源文件修改时间（mtime）只作最后兜底，排在 frontmatter 声明的时间和文件名日期之后，因为 `git clone`、复制都会改写它；mtime 也不参与内容哈希，只改 mtime 不会产生新版本。客户端上传时随正文带上 `source_meta`（文件修改时间、frontmatter 子集、`[[wikilink]]`、标题），老 Hub 不认该字段时自动去掉再传。
+- **衰减与信号**：按知识性质取半衰期（规则 365 天、偏好/参考 180、决定 90、事实/未知 60、会话 30、临时状态 21），结合送达、采用、支持、反对、人工确认等信号算系数，只做小幅重排（下调最多 5%，上调最多约 3%），不丢弃；时间未知按中性 0.5 处理。投递类信号按状态幂等，同一成员对同一候选的同类反馈只计一次；内容出新版本时反对计数清零。`serve --no-decay` 或环境变量 `AMH_NATIVE_DECAY=0` 关闭（命令行参数优先于环境变量）。
+- **声明式退场**：只有 frontmatter 明确写了 `superseded_by` 或已过 `expires` 才会过滤，精确 ID 查询不受影响；明细里记录被谁替代、何时失效。`superseded_by` 指向的目标必须在本组织内存在且未删除：指向不存在的 ID、指向自己、两条互相指向时都不过滤，明细标 `superseded_target_missing` / `superseded_self` / `superseded_cycle`。纯日期写法的 `expires: 2026-11-03` 按当天结束（UTC）失效。
+- **Hopfield 联想**：`serve --hopfield`（或 `AMH_NATIVE_HOPFIELD=1`）后，由融合结果形成吸引子，在已建语义索引的全部授权向量上找两条路都没召回的近邻；默认关闭，因为是全量扫描。关闭时明细显示「未启用」；打开但本次没有可用种子（融合结果里没有一条带索引向量的命中，词法命中有向量也能当种子）时显示 `no_seeds`。`--hopfield-min-score 0.35` 与 `--hopfield-beta 8.0` 是合成语料上的初值，没有在真实数据上校准，开启前应先用自己的语料验收。
+- **召回明细**：每次检索生成 `trace_id`，服务端保留 30 天，不含正文；记录每条候选的召回方式（lexical / semantic / hopfield 名次）、各阶段前后名次与分数、本轮状态（候选 → 入选 → 已打包 → 已注入 → 模型已收到 → 回答已采用，或 dropped:limit / dedup / budget / covered / superseded / expired / revalidation）。Hook 在本机记录打包与注入状态，并在下一次 Hook 看到回执时记录「模型已收到」，由 worker 同步时批量上报。
+- **反馈**：`amh-native recall-feedback --trace <id> --asset <id> --revision <n> --event cite|support|contradict|confirm` 或 `POST /native/v1/recall/feedback`；只能对该次 trace 里出现过的候选反馈。MCP 工具保持只读，不提供反馈。
+
+```sh
+amh-native recall-trace                     # 本设备最近召回：时间/通道/问题/候选/入选/送达/阶段/trace
+amh-native recall-trace --trace <trace_id>  # 展开：排名、标题、内容形态、来源产品、项目、原生产者、召回方式、本轮状态、时间
+```
+
+管理员可在 `/native/v1/admin/recalls` 查看全组织记录（与看板同一管理令牌，数据接口是 `/native/v1/admin/recalls/data`）。注意隐私：Hook 通道把用户的提示词当查询，明细默认保留其前 120 字、存 30 天、管理员可见。关闭方法：
+
+```sh
+curl -X POST https://<hub>/native/v1/admin/settings \
+  -H 'Authorization: Bearer <管理令牌>' -H 'Content-Type: application/json' \
+  -d '{"key": "recall_query_preview", "value": "off"}'
+```
+
+关闭后新旧记录都只返回摘要哈希；值只接受 `on` / `off`。
+
+Hook 现在走 `POST /native/v1/recall`：与组织工具同一套混合排序，只取记忆与规则两类资产，不再把聊天记录切片当候选；响应只含 Hook 用到的字段，正文每条最多 64KB、合计最多 512KB（超出的截断并标 `body_truncated`）。老 Hub 或网关返回 404 / 405 / 501 时回退到原来的 `/search`。合成语料的机制检查见 `benchmarks/native_recall_parity.py`，它并列跑两组语料（噪声不构成竞争 / 噪声正文各不相同且与目标同角色），只验证各阶段按设计生效，不是真实记忆上的质量证据；日期相对运行当天生成，结果不随日历漂移。
 
 ## 正文与关系
 

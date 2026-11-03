@@ -12,6 +12,7 @@ import re
 from pathlib import Path
 from .projection import strip_managed
 from .common import legacy_memory_command
+from .facets import source_meta
 
 SECRET_NAMES = {
     "auth.json",
@@ -279,14 +280,23 @@ def enqueue_document(
     document: tuple[str, str, str],
     unknown: bool,
     upstream: list[str] | None = None,
+    *,
+    mtime: float | None = None,
 ) -> None:
     """Coalesce a complete document into versioned parts inside the caller's transaction.
 
     Part IDs remain stable across edits. Superseded tails become tombstones; the
     outbox retains only the latest desired state until an acknowledged upload.
+    Every part carries the same source_meta: the file's modification time plus,
+    for Markdown memory/rules, declared front matter, wikilinks and headings.
     """
     text, encoding, document_hash = document
     indexed = indexable_history(text) if source["kind"] == "transcript" else None
+    meta = (
+        source_meta(text, mtime=mtime)
+        if source["kind"] in ("memory", "rule") and encoding == "utf8"
+        else source_meta("", mtime=mtime)
+    )
     chunks = [text[i : i + 8000] for i in range(0, len(text), 8000)] or [""]
     existing = {
         r["asset"]: r for r in db.execute("SELECT * FROM source_parts WHERE base=?", (base_id,))
@@ -316,6 +326,8 @@ def enqueue_document(
             part_index=n,
             part_count=len(chunks),
         )
+        if meta:
+            item["source_meta"] = meta
         payload = json.dumps(item, ensure_ascii=False)
         db.execute(
             "INSERT OR REPLACE INTO source_parts VALUES(?,?,?,?)", (base_id, aid, payload, rev)
