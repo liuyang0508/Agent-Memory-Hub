@@ -130,6 +130,12 @@ class Transport:
     def me(self) -> Any:
         return self.call("me")
 
+    def capabilities(self) -> list[str]:
+        """Unauthenticated protocol discovery; a malformed answer means no capabilities."""
+        value = self.call("health")
+        found = value.get("capabilities") if isinstance(value, dict) else None
+        return [c for c in found if isinstance(c, str)] if isinstance(found, list) else []
+
     def put(self, value: Any) -> Any:
         return self.call("assets", value)
 
@@ -140,3 +146,16 @@ class Transport:
 
     def search(self, query: str, **kwargs: Any) -> Any:
         return self.call("search", {"query": query, **kwargs})["items"]
+
+    def recall(self, query: str, *, limit: int = 8) -> Any:
+        """Hook-channel hybrid recall; an old Hub answers 404 and the caller falls back."""
+        return self.call("recall", {"query": query, "limit": limit})
+
+    def recall_feedback(self, trace_id: str, events: list[dict[str, Any]]) -> Any:
+        return self.call("recall/feedback", {"trace_id": trace_id, "events": events})
+
+    def recalls(self, *, trace_id: str | None = None, limit: int = 20) -> Any:
+        query = "recalls?limit=%d" % limit + (
+            "&trace_id=" + parse.quote(trace_id, safe="") if trace_id else ""
+        )
+        return self.call(query)["traces"]

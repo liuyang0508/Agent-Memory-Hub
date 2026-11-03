@@ -624,7 +624,9 @@ class NativeClient:
                         (source["id"], rel),
                     ).fetchone()
                     upstream = json.loads(alias["refs"]) if alias else []
-                    enqueue_document(db, source, rel, aid, doc, unknown, upstream)
+                    enqueue_document(
+                        db, source, rel, aid, doc, unknown, upstream, mtime=stat.st_mtime
+                    )
                     db.execute(
                         "INSERT OR REPLACE INTO snapshots VALUES(?,?,?,?,?,?,?)",
                         (source["id"], rel, h, 1, aid, 0, int(unknown)),
@@ -710,6 +712,15 @@ class NativeClient:
                 progress("connect", 0, None)
             self.transport.me()  # revoked devices cannot use this as a successful refresh
             errors.extend(quarantine_changed_roots(self))
+            # A Hub that predates source_meta rejects unknown fields outright.
+            # Ask once per pass; a transport without the probe is a current one.
+            probe = getattr(self.transport, "capabilities", None)
+            send_meta = True
+            if probe is not None:
+                try:
+                    send_meta = "recall-parity-v1" in probe()
+                except (OSError, ValueError, TimeoutError):
+                    send_meta = False
             pushed = 0
             with database(self.path) as db:
                 pending = [
@@ -724,8 +735,22 @@ class NativeClient:
                 item = json.loads(row["payload"])
                 if not self.source_enabled(item["kind"]) or item["source_store"] in quarantined:
                     continue
+                if not send_meta:
+                    item.pop("source_meta", None)
                 try:
-                    saved = self.transport.put(item)
+                    try:
+                        saved = self.transport.put(item)
+                    except ValueError as exc:
+                        # One retry without the optional hints covers a Hub whose
+                        # health endpoint is newer than its asset contract.
+                        if getattr(exc, "http_status", None) != 422 or "source_meta" not in item:
+                            raise
+                        item.pop("source_meta")
+                        saved = self.transport.put(item)
+                        # Only a retry that succeeded proves the field itself was
+                        # the problem; an asset rejected for its own reasons must
+                        # not strip the hints from everything queued after it.
+                        send_meta = False
                 except ValueError as exc:
                     errors.append(f"upload {item['asset_id']}: {type(exc).__name__}")
                     continue
@@ -743,6 +768,7 @@ class NativeClient:
                 pushed += 1
                 if progress:
                     progress("upload", pushed, len(pending))
+            errors.extend(self._report_recalls())
             # Upload acknowledgement can be lost after the Hub commits. Replaying
             # our changes repairs the base revision before the next idempotent retry.
             pages = 0
@@ -862,6 +888,59 @@ class NativeClient:
             if progress:
                 progress("refresh", pages, pages)
             return {"pushed": pushed, "errors": errors}
+
+    def _report_recalls(self) -> list[str]:
+        """Send queued delivery states per trace; drop what the Hub cannot accept, keep outages.
+
+        Nothing here may abort the sync pass: changes replay and projection must
+        proceed even while the feedback endpoint keeps failing.
+        """
+        from .transport import HubHTTPError
+
+        send = getattr(self.transport, "recall_feedback", None)
+        if send is None:
+            return []
+        with database(self.path) as db:
+            # The Hub forgets a trace after 30 days; a report older than that
+            # can only ever be refused, so stop carrying it.
+            db.execute("DELETE FROM recall_reports WHERE created<?", (time.time() - 30 * 86400,))
+            rows = db.execute(
+                "SELECT * FROM recall_reports ORDER BY trace_id, created LIMIT 640"
+            ).fetchall()
+        grouped: dict[str, list[dict[str, Any]]] = {}
+        for row in rows:
+            grouped.setdefault(row["trace_id"], []).append(
+                {"asset_id": row["asset"], "revision": row["revision"], "event": row["event"]}
+            )
+        errors: list[str] = []
+        for trace_id, events in grouped.items():
+            for start in range(0, len(events), 64):
+                batch = events[start : start + 64]
+                try:
+                    send(trace_id, batch)
+                except HubHTTPError as exc:
+                    errors.append(f"recall report {trace_id}: HTTP {exc.http_status}")
+                    # 404: a Hub without the ledger; 409/422: a trace it does not
+                    # know or will not accept. Either way the report is moot.
+                    # Any other status keeps the rows for a later pass.
+                    if exc.http_status not in (404, 409, 422):
+                        continue
+                except OSError:
+                    # Outage (5xx, 408/429, socket): keep every remaining row
+                    # rather than turn one unreachable endpoint into a socket
+                    # timeout per trace; the next pass retries from here.
+                    errors.append(f"recall report {trace_id}: unavailable")
+                    return errors
+                except ValueError as exc:
+                    # A malformed answer for this trace; the next trace may be fine.
+                    errors.append(f"recall report {trace_id}: {type(exc).__name__}")
+                    continue
+                with database(self.path) as db:
+                    db.executemany(
+                        "DELETE FROM recall_reports WHERE trace_id=? AND asset=? AND revision=? AND event=?",
+                        [(trace_id, e["asset_id"], e["revision"], e["event"]) for e in batch],
+                    )
+        return errors
 
     def cached(self) -> list[dict[str, Any]]:
         """Return live replica parts; consumers must verify multipart completeness before applying."""

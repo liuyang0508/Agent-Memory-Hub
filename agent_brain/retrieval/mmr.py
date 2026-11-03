@@ -13,6 +13,14 @@ def _cosine_sim(a: list[float], b: list[float]) -> float:
     return dot / (norm_a * norm_b)
 
 
+def _unit(vector: list[float]) -> list[float] | None:
+    """The vector scaled to unit length, or None for an empty/zero vector."""
+    norm = sum(x * x for x in vector) ** 0.5
+    if norm == 0:
+        return None
+    return [x / norm for x in vector]
+
+
 def mmr_rerank(
     candidates: list[RetrievedItem],
     embeddings: dict[str, list[float]],
@@ -24,6 +32,11 @@ def mmr_rerank(
 
     Balances relevance with diversity: at each step, picks the candidate
     maximizing lambda * relevance - (1-lambda) * max similarity to selected.
+
+    Incremental form: every candidate caches its maximum similarity to the
+    selected set, and each pick costs one cosine per remaining candidate
+    against pre-normalized vectors (O(n·k·d) instead of O(n²·k·d)). The
+    result is the same ordering as the direct definition.
     """
     if len(candidates) <= 1 or lambda_ is None:
         return candidates
@@ -33,6 +46,14 @@ def mmr_rerank(
     max_score = max(score_by_id.values()) if score_by_id else 1.0
     if max_score == 0:
         max_score = 1.0
+    units: dict[str, list[float]] = {}
+    for cand in candidates:
+        unit = _unit(embeddings.get(cand.id) or [])
+        if unit is not None:
+            units[cand.id] = unit
+    # Max cosine to the selected set so far; a negative cosine never lowers it
+    # below the 0.0 floor, exactly as the direct form behaves.
+    max_sim = {c.id: 0.0 for c in candidates}
 
     selected: list[RetrievedItem] = []
     remaining = list(candidates)
@@ -43,23 +64,23 @@ def mmr_rerank(
 
         for i, cand in enumerate(remaining):
             rel = score_by_id[cand.id] / max_score
-
-            max_sim = 0.0
-            cand_emb = embeddings.get(cand.id)
-            if cand_emb and selected:
-                for selected_item in selected:
-                    selected_emb = embeddings.get(selected_item.id)
-                    if selected_emb:
-                        sim = _cosine_sim(cand_emb, selected_emb)
-                        if sim > max_sim:
-                            max_sim = sim
-
-            mmr_score = lambda_ * rel - (1 - lambda_) * max_sim
+            mmr_score = lambda_ * rel - (1 - lambda_) * max_sim[cand.id]
             if mmr_score > best_mmr:
                 best_mmr = mmr_score
                 best_idx = i
 
-        selected.append(remaining.pop(best_idx))
+        chosen = remaining.pop(best_idx)
+        selected.append(chosen)
+        chosen_unit = units.get(chosen.id)
+        if chosen_unit is None:
+            continue
+        for cand in remaining:
+            unit = units.get(cand.id)
+            if unit is None:
+                continue
+            sim = sum(x * y for x, y in zip(unit, chosen_unit))
+            if sim > max_sim[cand.id]:
+                max_sim[cand.id] = sim
 
     return selected
 
