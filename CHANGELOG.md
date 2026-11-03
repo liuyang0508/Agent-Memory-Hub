@@ -12,33 +12,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Organization recall now carries the ranking signals the local brain had.**
   Candidates are classified by knowledge nature (rule / preference / project
   state / fact / decision / reference / episode) with a provenance tier, dated
-  from trusted times only (declared front matter, file mtime, server
-  observation — never one standing in for another), re-ranked within ±5% by a
-  forgetting curve plus delivery/citation/support/contradiction signals, and
-  retired only on an explicit `superseded_by` or past `expires`. Opt-in
-  Hopfield association (`serve --hopfield`) adds indexed neighbours neither
-  route surfaced.
+  from trusted times only (declared front matter, filename date, then file
+  mtime as a last resort, server observation never standing in for content
+  time), re-ranked by at most −5% / +3% by a forgetting curve plus
+  delivery/citation/support/contradiction signals, and retired only on an
+  explicit `superseded_by` that names an existing asset or a past `expires`.
+  Opt-in Hopfield association (`serve --hopfield`, `--hopfield-beta`,
+  `--hopfield-min-score`) adds indexed neighbours neither route surfaced; the
+  thresholds are uncalibrated defaults. `serve --decay/--no-decay` and the
+  environment variables `AMH_NATIVE_DECAY` / `AMH_NATIVE_HOPFIELD` control
+  both stages (flags win over the environment).
 - **Every recall leaves a trace.** `retrieve` and the new hook channel
   `POST /native/v1/recall` record, per candidate, the route ranks, each
   stage's before/after rank and score, and the delivery state (candidate →
   selected → packed → emitted → confirmed → cited, or why it was dropped).
-  Disabled stages read 「未启用」. Traces hold identifiers and titles, never
-  bodies, and expire after 30 days. See them with `amh-native recall-trace`,
-  the operator page `/native/v1/admin/recalls`, or `trace_id` in
-  `search_org_memory`.
+  Disabled stages read 「未启用」. Traces hold identifiers and titles (at most
+  50 candidates, titles cut to 80 characters), never bodies, and expire after
+  30 days. See them with `amh-native recall-trace`, `GET /native/v1/recalls`
+  (this device), the operator page `/native/v1/admin/recalls` with its data
+  endpoint `/native/v1/admin/recalls/data`, or `trace_id` in
+  `search_org_memory`. Privacy: a trace keeps the first 120 characters of the
+  query by default so operators can debug recall; the admin setting
+  `recall_query_preview=off` masks it for new and old traces alike.
+  `health.capabilities` gains `recall-parity-v1`; the Hub schema gains the
+  additive tables `recall_signals` and `recall_events`, the client state the
+  tables `emitted_traces` and `recall_reports`.
 - **Feedback loop.** `amh-native recall-feedback` / `POST /native/v1/recall/feedback`
   accept cite / support / contradict / confirm for a trace's candidates; the
   hook reports packed / emitted / confirmed / budget / covered through the
-  worker. Signals feed the next ranking.
+  worker. Delivery events are idempotent per state, a member's feedback on a
+  candidate counts once per event type, a candidate keeps at most 32 events,
+  and a new revision resets the asset's contradiction count. Signals feed the
+  next ranking.
 - Clients upload bounded `source_meta` (mtime, declared front matter subset,
   `[[wikilinks]]`, headings) with each document; a Hub that predates the
-  field is detected via `health` capabilities and the field is dropped.
+  field is detected via `health` capabilities and the field is dropped. The
+  mtime is not part of the content hash, so a re-scan that only changes
+  mtimes creates no new revisions. The Cowork plugin bundle gains
+  `facets.py`.
 
 ### Changed
 
 - The prompt-time hook no longer uses the lexical-only `/search`: it uses the
-  hybrid, role-filtered recall channel, so transcript chunks stop crowding
-  out curated memory. Old Hubs (HTTP 404) fall back to `/search`.
+  hybrid recall channel limited to memory and rule assets, so transcript
+  chunks stop crowding out curated memory. `/recall` returns only the fields
+  the hook packs, with bodies capped at 64 KB each and 512 KB in total. Old
+  Hubs or gateways answering 404 / 405 / 501 fall back to `/search`; a 403 on
+  `/recall` alone no longer revokes local state.
 - `hook-metrics.jsonl` lines gain `channel`, `trace_id`, `hits` and `packed`.
 
 ## [1.3.0] — 2026-11-01

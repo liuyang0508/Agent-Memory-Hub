@@ -87,6 +87,8 @@ amh-native search '订单回调验签失败'
 amh-native worker                 # 未使用 LaunchAgent 时
 amh-native pause
 amh-native resume
+amh-native recall-trace            # 本设备最近的召回明细；--trace <id> 展开单次
+amh-native recall-feedback --trace <id> --asset <id> --revision <n> --event cite
 ```
 
 暂停停止后台共享与 Hook 云召回；已经下载并可原生读取的资料不会因此自动销毁。已交付给成员的数据无法通过撤销做到“从记忆中抹除”；在线撤销只约束后续访问和受管理副本。
