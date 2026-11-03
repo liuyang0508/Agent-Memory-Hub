@@ -132,11 +132,15 @@ ORG_MCP_NAME = "amh-org"
 ORG_MCP_MODULE = "agent_brain.native_sync.org_mcp"
 
 
-def org_mcp_server(state: Path, *, policy_path: str | None = None) -> dict[str, Any]:
+def org_mcp_server(
+    state: Path, *, policy_path: str | None = None, product: str = ""
+) -> dict[str, Any]:
     """Point at the installed client; credentials remain in the runtime profile."""
     args = ["--state", str(state.resolve())]
     if policy_path is not None:
         args.extend(["--policy", policy_path])
+    if product:
+        args.extend(["--product", product])
     argv = runtime_argv(ORG_MCP_MODULE, *args)
     return {"command": argv[0], "args": argv[1:]}
 
@@ -217,7 +221,8 @@ def install_hooks(home: Path, state: Path, *, products: list[str]) -> list[str]:
     receipt = state / "install-receipt.json"
     saved = json.loads(receipt.read_text()) if receipt.exists() else {"json": {}, "text": {}}
     report = []
-    mcp_server = org_mcp_server(state)
+    claude_mcp = org_mcp_server(state, product="claude-code")
+    codex_mcp = org_mcp_server(state, product="codex-cli")
     destinations = {}
     if "claude-code" in products:
         destinations[home / ".claude/settings.json"] = "claude-code"
@@ -247,7 +252,7 @@ def install_hooks(home: Path, state: Path, *, products: list[str]) -> list[str]:
             raise ValueError("invalid user MCP configuration: " + str(claude_config))
         _check_mcp_owner(
             data.get("mcpServers", {}).get(ORG_MCP_NAME),
-            mcp_server,
+            claude_mcp,
             saved.get("mcp", {}).get(str(claude_config), {}),
         )
     config_path = home / ".codex/config.toml"
@@ -260,7 +265,7 @@ def install_hooks(home: Path, state: Path, *, products: list[str]) -> list[str]:
             native_reading_config(
                 remove_mcp_block(config_path.read_text() if config_path.exists() else "")
             ),
-            mcp_server,
+            codex_mcp,
             saved.get("mcp", {}).get(str(config_path), {}),
         )
     for path, product in destinations.items():
@@ -304,8 +309,8 @@ def install_hooks(home: Path, state: Path, *, products: list[str]) -> list[str]:
         original = json.loads(claude_config.read_text()) if claude_config.exists() else {}
         data = json.loads(json.dumps(original))
         servers = data.setdefault("mcpServers", {})
-        _save_mcp_receipt(saved, claude_config, servers.get(ORG_MCP_NAME), mcp_server, "json")
-        servers[ORG_MCP_NAME] = mcp_server
+        _save_mcp_receipt(saved, claude_config, servers.get(ORG_MCP_NAME), claude_mcp, "json")
+        servers[ORG_MCP_NAME] = claude_mcp
         saved["json"].setdefault(
             str(claude_config), {"before": original, "existed": claude_config.exists()}
         )
@@ -351,12 +356,12 @@ def install_hooks(home: Path, state: Path, *, products: list[str]) -> list[str]:
             saved,
             codex_config,
             tomllib.loads(original).get("mcp_servers", {}).get(ORG_MCP_NAME),
-            mcp_server,
+            codex_mcp,
             "toml",
         )
         changed = _codex_mcp(
             native_reading_config(remove_mcp_block(original)),
-            mcp_server,
+            codex_mcp,
             saved.get("mcp", {}).get(str(codex_config), {}),
         )
         already_trusted = set(trusted_hashes(original).values())
@@ -491,7 +496,9 @@ def export_cowork_plugin(
         assert runtime_state is not None
         manifest["mcpServers"] = {
             ORG_MCP_NAME: org_mcp_server(
-                runtime_state, policy_path="${CLAUDE_PLUGIN_ROOT}/runtime/connection-policy.json"
+                runtime_state,
+                policy_path="${CLAUDE_PLUGIN_ROOT}/runtime/connection-policy.json",
+                product="cowork",
             )
         }
     atomic_json(root / ".claude-plugin/plugin.json", manifest)

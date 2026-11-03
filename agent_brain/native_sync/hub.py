@@ -77,6 +77,7 @@ class Hub:
             raise ValueError("semantic threshold and MMR lambda must be between 0 and 1")
         self.mmr_lambda = mmr_lambda
         self.reranker = reranker
+        self._insights_refreshed: dict[str, float] = {}
         with database(self.path) as db:
             db.executescript(HUB_SCHEMA)
 
@@ -1145,6 +1146,7 @@ class Hub:
         project_filter: str | None = None,
         channel: str = "tool",
         record: bool = True,
+        asking: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         from .retrieval import retrieve
 
@@ -1158,15 +1160,25 @@ class Hub:
             project_filter=project_filter,
             channel=channel,
             record=record,
+            asking=asking,
         )
 
-    def recall(self, token: str, query: str, *, limit: int = 8) -> dict[str, Any]:
+    def recall(
+        self,
+        token: str,
+        query: str,
+        *,
+        limit: int = 8,
+        asking: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         """Hook-channel recall: hybrid ranking over curated memory and rules, full bodies.
 
         Replaces the lexical-only search for the prompt-time hook so transcript
         chunks and supporting material cannot crowd out curated memory.
         """
-        result = self.retrieve(token, query, limit=limit, kinds=["memory", "rule"], channel="hook")
+        result = self.retrieve(
+            token, query, limit=limit, kinds=["memory", "rule"], channel="hook", asking=asking
+        )
         return {
             "items": result["items"],
             "trace_id": result["retrieval"]["trace_id"],
@@ -1199,16 +1211,96 @@ class Hub:
         return {"traces": traces}
 
     def admin_recalls(
-        self, token: AdminCredential, *, trace_id: str | None = None, limit: int = 50
+        self,
+        token: AdminCredential,
+        *,
+        trace_id: str | None = None,
+        limit: int = 50,
+        member: str | None = None,
+        channel: str | None = None,
+        day: str | None = None,
     ) -> dict[str, Any]:
         """Organization-wide recall traces for the operator page; no memory text."""
+        from . import insights
         from .recall_ledger import list_traces
 
+        since = until = None
+        if day:
+            since, until = insights.day_bounds(day)
         with database(self.path) as db:
             self._admin(db, token)
-            traces = list_traces(db, self.tenant, trace_id=trace_id, limit=limit)
+            traces = list_traces(
+                db,
+                self.tenant,
+                trace_id=trace_id,
+                limit=limit,
+                member=member,
+                channel=channel,
+                since=since,
+                until=until,
+            )
             self._mask_query_preview(db, traces)
-        return {"traces": traces, "generated_at": time.time()}
+            members = [
+                {"id": row["id"], "name": row["name"]}
+                for row in db.execute(
+                    "SELECT id,name FROM members WHERE tenant=? ORDER BY name", (self.tenant,)
+                )
+            ]
+        return {"traces": traces, "members": members, "generated_at": time.time()}
+
+    def admin_insights(self, token: AdminCredential, *, days: int = 30) -> dict[str, Any]:
+        """Recall usage rolled up by day for the insight page; counts and titles, never bodies.
+
+        The rollup is refreshed first when it is older than ``REFRESH_INTERVAL``,
+        so the page reflects delivery and feedback states reported since the
+        last visit without a scheduler having to run.
+        """
+        from . import insights
+
+        days = max(1, min(int(days), 365))
+        now = time.time()
+        scope = self.tenant
+        with database(self.path) as db:
+            db.execute("BEGIN IMMEDIATE")
+            self._admin(db, token)
+            self._refresh_insights(db, scope, now)
+        with database(self.path) as db:
+            members = {
+                row["id"]: row["name"]
+                for row in db.execute("SELECT id,name FROM members WHERE tenant=?", (scope,))
+            }
+            preview = db.execute(
+                "SELECT value FROM settings WHERE key='recall_query_preview'"
+            ).fetchone()
+            preview_on = not (preview and str(preview["value"]).strip().lower() == "off")
+            data = insights.report(
+                db, scope, days=days, now=now, preview_on=preview_on, members=members
+            )
+        data["generated_at"] = now
+        data["window_days"] = days
+        return data
+
+    def _refresh_insights(
+        self, db: sqlite3.Connection, tenant: str, now: float, *, force: bool = False
+    ) -> bool:
+        from . import insights
+
+        if (
+            not force
+            and now - self._insights_refreshed.get(tenant, 0.0) < insights.REFRESH_INTERVAL
+        ):
+            return False
+        insights.refresh(db, tenant)
+        self._insights_refreshed[tenant] = now
+        return True
+
+    def refresh_insights(self) -> list[str]:
+        """Roll the ledger up for this Hub's organization; ``serve`` calls it hourly."""
+        with database(self.path) as db:
+            db.execute("BEGIN IMMEDIATE")
+            scope = self.tenant
+            self._refresh_insights(db, scope, time.time(), force=True)
+        return sorted(self._insights_refreshed)
 
     @staticmethod
     def _mask_query_preview(db: sqlite3.Connection, traces: list[dict[str, Any]]) -> None:

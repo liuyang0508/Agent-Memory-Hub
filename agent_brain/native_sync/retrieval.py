@@ -49,6 +49,19 @@ MMR_MIN_TOP_K = 8
 TRACE_WRITE_TIMEOUT = 0.3
 
 
+def _asking(value: dict[str, Any] | None) -> dict[str, str]:
+    """Bounded asking-side hints for the trace; absent fields stay empty, never guessed."""
+    value = value if isinstance(value, dict) else {}
+    session = str(value.get("session_digest") or "")[:16]
+    if any(char not in "0123456789abcdef" for char in session):
+        session = ""
+    return {
+        "product": str(value.get("product") or "")[:64],
+        "project": str(value.get("project") or "")[:256],
+        "session_digest": session,
+    }
+
+
 def _weighted(score: float, weight: float) -> float:
     """Apply a multiplicative weight so that it pulls in the same direction for negative scores."""
     return score + (weight - 1.0) * abs(score)
@@ -149,6 +162,7 @@ def retrieve(
     project_filter: str | None = None,
     channel: str = "tool",
     record: bool = True,
+    asking: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     kinds = ["memory"] if kinds is None else list(kinds)
     if not kinds or not set(kinds) <= KINDS:
@@ -576,6 +590,7 @@ def retrieve(
         "kinds": kinds,
         "include_evidence": include_evidence,
         "project_filter": project_filter,
+        "asking": _asking(asking),
         "stages": stages,
         "retrieval": {"mode": "hybrid" if semantic_used else "lexical", "reasons": list(reasons)},
         "candidates": [

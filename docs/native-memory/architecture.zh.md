@@ -42,6 +42,7 @@ agent_brain/native_sync/      # 独立业务包；模块职责表见包内 READM
   recall.py / projection.py # 上下文组装与原生可读资源
   retrieval.py / facets.py   # 分阶段排序流水线；知识性质、可信时间、衰减（纯标准库，随插件打包）
   recall_ledger.py           # 召回明细与反馈信号账本（30 天）
+  insights.py / insights_page.py # 账本按天汇总（过期前冻结）、可观测矩阵与洞察页
   materialize.py / assets.py # 完整资产导出、显式行为激活
   install.py / cli.py        # 安装、回执恢复、产品发现和命令装配
 tests/native_sync/           # 协议、安装、业务边界、故障恢复、架构约束

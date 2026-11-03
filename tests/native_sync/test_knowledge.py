@@ -390,6 +390,7 @@ def test_retrieve_http_delegates_validated_options_to_hub(env, monkeypatch):
             "kinds": ["memory"],
             "include_evidence": True,
             "project_filter": None,
+            "asking": None,
         }
     ]
     assert (

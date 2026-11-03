@@ -25,7 +25,12 @@ FLOW_COOKIE = "__Host-amh-admin-flow"
 SESSION_COOKIE = "__Host-amh-admin-session"
 STATE_TTL = 600
 SESSION_TTL = 8 * 60 * 60
-TARGETS = {"admin": "/native/v1/admin", "dashboard": "/native/v1/admin/dashboard"}
+TARGETS = {
+    "admin": "/native/v1/admin",
+    "dashboard": "/native/v1/admin/dashboard",
+    "insights": "/native/v1/admin/insights",
+    "recalls": "/native/v1/admin/recalls",
+}
 
 
 @dataclass(frozen=True)

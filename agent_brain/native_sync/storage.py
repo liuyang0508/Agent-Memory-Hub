@@ -214,6 +214,26 @@ CREATE TABLE IF NOT EXISTS recall_events(
     PRIMARY KEY(tenant,trace_id)
 );
 CREATE INDEX IF NOT EXISTS recall_events_recent ON recall_events(tenant, created);
+
+-- Additive insight rollups: per-day counts derived from the recall ledger so
+-- usage history survives the trace TTL. Counts, identifiers and titles only.
+CREATE TABLE IF NOT EXISTS recall_daily(
+    tenant TEXT NOT NULL,
+    day TEXT NOT NULL,
+    member TEXT NOT NULL,
+    channel TEXT NOT NULL,
+    payload TEXT NOT NULL,
+    frozen INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY(tenant,day,member,channel)
+);
+CREATE TABLE IF NOT EXISTS asset_daily(
+    tenant TEXT NOT NULL,
+    day TEXT NOT NULL,
+    asset_id TEXT NOT NULL,
+    payload TEXT NOT NULL,
+    frozen INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY(tenant,day,asset_id)
+);
 """
 
 

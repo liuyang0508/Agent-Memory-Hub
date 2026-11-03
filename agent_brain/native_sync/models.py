@@ -73,6 +73,20 @@ class SearchInput(BaseModel):
     limit: int = Field(default=12, ge=1, le=50)
 
 
+class AskingContext(BaseModel):
+    """Where a recall was asked from, for insight rollups only.
+
+    Hints, never identity or scope: the Hub still takes member and tenant from
+    the device credential, and these fields do not filter results. The session
+    digest is a hash the client computed; the Hub never sees a session id.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+    product: str = Field(default="", max_length=64)
+    project: str = Field(default="", max_length=256)
+    session_digest: str = Field(default="", max_length=16, pattern=r"^[a-f0-9]*$")
+
+
 class RetrieveInput(BaseModel):
     """Semantic/lexical retrieval without caller-selected identity or tenant."""
 
@@ -84,6 +98,7 @@ class RetrieveInput(BaseModel):
     )
     include_evidence: bool = False
     project_filter: str | None = Field(default=None, max_length=256)
+    asking: AskingContext | None = None
 
 
 class RecallInput(BaseModel):
@@ -92,6 +107,7 @@ class RecallInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     query: str = Field(max_length=8000)
     limit: int = Field(default=8, ge=1, le=8)
+    asking: AskingContext | None = None
 
 
 class RecallEvent(BaseModel):

@@ -30,11 +30,16 @@ def test_mixed_client_mcp_entries_survive_install_and_exact_uninstall(tmp_path):
     assert cc["mcpServers"]["other"] == original_claude["mcpServers"]["other"]
     assert cc["projects"] == original_claude["projects"]
     assert cx["mcp_servers"]["other"] == {"command": "other-server", "args": ["--existing"]}
-    assert cc["mcpServers"]["amh-org"] == cx["mcp_servers"]["amh-org"]
-    for server in [cc["mcpServers"]["amh-org"], cx["mcp_servers"]["amh-org"]]:
+    # The two entries differ only in the product label the server reports when asking.
+    assert cc["mcpServers"]["amh-org"]["command"] == cx["mcp_servers"]["amh-org"]["command"]
+    assert cc["mcpServers"]["amh-org"]["args"][:-1] == cx["mcp_servers"]["amh-org"]["args"][:-1]
+    for server, product in [
+        (cc["mcpServers"]["amh-org"], "claude-code"),
+        (cx["mcp_servers"]["amh-org"], "codex-cli"),
+    ]:
         assert set(server) == {"command", "args"}
         assert "agent_brain.native_sync.org_mcp" in " ".join(server["args"])
-        assert server["args"][-2:] == ["--state", str(state.resolve())]
+        assert server["args"][-4:] == ["--state", str(state.resolve()), "--product", product]
     assert "mcpServers" not in json.loads((home / ".claude/settings.json").read_text())
     assert install.uninstall_hooks(home, state) == []
     assert codex.read_text() == original_codex
@@ -123,11 +128,13 @@ def test_bound_cowork_manifest_declares_installed_stdio_without_credentials(tmp_
     manifest = json.loads((plugin / ".claude-plugin/plugin.json").read_text())
     server = manifest["mcpServers"]["amh-org"]
     assert set(server) == {"command", "args"}
-    assert server["args"][-4:] == [
+    assert server["args"][-6:] == [
         "--state",
         str(state.resolve()),
         "--policy",
         "${CLAUDE_PLUGIN_ROOT}/runtime/connection-policy.json",
+        "--product",
+        "cowork",
     ]
     assert "agent_brain.native_sync.org_mcp" in " ".join(server["args"])
     with zipfile.ZipFile(str(plugin) + ".zip") as bundle:

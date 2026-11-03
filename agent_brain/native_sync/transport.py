@@ -147,9 +147,12 @@ class Transport:
     def search(self, query: str, **kwargs: Any) -> Any:
         return self.call("search", {"query": query, **kwargs})["items"]
 
-    def recall(self, query: str, *, limit: int = 8) -> Any:
+    def recall(self, query: str, *, limit: int = 8, asking: dict[str, Any] | None = None) -> Any:
         """Hook-channel hybrid recall; an old Hub answers 404 and the caller falls back."""
-        return self.call("recall", {"query": query, "limit": limit})
+        data: dict[str, Any] = {"query": query, "limit": limit}
+        if asking:
+            data["asking"] = asking
+        return self.call("recall", data)
 
     def recall_feedback(self, trace_id: str, events: list[dict[str, Any]]) -> Any:
         return self.call("recall/feedback", {"trace_id": trace_id, "events": events})

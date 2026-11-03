@@ -13,6 +13,8 @@ import sqlite3
 import time
 from typing import Any
 
+from . import insights
+
 TRACE_TTL = 30 * 86400
 MAX_EVENTS = 64
 # Per-candidate event history kept in the trace; beyond it only a count grows.
@@ -73,7 +75,9 @@ def record_trace(db: sqlite3.Connection, tenant: str, trace: dict[str, Any]) -> 
             json.dumps(trace, ensure_ascii=False, separators=(",", ":")),
         ),
     )
-    db.execute("DELETE FROM recall_events WHERE tenant=? AND created<?", (tenant, now - TRACE_TTL))
+    # Expiry freezes each whole day's rollup before its traces go, so the
+    # insight pages keep history the ledger itself no longer holds.
+    insights.expire(db, tenant, now=now, ttl=TRACE_TTL)
 
 
 def _advance(current: str, target: str) -> str:
@@ -249,6 +253,7 @@ def summary(trace: dict[str, Any], *, top: int = 8) -> dict[str, Any]:
         "member": trace["member"],
         "query_digest": trace["query_digest"],
         "query_preview": trace.get("query_preview", ""),
+        "asking": trace.get("asking") or {},
         "stages": trace.get("stages", {}),
         "retrieval": trace.get("retrieval", {}),
         "counts": {"candidates": len(candidates), **counts},
@@ -282,13 +287,24 @@ def list_traces(
     device: str | None = None,
     trace_id: str | None = None,
     limit: int = 20,
+    member: str | None = None,
+    channel: str | None = None,
+    since: float | None = None,
+    until: float | None = None,
 ) -> list[dict[str, Any]]:
     """Most recent traces first; one full trace when trace_id is given, summaries otherwise."""
     filters = ["tenant=?"]
     args: list[Any] = [tenant]
-    if device is not None:
-        filters.append("device=?")
-        args.append(device)
+    for column, value in (("device", device), ("member", member), ("channel", channel)):
+        if value is not None:
+            filters.append(column + "=?")
+            args.append(value)
+    if since is not None:
+        filters.append("created>=?")
+        args.append(since)
+    if until is not None:
+        filters.append("created<?")
+        args.append(until)
     if trace_id is not None:
         filters.append("trace_id=?")
         args.append(trace_id)
