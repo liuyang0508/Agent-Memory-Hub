@@ -560,7 +560,15 @@ RECALL_MATCH_FIELDS = (
     "offset_unit",
     "aggregation",
 )
-RECALL_TRACE_FIELDS = ("trace_id", "routes", "final_rank", "nature", "decay_weight", "state")
+RECALL_TRACE_FIELDS = (
+    "trace_id",
+    "routes",
+    "final_rank",
+    "nature",
+    "decay_weight",
+    "state",
+    "relevance",
+)
 RECALL_BODY_BYTES = 64 * 1024
 RECALL_TOTAL_BYTES = 512 * 1024
 

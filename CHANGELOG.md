@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.10] — 2026-11-04
+
+### Fixed
+
+- The recall API now returns `recall.relevance`, so the hook table's 相关
+  column shows the learned relevance probability instead of falling back to
+  raw similarity.
+
 ## [1.4.9] — 2026-11-04
 
 ### Added

@@ -129,6 +129,7 @@ def test_recall_small_memory_is_returned_verbatim_with_hook_fields_only(api):
         "nature",
         "decay_weight",
         "state",
+        "relevance",
     }
     server_pack = pack([record], covered=set(), query="审批复核")
     assert pack([item], covered=set(), query="审批复核") == server_pack
