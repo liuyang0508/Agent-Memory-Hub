@@ -1,5 +1,7 @@
 # 每台设备双 Hub 上传，只有主 Hub 召回
 
+适用客户端版本：1.4.4。
+
 每个 `--state` 是独立设备 profile：有自己的 Hub 身份、源文件共享选择、SQLite、上传队列、游标和后台 worker。两个 profile 可读取同一份产品原生记忆，但不能复制对方的 `config.json`、数据库或凭证。一个 Hub 故障只影响自己的队列；不会从备用 Hub 召回。
 
 `recall_enabled` 是独立的本机召回开关，旧 profile 缺省为开启。关闭后 Hook 不注入组织内容，MCP 的 search/read/related（包括已开始的 research）、NativeClient 搜索和缓存读取、投影均不提供组织内容；上传 worker 和共享选择继续运行。它不撤回已进入产品旧会话的上下文。`pause` 会暂停上传，不能用来实现只上传的备份。
