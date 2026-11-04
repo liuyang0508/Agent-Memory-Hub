@@ -234,12 +234,12 @@ def _assets_view(
 ) -> dict[str, Any]:
     used: dict[str, int] = {}
     judged: dict[str, int] = {}
-    for row in labels:
-        if row["created"] < start:
+    for label in labels:
+        if label["created"] < start:
             continue
-        judged[row["asset_id"]] = judged.get(row["asset_id"], 0) + 1
-        if row["label"] in USED:
-            used[row["asset_id"]] = used.get(row["asset_id"], 0) + 1
+        judged[label["asset_id"]] = judged.get(label["asset_id"], 0) + 1
+        if label["label"] in USED:
+            used[label["asset_id"]] = used.get(label["asset_id"], 0) + 1
     known = {asset["asset_id"]: asset for asset in live}
     demand = sorted(
         item["funnel"]["selected"]
