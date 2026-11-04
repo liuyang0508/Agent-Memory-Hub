@@ -1583,6 +1583,56 @@ class Hub:
         data["window_days"] = days
         return data
 
+    def admin_cockpit(self, token: AdminCredential, *, days: int = 30) -> dict[str, Any]:
+        """The management view: scorecard, exceptions, assets and people; never memory text."""
+        from agent_brain._version import __version__
+
+        from . import autotune, cockpit, insights
+
+        days = max(1, min(int(days), 365))
+        dashboard = self.admin_dashboard(token, days=days)
+        current = self.admin_insights(token, days=days)
+        now = float(current["generated_at"])
+        scope = self.tenant
+        state = dict(getattr(self, "semantic_state", {}) or {})
+        with database(self.path) as db:
+            names = {
+                row["id"]: row["name"]
+                for row in db.execute("SELECT id,name FROM members WHERE tenant=?", (scope,))
+            }
+            previous = insights.report(
+                db,
+                scope,
+                days=days,
+                now=now - days * 86400,
+                preview_on=False,
+                members=names,
+            )
+            health = {
+                "version": __version__,
+                "semantic_state": state.get("state", "off"),
+                "semantic_model": state.get("model"),
+                "semantic_reason": state.get("reason"),
+                "gate": self.gate_state() if state.get("state") == "ready" else None,
+                "autotune": autotune.status(db, scope, now=now),
+                "members": dashboard["totals"]["members"],
+                "devices": dashboard["totals"]["devices"],
+                "active_devices": dashboard["totals"]["active_devices"],
+                "last_upload": dashboard["totals"]["last_upload"],
+                "bytes": dashboard["totals"]["bytes"],
+            }
+            return cockpit.build(
+                db,
+                scope,
+                days=days,
+                now=now,
+                names=names,
+                dashboard=dashboard,
+                current=current,
+                previous=previous,
+                health=health,
+            )
+
     def _refresh_insights(
         self, db: sqlite3.Connection, tenant: str, now: float, *, force: bool = False
     ) -> bool:

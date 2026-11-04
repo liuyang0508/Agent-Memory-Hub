@@ -513,12 +513,21 @@ def create_app(hub: Hub) -> FastAPI:
             day=day,
         )
 
+    @app.get("/native/v1/admin/cockpit/data")
+    def admin_cockpit(
+        request: Request,
+        days: int = Query(default=30, ge=1, le=365),
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        """Scorecard, exceptions, assets and people for the management page."""
+        return hub.admin_cockpit(operator(request, authorization), days=days)
+
     @app.get("/native/v1/admin/insights")
     def admin_insights_page() -> HTMLResponse:
-        """Insight page; the page holds no credential and no memory text."""
-        from . import insights_page
+        """Insights now live in the cockpit; the address and its login target remain."""
+        from . import dashboard
 
-        return HTMLResponse(insights_page.html())
+        return HTMLResponse(dashboard.html("insights"))
 
     @app.get("/native/v1/admin/insights/data")
     def admin_insights(
