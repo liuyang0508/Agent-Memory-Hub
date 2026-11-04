@@ -137,6 +137,10 @@ class Transport:
     def me(self) -> Any:
         return self.call("me")
 
+    def health(self) -> Any:
+        """Unauthenticated Hub health: protocol, capabilities and (1.4.14+) version."""
+        return self.call("health")
+
     def capabilities(self) -> list[str]:
         """Unauthenticated protocol discovery; a malformed answer means no capabilities."""
         value = self.call("health")

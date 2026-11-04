@@ -1371,6 +1371,39 @@ def recall_tuning(
     emit(load(state).transport.recall_tuning(start=run_now))
 
 
+@app.command("update")
+def update(
+    state: Path = DEFAULT_STATE,
+    now: bool = typer.Option(False, "--now", help="现在检查一次，Hub 版本更新就升级"),
+    enabled: bool | None = typer.Option(None, "--on/--off", help="打开或关闭自动升级"),
+) -> None:
+    """客户端自动升级：跟随 Hub 的版本，每天检查一次；查看状态、立即检查或开关。"""
+    from . import autoupdate
+
+    c = load(state)
+    if enabled is not None:
+        c.config["auto_update"] = enabled
+        atomic_json(state / "config.json", c.config)
+    report = (
+        autoupdate.check(state, c.config, c.transport)
+        if now
+        else autoupdate.status(state)
+    )
+    emit(
+        {
+            "auto_update": autoupdate.enabled(c.config),
+            "managed_install": autoupdate.managed_install(),
+            "installed": autoupdate.installed_version(),
+            **{k: v for k, v in report.items() if k != "restart"},
+            **(
+                {"note": "已安装新版本；常驻 worker 会在一分钟内自动重启"}
+                if report.get("restart")
+                else {}
+            ),
+        }
+    )
+
+
 @app.command("hook-stats")
 def hook_stats(
     state: Path = DEFAULT_STATE,

@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.14] — 2026-11-04
+
+### Added
+
+- Client self-update (`autoupdate.py`). The resident worker checks once a day
+  and moves the client to exactly the version its Hub reports, never past it,
+  so the Hub-first upgrade order holds by construction. The wheel must match
+  the release's `checksums.txt`, and a fresh interpreter must import the new
+  runtime and report the new version; otherwise the previous version is
+  reinstalled. Only an installer-managed virtualenv updates (never a source
+  checkout, an editable install or the Cowork runtime), one profile per
+  machine updates under a shared lock, and the worker re-executes itself onto
+  the new code. `amh-native update [--now] [--on|--off]`; `AMH_AUTO_UPDATE=0`
+  turns it off. Exercised end to end in a real virtualenv (1.4.14 → 1.4.15).
+- Hub health reports `version`; clients follow it. A Hub older than 1.4.14
+  reports none, and its clients keep their version.
+
 ## [1.4.13] — 2026-11-04
 
 ### Changed

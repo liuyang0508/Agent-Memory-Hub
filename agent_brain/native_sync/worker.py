@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import math
 import random
 import subprocess
@@ -67,6 +68,11 @@ def work(state: Path, interval: float = 10, *, stop: threading.Event | None = No
     """
     import fcntl
 
+    from .autoupdate import INTERVAL as UPDATE_INTERVAL
+    from .autoupdate import check as check_update
+    from .autoupdate import due as update_due
+    from .autoupdate import enabled as update_enabled
+    from .autoupdate import installed_version, managed_install
     from .recall_service import RecallService
 
     if not math.isfinite(interval) or not 0 < interval <= 60:
@@ -94,6 +100,15 @@ def work(state: Path, interval: float = 10, *, stop: threading.Event | None = No
         next_run = 0.0
         backoff = interval
         cooling_down = False
+        # Self-update: a daily check a few minutes after start (never in a
+        # burst when many machines boot at once), and a restart whenever the
+        # installed version changes under this process (another profile's
+        # worker updated the shared install).
+        managed = managed_install()
+        started_as = installed_version() if managed else None
+        next_update = time.monotonic() + random.uniform(120, 900)
+        next_probe = time.monotonic() + 60
+        restart = False
         try:
             while stop is None or not stop.is_set():
                 wake = state / "wake"
@@ -145,10 +160,34 @@ def work(state: Path, interval: float = 10, *, stop: threading.Event | None = No
                     # observe every file's latest state once the deadline has elapsed.
                     delay = random.uniform(backoff / 2, backoff) if cooling_down else interval
                     next_run = time.monotonic() + delay
+                if managed and time.monotonic() >= next_probe:
+                    next_probe = time.monotonic() + 60
+                    on_disk = installed_version()
+                    if on_disk and started_as and on_disk != started_as:
+                        restart = True
+                        break
+                if (
+                    managed
+                    and time.monotonic() >= next_update
+                    and not (state / "paused").exists()
+                ):
+                    next_update = time.monotonic() + UPDATE_INTERVAL * random.uniform(0.9, 1.1)
+                    if (
+                        c.recall_enabled()
+                        and update_enabled(last_config)
+                        and update_due(state)
+                    ):
+                        if check_update(state, last_config, c.transport).get("restart"):
+                            restart = True
+                            break
                 time.sleep(0.5)
         finally:
             if service is not None:
                 service.close()
+    if restart:
+        # Same command line, new code: launchd/systemd see one long-lived worker.
+        # The profile lock and the service socket closed above.
+        os.execv(sys.executable, list(getattr(sys, "orig_argv", [sys.executable, *sys.argv])))
 
 
 def ensure_worker(state: Path) -> None:
