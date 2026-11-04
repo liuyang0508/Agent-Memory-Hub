@@ -151,6 +151,31 @@ def _is_prompt(row: dict[str, Any]) -> bool:
     )
 
 
+def recent_prompts(path: Path, limit: int = 2) -> list[str]:
+    """The member's last prompts in a Claude Code transcript, oldest first."""
+    try:
+        with path.open("rb") as stream:
+            stream.seek(0, 2)
+            size = stream.tell()
+            stream.seek(max(0, size - TAIL_BYTES))
+            raw = stream.read().decode("utf8", errors="ignore")
+    except OSError:
+        return []
+    found: list[str] = []
+    for line in reversed(raw.splitlines()):
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(row, dict) and _is_prompt(row):
+            text = _flat((row.get("message") or {}).get("content")).strip()
+            if text:
+                found.append(text)
+                if len(found) >= limit:
+                    break
+    return found[::-1]
+
+
 def claude_turn(path: Path) -> dict[str, Any] | None:
     """The last turn of a Claude Code transcript: what the model saw before, did, and read.
 

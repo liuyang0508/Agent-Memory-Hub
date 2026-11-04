@@ -15,7 +15,18 @@ from .client import NativeClient
 from .common import atomic_text, digest, recall_budget
 from .storage import database, DB_TIMEOUT
 from .recall import coverage_key, pack
-from .recall_view import DISPLAY_KEY, DISPLAY_MODES, admit, normalize, render, render_skip
+from .recall_view import (
+    DISPLAY_KEY,
+    DISPLAY_MODES,
+    admit,
+    follow_up,
+    normalize,
+    render,
+    render_skip,
+)
+
+# The previous prompt a short follow-up borrows for search, at most this long.
+CONTEXT_CHARS = 300
 
 # Hosts that show a hook's systemMessage to the member. Codex shows the injected
 # context itself, so its table travels inside the organization block instead.
@@ -301,6 +312,21 @@ def _run(root: Path, product: str, payload: dict[str, Any]) -> dict[str, Any]:
                             )
         except OSError:
             pass
+    # A short follow-up has no topic of its own; search with the previous
+    # prompt in front of it (the gate still judges every candidate).
+    search, context = query, ""
+    transcript_path = payload.get("transcript_path")
+    if product == "claude-code" and isinstance(transcript_path, str) and follow_up(query):
+        from .usage import recent_prompts
+
+        earlier = [
+            text
+            for text in (normalize(p) for p in recent_prompts(Path(transcript_path), limit=3))
+            if text and text != query and admit(text)[0] and not follow_up(text)
+        ]
+        if earlier:
+            context = earlier[-1][:CONTEXT_CHARS]
+            search = context + "\n" + query
     with database(c.path) as db:
         covered = {
             r["key"]
@@ -313,6 +339,7 @@ def _run(root: Path, product: str, payload: dict[str, Any]) -> dict[str, Any]:
     trace_id = None
     channel = "search"
     retrieval: dict[str, Any] | None = None
+    hints: list[dict[str, Any]] = []
     budget = recall_budget(c.config)
     # Which path will answer: the resident worker's warm connection when it is
     # listening, otherwise a fresh subprocess that pays the handshakes itself.
@@ -327,10 +354,11 @@ def _run(root: Path, product: str, payload: dict[str, Any]) -> dict[str, Any]:
     try:
         from .query_worker import recall
 
-        response, via = recall(root, query[:8000], budget=budget, asking=asking)
+        response, via = recall(root, search[:8000], budget=budget, asking=asking)
         # Test doubles may still answer with a bare list of records.
         if isinstance(response, dict):
             hits = response["items"]
+            hints = [h for h in response.get("hints") or [] if isinstance(h, dict)]
             trace_id = response.get("trace_id")
             channel = response.get("channel", "recall")
             if isinstance(response.get("retrieval"), dict):
@@ -344,7 +372,7 @@ def _run(root: Path, product: str, payload: dict[str, Any]) -> dict[str, Any]:
     except (OSError, ValueError, TimeoutError, sqlite3.Error):
         with database(c.path) as db:
             row = db.execute("SELECT value FROM meta WHERE key='last_auth'").fetchone()
-        hits = c.local_search(query) if row and time.time() - float(row["value"]) < 900 else []
+        hits = c.local_search(search) if row and time.time() - float(row["value"]) < 900 else []
         mode = "cache" if hits else "unavailable"
     if not c.recall_enabled():
         return {}
@@ -377,7 +405,12 @@ def _run(root: Path, product: str, payload: dict[str, Any]) -> dict[str, Any]:
     # The delivery receipt is appended below; reserve it inside the byte cap.
     receipt_bytes = len("\namh-native-recall:") + 24
     body, keys = pack(
-        hits, covered=covered, max_bytes=4096 - receipt_bytes, per_item_bytes=1536, query=query
+        hits,
+        covered=covered,
+        max_bytes=4096 - receipt_bytes,
+        per_item_bytes=1536,
+        query=search,
+        hints=hints if mode == "remote" else None,
     )
     # Delivery state per recalled version: packed now, already injected earlier
     # in this session, ranked but outside the byte budget, or without text.
@@ -411,6 +444,8 @@ def _run(root: Path, product: str, payload: dict[str, Any]) -> dict[str, Any]:
             states=states,
             display=display,
             style="box" if product in VISIBLE_MESSAGE_PRODUCTS else "markdown",
+            hints=hints if mode == "remote" else None,
+            context=context,
         )
     if body and view and product not in VISIBLE_MESSAGE_PRODUCTS:
         # Inside the organization block, so transcript capture strips it too.

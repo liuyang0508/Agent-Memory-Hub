@@ -1446,6 +1446,7 @@ class Hub:
         )
         return {
             "items": result["items"],
+            "hints": result.get("hints", []),
             "trace_id": result["retrieval"]["trace_id"],
             "retrieval": result["retrieval"],
         }
