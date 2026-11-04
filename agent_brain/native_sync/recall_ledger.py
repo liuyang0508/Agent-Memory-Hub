@@ -22,7 +22,12 @@ MAX_CANDIDATE_EVENTS = 32
 STATES = ("candidate", "selected", "packed", "emitted", "confirmed", "cited")
 DELIVERY_EVENTS = frozenset({"packed", "emitted", "confirmed", "budget", "covered"})
 FEEDBACK_EVENTS = frozenset({"cite", "support", "contradict", "confirm"})
-EVENTS = DELIVERY_EVENTS | FEEDBACK_EVENTS
+# Implicit usage, judged on the recalling device at the end of the turn (see
+# usage.py): the answer used an injected memory, did not, or the model fetched
+# a memory the gate had held back and used that.
+USAGE_EVENTS = frozenset({"used", "unused", "consulted"})
+EVENTS = DELIVERY_EVENTS | FEEDBACK_EVENTS | USAGE_EVENTS
+LABEL_TTL = 180 * 86400
 # A delivery can only be reported for something the recall actually returned.
 DELIVERABLE_STATES = frozenset({"selected", "packed", "emitted", "confirmed", "cited"})
 SIGNAL_FIELDS = (
@@ -157,14 +162,30 @@ def apply_feedback(
         name = event.get("event")
         asset_id = str(event.get("asset_id") or "")
         candidate = candidates.get(asset_id)
+        if name in USAGE_EVENTS and candidate is None:
+            # The model may read any memory on its own; only candidates of
+            # this recall say anything about the gate.
+            ignored += 1
+            continue
         if name not in EVENTS or candidate is None:
             raise ValueError("feedback event does not match a trace candidate")
         if candidate["revision"] != event.get("revision"):
             raise ValueError("feedback revision does not match the recalled revision")
-        if name in DELIVERY_EVENTS and row["device"] != who["device_id"]:
-            raise ValueError("delivery events must come from the recalling device")
+        if name in (DELIVERY_EVENTS | USAGE_EVENTS) and row["device"] != who["device_id"]:
+            raise ValueError("delivery and usage events must come from the recalling device")
         current = candidate.get("state", "candidate")
         states[asset_id] = current
+        if name in USAGE_EVENTS:
+            outcome = _usage(db, who, row, candidate, name, now)
+            if outcome == "ignored":
+                ignored += 1
+                continue
+            if outcome == "noop":
+                noop += 1
+            applied += 1
+            if outcome != "noop":
+                _note_event(candidate, name, now, who["member_id"])
+            continue
         if name in ("packed", "emitted", "confirmed"):
             if current not in DELIVERABLE_STATES:
                 ignored += 1
@@ -238,6 +259,85 @@ def apply_feedback(
     }
 
 
+def _usage(
+    db: sqlite3.Connection,
+    who: dict[str, Any],
+    row: sqlite3.Row,
+    candidate: dict[str, Any],
+    name: str,
+    now: float,
+) -> str:
+    """Record one usage label on the trace and, with the gate's evidence, for calibration.
+
+    "used"/"unused" judge something the recall delivered; "consulted" judges a
+    candidate the gate held back that the model then fetched and used. The
+    first label of a candidate stands: a turn is judged once.
+    """
+    state = candidate.get("state", "candidate")
+    delivered = state in DELIVERABLE_STATES and state != "selected"
+    if name in ("used", "unused") and not delivered:
+        return "ignored"
+    if name == "consulted" and delivered:
+        return "ignored"
+    if candidate.get("usage"):
+        return "noop"
+    candidate["usage"] = name
+    gate = candidate.get("gate") or {}
+    features = gate.get("x")
+    if isinstance(features, list) and features:
+        db.execute(
+            "INSERT OR IGNORE INTO recall_labels VALUES(?,?,?,?,?,?,?,?,?)",
+            (
+                who["tenant"],
+                row["trace_id"],
+                candidate["asset_id"],
+                int(candidate["revision"]),
+                now,
+                name,
+                who["member_id"],
+                str(gate.get("version") or ""),
+                json.dumps(features, separators=(",", ":")),
+            ),
+        )
+        db.execute(
+            "DELETE FROM recall_labels WHERE tenant=? AND created<?",
+            (who["tenant"], now - LABEL_TTL),
+        )
+    return "applied"
+
+
+def labels(
+    db: sqlite3.Connection, tenant: str, *, since: float = 0.0
+) -> list[dict[str, Any]]:
+    """Usage labels with the gate evidence they were judged on, oldest first."""
+    rows = db.execute(
+        "SELECT * FROM recall_labels WHERE tenant=? AND created>=? ORDER BY created",
+        (tenant, since),
+    ).fetchall()
+    return [
+        {
+            "trace_id": r["trace_id"],
+            "asset_id": r["asset_id"],
+            "created": r["created"],
+            "label": r["label"],
+            "gate_version": r["gate_version"],
+            "features": json.loads(r["features"]),
+        }
+        for r in rows
+    ]
+
+
+def usage_counts(db: sqlite3.Connection, tenant: str, *, since: float = 0.0) -> dict[str, int]:
+    """How often delivered memories were used, by label, since a time."""
+    counts = {name: 0 for name in sorted(USAGE_EVENTS)}
+    for r in db.execute(
+        "SELECT label, COUNT(*) n FROM recall_labels WHERE tenant=? AND created>=? GROUP BY label",
+        (tenant, since),
+    ):
+        counts[r["label"]] = int(r["n"])
+    return counts
+
+
 def summary(trace: dict[str, Any], *, top: int = 8) -> dict[str, Any]:
     """A listing row: counts, stage switches and the first candidates, no stage history."""
     candidates = trace.get("candidates", [])
@@ -245,6 +345,8 @@ def summary(trace: dict[str, Any], *, top: int = 8) -> dict[str, Any]:
     for candidate in candidates:
         state = candidate.get("state", "candidate")
         counts[state] = counts.get(state, 0) + 1
+        if candidate.get("usage"):
+            counts["usage_" + candidate["usage"]] = counts.get("usage_" + candidate["usage"], 0) + 1
     return {
         "trace_id": trace["trace_id"],
         "created": trace["created"],
@@ -273,6 +375,7 @@ def summary(trace: dict[str, Any], *, top: int = 8) -> dict[str, Any]:
                     "routes",
                     "state",
                     "nature",
+                    "usage",
                 )
             }
             for candidate in candidates[:top]

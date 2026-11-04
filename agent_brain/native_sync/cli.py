@@ -238,6 +238,9 @@ def serve(
     semantic_interval: float = typer.Option(
         120, min=10, max=86400, help="服务端语义索引的增量维护间隔（秒）"
     ),
+    autotune_days: float = typer.Option(
+        7, min=0, max=365, help="按使用反馈自动重新校准召回门控的周期（天）；0 关闭"
+    ),
 ) -> None:
     """运行独立组织 Hub；公网部署请在前面配置 HTTPS。"""
     import uvicorn
@@ -290,8 +293,26 @@ def serve(
                 hub.semantic_state = {"state": "error", "reason": type(exc).__name__}
             clock.sleep(semantic_interval)
 
+    def recalibrate_from_use() -> None:
+        # Hourly check, weekly run per organization with gold questions: refit
+        # the gate on gold + usage feedback and promote only what passes both
+        # the gold check and the held-out use check (autotune.py).
+        from .autotune import due, run_and_remember
+
+        clock.sleep(600)
+        while True:
+            try:
+                if hub.semantic_state.get("state") == "ready":
+                    for tenant in due(hub, interval=autotune_days * 86400):
+                        run_and_remember(hub, tenant)
+            except Exception:  # noqa: BLE001 - recall keeps the live gate
+                pass
+            clock.sleep(3600)
+
     if hub.semantic_model:
         threading.Thread(target=maintain_semantic_index, name="amh-semantic", daemon=True).start()
+        if autotune_days > 0:
+            threading.Thread(target=recalibrate_from_use, name="amh-autotune", daemon=True).start()
     uvicorn.run(create_app(hub), host=host, port=port, log_level="warning", access_log=False)
 
 
@@ -795,6 +816,12 @@ STATE_LABELS = {
     "dropped:revalidation": "版本已变",
 }
 
+USAGE_LABELS = {
+    "used": "回答用上了",
+    "unused": "回答没用上",
+    "consulted": "门控拦下但模型自己查来用了",
+}
+
 TRACE_ID = re.compile(r"[a-f0-9]{24}")
 TRACE_ID_HINT = "trace_id 应为 24 位小写十六进制字符，可从 recall-trace 列表的 trace 列复制"
 OLD_HUB_HINT = "当前 Hub 不支持召回明细，请升级 Hub"
@@ -919,6 +946,7 @@ def recall_trace(
             )
             + (f" · 信号 {item['signals']}" if item.get("signals") else "")
             + (f" · {item['state_detail']}" if item.get("state_detail") else "")
+            + (f" · 本轮{USAGE_LABELS.get(item['usage'], item['usage'])}" if item.get("usage") else "")
         )
         for stage in item.get("stages", []):
             console.print(
@@ -1225,44 +1253,16 @@ def recall_calibrate(
     """用问题集拟合召回相关性模型，按分组交叉验证选阈值，输出可部署的门控模型。"""
     from datetime import datetime, timezone
 
-    from .recall_eval import load_gold, relevant
-    from .relevance import BANK, Candidate, GateModel, cross_validate, fit, shingles
+    from .autotune import collect
+    from .recall_eval import load_gold
+    from .relevance import BANK, cross_validate, fit
 
     cases = load_gold(gold)
-    collecting = GateModel(
-        mean=[0.0] * 8, scale=[1.0] * 8, weights=[0.0] * 8, bias=0.0, threshold=0.5
-    )
-    judged: list[tuple[dict[str, Any], list[Candidate]]] = []
     with _eval_hub(db, model, tenant) as (hub, org):
-        hub._gate_source = collecting.to_dict()
-        hub.gate_collect = True
         hub.refresh_semantic_local()
         token = hub.provision("召回评测", "recall-eval", tenant=org)["token"]
         model_id = hub.semantic_state.get("model")
-        for case in cases:
-            items = hub.retrieve(
-                token,
-                case["query"],
-                limit=50,
-                kinds=["memory", "rule"],
-                channel="hook",
-                record=False,
-            )["items"]
-            judged.append(
-                (
-                    case,
-                    [
-                        Candidate(
-                            values=list(item["gate_features"]),
-                            relevant=bool(case["expect"]) and relevant(item, case["expect"]),
-                            shingles=shingles(str(item.get("body") or "")),
-                            duplicate_key=(str(item.get("body_hash")), str(item.get("role"))),
-                        )
-                        for item in items
-                        if "gate_features" in item
-                    ],
-                )
-            )
+        judged = collect(hub, cases, token=token)
     rows = [c.values for _, candidates in judged for c in candidates]
     labels = [1.0 if c.relevant else 0.0 for _, candidates in judged for c in candidates]
     fitted = fit(rows, labels)
@@ -1282,6 +1282,90 @@ def recall_calibrate(
     }
     atomic_json(out, fitted.to_dict())
     emit({"gate": str(out), "best": report["best"], "table": report["table"]})
+
+
+@app.command("recall-autotune")
+def recall_autotune(
+    db: Path = typer.Option(..., help="Hub 数据库（在临时副本上计算；通过检查才写回启用的门控）"),
+    tenant: str = typer.Option("", help="组织 tenant；单组织 Hub 可省略"),
+    model: str | None = typer.Option(None, help="语义模型目录；默认取 AMH_NATIVE_SEMANTIC_MODEL"),
+    gold: Path | None = typer.Option(None, help="问题集文件；不传时用 Hub 上成员提交的问题集"),
+    apply: bool = typer.Option(False, "--apply", help="通过检查后启用新门控（默认只评估）"),
+    rollback: bool = typer.Option(False, "--rollback", help="停用当前自动校准的门控，退回上一版"),
+    min_labels: int = typer.Option(30, min=1, help="至少多少条使用反馈才校准"),
+) -> None:
+    """用使用反馈重新校准召回门控：金标准不退步、留出的真实使用预测更准，两项都过才启用。"""
+    from .autotune import gold_cases, run
+    from .hub import Hub
+
+    if rollback:
+        live = Hub(db)
+        org = tenant or _single_tenant(db)
+        emit({"tenant": org, "now": live.rollback_gate(org)})
+        return
+    cases = load_gold_file(gold) if gold else None
+    with _eval_hub(db, model, tenant) as (hub, org):
+        hub.refresh_semantic_local()
+        token = hub.provision("召回评测", "recall-eval", tenant=org)["token"]
+        if cases is None:
+            with database(hub.path) as conn:
+                cases = gold_cases(conn, org)
+        # Promotion must land in the live database, not the snapshot.
+        report = run(
+            hub,
+            org,
+            cases=cases,
+            token=token,
+            apply=apply,
+            min_labels=min_labels,
+            activate=Hub(db).activate_gate if apply else None,
+        )
+    emit(report)
+
+
+def load_gold_file(path: Path) -> list[dict[str, Any]]:
+    from .recall_eval import load_gold
+
+    return load_gold(path)
+
+
+def _single_tenant(db: Path) -> str:
+    with database(db) as conn:
+        tenants = [str(r[0]) for r in conn.execute("SELECT DISTINCT tenant FROM assets LIMIT 2")]
+    if len(tenants) != 1:
+        raise typer.BadParameter("several organizations on this Hub: pass --tenant")
+    return tenants[0]
+
+
+@app.command("recall-gold-upload")
+def recall_gold_upload(
+    gold: Path = typer.Option(..., help="问题集 JSON/JSONL（id、query、expect、tags）"),
+    state: Path = DEFAULT_STATE,
+    replace: bool = typer.Option(False, "--replace", help="替换组织现有的全部问题"),
+) -> None:
+    """把问题集提交到 Hub，供每周按使用反馈自动校准时检查「不退步」。"""
+    from .recall_eval import load_gold
+
+    cases = [
+        {k: case[k] for k in ("id", "query", "expect", "tags", "split")}
+        for case in load_gold(gold)
+    ]
+    c = load(state)
+    result: dict[str, Any] = {}
+    for start in range(0, len(cases), 500):
+        result = c.transport.recall_gold(
+            cases[start : start + 500], replace=replace and start == 0
+        )
+    emit(result)
+
+
+@app.command("recall-tuning")
+def recall_tuning(
+    state: Path = DEFAULT_STATE,
+    run_now: bool = typer.Option(False, "--run", help="现在就在 Hub 上跑一次（每小时最多一次）"),
+) -> None:
+    """召回门控的使用反馈与自动校准状态：反馈条数、上次校准的结论、门控版本历史。"""
+    emit(load(state).transport.recall_tuning(start=run_now))
 
 
 @app.command("hook-stats")

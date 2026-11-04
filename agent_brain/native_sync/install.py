@@ -569,6 +569,7 @@ def export_cowork_plugin(
         "query_worker.py",
         "recall_service.py",
         "recall_view.py",
+        "usage.py",
         "client.py",
         "cowork_runtime.py",
         "runtime_sources.py",

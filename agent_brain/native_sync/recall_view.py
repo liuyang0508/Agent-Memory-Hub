@@ -97,6 +97,7 @@ _ACKS = frozenset(
         "辛苦了",
     }
 )
+_BACKGROUND = ("<task-notification", "<local-command-stdout", "<bash-stdout")
 _CONTROL = re.compile(r"^/(remember|goal|compact|clear|help|model|config|status)\b", re.I)
 
 
@@ -135,6 +136,10 @@ def admit(query: str) -> tuple[bool, str]:
         return False, "punctuation_only"
     if _CONTROL.match(query.strip()):
         return False, "control_command"
+    if query.lstrip().startswith(_BACKGROUND):
+        # A host's own background event (a finished task, a monitor line)
+        # arrives as a prompt but carries no question from the member.
+        return False, "background_event"
     if folded in _ACKS or folded.isdigit() and len(folded) <= 3:
         return False, "acknowledgement"
     return True, "topic"
@@ -145,6 +150,7 @@ SKIP_TEXT = {
     "punctuation_only": "只有标点",
     "control_command": "宿主控制命令",
     "acknowledgement": "简短确认语，没有可检索的主题",
+    "background_event": "宿主的后台事件通知，不是成员的提问",
 }
 STATE_TEXT = {
     "packed": "已注入",

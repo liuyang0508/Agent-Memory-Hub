@@ -237,14 +237,27 @@ def features(
     ]
 
 
-def fit(rows: Sequence[Sequence[float]], labels: Sequence[float], *, l2: float = 1.0) -> GateModel:
-    """L2-regularized logistic regression on standardized features (Newton steps)."""
+def fit(
+    rows: Sequence[Sequence[float]],
+    labels: Sequence[float],
+    *,
+    l2: float = 1.0,
+    weights: Sequence[float] | None = None,
+) -> GateModel:
+    """L2-regularized logistic regression on standardized features (Newton steps).
+
+    ``weights`` are per-row sample weights (default 1): usage feedback enters
+    calibration with less weight than a judged gold case.
+    """
     import numpy as np
 
     x = np.asarray(rows, dtype=np.float64)
     y = np.asarray(labels, dtype=np.float64)
     if x.ndim != 2 or len(x) < 10 or len(set(labels)) < 2:
         raise ValueError("calibration needs at least ten candidates of both classes")
+    sample = np.ones(len(x)) if weights is None else np.asarray(weights, dtype=np.float64)
+    if sample.shape != (len(x),) or not np.all(np.isfinite(sample)) or np.any(sample < 0):
+        raise ValueError("sample weights must be finite, non-negative, one per row")
     mean, scale = x.mean(0), x.std(0)
     scale = np.where(scale < 1e-6, 1.0, scale)
     z = np.hstack([(x - mean) / scale, np.ones((len(x), 1))])
@@ -252,8 +265,8 @@ def fit(rows: Sequence[Sequence[float]], labels: Sequence[float], *, l2: float =
     ridge = l2 * np.diag(np.r_[np.ones(len(w) - 1), 0.0])
     for _ in range(100):
         p = 1 / (1 + np.exp(-np.clip(z @ w, -60, 60)))
-        gradient = z.T @ (p - y) + ridge @ w
-        hessian = (z * (p * (1 - p))[:, None]).T @ z + ridge
+        gradient = z.T @ (sample * (p - y)) + ridge @ w
+        hessian = (z * (sample * p * (1 - p))[:, None]).T @ z + ridge
         step = np.linalg.solve(hessian, gradient)
         w -= step
         if float(np.abs(step).max()) < 1e-9:
@@ -323,8 +336,13 @@ def cross_validate(
     folds: int = 5,
     seeds: int = 5,
     score: Utility = utility,
+    extra: tuple[Sequence[Sequence[float]], Sequence[float], Sequence[float]] | None = None,
 ) -> dict[str, Any]:
-    """Grouped k-fold by case: thresholds are judged only on cases the model never saw."""
+    """Grouped k-fold by case: thresholds are judged only on cases the model never saw.
+
+    ``extra`` (rows, labels, weights) joins every fold's training set and is
+    never scored: usage feedback can teach the model, only gold cases judge it.
+    """
     from .recall_eval import summarize
 
     by_threshold: dict[float, list[dict[str, Any]]] = {t: [] for t in thresholds}
@@ -335,11 +353,18 @@ def cross_validate(
         outcomes: dict[float, list[dict[str, Any]]] = {t: [] for t in thresholds}
         for fold in range(folds):
             held = set(order[fold::folds])
-            rows = [c.values for i in order if i not in held for c in cases[i][1]]
-            labels = [
+            rows: list[Sequence[float]] = [
+                c.values for i in order if i not in held for c in cases[i][1]
+            ]
+            labels: list[float] = [
                 1.0 if c.relevant else 0.0 for i in order if i not in held for c in cases[i][1]
             ]
-            model = fit(rows, labels)
+            weights = [1.0] * len(rows)
+            if extra is not None:
+                rows = [*rows, *extra[0]]
+                labels = [*labels, *extra[1]]
+                weights = [*weights, *extra[2]]
+            model = fit(rows, labels, weights=weights)
             for i in held:
                 case, candidates = cases[i]
                 for t in thresholds:
@@ -407,4 +432,22 @@ def _judged(
         "returned": len(chosen),
         "relevant_returned": sum(1 for c in chosen if c.relevant),
         "first_relevant": first if case["expect"] else None,
+    }
+
+
+def ranking_quality(model: GateModel, rows: Sequence[Sequence[float]], labels: Sequence[float]) -> dict[str, Any]:
+    """How well a model orders labeled rows: AUC (ties count half) and mean log loss."""
+    scored = [(model.probability(r), float(y)) for r, y in zip(rows, labels)]
+    positives = [p for p, y in scored if y >= 0.5]
+    negatives = [p for p, y in scored if y < 0.5]
+    if not positives or not negatives:
+        return {"auc": None, "log_loss": None, "rows": len(scored)}
+    wins = sum((p > n) + 0.5 * (p == n) for p in positives for n in negatives)
+    loss = -sum(
+        math.log(max(p, 1e-9)) if y >= 0.5 else math.log(max(1 - p, 1e-9)) for p, y in scored
+    ) / len(scored)
+    return {
+        "auc": round(wins / (len(positives) * len(negatives)), 4),
+        "log_loss": round(loss, 4),
+        "rows": len(scored),
     }

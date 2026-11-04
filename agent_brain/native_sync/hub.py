@@ -114,6 +114,11 @@ class Hub:
         # revision's background similarity to them (relevance.doc_bg).
         self._bank: dict[str, Any] = {}
         self._background: dict[str, dict[tuple[str, int, str, str], float]] = {}
+        # Gates an organization's own usage feedback promoted (autotune.py),
+        # re-read at most every minute so a promotion or rollback made by
+        # another process takes effect without a restart.
+        self._tenant_gates: dict[str, tuple[float, Any]] = {}
+        self.autotune_lock = threading.Lock()
         self.semantic_state: dict[str, Any] = {
             "state": "off" if not self.semantic_model else "loading"
         }
@@ -1180,12 +1185,26 @@ class Hub:
         if backend is None:
             raise ValueError(error or "semantic_model_not_configured")
         result = rebuild(self, token, backend, kinds=kinds, include_evidence=include_evidence)
-        if self.gate_model() is not None:
+        if self._gates_wanted():
             self.warm_gate(backend)
         return result
 
-    def gate_model(self) -> Any:
-        """The learned relevance model for prompt-time recall, or None (floor gate)."""
+    def gate_model(self, tenant: str | None = None) -> Any:
+        """The learned relevance model for prompt-time recall, or None (floor gate).
+
+        An explicit model or ``AMH_NATIVE_HOOK_GATE`` is an operator pin and
+        wins. Otherwise an organization's promoted gate (calibrated with its
+        own usage feedback, for the current embedding model) comes before the
+        model manifest's.
+        """
+        pinned = self._gate_source is not None or bool(os.environ.get("AMH_NATIVE_HOOK_GATE"))
+        if tenant is not None and not pinned:
+            promoted = self._tenant_gate(tenant)
+            if promoted is not None:
+                return promoted
+        return self._base_gate()
+
+    def _base_gate(self) -> Any:
         from .relevance import GateModel
 
         if self._gate is not None or self._gate_error is not None:
@@ -1203,8 +1222,90 @@ class Hub:
             self._gate_error = "hook_gate_invalid:" + type(exc).__name__
         return self._gate
 
-    def gate_state(self) -> str:
-        model = self.gate_model()
+    def _gates_wanted(self) -> bool:
+        """Whether any learned gate may run, so the generic-prompt bank is worth encoding."""
+        if self._base_gate() is not None:
+            return True
+        try:
+            with database(self.path) as db:
+                return (
+                    db.execute("SELECT 1 FROM recall_gates WHERE active=1 LIMIT 1").fetchone()
+                    is not None
+                )
+        except sqlite3.Error:
+            return False
+
+    def _tenant_gate(self, tenant: str) -> Any:
+        from .relevance import GateModel
+
+        cached = self._tenant_gates.get(tenant)
+        if cached is not None and time.monotonic() - cached[0] < 60:
+            return cached[1]
+        model = None
+        try:
+            with database(self.path) as db:
+                row = db.execute(
+                    "SELECT payload, model FROM recall_gates WHERE tenant=? AND active=1 "
+                    "ORDER BY created DESC LIMIT 1",
+                    (tenant,),
+                ).fetchone()
+            current = getattr(self._encoder, "model_id", None)
+            # A gate learned on another embedding model's similarities means
+            # nothing for this one: fall back until it is recalibrated.
+            if row is not None and (current is None or row["model"] == current):
+                model = GateModel.from_dict(json.loads(row["payload"]))
+        except (sqlite3.Error, ValueError, KeyError, TypeError):
+            model = None
+        self._tenant_gates[tenant] = (time.monotonic(), model)
+        return model
+
+    def activate_gate(
+        self, tenant: str, model: Any, *, embedding: str, report: dict[str, Any]
+    ) -> None:
+        """Make a calibrated gate this organization's live gate; earlier ones stay as history."""
+        with database(self.path) as db:
+            db.execute("BEGIN IMMEDIATE")
+            db.execute("UPDATE recall_gates SET active=0 WHERE tenant=?", (tenant,))
+            db.execute(
+                "INSERT OR REPLACE INTO recall_gates VALUES(?,?,?,?,?,?,?)",
+                (
+                    tenant,
+                    model.version,
+                    time.time(),
+                    1,
+                    embedding,
+                    json.dumps(model.to_dict(), ensure_ascii=False),
+                    json.dumps(report, ensure_ascii=False),
+                ),
+            )
+        self._tenant_gates.pop(tenant, None)
+
+    def rollback_gate(self, tenant: str) -> str | None:
+        """Retire the live promoted gate; the previous one (or the manifest's) takes over."""
+        with database(self.path) as db:
+            db.execute("BEGIN IMMEDIATE")
+            rows = db.execute(
+                "SELECT version, active FROM recall_gates WHERE tenant=? ORDER BY created DESC",
+                (tenant,),
+            ).fetchall()
+            live = next((i for i, r in enumerate(rows) if r["active"]), None)
+            if live is None:
+                return None
+            db.execute(
+                "UPDATE recall_gates SET active=-1 WHERE tenant=? AND version=?",
+                (tenant, rows[live]["version"]),
+            )
+            previous = next((r for r in rows[live + 1 :] if r["active"] == 0), None)
+            if previous is not None:
+                db.execute(
+                    "UPDATE recall_gates SET active=1 WHERE tenant=? AND version=?",
+                    (tenant, previous["version"]),
+                )
+        self._tenant_gates.pop(tenant, None)
+        return previous["version"] if previous is not None else "manifest"
+
+    def gate_state(self, tenant: str | None = None) -> str:
+        model = self.gate_model(tenant)
         if model is not None:
             return str(model.version)
         return self._gate_error or ("floor" if self.relevance_gate() else "off")
@@ -1279,7 +1380,7 @@ class Hub:
         for tenant in tenants:
             result = rebuild(self, "", backend, kinds=list(kinds), tenant=tenant)
             results[tenant] = {k: result[k] for k in ("indexed", "encoded", "reused")}
-        if self.gate_model() is not None:
+        if self._gates_wanted():
             self.warm_gate(backend)
         self.semantic_state = {"state": "ready", "model": backend.model_id, "tenants": results}
         return self.semantic_state
@@ -1296,6 +1397,9 @@ class Hub:
         channel: str = "tool",
         record: bool = True,
         asking: dict[str, Any] | None = None,
+        identity: dict[str, Any] | None = None,
+        gate_override: Any = None,
+        collect_gate: bool = False,
     ) -> dict[str, Any]:
         from .retrieval import retrieve
 
@@ -1310,6 +1414,9 @@ class Hub:
             channel=channel,
             record=record,
             asking=asking,
+            identity=identity,
+            gate_override=gate_override,
+            collect_gate=collect_gate,
         )
 
     def recall(
@@ -1344,6 +1451,43 @@ class Hub:
             db.execute("BEGIN IMMEDIATE")
             who = self._identity(db, token)
             return apply_feedback(db, who, trace_id, events)
+
+    def recall_gold(
+        self, token: str, cases: list[dict[str, Any]], *, replace: bool = False
+    ) -> dict[str, Any]:
+        """Add a member's gold questions to their organization's set (autotune.py)."""
+        from .autotune import store_gold
+
+        with database(self.path) as db:
+            db.execute("BEGIN IMMEDIATE")
+            who = self._identity(db, token)
+            return store_gold(db, who, cases, replace=replace)
+
+    def recall_autotune_status(self, token: str) -> dict[str, Any]:
+        """Usage-feedback counts, the last recalibration and the gate history."""
+        from .autotune import status
+
+        with database(self.path) as db:
+            who = self._identity(db, token)
+            report = status(db, who["tenant"])
+        report["live_gate"] = self.gate_state(who["tenant"])
+        return report
+
+    def recall_autotune_start(self, token: str) -> dict[str, Any]:
+        """Start a recalibration in the background now; at most one per hour."""
+        from .autotune import last_report, run_and_remember
+
+        with database(self.path) as db:
+            who = self._identity(db, token)
+            last = last_report(db, who["tenant"]) or {}
+        if time.time() - float(last.get("at") or 0) < 3600 or self.autotune_lock.locked():
+            return {"started": False, "reason": "ran_within_the_hour"}
+        if not self.semantic_model or self.semantic_state.get("state") != "ready":
+            return {"started": False, "reason": "semantic_not_ready"}
+        threading.Thread(
+            target=run_and_remember, args=(self, who["tenant"]), name="amh-autotune", daemon=True
+        ).start()
+        return {"started": True}
 
     def recalls(
         self, token: str, *, trace_id: str | None = None, limit: int = 20

@@ -30,6 +30,7 @@ from .models import (
     EnrollInput,
     FeishuRedeemInput,
     FeishuStartInput,
+    GoldInput,
     SearchInput,
     RecallFeedbackInput,
     RecallInput,
@@ -110,6 +111,7 @@ def create_app(hub: Hub) -> FastAPI:
             "recall-parity-v1",
             "insights-v1",
             "asking-context-v1",
+            "recall-usage-feedback-v1",
         ]
         state = dict(getattr(hub, "semantic_state", {}) or {})
         semantic = {k: state[k] for k in ("state", "model") if k in state}
@@ -442,6 +444,25 @@ def create_app(hub: Hub) -> FastAPI:
         return hub.recall_feedback(
             bearer(authorization), data.trace_id, [e.model_dump() for e in data.events]
         )
+
+    @app.post("/native/v1/recall/gold")
+    def recall_gold(
+        data: GoldInput, authorization: str | None = Header(default=None)
+    ) -> dict[str, Any]:
+        """A member adds gold questions for the organization's recall calibration."""
+        return hub.recall_gold(
+            bearer(authorization),
+            [c.model_dump(exclude_none=True) for c in data.cases],
+            replace=data.replace,
+        )
+
+    @app.get("/native/v1/recall/autotune")
+    def recall_autotune(authorization: str | None = Header(default=None)) -> dict[str, Any]:
+        return hub.recall_autotune_status(bearer(authorization))
+
+    @app.post("/native/v1/recall/autotune")
+    def recall_autotune_start(authorization: str | None = Header(default=None)) -> dict[str, Any]:
+        return hub.recall_autotune_start(bearer(authorization))
 
     @app.get("/native/v1/recalls")
     def recalls(

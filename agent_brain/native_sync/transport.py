@@ -164,6 +164,13 @@ class Transport:
     def recall_feedback(self, trace_id: str, events: list[dict[str, Any]]) -> Any:
         return self.call("recall/feedback", {"trace_id": trace_id, "events": events})
 
+    def recall_gold(self, cases: list[dict[str, Any]], *, replace: bool = False) -> Any:
+        return self.call("recall/gold", {"cases": cases, "replace": replace})
+
+    def recall_tuning(self, *, start: bool = False) -> Any:
+        """Usage-feedback recalibration status, or start a run (at most hourly)."""
+        return self.call("recall/autotune", {}) if start else self.call("recall/autotune")
+
     def recalls(self, *, trace_id: str | None = None, limit: int = 20) -> Any:
         query = "recalls?limit=%d" % limit + (
             "&trace_id=" + parse.quote(trace_id, safe="") if trace_id else ""

@@ -124,6 +124,9 @@ class RecallEvent(BaseModel):
         "support",
         "contradict",
         "confirm",
+        "used",
+        "unused",
+        "consulted",
     ]
 
 
@@ -133,6 +136,23 @@ class RecallFeedbackInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     trace_id: str = Field(min_length=24, max_length=24, pattern=r"^[a-f0-9]+$")
     events: list[RecallEvent] = Field(min_length=1, max_length=64)
+
+
+class GoldCase(BaseModel):
+    """One gold question: what a right prompt-time recall returns (``expect: []``: nothing)."""
+
+    model_config = ConfigDict(extra="forbid")
+    id: str = Field(min_length=1, max_length=128)
+    query: str = Field(min_length=1, max_length=4000)
+    expect: list[str] = Field(default_factory=list, max_length=16)
+    tags: list[str] = Field(default_factory=list, max_length=16)
+    split: Literal["dev", "test"] | None = None
+
+
+class GoldInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    cases: list[GoldCase] = Field(min_length=1, max_length=500)
+    replace: bool = False
 
 
 class ReadInput(BaseModel):

@@ -64,6 +64,66 @@ def _report(db: sqlite3.Connection, trace_id: str, keys: list[str], event: str) 
     db.executemany("INSERT OR IGNORE INTO recall_reports VALUES(?,?,?,?,?)", rows)
 
 
+def _judge_turn(c: NativeClient, product: str, payload: dict[str, Any], session: str) -> None:
+    """At the end of a turn, label each injected memory used or unused (usage.py).
+
+    Claude Code's transcript shows what the model saw before, wrote and read,
+    so both labels are possible there. Elsewhere only the final message is
+    known; without the earlier context a shared word proves nothing, so only
+    "unused" (no overlap at all) is reported. Labels join the delivery report
+    queue; the memory text never leaves this function.
+    """
+    from .usage import claude_turn, fingerprint, judge, read_target
+
+    with database(c.path) as db:
+        rows = db.execute("SELECT * FROM usage_pending WHERE session=?", (session,)).fetchall()
+        db.execute("DELETE FROM usage_pending WHERE session=?", (session,))
+    if not rows:
+        return
+    trace_id = rows[0]["trace_id"]
+    message = payload.get("last_assistant_message")
+    message = message if isinstance(message, str) else ""
+    transcript = payload.get("transcript_path")
+    turn = claude_turn(Path(transcript)) if product == "claude-code" and isinstance(transcript, str) else None
+    allow_used = turn is not None
+    if turn is None:
+        if not message:
+            return
+        turn = {"seen": "", "output": message, "results": "", "reads": []}
+    elif message and message not in turn["output"]:
+        turn["output"] += "\n" + message  # The last message may not be flushed yet.
+    seen = turn["seen"] + "\n" + turn["results"]
+    labels: list[tuple[str, int, str]] = []
+    injected = set()
+    for row in rows:
+        if not row["asset"]:
+            continue
+        injected.add(row["asset"])
+        label, _ = judge(
+            json.loads(row["fingerprint"]),
+            output=turn["output"],
+            seen=seen,
+            salt=session,
+            allow_used=allow_used,
+        )
+        if label:
+            labels.append((row["asset"], int(row["revision"]), label))
+    for read in turn["reads"]:
+        target = read_target(read["arguments"], read["text"])
+        if target is None or target[0] in injected or target[1] < 1:
+            continue
+        label, _ = judge(
+            fingerprint(read["text"], session), output=turn["output"], seen=seen, salt=session
+        )
+        if label == "used":
+            labels.append((target[0], target[1], "consulted"))
+            injected.add(target[0])
+    if labels:
+        with database(c.path) as db:
+            for asset, revision, label in labels:
+                _report(db, trace_id, [f"{asset}:{revision}"], label)
+
+
 def _display_text(record: dict[str, Any]) -> str:
     """The text pack() would inject: transcripts use their index text, everything else the body."""
     text = record.get("index_text") if record.get("kind") == "transcript" else None
@@ -154,8 +214,21 @@ def _run(root: Path, product: str, payload: dict[str, Any]) -> dict[str, Any]:
 
         record_tool_coverage(c, payload, session, epoch)
         return {}
+    if event == "Stop":
+        try:
+            _judge_turn(c, product, payload, session)
+        except (sqlite3.Error, OSError, ValueError, TypeError, KeyError):
+            pass  # Feedback is optional; the turn itself already finished.
+        return {}
     if event != "UserPromptSubmit":
         return {}
+    try:
+        # A new turn: whatever the last one injected can no longer be judged
+        # (its Stop never came, e.g. the member interrupted it).
+        with database(c.path) as db:
+            db.execute("DELETE FROM usage_pending WHERE session=?", (session,))
+    except sqlite3.Error:
+        pass
     prompt = payload.get("prompt", "")
     if not isinstance(prompt, str) or not prompt.strip():
         return {}
@@ -182,7 +255,11 @@ def _run(root: Path, product: str, payload: dict[str, Any]) -> dict[str, Any]:
                 )
         except OSError:
             pass
-        if display != "off" and product in VISIBLE_MESSAGE_PRODUCTS:
+        if (
+            display != "off"
+            and product in VISIBLE_MESSAGE_PRODUCTS
+            and skip_reason != "background_event"
+        ):
             skipped = render_skip(skip_reason, query)
             if _hand_to_panel(root, product, payload, skipped):
                 return {}
@@ -361,6 +438,35 @@ def _run(root: Path, product: str, payload: dict[str, Any]) -> dict[str, Any]:
                     )
         except (sqlite3.Error, OSError):
             pass  # Do not discard a completed recall for an unavailable receipt store.
+    if trace_id:
+        # What this turn injected, as digests, for the Stop hook to judge use
+        # against (usage.py). A turn without injections still records its
+        # trace: the model may fetch a memory the gate held back.
+        try:
+            from .usage import fingerprint
+
+            now = time.time()
+            with database(c.path) as db:
+                db.execute(
+                    "DELETE FROM usage_pending WHERE session=? OR created<?",
+                    (session, now - 86400),
+                )
+                rows = [(session, trace_id, "", 0, "", now)]
+                for record in hits:
+                    if states.get(coverage_key(record)) == "packed":
+                        rows.append(
+                            (
+                                session,
+                                trace_id,
+                                str(record["asset_id"]),
+                                int(record["revision"]),
+                                json.dumps(fingerprint(_display_text(record), session)),
+                                now,
+                            )
+                        )
+                db.executemany("INSERT OR REPLACE INTO usage_pending VALUES(?,?,?,?,?,?)", rows)
+        except (sqlite3.Error, OSError, KeyError, TypeError, ValueError):
+            pass
     if trace_id and hits:
         # Delivery states for the Hub's trace: packed+emitted, covered (already
         # in this session) or budget (ranked but no room). Identifiers only.
