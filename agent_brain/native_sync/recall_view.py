@@ -171,8 +171,10 @@ def _producer(record: dict[str, Any]) -> str:
     name = record.get("producer_name")
     if name and not record.get("producer_unknown"):
         return str(name)
+    # Historical content the member chose to share: the uploader stands as
+    # its author (the trace keeps the distinction).
     uploader = record.get("uploader_name")
-    return f"未知（{uploader}上传）" if uploader else "未知"
+    return str(uploader) if uploader else "未知"
 
 
 def _routes(record: dict[str, Any]) -> str:
@@ -193,6 +195,18 @@ def _similarity(record: dict[str, Any]) -> str:
     match = record.get("semantic_match") or {}
     value = match.get("similarity") if isinstance(match, dict) else None
     return f"{value:.2f}" if isinstance(value, (int, float)) else "—"
+
+
+def _usage(record: dict[str, Any]) -> str:
+    """How often this memory was used when injected: share and number of judged turns."""
+    trace = record.get("recall")
+    usage = trace.get("usage") if isinstance(trace, dict) else None
+    if not isinstance(usage, dict):
+        return "—"
+    used, judged = usage.get("used"), usage.get("judged")
+    if not isinstance(used, int) or not isinstance(judged, int) or judged <= 0:
+        return "—"
+    return f"{round(100 * used / judged)}%·{judged}次"
 
 
 def _updated(record: dict[str, Any]) -> str:
@@ -265,8 +279,9 @@ def _box(headers: list[str], rows: list[list[str]], widths: list[int]) -> list[s
     def cells(values: list[str]) -> str:
         return "│" + "│".join(" " + _fit(v, w) + " " for v, w in zip(values, widths)) + "│"
 
-    out = [line("┌", "┬", "┐"), cells(headers), line("├", "┼", "┤")]
-    out += [cells(row) for row in rows]
+    out = [line("┌", "┬", "┐"), cells(headers)]
+    for row in rows:
+        out += [line("├", "┼", "┤"), cells(row)]
     out.append(line("└", "┴", "┘"))
     return out
 
@@ -334,8 +349,8 @@ def render(
         return _as_plain("\n".join(lines)) + "\n" + "\n".join(_box_table(hits, states))
     lines += [
         "",
-        "| # | 记忆 | 类型 | 来源 | 作者 | 项目 | 版本 | 更新 | 命中路由 | 相关度 | 本轮 |",
-        "|---|---|---|---|---|---|---|---|---|---|---|",
+        "| # | 记忆 | 类型 | 来源 | 作者 | 项目 | 版本 | 更新 | 命中路由 | 相关性 | 使用率 | 本轮 |",
+        "|---|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     for rank, record in enumerate(hits, 1):
         from .recall import coverage_key
@@ -356,6 +371,7 @@ def render(
                     _updated(record),
                     _routes(record),
                     _similarity(record),
+                    _usage(record),
                     STATE_TEXT.get(states.get(coverage_key(record), ""), "—"),
                 ]
             )
@@ -382,8 +398,8 @@ def _box_table(hits: list[dict[str, Any]], states: dict[str, str]) -> list[str]:
     if with_project:
         headers.append("项目")
         widths.append(10)
-    headers += ["版本 更新", "命中路由", "相关", "本轮"]
-    widths += [9, 13, 4, 8]
+    headers += ["版本 更新", "命中路由", "相关性", "使用率", "本轮"]
+    widths += [9, 13, 6, 8, 8]
     rows = []
     for rank, record in enumerate(hits, 1):
         product = source_product(str(record.get("product") or ""))
@@ -392,8 +408,6 @@ def _box_table(hits: list[dict[str, Any]], states: dict[str, str]) -> list[str]:
             record
         ).split("·")[0]
         producer = _producer(record)
-        if producer.startswith("未知（") and producer.endswith("上传）"):
-            producer = producer[3:-1]  # "敖丙上传": the uploader, the author unknown
         row = [
             str(rank),
             _plain(_title(record)).replace(" #", " "),
@@ -407,6 +421,7 @@ def _box_table(hits: list[dict[str, Any]], states: dict[str, str]) -> list[str]:
             f"r{record.get('revision', '?')} {_plain(_updated(record))}",
             _plain(_routes(record)),
             _plain(_similarity(record)),
+            _plain(_usage(record)),
             STATE_SHORT.get(states.get(coverage_key(record), ""), "-"),
         ]
         rows.append(row)

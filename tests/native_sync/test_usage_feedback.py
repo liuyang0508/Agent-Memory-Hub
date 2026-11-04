@@ -525,3 +525,19 @@ def test_a_real_outage_stops_the_pass_after_a_few_failures(live, tmp_path):
         )
     c._report_recalls()
     assert len(calls) == 3
+
+
+def test_recall_reports_each_memorys_usage_rate(tmp_path):
+    hub, token = topic_hub(tmp_path, sim_only(threshold=0.5))
+    trace_id, items = _hook_recall(hub, token)
+    _deliver(hub, token, trace_id, items)
+    first = items[0]
+    hub.recall_feedback(
+        token,
+        trace_id,
+        [{"asset_id": first["asset_id"], "revision": first["revision"], "event": "used"}],
+    )
+    _, again = _hook_recall(hub, token)
+    rates = {i["asset_id"]: i["recall"]["usage"] for i in again}
+    assert rates[first["asset_id"]] == {"used": 1, "judged": 1}
+    assert all(v is None for k, v in rates.items() if k != first["asset_id"])

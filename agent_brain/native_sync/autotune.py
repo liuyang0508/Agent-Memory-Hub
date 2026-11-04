@@ -259,8 +259,10 @@ def run(
     train, held = _holdout(labels)
     train_rows, train_labels = _rows(train)
     extra = (train_rows, train_labels, _weights(train, len(gold_rows)))
-    baseline = relevance.cross_validate(judged, seeds=CV_SEEDS)
-    candidate = relevance.cross_validate(judged, extra=extra, seeds=CV_SEEDS)
+    baseline = relevance.cross_validate(judged, seeds=CV_SEEDS, relative=base.relative)
+    candidate = relevance.cross_validate(
+        judged, extra=extra, seeds=CV_SEEDS, relative=base.relative
+    )
     trained = relevance.fit(
         [*gold_rows, *train_rows],
         [*gold_labels, *train_labels],
@@ -318,7 +320,7 @@ def run(
     root = str(base.version).split("-fb")[0]
     final.version = f"{root}-fb{day}"
     final.threshold = candidate["best"]["threshold"]
-    final.max_items, final.dedup = base.max_items, base.dedup
+    final.max_items, final.dedup, final.relative = base.max_items, base.dedup, base.relative
     embedding = str(
         (hub.semantic_state or {}).get("model") or getattr(hub._encoder, "model_id", "")
     )

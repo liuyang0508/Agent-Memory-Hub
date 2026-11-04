@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.13] — 2026-11-04
+
+### Changed
+
+- Follower margin for prompt-time recall: the second and third memory must
+  reach half the leading memory's relevance probability, so a strong match no
+  longer brings weak ones along (a 38% index chunk behind an 89% answer).
+  Cross-validated on the 105-case gold set: hit@1, hit@3 and abstention
+  unchanged; precision 74.4% → 76.7%; memories per prompt 1.56 → 1.45. Literal
+  identifiers from the prompt still pass. Set in the model manifest
+  (`hook_gate.relative`), `recall-calibrate --relative`, kept by autotune.
+- Recall table: the 相关 column is now 相关性; a new 使用率 column shows how
+  often the memory was used when injected (share and judged turns, from usage
+  feedback; "—" before any); every row is separated by a rule; historical
+  uploads show the uploader's name as author, without "上传".
+
 ## [1.4.12] — 2026-11-04
 
 ### Fixed
