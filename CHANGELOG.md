@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.16] — 2026-11-04
+
+### Added
+
+- One command installs or upgrades the organization Hub:
+  `curl -fsSL https://github.com/liuyang0508/agent-memory-hub/releases/latest/download/hub.sh | sudo bash`.
+  It finds Python 3.11-3.13, downloads the release wheel, `upgrade.sh` and the
+  model manifest and checks each against the release's `checksums.txt`, builds
+  the dependency wheelhouse (PyPI, or the Tsinghua mirror when PyPI is
+  unreachable), snapshots the database, runs `upgrade.sh` (pinned model from a
+  Hugging Face mirror, atomic switch, rollback on failure), retires a drop-in
+  line that pins an older model once the new one is in place (backup kept,
+  restored if the Hub then fails to start), and waits for semantic recall to
+  index. Exercised in a systemd Ubuntu 24.04 container: fresh install, upgrade
+  over a legacy model drop-in, rollback from a broken release, and refusal of
+  a tampered wheel.
+- `upgrade.sh` uses the interpreter it is given (`AMH_PYTHON`) or the first
+  of Python 3.11-3.13 instead of requiring 3.11.
+
 ## [1.4.15] — 2026-11-04
 
 ### Changed

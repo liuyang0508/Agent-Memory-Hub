@@ -56,7 +56,10 @@ else
   install -d -m 755 "$version_dir"
 fi
 cp "$wheel" "$version_dir/"
-[ -d "$version_dir/venv" ] || python3.11 -m venv "$version_dir/venv"
+# hub.sh passes the interpreter it found; the deploy workflow's host has 3.11.
+python=${AMH_PYTHON:-$(command -v python3.11 || command -v python3.12 || command -v python3.13 || true)}
+[ -n "$python" ] || { echo 'python 3.11-3.13 required' >&2; exit 1; }
+[ -d "$version_dir/venv" ] || "$python" -m venv "$version_dir/venv"
 "$version_dir/venv/bin/pip" --isolated --no-cache-dir install --timeout 30 --retries 2 \
   --no-index --find-links "$wheelhouse" "$version_dir/$(basename "$wheel")[web,semantic]" \
   > "$backup/install.log" 2>&1 || { echo 'install failed; see install.log' >&2; exit 1; }

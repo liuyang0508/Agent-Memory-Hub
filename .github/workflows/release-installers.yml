@@ -44,6 +44,11 @@ jobs:
           # The organization-mode installer dispatches before any clone, so it
           # must ship as the same pinned asset.
           cp install-native.sh dist/install-native.sh
+          # One-command Hub install/upgrade, plus the two files it verifies
+          # and runs (the same ones the deploy workflow ships to aihub).
+          cp deploy/native-memory/hub.sh dist/hub.sh
+          cp deploy/native-memory/upgrade.sh dist/upgrade.sh
+          cp deploy/native-memory/semantic-model.json dist/semantic-model.json
           cp docs/native-memory/user-guide.zh.md dist/user-guide.zh.md
           # The installer must name the wheel it downloads, and pip rejects a
           # wheel filename without a version, so bake this tag in.
@@ -54,6 +59,12 @@ jobs:
           version = tag[1:] if tag.startswith("v") else tag
           path = Path("dist/install-native.sh")
           path.write_text(path.read_text().replace("__AMH_VERSION__", version))
+          hub = Path("dist/hub.sh")
+          hub.write_text(
+              hub.read_text()
+              .replace("__AMH_VERSION__", version)
+              .replace("__AMH_RELEASE_SHA__", os.environ["GITHUB_SHA"])
+          )
           PY
           python - <<'PY'
           import os
@@ -75,8 +86,8 @@ jobs:
                   text = text.replace(old, new)
               path.write_text(text, encoding="utf-8")
           PY
-          chmod +x dist/install.sh dist/deploy.sh dist/install-native.sh
-          (cd dist && sha256sum install.sh install.ps1 deploy.sh install-native.sh user-guide.zh.md *.whl > checksums.txt)
+          chmod +x dist/install.sh dist/deploy.sh dist/install-native.sh dist/hub.sh dist/upgrade.sh
+          (cd dist && sha256sum install.sh install.ps1 deploy.sh install-native.sh hub.sh upgrade.sh semantic-model.json user-guide.zh.md *.whl > checksums.txt)
 
       - name: Upload installers to GitHub Release
         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
@@ -86,6 +97,9 @@ jobs:
             dist/install.ps1
             dist/deploy.sh
             dist/install-native.sh
+            dist/hub.sh
+            dist/upgrade.sh
+            dist/semantic-model.json
             dist/*.whl
             dist/user-guide.zh.md
             dist/checksums.txt

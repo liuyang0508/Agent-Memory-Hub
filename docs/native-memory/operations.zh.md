@@ -126,6 +126,27 @@ amh-native recall-autotune --db /var/lib/amh-native/hub.sqlite --rollback # 退�
 
 `serve --autotune-days 0` 关闭每周校准。`amh-native recall-trace --trace <id>` 会显示每个候选这一轮是否被用上。
 
+## 一键安装与升级 Hub（1.4.16 起）
+
+在 Hub 主机上以 root 运行一条命令，首次安装和升级都用它：
+
+```sh
+curl -fsSL https://github.com/liuyang0508/agent-memory-hub/releases/latest/download/hub.sh | sudo bash
+# 指定版本：… | sudo bash -s -- --version 1.4.16    国内强制走镜像：--cn    不装语义模型：--no-semantic
+```
+
+脚本按以下顺序执行，任何一步失败都会停下：
+
+1. 找可用的 Python（3.11–3.13）。
+2. 下载发布包，逐个核对校验和。
+3. 准备依赖：访问不了 PyPI 时自动改用清华镜像。
+4. 备份数据库。
+5. 升级：语义模型从 hf-mirror 下载并核对，原子切换，失败自动回滚。
+6. 处理旧配置：如果 drop-in 里写死了旧模型路径，等新模型就绪后注释掉那一行。原文件备份为 `*.bak-<版本>`；如果之后服务起不来，会自动恢复。
+7. 收尾：等语义检索建完索引，打印版本、模型、门控和能力列表。
+
+GitHub 访问慢时，用 `AMH_RELEASE_BASE` 指向内部镜像，目录结构保持 `v<版本>/文件名`。Hub 升级后，各成员客户端会在一天内自动跟到同一版本。
+
 ## 客户端自动升级（1.4.14 起）
 
 - 升级顺序只需要管 Hub：Hub 升级后，各成员的常驻后台进程在 24 小时内（启动后 2–15 分钟内首次检查）自动升到 Hub 的版本。Hub 的健康检查返回 `version`，客户端不会超过它。
