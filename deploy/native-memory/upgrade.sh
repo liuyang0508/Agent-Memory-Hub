@@ -128,9 +128,16 @@ if not all(good(target / f["path"], f["sha256"]) for f in spec["files"]):
         import shutil
         shutil.rmtree(target)
     stage.rename(target)
+# Files already in place (shared across releases, or placed by an operator)
+# skip the fetch above; the manifest is still this release's to write.
 manifest = target / "amh-semantic.json"
-if json.loads(manifest.read_text()) != spec["manifest"]:
+try:
+    current = json.loads(manifest.read_text())
+except (OSError, ValueError):
+    current = None
+if current != spec["manifest"]:
     manifest.write_text(json.dumps(spec["manifest"], ensure_ascii=False))
+    manifest.chmod(0o644)
 print(target)
 PY
   ); then

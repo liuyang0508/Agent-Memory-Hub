@@ -158,6 +158,23 @@ STATE_TEXT = {
     "budget": "超出注入预算",
     "empty": "无正文",
 }
+REASON_TEXT = {
+    "semantic_model_unavailable": "Hub 语义模型不可用",
+    "semantic_index_incomplete_rebuild_required": "语义索引未建完",
+    "semantic_index_not_built": "语义索引未建",
+    "semantic_model_not_configured": "Hub 未配置语义模型",
+    "semantic_index_model_mismatch_rebuild_required": "语义索引待按新模型重建",
+    "semantic_query_failed": "语义检索出错",
+    "gate_background_pending": "门控背景未就绪",
+    "hook_lexical_guard": "只注入含提问中标识的记忆",
+}
+
+
+def _reason(code: str) -> str:
+    """A degraded-state reason in words; unknown codes stay as they are."""
+    return REASON_TEXT.get(code.split(":", 1)[0], code)
+
+
 MODE_TEXT = {"hybrid": "混合（词法+语义）", "lexical": "仅词法"}
 VIA_TEXT = {"service": "常驻服务（热连接）", "worker": "子进程", "disabled": "已关闭"}
 
@@ -390,7 +407,9 @@ def render(
     packed = sum(1 for s in states.values() if s == "packed")
     if mode == "remote":
         how = MODE_TEXT.get(str(retrieval.get("mode")), "Hub 检索")
-        reasons = [str(r) for r in retrieval.get("reasons") or []][:3]
+        reasons = list(
+            dict.fromkeys(_reason(str(r)) for r in retrieval.get("reasons") or [])
+        )[:3]
         if retrieval.get("mode") == "lexical" and reasons:
             how += "（降级：" + "、".join(reasons) + "）"
     else:

@@ -147,6 +147,23 @@ curl -fsSL https://github.com/liuyang0508/agent-memory-hub/releases/latest/downl
 
 GitHub 访问慢时，用 `AMH_RELEASE_BASE` 指向内部镜像，目录结构保持 `v<版本>/文件名`。Hub 升级后，各成员客户端会在一天内自动跟到同一版本。
 
+**主机访问不了 Hugging Face 时（1.4.17 起）**：模型下载失败，脚本结尾会用黄字写明「semantic recall is NOT running」，并列出要下载的模型文件地址、存放路径和 sha256。在能访问的机器上按列出的路径下好，放进同一个目录，拷到 Hub 主机上，然后重跑脚本：
+
+```sh
+sudo bash hub.sh --model-dir /path/to/model-dir      # 目录内：tokenizer.json、onnx/model_int8.onnx
+```
+
+文件仍按 sha256 核对。等待建索引时，如果 Hub 报告模型加载失败，健康检查的 `semantic.state` 会是 `unavailable`，`reason` 写明原因，脚本立即结束，不再空等 30 分钟。
+
+## 语义不可用时的召回保护（1.4.17 起）
+
+Hub 没有语义检索时（模型没装好、加载失败或索引没建完），学习门控无法打分。这时如果按关键词照常注入，任何与提问有一个词重合的记忆都可能被塞进对话。因此提问时的召回（hook）改为保守模式：
+
+- 只注入「提问里的标识原样出现在记忆中」的条目，例如文件路径、错误码、版本号、`snake_case` 或 `camelCase` 符号、链接；而且必须是关键词排名前 3 的条目，最多 2 条。
+- 其余候选不注入，记录在召回轨迹里，原因写 `lexical_guard`；召回表的表头会注明「只注入含提问中标识的记忆」。
+- 模型主动调用的检索工具（`search_org_memory`）不受影响。
+- 需要恢复旧的纯关键词注入时，在 Hub 的环境里设置 `AMH_NATIVE_HOOK_LEXICAL_GUARD=0`。
+
 ## 客户端自动升级（1.4.14 起）
 
 - 升级顺序只需要管 Hub：Hub 升级后，各成员的常驻后台进程在 24 小时内（启动后 2–15 分钟内首次检查）自动升到 Hub 的版本。Hub 的健康检查返回 `version`，客户端不会超过它。
