@@ -31,9 +31,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The gate is refit on the organization's gold questions plus usage labels
   (class-balanced, total weight capped at half the gold candidates; gold
   alone picks the threshold) and promoted only if it passes both checks:
-  gold cross-validation does not regress beyond 0.02 on utility, hit@1,
-  precision or abstention, and on the newest quarter of each label class,
-  held out, it ranks real use at least as well (AUC) as the live gate.
+  gold cross-validation utility does not fall at all (hit@1, precision and
+  abstention may trade within 0.02), and on the newest quarter of each label
+  class, held out, it ranks real use no worse than the live gate beyond the
+  paired-bootstrap sampling error (non-inferiority, margin at least 0.02 AUC).
   Every run is recorded; promoted gates are per organization, tied to the
   embedding model, and `recall-autotune --rollback` restores the previous
   one. An operator pin (`AMH_NATIVE_HOOK_GATE`) still wins.

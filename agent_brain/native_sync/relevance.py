@@ -451,3 +451,39 @@ def ranking_quality(model: GateModel, rows: Sequence[Sequence[float]], labels: S
         "log_loss": round(loss, 4),
         "rows": len(scored),
     }
+
+
+def auc_difference(
+    new: GateModel,
+    old: GateModel,
+    rows: Sequence[Sequence[float]],
+    labels: Sequence[float],
+    draws: int = 200,
+) -> dict[str, Any]:
+    """AUC(new) - AUC(old) on the same rows, with a paired bootstrap standard error.
+
+    Resampling keeps each class's size, so every draw can still be ranked.
+    """
+    pairs = list(zip(rows, labels))
+    positives = [p for p in pairs if p[1] >= 0.5]
+    negatives = [p for p in pairs if p[1] < 0.5]
+    if not positives or not negatives:
+        return {"difference": None, "standard_error": None}
+
+    def gap(sample: list[tuple[Sequence[float], float]]) -> float:
+        a = ranking_quality(new, [r for r, _ in sample], [y for _, y in sample])["auc"]
+        b = ranking_quality(old, [r for r, _ in sample], [y for _, y in sample])["auc"]
+        return float(a) - float(b)
+
+    observed = gap(pairs)
+    rng = random.Random(0)
+    values = [
+        gap(
+            [positives[rng.randrange(len(positives))] for _ in positives]
+            + [negatives[rng.randrange(len(negatives))] for _ in negatives]
+        )
+        for _ in range(draws)
+    ]
+    mean = sum(values) / len(values)
+    error = math.sqrt(sum((v - mean) ** 2 for v in values) / (len(values) - 1))
+    return {"difference": round(observed, 4), "standard_error": round(error, 4)}

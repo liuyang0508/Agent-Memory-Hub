@@ -411,7 +411,7 @@ def test_autotune_refuses_feedback_that_predicts_use_worse(tmp_path, monkeypatch
         row["created"] = row["created"] - 1000
     labels += _labels(5, 5, good=True)
     report = autotune.run(hub, tenant, cases=_gold(), labels=labels, token=token, apply=True)
-    assert report["status"] == "rejected_no_gain_on_use", report
+    assert report["status"] == "rejected_worse_on_use", report
     assert hub.gate_model(tenant).version == "learned-v1"
 
 

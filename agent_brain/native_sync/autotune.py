@@ -15,9 +15,13 @@ The loop, end to end:
      scored by the same grouped cross-validation on gold cases the fold never
      trained on. The candidate must stay within tolerance on utility, hit@1,
      precision and abstention.
-   * **It predicts real use better.** The newest quarter of the labels is held
-     out; the candidate, trained without them, must rank them at least as well
-     (AUC) as the live gate does.
+   * **It is not worse at predicting real use.** The newest quarter of each
+     label class is held out; the candidate, trained without them, may rank
+     them worse than the live gate only within the paired-bootstrap sampling
+     error (at least 0.02 AUC). A few dozen labels cannot prove a gain, but
+     they can expose a clearly worse gate.
+
+   Gold utility itself must not fall at all: no promotion without a gain.
 
 Feedback teaches but never judges: it joins training with class-balanced
 weights whose total is capped at half the gold candidates, so a burst of
@@ -267,20 +271,33 @@ def run(
         "live": relevance.ranking_quality(base, held_rows, held_labels),
         "candidate": relevance.ranking_quality(trained, held_rows, held_labels),
     }
+    # Utility must not fall at all (no churn without a gain); the parts may
+    # trade within the tolerance.
     gold_check = {
         key: {
             "live_recipe": baseline["best"][key],
             "candidate": candidate["best"][key],
-            "ok": candidate["best"][key] >= baseline["best"][key] - TOLERANCE,
+            "ok": candidate["best"][key]
+            >= baseline["best"][key] - (0.0 if key == "utility" else TOLERANCE),
         }
         for key in CHECKED
     }
-    live_auc, new_auc = quality["live"]["auc"], quality["candidate"]["auc"]
-    use_ok = live_auc is not None and new_auc is not None and new_auc >= live_auc
+    # Non-inferiority on real use: a few dozen held-out labels cannot prove a
+    # gain, but they can show the candidate is clearly worse than the live
+    # gate (by more than its sampling error).
+    paired = relevance.auc_difference(trained, base, held_rows, held_labels)
+    margin = max(TOLERANCE, paired["standard_error"] or 0.0)
+    use_ok = paired["difference"] is not None and paired["difference"] >= -margin
     report.update(
         {
             "gold_check": gold_check,
-            "held_out_use": {**quality, "ok": use_ok, "labels": len(held)},
+            "held_out_use": {
+                **quality,
+                **paired,
+                "margin": round(margin, 4),
+                "ok": use_ok,
+                "labels": len(held),
+            },
             "threshold": candidate["best"]["threshold"],
             "standard_error": candidate["standard_error"],
         }
@@ -288,7 +305,7 @@ def run(
     if not all(check["ok"] for check in gold_check.values()):
         return {**report, "status": "rejected_gold_regression"}
     if not use_ok:
-        return {**report, "status": "rejected_no_gain_on_use"}
+        return {**report, "status": "rejected_worse_on_use"}
 
     # Passed: the deployed model learns from every label and every gold case.
     all_rows, all_labels = _rows(labels)
