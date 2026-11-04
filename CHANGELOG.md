@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.15] — 2026-11-04
+
+### Changed
+
+- Recall table: every memory gets a full-width content line under its row,
+  so a file name like `MEMORY.md 5/8` or `SKILL` no longer hides what was
+  recalled. The line shows the memory's own `description`; for an index
+  chunk, the task groups it contains; for an index, the entries it lists;
+  otherwise its first heading and sentence. Skills are named after their
+  directory. In Codex's Markdown table this is a 内容 column.
+
 ## [1.4.14] — 2026-11-04
 
 ### Added
