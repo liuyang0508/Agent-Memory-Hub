@@ -119,7 +119,7 @@ def create_app(hub: Hub) -> FastAPI:
             "recall-hints-v1",
         ]
         state = hub.semantic_status()
-        semantic = {k: state[k] for k in ("state", "model", "reason") if k in state}
+        semantic: dict[str, Any] = {k: state[k] for k in ("state", "model", "reason") if k in state}
         if state.get("state") == "ready":
             capabilities.append("semantic-v1")
             gate = hub.gate_state()
@@ -619,7 +619,8 @@ def recall_hints(hints: list[dict[str, Any]]) -> list[dict[str, Any]]:
     out = []
     for hint in hints[:8]:
         row: dict[str, Any] = {
-            key: str(hint.get(key) or "")[:256] for key in ("asset_id", "title", "path", "product", "kind")
+            key: str(hint.get(key) or "")[:256]
+            for key in ("asset_id", "title", "path", "product", "kind")
         }
         if not row["asset_id"] or type(hint.get("revision")) is not int:
             continue

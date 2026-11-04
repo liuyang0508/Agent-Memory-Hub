@@ -167,17 +167,9 @@ def work(state: Path, interval: float = 10, *, stop: threading.Event | None = No
                     if on_disk and started_as and on_disk != started_as:
                         restart = True
                         break
-                if (
-                    managed
-                    and time.monotonic() >= next_update
-                    and not (state / "paused").exists()
-                ):
+                if managed and time.monotonic() >= next_update and not (state / "paused").exists():
                     next_update = time.monotonic() + UPDATE_INTERVAL * random.uniform(0.9, 1.1)
-                    if (
-                        c.recall_enabled()
-                        and update_enabled(last_config)
-                        and update_due(state)
-                    ):
+                    if c.recall_enabled() and update_enabled(last_config) and update_due(state):
                         if check_update(state, last_config, c.transport).get("restart"):
                             restart = True
                             break

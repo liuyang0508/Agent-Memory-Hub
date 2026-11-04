@@ -150,8 +150,7 @@ def _weekly(
         members = {
             member
             for member, first in first_seen.items()
-            if week_of.get(first) == week
-            or (week == 0 and first < start and member in active[0])
+            if week_of.get(first) == week or (week == 0 and first < start and member in active[0])
         }
         if not members:
             continue
@@ -243,19 +242,21 @@ def _assets_view(
             used[row["asset_id"]] = used.get(row["asset_id"], 0) + 1
     known = {asset["asset_id"]: asset for asset in live}
     demand = sorted(
-        item["funnel"]["selected"] for key, item in window.items() if key in known and item["funnel"]["selected"]
+        item["funnel"]["selected"]
+        for key, item in window.items()
+        if key in known and item["funnel"]["selected"]
     )
     high_demand = max(2.0, float(median(demand))) if demand else 2.0
     groups: dict[str, list[dict[str, Any]]] = {key: [] for key in QUADRANTS}
     unjudged = 0
-    rows = []
+    rows: list[dict[str, Any]] = []
     for asset in live:
         key = asset["asset_id"]
         funnel = (window.get(key) or insights._blank_asset())["funnel"]
         selected = funnel["selected"]
         count = judged.get(key, 0)
         rate = _ratio(used.get(key, 0), count)
-        row = {
+        row: dict[str, Any] = {
             "asset_id": key,
             "title": asset_title(key, asset["title"], asset["path"]),
             "selected": selected,
@@ -315,7 +316,10 @@ def _assets_view(
             "assets": len(ranked),
             "head": head,
             "head_share": _ratio(sum(r["emitted"] for r in ranked[:head]), total),
-            "top": [{"title": r["title"], "emitted": r["emitted"], "used": r["used"]} for r in ranked[:10]],
+            "top": [
+                {"title": r["title"], "emitted": r["emitted"], "used": r["used"]}
+                for r in ranked[:10]
+            ],
         },
         "freshness": {"fresh": fresh, "recent": recent, "stale": stale},
     }
@@ -335,7 +339,7 @@ def _people(
     for row in labels:
         if row["created"] >= start and row["label"] in USED:
             used_by[row["member"]] = used_by.get(row["member"], 0) + 1
-    out = []
+    out: list[dict[str, Any]] = []
     for member, name in names.items():
         own = contributed.get(member) or {}
         recall = recalling.get(member) or {}
@@ -529,7 +533,9 @@ def _summary(
         head += f"，注入 {north['value']} 次；使用判定还在积累"
     lines.append(head + "。")
     if totals["cross_member_emitted"]:
-        lines.append(f"其中 {totals['cross_member_emitted']} 次注入来自其他成员的经验，知识在跨人流动。")
+        lines.append(
+            f"其中 {totals['cross_member_emitted']} 次注入来自其他成员的经验，知识在跨人流动。"
+        )
     urgent = [a for a in alerts if a["severity"] in ("critical", "serious")]
     if urgent:
         lines.append(f"有 {len(urgent)} 件事需要尽快处理：{urgent[0]['title']}。")

@@ -35,7 +35,17 @@ def org(tmp_path):
     with database(hub.path) as db:
         db.execute(
             "INSERT INTO recall_labels VALUES(?,?,?,?,?,?,?,?,?)",
-            (hub.tenant, trace, "m1", 1, time.time(), "used", reader["member_id"], "learned-v1", "[]"),
+            (
+                hub.tenant,
+                trace,
+                "m1",
+                1,
+                time.time(),
+                "used",
+                reader["member_id"],
+                "learned-v1",
+                "[]",
+            ),
         )
     return hub, hub.admin_create("ops"), author, reader
 
@@ -44,8 +54,12 @@ def test_needs_an_operator_and_never_carries_memory_text(org):
     hub, token, _, reader = org
     client = TestClient(create_app(hub))
     assert client.get(URL).status_code == 401
-    assert client.get(URL, headers={"Authorization": "Bearer " + reader["token"]}).status_code == 401
-    assert client.get(URL + "?days=0", headers={"Authorization": "Bearer " + token}).status_code == 422
+    assert (
+        client.get(URL, headers={"Authorization": "Bearer " + reader["token"]}).status_code == 401
+    )
+    assert (
+        client.get(URL + "?days=0", headers={"Authorization": "Bearer " + token}).status_code == 422
+    )
     response = client.get(URL, headers={"Authorization": "Bearer " + token})
     assert response.status_code == 200
     assert SECRET not in response.text
@@ -101,7 +115,14 @@ def test_an_empty_hub_says_so_rather_than_inventing_numbers(tmp_path):
 def test_quadrants_follow_demand_and_use(tmp_path):
     now = time.time()
     live = [
-        {"asset_id": key, "title": key, "path": key + ".md", "kind": "memory", "observed": now, "producer": "m"}
+        {
+            "asset_id": key,
+            "title": key,
+            "path": key + ".md",
+            "kind": "memory",
+            "observed": now,
+            "producer": "m",
+        }
         for key in ("star", "rework", "potential", "dormant", "unjudged")
     ]
 

@@ -403,9 +403,7 @@ def render(
     packed = sum(1 for s in states.values() if s == "packed")
     if mode == "remote":
         how = MODE_TEXT.get(str(retrieval.get("mode")), "Hub 检索")
-        reasons = list(
-            dict.fromkeys(_reason(str(r)) for r in retrieval.get("reasons") or [])
-        )[:3]
+        reasons = list(dict.fromkeys(_reason(str(r)) for r in retrieval.get("reasons") or []))[:3]
         if retrieval.get("mode") == "lexical" and reasons:
             how += "（降级：" + "、".join(reasons) + "）"
     else:
@@ -433,7 +431,9 @@ def render(
         + f" · 会话 {asking.get('session_digest') or '—'}"
     )
     if context:
-        lines.append("上文补充：这句较短，检索时带上了上一轮提问「" + _cell(context, 40) + "」，结果只给标题")
+        lines.append(
+            "上文补充：这句较短，检索时带上了上一轮提问「" + _cell(context, 40) + "」，结果只给标题"
+        )
     tail = _hint_line(hints or [])
     if not hits:
         lines += [tail] if tail else []
@@ -490,7 +490,8 @@ def _hint_line(hints: list[dict[str, Any]]) -> str:
         title = _cell(hint.get("title") or hint.get("path") or hint.get("asset_id"), 28)
         probability = hint.get("probability")
         names.append(
-            f"《{title}》" + (f"（{round(probability * 100)}%）" if isinstance(probability, (int, float)) else "")
+            f"《{title}》"
+            + (f"（{round(probability * 100)}%）" if isinstance(probability, (int, float)) else "")
         )
     return "只给标题（未注入正文，模型需要时自行读取）：" + "、".join(names)
 
@@ -622,6 +623,4 @@ def _box_table(
         rows.append([values[key] for key, _, _ in layout])
         summary = _plain(_summary(record))
         details.append("内容：" + summary if summary else "")
-    return _box(
-        [head for _, head, _ in layout], rows, [width for _, _, width in layout], details
-    )
+    return _box([head for _, head, _ in layout], rows, [width for _, _, width in layout], details)

@@ -14,7 +14,9 @@ def transcript(path, *prompts):
     rows = []
     for text in prompts:
         rows.append({"type": "user", "message": {"role": "user", "content": text}})
-        rows.append({"type": "assistant", "message": {"content": [{"type": "text", "text": "好的"}]}})
+        rows.append(
+            {"type": "assistant", "message": {"content": [{"type": "text", "text": "好的"}]}}
+        )
     rows.append({"type": "user", "message": {"content": [{"type": "tool_result", "content": "x"}]}})
     path.write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in rows) + "\n")
     return path

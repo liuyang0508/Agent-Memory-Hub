@@ -102,7 +102,11 @@ def _judge_turn(c: NativeClient, product: str, payload: dict[str, Any], session:
     message = payload.get("last_assistant_message")
     message = message if isinstance(message, str) else ""
     transcript = payload.get("transcript_path")
-    turn = claude_turn(Path(transcript)) if product == "claude-code" and isinstance(transcript, str) else None
+    turn = (
+        claude_turn(Path(transcript))
+        if product == "claude-code" and isinstance(transcript, str)
+        else None
+    )
     allow_used = turn is not None
     if turn is None:
         if not message:
@@ -439,7 +443,10 @@ def _run(root: Path, product: str, payload: dict[str, Any]) -> dict[str, Any]:
             with database(c.path) as db:
                 db.executemany(
                     "INSERT OR IGNORE INTO coverage VALUES(?,?,?)",
-                    [(session, epoch, key) for key in hint_keys(hints, covered, [] if context else hits)],
+                    [
+                        (session, epoch, key)
+                        for key in hint_keys(hints, covered, [] if context else hits)
+                    ],
                 )
         except sqlite3.Error:
             pass

@@ -242,6 +242,7 @@ class WarmTransport(Transport):
         method = "GET" if data is None else "POST"
         target = self._prefix + "/native/v1/" + path
         reused = self.connected()
+        started = time.monotonic()
         try:
             return self._exchange(method, target, body, headers)
         except TimeoutError:
@@ -250,9 +251,18 @@ class WarmTransport(Transport):
             if not reused:
                 raise
             # The Hub or a proxy closed the idle connection underneath us: one
-            # fresh attempt, exactly what a cold Transport would have made.
+            # fresh attempt, exactly what a cold Transport would have made, but
+            # only within what is left of this request's time.
             self.close()
-            return self._exchange(method, target, body, headers)
+            budget = self.timeout
+            remaining = budget - (time.monotonic() - started)
+            if remaining <= 0:
+                raise TimeoutError("Hub response deadline exceeded") from None
+            self.timeout = remaining
+            try:
+                return self._exchange(method, target, body, headers)
+            finally:
+                self.timeout = budget
 
     def _exchange(
         self, method: str, target: str, body: bytes | None, headers: dict[str, str]

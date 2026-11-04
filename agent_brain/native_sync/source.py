@@ -103,7 +103,9 @@ def sensitive_key(key: str) -> bool:
         return False
     if compact in {"bypass", "compass", "encompass", "compat"}:
         return False
-    if compact.endswith(("pass", "passwd", "pwd")) or compact.endswith(("githubpat", "gitlabpat", "accesspat")):
+    if compact.endswith(("pass", "passwd", "pwd")) or compact.endswith(
+        ("githubpat", "gitlabpat", "accesspat")
+    ):
         return True
     return any(
         "".join(c for c in part if c.isalnum()) in compact

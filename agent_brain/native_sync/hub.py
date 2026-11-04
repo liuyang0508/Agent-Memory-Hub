@@ -1107,7 +1107,9 @@ class Hub:
                     {"scope": key, "parts": parts} for key, parts in proofs.items() if parts
                 ],
                 "items": [metadata(item) for item in items] if metadata_only else items,
-                "cursor": rows[-1]["seq"] if rows else max(cursor, self._last_seq(db, who["tenant"])),
+                "cursor": rows[-1]["seq"]
+                if rows
+                else max(cursor, self._last_seq(db, who["tenant"])),
             }
 
     @staticmethod
@@ -1156,9 +1158,7 @@ class Hub:
                     (scope, asset_id),
                 ).rowcount,
             }
-            db.execute(
-                "DELETE FROM search_index WHERE tenant=? AND asset_id=?", (scope, asset_id)
-            )
+            db.execute("DELETE FROM search_index WHERE tenant=? AND asset_id=?", (scope, asset_id))
             from .semantic import exists as semantic_exists
 
             if semantic_exists(db):
@@ -1803,7 +1803,9 @@ class Hub:
                 reasons = verdict["reasons"] if verdict["risk"] == "blocked" else []
                 self._screened[row["hash"]] = reasons
             if reasons:
-                found.append({"asset_id": row["id"], "title": row["title"] or "", "reasons": reasons})
+                found.append(
+                    {"asset_id": row["id"], "title": row["title"] or "", "reasons": reasons}
+                )
         return found[:50]
 
     def _refresh_insights(

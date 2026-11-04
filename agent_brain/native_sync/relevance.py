@@ -531,7 +531,9 @@ def _judged(
     }
 
 
-def ranking_quality(model: GateModel, rows: Sequence[Sequence[float]], labels: Sequence[float]) -> dict[str, Any]:
+def ranking_quality(
+    model: GateModel, rows: Sequence[Sequence[float]], labels: Sequence[float]
+) -> dict[str, Any]:
     """How well a model orders labeled rows: AUC (ties count half) and mean log loss."""
     scored = [(model.probability(r), float(y)) for r, y in zip(rows, labels)]
     positives = [p for p, y in scored if y >= 0.5]

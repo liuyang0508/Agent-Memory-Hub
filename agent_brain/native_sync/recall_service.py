@@ -27,7 +27,9 @@ from .transport import HubHTTPError, WarmTransport, validate_url
 
 SOCKET_NAME = "recall.sock"
 PING_INTERVAL = 25.0  # below nginx's default 75s idle timeout
-IDLE_LIMIT = 30 * 60  # stop keeping the connection warm when nobody has asked for this long
+IDLE_LIMIT = (
+    4 * 3600
+)  # a working day's pauses stay warm; stop keeping the connection warm when nobody has asked for this long
 MAX_REQUEST_BYTES = 64_000
 MAX_REPLY_BYTES = 4_000_000  # recall bodies are capped at 512KB on the Hub side
 QUERY_CHARS = 8000
@@ -200,7 +202,17 @@ class RecallService:
         asking = message.get("asking")
         limit = message.get("limit", 8)
         timeout = message.get("timeout")
-        with self.lock:
+        budget = float(timeout) if isinstance(timeout, (int, float)) and 0 < timeout <= 60 else None
+        arrived = time.monotonic()
+        # The hook gives up at its budget: a request still queued after that has
+        # nobody waiting for it and must not reach the Hub or leave a trace there.
+        if not self.lock.acquire(timeout=budget if budget is not None else -1):
+            return {"ok": False, "error": "timeout"}
+        try:
+            if budget is not None:
+                budget -= time.monotonic() - arrived
+                if budget <= 0:
+                    return {"ok": False, "error": "timeout"}
             if (self.state / "paused").exists() or not recall_allowed(self.state):
                 return {
                     "ok": True,
@@ -210,8 +222,8 @@ class RecallService:
             if transport is None:
                 return {"ok": False, "error": "unavailable"}
             previous = transport.timeout
-            if isinstance(timeout, (int, float)) and 0 < timeout <= 60:
-                transport.timeout = float(timeout)
+            if budget is not None:
+                transport.timeout = budget
             try:
                 result = fetch(
                     transport,
@@ -238,6 +250,8 @@ class RecallService:
             finally:
                 transport.timeout = previous
                 self.last_use = self.last_touch = time.monotonic()
+        finally:
+            self.lock.release()
 
     def _ping_loop(self) -> None:
         """Keep the connection warm while hooks are using it; let it go when they stop."""

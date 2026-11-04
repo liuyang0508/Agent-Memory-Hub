@@ -173,7 +173,15 @@ def _compact_times(times_set: dict[str, Any]) -> dict[str, Any]:
 _IDENTIFIER = re.compile(r"[A-Za-z0-9][A-Za-z0-9_./-]*[A-Za-z0-9]")
 # Files every project has: naming one says nothing about which memory.
 _COMMON_TOKENS = frozenset(
-    {"memory.md", "memory_summary", "memory_summary.md", "claude.md", "agents.md", "readme.md", "skill.md"}
+    {
+        "memory.md",
+        "memory_summary",
+        "memory_summary.md",
+        "claude.md",
+        "agents.md",
+        "readme.md",
+        "skill.md",
+    }
 )
 
 
@@ -683,7 +691,11 @@ def retrieve(
                 }
                 if collecting:
                     item["gate_features"] = values
-                if collecting or anchored or (probability >= model.threshold and lift >= model.lift):
+                if (
+                    collecting
+                    or anchored
+                    or (probability >= model.threshold and lift >= model.lift)
+                ):
                     judged.append((probability, hit))
                     effects[hit.id] = "p=%.3f" % probability
                 else:

@@ -189,7 +189,9 @@ HINT_HEAD = (
 
 def hint_of(record: dict[str, Any]) -> dict[str, Any]:
     """A recalled record reduced to the title-only tier."""
-    return {key: record.get(key) for key in ("asset_id", "revision", "title", "path", "product", "kind")}
+    return {
+        key: record.get(key) for key in ("asset_id", "revision", "title", "path", "product", "kind")
+    }
 
 
 def _fresh_hints(

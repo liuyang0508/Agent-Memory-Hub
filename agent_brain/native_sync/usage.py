@@ -258,7 +258,11 @@ def claude_turn(path: Path) -> dict[str, Any] | None:
                 if isinstance(part, dict) and part.get("type") == "tool_result":
                     text = _flat(part.get("content"))
                     arguments = calls.get(str(part.get("tool_use_id")))
-                    if arguments is not None and not part.get("is_error") and not _failed_read(text):
+                    if (
+                        arguments is not None
+                        and not part.get("is_error")
+                        and not _failed_read(text)
+                    ):
                         reads.append({"arguments": arguments, "text": text})
                     else:
                         results.append(text)

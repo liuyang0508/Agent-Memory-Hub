@@ -19,34 +19,7 @@ PAGE = r"""<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>组织记忆 · 经营驾驶舱</title>
 <style>
-  :root {
-    color-scheme: light;
-    --page: #f6f5f1; --surface: #fcfcfb; --ink: #0b0b0b; --ink-2: #52514e; --ink-3: #6f6d68;
-    --axis: #898781; --grid: #e1e0d9; --base: #c3c2b7; --ring: rgba(11,11,11,.09); --wash: rgba(11,11,11,.04);
-    --hero: #0d2f5c; --hero-2: #0d366b; --hero-ink: #f7f8fa; --hero-soft: #c4d5ec; --hero-line: rgba(255,255,255,.18);
-    --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a;
-    --r250: #86b6ef; --r350: #5598e7; --r450: #2a78d6; --r500: #256abf; --r600: #184f95; --r700: #0d366b;
-    --good: #0ca30c; --warning: #fab219; --serious: #ec835a; --critical: #d03b3b; --up: #006300;
-    --track: #e8eef6; --shadow: 0 1px 2px rgba(13,47,92,.05), 0 8px 24px rgba(13,47,92,.05);
-  }
-  :root[data-theme="dark"] {
-    color-scheme: dark;
-    --page: #0d0d0d; --surface: #1a1a19; --ink: #f0efec; --ink-2: #c3c2b7; --ink-3: #a9a8a0;
-    --axis: #898781; --grid: #2c2c2a; --base: #383835; --ring: rgba(255,255,255,.10); --wash: rgba(255,255,255,.05);
-    --hero: #10233f; --hero-2: #142c4f; --hero-line: rgba(255,255,255,.14);
-    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --r250: #184f95; --r350: #1c5cab; --r450: #256abf; --r500: #2a78d6; --r600: #3987e5; --r700: #5598e7;
-    --up: #0ca30c; --track: #24282e; --shadow: none;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root:where(:not([data-theme="light"])) {
-      color-scheme: dark;
-      --page: #0d0d0d; --surface: #1a1a19; --ink: #f0efec; --ink-2: #c3c2b7; --ink-3: #a9a8a0;
-      --axis: #898781; --grid: #2c2c2a; --base: #383835; --ring: rgba(255,255,255,.10); --wash: rgba(255,255,255,.05);
-      --hero: #10233f; --hero-2: #142c4f; --hero-line: rgba(255,255,255,.14);
-      --s1: #3987e5; --s2: #d95926; --s3: #199e70; --r250: #184f95; --r350: #1c5cab; --r450: #256abf; --r500: #2a78d6; --r600: #3987e5; --r700: #5598e7;
-      --up: #0ca30c; --track: #24282e; --shadow: none;
-    }
-  }
+  /* AMH_THEME */
   * { box-sizing: border-box; }
   html { scroll-behavior: smooth; scroll-padding-top: 76px; }
   body { margin: 0; background: var(--page); color: var(--ink); font: 14px/1.65 -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Segoe UI", system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
@@ -262,7 +235,7 @@ PAGE = r"""<!doctype html>
     <div class="tools">
       <div class="seg" role="group" aria-label="统计窗口" id="windows"></div>
       <a class="ghost" href="/native/v1/admin/recalls">召回明细</a>
-      <a class="ghost" href="/native/v1/admin">管理后台</a>
+      <a class="ghost" href="/native/v1/admin">成员与设备</a>
       <button class="ghost" id="theme" aria-label="切换明暗主题" title="切换明暗主题">◐</button>
       <button class="ghost" onclick="logout()">退出</button>
     </div>
@@ -751,6 +724,10 @@ load();
 
 def html(target: str = "dashboard") -> str:
     """Return the cockpit; it carries no secret and no memory content."""
-    from .admin_ui import SCRIPT
+    from .admin_ui import SCRIPT, TOKENS
 
-    return PAGE.replace("/* AMH_ADMIN_SESSION */", SCRIPT).replace("__TARGET__", target)
+    return (
+        PAGE.replace("/* AMH_THEME */", TOKENS)
+        .replace("/* AMH_ADMIN_SESSION */", SCRIPT)
+        .replace("__TARGET__", target)
+    )
