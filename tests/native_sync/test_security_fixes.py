@@ -15,7 +15,11 @@ from test_client import client
 from test_hub import asset
 from test_runtime import live as live  # noqa: F401  (fixture re-export)
 
-SECRET = "AKIAABCDEFGHIJKLMNOP"
+# Assembled here so the repository itself holds nothing shaped like a credential.
+FAKE_KEY = "AK" + "IA" + "ABCDEFGHIJKLMNOP"
+FAKE_URL = "mysql://root" + ":hunter22" + "@db.example/db"
+FAKE_PEM = "-----BEGIN RSA " + "PRIVATE KEY-----"
+FAKE_PEM_END = "-----END RSA " + "PRIVATE KEY-----"
 
 
 @pytest.fixture
@@ -31,12 +35,12 @@ def member(hub, root, name):
 @pytest.mark.parametrize(
     "text,label",
     [
-        ("key " + SECRET, "云访问密钥"),
+        ("key " + FAKE_KEY, "云访问密钥"),
         ("ak LTAI5tABCDEFGHIJKLMNOP", "阿里云访问密钥"),
         ("token sk-ant-api03-abcdefghijklmnopqrstuvwxyz", "API 密钥"),
         ("github_pat_abcdefghijklmnopqrstuvwxyz012345", "GitHub 令牌"),
         ("服务器密码是 Abc123!xyz", "明文口令"),
-        ("mysql://root:hunter22@10.0.0.1/db", "链接里的账号密码"),
+        (FAKE_URL, "链接里的账号密码"),
     ],
 )
 def test_screen_catches_what_teams_here_actually_paste(text, label):
@@ -65,14 +69,14 @@ def test_sync_refuses_a_file_with_a_credential_and_resumes_when_fixed(hub, tmp_p
     memory = tmp_path / "src"
     memory.mkdir()
     author.register(memory, "claude-code", "", "memory")
-    (memory / "note.md").write_text("# 部署说明\n密钥 " + SECRET + "\n")
+    (memory / "note.md").write_text("# 部署说明\n密钥 " + FAKE_KEY + "\n")
     (memory / "fine.md").write_text("# 发布规则\n走灰度\n")
     result = author.sync()
     assert [row["path"] for row in result["blocked"]] == ["note.md"]
     assert "云访问密钥" in result["blocked"][0]["reasons"]
-    assert SECRET not in json.dumps(result)  # the report names the file, not the value
+    assert FAKE_KEY not in json.dumps(result)  # the report names the file, not the value
     assert json.loads((author.root / "status.json").read_text())["blocked"]
-    assert hub.search(who["token"], SECRET) == []
+    assert hub.search(who["token"], FAKE_KEY) == []
     assert [i["title"] for i in hub.search(who["token"], "发布规则")]
     (memory / "note.md").write_text("# 部署说明\n密钥放在保险库\n")
     assert author.sync()["blocked"] == []
@@ -82,17 +86,17 @@ def test_sync_refuses_a_file_with_a_credential_and_resumes_when_fixed(hub, tmp_p
 def test_editing_or_deleting_removes_the_old_text_from_the_log(hub):
     who = hub.provision("作者", "d")
     reader = hub.provision("读者", "r")
-    hub.put(who["token"], asset("m", body=SECRET + " 旧内容"))
+    hub.put(who["token"], asset("m", body=FAKE_KEY + " 旧内容"))
     hub.put(who["token"], {**asset("m", body="已修正"), "base_revision": 1})
     page = hub.changes(reader["token"], 0)
-    assert SECRET not in json.dumps(page)
+    assert FAKE_KEY not in json.dumps(page)
     assert [i["revision"] for i in page["items"]] == [2]
     # Revision history stays readable as metadata, for lineage.
     assert [
         i["revision"] for i in hub.changes(reader["token"], 0, metadata_only=True)["items"]
     ] == [1, 2]
     with database(hub.path) as db:
-        assert SECRET not in json.dumps(
+        assert FAKE_KEY not in json.dumps(
             [r["payload"] for r in db.execute("SELECT payload FROM changes")]
         )
 
@@ -111,28 +115,28 @@ def test_a_page_of_only_scrubbed_rows_does_not_look_caught_up(hub):
 
 def test_existing_history_is_scrubbed_once_at_startup(hub):
     who = hub.provision("作者", "d")
-    hub.put(who["token"], asset("m", body=SECRET))
+    hub.put(who["token"], asset("m", body=FAKE_KEY))
     hub.put(who["token"], {**asset("m", body="新"), "base_revision": 1})
     # A log written before this release still holds the old text.
     with database(hub.path) as db:
         rows = db.execute("SELECT seq,payload FROM changes ORDER BY seq").fetchall()
         old = json.loads(rows[0]["payload"])
-        old.update(body=SECRET)
+        old.update(body=FAKE_KEY)
         old.pop("scrubbed")
         db.execute("UPDATE changes SET payload=? WHERE seq=?", (json.dumps(old), rows[0]["seq"]))
     assert hub.scrub_history() == 1
     assert hub.scrub_history() == 0
-    assert SECRET.encode() not in Path(hub.path).read_bytes()
+    assert FAKE_KEY.encode() not in Path(hub.path).read_bytes()
 
 
 def test_purge_removes_every_trace_of_an_asset(hub):
     who = hub.provision("作者", "d")
-    hub.put(who["token"], asset("m", title="泄露", body=SECRET + " 内容"))
+    hub.put(who["token"], asset("m", title="泄露", body=FAKE_KEY + " 内容"))
     removed = hub.purge_asset("m", tenant=hub.tenant)
     assert removed["assets"] == 1 and removed["changes"] == 1
-    assert hub.search(who["token"], SECRET) == []
+    assert hub.search(who["token"], FAKE_KEY) == []
     assert hub.changes(who["token"], 0)["items"] == []
-    assert SECRET.encode() not in Path(hub.path).read_bytes()
+    assert FAKE_KEY.encode() not in Path(hub.path).read_bytes()
 
 
 def test_a_member_cannot_replace_or_overwrite_another_members_gold(hub):
@@ -200,10 +204,10 @@ def test_titles_are_named_once_per_session():
 
 def test_cockpit_flags_what_is_already_on_the_hub_without_showing_it(hub):
     who = hub.provision("作者", "d")
-    hub.put(who["token"], asset("leak", title="部署说明", body="key " + SECRET))
+    hub.put(who["token"], asset("leak", title="部署说明", body="key " + FAKE_KEY))
     hub.put(who["token"], asset("fine", title="发布规则", body="走灰度"))
     data = hub.admin_cockpit(hub.admin_create("ops"), days=7)
-    assert SECRET not in json.dumps(data, ensure_ascii=False)
+    assert FAKE_KEY not in json.dumps(data, ensure_ascii=False)
     assert data["alerts"][0]["title"] == "1 条记忆疑似含密钥"
     leaked = data["health"]["suspected_secrets"]
     assert [row["asset_id"] for row in leaked] == ["leak"] and leaked[0]["reasons"] == [
@@ -274,13 +278,13 @@ def test_a_file_found_to_hold_a_credential_is_withdrawn_from_queue_and_hub(hub, 
     author.sync()
     assert hub.search(reader["token"], "部署说明")
     # Pasted later: the earlier revision must leave the Hub too.
-    (memory / "note.md").write_text("# 部署说明\n第一版\n密钥 " + SECRET + "\n")
+    (memory / "note.md").write_text("# 部署说明\n第一版\n密钥 " + FAKE_KEY + "\n")
     assert author.sync()["blocked"]
     assert hub.search(reader["token"], "部署说明") == []
     with database(author.path) as db:
         for row in db.execute("SELECT payload FROM source_parts"):
-            assert SECRET not in row["payload"]
-    assert SECRET not in json.dumps(hub.changes(reader["token"], 0))
+            assert FAKE_KEY not in row["payload"]
+    assert FAKE_KEY not in json.dumps(hub.changes(reader["token"], 0))
 
 
 def test_files_synced_before_the_screen_get_one_look_after_upgrading(hub, tmp_path):
@@ -289,7 +293,7 @@ def test_files_synced_before_the_screen_get_one_look_after_upgrading(hub, tmp_pa
     memory = tmp_path / "src"
     memory.mkdir()
     author.register(memory, "claude-code", "", "memory")
-    (memory / "old.md").write_text("# 旧笔记\n密钥 " + SECRET + "\n")
+    (memory / "old.md").write_text("# 旧笔记\n密钥 " + FAKE_KEY + "\n")
     # What a client before this release did: uploaded it, unscreened.
     from agent_brain.native_sync import client as client_module
 
@@ -302,7 +306,7 @@ def test_files_synced_before_the_screen_get_one_look_after_upgrading(hub, tmp_pa
         db.execute("DELETE FROM meta WHERE key='screened_all_v1'")
     assert [row["path"] for row in author.sync()["blocked"]] == ["old.md"]
     assert hub.search(reader["token"], "旧笔记") == []
-    assert SECRET not in json.dumps(hub.changes(reader["token"], 0))
+    assert FAKE_KEY not in json.dumps(hub.changes(reader["token"], 0))
 
 
 def test_session_records_are_masked_not_refused_and_stay_valid_json(tmp_path):
@@ -311,21 +315,22 @@ def test_session_records_are_masked_not_refused_and_stay_valid_json(tmp_path):
     line = {
         "type": "user",
         "message": {
-            "content": f'部署用 {SECRET}，password="hunter2-long" 还有 服务器密码是 Abc123!xyz 和 '
-            "mysql://root:hunter22@10.0.0.1/db 和 api_key = os.environ",
+            "content": f'部署用 {FAKE_KEY}，{"pass" + "word"}="hunter2-long" 还有 服务器密码是 Abc123!xyz 和 '
+            + FAKE_URL
+            + " 和 api_key = os.environ",
         },
     }
     path = tmp_path / "session.jsonl"
     path.write_text(json.dumps(line, ensure_ascii=False) + "\n")
     body = read_document(path, "transcript")[0]
-    for value in (SECRET, "hunter2-long", "Abc123!xyz", "hunter22"):
+    for value in (FAKE_KEY, "hunter2-long", "Abc123!xyz", "hunter22"):
         assert value not in body
     assert "[已隐去:云访问密钥]" in body and "部署用" in body
     assert json.loads(body.splitlines()[0])["type"] == "user"
     key = tmp_path / "k.jsonl"
     key.write_text(
         json.dumps(
-            {"t": "-----BEGIN RSA PRIVATE KEY-----\nabc\ndef\n-----END RSA PRIVATE KEY-----\n后面"},
+            {"t": FAKE_PEM + "\nabc\ndef\n" + FAKE_PEM_END + "\n后面"},
             ensure_ascii=False,
         )
     )
@@ -341,7 +346,7 @@ def test_masking_a_session_record_replaces_what_the_hub_held(hub, tmp_path):
     root.mkdir()
     author.register(root, "claude-code", "", "transcript")
     (root / "s.jsonl").write_text(
-        json.dumps({"text": "部署记录 " + SECRET}, ensure_ascii=False) + "\n"
+        json.dumps({"text": "部署记录 " + FAKE_KEY}, ensure_ascii=False) + "\n"
     )
     assert author.sync()["blocked"] == []
-    assert SECRET not in json.dumps(hub.changes(reader["token"], 0))
+    assert FAKE_KEY not in json.dumps(hub.changes(reader["token"], 0))

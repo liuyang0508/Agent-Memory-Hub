@@ -12,7 +12,7 @@ from agent_brain.native_sync.storage import database
 from test_hub import asset
 
 URL = "/native/v1/admin/cockpit/data"
-SECRET = "COCKPIT_BODY_CANARY"
+BODY_CANARY = "COCKPIT-BODY-MARKER"
 
 
 @pytest.fixture
@@ -21,7 +21,7 @@ def org(tmp_path):
     author = hub.provision("作者", "a")
     reader = hub.provision("读者", "r")
     hub.provision("没用过的人", "s")
-    hub.put(author["token"], asset("m1", title="审批规则", body=SECRET + " 审批需要两人复核"))
+    hub.put(author["token"], asset("m1", title="审批规则", body=BODY_CANARY + " 审批需要两人复核"))
     hub.put(author["token"], asset("m2", title="发布规则", body="发布走灰度"))
     result = hub.recall(reader["token"], "审批需要几个人复核")
     trace = result["trace_id"]
@@ -62,7 +62,7 @@ def test_needs_an_operator_and_never_carries_memory_text(org):
     )
     response = client.get(URL, headers={"Authorization": "Bearer " + token})
     assert response.status_code == 200
-    assert SECRET not in response.text
+    assert BODY_CANARY not in response.text
 
 
 def test_scorecard_has_four_perspectives_and_reads_the_ledger(org):
