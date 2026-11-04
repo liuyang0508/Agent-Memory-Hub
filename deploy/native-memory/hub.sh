@@ -7,6 +7,9 @@
 #   --version X.Y.Z   install that release instead of the one this script ships with
 #   --cn              use mainland mirrors for Python packages (auto-detected otherwise)
 #   --no-semantic     keep the Hub on lexical ranking (no model download)
+#   --model-dir DIR   take the model files from DIR instead of a mirror (a host
+#                     that cannot reach Hugging Face); DIR holds the paths listed
+#                     in semantic-model.json, each checked by sha256
 #
 # What it does, in order, and stops at the first failure:
 #   1. finds Python 3.11-3.13 and systemd;
@@ -20,7 +23,8 @@
 #   6. if an older drop-in still pins another model path, comments that line
 #      out (backup kept) once the new model is in place, and restores it if the
 #      Hub then fails to start;
-#   7. waits for semantic recall to finish indexing and prints what runs.
+#   7. waits for semantic recall to finish indexing and prints what runs; if the
+#      model could not be fetched or loaded it says so and how to supply it.
 set -euo pipefail
 
 VERSION="__AMH_VERSION__"
@@ -34,6 +38,7 @@ SEMANTIC_ENV=/etc/amh-native/semantic.env
 WAIT_SEMANTIC="${AMH_WAIT_SEMANTIC:-1800}"
 cn=auto
 semantic=on
+model_dir=""
 
 say() { printf '\033[1m[hub]\033[0m %s\n' "$*"; }
 die() { printf '\033[31m[hub] %s\033[0m\n' "$*" >&2; exit 1; }
@@ -43,6 +48,7 @@ while [ "$#" -gt 0 ]; do
     --version) VERSION=${2:-}; RELEASE_SHA=""; shift 2 ;;
     --cn) cn=yes; shift ;;
     --no-semantic) semantic=off; shift ;;
+    --model-dir) model_dir=${2:-}; shift 2 ;;
     -h|--help) sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) die "unknown option: $1" ;;
   esac
@@ -52,6 +58,10 @@ done
 command -v systemctl >/dev/null || die "systemd is required"
 command -v curl >/dev/null || die "curl is required"
 [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "no version: pass --version X.Y.Z"
+if [ -n "$model_dir" ]; then
+  [ -d "$model_dir" ] || die "--model-dir: no such directory: $model_dir"
+  model_dir=$(cd "$model_dir" && pwd)
+fi
 
 PY=""
 for candidate in ${AMH_PYTHON:-} python3.12 python3.11 python3.13 python3; do
@@ -79,6 +89,11 @@ done
     printf '%s\n' "$line" | sha256sum -c --quiet - || exit 1
   done
 ) || die "checksum verification failed; nothing was changed"
+if [ -n "$model_dir" ]; then
+  # upgrade.sh reads files staged beside the manifest first; sha256 still decides.
+  mkdir -p "$work/model" && cp -R "$model_dir/." "$work/model/"
+  say "model files taken from $model_dir"
+fi
 
 if [ -z "$RELEASE_SHA" ] || [[ ! "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
   # A version chosen with --version: name the release by its wheel digest.
@@ -156,10 +171,14 @@ if [ "${#changed[@]}" -gt 0 ]; then
 fi
 
 health() { curl -fsS --max-time 5 http://127.0.0.1:8787/native/v1/health 2>/dev/null || echo '{}'; }
+semantic_state() {
+  health | "$PY" -c 'import json,sys; print(json.load(sys.stdin).get("semantic",{}).get("state",""))' 2>/dev/null || true
+}
 if [ "$semantic" = on ] && [ -f "$SEMANTIC_ENV" ]; then
   say "waiting for semantic recall to index (up to $((WAIT_SEMANTIC / 60)) min; recall stays lexical meanwhile)"
   waited=0
   until health | grep -q '"semantic-v1"'; do
+    case "$(semantic_state)" in unavailable|error) break ;; esac
     [ "$waited" -ge "$WAIT_SEMANTIC" ] && { say "still indexing; it continues in the background"; break; }
     sleep 15; waited=$((waited + 15))
   done
@@ -174,6 +193,21 @@ print("  version      ", h.get("version"))
 print("  semantic     ", s.get("state"), s.get("model") or "")
 print("  relevance    ", s.get("gate", "-"))
 print("  capabilities ", ", ".join(h.get("capabilities", [])))
+print("  reason       ", s["reason"]) if s.get("reason") else None
 '
+if [ "$semantic" = on ] && ! health | grep -q '"semantic-v1"' && [ "$(semantic_state)" != loading ]; then
+  # Not a silent fallback: say what is missing and how to supply it.
+  printf '\033[33m[hub] semantic recall is NOT running; the Hub serves keyword recall only.\033[0m\n' >&2
+  [ -f "$SEMANTIC_ENV" ] || say "the model could not be fetched (details: the semantic.log in the backup directory above)."
+  say "on a machine that can reach Hugging Face, download these files and keep their paths:"
+  "$PY" - "$work/semantic-model.json" <<'PY' >&2
+import json, sys
+spec = json.load(open(sys.argv[1]))
+for f in spec["files"]:
+    print(f"    https://huggingface.co/{spec['repo']}/resolve/{spec['revision']}/{f['path']}")
+    print(f"      -> <DIR>/{f['path']}   sha256 {f['sha256']}")
+PY
+  say "copy <DIR> to this host, then run this script again with: --model-dir <DIR>"
+fi
 [ -n "$previous" ] && say "previous release kept at $previous (rollback: ln -sfn $previous /opt/amh-native/current && systemctl restart $SERVICE)"
 [ -f /etc/amh-native/feishu.env ] || say "Feishu login is not configured yet; set it up with HTTPS (docs/native-memory/operations.zh.md)"

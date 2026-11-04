@@ -173,6 +173,12 @@ def _compact_times(times_set: dict[str, Any]) -> dict[str, Any]:
 _IDENTIFIER = re.compile(r"[A-Za-z0-9][A-Za-z0-9_./-]*[A-Za-z0-9]")
 
 
+# Degraded prompt-time recall: identifier matches among the top keyword
+# hits, at most this many injected.
+LEXICAL_GUARD_RANK = 3
+LEXICAL_GUARD_ITEMS = 2
+
+
 def identifiers(query: str) -> list[str]:
     """Literal technical tokens: digits, underscores, dotted or slashed paths, camelCase."""
     found = []
@@ -743,6 +749,30 @@ def retrieve(
                     )
             fused = kept
             trace.stage("relevance_gate", before, trace.snapshot(fused), effects)
+        if channel == "hook" and not semantic_used and not collecting and hub.hook_lexical_guard:
+            # Degraded (no semantic ranking, so no relevance gate): a shared
+            # keyword is not relevance, and an unrelated memory injected into a
+            # conversation does harm. Keep only memories that literally contain
+            # an identifier from the prompt (path, code, version, symbol) and
+            # that keyword search ranked near the top; everything else is held.
+            anchors = identifiers(query)
+            before = trace.snapshot(fused)
+            kept, effects = [], {}
+            for hit in fused:
+                item = assets[hit.id]
+                text = (str(item.get("title", "")) + "\n" + str(item.get("body", ""))).casefold()
+                rank = route_ranks.get(hit.id, (None, None))[0] or 99
+                if hit.id == query.strip() or (
+                    rank <= LEXICAL_GUARD_RANK and any(anchor in text for anchor in anchors)
+                ):
+                    kept.append(hit)
+                    effects[hit.id] = "identifier"
+                else:
+                    trace.drop(hit.id, "lexical_guard", {"lexical": rank if rank < 99 else None})
+            fused = kept[:LEXICAL_GUARD_ITEMS]
+            limit = min(limit, LEXICAL_GUARD_ITEMS)
+            reasons.append("hook_lexical_guard")
+            trace.stage("lexical_guard", before, trace.snapshot(fused), effects)
         for position, hit in enumerate(fused, 1):
             item = assets[hit.id]
             row = trace.row(hit.id)

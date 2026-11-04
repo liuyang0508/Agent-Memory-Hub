@@ -110,6 +110,10 @@ class Hub:
         self._gate_error: str | None = None
         # Calibration mode: the gate scores and keeps every candidate it judges.
         self.gate_collect = False
+        # Without semantic ranking there is no relevance gate: prompt-time
+        # recall then injects only a literal identifier match from the prompt
+        # (AMH_NATIVE_HOOK_LEXICAL_GUARD=0 restores plain keyword injection).
+        self.hook_lexical_guard = os.environ.get("AMH_NATIVE_HOOK_LEXICAL_GUARD", "1") != "0"
         # Generic-prompt bank vectors per model version, and each indexed
         # revision's background similarity to them (relevance.doc_bg).
         self._bank: dict[str, Any] = {}
@@ -1373,7 +1377,12 @@ class Hub:
 
         backend, error = self._semantic_backend()
         if backend is None:
-            return {"state": "unavailable", "reason": error or "semantic_model_not_configured"}
+            # A configured model that cannot load is not "loading": say so, so
+            # health and the installer report it instead of waiting forever.
+            state = {"state": "unavailable", "reason": error or "semantic_model_not_configured"}
+            if self.semantic_model:
+                self.semantic_state = state
+            return state
         with database(self.path) as db:
             tenants = [row[0] for row in db.execute("SELECT DISTINCT tenant FROM assets")]
         results = {}

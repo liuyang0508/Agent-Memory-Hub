@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.17] — 2026-11-04
+
+### Fixed
+
+- Prompt-time recall on a Hub without semantic ranking (model missing, failed
+  to load, or index incomplete) no longer injects every keyword match. With no
+  relevance gate to score candidates, the hook now injects only memories that
+  literally contain an identifier from the prompt (path, error code, version,
+  symbol, link) among the top three keyword hits, at most two; the rest are
+  held with trace reason `lexical_guard`, and the recall table says so. Tool
+  search is unchanged. `AMH_NATIVE_HOOK_LEXICAL_GUARD=0` restores plain keyword
+  injection.
+- `upgrade.sh` failed with `FileNotFoundError` when the pinned model files were
+  already in place but the model manifest was not (operator-placed files); the
+  manifest is now always written.
+- A configured semantic model that cannot load is reported as
+  `semantic.state: unavailable` with a `reason` in health, instead of staying
+  `loading` forever.
+- The recall table names degraded reasons in words instead of codes.
+
+### Added
+
+- `hub.sh --model-dir DIR` takes the model files from a local directory (a
+  host that cannot reach Hugging Face), still checked by sha256. When semantic
+  recall does not come up, `hub.sh` says so plainly, lists the files to fetch
+  with their sha256, and stops waiting as soon as the Hub reports the model
+  unavailable.
+
 ## [1.4.16] — 2026-11-04
 
 ### Added
