@@ -118,7 +118,7 @@ def create_app(hub: Hub) -> FastAPI:
             "recall-usage-feedback-v1",
             "recall-hints-v1",
         ]
-        state = dict(getattr(hub, "semantic_state", {}) or {})
+        state = hub.semantic_status()
         semantic = {k: state[k] for k in ("state", "model", "reason") if k in state}
         if state.get("state") == "ready":
             capabilities.append("semantic-v1")

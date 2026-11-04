@@ -335,6 +335,7 @@ PAGE = r"""<!doctype html>
     <section id="health">
       <div class="head"><h2>系统健康</h2><p>支撑上面这些数字的基础设施。</p></div>
       <div class="card"><div class="tiles" id="tiles"></div></div>
+      <div id="leaks"></div>
       <div class="grid g2" style="margin-top:18px">
         <div class="card"><h3>检索模式与降级原因</h3><p class="sub">次数。</p><div id="modes"></div></div>
         <div class="card"><h3>候选未注入的原因</h3><p class="sub">条目数。</p><div id="dropped"></div></div>
@@ -707,6 +708,13 @@ function renderHealth(d) {
     tile("使用反馈（30 天）", num(judged) + " 条", "用上 " + num((labels.used || 0) + (labels.consulted || 0)) + " · 没用上 " + num(labels.unused || 0)),
     tile("设备", num(x.active_devices) + " / " + num(x.devices), "在用 / 全部"),
     tile("最近上传", ago(x.last_upload), fmtTime(x.last_upload)));
+  const leaked = x.suspected_secrets || [];
+  put("leaks", leaked.length ? h("div", {class: "card", style: "margin-top:18px"},
+    h("h3", {}, statusTag("critical"), " 疑似含密钥的记忆"),
+    h("p", {class: "sub", text: "只列名称和类别，不显示内容。修好源文件后，用 amh-native purge-asset --db <库> --asset-id <编号> --yes 彻底清除。"}),
+    h("div", {class: "table-wrap"}, h("table", {class: "data"},
+      h("thead", {}, h("tr", {}, h("th", {text: "记忆"}), h("th", {text: "类别"}), h("th", {text: "编号"}))),
+      h("tbody", {}, leaked.map((row) => h("tr", {}, h("td", {text: row.title || "（无标题）"}), h("td", {text: row.reasons.join("、")}), h("td", {text: row.asset_id}))))))) : null);
   const modes = d.modes.map((m) => ({name: MODES[m.name] || m.name, count: m.count})).concat(d.reasons.map((m) => ({name: "降级：" + (REASONS[m.name.split(":")[0]] || m.name), count: m.count})));
   ranked("modes", modes, (r) => r.name, (r) => r.count);
   ranked("dropped", d.dropped.map((m) => ({name: DROPS[m.name] || m.name, count: m.count})), (r) => r.name, (r) => r.count);

@@ -30,6 +30,9 @@ install -d -m 700 "$backup"
 
 previous=""
 [ -L "$current" ] && previous=$(readlink -f "$current")
+semantic_env=/etc/amh-native/semantic.env
+# The model setting is part of what a rollback restores.
+[ -f "$semantic_env" ] && cp -p "$semantic_env" "$backup/semantic.env"
 
 rollback() {
   code=$?
@@ -37,10 +40,21 @@ rollback() {
   # A clean exit must not roll back: the EXIT trap fires on success too.
   [ "$code" -ne 0 ] || exit 0
   set +e
+  if [ -f "$backup/semantic.env" ]; then
+    cp -p "$backup/semantic.env" "$semantic_env"
+  fi
   if [ -n "$previous" ] && [ -d "$previous" ]; then
     ln -sfn "$previous" "$current"
     systemctl restart "$service" || true
-    echo "rolled back to $previous" >&2
+    for _ in $(seq 1 180); do
+      curl -fsS --max-time 2 http://127.0.0.1:8787/native/v1/ready >/dev/null 2>&1 && break
+      sleep 0.5
+    done
+    if curl -fsS --max-time 2 http://127.0.0.1:8787/native/v1/ready >/dev/null 2>&1; then
+      echo "rolled back to $previous" >&2
+    else
+      echo "rolled back to $previous but it is not ready; journalctl -u $service" >&2
+    fi
   else
     echo 'no previous release; service left as-is' >&2
   fi
@@ -71,7 +85,10 @@ id amh-native >/dev/null 2>&1 || useradd --system --user-group \
 # each checked against its sha256. Shared across releases, fetched once. Any
 # failure leaves the Hub on lexical ranking; it never fails the upgrade.
 spec="$(dirname "$0")/semantic-model.json"
-semantic_env=/etc/amh-native/semantic.env
+if [ "${AMH_SEMANTIC:-on}" = off ]; then
+  # Asked for keyword recall: a model left configured would keep loading.
+  rm -f "$semantic_env"
+fi
 if [ -f "$spec" ] && [ "${AMH_SEMANTIC:-on}" != off ]; then
   if model_dir=$(AMH_HF_ENDPOINT="${AMH_HF_ENDPOINT:-}" "$version_dir/venv/bin/python" - "$spec" 2>>"$backup/semantic.log" <<'PY'
 import hashlib, json, os, sys, tempfile, urllib.request
@@ -149,8 +166,12 @@ PY
     mv -f "$semantic_env.next" "$semantic_env"
     echo "semantic_model=$model_dir"
   else
-    echo 'semantic model unavailable; Hub stays on lexical ranking (see semantic.log)' >&2
-    rm -f "$semantic_env"
+    # A model that already works is better than none: keep what is configured.
+    if [ -f "$semantic_env" ]; then
+      echo 'new semantic model unavailable; keeping the configured one (see semantic.log)' >&2
+    else
+      echo 'semantic model unavailable; Hub stays on lexical ranking (see semantic.log)' >&2
+    fi
   fi
 fi
 
@@ -205,4 +226,14 @@ done
 
 printf '%s\n' "$release" > /var/lib/amh-native/deployed-revision
 chown amh-native:amh-native /var/lib/amh-native/deployed-revision
+# Keep what a rollback could need; everything older only costs disk.
+prune() {
+  # shellcheck disable=SC2012,SC2086
+  ls -1dt $1 2>/dev/null | tail -n +"$(($2 + 1))" | while read -r old; do
+    [ "$old" = "$version_dir" ] || [ "$old" = "$previous" ] || rm -rf -- "$old"
+  done
+}
+prune '/opt/amh-native/releases/*' 3 || true
+prune '/var/backups/amh-native/20*' 5 || true
+prune '/var/backups/amh-native/hub-before-*' 5 || true
 printf '%s\n' "upgrade_ok release=$release backup=$backup"

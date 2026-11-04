@@ -146,3 +146,23 @@ def test_health_reports_the_hub_version(tmp_path):
 
     body = TestClient(create_app(RealHub(tmp_path / "hub.sqlite"))).get("/native/v1/health").json()
     assert body["version"] == __version__
+
+
+def test_a_failed_check_retries_within_the_hour_and_a_pip_timeout_still_restores(tmp_path):
+    import subprocess
+
+    from agent_brain.native_sync import autoupdate
+
+    class Down:
+        def health(self):
+            raise OSError("Hub unreachable")
+
+    report = autoupdate.check(tmp_path, {}, Down(), now=1_000_000.0)
+    assert report["result"] == "error"
+    assert not autoupdate.due(tmp_path, now=1_000_000.0 + 60)
+    assert autoupdate.due(tmp_path, now=1_000_000.0 + autoupdate.RETRY_AFTER_ERROR + 1)
+
+    def times_out(argv):
+        raise subprocess.TimeoutExpired(argv, 600)
+
+    assert autoupdate._attempt(tmp_path / "x.whl", "9.9.9", times_out) is False

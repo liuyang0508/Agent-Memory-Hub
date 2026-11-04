@@ -359,6 +359,10 @@ def _people(
     return out[:PLANNED_ROWS]
 
 
+def cockpit_name(row: dict[str, Any]) -> str:
+    return asset_title(row["asset_id"], row["title"], "") + "（" + "、".join(row["reasons"]) + "）"
+
+
 def _alerts(
     *,
     health: dict[str, Any],
@@ -385,6 +389,16 @@ def _alerts(
             }
         )
 
+    leaked = health.get("suspected_secrets") or []
+    if leaked:
+        names = "、".join(cockpit_name(row) for row in leaked[:3])
+        add(
+            "critical",
+            f"{len(leaked)} 条记忆疑似含密钥",
+            f"{names}{' 等' if len(leaked) > 3 else ''}。全组织成员都可能搜到这些内容。",
+            "让作者修好源文件并更换密钥；在 Hub 主机执行 amh-native purge-asset 彻底清除。",
+            "health",
+        )
     state = health.get("semantic_state")
     if state in ("off", "unavailable", "error", "stale_index"):
         add(

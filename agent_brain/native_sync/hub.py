@@ -122,6 +122,9 @@ class Hub:
         self._gate_error: str | None = None
         # Calibration mode: the gate scores and keeps every candidate it judges.
         self.gate_collect = False
+        self._stale_checked: tuple[float, bool] = (-1e9, False)
+        # Screening verdicts by content hash: the cockpit reads every memory.
+        self._screened: dict[str, list[str]] = {}
         # Without semantic ranking there is no relevance gate: prompt-time
         # recall then injects only a literal identifier match from the prompt
         # (AMH_NATIVE_HOOK_LEXICAL_GUARD=0 restores plain keyword injection).
@@ -1424,6 +1427,42 @@ class Hub:
             return str(model.version)
         return self._gate_error or ("floor" if self.relevance_gate() else "off")
 
+    def index_stale(self) -> bool:
+        """An organization's index built with another model: recall cannot use it.
+
+        "Ready" means the model loaded; this is whether recall actually runs on
+        it. A leftover index process from an older install rewrites the index
+        with its own model, so the two can stay different indefinitely.
+        """
+        encoder = self._encoder
+        if encoder is None:
+            return False
+        now = time.monotonic()
+        if now - self._stale_checked[0] < 30:
+            return self._stale_checked[1]
+        from .semantic import descriptor, exists
+
+        stale = False
+        try:
+            wanted = descriptor(encoder)
+            with database(self.path) as db:
+                if exists(db):
+                    stale = any(
+                        json.loads(row["descriptor"]) != wanted
+                        for row in db.execute("SELECT descriptor FROM native_semantic_meta")
+                    )
+        except (sqlite3.Error, ValueError, TypeError):
+            stale = False
+        self._stale_checked = (now, stale)
+        return stale
+
+    def semantic_status(self) -> dict[str, Any]:
+        """The semantic state as recall actually experiences it."""
+        state = dict(getattr(self, "semantic_state", {}) or {})
+        if state.get("state") == "ready" and self.index_stale():
+            state.update(state="stale_index", reason="semantic_index_model_mismatch")
+        return state
+
     def warm_gate(self, backend: Any) -> bool:
         """Encode the generic-prompt bank once per model version (index upkeep, not hooks)."""
         from .relevance import BANK
@@ -1704,7 +1743,7 @@ class Hub:
         current = self.admin_insights(token, days=days)
         now = float(current["generated_at"])
         scope = self.tenant
-        state = dict(getattr(self, "semantic_state", {}) or {})
+        state = self.semantic_status()
         with database(self.path) as db:
             names = {
                 row["id"]: row["name"]
@@ -1718,8 +1757,10 @@ class Hub:
                 preview_on=False,
                 members=names,
             )
+            secrets = self._leaked_assets(db, scope)
             health = {
                 "version": __version__,
+                "suspected_secrets": secrets,
                 "semantic_state": state.get("state", "off"),
                 "semantic_model": state.get("model"),
                 "semantic_reason": state.get("reason"),
@@ -1742,6 +1783,28 @@ class Hub:
                 previous=previous,
                 health=health,
             )
+
+    def _leaked_assets(self, db: sqlite3.Connection, tenant: str) -> list[dict[str, Any]]:
+        """Current memories the client's screen would refuse: uploaded before it, or
+        by an old client. Ids, titles and categories only; never the matched text."""
+        from .source import screen
+
+        found = []
+        for row in db.execute(
+            "SELECT id,json_extract(payload,'$.title') title,json_extract(payload,'$.body') body,"
+            "json_extract(payload,'$.content_hash') hash FROM assets WHERE tenant=? "
+            "AND json_extract(payload,'$.deleted')=0 AND json_extract(payload,'$.encoding')='utf8' "
+            "AND json_extract(payload,'$.kind') IN ('memory','rule','skill','config')",
+            (tenant,),
+        ):
+            reasons = self._screened.get(row["hash"])
+            if reasons is None:
+                verdict = screen(str(row["body"] or ""))
+                reasons = verdict["reasons"] if verdict["risk"] == "blocked" else []
+                self._screened[row["hash"]] = reasons
+            if reasons:
+                found.append({"asset_id": row["id"], "title": row["title"] or "", "reasons": reasons})
+        return found[:50]
 
     def _refresh_insights(
         self, db: sqlite3.Connection, tenant: str, now: float, *, force: bool = False

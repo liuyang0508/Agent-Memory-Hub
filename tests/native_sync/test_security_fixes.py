@@ -13,6 +13,7 @@ from agent_brain.native_sync.source import forbidden_file, screen, sensitive_key
 from agent_brain.native_sync.storage import database
 from test_client import client
 from test_hub import asset
+from test_runtime import live as live  # noqa: F401  (fixture re-export)
 
 SECRET = "AKIAABCDEFGHIJKLMNOP"
 
@@ -181,3 +182,65 @@ def test_titles_are_named_once_per_session():
     keys = hint_keys(hints, set(), [])
     assert keys == ["hint:h1:2"]
     assert pack([], covered=set(keys), hints=hints) == ("", [])
+
+
+def test_cockpit_flags_what_is_already_on_the_hub_without_showing_it(hub):
+    who = hub.provision("作者", "d")
+    hub.put(who["token"], asset("leak", title="部署说明", body="key " + SECRET))
+    hub.put(who["token"], asset("fine", title="发布规则", body="走灰度"))
+    data = hub.admin_cockpit(hub.admin_create("ops"), days=7)
+    assert SECRET not in json.dumps(data, ensure_ascii=False)
+    assert data["alerts"][0]["title"] == "1 条记忆疑似含密钥"
+    leaked = data["health"]["suspected_secrets"]
+    assert [row["asset_id"] for row in leaked] == ["leak"] and leaked[0]["reasons"] == ["云访问密钥"]
+
+
+def test_health_does_not_call_an_index_of_another_model_ready(tmp_path):
+    from fastapi.testclient import TestClient
+
+    from agent_brain.native_sync.api import create_app
+    from test_learned_gate import TopicBackend
+
+    hub = Hub(tmp_path / "hub.sqlite", semantic_backend=TopicBackend())
+    token = hub.provision("甲", "d")["token"]
+    hub.put(token, asset("m", title="审批", body="审批需要两人"))
+    hub.rebuild_semantic(token, kinds=["memory"])
+    hub.semantic_state = {"state": "ready", "model": "topic-test-only"}
+    client = TestClient(create_app(hub))
+    body = client.get("/native/v1/health").json()
+    assert body["semantic"]["state"] == "ready" and "semantic-v1" in body["capabilities"]
+    # A leftover indexer rewrites the index with its own model.
+    with database(hub.path) as db:
+        db.execute("UPDATE native_semantic_meta SET descriptor=?", (json.dumps({"model": "old"}),))
+    hub._stale_checked = (-1e9, False)
+    body = client.get("/native/v1/health").json()
+    assert body["semantic"]["state"] == "stale_index"
+    assert "semantic-v1" not in body["capabilities"]
+
+
+def test_hub_script_retires_a_leftover_indexer_and_upgrade_restores_the_model_setting():
+    root = Path(__file__).resolve().parents[2]
+    hub_sh = (root / "deploy/native-memory/hub.sh").read_text()
+    assert "semantic-index" in hub_sh and "systemctl disable --now" in hub_sh
+    upgrade = (root / "deploy/native-memory/upgrade.sh").read_text()
+    assert 'cp -p "$semantic_env" "$backup/semantic.env"' in upgrade
+    assert 'cp -p "$backup/semantic.env" "$semantic_env"' in upgrade
+    assert "prune " in upgrade
+
+
+def test_a_named_title_can_actually_be_read(live, tmp_path):
+    from agent_brain.native_sync.client import NativeClient
+    from agent_brain.native_sync.org_tools import OrganizationTools
+
+    remote, url = live
+    author = remote.provision("作者", "a")
+    remote.put(author["token"], asset("named", title="审批规则", body="审批需要两人复核，附变更清单。"))
+    remote.put(author["token"], asset("other", title="发布规则", body="发布走灰度。"))
+    reader = NativeClient.adopt(tmp_path / "r", url, remote.provision("读者", "r"), "r")
+    tools = OrganizationTools(reader.root)
+    # What the hint tells the model to do: search the id, then read with that research.
+    found = tools.search("named", kinds=["memory"])
+    assert found["ok"], found
+    read = tools.read("named", 1, found["research_id"])
+    assert read.get("ok"), read
+    assert "两人复核" in json.dumps(read, ensure_ascii=False)
