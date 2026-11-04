@@ -1252,13 +1252,20 @@ def recall_calibrate(
     relative: float = typer.Option(
         0.5, min=0.0, max=0.95, help="第 2、3 条至少达到第 1 条相关概率的这个比例"
     ),
+    lift: float = typer.Option(
+        0.08, min=-1.0, max=1.0, help="全文注入的语义领先量下限（与日常提问相比）"
+    ),
+    hint_threshold: float = typer.Option(
+        0.15, min=0.0, max=0.95, help="只给标题一档的相关概率下限；0 关闭"
+    ),
+    hint_lift: float = typer.Option(0.04, min=-1.0, max=1.0, help="只给标题一档的语义领先量下限"),
 ) -> None:
     """用问题集拟合召回相关性模型，按分组交叉验证选阈值，输出可部署的门控模型。"""
     from datetime import datetime, timezone
 
     from .autotune import collect
     from .recall_eval import load_gold
-    from .relevance import BANK, cross_validate, fit
+    from .relevance import BANK, GateModel, adopt_rule, cross_validate, fit
 
     cases = load_gold(gold)
     with _eval_hub(db, model, tenant) as (hub, org):
@@ -1269,8 +1276,20 @@ def recall_calibrate(
     rows = [c.values for _, candidates in judged for c in candidates]
     labels = [1.0 if c.relevant else 0.0 for _, candidates in judged for c in candidates]
     fitted = fit(rows, labels)
-    fitted.max_items, fitted.dedup, fitted.relative = max_items, dedup, relative
-    report = cross_validate(judged, relative=relative)
+    rule = GateModel(
+        mean=[],
+        scale=[],
+        weights=[],
+        bias=0.0,
+        max_items=max_items,
+        dedup=dedup,
+        relative=relative,
+        lift=lift,
+        hint_threshold=hint_threshold,
+        hint_lift=hint_lift,
+    )
+    adopt_rule(fitted, rule)
+    report = cross_validate(judged, rule=rule)
     fitted.threshold = report["best"]["threshold"]
     fitted.calibration = {
         "date": datetime.now(timezone.utc).date().isoformat(),

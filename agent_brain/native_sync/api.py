@@ -112,6 +112,7 @@ def create_app(hub: Hub) -> FastAPI:
             "insights-v1",
             "asking-context-v1",
             "recall-usage-feedback-v1",
+            "recall-hints-v1",
         ]
         state = dict(getattr(hub, "semantic_state", {}) or {})
         semantic = {k: state[k] for k in ("state", "model", "reason") if k in state}
@@ -437,6 +438,7 @@ def create_app(hub: Hub) -> FastAPI:
         )
         return {
             "items": recall_items(result["items"]),
+            "hints": recall_hints(result.get("hints", [])),
             "trace_id": result["trace_id"],
             "retrieval": _diagnostics({"retrieval": result["retrieval"]}),
         }
@@ -597,6 +599,23 @@ RECALL_TRACE_FIELDS = (
 )
 RECALL_BODY_BYTES = 64 * 1024
 RECALL_TOTAL_BYTES = 512 * 1024
+
+
+def recall_hints(hints: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Title-only recall tier: names and ids, never bodies."""
+    out = []
+    for hint in hints[:8]:
+        row: dict[str, Any] = {
+            key: str(hint.get(key) or "")[:256] for key in ("asset_id", "title", "path", "product", "kind")
+        }
+        if not row["asset_id"] or type(hint.get("revision")) is not int:
+            continue
+        row["revision"] = hint["revision"]
+        probability = hint.get("probability")
+        if isinstance(probability, (int, float)):
+            row["probability"] = round(float(probability), 4)
+        out.append(row)
+    return out
 
 
 def recall_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:

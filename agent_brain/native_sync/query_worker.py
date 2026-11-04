@@ -44,8 +44,27 @@ def fetch(
             result["retrieval"] if isinstance(result.get("retrieval"), dict) else {}
         )
         reasons: list[Any] = raw["reasons"] if isinstance(raw.get("reasons"), list) else []
+        hints = result.get("hints") if isinstance(result.get("hints"), list) else []
         return {
             "items": items,
+            # Title-only tier (Hub 1.4.18+): names the model may read on demand.
+            "hints": [
+                {
+                    "asset_id": str(h["asset_id"])[:128],
+                    "revision": h["revision"],
+                    "title": str(h.get("title") or "")[:200],
+                    "path": str(h.get("path") or "")[:200],
+                    "product": str(h.get("product") or "")[:40],
+                    "kind": str(h.get("kind") or "")[:20],
+                    "probability": h.get("probability")
+                    if isinstance(h.get("probability"), (int, float))
+                    else None,
+                }
+                for h in hints[:4]
+                if isinstance(h, dict)
+                and isinstance(h.get("asset_id"), str)
+                and type(h.get("revision")) is int
+            ],
             "trace_id": trace_id if isinstance(trace_id, str) and len(trace_id) == 24 else None,
             "channel": "recall",
             # Shown to the member: how the Hub ranked this answer and why it degraded.

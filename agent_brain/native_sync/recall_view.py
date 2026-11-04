@@ -127,6 +127,21 @@ def _folded(text: str) -> str:
     return "".join(kept)
 
 
+FOLLOW_UP_CHARS = 16
+_TECHNICAL = re.compile(r"[A-Za-z0-9_./-]{3,}")
+
+
+def follow_up(query: str) -> bool:
+    """A short prompt with no topic of its own ("那第二个呢", "发布了告诉我"):
+    what it is about lives in the previous prompt."""
+    if len(_folded(query)) > FOLLOW_UP_CHARS:
+        return False
+    return not any(
+        any(ch.isdigit() for ch in token) or any(ch in token for ch in "_./-")
+        for token in _TECHNICAL.findall(query)
+    )
+
+
 def admit(query: str) -> tuple[bool, str]:
     """Whether a normalized prompt can carry a topic worth searching for."""
     if not query.strip():
@@ -396,6 +411,8 @@ def render(
     states: dict[str, str],
     display: str,
     style: str = "markdown",
+    hints: list[dict[str, Any]] | None = None,
+    context: str = "",
 ) -> str:
     """Call line, parameters and the recalled-memory table.
 
@@ -420,7 +437,8 @@ def render(
         }.get(mode, mode)
     lines = [
         f"**组织记忆召回** · {how} · 命中 {len(hits)} 条 · 注入 {packed} 条 · "
-        f"耗时 {elapsed_ms} ms / 预算 {round(budget * 1000)} ms · {VIA_TEXT.get(via, via)}",
+        + (f"只给标题 {len(hints)} 条 · " if hints else "")
+        + f"耗时 {elapsed_ms} ms / 预算 {round(budget * 1000)} ms · {VIA_TEXT.get(via, via)}",
     ]
     if display == "summary":
         return lines[0]
@@ -435,10 +453,19 @@ def render(
         + (asking.get("project") or "未登记")
         + f" · 会话 {asking.get('session_digest') or '—'}"
     )
+    if context:
+        lines.append("上文补充：这句较短，检索时带上了上一轮提问「" + _cell(context, 40) + "」")
+    tail = _hint_line(hints or [])
     if not hits:
+        lines += [tail] if tail else []
         return _as_plain("\n".join(lines)) if style == "box" else "\n".join(lines)
     if style == "box":
-        return _as_plain("\n".join(lines)) + "\n" + "\n".join(_box_table(hits, states))
+        return (
+            _as_plain("\n".join(lines))
+            + "\n"
+            + "\n".join(_box_table(hits, states))
+            + ("\n" + tail if tail else "")
+        )
     lines += [
         "",
         "| # | 记忆 | 内容 | 类型 | 来源 | 作者 | 项目 | 版本 | 更新 | 命中路由 | 相关性 | 使用率 | 本轮 |",
@@ -470,7 +497,23 @@ def render(
             )
             + " |"
         )
+    if tail:
+        lines += ["", tail]
     return "\n".join(lines)
+
+
+def _hint_line(hints: list[dict[str, Any]]) -> str:
+    """The title-only tier in one line: named for the model, bodies not injected."""
+    if not hints:
+        return ""
+    names = []
+    for hint in hints:
+        title = _cell(hint.get("title") or hint.get("path") or hint.get("asset_id"), 28)
+        probability = hint.get("probability")
+        names.append(
+            f"《{title}》" + (f"（{round(probability * 100)}%）" if isinstance(probability, (int, float)) else "")
+        )
+    return "只给标题（未注入正文，模型需要时自行读取）：" + "、".join(names)
 
 
 def render_skip(reason: str, query: str) -> str:

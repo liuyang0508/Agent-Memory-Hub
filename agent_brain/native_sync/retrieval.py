@@ -622,6 +622,7 @@ def retrieve(
         gate = (
             hub.relevance_gate() if model is None and semantic_used and channel == "hook" else None
         )
+        hint_pool: list[tuple[float, str]] = []
         if model is not None and background is not None:
             # Learned relevance: inject only what the calibrated model rates
             # probably relevant (see relevance.py), at most model.max_items,
@@ -662,25 +663,38 @@ def retrieve(
                 )
                 probability = model.probability(values)
                 anchored = values[-1] > 0 and (lexical_rank or 99) <= relevance.POOL_LEXICAL
+                lift = relevance.lift_of(values)
                 # The evidence travels with the trace (numbers only) so usage
                 # feedback can later be learned from what the gate saw.
                 trace.row(hit.id)["gate"] = {
                     "probability": round(probability, 4),
                     "threshold": model.threshold,
                     "version": model.version,
+                    "lift": round(lift, 4),
                     "x": [round(float(v), 5) for v in values],
                     **({"anchor": True} if anchored else {}),
                 }
                 if collecting:
                     item["gate_features"] = values
-                if collecting or probability >= model.threshold or anchored:
+                if collecting or anchored or (probability >= model.threshold and lift >= model.lift):
                     judged.append((probability, hit))
                     effects[hit.id] = "p=%.3f" % probability
                 else:
+                    if (
+                        model.hint_threshold
+                        and probability >= model.hint_threshold
+                        and lift >= model.hint_lift
+                    ):
+                        hint_pool.append((probability, hit.id))
                     trace.drop(
                         hit.id,
                         "relevance_gate",
-                        {"probability": round(probability, 4), "threshold": model.threshold},
+                        {
+                            "probability": round(probability, 4),
+                            "threshold": model.threshold,
+                            "lift": round(lift, 4),
+                            "floor": model.lift,
+                        },
                     )
             judged.sort(key=lambda pair: -pair[0])
             if not collecting and model.relative and judged:
@@ -693,6 +707,8 @@ def retrieve(
                     if probability >= model.relative * leader or gate_row.get("anchor"):
                         kept_judged.append((probability, hit))
                     else:
+                        if model.hint_threshold and gate_row.get("lift", 0) >= model.hint_lift:
+                            hint_pool.append((probability, hit.id))
                         trace.drop(
                             hit.id,
                             "relevance_gate",
@@ -833,6 +849,45 @@ def retrieve(
             results.append(item)
             row["state"] = "selected"
             row["final_rank"] = len(results)
+        # Title-only tier: probable memories the full rule held back are named
+        # (never their bodies) so the model can read one on demand.
+        hints: list[dict[str, Any]] = []
+        if hint_pool and model is not None and channel == "hook" and not collecting:
+            chosen_ids = {item["asset_id"] for item in results}
+            chosen_bodies = {item["body_hash"] for item in results}
+            for probability, key in sorted(hint_pool, key=lambda pair: -pair[0]):
+                item = assets.get(key)
+                if (
+                    item is None
+                    or key in chosen_ids
+                    or item.get("body_hash") in chosen_bodies
+                    or len(hints) >= model.hint_items
+                ):
+                    continue
+                current_row = db.execute(
+                    "SELECT payload FROM assets WHERE tenant=? AND id=? AND revision=?",
+                    (who["tenant"], key, item["revision"]),
+                ).fetchone()
+                if (
+                    current_row is None
+                    or json.loads(current_row["payload"])["content_hash"] != item["content_hash"]
+                    or not hub._retrieval_valid(db, item)
+                ):
+                    continue
+                chosen_ids.add(key)
+                chosen_bodies.add(item.get("body_hash"))
+                trace.row(key)["state"] = "hinted"
+                hints.append(
+                    {
+                        "asset_id": key,
+                        "revision": item["revision"],
+                        "title": item.get("title") or "",
+                        "path": item.get("path") or "",
+                        "product": item.get("product") or "",
+                        "kind": item.get("kind") or "",
+                        "probability": round(probability, 4),
+                    }
+                )
     stages = {
         "lexical": "on",
         "semantic": "on" if semantic_used else DISABLED,
@@ -926,6 +981,7 @@ def retrieve(
             item["recall"]["trace_id"] = None
     return {
         "items": results,
+        "hints": hints,
         "retrieval": {
             "mode": "hybrid" if semantic_used else "lexical",
             "degraded": bool(reasons),

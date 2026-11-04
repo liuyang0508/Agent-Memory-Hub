@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.18] — 2026-11-04
+
+### Changed
+
+- Prompt-time recall injects a memory in full only if it is clearly closer to
+  the prompt than to everyday prompts (similarity minus the memory's
+  similarity to a bank of generic prompts, `lift` >= 0.08), in addition to the
+  learned gate's probability. Rank features alone let a small store push its
+  best match through any prompt: on a 34-memory store unanswerable prompts
+  were left alone 43% of the time. With the floor, picked in 23 of 25 grouped
+  cross-validation folds over two organization stores (94 and 34 memories),
+  held-out: unanswerable left alone 75%->89% and 43%->89%, false injection
+  25%->11% and 57%->11%, hit@1 88%->87% and 61%->57%. A literal identifier
+  from the prompt is still exempt.
+
+### Added
+
+- Title-only tier: memories the full rule holds back but rates probable
+  (probability >= 0.15 and lift >= 0.04, at most two) are named in the
+  injected context by title, asset id and revision, never their bodies, for
+  the model to read with `read_org_memory` when it needs one. The recall table
+  lists them ("只给标题"). Hub capability `recall-hints-v1`; older clients
+  ignore the field.
+- A short follow-up prompt ("那第二个呢", "发布了告诉我": at most 16 characters,
+  no identifier) is searched together with the member's previous prompt from
+  the Claude Code transcript; the table says so. The gate still judges every
+  candidate.
+- `recall-calibrate --lift --hint-threshold --hint-lift`; weekly autotune
+  carries the injection rule (floor and tier) into every promoted gate.
+
 ## [1.4.17] — 2026-11-04
 
 ### Fixed

@@ -163,6 +163,17 @@ class GateModel:
     # A follower (2nd, 3rd memory) must reach this share of the leader's
     # probability: a strong match should not bring weak ones along.
     relative: float = 0.0
+    # Absolute floor: a memory is injected in full only if it is at least this
+    # much closer to the prompt than to everyday generic prompts (sim - doc_bg).
+    # Rank features alone let a small store push its best match through any
+    # prompt. A literal identifier from the prompt is exempt.
+    lift: float = 0.0
+    # Title-only tier: below the full rule, memories at least this probable and
+    # this lifted are named (title + id) for the model to read on demand.
+    # 0 turns the tier off.
+    hint_threshold: float = 0.0
+    hint_lift: float = 0.0
+    hint_items: int = 2
     version: str = "learned-v1"
     calibration: dict[str, Any] = field(default_factory=dict)
 
@@ -179,10 +190,23 @@ class GateModel:
             max_items=int(raw.get("max_items", 3)),
             dedup=float(raw.get("dedup", 0.5)),
             relative=float(raw.get("relative", 0.0)),
+            lift=float(raw.get("lift", 0.0)),
+            hint_threshold=float(raw.get("hint_threshold", 0.0)),
+            hint_lift=float(raw.get("hint_lift", 0.0)),
+            hint_items=int(raw.get("hint_items", 2)),
             version=str(raw.get("version", "learned-v1")),
             calibration=dict(raw.get("calibration") or {}),
         )
-        numbers = [*model.mean, *model.scale, *model.weights, model.bias, model.threshold]
+        numbers = [
+            *model.mean,
+            *model.scale,
+            *model.weights,
+            model.bias,
+            model.threshold,
+            model.lift,
+            model.hint_threshold,
+            model.hint_lift,
+        ]
         if (
             not all(len(v) == len(FEATURES) for v in (model.mean, model.scale, model.weights))
             or not all(math.isfinite(v) for v in numbers)
@@ -191,6 +215,10 @@ class GateModel:
             or not 1 <= model.max_items <= 8
             or not 0 < model.dedup <= 1
             or not 0 <= model.relative < 1
+            or not -1 <= model.lift <= 1
+            or not -1 <= model.hint_lift <= 1
+            or not 0 <= model.hint_threshold < 1
+            or not 0 <= model.hint_items <= 8
         ):
             raise ValueError("invalid gate model")
         return model
@@ -207,6 +235,10 @@ class GateModel:
             "max_items": self.max_items,
             "dedup": self.dedup,
             "relative": self.relative,
+            "lift": self.lift,
+            "hint_threshold": self.hint_threshold,
+            "hint_lift": self.hint_lift,
+            "hint_items": self.hint_items,
             "calibration": self.calibration,
         }
 
@@ -215,6 +247,33 @@ class GateModel:
             w * (v - m) / s for w, v, m, s in zip(self.weights, values, self.mean, self.scale)
         )
         return 1 / (1 + math.exp(-max(-60.0, min(60.0, z))))
+
+
+def lift_of(values: Sequence[float]) -> float:
+    """How much closer to this prompt than to everyday generic prompts."""
+    return float(values[0] - values[FEATURES.index("doc_bg")])
+
+
+def anchored(values: Sequence[float]) -> bool:
+    """A literal identifier from the prompt, in a top keyword hit."""
+    return values[FEATURES.index("anchor")] > 0 and (
+        values[FEATURES.index("lex_inv")] >= 1 / POOL_LEXICAL
+    )
+
+
+def adopt_rule(target: GateModel, source: GateModel) -> GateModel:
+    """Carry the injection rule (not the fitted weights) from one gate to another."""
+    for name in (
+        "max_items",
+        "dedup",
+        "relative",
+        "lift",
+        "hint_threshold",
+        "hint_lift",
+        "hint_items",
+    ):
+        setattr(target, name, getattr(source, name))
+    return target
 
 
 def features(
@@ -304,16 +363,14 @@ def select(model: GateModel, candidates: Sequence[Candidate], threshold: float) 
     keys: set[tuple[str, str]] = set()
     leader = 1.0
     for probability, candidate in scored:
-        anchored = candidate.values[FEATURES.index("anchor")] > 0 and (
-            candidate.values[FEATURES.index("lex_inv")] >= 1 / POOL_LEXICAL
-        )
-        if probability < threshold and not anchored:
+        anchor = anchored(candidate.values)
+        if not anchor and (probability < threshold or lift_of(candidate.values) < model.lift):
             continue
         if candidate.duplicate_key in keys or any(
             containment(candidate.shingles, other.shingles) >= model.dedup for other in chosen
         ):
             continue
-        if chosen and not anchored and probability < model.relative * leader:
+        if chosen and not anchor and probability < model.relative * leader:
             continue
         keys.add(candidate.duplicate_key)
         if not chosen:
@@ -349,6 +406,7 @@ def cross_validate(
     score: Utility = utility,
     extra: tuple[Sequence[Sequence[float]], Sequence[float], Sequence[float]] | None = None,
     relative: float = 0.0,
+    rule: GateModel | None = None,
 ) -> dict[str, Any]:
     """Grouped k-fold by case: thresholds are judged only on cases the model never saw.
 
@@ -377,7 +435,10 @@ def cross_validate(
                 labels = [*labels, *extra[1]]
                 weights = [*weights, *extra[2]]
             model = fit(rows, labels, weights=weights)
-            model.relative = relative
+            if rule is not None:
+                adopt_rule(model, rule)
+            else:
+                model.relative = relative
             for i in held:
                 case, candidates = cases[i]
                 for t in thresholds:
