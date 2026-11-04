@@ -235,7 +235,7 @@ def test_box_table_lines_up_mixed_width_text():
     assert "**" not in view and "`" not in view
     assert not any(mark in line for line in table for mark in "…·—§")
     assert "张三" in view and "上传" not in view and "已注入过" in view
-    assert "MEMORY.md 1/4" in view and "相关性" in table[1] and "使用率" in table[1]
+    assert "MEMORY.md 第1/4段" in view and "相关性" in table[1] and "使用率" in table[1]
     assert "项目" in table[1]  # a hit carries a project, so the column is shown
 
 
@@ -301,3 +301,77 @@ def test_content_line_says_what_each_memory_is_about():
     assert _summary(_record(body="# 飞书写作\n先用**模板**创建。")) == "飞书写作：先用模板创建。"
     assert _title(_record(title="SKILL", path="skills/feishu-doc/SKILL.md")) == "feishu-doc"
     assert _summary(_record(body=described, deleted=True)) == ""
+
+
+def _wide_record():
+    return {
+        "asset_id": "a",
+        "revision": 2,
+        "body_hash": "h",
+        "title": "MEMORY",
+        "path": "MEMORY.md",
+        "part_count": 8,
+        "part_index": 6,
+        "product": "codex-cli",
+        "project": "linkcrux-platform",
+        "kind": "memory",
+        "role": "navigation",
+        "producer_name": "敖丙",
+        "producer_member_id": "m",
+        "body": "# Task Group: 春光销售接单员整合\n" * 40,
+        "recall": {
+            "routes": {"lexical": 17, "semantic": 1},
+            "relevance": 0.5,
+            "usage": {"used": 3, "judged": 4},
+        },
+    }
+
+
+@pytest.mark.parametrize("columns", [70, 90, 100, 110, 118, 126, 160, None])
+def test_box_table_never_wraps_at_any_terminal_width(columns):
+    from agent_brain.native_sync.recall_view import _HOST_MARGIN, _UNKNOWN_COLUMNS, _box_table, _width
+
+    lines = _box_table([_wide_record()], {"a:2:h": "packed"}, columns)
+    assert {_width(line) for line in lines} == {_width(lines[0])}  # every line closes the box
+    assert _width(lines[0]) <= (columns or _UNKNOWN_COLUMNS) - _HOST_MARGIN
+
+
+def test_box_table_keeps_what_matters_when_narrow_and_names_parts():
+    from agent_brain.native_sync.recall_view import _box_table
+
+    wide = "\n".join(_box_table([_wide_record()], {"a:2:h": "packed"}, 160))
+    assert "MEMORY.md 第7/8段" in wide and "命中路由" in wide and "项目" in wide
+    narrow = "\n".join(_box_table([_wide_record()], {"a:2:h": "packed"}, 70))
+    for kept in ("记忆", "相关性", "本轮", "内容："):
+        assert kept in narrow
+    assert "项目" not in narrow and "版本" not in narrow
+
+
+def test_terminal_width_falls_back_to_the_environment(monkeypatch):
+    from agent_brain.native_sync import recall_view
+
+    def no_ps(*args, **kwargs):
+        raise OSError("no ps")
+
+    monkeypatch.setattr(recall_view.subprocess, "run", no_ps)
+    monkeypatch.setenv("COLUMNS", "99")
+    assert recall_view.terminal_columns() == 99
+    monkeypatch.setenv("COLUMNS", "0")
+    assert recall_view.terminal_columns() is None
+
+
+@pytest.mark.parametrize(
+    "text,admitted",
+    [
+        ("?62;22;52c>1;10;0c", False),
+        ("\x1b[?1;2c", False),
+        ("1;10;0c", False),
+        ("5G 网络", True),
+        ("12c", True),
+        ("v1.4.18 发了吗", True),
+    ],
+)
+def test_terminal_replies_are_not_prompts(text, admitted):
+    from agent_brain.native_sync.recall_view import admit
+
+    assert admit(text)[0] is admitted

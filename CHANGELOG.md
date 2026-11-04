@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.19] — 2026-11-04
+
+### Fixed
+
+- The recall table no longer breaks in a terminal narrower than the table: a
+  right border that wrapped to the next line made every row unreadable. The
+  hook reads the member's terminal width from the host's controlling terminal
+  (about 5 ms; `COLUMNS` and then 126 columns as fallbacks), tightens columns,
+  then gives up whole columns, least useful first. The memory column is
+  narrower (18 columns) in every layout.
+- A part of a split file reads as such: `MEMORY.md 第7/8段`, not `MEMORY.md 7/8`.
+- A terminal's own reply to a capability query (`?62;22;52c>1;10;0c`) leaking
+  into the prompt box is no longer searched as a question.
+
 ## [1.4.18] — 2026-11-04
 
 ### Changed
