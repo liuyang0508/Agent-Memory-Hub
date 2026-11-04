@@ -269,7 +269,7 @@ def _run(root: Path, product: str, payload: dict[str, Any]) -> dict[str, Any]:
         if (
             display != "off"
             and product in VISIBLE_MESSAGE_PRODUCTS
-            and skip_reason != "background_event"
+            and skip_reason not in ("background_event", "terminal_reply")
         ):
             skipped = render_skip(skip_reason, query)
             if _hand_to_panel(root, product, payload, skipped):

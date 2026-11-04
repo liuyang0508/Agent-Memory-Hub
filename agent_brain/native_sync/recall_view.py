@@ -16,7 +16,9 @@ Three pure helpers, no I/O:
 
 from __future__ import annotations
 
+import os
 import re
+import subprocess
 import unicodedata
 from datetime import datetime
 from typing import Any
@@ -142,6 +144,11 @@ def follow_up(query: str) -> bool:
     )
 
 
+# A terminal's own reply to a capability query, leaked into the prompt box:
+# "?62;22;52c>1;10;0c". Never something a member typed.
+_TERMINAL_REPLY = re.compile(r"(?:\x1b?\[?[?>]?\d+(?:;\d+)*[A-Za-z~]\s*)+")
+
+
 def admit(query: str) -> tuple[bool, str]:
     """Whether a normalized prompt can carry a topic worth searching for."""
     if not query.strip():
@@ -149,6 +156,9 @@ def admit(query: str) -> tuple[bool, str]:
     folded = _folded(query)
     if not folded:
         return False, "punctuation_only"
+    stripped = query.strip()
+    if _TERMINAL_REPLY.fullmatch(stripped) and (";" in stripped or stripped[0] in "?>\x1b["):
+        return False, "terminal_reply"
     if _CONTROL.match(query.strip()):
         return False, "control_command"
     if query.lstrip().startswith(_BACKGROUND):
@@ -166,6 +176,7 @@ SKIP_TEXT = {
     "control_command": "宿主控制命令",
     "acknowledgement": "简短确认语，没有可检索的主题",
     "background_event": "宿主的后台事件通知，不是成员的提问",
+    "terminal_reply": "终端自动回传的控制应答，不是成员的提问",
 }
 STATE_TEXT = {
     "packed": "已注入",
@@ -463,7 +474,7 @@ def render(
         return (
             _as_plain("\n".join(lines))
             + "\n"
-            + "\n".join(_box_table(hits, states))
+            + "\n".join(_box_table(hits, states, terminal_columns()))
             + ("\n" + tail if tail else "")
         )
     lines += [
@@ -525,17 +536,100 @@ def _as_plain(text: str) -> str:
     return text.replace("**", "").replace("`", "")
 
 
-def _box_table(hits: list[dict[str, Any]], states: dict[str, str]) -> list[str]:
+# Columns of the box table, in order: key, header, width.
+_COLUMNS: tuple[tuple[str, str, int], ...] = (
+    ("rank", "#", 1),
+    ("title", "记忆", 18),
+    ("kind", "类型", 4),
+    ("source", "来源", 11),
+    ("author", "作者", 10),
+    ("project", "项目", 10),
+    ("version", "版本 更新", 9),
+    ("routes", "命中路由", 13),
+    ("relevance", "相关性", 6),
+    ("usage", "使用率", 8),
+    ("state", "本轮", 8),
+)
+# A narrow terminal first tightens columns that hold spare room, then gives up
+# whole columns, least useful first. A wrapped box is unreadable; a missing
+# column is not.
+_TIGHTER = {"title": 17, "author": 8}
+_DROP_ORDER = ("version", "project", "source", "kind", "usage", "author", "routes")
+# The host indents a hook message and needs a spare column at the right edge.
+_HOST_MARGIN = 6
+_UNKNOWN_COLUMNS = 126
+
+
+def terminal_columns() -> int | None:
+    """The member's terminal width, from the host's controlling terminal.
+
+    A hook's own stdio are pipes, so walk up to the first ancestor that has a
+    terminal and ask that device. Anything unexpected means "unknown".
+    """
+    try:
+        import fcntl
+        import struct
+        import termios
+
+        pid = os.getppid()
+        for _ in range(8):
+            fields = subprocess.run(
+                ["ps", "-o", "ppid=,tty=", "-p", str(pid)],
+                capture_output=True,
+                text=True,
+                timeout=0.3,
+            ).stdout.split()
+            if len(fields) != 2:
+                break
+            parent, tty = fields
+            if tty.strip("?-"):
+                device = os.open("/dev/" + tty, os.O_RDONLY | os.O_NOCTTY | os.O_NONBLOCK)
+                try:
+                    size = fcntl.ioctl(device, termios.TIOCGWINSZ, b"\0" * 8)
+                finally:
+                    os.close(device)
+                columns = struct.unpack("hhhh", size)[1]
+                if columns > 0:
+                    return int(columns)
+                break
+            pid = int(parent)
+    except (ImportError, OSError, ValueError, subprocess.SubprocessError):
+        pass
+    try:
+        columns = int(os.environ.get("COLUMNS") or 0)
+    except ValueError:
+        return None
+    return columns if columns > 0 else None
+
+
+def _layout(with_project: bool, columns: int | None) -> list[tuple[str, str, int]]:
+    """The columns that fit: a wrapped right border breaks every line of the box."""
+    available = (columns or _UNKNOWN_COLUMNS) - _HOST_MARGIN
+    chosen = [c for c in _COLUMNS if with_project or c[0] != "project"]
+
+    def total(layout: list[tuple[str, str, int]]) -> int:
+        return sum(width + 3 for _, _, width in layout) + 1
+
+    if total(chosen) > available:
+        chosen = [(key, head, _TIGHTER.get(key, width)) for key, head, width in chosen]
+    for key in _DROP_ORDER:
+        if total(chosen) <= available:
+            break
+        chosen = [column for column in chosen if column[0] != key]
+    return chosen
+
+
+def _box_title(record: dict[str, Any]) -> str:
+    """A part of a split file reads as such: "MEMORY.md 第7/8段"."""
+    return re.sub(r" §(\d+/\d+)$", r" 第\1段", _title(record)).replace("§", "#")
+
+
+def _box_table(
+    hits: list[dict[str, Any]], states: dict[str, str], columns: int | None = None
+) -> list[str]:
     from .recall import coverage_key
 
-    with_project = any(record.get("project") for record in hits)
-    headers = ["#", "记忆", "类型", "来源", "作者"]
-    widths = [1, 22, 4, 11, 10]
-    if with_project:
-        headers.append("项目")
-        widths.append(10)
-    headers += ["版本 更新", "命中路由", "相关性", "使用率", "本轮"]
-    widths += [9, 13, 6, 8, 8]
+    layout = _layout(any(record.get("project") for record in hits), columns)
     rows: list[list[str]] = []
     details: list[str] = []
     for rank, record in enumerate(hits, 1):
@@ -544,24 +638,22 @@ def _box_table(hits: list[dict[str, Any]], states: dict[str, str]) -> list[str]:
         kind = {"navigation": "索引", "conversation_summary": "摘要"}.get(role) or _kind(
             record
         ).split("·")[0]
-        producer = _producer(record)
-        row = [
-            str(rank),
-            _plain(_title(record)).replace(" #", " "),
-            kind,
-            PRODUCTS.get(product, product),
-            producer,
-        ]
-        if with_project:
-            row.append(str(record.get("project") or "-"))
-        row += [
-            f"r{record.get('revision', '?')} {_plain(_updated(record))}",
-            _plain(_routes(record)),
-            _plain(_similarity(record)),
-            _plain(_usage(record)),
-            STATE_SHORT.get(states.get(coverage_key(record), ""), "-"),
-        ]
-        rows.append(row)
+        values = {
+            "rank": str(rank),
+            "title": _plain(_box_title(record)),
+            "kind": kind,
+            "source": PRODUCTS.get(product, product),
+            "author": _producer(record),
+            "project": str(record.get("project") or "-"),
+            "version": f"r{record.get('revision', '?')} {_plain(_updated(record))}",
+            "routes": _plain(_routes(record)),
+            "relevance": _plain(_similarity(record)),
+            "usage": _plain(_usage(record)),
+            "state": STATE_SHORT.get(states.get(coverage_key(record), ""), "-"),
+        }
+        rows.append([values[key] for key, _, _ in layout])
         summary = _plain(_summary(record))
         details.append("内容：" + summary if summary else "")
-    return _box(headers, rows, widths, details)
+    return _box(
+        [head for _, head, _ in layout], rows, [width for _, _, width in layout], details
+    )
