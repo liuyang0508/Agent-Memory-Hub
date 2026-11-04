@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.12] — 2026-11-04
+
+### Fixed
+
+- Delivery reports and usage labels now drain over a lossy link. One timed-out
+  upload used to end the whole report pass, so on a link that drops some new
+  connections the queue never emptied (observed: reports stuck for 80 minutes
+  while individual requests succeeded in 0.4 s). A pass now moves on to the
+  next trace and stops only after three failures in a row.
+
 ## [1.4.11] — 2026-11-04
 
 ### Added

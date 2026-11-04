@@ -479,3 +479,49 @@ def test_a_new_prompt_drops_an_unjudged_turn(live, tmp_path):
     )
     with database(c.path) as db:
         assert db.execute("SELECT count(*) FROM usage_pending").fetchone()[0] == 0
+
+
+def test_a_lossy_link_still_drains_the_report_queue(live, tmp_path):
+    """One dropped connection must not end the pass: the next trace may get through."""
+    hub, url = live
+    c = NativeClient.adopt(tmp_path / "state", url, hub.provision("Reader", "r"), "r")
+    calls = []
+
+    class Lossy:
+        def recall_feedback(self, trace_id, events):
+            calls.append(trace_id)
+            if len(calls) % 2 == 1:
+                raise OSError("timed out")
+            return {}
+
+    c.transport = Lossy()
+    now = time.time()
+    with database(c.path) as db:
+        db.executemany(
+            "INSERT INTO recall_reports VALUES(?,?,?,?,?)",
+            [(f"{i:024x}", "x", 1, "emitted", now) for i in range(6)],
+        )
+    errors = c._report_recalls()
+    assert len(errors) == 3 and len(calls) == 6
+    with database(c.path) as db:
+        assert db.execute("SELECT count(*) FROM recall_reports").fetchone()[0] == 3
+
+
+def test_a_real_outage_stops_the_pass_after_a_few_failures(live, tmp_path):
+    hub, url = live
+    c = NativeClient.adopt(tmp_path / "state", url, hub.provision("Reader", "r"), "r")
+    calls = []
+
+    class Down:
+        def recall_feedback(self, trace_id, events):
+            calls.append(trace_id)
+            raise OSError("unreachable")
+
+    c.transport = Down()
+    with database(c.path) as db:
+        db.executemany(
+            "INSERT INTO recall_reports VALUES(?,?,?,?,?)",
+            [(f"{i:024x}", "x", 1, "emitted", time.time()) for i in range(10)],
+        )
+    c._report_recalls()
+    assert len(calls) == 3

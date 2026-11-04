@@ -22,6 +22,9 @@ from .source_policy import (
 from .source import source_text, read_document, files, enqueue_document, queue_delete
 
 
+# Consecutive unavailable report uploads that end one sync pass.
+REPORT_FAILURE_LIMIT = 3
+
 class NativeClient:
     """One enrolled device profile; all local state is scoped to its Hub identity.
 
@@ -1020,6 +1023,10 @@ class NativeClient:
             )
         errors: list[str] = []
         usage = {"used", "unused", "consulted"}
+        # A lossy link drops some connections and not others: one timeout says
+        # little about the next request, so a pass moves on to the next trace
+        # and stops only after several failures in a row.
+        failures = 0
         for trace_id, events in grouped.items():
             # Usage labels travel apart from delivery states: a Hub that
             # predates them refuses the whole batch, and must not take the
@@ -1045,15 +1052,19 @@ class NativeClient:
                     if exc.http_status not in (404, 409, 422):
                         continue
                 except OSError:
-                    # Outage (5xx, 408/429, socket): keep every remaining row
-                    # rather than turn one unreachable endpoint into a socket
-                    # timeout per trace; the next pass retries from here.
+                    # Outage (5xx, 408/429, socket): keep this trace's rows for
+                    # a later pass. A real outage stops the pass after a few
+                    # consecutive failures instead of one timeout per trace.
                     errors.append(f"recall report {trace_id}: unavailable")
-                    return errors
+                    failures += 1
+                    if failures >= REPORT_FAILURE_LIMIT:
+                        return errors
+                    break
                 except ValueError as exc:
                     # A malformed answer for this trace; the next trace may be fine.
                     errors.append(f"recall report {trace_id}: {type(exc).__name__}")
                     continue
+                failures = 0
                 with database(self.path) as db:
                     db.executemany(
                         "DELETE FROM recall_reports WHERE trace_id=? AND asset=? AND revision=? AND event=?",
