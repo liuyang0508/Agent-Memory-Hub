@@ -60,7 +60,9 @@ def test_nothing_in_common_means_unused():
 
 def test_what_the_model_already_saw_is_not_evidence():
     output = FILLER + " 先执行 scripts/release-check-2026.sh 再说。"
-    assert judge(output, seen="上次说过 scripts/release-check-2026.sh 要先跑")[0] == "unused"
+    # Shared specifics that were already in the conversation prove nothing either way.
+    label, evidence = judge(output, seen="上次说过 scripts/release-check-2026.sh 要先跑")
+    assert label is None and evidence["reason"] == "already_seen"
 
 
 def test_short_answers_are_not_judged_and_used_can_be_withheld():

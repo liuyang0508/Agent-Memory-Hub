@@ -171,6 +171,10 @@ def _compact_times(times_set: dict[str, Any]) -> dict[str, Any]:
 
 
 _IDENTIFIER = re.compile(r"[A-Za-z0-9][A-Za-z0-9_./-]*[A-Za-z0-9]")
+# Files every project has: naming one says nothing about which memory.
+_COMMON_TOKENS = frozenset(
+    {"memory.md", "memory_summary", "memory_summary.md", "claude.md", "agents.md", "readme.md", "skill.md"}
+)
 
 
 # Degraded prompt-time recall: identifier matches among the top keyword
@@ -183,7 +187,10 @@ def identifiers(query: str) -> list[str]:
     """Literal technical tokens: digits, underscores, dotted or slashed paths, camelCase."""
     found = []
     for token in _IDENTIFIER.findall(query):
-        if len(token) < 3:
+        if len(token) < 3 or token.casefold() in _COMMON_TOKENS:
+            continue
+        # A status code or a year is in everything; "5101" or an order number is specific.
+        if token.isdigit() and (len(token) < 4 or re.fullmatch(r"(?:19|20)\d\d", token)):
             continue
         if (
             any(ch.isdigit() for ch in token)
@@ -662,8 +669,8 @@ def retrieve(
                     anchors=anchors,
                 )
                 probability = model.probability(values)
-                anchored = values[-1] > 0 and (lexical_rank or 99) <= relevance.POOL_LEXICAL
                 lift = relevance.lift_of(values)
+                anchored = relevance.anchored(probability, values)
                 # The evidence travels with the trace (numbers only) so usage
                 # feedback can later be learned from what the gate saw.
                 trace.row(hit.id)["gate"] = {
@@ -752,7 +759,7 @@ def retrieve(
                     text = (
                         str(item.get("title", "")) + "\n" + str(item.get("body", ""))
                     ).casefold()
-                    if any(anchor in text for anchor in anchors):
+                    if relevance.contains_identifier(text, anchors):
                         passes = True
                         effects[hit.id] = "identifier"
                 if passes or hit.id == query.strip():
@@ -779,7 +786,7 @@ def retrieve(
                 text = (str(item.get("title", "")) + "\n" + str(item.get("body", ""))).casefold()
                 rank = route_ranks.get(hit.id, (None, None))[0] or 99
                 if hit.id == query.strip() or (
-                    rank <= LEXICAL_GUARD_RANK and any(anchor in text for anchor in anchors)
+                    rank <= LEXICAL_GUARD_RANK and relevance.contains_identifier(text, anchors)
                 ):
                     kept.append(hit)
                     effects[hit.id] = "identifier"

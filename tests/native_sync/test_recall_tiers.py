@@ -112,3 +112,24 @@ def test_pack_and_view_carry_titles_only():
         hints=hints[:1],
     )
     assert "只给标题 1 条" in view and "《OSS 读取坑》（21%）" in view
+
+
+def test_an_identifier_needs_to_be_a_whole_token_and_not_plainly_off_topic():
+    from agent_brain.native_sync.retrieval import identifiers
+
+    found = relevance.contains_identifier
+    assert found("gateway returned e40213 today", ["e40213"])
+    assert not found("order e402139 failed", ["e40213"])  # a longer token is another thing
+    assert found("见 fact_5101。", ["fact_5101"])
+    # Status codes, years and files every project has say nothing about which memory.
+    assert identifiers("接口返回 500，2026 年的 MEMORY.md 里 E40213 和 5101") == ["e40213", "5101"]
+
+    values = [0.0] * len(FEATURES)
+    values[FEATURES.index("anchor")] = 1.0
+    values[FEATURES.index("lex_inv")] = 1.0
+    values[FEATURES.index("sim")] = 0.5
+    values[FEATURES.index("doc_bg")] = 0.4
+    assert relevance.anchored(0.2, values)
+    assert not relevance.anchored(0.05, values)  # the prompt shares a token and nothing else
+    values[FEATURES.index("doc_bg")] = 0.6
+    assert not relevance.anchored(0.2, values)  # closer to chit-chat than to this prompt
