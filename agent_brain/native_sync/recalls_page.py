@@ -14,41 +14,15 @@ PAGE = """<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>组织记忆 · 召回明细</title>
 <style>
-  :root { color-scheme: light dark; --line: #e2e8f0; --muted: #64748b; --ink: #0f172a; --a1: #2563eb; }
-  * { box-sizing: border-box; }
-  body { margin: 0; font: 14px/1.6 -apple-system, "PingFang SC", "Segoe UI", sans-serif; color: var(--ink); background: #f8fafc; }
-  .wrap { max-width: 1280px; margin: 0 auto; padding: 28px 24px 64px; }
-  h1 { font-size: 22px; margin: 0 0 4px; }
-  .sub { color: var(--muted); font-size: 13px; margin: 0 0 22px; }
-  .card { background: #fff; border: 1px solid var(--line); border-radius: 14px; padding: 18px; margin-bottom: 16px; overflow-x: auto; }
-  table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
-  th, td { text-align: left; padding: 7px 9px; border-bottom: 1px solid var(--line); vertical-align: top; }
-  th { color: var(--muted); font-size: 12.5px; font-weight: 600; white-space: nowrap; }
-  td.num { text-align: right; font-variant-numeric: tabular-nums; }
-  .pill { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; background: #eef2ff; color: #3730a3; margin: 1px 4px 1px 0; white-space: nowrap; }
-  .pill.off { background: #f1f5f9; color: var(--muted); }
-  .pill.ok { background: #ecfdf5; color: #065f46; }
-  .pill.drop { background: #fff7ed; color: #9a3412; }
-  .muted { color: var(--muted); }
-  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; }
-  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-  input, button, select { font: inherit; color: var(--ink); padding: 7px 11px; border-radius: 8px; border: 1px solid var(--line); background: #fff; }
-  button { cursor: pointer; }
-  button.primary { border-color: var(--a1); color: var(--a1); font-weight: 600; }
-  button.link { border: none; background: none; color: var(--a1); padding: 0; }
+  /* AMH_BASE */
   #ops { display: none; }
-  details { margin: 6px 0; }
-  summary { cursor: pointer; }
-  .empty { color: var(--muted); padding: 18px 0; text-align: center; }
-  dl { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; margin: 6px 0; font-size: 12.5px; }
-  dt { color: var(--muted); }
-  dd { margin: 0; }
 </style>
 </head>
 <body>
+<!-- AMH_BAR -->
 <div class="wrap">
-  <h1>组织记忆 · 召回明细</h1>
-  <p class="sub">每次召回记录候选的召回方式、排名变化和本轮状态；不含记忆正文。已用飞书登录管理后台的管理员直接可看；否则粘贴 Hub 主机签发的管理令牌。<a href="/native/v1/admin/insights">记忆洞察</a> · <a href="/native/v1/admin/dashboard">数据看板</a></p>
+  <h1>召回明细</h1>
+  <p class="sub">每次召回记录候选的召回方式、排名变化和本轮状态；不含记忆正文。已用飞书登录管理后台的管理员直接可看；否则粘贴 Hub 主机签发的管理令牌。</p>
 
   <div id="login" class="card">
     <p><a href="/native/v1/admin/login?target=recalls">使用飞书登录</a></p>
@@ -89,8 +63,14 @@ const OFF = "未启用";
 const routeText = (r) => Object.entries(r || {}).map(([k, v]) =>
   v === OFF ? `<span class="pill off">${esc(k)}·${OFF}</span>` :
   v === null || v === undefined ? "" : `<span class="pill">${esc(k)}#${esc(v)}</span>`).join("");
-const stateText = (s) => s && s.startsWith("dropped:") ? `<span class="pill drop">${esc(s)}</span>` :
-  ["packed","emitted","confirmed","cited"].includes(s) ? `<span class="pill ok">${esc(s)}</span>` : `<span class="pill">${esc(s || "candidate")}</span>`;
+const STAGE_NAMES = {lexical: "词法", semantic: "语义", hopfield: "联想", rerank: "重排", declared_filter: "范围过滤", decay: "时间衰减", mmr: "多样性", relevance_gate: "门控"};
+const STATE_NAMES = {candidate: "候选", selected: "入选", packed: "已打包", emitted: "已注入", confirmed: "已送达", cited: "已引用", hinted: "只给标题"};
+const DROP_NAMES = {relevance_gate: "门控判定不相关", lexical_guard: "降级保护拦截", limit: "超过条数上限", near_duplicate: "近似重复", dedup: "内容重复", budget: "超出注入预算", covered: "本会话已注入过", revalidation: "版本已变化"};
+// A row shows what ran; the detail view also shows what was off.
+const stagePills = (stages, all) => Object.entries(stages || {}).filter(([, v]) => all || v !== OFF).map(([k, v]) =>
+  `<span class="pill ${v === OFF ? "off" : ""}" title="${esc(k)}">${esc(STAGE_NAMES[k] || k)}${v === "on" ? "" : " · " + esc(v)}</span>`).join("");
+const stateText = (s) => s && s.startsWith("dropped:") ? `<span class="pill drop">未注入：${esc(DROP_NAMES[s.slice(8)] || s.slice(8))}</span>` :
+  ["packed","emitted","confirmed","cited"].includes(s) ? `<span class="pill ok">${esc(STATE_NAMES[s])}</span>` : `<span class="pill">${esc(STATE_NAMES[s] || s || "候选")}</span>`;
 let memberNames = {};
 const memberName = (id) => memberNames[id] || (id ? String(id).slice(0, 8) + "…" : "未知");
 const askingText = (a) => {
@@ -182,7 +162,7 @@ function renderList(traces) {
       <td>${esc(t.query_preview || "（未保存问题文本）")}</td>
       <td class="num">${t.counts.candidates}</td><td class="num">${(t.counts.selected||0)+(t.counts.packed||0)+(t.counts.emitted||0)+(t.counts.confirmed||0)+(t.counts.cited||0)}</td>
       <td class="num">${(t.counts.emitted||0)+(t.counts.confirmed||0)+(t.counts.cited||0)}</td>
-      <td>${Object.entries(t.stages||{}).map(([k,v]) => `<span class="pill ${v===OFF?"off":""}">${esc(k)}·${esc(v)}</span>`).join("")}</td>
+      <td>${stagePills(t.stages)}</td>
       <td><button class="link mono" onclick="document.getElementById('traceInput').value='${esc(t.trace_id)}';load()">${esc(t.trace_id)}</button></td>
     </tr>`).join("")}</tbody></table></div>`;
 }
@@ -195,7 +175,7 @@ function renderTrace(t) {
     <dt>通道</dt><dd>${esc(t.channel)}</dd>
     <dt>问题</dt><dd>${esc(t.query_preview || "（未保存问题文本）")} <span class="muted">· ${t.query_chars} 字</span></dd>
     <dt>发问自</dt><dd>${askingText(t.asking)}${t.asking && t.asking.session_digest ? ` <span class="muted mono">任务 ${esc(t.asking.session_digest)}</span>` : ""}</dd>
-    <dt>阶段</dt><dd>${Object.entries(t.stages||{}).map(([k,v]) => `<span class="pill ${v===OFF?"off":""}">${esc(k)}·${esc(v)}</span>`).join("")}</dd>
+    <dt>阶段</dt><dd>${stagePills(t.stages, true)}</dd>
     <dt>降级原因</dt><dd>${(t.retrieval && t.retrieval.reasons || []).map(r => esc(r)).join("、") || "无"}</dd>
   </dl></div>`;
   const rows = t.candidates.map(c => `<tr>
@@ -234,4 +214,6 @@ load();
 
 def html() -> str:
     """Return the recall ledger page; it carries no secret and no memory content."""
-    return PAGE
+    from .admin_ui import BASE, top_bar
+
+    return PAGE.replace("/* AMH_BASE */", BASE).replace("<!-- AMH_BAR -->", top_bar("recalls"))

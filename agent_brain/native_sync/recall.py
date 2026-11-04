@@ -78,6 +78,14 @@ def _details_first(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return ordered
 
 
+HINT_LINES = 4
+_MARKER = re.compile(r"\[(/?)(AMH_ORG_CONTEXT_V1)\]", re.I)
+
+
+def _neutral(text: str) -> str:
+    return _MARKER.sub(lambda m: "［" + m.group(1) + m.group(2) + "］", text)
+
+
 def pack(
     records: list[dict[str, Any]],
     *,
@@ -158,7 +166,8 @@ def pack(
         ]
         if all(key in covered for key in keys):
             continue
-        block = prefix + excerpt + ("" if full else "\n[片段截断]") + "\n"
+        # Memory text may quote the block's own markers; it must not close the block.
+        block = _neutral(prefix + excerpt + ("" if full else "\n[片段截断]") + "\n")
         cost = len(block.encode()) + (1 if output else 0)
         if cost > remaining:
             continue  # Try a later short item, without changing this excerpt.
@@ -170,21 +179,62 @@ def pack(
     return (header + "\n".join(output) + footer, delivered) if output else ("", [])
 
 
-HINT_HEAD = "可能相关（只给标题、未注入正文；确实需要时用 read_org_memory 按 asset_id 与 revision 读取）："
+# read_org_memory only reads what a search in this research returned, and an
+# exact asset id ranks first: the instruction has to say so or the read fails.
+HINT_HEAD = (
+    "可能相关（只给标题、未注入正文）。确实需要时，先用 search_org_memory 搜 asset_id "
+    "拿到 research_id，再用 read_org_memory 读取："
+)
+
+
+def hint_of(record: dict[str, Any]) -> dict[str, Any]:
+    """A recalled record reduced to the title-only tier."""
+    return {
+        key: record.get(key) for key in ("asset_id", "revision", "title", "path", "product", "kind")
+    }
+
+
+def _fresh_hints(
+    hints: list[dict[str, Any]], covered: set[str], records: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    shown = {(r["asset_id"], r["revision"]) for r in records}
+    fresh = []
+    seen = set()
+    for hint in hints:
+        key = (hint.get("asset_id"), hint.get("revision"))
+        prefix = f"{key[0]}:{key[1]}:"
+        if (
+            key in shown
+            or key in seen
+            or f"hint:{key[0]}:{key[1]}" in covered
+            or any(k.startswith(prefix) for k in covered)
+        ):
+            continue
+        seen.add(key)
+        fresh.append(hint)
+    return fresh[:HINT_LINES]
+
+
+def hint_keys(
+    hints: list[dict[str, Any]], covered: set[str], records: list[dict[str, Any]]
+) -> list[str]:
+    """Session coverage keys of the titles this delivery names."""
+    return [
+        f"hint:{hint.get('asset_id')}:{hint.get('revision')}"
+        for hint in _fresh_hints(hints, covered, records)
+    ]
 
 
 def _hint_block(
     hints: list[dict[str, Any]], covered: set[str], records: list[dict[str, Any]]
 ) -> str:
     """One line per probable memory the full rule held back."""
-    shown = {(r["asset_id"], r["revision"]) for r in records}
     lines = []
-    for hint in hints[:4]:
-        key = (hint.get("asset_id"), hint.get("revision"))
-        prefix = f"{key[0]}:{key[1]}:"
-        if key in shown or any(k.startswith(prefix) for k in covered):
-            continue
+    for hint in _fresh_hints(hints, covered, records):
         title = " ".join(str(hint.get("title") or hint.get("path") or "").split())[:80]
         product = source_product(str(hint.get("product") or ""))
-        lines.append(f"- 《{title}》· {product} · asset_id={key[0]} revision={key[1]}")
+        lines.append(
+            f"- 《{_neutral(title)}》· {product} · "
+            f"asset_id={hint.get('asset_id')} revision={hint.get('revision')}"
+        )
     return HINT_HEAD + "\n" + "\n".join(lines) + "\n" if lines else ""

@@ -42,6 +42,8 @@ from typing import Any
 FEATURES = ("sim", "gap", "doc_bg", "query_bg", "lex_inv", "nav", "body_cov", "anchor")
 POOL_SEMANTIC = 10  # candidates by similarity the model judges
 POOL_LEXICAL = 3  # plus the keyword search head
+ANCHOR_MIN_PROBABILITY = 0.1
+ANCHOR_MIN_LIFT = 0.0
 BACKGROUND_K = 10
 
 # Everyday prompts with no organization knowledge: the background a memory's
@@ -254,10 +256,30 @@ def lift_of(values: Sequence[float]) -> float:
     return float(values[0] - values[FEATURES.index("doc_bg")])
 
 
-def anchored(values: Sequence[float]) -> bool:
-    """A literal identifier from the prompt, in a top keyword hit."""
-    return values[FEATURES.index("anchor")] > 0 and (
-        values[FEATURES.index("lex_inv")] >= 1 / POOL_LEXICAL
+def contains_identifier(text: str, anchors: Sequence[str]) -> bool:
+    """A whole token of the folded text: "E500" is not found inside "E5001"."""
+    for anchor in anchors:
+        start = text.find(anchor)
+        while start >= 0:
+            end = start + len(anchor)
+            before = text[start - 1] if start else " "
+            after = text[end] if end < len(text) else " "
+            if not (before.isascii() and before.isalnum()) and not (
+                after.isascii() and after.isalnum()
+            ):
+                return True
+            start = text.find(anchor, start + 1)
+    return False
+
+
+def anchored(probability: float, values: Sequence[float]) -> bool:
+    """A literal identifier from the prompt in a top keyword hit, and not plainly off
+    topic: a shared token alone ("AgentOs" in a recruiting note) is not relevance."""
+    return (
+        values[FEATURES.index("anchor")] > 0
+        and values[FEATURES.index("lex_inv")] >= 1 / POOL_LEXICAL
+        and probability >= ANCHOR_MIN_PROBABILITY
+        and lift_of(values) >= ANCHOR_MIN_LIFT
     )
 
 
@@ -298,7 +320,7 @@ def features(
         1.0 / lexical_rank if lexical_rank else 0.0,
         1.0 if navigation else 0.0,
         coverage(query_terms_, text),
-        1.0 if anchors and any(anchor in folded for anchor in anchors) else 0.0,
+        1.0 if anchors and contains_identifier(folded, anchors) else 0.0,
     ]
 
 
@@ -363,7 +385,7 @@ def select(model: GateModel, candidates: Sequence[Candidate], threshold: float) 
     keys: set[tuple[str, str]] = set()
     leader = 1.0
     for probability, candidate in scored:
-        anchor = anchored(candidate.values)
+        anchor = anchored(probability, candidate.values)
         if not anchor and (probability < threshold or lift_of(candidate.values) < model.lift):
             continue
         if candidate.duplicate_key in keys or any(
@@ -509,7 +531,9 @@ def _judged(
     }
 
 
-def ranking_quality(model: GateModel, rows: Sequence[Sequence[float]], labels: Sequence[float]) -> dict[str, Any]:
+def ranking_quality(
+    model: GateModel, rows: Sequence[Sequence[float]], labels: Sequence[float]
+) -> dict[str, Any]:
     """How well a model orders labeled rows: AUC (ties count half) and mean log loss."""
     scored = [(model.probability(r), float(y)) for r, y in zip(rows, labels)]
     positives = [p for p, y in scored if y >= 0.5]

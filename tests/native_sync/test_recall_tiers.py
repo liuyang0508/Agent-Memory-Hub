@@ -41,7 +41,9 @@ def candidate(sim, doc_bg, anchor=0.0, relevant=True):
     values[FEATURES.index("doc_bg")] = doc_bg
     values[FEATURES.index("anchor")] = anchor
     values[FEATURES.index("lex_inv")] = 1.0
-    return Candidate(values=values, relevant=relevant, shingles={str(sim)}, duplicate_key=(str(sim), "m"))
+    return Candidate(
+        values=values, relevant=relevant, shingles={str(sim)}, duplicate_key=(str(sim), "m")
+    )
 
 
 def test_select_needs_lift_unless_the_prompt_names_an_identifier():
@@ -60,7 +62,15 @@ def test_hook_recall_names_held_memories_without_their_bodies(tmp_path):
     assert result["items"] == []
     assert 1 <= len(result["hints"]) <= 2
     for hint in result["hints"]:
-        assert set(hint) == {"asset_id", "revision", "title", "path", "product", "kind", "probability"}
+        assert set(hint) == {
+            "asset_id",
+            "revision",
+            "title",
+            "path",
+            "product",
+            "kind",
+            "probability",
+        }
     trace = hub.recalls(token, trace_id=result["trace_id"])["traces"][0]
     states = {c["asset_id"]: c["state"] for c in trace["candidates"]}
     assert {states[h["asset_id"]] for h in result["hints"]} == {"hinted"}
@@ -89,7 +99,13 @@ def test_api_returns_projected_hints_and_announces_them(tmp_path):
 
 def test_pack_and_view_carry_titles_only():
     hints = [
-        {"asset_id": "h1", "revision": 2, "title": "OSS 读取坑", "product": "claude-code", "probability": 0.21},
+        {
+            "asset_id": "h1",
+            "revision": 2,
+            "title": "OSS 读取坑",
+            "product": "claude-code",
+            "probability": 0.21,
+        },
         {"asset_id": "h2", "revision": 1, "title": "已注入过", "product": "codex-cli"},
     ]
     body, keys = pack([], covered={"h2:1:abc"}, hints=hints)
@@ -112,3 +128,24 @@ def test_pack_and_view_carry_titles_only():
         hints=hints[:1],
     )
     assert "只给标题 1 条" in view and "《OSS 读取坑》（21%）" in view
+
+
+def test_an_identifier_needs_to_be_a_whole_token_and_not_plainly_off_topic():
+    from agent_brain.native_sync.retrieval import identifiers
+
+    found = relevance.contains_identifier
+    assert found("gateway returned e40213 today", ["e40213"])
+    assert not found("order e402139 failed", ["e40213"])  # a longer token is another thing
+    assert found("见 fact_5101。", ["fact_5101"])
+    # Status codes, years and files every project has say nothing about which memory.
+    assert identifiers("接口返回 500，2026 年的 MEMORY.md 里 E40213 和 5101") == ["e40213", "5101"]
+
+    values = [0.0] * len(FEATURES)
+    values[FEATURES.index("anchor")] = 1.0
+    values[FEATURES.index("lex_inv")] = 1.0
+    values[FEATURES.index("sim")] = 0.5
+    values[FEATURES.index("doc_bg")] = 0.4
+    assert relevance.anchored(0.2, values)
+    assert not relevance.anchored(0.05, values)  # the prompt shares a token and nothing else
+    values[FEATURES.index("doc_bg")] = 0.6
+    assert not relevance.anchored(0.2, values)  # closer to chit-chat than to this prompt

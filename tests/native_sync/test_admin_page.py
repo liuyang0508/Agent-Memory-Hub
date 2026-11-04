@@ -144,7 +144,7 @@ def test_dashboard_page_is_public_but_empty_until_a_token_is_given(operator):
     page = client.get("/native/v1/admin/dashboard")
     assert page.status_code == 200
     assert token not in page.text
-    assert "贡献排行" in page.text
+    assert "经营驾驶舱" in page.text and "平衡计分卡" in page.text
     assert client.get("/native/v1/admin/dashboard/data").status_code == 401
     assert client.get("/native/v1/admin/dashboard/data?days=0").status_code == 422
 

@@ -29,6 +29,17 @@ jobs:
           python -m build --wheel --outdir dist .
           ls -l dist/*.whl
 
+      - name: The tag names the version that was built
+        env:
+          AMH_GITHUB_REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          built=$(sed -n 's/^__version__ = "\(.*\)"$/\1/p' agent_brain/_version.py)
+          case "$AMH_GITHUB_REF_NAME" in
+            v*) [ "v$built" = "$AMH_GITHUB_REF_NAME" ] || { echo "tag $AMH_GITHUB_REF_NAME does not match version $built" >&2; exit 1; } ;;
+          esac
+          ls "dist/agent_memory_hub-$built-py3-none-any.whl"
+
       - name: Prepare release installer assets
         env:
           AMH_GITHUB_REPOSITORY: ${{ github.repository }}

@@ -113,9 +113,13 @@ class Transport:
                     raise TimeoutError("Hub response deadline exceeded")
                 return json.loads(raw)
         except error.HTTPError as exc:
-            if exc.code in (401, 403):
+            if exc.code == 401:
                 exc.close()
                 raise PermissionError("organization access rejected") from None
+            if exc.code == 403:
+                # A gateway or firewall in the way, not a verdict on this device.
+                exc.close()
+                raise OSError("request refused on the way to the Hub: HTTP 403") from None
             if exc.code in (408, 429) or 500 <= exc.code <= 599:
                 exc.close()
                 raise OSError(f"Hub temporarily unavailable: HTTP {exc.code}") from None
@@ -238,6 +242,7 @@ class WarmTransport(Transport):
         method = "GET" if data is None else "POST"
         target = self._prefix + "/native/v1/" + path
         reused = self.connected()
+        started = time.monotonic()
         try:
             return self._exchange(method, target, body, headers)
         except TimeoutError:
@@ -246,9 +251,18 @@ class WarmTransport(Transport):
             if not reused:
                 raise
             # The Hub or a proxy closed the idle connection underneath us: one
-            # fresh attempt, exactly what a cold Transport would have made.
+            # fresh attempt, exactly what a cold Transport would have made, but
+            # only within what is left of this request's time.
             self.close()
-            return self._exchange(method, target, body, headers)
+            budget = self.timeout
+            remaining = budget - (time.monotonic() - started)
+            if remaining <= 0:
+                raise TimeoutError("Hub response deadline exceeded") from None
+            self.timeout = remaining
+            try:
+                return self._exchange(method, target, body, headers)
+            finally:
+                self.timeout = budget
 
     def _exchange(
         self, method: str, target: str, body: bytes | None, headers: dict[str, str]
@@ -288,8 +302,10 @@ class WarmTransport(Transport):
         status = response.status
         if 200 <= status < 300:
             return json.loads(raw)
-        if status in (401, 403):
+        if status == 401:
             raise PermissionError("organization access rejected")
+        if status == 403:
+            raise OSError("request refused on the way to the Hub: HTTP 403")
         if status in (408, 429) or 500 <= status <= 599:
             raise OSError(f"Hub temporarily unavailable: HTTP {status}")
         if 300 <= status < 400:

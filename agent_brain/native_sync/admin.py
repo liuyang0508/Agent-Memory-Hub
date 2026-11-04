@@ -14,27 +14,16 @@ PAGE = """<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>组织记忆 Hub 管理</title>
 <style>
-  :root { color-scheme: light dark; --line: #d8dee9; --muted: #667085; }
-  * { box-sizing: border-box; }
-  body { margin: 0; font: 15px/1.6 -apple-system, "PingFang SC", "Segoe UI", sans-serif; padding: 28px; }
-  h1 { font-size: 20px; margin: 0 0 4px; }
-  h2 { font-size: 16px; margin: 32px 0 10px; }
-  .sub { color: var(--muted); margin: 0 0 20px; font-size: 13px; }
-  table { width: 100%; border-collapse: collapse; font-size: 14px; }
-  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); }
-  th { font-weight: 600; color: var(--muted); font-size: 13px; }
-  input, button { font: inherit; padding: 7px 10px; border-radius: 6px; border: 1px solid var(--line); }
-  button { cursor: pointer; }
-  button.primary { border-color: #2563eb; }
-  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 10px 0; }
-  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
-  .muted { color: var(--muted); font-size: 13px; }
+  /* AMH_BASE */
   #main { display: none; }
-  pre { white-space: pre-wrap; word-break: break-all; background: rgba(127,127,127,.12); padding: 10px; border-radius: 6px; }
+  pre { white-space: pre-wrap; word-break: break-all; background: var(--wash); padding: 10px; border-radius: 6px; }
+  .row { margin: 10px 0; }
 </style>
 </head>
 <body>
-<h1>组织记忆 Hub</h1>
+<!-- AMH_BAR -->
+<div class="wrap">
+<h1>成员与设备</h1>
 <p class="sub">本页只列出成员与设备，不含任何记忆正文。</p>
 
 <div id="token-box">
@@ -54,9 +43,6 @@ PAGE = """<!doctype html>
   <div class="row">
     <button onclick="logout()">退出</button>
     <span id="who" class="muted"></span>
-    <a href="/native/v1/admin/dashboard">数据看板</a>
-    <a href="/native/v1/admin/insights">记忆洞察</a>
-    <a href="/native/v1/admin/recalls">召回明细</a>
   </div>
 
   <h2>成员</h2>
@@ -76,6 +62,7 @@ PAGE = """<!doctype html>
   <p class="muted">回调地址请填：<span class="mono" id="callback"></span>（同时登记在飞书开发者后台的安全设置里）</p>
 </div>
 
+</div>
 <script>
 /* AMH_ADMIN_SESSION */
 let token = sessionStorage.getItem("amh_admin") || sessionStorage.getItem("amh_dash") || "";
@@ -167,6 +154,10 @@ load();
 
 def html() -> str:
     """Return the operator page; it carries no secret and no inlined state."""
-    from .admin_ui import SCRIPT
+    from .admin_ui import BASE, SCRIPT, top_bar
 
-    return PAGE.replace("/* AMH_ADMIN_SESSION */", SCRIPT)
+    return (
+        PAGE.replace("/* AMH_BASE */", BASE)
+        .replace("<!-- AMH_BAR -->", top_bar("admin"))
+        .replace("/* AMH_ADMIN_SESSION */", SCRIPT)
+    )

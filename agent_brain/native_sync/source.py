@@ -21,6 +21,17 @@ SECRET_NAMES = {
     ".env",
     "id_rsa",
     "id_ed25519",
+    "id_ecdsa",
+    "id_dsa",
+    ".netrc",
+    "_netrc",
+    ".git-credentials",
+    "credentials",
+    "kubeconfig",
+    ".npmrc",
+    ".pypirc",
+    ".pgpass",
+    ".htpasswd",
 }
 SECRET_PARTS = (
     "password",
@@ -32,6 +43,81 @@ SECRET_PARTS = (
     "authorization",
     "cookie",
 )
+
+
+BLOCKING_PATTERNS: tuple[tuple[str, str], ...] = (
+    (r"-----BEGIN [A-Z ]*PRIVATE KEY-----", "私钥"),
+    (r"\bsk-[A-Za-z0-9_-]{20,}", "API 密钥"),
+    (r"\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}|\bgithub_pat_[A-Za-z0-9_]{20,}", "GitHub 令牌"),
+    (r"\bAIza[0-9A-Za-z_-]{30,}", "Google 密钥"),
+    (r"\bLTAI[0-9A-Za-z]{12,24}\b", "阿里云访问密钥"),
+    (r"\bxox[baprs]-[A-Za-z0-9-]{10,}", "Slack 令牌"),
+    (r"\bAKIA[0-9A-Z]{16}\b", "云访问密钥"),
+    (r"(?i)\b(?:password|passwd|secret|api[_-]?key|access[_-]?token)\s*[:=]\s*\S{6,}", "明文口令"),
+    (r"(?i)\bbearer\s+[A-Za-z0-9._\-]{20,}", "持有者令牌"),
+    (r"(?:密码|口令|密钥)\s*(?:[:：=]|是|为)\s*[A-Za-z0-9!@#$%^&*._+/=-]{6,}", "明文口令"),
+    (r"(?i)://[^/\s:@]+:[^/\s@]{3,}@", "链接里的账号密码"),
+)
+
+SENSITIVE_PATTERNS: tuple[tuple[str, str], ...] = (
+    (r"(?<!\d)1[3-9]\d{9}(?!\d)", "手机号"),
+    (r"(?<!\d)\d{17}[\dXx](?!\d)", "身份证号"),
+    (r"(?<!\d)\d{16}(?![\dXx])", "疑似银行卡号"),
+    (r"[\w.+-]+@[\w-]+\.[\w.-]+", "邮箱"),
+    (
+        r"(工资|薪资|月薪|年薪|奖金|存款|房贷|贷款|住院|病历|诊断|体检|家庭住址|身份证|银行卡)",
+        "个人隐私措辞",
+    ),
+)
+
+
+def screen(body: str) -> dict[str, Any]:
+    """Classify one document's text: blocked never imports, sensitive needs a person to decide.
+
+    Returns category labels only, never the matched text, so the report itself
+    cannot leak what it is warning about.
+    """
+    blocked = sorted({label for pattern, label in BLOCKING_PATTERNS if re.search(pattern, body)})
+    if blocked:
+        return {"risk": "blocked", "reasons": blocked}
+    sensitive = sorted({label for pattern, label in SENSITIVE_PATTERNS if re.search(pattern, body)})
+    if sensitive:
+        return {"risk": "sensitive", "reasons": sensitive}
+    return {"risk": "clean", "reasons": []}
+
+
+# The same credentials, cut precisely enough to mask a value inside a JSON line
+# without eating the structure around it.
+_VALUE = r"""\\?["']?[^\s"'\\,;}\]]{6,}"""
+REDACTIONS: tuple[tuple[re.Pattern[str], str], ...] = tuple(
+    (re.compile(pattern), label)
+    for pattern, label in (
+        (
+            r"-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]{0,8000}?(?:-----END [A-Z ]*PRIVATE KEY-----|$)",
+            "私钥",
+        ),
+        (
+            r"(?i)\b(?:password|passwd|secret|api[_-]?key|access[_-]?token)\s*[:=]\s*" + _VALUE,
+            "明文口令",
+        ),
+        (r"(?:密码|口令|密钥)\s*(?:[:：=]|是|为)\s*[A-Za-z0-9!@#$%^&*._+/=-]{6,}", "明文口令"),
+        (r"(?i)://[^/\s:@\"']+:[^/\s@\"']{3,}@", "链接里的账号密码"),
+        *BLOCKING_PATTERNS[1:],
+    )
+)
+
+
+def redact(text: str) -> str:
+    """Mask credentials in a session record, which stays useful as evidence.
+
+    Memories, rules, skills and configs are refused whole instead: a person wrote
+    them to be shared, and one credential means the file needs fixing. Half of a
+    real machine's session records quote something shaped like a credential, so
+    refusing those whole would lose the record for the sake of one line.
+    """
+    for pattern, label in REDACTIONS:
+        text = pattern.sub("[已隐去:" + label + "]", text)
+    return text
 
 
 def forbidden_file(path: Path) -> bool:
@@ -49,6 +135,12 @@ def sensitive_key(key: str) -> bool:
     compact = "".join(c for c in key.lower() if c.isalnum())
     if compact in {"maxtokens", "maxinputtokens", "maxoutputtokens", "tokenbudget", "tokencount"}:
         return False
+    if compact in {"bypass", "compass", "encompass", "compat"}:
+        return False
+    if compact.endswith(("pass", "passwd", "pwd")) or compact.endswith(
+        ("githubpat", "gitlabpat", "accesspat")
+    ):
+        return True
     return any(
         "".join(c for c in part if c.isalnum()) in compact
         for part in SECRET_PARTS + ("credential", "invite", "bearer", "accesskey")
@@ -204,6 +296,8 @@ def read_document(path: Path, kind: str) -> tuple[str, str, str] | None:
         text = json.dumps(clean(data), ensure_ascii=False, indent=2)
     if kind == "memory":
         text = strip_managed(text)
+    if kind == "transcript":
+        text = redact(text)
     raw = base64.b64decode(text) if encoding == "base64" else text.encode()
     return text, encoding, hashlib.sha256(raw).hexdigest()
 
@@ -344,6 +438,8 @@ def queue_delete(db: sqlite3.Connection, row: Any) -> None:
     """Queue an owned part tombstone at its known base revision without deleting its identity."""
     item = json.loads(row["payload"])
     item.update(base_revision=row["revision"], deleted=True, body="")
+    if item.get("index_text"):
+        item["index_text"] = ""  # a copy of the text; a tombstone carries none
     payload = json.dumps(item, ensure_ascii=False)
     db.execute(
         "INSERT OR REPLACE INTO outbox VALUES(?,?,?)",

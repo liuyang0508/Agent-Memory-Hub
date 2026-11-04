@@ -42,64 +42,21 @@ _IMAGE = re.compile(r"\[(?:Image|Audio|Video|PDF|Document) #\d+\]", re.I)
 _FILE_URI = re.compile(r"file://\S+", re.I)
 # Acknowledgements and control words with no topic of their own. Compared
 # after removing whitespace and punctuation and folding case.
-_ACKS = frozenset(
-    {
-        "1",
-        "2",
-        "3",
-        "y",
-        "n",
-        "ok",
-        "okay",
-        "yes",
-        "no",
-        "go",
-        "sure",
-        "thanks",
-        "thx",
-        "continue",
-        "next",
-        "done",
-        "是",
-        "否",
-        "对",
-        "好",
-        "行",
-        "嗯",
-        "嗯嗯",
-        "确认",
-        "继续",
-        "可以",
-        "好的",
-        "好了",
-        "行吧",
-        "收到",
-        "明白",
-        "了解",
-        "谢谢",
-        "感谢",
-        "没问题",
-        "继续吧",
-        "开始吧",
-        "下一步",
-        "搞定了吗",
-        "好了吗",
-        "完成了吗",
-        "做完了吗",
-        "怎么样了",
-        "结果呢",
-        "然后呢",
-        "还有吗",
-        "同意",
-        "批准",
-        "可以的",
-        "好的继续",
-        "继续做",
-        "接着做",
-        "辛苦了",
-    }
+# Too short to carry a topic: at most two characters, or three Latin letters
+# ("好的", "ok", "yes"). Everything longer goes to the relevance gate, which
+# refuses "好的，发吧" on its own (53 former list words measured against two org
+# stores: one injection in 106 runs). No word list to keep growing.
+NO_TOPIC_CHARS = 2
+NO_TOPIC_LATIN = 3
+_BACKGROUND = (
+    "<task-notification",
+    "<local-command-",
+    "<bash-stdout",
+    "<bash-stderr",
+    "<bash-input",
+    "<command-",
+    "[Request interrupted",
 )
-_BACKGROUND = ("<task-notification", "<local-command-stdout", "<bash-stdout")
 _CONTROL = re.compile(r"^/(remember|goal|compact|clear|help|model|config|status)\b", re.I)
 
 
@@ -165,7 +122,11 @@ def admit(query: str) -> tuple[bool, str]:
         # A host's own background event (a finished task, a monitor line)
         # arrives as a prompt but carries no question from the member.
         return False, "background_event"
-    if folded in _ACKS or folded.isdigit() and len(folded) <= 3:
+    if (
+        len(folded) <= NO_TOPIC_CHARS
+        or (folded.isascii() and folded.isalpha() and len(folded) <= NO_TOPIC_LATIN)
+        or (folded.isdigit() and len(folded) <= 3)
+    ):
         return False, "acknowledgement"
     return True, "topic"
 
@@ -174,7 +135,7 @@ SKIP_TEXT = {
     "empty": "空提示",
     "punctuation_only": "只有标点",
     "control_command": "宿主控制命令",
-    "acknowledgement": "简短确认语，没有可检索的主题",
+    "acknowledgement": "太短，没有可检索的主题",
     "background_event": "宿主的后台事件通知，不是成员的提问",
     "terminal_reply": "终端自动回传的控制应答，不是成员的提问",
 }
@@ -183,6 +144,7 @@ STATE_TEXT = {
     "covered": "本会话已注入过",
     "budget": "超出注入预算",
     "empty": "无正文",
+    "hint": "只给标题",
 }
 REASON_TEXT = {
     "semantic_model_unavailable": "Hub 语义模型不可用",
@@ -333,7 +295,13 @@ def _kind(record: dict[str, Any]) -> str:
     return kind + ("·" + role if role else "")
 
 
-STATE_SHORT = {"packed": "已注入", "covered": "已注入过", "budget": "超预算", "empty": "无正文"}
+STATE_SHORT = {
+    "packed": "已注入",
+    "covered": "已注入过",
+    "budget": "超预算",
+    "empty": "无正文",
+    "hint": "只给标题",
+}
 
 
 def _width(text: str) -> int:
@@ -435,9 +403,7 @@ def render(
     packed = sum(1 for s in states.values() if s == "packed")
     if mode == "remote":
         how = MODE_TEXT.get(str(retrieval.get("mode")), "Hub 检索")
-        reasons = list(
-            dict.fromkeys(_reason(str(r)) for r in retrieval.get("reasons") or [])
-        )[:3]
+        reasons = list(dict.fromkeys(_reason(str(r)) for r in retrieval.get("reasons") or []))[:3]
         if retrieval.get("mode") == "lexical" and reasons:
             how += "（降级：" + "、".join(reasons) + "）"
     else:
@@ -465,7 +431,9 @@ def render(
         + f" · 会话 {asking.get('session_digest') or '—'}"
     )
     if context:
-        lines.append("上文补充：这句较短，检索时带上了上一轮提问「" + _cell(context, 40) + "」")
+        lines.append(
+            "上文补充：这句较短，检索时带上了上一轮提问「" + _cell(context, 40) + "」，结果只给标题"
+        )
     tail = _hint_line(hints or [])
     if not hits:
         lines += [tail] if tail else []
@@ -522,7 +490,8 @@ def _hint_line(hints: list[dict[str, Any]]) -> str:
         title = _cell(hint.get("title") or hint.get("path") or hint.get("asset_id"), 28)
         probability = hint.get("probability")
         names.append(
-            f"《{title}》" + (f"（{round(probability * 100)}%）" if isinstance(probability, (int, float)) else "")
+            f"《{title}》"
+            + (f"（{round(probability * 100)}%）" if isinstance(probability, (int, float)) else "")
         )
     return "只给标题（未注入正文，模型需要时自行读取）：" + "、".join(names)
 
@@ -654,6 +623,4 @@ def _box_table(
         rows.append([values[key] for key, _, _ in layout])
         summary = _plain(_summary(record))
         details.append("内容：" + summary if summary else "")
-    return _box(
-        [head for _, head, _ in layout], rows, [width for _, _, width in layout], details
-    )
+    return _box([head for _, head, _ in layout], rows, [width for _, _, width in layout], details)

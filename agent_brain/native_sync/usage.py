@@ -24,6 +24,8 @@ used/unused) leave this machine.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 import hashlib
 import json
 import re
@@ -115,6 +117,10 @@ def judge(
         "strong": sum(1 for m in hits if _digest(m, salt) in specific),
     }
     if not hits:
+        # It shares specifics with the memory, but all of them were already in
+        # the conversation: that neither proves nor disproves use.
+        if any(_digest(m, salt) in memory for m in marks(output)):
+            return None, {**evidence, "reason": "already_seen"}
         return "unused", evidence
     if allow_used and (evidence["strong"] or evidence["pieces"] >= USED_PIECES):
         return "used", evidence
@@ -151,7 +157,16 @@ def _is_prompt(row: dict[str, Any]) -> bool:
     )
 
 
-def recent_prompts(path: Path, limit: int = 2) -> list[str]:
+def _failed_read(text: str) -> bool:
+    """A read tool that answered {"ok": false, ...} fetched nothing."""
+    try:
+        parsed = json.loads(text)
+    except ValueError:
+        return False
+    return isinstance(parsed, dict) and parsed.get("ok") is False
+
+
+def recent_prompts(path: Path, limit: int = 2, max_age: float | None = None) -> list[str]:
     """The member's last prompts in a Claude Code transcript, oldest first."""
     try:
         with path.open("rb") as stream:
@@ -162,17 +177,27 @@ def recent_prompts(path: Path, limit: int = 2) -> list[str]:
     except OSError:
         return []
     found: list[str] = []
+    now = datetime.now(timezone.utc)
     for line in reversed(raw.splitlines()):
         try:
             row = json.loads(line)
         except ValueError:
             continue
-        if isinstance(row, dict) and _is_prompt(row):
-            text = _flat((row.get("message") or {}).get("content")).strip()
-            if text:
-                found.append(text)
-                if len(found) >= limit:
+        if not isinstance(row, dict) or not _is_prompt(row):
+            continue
+        stamp = row.get("timestamp")
+        if max_age is not None and isinstance(stamp, str):
+            try:
+                when = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+                if (now - when).total_seconds() > max_age:
                     break
+            except ValueError:
+                pass
+        text = _flat((row.get("message") or {}).get("content")).strip()
+        if text:
+            found.append(text)
+            if len(found) >= limit:
+                break
     return found[::-1]
 
 
@@ -233,7 +258,11 @@ def claude_turn(path: Path) -> dict[str, Any] | None:
                 if isinstance(part, dict) and part.get("type") == "tool_result":
                     text = _flat(part.get("content"))
                     arguments = calls.get(str(part.get("tool_use_id")))
-                    if arguments is not None and not part.get("is_error"):
+                    if (
+                        arguments is not None
+                        and not part.get("is_error")
+                        and not _failed_read(text)
+                    ):
                         reads.append({"arguments": arguments, "text": text})
                     else:
                         results.append(text)

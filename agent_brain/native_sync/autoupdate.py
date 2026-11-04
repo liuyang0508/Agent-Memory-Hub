@@ -42,6 +42,7 @@ from urllib import request
 PACKAGE = "agent-memory-hub"
 RELEASE_BASE = "https://github.com/liuyang0508/agent-memory-hub/releases/download"
 INTERVAL = 86400
+RETRY_AFTER_ERROR = 3600
 STATUS = "update.json"
 LOCK = ".amh-update.lock"
 MAX_BYTES = 50_000_000
@@ -173,6 +174,9 @@ def check(
         report.update(_check(state, config, transport, current, fetch, run, managed))
     except Exception as exc:  # noqa: BLE001 - an update problem must never stop sync
         report.update({"result": "error", "error": type(exc).__name__})
+        # An unreachable Hub or release page says nothing about tomorrow's check:
+        # try again within the hour rather than waiting a whole day.
+        report["checked"] = now - max(0.0, INTERVAL - RETRY_AFTER_ERROR)
     try:
         previous = status(state)
         history = list(previous.get("history") or [])[-9:]
@@ -184,6 +188,15 @@ def check(
     except OSError:
         pass
     return report
+
+
+def _attempt(wheel: Path, version: str, run: Run) -> bool:
+    """Install and verify. A pip timeout or a full disk is a failed attempt, not an
+    exception: the caller still has to put the previous version back."""
+    try:
+        return _install(wheel, run) and _verify(version, run)
+    except (OSError, subprocess.SubprocessError):
+        return False
 
 
 def _check(
@@ -219,7 +232,7 @@ def _check(
             return {**report, "result": "up_to_date", "restart": True}
         with tempfile.TemporaryDirectory(prefix="amh-update-") as work:
             wheel = _download(str(target), base, fetch, Path(work))
-            if _install(wheel, run) and _verify(str(target), run):
+            if _attempt(wheel, str(target), run):
                 return {
                     **report,
                     "result": "updated",
@@ -232,7 +245,7 @@ def _check(
             if parse(current) is not None:
                 try:
                     old = _download(str(current), base, fetch, Path(work))
-                    restored = _install(old, run) and _verify(str(current), run)
+                    restored = _attempt(old, str(current), run)
                 except (OSError, ValueError):
                     restored = False
             return {

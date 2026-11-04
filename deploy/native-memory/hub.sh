@@ -22,7 +22,9 @@
 #      automatic rollback on failure;
 #   6. if an older drop-in still pins another model path, comments that line
 #      out (backup kept) once the new model is in place, and restores it if the
-#      Hub then fails to start;
+#      Hub then fails to start; a leftover separate `semantic-index` service is
+#      stopped and disabled (unit file kept), since it would rewrite the index
+#      with its own model while the Hub reports ready;
 #   7. waits for semantic recall to finish indexing and prints what runs; if the
 #      model could not be fetched or loaded it says so and how to supply it.
 set -euo pipefail
@@ -148,6 +150,19 @@ if [ -f "$SEMANTIC_ENV" ] && [ -d "$DROPIN_DIR" ]; then
       cp -p "$conf" "$conf.bak-$VERSION"
       sed -i -E "s/^(\\s*Environment=\"?AMH_NATIVE_SEMANTIC_MODEL=)/# retired by hub.sh $VERSION (model now in semantic.env): \\1/" "$conf"
       changed+=("$conf")
+    fi
+  done
+fi
+# The Hub maintains its own index now. A separate indexer from an older install
+# would keep overwriting it with the old model, leaving recall on keywords.
+if [ -f "$SEMANTIC_ENV" ]; then
+  for unit in /etc/systemd/system/*.service; do
+    [ -f "$unit" ] || continue
+    name=$(basename "$unit")
+    [ "$name" = "$SERVICE.service" ] && continue
+    if grep -qE '^ExecStart=.*\bsemantic-index\b' "$unit"; then
+      say "stopping a leftover index service: $name (unit file kept; re-enable with systemctl enable --now $name)"
+      systemctl disable --now "$name" || say "could not stop $name; stop it by hand or recall stays on keywords"
     fi
   done
 fi

@@ -167,7 +167,7 @@ if __name__ == "__main__":
                 )
             )
         )
-    except PermissionError:
-        raise SystemExit(3)
+    except PermissionError as exc:
+        raise SystemExit(1 if exc.errno is not None else 3)
     except Exception:
         raise SystemExit(1)

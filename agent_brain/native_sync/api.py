@@ -64,6 +64,10 @@ def create_app(hub: Hub) -> FastAPI:
 
     @app.exception_handler(PermissionError)
     async def denied(request: Any, error: Any) -> JSONResponse:
+        # The operating system's own denial carries an errno: that is this
+        # host's problem. Calling it 401 made clients wipe their state.
+        if getattr(error, "errno", None) is not None:
+            return JSONResponse(status_code=500, content={"detail": "server storage error"})
         return JSONResponse(status_code=401, content={"detail": str(error)})
 
     @app.exception_handler(ValueError)
@@ -114,8 +118,8 @@ def create_app(hub: Hub) -> FastAPI:
             "recall-usage-feedback-v1",
             "recall-hints-v1",
         ]
-        state = dict(getattr(hub, "semantic_state", {}) or {})
-        semantic = {k: state[k] for k in ("state", "model", "reason") if k in state}
+        state = hub.semantic_status()
+        semantic: dict[str, Any] = {k: state[k] for k in ("state", "model", "reason") if k in state}
         if state.get("state") == "ready":
             capabilities.append("semantic-v1")
             gate = hub.gate_state()
@@ -513,12 +517,21 @@ def create_app(hub: Hub) -> FastAPI:
             day=day,
         )
 
+    @app.get("/native/v1/admin/cockpit/data")
+    def admin_cockpit(
+        request: Request,
+        days: int = Query(default=30, ge=1, le=365),
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        """Scorecard, exceptions, assets and people for the management page."""
+        return hub.admin_cockpit(operator(request, authorization), days=days)
+
     @app.get("/native/v1/admin/insights")
     def admin_insights_page() -> HTMLResponse:
-        """Insight page; the page holds no credential and no memory text."""
-        from . import insights_page
+        """Insights now live in the cockpit; the address and its login target remain."""
+        from . import dashboard
 
-        return HTMLResponse(insights_page.html())
+        return HTMLResponse(dashboard.html("insights"))
 
     @app.get("/native/v1/admin/insights/data")
     def admin_insights(
@@ -606,7 +619,8 @@ def recall_hints(hints: list[dict[str, Any]]) -> list[dict[str, Any]]:
     out = []
     for hint in hints[:8]:
         row: dict[str, Any] = {
-            key: str(hint.get(key) or "")[:256] for key in ("asset_id", "title", "path", "product", "kind")
+            key: str(hint.get(key) or "")[:256]
+            for key in ("asset_id", "title", "path", "product", "kind")
         }
         if not row["asset_id"] or type(hint.get("revision")) is not int:
             continue

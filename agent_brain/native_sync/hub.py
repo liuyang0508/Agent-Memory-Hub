@@ -33,6 +33,18 @@ def _env_float(name: str) -> float | None:
     return number
 
 
+# Text of revisions older than the given one; metadata and hashes stay.
+SCRUB_REVISIONS = (
+    "UPDATE changes SET payload=json_set(json_remove(payload,'$.index_text'),"
+    "'$.body','','$.scrubbed',1) "
+    "WHERE tenant=? AND json_extract(payload,'$.asset_id')=? "
+    "AND json_extract(payload,'$.revision')<? AND json_extract(payload,'$.scrubbed') IS NULL"
+)
+SCRUB_DONE = "changes_text_scrubbed_v1"
+RULE_FIELDS = ("lift", "hint_threshold", "hint_lift", "hint_items")
+FEISHU_STATE_LIMIT = 1000
+
+
 class Hub:
     """Single-node authority; each mutation commits assets, changes and FTS together.
 
@@ -110,6 +122,9 @@ class Hub:
         self._gate_error: str | None = None
         # Calibration mode: the gate scores and keeps every candidate it judges.
         self.gate_collect = False
+        self._stale_checked: tuple[float, bool] = (-1e9, False)
+        # Screening verdicts by content hash: the cockpit reads every memory.
+        self._screened: dict[str, list[str]] = {}
         # Without semantic ranking there is no relevance gate: prompt-time
         # recall then injects only a literal identifier match from the prompt
         # (AMH_NATIVE_HOOK_LEXICAL_GUARD=0 restores plain keyword injection).
@@ -523,6 +538,12 @@ class Hub:
                 "INSERT INTO feishu_states VALUES(?,?,?,0)",
                 (digest(state), port, time.time() + 300),
             )
+            # A bounded public queue: flooding it costs the attacker, not the Hub.
+            db.execute(
+                "DELETE FROM feishu_states WHERE hash NOT IN "
+                "(SELECT hash FROM feishu_states ORDER BY expires DESC LIMIT ?)",
+                (FEISHU_STATE_LIMIT,),
+            )
         return state
 
     def feishu_check(self, state: str) -> None:
@@ -887,6 +908,9 @@ class Hub:
                 "INSERT OR REPLACE INTO assets VALUES(?,?,?,?,?)",
                 (who["tenant"], item["asset_id"], record["revision"], who["device_id"], encoded),
             )
+            # Editing or deleting a memory must remove its old text: the log keeps
+            # the fact and metadata of a past revision, not what it said.
+            db.execute(SCRUB_REVISIONS, (who["tenant"], item["asset_id"], record["revision"]))
             db.execute("INSERT INTO changes(tenant,payload) VALUES(?,?)", (who["tenant"], encoded))
             # New text, new chance: contradictions were filed against the old
             # revision and must not keep pressing the corrected one down. The
@@ -1042,13 +1066,31 @@ class Hub:
         """Read a stable tenant-scoped sequence page, including deletions; an empty page retains cursor."""
         with database(self.path) as db:
             who = self._identity(db, token)
+            page = min(max(1, limit), 100)
             rows = db.execute(
                 "SELECT seq,payload FROM changes WHERE tenant=? AND seq>? ORDER BY seq LIMIT ?",
-                (who["tenant"], max(0, cursor), min(max(1, limit), 100)),
+                (who["tenant"], max(0, cursor), page),
             ).fetchall()
             from .evidence import metadata
 
             items = [json.loads(r["payload"]) for r in rows]
+            if not metadata_only:
+                # A client that wants bodies skips revisions whose text is gone;
+                # the current revision always follows later in the log. An empty
+                # page means "caught up" to a client, so keep reading until a
+                # page has something or the log ends.
+                items = [item for item in items if not item.get("scrubbed")]
+                while rows and not items:
+                    rows = db.execute(
+                        "SELECT seq,payload FROM changes WHERE tenant=? AND seq>? "
+                        "ORDER BY seq LIMIT ?",
+                        (who["tenant"], rows[-1]["seq"], page),
+                    ).fetchall()
+                    items = [
+                        item
+                        for item in (json.loads(r["payload"]) for r in rows)
+                        if not item.get("scrubbed")
+                    ]
             proofs: dict[tuple[str, ...], list[tuple[str, int]]] = {}
             for item in items:
                 key = self._proof_key(item)
@@ -1065,8 +1107,68 @@ class Hub:
                     {"scope": key, "parts": parts} for key, parts in proofs.items() if parts
                 ],
                 "items": [metadata(item) for item in items] if metadata_only else items,
-                "cursor": rows[-1]["seq"] if rows else cursor,
+                "cursor": rows[-1]["seq"]
+                if rows
+                else max(cursor, self._last_seq(db, who["tenant"])),
             }
+
+    @staticmethod
+    def _last_seq(db: sqlite3.Connection, tenant: str) -> int:
+        row = db.execute("SELECT max(seq) FROM changes WHERE tenant=?", (tenant,)).fetchone()
+        return int(row[0] or 0)
+
+    def scrub_history(self) -> int:
+        """Remove superseded revisions' text already in the log; runs once per database.
+
+        Secure delete and a vacuum make the text unrecoverable from the file too.
+        """
+        with database(self.path) as db:
+            if db.execute("SELECT 1 FROM settings WHERE key=?", (SCRUB_DONE,)).fetchone():
+                return 0
+            db.execute("PRAGMA secure_delete=ON")
+            db.execute("BEGIN IMMEDIATE")
+            cursor = db.execute(
+                "UPDATE changes SET payload=json_set(json_remove(payload,'$.index_text'),"
+                "'$.body','','$.scrubbed',1) "
+                "WHERE json_extract(payload,'$.scrubbed') IS NULL AND seq NOT IN ("
+                "SELECT max(seq) FROM changes GROUP BY tenant,json_extract(payload,'$.asset_id'))"
+            )
+            changed = cursor.rowcount
+            db.execute("INSERT OR REPLACE INTO settings VALUES(?,'1')", (SCRUB_DONE,))
+            db.commit()
+            if changed:
+                db.execute("VACUUM")
+        return int(changed)
+
+    def purge_asset(self, asset_id: str, *, tenant: str = "") -> dict[str, int]:
+        """Host-side erasure of a leaked memory, every revision; the device may upload it again
+        unless its source file is fixed, which the client's screen now refuses."""
+        scope = tenant or self.tenant
+        with database(self.path) as db:
+            db.execute("PRAGMA secure_delete=ON")
+            db.execute("BEGIN IMMEDIATE")
+            removed = {
+                "assets": db.execute(
+                    "DELETE FROM assets WHERE tenant=? AND id=?", (scope, asset_id)
+                ).rowcount,
+                "changes": db.execute(
+                    "UPDATE changes SET payload=json_set(json_remove(payload,'$.index_text'),"
+                    "'$.body','','$.title','','$.scrubbed',1,'$.deleted',json('true')) "
+                    "WHERE tenant=? AND json_extract(payload,'$.asset_id')=?",
+                    (scope, asset_id),
+                ).rowcount,
+            }
+            db.execute("DELETE FROM search_index WHERE tenant=? AND asset_id=?", (scope, asset_id))
+            from .semantic import exists as semantic_exists
+
+            if semantic_exists(db):
+                db.execute(
+                    "DELETE FROM native_semantic_vectors WHERE tenant=? AND asset_id=?",
+                    (scope, asset_id),
+                )
+            db.commit()
+            db.execute("VACUUM")
+        return removed
 
     def search(
         self,
@@ -1208,6 +1310,17 @@ class Hub:
                 return promoted
         return self._base_gate()
 
+    def _with_current_rule(self, raw: dict[str, Any]) -> dict[str, Any]:
+        """A gate promoted before a rule field existed takes it from the manifest."""
+        base = self._base_gate()
+        if base is None:
+            return raw
+        rule = base.to_dict()
+        return {
+            **{key: rule[key] for key in RULE_FIELDS if key not in raw},
+            **raw,
+        }
+
     def _base_gate(self) -> Any:
         from .relevance import GateModel
 
@@ -1257,7 +1370,7 @@ class Hub:
             # A gate learned on another embedding model's similarities means
             # nothing for this one: fall back until it is recalibrated.
             if row is not None and (current is None or row["model"] == current):
-                model = GateModel.from_dict(json.loads(row["payload"]))
+                model = GateModel.from_dict(self._with_current_rule(json.loads(row["payload"])))
         except (sqlite3.Error, ValueError, KeyError, TypeError):
             model = None
         self._tenant_gates[tenant] = (time.monotonic(), model)
@@ -1313,6 +1426,42 @@ class Hub:
         if model is not None:
             return str(model.version)
         return self._gate_error or ("floor" if self.relevance_gate() else "off")
+
+    def index_stale(self) -> bool:
+        """An organization's index built with another model: recall cannot use it.
+
+        "Ready" means the model loaded; this is whether recall actually runs on
+        it. A leftover index process from an older install rewrites the index
+        with its own model, so the two can stay different indefinitely.
+        """
+        encoder = self._encoder
+        if encoder is None:
+            return False
+        now = time.monotonic()
+        if now - self._stale_checked[0] < 30:
+            return self._stale_checked[1]
+        from .semantic import descriptor, exists
+
+        stale = False
+        try:
+            wanted = descriptor(encoder)
+            with database(self.path) as db:
+                if exists(db):
+                    stale = any(
+                        json.loads(row["descriptor"]) != wanted
+                        for row in db.execute("SELECT descriptor FROM native_semantic_meta")
+                    )
+        except (sqlite3.Error, ValueError, TypeError):
+            stale = False
+        self._stale_checked = (now, stale)
+        return stale
+
+    def semantic_status(self) -> dict[str, Any]:
+        """The semantic state as recall actually experiences it."""
+        state = dict(getattr(self, "semantic_state", {}) or {})
+        if state.get("state") == "ready" and self.index_stale():
+            state.update(state="stale_index", reason="semantic_index_model_mismatch")
+        return state
 
     def warm_gate(self, backend: Any) -> bool:
         """Encode the generic-prompt bank once per model version (index upkeep, not hooks)."""
@@ -1582,6 +1731,82 @@ class Hub:
         data["generated_at"] = now
         data["window_days"] = days
         return data
+
+    def admin_cockpit(self, token: AdminCredential, *, days: int = 30) -> dict[str, Any]:
+        """The management view: scorecard, exceptions, assets and people; never memory text."""
+        from agent_brain._version import __version__
+
+        from . import autotune, cockpit, insights
+
+        days = max(1, min(int(days), 365))
+        dashboard = self.admin_dashboard(token, days=days)
+        current = self.admin_insights(token, days=days)
+        now = float(current["generated_at"])
+        scope = self.tenant
+        state = self.semantic_status()
+        with database(self.path) as db:
+            names = {
+                row["id"]: row["name"]
+                for row in db.execute("SELECT id,name FROM members WHERE tenant=?", (scope,))
+            }
+            previous = insights.report(
+                db,
+                scope,
+                days=days,
+                now=now - days * 86400,
+                preview_on=False,
+                members=names,
+            )
+            secrets = self._leaked_assets(db, scope)
+            health = {
+                "version": __version__,
+                "suspected_secrets": secrets,
+                "semantic_state": state.get("state", "off"),
+                "semantic_model": state.get("model"),
+                "semantic_reason": state.get("reason"),
+                "gate": self.gate_state() if state.get("state") == "ready" else None,
+                "autotune": autotune.status(db, scope, now=now),
+                "members": dashboard["totals"]["members"],
+                "devices": dashboard["totals"]["devices"],
+                "active_devices": dashboard["totals"]["active_devices"],
+                "last_upload": dashboard["totals"]["last_upload"],
+                "bytes": dashboard["totals"]["bytes"],
+            }
+            return cockpit.build(
+                db,
+                scope,
+                days=days,
+                now=now,
+                names=names,
+                dashboard=dashboard,
+                current=current,
+                previous=previous,
+                health=health,
+            )
+
+    def _leaked_assets(self, db: sqlite3.Connection, tenant: str) -> list[dict[str, Any]]:
+        """Current memories the client's screen would refuse: uploaded before it, or
+        by an old client. Ids, titles and categories only; never the matched text."""
+        from .source import screen
+
+        found = []
+        for row in db.execute(
+            "SELECT id,json_extract(payload,'$.title') title,json_extract(payload,'$.body') body,"
+            "json_extract(payload,'$.content_hash') hash FROM assets WHERE tenant=? "
+            "AND json_extract(payload,'$.deleted')=0 AND json_extract(payload,'$.encoding')='utf8' "
+            "AND json_extract(payload,'$.kind') IN ('memory','rule','skill','config')",
+            (tenant,),
+        ):
+            reasons = self._screened.get(row["hash"])
+            if reasons is None:
+                verdict = screen(str(row["body"] or ""))
+                reasons = verdict["reasons"] if verdict["risk"] == "blocked" else []
+                self._screened[row["hash"]] = reasons
+            if reasons:
+                found.append(
+                    {"asset_id": row["id"], "title": row["title"] or "", "reasons": reasons}
+                )
+        return found[:50]
 
     def _refresh_insights(
         self, db: sqlite3.Connection, tenant: str, now: float, *, force: bool = False

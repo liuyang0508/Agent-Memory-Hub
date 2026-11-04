@@ -74,7 +74,9 @@ def test_repeated_upload_idempotent_and_stale_write_rejected(hub):
         hub.put(a["token"], newer)
     newer["base_revision"] = 1
     assert hub.put(a["token"], newer)["revision"] == 2
-    assert len(hub.changes(a["token"], 0)["items"]) == 2
+    # The log keeps both revisions' metadata; only the current one's text survives.
+    assert len(hub.changes(a["token"], 0, metadata_only=True)["items"]) == 2
+    assert [i["revision"] for i in hub.changes(a["token"], 0)["items"]] == [2]
 
 
 def test_cannot_spoof_producer_or_overwrite_another_members_asset(hub):

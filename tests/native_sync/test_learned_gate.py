@@ -117,8 +117,8 @@ def test_fit_learns_a_separable_signal_and_select_applies_the_rule():
     ]
     model.max_items = 3
     chosen = relevance.select(model, candidates, 0.5)
-    # Folded duplicate, dropped noise, and the anchored identifier kept despite p.
-    assert [c.duplicate_key[0] for c in chosen] == ["h1", "h3", "h5"]
+    # Folded duplicate and dropped noise; an identifier alone no longer buys its way in.
+    assert [c.duplicate_key[0] for c in chosen] == ["h1", "h3"]
     with pytest.raises(ValueError):
         relevance.fit(rows[:5], [1.0] * 5)
 

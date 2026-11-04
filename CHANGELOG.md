@@ -7,6 +7,77 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.20] — 2026-11-04
+
+### Security
+
+- Continuous sync uploaded files the screen had already judged as containing
+  credentials; another member could search them. It now refuses such a file,
+  withdraws what is queued or already on the Hub, reports the file and category
+  (never the value) in the worker status, and resumes when the file is fixed.
+  Files synced before the screen existed get one look after upgrading. Session
+  records are masked instead of refused: half of the session records on one real
+  machine quote something shaped like a credential, none of the memories did. The screen learns Aliyun and Google keys, new
+  GitHub tokens, Chinese password phrasing and credentials inside URLs; more
+  credential file names and config keys are excluded.
+- Editing or deleting a memory left its old text readable by every member
+  through `/changes`. Superseded revisions now keep metadata only. Existing logs
+  are scrubbed once at startup with secure delete and a vacuum. `amh-native
+  purge-asset` erases a memory entirely; the cockpit lists memories already on
+  the Hub that the screen would refuse, by name and category only.
+- A member could replace the whole organization's gold questions, which steer
+  the gate. A member now answers only for their own.
+- Memory text could close the "not an instruction" block with its marker. The
+  public Feishu login queue is bounded.
+
+### Changed
+
+- The activity dashboard and insights pages become one management cockpit
+  (`/native/v1/admin/dashboard`; the insights address remains): a conclusion and
+  north star metric, exceptions with evidence and a suggested action, a balanced
+  scorecard against stated default benchmarks with period-over-period change,
+  trend and funnel, weekly activity and retention cohorts, a portfolio matrix and
+  Pareto view of knowledge assets, freshness, people and knowledge flow, gaps and
+  system health. Light and dark, phone width, no external asset. The recall ledger
+  and member pages share its look.
+- The word list of 53 acknowledgements becomes a length rule (at most two
+  characters or three Latin letters); the relevance gate refuses the rest. Measured
+  against two org stores, one former list word in 106 runs was injected.
+- Identifiers must be specific and on topic: status codes, years and files every
+  project has no longer bypass the gate, matches are whole tokens, and an
+  identifier match still needs probability >= 0.1 and lift >= 0. Precision
+  83.8->87.1% and 63.2->65.3%, hit@1 87.0->87.0% and 57.1->54.5%, abstention
+  unchanged on the two stores.
+
+### Fixed
+
+- The title-only tier told the model to read directly, which always failed: a
+  read needs a search in the same research first. The instruction now says so, and
+  an end-to-end test follows it. A title is named once per session, and a gate
+  promoted before the tier takes its rule from the manifest instead of running
+  without the floor.
+- A short follow-up's results are titles only, with this prompt first in the query
+  and context at most 30 minutes old: unrelated short prompts were finding the
+  previous topic's memories. Background notifications and interrupts no longer
+  count as the previous prompt.
+- Health no longer reports semantic recall ready while an organization's index
+  belongs to another model, and `hub.sh` stops a leftover `semantic-index` service.
+- A local permission error or a gateway's 403 no longer wipes a client as if the
+  device were revoked, and cleared state comes back when access does. A full disk
+  no longer stops the worker.
+- Delivery receipts are found after a turn that wrote more than a megabyte, which
+  re-injected the memory (14.6% of injections on one machine).
+- Usage labels: specifics already in the conversation prove nothing either way,
+  and a failed read is not a read.
+- `upgrade.sh` restores the model setting on rollback and waits for the rolled-back
+  service, keeps a working model when a new one cannot be fetched, honours
+  `--no-semantic`, and prunes old releases and backups. The release job checks the
+  tag against the built version. A pip timeout still restores the previous client;
+  a failed update check retries within the hour.
+- The warm connection stays up through a working day's pauses (a cold first prompt
+  took 2.8 s against 1.1 s), and a queued request past its budget no longer reaches
+  the Hub.
+
 ## [1.4.19] — 2026-11-04
 
 ### Fixed
