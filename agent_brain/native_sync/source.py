@@ -86,6 +86,40 @@ def screen(body: str) -> dict[str, Any]:
     return {"risk": "clean", "reasons": []}
 
 
+# The same credentials, cut precisely enough to mask a value inside a JSON line
+# without eating the structure around it.
+_VALUE = r"""\\?["']?[^\s"'\\,;}\]]{6,}"""
+REDACTIONS: tuple[tuple[re.Pattern[str], str], ...] = tuple(
+    (re.compile(pattern), label)
+    for pattern, label in (
+        (
+            r"-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]{0,8000}?(?:-----END [A-Z ]*PRIVATE KEY-----|$)",
+            "私钥",
+        ),
+        (
+            r"(?i)\b(?:password|passwd|secret|api[_-]?key|access[_-]?token)\s*[:=]\s*" + _VALUE,
+            "明文口令",
+        ),
+        (r"(?:密码|口令|密钥)\s*(?:[:：=]|是|为)\s*[A-Za-z0-9!@#$%^&*._+/=-]{6,}", "明文口令"),
+        (r"(?i)://[^/\s:@\"']+:[^/\s@\"']{3,}@", "链接里的账号密码"),
+        *BLOCKING_PATTERNS[1:],
+    )
+)
+
+
+def redact(text: str) -> str:
+    """Mask credentials in a session record, which stays useful as evidence.
+
+    Memories, rules, skills and configs are refused whole instead: a person wrote
+    them to be shared, and one credential means the file needs fixing. Half of a
+    real machine's session records quote something shaped like a credential, so
+    refusing those whole would lose the record for the sake of one line.
+    """
+    for pattern, label in REDACTIONS:
+        text = pattern.sub("[已隐去:" + label + "]", text)
+    return text
+
+
 def forbidden_file(path: Path) -> bool:
     """Exclude known credential filenames/extensions before any content is read."""
     name = path.name.lower()
@@ -262,6 +296,8 @@ def read_document(path: Path, kind: str) -> tuple[str, str, str] | None:
         text = json.dumps(clean(data), ensure_ascii=False, indent=2)
     if kind == "memory":
         text = strip_managed(text)
+    if kind == "transcript":
+        text = redact(text)
     raw = base64.b64decode(text) if encoding == "base64" else text.encode()
     return text, encoding, hashlib.sha256(raw).hexdigest()
 
@@ -402,6 +438,8 @@ def queue_delete(db: sqlite3.Connection, row: Any) -> None:
     """Queue an owned part tombstone at its known base revision without deleting its identity."""
     item = json.loads(row["payload"])
     item.update(base_revision=row["revision"], deleted=True, body="")
+    if item.get("index_text"):
+        item["index_text"] = ""  # a copy of the text; a tombstone carries none
     payload = json.dumps(item, ensure_ascii=False)
     db.execute(
         "INSERT OR REPLACE INTO outbox VALUES(?,?,?)",

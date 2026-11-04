@@ -13,8 +13,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Continuous sync uploaded files the screen had already judged as containing
   credentials; another member could search them. It now refuses such a file,
-  reports the file and category (never the value) in the worker status, and
-  resumes when the file is fixed. The screen learns Aliyun and Google keys, new
+  withdraws what is queued or already on the Hub, reports the file and category
+  (never the value) in the worker status, and resumes when the file is fixed.
+  Files synced before the screen existed get one look after upgrading. Session
+  records are masked instead of refused: half of the session records on one real
+  machine quote something shaped like a credential, none of the memories did. The screen learns Aliyun and Google keys, new
   GitHub tokens, Chinese password phrasing and credentials inside URLs; more
   credential file names and config keys are excluded.
 - Editing or deleting a memory left its old text readable by every member

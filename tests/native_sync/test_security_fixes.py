@@ -262,3 +262,86 @@ def test_a_named_title_can_actually_be_read(live, tmp_path):
     read = tools.read("named", 1, found["research_id"])
     assert read.get("ok"), read
     assert "两人复核" in json.dumps(read, ensure_ascii=False)
+
+
+def test_a_file_found_to_hold_a_credential_is_withdrawn_from_queue_and_hub(hub, tmp_path):
+    author, _ = member(hub, tmp_path, "作者")
+    reader = hub.provision("读者", "r")
+    memory = tmp_path / "src"
+    memory.mkdir()
+    author.register(memory, "claude-code", "", "memory")
+    (memory / "note.md").write_text("# 部署说明\n第一版\n")
+    author.sync()
+    assert hub.search(reader["token"], "部署说明")
+    # Pasted later: the earlier revision must leave the Hub too.
+    (memory / "note.md").write_text("# 部署说明\n第一版\n密钥 " + SECRET + "\n")
+    assert author.sync()["blocked"]
+    assert hub.search(reader["token"], "部署说明") == []
+    with database(author.path) as db:
+        for row in db.execute("SELECT payload FROM source_parts"):
+            assert SECRET not in row["payload"]
+    assert SECRET not in json.dumps(hub.changes(reader["token"], 0))
+
+
+def test_files_synced_before_the_screen_get_one_look_after_upgrading(hub, tmp_path):
+    author, _ = member(hub, tmp_path, "作者")
+    reader = hub.provision("读者", "r")
+    memory = tmp_path / "src"
+    memory.mkdir()
+    author.register(memory, "claude-code", "", "memory")
+    (memory / "old.md").write_text("# 旧笔记\n密钥 " + SECRET + "\n")
+    # What a client before this release did: uploaded it, unscreened.
+    from agent_brain.native_sync import client as client_module
+
+    original = client_module.screen
+    client_module.screen = lambda body: {"risk": "clean", "reasons": []}
+    author.sync()
+    client_module.screen = original
+    assert hub.search(reader["token"], "旧笔记")
+    with database(author.path) as db:
+        db.execute("DELETE FROM meta WHERE key='screened_all_v1'")
+    assert [row["path"] for row in author.sync()["blocked"]] == ["old.md"]
+    assert hub.search(reader["token"], "旧笔记") == []
+    assert SECRET not in json.dumps(hub.changes(reader["token"], 0))
+
+
+def test_session_records_are_masked_not_refused_and_stay_valid_json(tmp_path):
+    from agent_brain.native_sync.source import read_document
+
+    line = {
+        "type": "user",
+        "message": {
+            "content": f'部署用 {SECRET}，password="hunter2-long" 还有 服务器密码是 Abc123!xyz 和 '
+            "mysql://root:hunter22@10.0.0.1/db 和 api_key = os.environ",
+        },
+    }
+    path = tmp_path / "session.jsonl"
+    path.write_text(json.dumps(line, ensure_ascii=False) + "\n")
+    body = read_document(path, "transcript")[0]
+    for value in (SECRET, "hunter2-long", "Abc123!xyz", "hunter22"):
+        assert value not in body
+    assert "[已隐去:云访问密钥]" in body and "部署用" in body
+    assert json.loads(body.splitlines()[0])["type"] == "user"
+    key = tmp_path / "k.jsonl"
+    key.write_text(
+        json.dumps(
+            {"t": "-----BEGIN RSA PRIVATE KEY-----\nabc\ndef\n-----END RSA PRIVATE KEY-----\n后面"},
+            ensure_ascii=False,
+        )
+    )
+    masked = read_document(key, "transcript")[0]
+    assert "abc" not in masked and "后面" in masked
+    assert json.loads(masked)["t"]
+
+
+def test_masking_a_session_record_replaces_what_the_hub_held(hub, tmp_path):
+    author, _ = member(hub, tmp_path, "作者")
+    reader = hub.provision("读者", "r")
+    root = tmp_path / "sessions"
+    root.mkdir()
+    author.register(root, "claude-code", "", "transcript")
+    (root / "s.jsonl").write_text(
+        json.dumps({"text": "部署记录 " + SECRET}, ensure_ascii=False) + "\n"
+    )
+    assert author.sync()["blocked"] == []
+    assert SECRET not in json.dumps(hub.changes(reader["token"], 0))

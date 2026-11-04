@@ -25,6 +25,7 @@ from .source import source_text, read_document, files, enqueue_document, queue_d
 # Consecutive unavailable report uploads that end one sync pass.
 REPORT_FAILURE_LIMIT = 3
 
+
 class NativeClient:
     """One enrolled device profile; all local state is scoped to its Hub identity.
 
@@ -476,6 +477,11 @@ class NativeClient:
 
         errors = quarantine_changed_roots(self)
         self.blocked = []
+        # Files synced before the screen existed get one look, unchanged or not.
+        with database(self.path) as db:
+            screened_all = bool(
+                db.execute("SELECT 1 FROM meta WHERE key='screened_all_v1'").fetchone()
+            )
         self.refresh_excluded_history()
         quarantined = self.quarantined_sources()
         for source in self.sources():
@@ -570,16 +576,31 @@ class NativeClient:
                     if not prior_parts and excluded_copy and not explicit:
                         errors.append("history review required: " + source["id"] + "/" + rel)
                         continue
-                if row is not None and row["hash"] == h:
+                unchanged = row is not None and row["hash"] == h
+                if unchanged and screened_all:
                     continue
-                # A credential in a file must not leave this machine. The file
-                # is rechecked on the next pass, so fixing it resumes its sync;
-                # what the Hub already holds stays as it was.
-                verdict = screen(body)
+                # A credential in a file must not leave this machine: nothing new
+                # goes out, and what is queued or already on the Hub is withdrawn.
+                # The file is rechecked next pass, so fixing it resumes its sync.
+                # Session records were masked when read; see source.redact.
+                verdict = (
+                    {"risk": "clean", "reasons": []}
+                    if source["kind"] == "transcript"
+                    else screen(body)
+                )
                 if verdict["risk"] == "blocked":
                     self.blocked.append(
                         {"source": source["id"], "path": rel, "reasons": verdict["reasons"]}
                     )
+                    if row is not None:
+                        with database(self.path) as db:
+                            for part in db.execute(
+                                "SELECT * FROM source_parts WHERE base=?", (row["asset"],)
+                            ).fetchall():
+                                if not json.loads(part["payload"]).get("deleted"):
+                                    queue_delete(db, part)
+                    continue
+                if unchanged:
                     continue
                 stat = p.stat()
                 if row is None:
@@ -689,6 +710,9 @@ class NativeClient:
                         ("<deleted>", source["id"], row["path"]),
                     )
         errors.extend(quarantine_changed_roots(self))
+        if not screened_all:
+            with database(self.path) as db:
+                db.execute("INSERT OR REPLACE INTO meta VALUES('screened_all_v1','1')")
         return errors
 
     def origin_reviews(self) -> list[dict[str, Any]]:
