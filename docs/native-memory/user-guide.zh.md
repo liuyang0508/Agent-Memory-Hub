@@ -1,6 +1,6 @@
 # 组织第二大脑：安装与使用手册
 
-适用版本：AMH 1.4.15。面向 macOS 成员；试点组织 linkcrux，组织地址 `https://platform.linkcrux.com`。核对日期：2026-11-04。
+适用版本：AMH 1.4.16。面向 macOS 成员；试点组织 linkcrux，组织地址 `https://platform.linkcrux.com`。核对日期：2026-11-04。
 
 ## 一、你能用它做什么
 
@@ -36,7 +36,7 @@ curl -fsSL https://github.com/liuyang0508/agent-memory-hub/releases/latest/downl
 需要固定安装本手册版本时，用下面这条代替：
 
 ```bash
-curl -fsSL https://github.com/liuyang0508/agent-memory-hub/releases/download/v1.4.15/install.sh | sh -s -- --org-memory --hub https://platform.linkcrux.com
+curl -fsSL https://github.com/liuyang0508/agent-memory-hub/releases/download/v1.4.16/install.sh | sh -s -- --org-memory --hub https://platform.linkcrux.com
 ```
 
 其他组织把最后的地址替换为管理员提供的 HTTPS 地址，不要填邮箱、账号或 SSH 地址。
@@ -110,7 +110,7 @@ CLI 和桌面共用的文件可能标为 `codex`：这表示无法从同一份�
 1. 安装器会在 Finder 定位 `cowork-plugin.zip`，默认位于 `~/.amh-native-sync/cowork-plugin.zip`。
 2. 打开 Claude 桌面应用，进入 **Customize → Plugins → Add plugin → Upload**。
 3. 选择刚生成的 ZIP，完成导入；已有同名插件时，核对后选择替换。
-4. 确认 **Amh native org** 已启用，版本为 1.4.15。本机绑定的插件还提供组织只读 MCP 工具；在新任务中使用。
+4. 确认 **Amh native org** 已启用，版本为 1.4.16。本机绑定的插件还提供组织只读 MCP 工具；在新任务中使用。
 
 文件选择窗口看不到隐藏目录时，按 **Command + Shift + G**，粘贴终端显示的 ZIP 完整路径，再按回车和“打开”。无需解压。
 5. 在 Cowork 新建任务，触发首次配对。
@@ -143,7 +143,7 @@ Cowork 执行过首次任务后，再检查其独立运行时：
 
 应与主客户端是同一成员、不同设备。未登记时，先核对插件启用状态与首次任务。
 
-检查版本，本文版本应输出 `1.4.15`：
+检查版本，本文版本应输出 `1.4.16`：
 
 ```bash
 "$HOME/.amh-native/venv/bin/python" -c 'from importlib.metadata import version; print(version("agent-memory-hub"))'
