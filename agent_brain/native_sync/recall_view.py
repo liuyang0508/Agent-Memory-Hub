@@ -224,10 +224,60 @@ def _title(record: dict[str, Any]) -> str:
     title = str(record.get("title") or "")
     if not title or title.lower() in {"memory", "memory_summary", "claude", "agents"}:
         title = name or title
+    if name.lower() == "skill.md" and "/" in path:
+        title = path.rsplit("/", 2)[-2]  # a skill is named by its directory
     count, index = record.get("part_count"), record.get("part_index")
     if isinstance(count, int) and count > 1 and isinstance(index, int):
         title += f" §{index + 1}/{count}"
     return title
+
+
+_FRONT = re.compile(r"\A\s*---\s*\n(.*?)\n---\s*(?:\n|\Z)", re.S)
+_DESCRIPTION = re.compile(r"^description:\s*(.+)$", re.M)
+_TASK_GROUP = re.compile(r"^#\s*Task Group:\s*(.+)$", re.M)
+_INDEX_LINK = re.compile(r"^\s*-\s*\[([^\]]+)\]\(", re.M)
+_HEADING = re.compile(r"^#{1,4}\s+(.+)$", re.M)
+_MARKUP = re.compile(r"\*\*|__|`|\[\[|\]\]|^\s*[-*>]\s+|^\s*\d+\.\s+", re.M)
+
+
+def _summary(record: dict[str, Any]) -> str:
+    """What the memory says, in one line: its own description, the task groups
+    of an index chunk, the entries of an index, or its first heading/sentence."""
+    if record.get("deleted"):
+        return ""  # a retired memory shows nothing of what it said
+    body, index_text = record.get("body"), record.get("index_text")
+    text: str = body if isinstance(body, str) and body.strip() else ""
+    if not text and isinstance(index_text, str):
+        text = index_text
+    if not text.strip():
+        return ""
+    front = _FRONT.match(text)
+    if front:
+        described = _DESCRIPTION.search(front.group(1))
+        if described:
+            return _one_line(described.group(1).strip().strip("'\""))
+        text = text[front.end() :]
+    groups = [g.strip() for g in _TASK_GROUP.findall(text)]
+    if groups:
+        return _one_line("任务组：" + "；".join(groups[:3]) + ("等" if len(groups) > 3 else ""))
+    entries = [e.strip() for e in _INDEX_LINK.findall(text)]
+    if len(entries) >= 2:
+        return _one_line(f"索引 {len(entries)} 条：" + "、".join(entries[:5]))
+    heading = _HEADING.search(text)
+    lines = [
+        line.strip()
+        for line in text.splitlines()
+        if line.strip() and not line.lstrip().startswith(("#", "```", "|", "---"))
+    ]
+    first = _MARKUP.sub("", lines[0]) if lines else ""
+    if heading and first:
+        return _one_line(heading.group(1).strip() + "：" + first)
+    return _one_line(heading.group(1) if heading else first)
+
+
+def _one_line(text: str, limit: int = 160) -> str:
+    text = " ".join(_MARKUP.sub("", text).split())
+    return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
 def _kind(record: dict[str, Any]) -> str:
@@ -272,17 +322,40 @@ def _fit(text: str, width: int) -> str:
     return text + " " * (width - _width(text))
 
 
-def _box(headers: list[str], rows: list[list[str]], widths: list[int]) -> list[str]:
+def _box(
+    headers: list[str],
+    rows: list[list[str]],
+    widths: list[int],
+    details: list[str] | None = None,
+) -> list[str]:
+    """A ruled table; a detail line spans every column but the first under its row."""
+
     def line(left: str, mid: str, right: str) -> str:
         return left + mid.join("─" * (w + 2) for w in widths) + right
 
     def cells(values: list[str]) -> str:
         return "│" + "│".join(" " + _fit(v, w) + " " for v, w in zip(values, widths)) + "│"
 
+    head = "─" * (widths[0] + 2)
+    rest = [("─" * (w + 2)) for w in widths[1:]]
+    span = sum(w + 2 for w in widths[1:]) + len(widths) - 2  # merged columns, inner width
     out = [line("┌", "┬", "┐"), cells(headers)]
-    for row in rows:
-        out += [line("├", "┼", "┤"), cells(row)]
-    out.append(line("└", "┴", "┘"))
+    previous_detail = False
+    for index, row in enumerate(rows):
+        if previous_detail:
+            out.append("├" + head + "┼" + "┬".join(rest) + "┤")
+        else:
+            out.append(line("├", "┼", "┤"))
+        out.append(cells(row))
+        detail = details[index] if details else ""
+        previous_detail = bool(detail)
+        if detail:
+            out.append("│" + " " * (widths[0] + 2) + "├" + "┴".join(rest) + "┤")
+            out.append("│" + " " * (widths[0] + 2) + "│ " + _fit(detail, span - 2) + " │")
+    if previous_detail:
+        out.append("└" + head + "┴" + "─" * span + "┘")
+    else:
+        out.append(line("└", "┴", "┘"))
     return out
 
 
@@ -349,8 +422,8 @@ def render(
         return _as_plain("\n".join(lines)) + "\n" + "\n".join(_box_table(hits, states))
     lines += [
         "",
-        "| # | 记忆 | 类型 | 来源 | 作者 | 项目 | 版本 | 更新 | 命中路由 | 相关性 | 使用率 | 本轮 |",
-        "|---|---|---|---|---|---|---|---|---|---|---|---|",
+        "| # | 记忆 | 内容 | 类型 | 来源 | 作者 | 项目 | 版本 | 更新 | 命中路由 | 相关性 | 使用率 | 本轮 |",
+        "|---|---|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     for rank, record in enumerate(hits, 1):
         from .recall import coverage_key
@@ -363,6 +436,7 @@ def render(
                 [
                     str(rank),
                     _cell(title, 28),
+                    _cell(_summary(record) or "—", 60),
                     _kind(record),
                     _cell(PRODUCTS.get(product, product), 14),
                     _cell(_producer(record), 16),
@@ -400,7 +474,8 @@ def _box_table(hits: list[dict[str, Any]], states: dict[str, str]) -> list[str]:
         widths.append(10)
     headers += ["版本 更新", "命中路由", "相关性", "使用率", "本轮"]
     widths += [9, 13, 6, 8, 8]
-    rows = []
+    rows: list[list[str]] = []
+    details: list[str] = []
     for rank, record in enumerate(hits, 1):
         product = source_product(str(record.get("product") or ""))
         role = str(record.get("role") or "")
@@ -425,4 +500,6 @@ def _box_table(hits: list[dict[str, Any]], states: dict[str, str]) -> list[str]:
             STATE_SHORT.get(states.get(coverage_key(record), ""), "-"),
         ]
         rows.append(row)
-    return _box(headers, rows, widths)
+        summary = _plain(_summary(record))
+        details.append("内容：" + summary if summary else "")
+    return _box(headers, rows, widths, details)

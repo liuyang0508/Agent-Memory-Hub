@@ -206,11 +206,22 @@ def test_box_table_lines_up_mixed_width_text():
         retrieval={"mode": "hybrid"},
         trace_id=None,
         hits=[
-            _record(),
+            _record(body="# 验签\n回调验签失败先核对密钥版本。"),
             _record(
-                asset_id="b", title="很长的中文标题" * 6, producer_name=None, uploader_name="张三"
+                asset_id="b",
+                title="很长的中文标题" * 6,
+                producer_name=None,
+                uploader_name="张三",
+                body="---\ndescription: " + "很长的说明" * 30 + "\n---\n",
             ),
-            _record(asset_id="c", title="MEMORY", path="MEMORY.md", part_index=0, part_count=4),
+            _record(
+                asset_id="c",
+                title="MEMORY",
+                path="MEMORY.md",
+                part_index=0,
+                part_count=4,
+                body="# Task Group: 订单回调\n",
+            ),
         ],
         states={"a:3:h": "packed", "b:3:h": "covered"},
         display="table",
@@ -218,9 +229,9 @@ def test_box_table_lines_up_mixed_width_text():
     )
     lines = view.splitlines()
     table = [line for line in lines if line[:1] in "┌│├└"]
-    # Top, header, then a rule above every row, bottom: 2 + 2 * 3 + 1.
-    assert len(table) == 9 and len({_width(line) for line in table}) == 1
-    assert sum(line.startswith("├") for line in table) == 3
+    # Top, header; per memory a rule, its row, a rule and its content line; bottom.
+    assert len(table) == 2 + 4 * 3 + 1 and len({_width(line) for line in table}) == 1
+    assert sum("内容：" in line for line in table) == 3
     assert "**" not in view and "`" not in view
     assert not any(mark in line for line in table for mark in "…·—§")
     assert "张三" in view and "上传" not in view and "已注入过" in view
@@ -276,3 +287,17 @@ def test_usage_rate_shows_share_and_judged_turns():
     assert _usage(_record(recall={"usage": {"used": 3, "judged": 4}})) == "75%·4次"
     assert _usage(_record(recall={"usage": None})) == "—"
     assert _usage(_record()) == "—"
+
+
+def test_content_line_says_what_each_memory_is_about():
+    from agent_brain.native_sync.recall_view import _summary, _title
+
+    described = "---\nname: hub\ndescription: linkcrux 组织 Hub 的服务器地址\n---\n正文"
+    assert _summary(_record(body=described)) == "linkcrux 组织 Hub 的服务器地址"
+    chunk = "前文\n# Task Group: 周报同步\n…\n# Task Group: 蝶阀选型复核\n"
+    assert _summary(_record(body=chunk)) == "任务组：周报同步；蝶阀选型复核"
+    index = "- [工作区约定](a.md) — x\n- [用户画像](b.md) — y\n"
+    assert _summary(_record(body=index)) == "索引 2 条：工作区约定、用户画像"
+    assert _summary(_record(body="# 飞书写作\n先用**模板**创建。")) == "飞书写作：先用模板创建。"
+    assert _title(_record(title="SKILL", path="skills/feishu-doc/SKILL.md")) == "feishu-doc"
+    assert _summary(_record(body=described, deleted=True)) == ""
