@@ -215,6 +215,46 @@ CREATE TABLE IF NOT EXISTS recall_events(
 );
 CREATE INDEX IF NOT EXISTS recall_events_recent ON recall_events(tenant, created);
 
+-- Additive usage feedback: one label per recalled candidate, with the gate's
+-- evidence numbers at recall time, so calibration can learn from use after the
+-- trace itself has expired. Identifiers, numbers and labels only, no text.
+CREATE TABLE IF NOT EXISTS recall_labels(
+    tenant TEXT NOT NULL,
+    trace_id TEXT NOT NULL,
+    asset_id TEXT NOT NULL,
+    revision INTEGER NOT NULL,
+    created REAL NOT NULL,
+    label TEXT NOT NULL,
+    member TEXT NOT NULL,
+    gate_version TEXT NOT NULL,
+    features TEXT NOT NULL,
+    PRIMARY KEY(tenant,trace_id,asset_id)
+);
+CREATE INDEX IF NOT EXISTS recall_labels_recent ON recall_labels(tenant, created);
+
+-- Additive: the organization's own gold questions (what a right recall looks
+-- like), contributed by members, and every gate the Hub calibrated from them.
+CREATE TABLE IF NOT EXISTS recall_gold(
+    tenant TEXT NOT NULL,
+    case_id TEXT NOT NULL,
+    query TEXT NOT NULL,
+    expect TEXT NOT NULL,
+    tags TEXT NOT NULL,
+    member TEXT NOT NULL,
+    created REAL NOT NULL,
+    PRIMARY KEY(tenant,case_id)
+);
+CREATE TABLE IF NOT EXISTS recall_gates(
+    tenant TEXT NOT NULL,
+    version TEXT NOT NULL,
+    created REAL NOT NULL,
+    active INTEGER NOT NULL DEFAULT 0,
+    model TEXT NOT NULL,
+    payload TEXT NOT NULL,
+    report TEXT NOT NULL,
+    PRIMARY KEY(tenant,version)
+);
+
 -- Additive insight rollups: per-day counts derived from the recall ledger so
 -- usage history survives the trace TTL. Counts, identifiers and titles only.
 CREATE TABLE IF NOT EXISTS recall_daily(
@@ -364,5 +404,17 @@ CREATE TABLE IF NOT EXISTS recall_reports(
     event TEXT,
     created REAL,
     PRIMARY KEY(trace_id,asset,revision,event)
+);
+
+-- Additive: digests of what this turn injected, kept until the turn ends so
+-- the Stop hook can tell whether the answer used it. Never memory text.
+CREATE TABLE IF NOT EXISTS usage_pending(
+    session TEXT,
+    trace_id TEXT,
+    asset TEXT,
+    revision INTEGER,
+    fingerprint TEXT,
+    created REAL,
+    PRIMARY KEY(session,trace_id,asset)
 );
 """

@@ -46,8 +46,15 @@ def load_gold(path: Path) -> list[dict[str, Any]]:
         if stripped.startswith("[")
         else [json.loads(line) for line in text.splitlines() if line.strip()]
     )
+    return parse_gold(raw)
+
+
+def parse_gold(raw: Iterable[Any]) -> list[dict[str, Any]]:
+    """Validate gold cases given as dicts (a file's entries or an upload)."""
     cases, seen = [], set()
     for entry in raw:
+        if not isinstance(entry, dict) or "id" not in entry:
+            raise ValueError("gold case must be an object with an id")
         case_id = str(entry["id"])
         query = str(entry.get("query", entry.get("q", "")))
         split = entry.get("split") or split_of(case_id)
@@ -56,8 +63,8 @@ def load_gold(path: Path) -> list[dict[str, Any]]:
         case = {
             "id": case_id,
             "query": query,
-            "expect": [str(key) for key in entry.get("expect", entry.get("targets", []))],
-            "tags": [str(tag) for tag in entry.get("tags", [])],
+            "expect": [str(key) for key in entry.get("expect", entry.get("targets")) or []],
+            "tags": [str(tag) for tag in entry.get("tags") or []],
             "split": split,
         }
         seen.add(case_id)

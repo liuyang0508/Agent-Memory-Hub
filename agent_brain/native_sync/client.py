@@ -1019,11 +1019,22 @@ class NativeClient:
                 {"asset_id": row["asset"], "revision": row["revision"], "event": row["event"]}
             )
         errors: list[str] = []
+        usage = {"used", "unused", "consulted"}
         for trace_id, events in grouped.items():
-            for start in range(0, len(events), 64):
+            # Usage labels travel apart from delivery states: a Hub that
+            # predates them refuses the whole batch, and must not take the
+            # delivery report down with it.
+            batches = [
+                part[start : start + 64]
+                for part in (
+                    [e for e in events if e["event"] not in usage],
+                    [e for e in events if e["event"] in usage],
+                )
+                for start in range(0, len(part), 64)
+            ]
+            for batch in batches:
                 if deadline is not None and time.monotonic() >= deadline:
                     return errors
-                batch = events[start : start + 64]
                 try:
                     send(trace_id, batch)
                 except HubHTTPError as exc:

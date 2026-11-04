@@ -199,7 +199,17 @@ def retrieve(
     channel: str = "tool",
     record: bool = True,
     asking: dict[str, Any] | None = None,
+    identity: dict[str, Any] | None = None,
+    gate_override: Any = None,
+    collect_gate: bool = False,
 ) -> dict[str, Any]:
+    """Rank authorized memory for one query.
+
+    ``identity``, ``gate_override`` and ``collect_gate`` are for the Hub's own
+    evaluation and calibration in-process (never reachable from a request):
+    judge as an already-resolved member, with a candidate gate, keeping every
+    candidate the gate scores along with its evidence.
+    """
     kinds = ["memory"] if kinds is None else list(kinds)
     if not kinds or not set(kinds) <= KINDS:
         raise ValueError("invalid retrieval kinds")
@@ -236,7 +246,7 @@ def retrieve(
         # One normalization/classification implementation for returned roles and
         # SQL eligibility, including ./, repeated separators and Windows paths.
         db.create_function("native_asset_role", 3, asset_role, deterministic=True)
-        who = hub._identity(db, token)
+        who = dict(identity) if identity is not None else hub._identity(db, token)
         preview_setting = db.execute(
             "SELECT value FROM settings WHERE key='recall_query_preview'"
         ).fetchone()
@@ -496,7 +506,7 @@ def retrieve(
     # Recheck revocation and revisions after potentially slow model work. An
     # update racing inference is omitted, never returned with old content.
     with database(hub.path) as db:
-        now_who = hub._identity(db, token)
+        now_who = dict(identity) if identity is not None else hub._identity(db, token)
         if now_who["tenant"] != who["tenant"]:
             raise PermissionError("organization changed during retrieval")
         db.execute("BEGIN")
@@ -571,7 +581,12 @@ def retrieve(
             before = trace.snapshot(fused)
             fused.sort(key=lambda hit: hit.id != query.strip())
             trace.stage("exact_pin", before, trace.snapshot(fused))
-        model = hub.gate_model() if semantic_used and channel == "hook" else None
+        collecting = collect_gate or hub.gate_collect
+        model = (
+            (gate_override or hub.gate_model(who["tenant"]))
+            if semantic_used and channel == "hook"
+            else None
+        )
         background = (
             hub.gate_background(who["tenant"], backend, stored_windows)
             if model is not None
@@ -623,14 +638,18 @@ def retrieve(
                 )
                 probability = model.probability(values)
                 anchored = values[-1] > 0 and (lexical_rank or 99) <= relevance.POOL_LEXICAL
+                # The evidence travels with the trace (numbers only) so usage
+                # feedback can later be learned from what the gate saw.
                 trace.row(hit.id)["gate"] = {
                     "probability": round(probability, 4),
                     "threshold": model.threshold,
+                    "version": model.version,
+                    "x": [round(float(v), 5) for v in values],
                     **({"anchor": True} if anchored else {}),
                 }
-                if hub.gate_collect:
+                if collecting:
                     item["gate_features"] = values
-                if hub.gate_collect or probability >= model.threshold or anchored:
+                if collecting or probability >= model.threshold or anchored:
                     judged.append((probability, hit))
                     effects[hit.id] = "p=%.3f" % probability
                 else:
@@ -642,7 +661,7 @@ def retrieve(
             judged.sort(key=lambda pair: -pair[0])
             fused = [hit for _, hit in judged]
             trace.stage("relevance_gate", before, trace.snapshot(fused), effects)
-            if not hub.gate_collect:
+            if not collecting:
                 limit = min(limit, model.max_items)
                 near_duplicate = model.dedup
         if gate is not None:

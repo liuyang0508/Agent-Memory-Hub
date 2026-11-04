@@ -7,6 +7,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.11] — 2026-11-04
+
+### Added
+
+- Usage feedback for prompt-time recall. At the end of each turn the Stop
+  hook judges, on the member's machine, whether the answer used each memory
+  the hook injected (`usage.py`): a mark counts only if it is in neither the
+  prompt, the earlier session, nor the turn's tool results, so shared project
+  vocabulary is not mistaken for use. "used" needs a long specific identifier
+  or three separate copied passages; "unused" needs no overlap at all; the
+  rest stays unlabeled. A memory the gate held back that the model then
+  fetched with `read_org_memory` and used is reported as "consulted". Only
+  digests are kept between prompt and Stop; only asset ids and labels reach
+  the Hub. On 195 injections from real Claude Code sessions the judge
+  labeled 117 "unused" (39 of 39 spot-checked correct), 1 "used" (correct)
+  and left 19 unlabeled. Outside Claude Code, where the earlier session is
+  not visible, only "unused" is reported.
+- The Hub stores each label with the gate's evidence at recall time
+  (`recall_labels`, numbers only, 180 days), so calibration can learn from use
+  after the trace expires.
+- Weekly recalibration from use (`autotune.py`; `serve --autotune-days 7`).
+  The gate is refit on the organization's gold questions plus usage labels
+  (class-balanced, total weight capped at half the gold candidates; gold
+  alone picks the threshold) and promoted only if it passes both checks:
+  gold cross-validation utility does not fall at all (hit@1, precision and
+  abstention may trade within 0.02), and on the newest quarter of each label
+  class, held out, it ranks real use no worse than the live gate beyond the
+  paired-bootstrap sampling error (non-inferiority, margin at least 0.02 AUC).
+  Every run is recorded; promoted gates are per organization, tied to the
+  embedding model, and `recall-autotune --rollback` restores the previous
+  one. An operator pin (`AMH_NATIVE_HOOK_GATE`) still wins.
+- Members contribute gold questions (`amh-native recall-gold-upload`,
+  `POST /native/v1/recall/gold`) and see label counts, the last decision and
+  gate history (`amh-native recall-tuning [--run]`,
+  `GET|POST /native/v1/recall/autotune`). Health advertises
+  `recall-usage-feedback-v1`. `recall-trace` shows each candidate's usage.
+
+### Fixed
+
+- Host background events (`<task-notification>` and command output echoes)
+  no longer trigger prompt-time recall. In the sessions above they caused 58
+  of 195 injections.
+- Usage labels are sent in their own batches, so a Hub that predates them
+  cannot reject a batch of delivery states along with them.
+
 ## [1.4.10] — 2026-11-04
 
 ### Fixed
