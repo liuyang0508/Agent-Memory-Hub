@@ -133,28 +133,29 @@ def work(state: Path, interval: float = 10, *, stop: threading.Event | None = No
                         )
                         backoff = interval
                         cooling_down = False
-                    except PermissionError:
-                        c.revoke_local()
-                        atomic_json(
-                            state / "status.json",
-                            {
-                                "error": "device revoked; re-enroll required",
-                                "time": time.time(),
-                                "sync_limits": dict(settings),
-                            },
-                        )
-                        backoff = 60
-                        cooling_down = True
                     except Exception as exc:
-                        atomic_json(
-                            state / "status.json",
-                            {
-                                "error": type(exc).__name__,
-                                "time": time.time(),
-                                "sync_limits": dict(settings),
-                            },
-                        )
-                        backoff = min(max(interval, backoff * 2), 60)
+                        # A denied local file or a full disk is this machine's
+                        # problem; only the Hub's own rejection (a PermissionError
+                        # without an errno) means the device is out.
+                        rejected = isinstance(exc, PermissionError) and exc.errno is None
+                        if rejected:
+                            c.revoke_local()
+                        try:
+                            atomic_json(
+                                state / "status.json",
+                                {
+                                    "error": (
+                                        "device revoked; re-enroll required"
+                                        if rejected
+                                        else type(exc).__name__
+                                    ),
+                                    "time": time.time(),
+                                    "sync_limits": dict(settings),
+                                },
+                            )
+                        except OSError:
+                            pass  # Nowhere to record it; the worker keeps running.
+                        backoff = 60 if rejected else min(max(interval, backoff * 2), 60)
                         cooling_down = True
                     # Preserve the wake marker during cooldown; one catch-up pass will
                     # observe every file's latest state once the deadline has elapsed.

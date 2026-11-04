@@ -304,38 +304,4 @@ def _record_target(client: NativeClient, root: Path, product: str) -> None:
 # Content screening runs before anything is selected. A memory file is free text:
 # a product/kind label says nothing about whether one person's salary, home
 # address or a pasted private key sits inside it.
-BLOCKING_PATTERNS: tuple[tuple[str, str], ...] = (
-    (r"-----BEGIN [A-Z ]*PRIVATE KEY-----", "私钥"),
-    (r"\bsk-[A-Za-z0-9]{20,}", "API 密钥"),
-    (r"\bghp_[A-Za-z0-9]{20,}", "GitHub 令牌"),
-    (r"\bxox[baprs]-[A-Za-z0-9-]{10,}", "Slack 令牌"),
-    (r"\bAKIA[0-9A-Z]{16}\b", "云访问密钥"),
-    (r"(?i)\b(?:password|passwd|secret|api[_-]?key|access[_-]?token)\s*[:=]\s*\S{6,}", "明文口令"),
-    (r"(?i)\bbearer\s+[A-Za-z0-9._\-]{20,}", "持有者令牌"),
-)
-
-SENSITIVE_PATTERNS: tuple[tuple[str, str], ...] = (
-    (r"(?<!\d)1[3-9]\d{9}(?!\d)", "手机号"),
-    (r"(?<!\d)\d{17}[\dXx](?!\d)", "身份证号"),
-    (r"(?<!\d)\d{16}(?![\dXx])", "疑似银行卡号"),
-    (r"[\w.+-]+@[\w-]+\.[\w.-]+", "邮箱"),
-    (
-        r"(工资|薪资|月薪|年薪|奖金|存款|房贷|贷款|住院|病历|诊断|体检|家庭住址|身份证|银行卡)",
-        "个人隐私措辞",
-    ),
-)
-
-
-def screen(body: str) -> dict[str, Any]:
-    """Classify one document's text: blocked never imports, sensitive needs a person to decide.
-
-    Returns category labels only, never the matched text, so the report itself
-    cannot leak what it is warning about.
-    """
-    blocked = sorted({label for pattern, label in BLOCKING_PATTERNS if re.search(pattern, body)})
-    if blocked:
-        return {"risk": "blocked", "reasons": blocked}
-    sensitive = sorted({label for pattern, label in SENSITIVE_PATTERNS if re.search(pattern, body)})
-    if sensitive:
-        return {"risk": "sensitive", "reasons": sensitive}
-    return {"risk": "clean", "reasons": []}
+from .source import screen  # noqa: E402,F401  (the screen also guards continuous sync)

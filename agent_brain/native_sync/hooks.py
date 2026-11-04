@@ -15,6 +15,7 @@ from .client import NativeClient
 from .common import atomic_text, digest, recall_budget
 from .storage import database, DB_TIMEOUT
 from .recall import coverage_key, pack
+from .recall import hint_keys, hint_of
 from .recall_view import (
     DISPLAY_KEY,
     DISPLAY_MODES,
@@ -25,8 +26,14 @@ from .recall_view import (
     render_skip,
 )
 
-# The previous prompt a short follow-up borrows for search, at most this long.
+# The previous prompt a short follow-up borrows for search, at most this long
+# and at most this old: a topic from another hour is not what "那第二个呢" means.
 CONTEXT_CHARS = 300
+CONTEXT_MAX_AGE = 1800.0
+CONTEXT_SCAN = 12
+# One long agentic turn can write megabytes after the delivery marker; missing
+# the marker means re-injecting the memory, so look far enough back.
+RECEIPT_TAIL_BYTES = 16_000_000
 
 # Hosts that show a hook's systemMessage to the member. Codex shows the injected
 # context itself, so its table travels inside the organization block instead.
@@ -283,7 +290,7 @@ def _run(root: Path, product: str, payload: dict[str, Any]) -> dict[str, Any]:
             with Path(transcript).open("rb") as stream:
                 stream.seek(0, 2)
                 size = stream.tell()
-                stream.seek(max(0, size - 1_000_000))
+                stream.seek(max(0, size - RECEIPT_TAIL_BYTES))
                 tail = stream.read().decode("utf8", errors="ignore")
             with database(c.path) as db:
                 rows = db.execute("SELECT * FROM emitted WHERE session=?", (session,)).fetchall()
@@ -321,12 +328,18 @@ def _run(root: Path, product: str, payload: dict[str, Any]) -> dict[str, Any]:
 
         earlier = [
             text
-            for text in (normalize(p) for p in recent_prompts(Path(transcript_path), limit=3))
+            for text in (
+                normalize(p)
+                for p in recent_prompts(
+                    Path(transcript_path), limit=CONTEXT_SCAN, max_age=CONTEXT_MAX_AGE
+                )
+            )
             if text and text != query and admit(text)[0] and not follow_up(text)
         ]
         if earlier:
             context = earlier[-1][:CONTEXT_CHARS]
-            search = context + "\n" + query
+            # This prompt first: previews and gap reports should read as what was asked.
+            search = query + "\n" + context
     with database(c.path) as db:
         covered = {
             r["key"]
@@ -365,9 +378,13 @@ def _run(root: Path, product: str, payload: dict[str, Any]) -> dict[str, Any]:
                 retrieval = response["retrieval"]
         else:
             hits = response
-    except PermissionError:
-        c.revoke_local()
-        mode = "denied"
+    except PermissionError as exc:
+        if exc.errno is not None:
+            # A local file this process may not read says nothing about the device.
+            mode = "unavailable"
+        else:
+            c.revoke_local()
+            mode = "denied"
         hits = []
     except (OSError, ValueError, TimeoutError, sqlite3.Error):
         with database(c.path) as db:
@@ -404,14 +421,28 @@ def _run(root: Path, product: str, payload: dict[str, Any]) -> dict[str, Any]:
     # machine, which is exactly what local-first sharing is supposed to avoid.
     # The delivery receipt is appended below; reserve it inside the byte cap.
     receipt_bytes = len("\namh-native-recall:") + 24
+    if context and mode == "remote":
+        # What a borrowed topic finds may belong to the last question, not this
+        # one: name it and let the model decide, never inject the text.
+        hints = [*[hint_of(record) for record in hits if not record.get("deleted")], *hints]
     body, keys = pack(
-        hits,
+        [] if context else hits,
         covered=covered,
         max_bytes=4096 - receipt_bytes,
         per_item_bytes=1536,
         query=search,
         hints=hints if mode == "remote" else None,
     )
+    if body and mode == "remote" and hints:
+        # A title is named once per session: repeating it every turn is noise.
+        try:
+            with database(c.path) as db:
+                db.executemany(
+                    "INSERT OR IGNORE INTO coverage VALUES(?,?,?)",
+                    [(session, epoch, key) for key in hint_keys(hints, covered, [] if context else hits)],
+                )
+        except sqlite3.Error:
+            pass
     # Delivery state per recalled version: packed now, already injected earlier
     # in this session, ranked but outside the byte budget, or without text.
     packed_keys = {k.split(":excerpt:")[0] for k in keys}
@@ -421,6 +452,8 @@ def _run(root: Path, product: str, payload: dict[str, Any]) -> dict[str, Any]:
         key = coverage_key(record)
         if record.get("deleted") or not _display_text(record).strip():
             states[key] = "empty"
+        elif context:
+            states[key] = "hint"
         elif key in packed_keys:
             states[key] = "packed"
         elif key in seen_keys:

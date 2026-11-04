@@ -89,8 +89,20 @@ def store_gold(
         if len(case["query"]) > 4000 or len(case["expect"]) > 16 or len(case["tags"]) > 16:
             raise ValueError("gold case too large")
     now = time.time() if now is None else now
+    # Gold questions steer the organization's gate: a member answers for their
+    # own, and neither a replace nor a reused id can touch anyone else's.
     if replace:
-        db.execute("DELETE FROM recall_gold WHERE tenant=?", (who["tenant"],))
+        db.execute(
+            "DELETE FROM recall_gold WHERE tenant=? AND member=?",
+            (who["tenant"], who["member_id"]),
+        )
+    for case in cases:
+        owner = db.execute(
+            "SELECT member FROM recall_gold WHERE tenant=? AND case_id=?",
+            (who["tenant"], case["id"][:128]),
+        ).fetchone()
+        if owner is not None and owner["member"] != who["member_id"]:
+            raise PermissionError("gold case belongs to another member")
     db.executemany(
         "INSERT OR REPLACE INTO recall_gold VALUES(?,?,?,?,?,?,?)",
         [

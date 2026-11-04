@@ -24,6 +24,8 @@ used/unused) leave this machine.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 import hashlib
 import json
 import re
@@ -151,7 +153,7 @@ def _is_prompt(row: dict[str, Any]) -> bool:
     )
 
 
-def recent_prompts(path: Path, limit: int = 2) -> list[str]:
+def recent_prompts(path: Path, limit: int = 2, max_age: float | None = None) -> list[str]:
     """The member's last prompts in a Claude Code transcript, oldest first."""
     try:
         with path.open("rb") as stream:
@@ -162,17 +164,27 @@ def recent_prompts(path: Path, limit: int = 2) -> list[str]:
     except OSError:
         return []
     found: list[str] = []
+    now = datetime.now(timezone.utc)
     for line in reversed(raw.splitlines()):
         try:
             row = json.loads(line)
         except ValueError:
             continue
-        if isinstance(row, dict) and _is_prompt(row):
-            text = _flat((row.get("message") or {}).get("content")).strip()
-            if text:
-                found.append(text)
-                if len(found) >= limit:
+        if not isinstance(row, dict) or not _is_prompt(row):
+            continue
+        stamp = row.get("timestamp")
+        if max_age is not None and isinstance(stamp, str):
+            try:
+                when = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+                if (now - when).total_seconds() > max_age:
                     break
+            except ValueError:
+                pass
+        text = _flat((row.get("message") or {}).get("content")).strip()
+        if text:
+            found.append(text)
+            if len(found) >= limit:
+                break
     return found[::-1]
 
 

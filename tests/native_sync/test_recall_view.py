@@ -13,7 +13,7 @@ from test_recall_warm_path import live as live  # noqa: F401  (fixture re-export
 
 
 @pytest.mark.parametrize(
-    "prompt", ["1", "好的。", "继续吧！", "搞定了吗", "OK", "？？", "/compact", "", "  "]
+    "prompt", ["1", "好的。", "继续！", "嗯", "OK", "yes", "？？", "/compact", "", "  "]
 )
 def test_acknowledgements_and_controls_are_not_searched(prompt):
     assert admit(normalize(prompt))[0] is False

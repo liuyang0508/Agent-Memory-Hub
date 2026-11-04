@@ -313,7 +313,28 @@ def serve(
         threading.Thread(target=maintain_semantic_index, name="amh-semantic", daemon=True).start()
         if autotune_days > 0:
             threading.Thread(target=recalibrate_from_use, name="amh-autotune", daemon=True).start()
+    try:
+        hub.scrub_history()
+    except sqlite3.Error as exc:
+        Console(stderr=True).print(f"历史修订清理未完成，下次启动重试：{exc}")
     uvicorn.run(create_app(hub), host=host, port=port, log_level="warning", access_log=False)
+
+
+@app.command("purge-asset")
+def purge_asset(
+    db: Path = typer.Option(..., help="Hub 数据库，仅在服务端执行"),
+    asset_id: str = typer.Option(..., help="要彻底清除的记忆 asset_id（可从驾驶舱或召回明细查到）"),
+    tenant: str = typer.Option("", help="组织 tenant；单组织 Hub 可省略"),
+    yes: bool = typer.Option(False, "--yes", help="确认执行；不可恢复"),
+) -> None:
+    """彻底清除一条记忆的所有版本（如误传的密钥）。先修好源文件，否则设备可能再次上传。"""
+    from .hub import Hub
+
+    if not db.is_file() or db.is_symlink():
+        raise typer.BadParameter("--db 必须指向已有的普通 Hub 数据库文件")
+    if not yes:
+        raise typer.BadParameter("这个操作不可恢复；确认后加 --yes")
+    emit(Hub(db).purge_asset(asset_id, tenant=tenant))
 
 
 @app.command("semantic-index")

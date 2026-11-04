@@ -52,8 +52,11 @@ def test_hook_searches_a_follow_up_with_the_previous_prompt(live, tmp_path, monk
             "transcript_path": str(path),
         },
     )
-    assert seen[-1] == "OSS 会话目录怎么列得快，aliyun oss ls 老是卡住\n那第二个呢"
-    assert "上文补充" in out["systemMessage"]
+    assert seen[-1] == "那第二个呢\nOSS 会话目录怎么列得快，aliyun oss ls 老是卡住"
+    assert "上文补充" in out["systemMessage"] and "只给标题" in out["systemMessage"]
+    # What a borrowed topic finds is named, never injected.
+    context = out["hookSpecificOutput"]["additionalContext"]
+    assert "asset_id=oss" in context and "oss2" not in context
     hooks.run(
         c.root,
         "claude-code",

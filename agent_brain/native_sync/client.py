@@ -19,7 +19,7 @@ from .source_policy import (
     policy as scope_policy,
 )
 
-from .source import source_text, read_document, files, enqueue_document, queue_delete
+from .source import source_text, read_document, files, enqueue_document, queue_delete, screen
 
 
 # Consecutive unavailable report uploads that end one sync pass.
@@ -38,6 +38,7 @@ class NativeClient:
     ) -> None:
         self.root = Path(root)
         self.path = self.root / "state.sqlite"
+        self.blocked: list[dict[str, Any]] = []
         self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
         config_path = self.root / "config.json"
         self.config = json.loads(config_path.read_text()) if config_path.exists() else {}
@@ -474,6 +475,7 @@ class NativeClient:
         from .runtime_sources import quarantine_changed_roots
 
         errors = quarantine_changed_roots(self)
+        self.blocked = []
         self.refresh_excluded_history()
         quarantined = self.quarantined_sources()
         for source in self.sources():
@@ -569,6 +571,15 @@ class NativeClient:
                         errors.append("history review required: " + source["id"] + "/" + rel)
                         continue
                 if row is not None and row["hash"] == h:
+                    continue
+                # A credential in a file must not leave this machine. The file
+                # is rechecked on the next pass, so fixing it resumes its sync;
+                # what the Hub already holds stays as it was.
+                verdict = screen(body)
+                if verdict["risk"] == "blocked":
+                    self.blocked.append(
+                        {"source": source["id"], "path": rel, "reasons": verdict["reasons"]}
+                    )
                     continue
                 stat = p.stat()
                 if row is None:
@@ -983,6 +994,7 @@ class NativeClient:
                         "request_timeout_seconds": getattr(self.transport, "timeout", None),
                     },
                     "pending": self.pending_count(),
+                    "blocked": self.blocked[:50],
                     "paused_pending": self.source_scope()["paused_pending"],
                     "origin_review_count": len(self.origin_reviews()),
                     "errors": errors,
@@ -993,6 +1005,7 @@ class NativeClient:
             return {
                 "pushed": pushed,
                 "errors": errors,
+                "blocked": self.blocked[:50],
                 "upload_deferred": upload_deferred,
                 "budget_exhausted": network_budget_exhausted,
                 "pending": self.pending_count(),
@@ -1088,6 +1101,8 @@ class NativeClient:
             db.execute("DELETE FROM recall_sources")
             db.execute("DELETE FROM lineage_records")
             db.execute("DELETE FROM meta WHERE key='last_auth'")
+            # Cleared records must come back when access does.
+            db.execute("DELETE FROM meta WHERE key='cursor'")
         from .projection import cleanup
 
         # Recall no longer copies bodies to disk, but a machine upgraded from an

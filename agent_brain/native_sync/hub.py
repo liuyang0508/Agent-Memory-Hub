@@ -33,6 +33,18 @@ def _env_float(name: str) -> float | None:
     return number
 
 
+# Text of revisions older than the given one; metadata and hashes stay.
+SCRUB_REVISIONS = (
+    "UPDATE changes SET payload=json_set(json_remove(payload,'$.index_text'),"
+    "'$.body','','$.scrubbed',1) "
+    "WHERE tenant=? AND json_extract(payload,'$.asset_id')=? "
+    "AND json_extract(payload,'$.revision')<? AND json_extract(payload,'$.scrubbed') IS NULL"
+)
+SCRUB_DONE = "changes_text_scrubbed_v1"
+RULE_FIELDS = ("lift", "hint_threshold", "hint_lift", "hint_items")
+FEISHU_STATE_LIMIT = 1000
+
+
 class Hub:
     """Single-node authority; each mutation commits assets, changes and FTS together.
 
@@ -523,6 +535,12 @@ class Hub:
                 "INSERT INTO feishu_states VALUES(?,?,?,0)",
                 (digest(state), port, time.time() + 300),
             )
+            # A bounded public queue: flooding it costs the attacker, not the Hub.
+            db.execute(
+                "DELETE FROM feishu_states WHERE hash NOT IN "
+                "(SELECT hash FROM feishu_states ORDER BY expires DESC LIMIT ?)",
+                (FEISHU_STATE_LIMIT,),
+            )
         return state
 
     def feishu_check(self, state: str) -> None:
@@ -887,6 +905,9 @@ class Hub:
                 "INSERT OR REPLACE INTO assets VALUES(?,?,?,?,?)",
                 (who["tenant"], item["asset_id"], record["revision"], who["device_id"], encoded),
             )
+            # Editing or deleting a memory must remove its old text: the log keeps
+            # the fact and metadata of a past revision, not what it said.
+            db.execute(SCRUB_REVISIONS, (who["tenant"], item["asset_id"], record["revision"]))
             db.execute("INSERT INTO changes(tenant,payload) VALUES(?,?)", (who["tenant"], encoded))
             # New text, new chance: contradictions were filed against the old
             # revision and must not keep pressing the corrected one down. The
@@ -1042,13 +1063,31 @@ class Hub:
         """Read a stable tenant-scoped sequence page, including deletions; an empty page retains cursor."""
         with database(self.path) as db:
             who = self._identity(db, token)
+            page = min(max(1, limit), 100)
             rows = db.execute(
                 "SELECT seq,payload FROM changes WHERE tenant=? AND seq>? ORDER BY seq LIMIT ?",
-                (who["tenant"], max(0, cursor), min(max(1, limit), 100)),
+                (who["tenant"], max(0, cursor), page),
             ).fetchall()
             from .evidence import metadata
 
             items = [json.loads(r["payload"]) for r in rows]
+            if not metadata_only:
+                # A client that wants bodies skips revisions whose text is gone;
+                # the current revision always follows later in the log. An empty
+                # page means "caught up" to a client, so keep reading until a
+                # page has something or the log ends.
+                items = [item for item in items if not item.get("scrubbed")]
+                while rows and not items:
+                    rows = db.execute(
+                        "SELECT seq,payload FROM changes WHERE tenant=? AND seq>? "
+                        "ORDER BY seq LIMIT ?",
+                        (who["tenant"], rows[-1]["seq"], page),
+                    ).fetchall()
+                    items = [
+                        item
+                        for item in (json.loads(r["payload"]) for r in rows)
+                        if not item.get("scrubbed")
+                    ]
             proofs: dict[tuple[str, ...], list[tuple[str, int]]] = {}
             for item in items:
                 key = self._proof_key(item)
@@ -1065,8 +1104,68 @@ class Hub:
                     {"scope": key, "parts": parts} for key, parts in proofs.items() if parts
                 ],
                 "items": [metadata(item) for item in items] if metadata_only else items,
-                "cursor": rows[-1]["seq"] if rows else cursor,
+                "cursor": rows[-1]["seq"] if rows else max(cursor, self._last_seq(db, who["tenant"])),
             }
+
+    @staticmethod
+    def _last_seq(db: sqlite3.Connection, tenant: str) -> int:
+        row = db.execute("SELECT max(seq) FROM changes WHERE tenant=?", (tenant,)).fetchone()
+        return int(row[0] or 0)
+
+    def scrub_history(self) -> int:
+        """Remove superseded revisions' text already in the log; runs once per database.
+
+        Secure delete and a vacuum make the text unrecoverable from the file too.
+        """
+        with database(self.path) as db:
+            if db.execute("SELECT 1 FROM settings WHERE key=?", (SCRUB_DONE,)).fetchone():
+                return 0
+            db.execute("PRAGMA secure_delete=ON")
+            db.execute("BEGIN IMMEDIATE")
+            cursor = db.execute(
+                "UPDATE changes SET payload=json_set(json_remove(payload,'$.index_text'),"
+                "'$.body','','$.scrubbed',1) "
+                "WHERE json_extract(payload,'$.scrubbed') IS NULL AND seq NOT IN ("
+                "SELECT max(seq) FROM changes GROUP BY tenant,json_extract(payload,'$.asset_id'))"
+            )
+            changed = cursor.rowcount
+            db.execute("INSERT OR REPLACE INTO settings VALUES(?,'1')", (SCRUB_DONE,))
+            db.commit()
+            if changed:
+                db.execute("VACUUM")
+        return int(changed)
+
+    def purge_asset(self, asset_id: str, *, tenant: str = "") -> dict[str, int]:
+        """Host-side erasure of a leaked memory, every revision; the device may upload it again
+        unless its source file is fixed, which the client's screen now refuses."""
+        scope = tenant or self.tenant
+        with database(self.path) as db:
+            db.execute("PRAGMA secure_delete=ON")
+            db.execute("BEGIN IMMEDIATE")
+            removed = {
+                "assets": db.execute(
+                    "DELETE FROM assets WHERE tenant=? AND id=?", (scope, asset_id)
+                ).rowcount,
+                "changes": db.execute(
+                    "UPDATE changes SET payload=json_set(json_remove(payload,'$.index_text'),"
+                    "'$.body','','$.title','','$.scrubbed',1,'$.deleted',json('true')) "
+                    "WHERE tenant=? AND json_extract(payload,'$.asset_id')=?",
+                    (scope, asset_id),
+                ).rowcount,
+            }
+            db.execute(
+                "DELETE FROM search_index WHERE tenant=? AND asset_id=?", (scope, asset_id)
+            )
+            from .semantic import exists as semantic_exists
+
+            if semantic_exists(db):
+                db.execute(
+                    "DELETE FROM native_semantic_vectors WHERE tenant=? AND asset_id=?",
+                    (scope, asset_id),
+                )
+            db.commit()
+            db.execute("VACUUM")
+        return removed
 
     def search(
         self,
@@ -1208,6 +1307,17 @@ class Hub:
                 return promoted
         return self._base_gate()
 
+    def _with_current_rule(self, raw: dict[str, Any]) -> dict[str, Any]:
+        """A gate promoted before a rule field existed takes it from the manifest."""
+        base = self._base_gate()
+        if base is None:
+            return raw
+        rule = base.to_dict()
+        return {
+            **{key: rule[key] for key in RULE_FIELDS if key not in raw},
+            **raw,
+        }
+
     def _base_gate(self) -> Any:
         from .relevance import GateModel
 
@@ -1257,7 +1367,7 @@ class Hub:
             # A gate learned on another embedding model's similarities means
             # nothing for this one: fall back until it is recalibrated.
             if row is not None and (current is None or row["model"] == current):
-                model = GateModel.from_dict(json.loads(row["payload"]))
+                model = GateModel.from_dict(self._with_current_rule(json.loads(row["payload"])))
         except (sqlite3.Error, ValueError, KeyError, TypeError):
             model = None
         self._tenant_gates[tenant] = (time.monotonic(), model)

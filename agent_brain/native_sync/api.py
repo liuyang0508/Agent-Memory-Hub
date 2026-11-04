@@ -64,6 +64,10 @@ def create_app(hub: Hub) -> FastAPI:
 
     @app.exception_handler(PermissionError)
     async def denied(request: Any, error: Any) -> JSONResponse:
+        # The operating system's own denial carries an errno: that is this
+        # host's problem. Calling it 401 made clients wipe their state.
+        if getattr(error, "errno", None) is not None:
+            return JSONResponse(status_code=500, content={"detail": "server storage error"})
         return JSONResponse(status_code=401, content={"detail": str(error)})
 
     @app.exception_handler(ValueError)
