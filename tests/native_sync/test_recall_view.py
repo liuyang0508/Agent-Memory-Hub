@@ -89,7 +89,7 @@ def test_table_lists_call_parameters_and_each_memory():
     row = next(line for line in view.splitlines() if line.startswith("| 1 |"))
     assert "订单验签" in row and "Codex" in row and "敖丙" in row and "r3" in row
     assert "词法2·语义1" in row and "0.73" in row and "已注入" in row
-    assert "未知（张三上传）" in view and "超出注入预算" in view
+    assert "| 张三 |" in view and "上传" not in view and "超出注入预算" in view
     third = next(line for line in view.splitlines() if line.startswith("| 3 |"))
     assert "MEMORY.md §3/15" in third and "词法4·语义2" in third
 
@@ -218,10 +218,13 @@ def test_box_table_lines_up_mixed_width_text():
     )
     lines = view.splitlines()
     table = [line for line in lines if line[:1] in "┌│├└"]
-    assert len(table) == 7 and len({_width(line) for line in table}) == 1
+    # Top, header, then a rule above every row, bottom: 2 + 2 * 3 + 1.
+    assert len(table) == 9 and len({_width(line) for line in table}) == 1
+    assert sum(line.startswith("├") for line in table) == 3
     assert "**" not in view and "`" not in view
     assert not any(mark in line for line in table for mark in "…·—§")
-    assert "张三上传" in view and "已注入过" in view and "MEMORY.md 1/4" in view
+    assert "张三" in view and "上传" not in view and "已注入过" in view
+    assert "MEMORY.md 1/4" in view and "相关性" in table[1] and "使用率" in table[1]
     assert "项目" in table[1]  # a hit carries a project, so the column is shown
 
 
@@ -265,3 +268,11 @@ def test_claude_mod_export_binds_the_state_directory(tmp_path):
         "amh-recall-view"
     )
     assert (folder / "types" / "index.d.ts").exists()
+
+
+def test_usage_rate_shows_share_and_judged_turns():
+    from agent_brain.native_sync.recall_view import _usage
+
+    assert _usage(_record(recall={"usage": {"used": 3, "judged": 4}})) == "75%·4次"
+    assert _usage(_record(recall={"usage": None})) == "—"
+    assert _usage(_record()) == "—"

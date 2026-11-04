@@ -160,6 +160,9 @@ class GateModel:
     threshold: float = 0.3
     max_items: int = 3
     dedup: float = 0.5
+    # A follower (2nd, 3rd memory) must reach this share of the leader's
+    # probability: a strong match should not bring weak ones along.
+    relative: float = 0.0
     version: str = "learned-v1"
     calibration: dict[str, Any] = field(default_factory=dict)
 
@@ -175,6 +178,7 @@ class GateModel:
             threshold=float(raw.get("threshold", 0.3)),
             max_items=int(raw.get("max_items", 3)),
             dedup=float(raw.get("dedup", 0.5)),
+            relative=float(raw.get("relative", 0.0)),
             version=str(raw.get("version", "learned-v1")),
             calibration=dict(raw.get("calibration") or {}),
         )
@@ -186,6 +190,7 @@ class GateModel:
             or not 0 < model.threshold < 1
             or not 1 <= model.max_items <= 8
             or not 0 < model.dedup <= 1
+            or not 0 <= model.relative < 1
         ):
             raise ValueError("invalid gate model")
         return model
@@ -201,6 +206,7 @@ class GateModel:
             "threshold": self.threshold,
             "max_items": self.max_items,
             "dedup": self.dedup,
+            "relative": self.relative,
             "calibration": self.calibration,
         }
 
@@ -296,6 +302,7 @@ def select(model: GateModel, candidates: Sequence[Candidate], threshold: float) 
     )
     chosen: list[Candidate] = []
     keys: set[tuple[str, str]] = set()
+    leader = 1.0
     for probability, candidate in scored:
         anchored = candidate.values[FEATURES.index("anchor")] > 0 and (
             candidate.values[FEATURES.index("lex_inv")] >= 1 / POOL_LEXICAL
@@ -306,7 +313,11 @@ def select(model: GateModel, candidates: Sequence[Candidate], threshold: float) 
             containment(candidate.shingles, other.shingles) >= model.dedup for other in chosen
         ):
             continue
+        if chosen and not anchored and probability < model.relative * leader:
+            continue
         keys.add(candidate.duplicate_key)
+        if not chosen:
+            leader = probability
         chosen.append(candidate)
         if len(chosen) >= model.max_items:
             break
@@ -337,6 +348,7 @@ def cross_validate(
     seeds: int = 5,
     score: Utility = utility,
     extra: tuple[Sequence[Sequence[float]], Sequence[float], Sequence[float]] | None = None,
+    relative: float = 0.0,
 ) -> dict[str, Any]:
     """Grouped k-fold by case: thresholds are judged only on cases the model never saw.
 
@@ -365,6 +377,7 @@ def cross_validate(
                 labels = [*labels, *extra[1]]
                 weights = [*weights, *extra[2]]
             model = fit(rows, labels, weights=weights)
+            model.relative = relative
             for i in held:
                 case, candidates = cases[i]
                 for t in thresholds:

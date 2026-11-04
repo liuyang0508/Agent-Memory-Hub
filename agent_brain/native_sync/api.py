@@ -589,6 +589,7 @@ RECALL_TRACE_FIELDS = (
     "decay_weight",
     "state",
     "relevance",
+    "usage",
 )
 RECALL_BODY_BYTES = 64 * 1024
 RECALL_TOTAL_BYTES = 512 * 1024

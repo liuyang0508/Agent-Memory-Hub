@@ -82,6 +82,24 @@ def _record_trace(hub: Hub, tenant: str, payload: dict[str, Any]) -> bool:
         DB_TIMEOUT.reset(token)
 
 
+def _usage_rates(hub: Hub, tenant: str, asset_ids: list[str]) -> dict[str, dict[str, int]]:
+    """Per memory: how many judged injections, and how many the answer used."""
+    if not asset_ids:
+        return {}
+    try:
+        with database(hub.path) as db:
+            rows = db.execute(
+                "SELECT asset_id, COUNT(*) judged, "
+                "SUM(label IN ('used','consulted')) used FROM recall_labels "
+                "WHERE tenant=? AND asset_id IN (" + ",".join("?" for _ in asset_ids) + ") "
+                "GROUP BY asset_id",
+                [tenant, *asset_ids],
+            ).fetchall()
+    except sqlite3.Error:
+        return {}
+    return {r["asset_id"]: {"used": int(r["used"]), "judged": int(r["judged"])} for r in rows}
+
+
 def _existing_targets(
     db: sqlite3.Connection, tenant: str, targets: set[str]
 ) -> dict[str, str | None]:
@@ -659,6 +677,25 @@ def retrieve(
                         {"probability": round(probability, 4), "threshold": model.threshold},
                     )
             judged.sort(key=lambda pair: -pair[0])
+            if not collecting and model.relative and judged:
+                # Followers must reach a share of the leader's probability;
+                # a literal identifier from the prompt still passes.
+                leader = judged[0][0]
+                kept_judged = judged[:1]
+                for probability, hit in judged[1:]:
+                    gate_row = trace.row(hit.id).get("gate") or {}
+                    if probability >= model.relative * leader or gate_row.get("anchor"):
+                        kept_judged.append((probability, hit))
+                    else:
+                        trace.drop(
+                            hit.id,
+                            "relevance_gate",
+                            {
+                                "probability": round(probability, 4),
+                                "follow": round(model.relative * leader, 4),
+                            },
+                        )
+                judged = kept_judged
             fused = [hit for _, hit in judged]
             trace.stage("relevance_gate", before, trace.snapshot(fused), effects)
             if not collecting:
@@ -779,6 +816,7 @@ def retrieve(
         ),
     }
     trace_id: str | None = secrets.token_hex(12)
+    usage = _usage_rates(hub, who["tenant"], [item["asset_id"] for item in results])
     for item in results:
         row = trace.rows[item["asset_id"]]
         item["recall"] = {
@@ -789,6 +827,7 @@ def retrieve(
             "decay_weight": row["decay"]["weight"] if "decay" in row else None,
             "state": row["state"],
             "relevance": (row.get("gate") or {}).get("probability"),
+            "usage": usage.get(item["asset_id"]),
         }
     preview_on = (
         str(preview_setting["value"]).strip().lower() if preview_setting else "on"

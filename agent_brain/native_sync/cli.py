@@ -1249,6 +1249,9 @@ def recall_calibrate(
     model: str | None = typer.Option(None, help="语义模型目录；默认取 AMH_NATIVE_SEMANTIC_MODEL"),
     max_items: int = typer.Option(3, min=1, max=8, help="每次最多注入条数"),
     dedup: float = typer.Option(0.5, min=0.05, max=1.0, help="近重复折叠的包含度阈值"),
+    relative: float = typer.Option(
+        0.5, min=0.0, max=0.95, help="第 2、3 条至少达到第 1 条相关概率的这个比例"
+    ),
 ) -> None:
     """用问题集拟合召回相关性模型，按分组交叉验证选阈值，输出可部署的门控模型。"""
     from datetime import datetime, timezone
@@ -1266,8 +1269,8 @@ def recall_calibrate(
     rows = [c.values for _, candidates in judged for c in candidates]
     labels = [1.0 if c.relevant else 0.0 for _, candidates in judged for c in candidates]
     fitted = fit(rows, labels)
-    fitted.max_items, fitted.dedup = max_items, dedup
-    report = cross_validate(judged)
+    fitted.max_items, fitted.dedup, fitted.relative = max_items, dedup, relative
+    report = cross_validate(judged, relative=relative)
     fitted.threshold = report["best"]["threshold"]
     fitted.calibration = {
         "date": datetime.now(timezone.utc).date().isoformat(),

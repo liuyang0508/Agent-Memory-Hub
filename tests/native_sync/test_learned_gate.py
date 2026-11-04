@@ -315,3 +315,36 @@ def test_the_recall_api_returns_the_relevance_probability(tmp_path):
     )
     items = response.json()["items"]
     assert items and all(0.5 <= item["recall"]["relevance"] <= 1 for item in items)
+
+
+def test_followers_must_reach_a_share_of_the_leader():
+    leader = Candidate(
+        [0.95] + [0.0] * 7, True, relevance.shingles("leader note " * 9), ("h1", "t")
+    )
+    weak = Candidate([0.72] + [0.0] * 7, False, relevance.shingles("weak note " * 9), ("h2", "t"))
+    anchored = Candidate(
+        [0.65, 0, 0, 0, 1.0, 0, 0, 1.0], True, relevance.shingles("E1234 x " * 9), ("h3", "t")
+    )
+    model = GateModel.from_dict({**sim_only(threshold=0.5), "relative": 0.8})
+    assert model.to_dict()["relative"] == 0.8
+    # p(leader) ~ 0.99, p(weak) ~ 0.6 < 0.8 * 0.99; the identifier still passes.
+    chosen = relevance.select(model, [leader, weak, anchored], 0.5)
+    assert chosen == [leader, anchored]
+    model.relative = 0.0
+    assert weak in relevance.select(model, [leader, weak], 0.5)
+    with pytest.raises(ValueError):
+        GateModel.from_dict({**sim_only(), "relative": 1.0})
+
+
+def test_hook_recall_drops_weak_followers_and_says_why(tmp_path):
+    gate = {**sim_only(threshold=0.05), "relative": 0.9}
+    # Keyword rank alone: rank 1 p~0.98, rank 2 p=0.5, unranked p~0.02 (below 0.05).
+    gate["weights"], gate["bias"] = [0.0, 0, 0, 0, 8.0, 0, 0, 0], -4.0
+    hub, token = topic_hub(tmp_path, gate)
+    result = hub.recall(token, "approval reviewers")
+    assert len(result["items"]) == 1
+    trace = hub.recalls(token, trace_id=result["trace_id"])["traces"][0]
+    reasons = [
+        c.get("state_detail") or c.get("dropped") or c.get("state") for c in trace["candidates"]
+    ]
+    assert any("follow" in json.dumps(c) for c in trace["candidates"]), reasons
