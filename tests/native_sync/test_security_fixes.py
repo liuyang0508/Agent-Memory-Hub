@@ -350,3 +350,57 @@ def test_masking_a_session_record_replaces_what_the_hub_held(hub, tmp_path):
     )
     assert author.sync()["blocked"] == []
     assert FAKE_KEY not in json.dumps(hub.changes(reader["token"], 0))
+
+
+def test_scrubbing_is_resumable_and_leaves_room_for_other_writers(hub):
+    who = hub.provision("作者", "d")
+    for key in range(250):
+        hub.put(who["token"], asset(f"m{key}", body=f"旧 {key} " + FAKE_KEY))
+    for key in range(250):
+        hub.put(who["token"], {**asset(f"m{key}", body=f"新 {key}"), "base_revision": 1})
+    # A log from before this release: every old revision still holds its text.
+    with database(hub.path) as db:
+        for row in db.execute("SELECT seq,payload FROM changes").fetchall():
+            old = json.loads(row["payload"])
+            if old.pop("scrubbed", None):
+                old["body"] = FAKE_KEY
+                db.execute(
+                    "UPDATE changes SET payload=? WHERE seq=?", (json.dumps(old), row["seq"])
+                )
+        db.execute("INSERT INTO settings VALUES('changes_text_scrub_position','100')")
+    # Picks up where an earlier run stopped, and a restart in between loses nothing.
+    assert hub.scrub_history() == 150
+    with database(hub.path) as db:
+        first = db.execute("SELECT payload FROM changes ORDER BY seq LIMIT 1").fetchone()
+        assert FAKE_KEY in first["payload"]  # before the kept position: already theirs to finish
+        db.execute("DELETE FROM settings WHERE key='changes_text_scrubbed_v1'")
+    assert hub.scrub_history() == 100
+    assert FAKE_KEY.encode() not in Path(hub.path).read_bytes()
+    assert hub.scrub_history() == 0
+
+
+def test_serving_does_not_wait_for_the_scrub():
+    root = Path(__file__).resolve().parents[2]
+    source = (root / "agent_brain/native_sync/cli.py").read_text()
+    body = source[source.index("def scrub_old_text") : source.index("uvicorn.run(create_app(hub)")]
+    assert "threading.Thread(target=scrub_old_text" in body
+
+
+def test_compact_clears_what_was_freed_before_secure_delete(hub):
+    who = hub.provision("作者", "d")
+    hub.put(who["token"], asset("m", body="正文"))
+    import sqlite3
+
+    # Freed by an older release: unlinked, not zeroed.
+    raw = sqlite3.connect(hub.path)
+    raw.execute("PRAGMA secure_delete=OFF")
+    raw.execute("CREATE TABLE old(t TEXT)")
+    raw.execute("INSERT INTO old VALUES(?)", (FAKE_KEY * 400,))
+    raw.commit()
+    raw.execute("DROP TABLE old")
+    raw.commit()
+    raw.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    raw.close()
+    assert FAKE_KEY.encode() in Path(hub.path).read_bytes()
+    hub.compact()
+    assert FAKE_KEY.encode() not in Path(hub.path).read_bytes()

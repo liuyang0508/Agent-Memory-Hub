@@ -38,6 +38,9 @@ def database(path: Path, *, create: bool = True) -> Iterator[sqlite3.Connection]
         db.row_factory = sqlite3.Row
         db.execute("PRAGMA journal_mode=WAL")
         db.execute("PRAGMA foreign_keys=ON")
+        # Removed text is zeroed in the file, not just unlinked: these databases
+        # hold other members' memories, and sometimes something to be erased.
+        db.execute("PRAGMA secure_delete=ON")
         with db:
             yield db
     finally:

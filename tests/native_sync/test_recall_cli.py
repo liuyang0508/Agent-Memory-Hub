@@ -20,7 +20,7 @@ def test_serve_flags_reach_the_hub(tmp_path, monkeypatch):
         def __init__(self, db, **options):
             captured.update(options)
 
-        def scrub_history(self):
+        def scrub_history(self, **options):
             return 0
 
     monkeypatch.setattr("agent_brain.native_sync.hub.Hub", FakeHub)
@@ -58,7 +58,7 @@ def test_serve_without_flags_leaves_decay_and_hopfield_to_the_environment(tmp_pa
         def __init__(self, db, **options):
             captured.update(options)
 
-        def scrub_history(self):
+        def scrub_history(self, **options):
             return 0
 
     monkeypatch.setattr("agent_brain.native_sync.hub.Hub", FakeHub)

@@ -41,6 +41,8 @@ SCRUB_REVISIONS = (
     "AND json_extract(payload,'$.revision')<? AND json_extract(payload,'$.scrubbed') IS NULL"
 )
 SCRUB_DONE = "changes_text_scrubbed_v1"
+SCRUB_AT = "changes_text_scrub_position"
+SCRUB_BATCH = 100
 RULE_FIELDS = ("lift", "hint_threshold", "hint_lift", "hint_items")
 FEISHU_STATE_LIMIT = 1000
 
@@ -1117,35 +1119,84 @@ class Hub:
         row = db.execute("SELECT max(seq) FROM changes WHERE tenant=?", (tenant,)).fetchone()
         return int(row[0] or 0)
 
-    def scrub_history(self) -> int:
-        """Remove superseded revisions' text already in the log; runs once per database.
+    def scrub_history(self, *, pause: float = 0.0) -> int:
+        """Remove superseded revisions' text already in the log; finishes once per database.
 
-        Secure delete and a vacuum make the text unrecoverable from the file too.
+        Runs beside a serving Hub, so it takes the write lock for one small batch
+        at a time and can stop anywhere: progress is kept, and revisions written
+        meanwhile are scrubbed by the write itself. Secure delete zeroes the old
+        text in the file; a vacuum would lock the whole database for minutes.
         """
         with database(self.path) as db:
             if db.execute("SELECT 1 FROM settings WHERE key=?", (SCRUB_DONE,)).fetchone():
                 return 0
-            db.execute("PRAGMA secure_delete=ON")
-            db.execute("BEGIN IMMEDIATE")
-            cursor = db.execute(
-                "UPDATE changes SET payload=json_set(json_remove(payload,'$.index_text'),"
-                "'$.body','','$.scrubbed',1) "
-                "WHERE json_extract(payload,'$.scrubbed') IS NULL AND seq NOT IN ("
-                "SELECT max(seq) FROM changes GROUP BY tenant,json_extract(payload,'$.asset_id'))"
-            )
-            changed = cursor.rowcount
+            progress = db.execute("SELECT value FROM settings WHERE key=?", (SCRUB_AT,)).fetchone()
+            position = int(progress["value"]) if progress else 0
+            latest = {
+                int(row[0])
+                for row in db.execute(
+                    "SELECT max(seq) FROM changes "
+                    "GROUP BY tenant,json_extract(payload,'$.asset_id')"
+                )
+            }
+            top = int(db.execute("SELECT coalesce(max(seq),0) FROM changes").fetchone()[0])
+        changed = 0
+        while position < top:
+            with database(self.path) as db:
+                db.execute("BEGIN IMMEDIATE")
+                seqs = [
+                    int(row[0])
+                    for row in db.execute(
+                        "SELECT seq FROM changes WHERE seq>? ORDER BY seq LIMIT ?",
+                        (position, SCRUB_BATCH),
+                    )
+                ]
+                if not seqs:
+                    break
+                for seq in seqs:
+                    if seq in latest:
+                        continue
+                    changed += db.execute(
+                        "UPDATE changes SET payload=json_set(json_remove(payload,'$.index_text'),"
+                        "'$.body','','$.scrubbed',1) "
+                        "WHERE seq=? AND json_extract(payload,'$.scrubbed') IS NULL",
+                        (seq,),
+                    ).rowcount
+                position = seqs[-1]
+                db.execute("INSERT OR REPLACE INTO settings VALUES(?,?)", (SCRUB_AT, str(position)))
+            if pause:
+                time.sleep(pause)
+        with database(self.path) as db:
             db.execute("INSERT OR REPLACE INTO settings VALUES(?,'1')", (SCRUB_DONE,))
-            db.commit()
-            if changed:
-                db.execute("VACUUM")
-        return int(changed)
+            db.execute("DELETE FROM settings WHERE key=?", (SCRUB_AT,))
+        self._flush_file()
+        return changed
+
+    def compact(self) -> dict[str, int]:
+        """Rewrite the file, for a maintenance window: it blocks writers throughout.
+
+        Pages freed before secure delete was on can still hold old text until they
+        are reused; after a leak this is what removes them for certain.
+        """
+        before = Path(self.path).stat().st_size
+        with database(self.path) as db:
+            db.execute("VACUUM")
+        self._flush_file()
+        return {"bytes_before": before, "bytes_after": Path(self.path).stat().st_size}
+
+    def _flush_file(self) -> None:
+        """Old text can linger in the write-ahead log; move it out and truncate it."""
+        with database(self.path) as db:
+            try:
+                db.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchall()
+            except sqlite3.Error:
+                pass  # Busy: the regular checkpoint gets there.
 
     def purge_asset(self, asset_id: str, *, tenant: str = "") -> dict[str, int]:
         """Host-side erasure of a leaked memory, every revision; the device may upload it again
         unless its source file is fixed, which the client's screen now refuses."""
         scope = tenant or self.tenant
         with database(self.path) as db:
-            db.execute("PRAGMA secure_delete=ON")
             db.execute("BEGIN IMMEDIATE")
             removed = {
                 "assets": db.execute(
@@ -1167,7 +1218,7 @@ class Hub:
                     (scope, asset_id),
                 )
             db.commit()
-            db.execute("VACUUM")
+        self._flush_file()
         return removed
 
     def search(
