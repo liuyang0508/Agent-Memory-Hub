@@ -1,6 +1,6 @@
 # 组织第二大脑：安装与使用手册
 
-适用版本：AMH 1.4.13。面向 macOS 成员；试点组织 linkcrux，组织地址 `https://platform.linkcrux.com`。核对日期：2026-11-04。
+适用版本：AMH 1.4.14。面向 macOS 成员；试点组织 linkcrux，组织地址 `https://platform.linkcrux.com`。核对日期：2026-11-04。
 
 ## 一、你能用它做什么
 
@@ -36,7 +36,7 @@ curl -fsSL https://github.com/liuyang0508/agent-memory-hub/releases/latest/downl
 需要固定安装本手册版本时，用下面这条代替：
 
 ```bash
-curl -fsSL https://github.com/liuyang0508/agent-memory-hub/releases/download/v1.4.13/install.sh | sh -s -- --org-memory --hub https://platform.linkcrux.com
+curl -fsSL https://github.com/liuyang0508/agent-memory-hub/releases/download/v1.4.14/install.sh | sh -s -- --org-memory --hub https://platform.linkcrux.com
 ```
 
 其他组织把最后的地址替换为管理员提供的 HTTPS 地址，不要填邮箱、账号或 SSH 地址。
@@ -110,7 +110,7 @@ CLI 和桌面共用的文件可能标为 `codex`：这表示无法从同一份�
 1. 安装器会在 Finder 定位 `cowork-plugin.zip`，默认位于 `~/.amh-native-sync/cowork-plugin.zip`。
 2. 打开 Claude 桌面应用，进入 **Customize → Plugins → Add plugin → Upload**。
 3. 选择刚生成的 ZIP，完成导入；已有同名插件时，核对后选择替换。
-4. 确认 **Amh native org** 已启用，版本为 1.4.13。本机绑定的插件还提供组织只读 MCP 工具；在新任务中使用。
+4. 确认 **Amh native org** 已启用，版本为 1.4.14。本机绑定的插件还提供组织只读 MCP 工具；在新任务中使用。
 
 文件选择窗口看不到隐藏目录时，按 **Command + Shift + G**，粘贴终端显示的 ZIP 完整路径，再按回车和“打开”。无需解压。
 5. 在 Cowork 新建任务，触发首次配对。
@@ -143,7 +143,7 @@ Cowork 执行过首次任务后，再检查其独立运行时：
 
 应与主客户端是同一成员、不同设备。未登记时，先核对插件启用状态与首次任务。
 
-检查版本，本文版本应输出 `1.4.13`：
+检查版本，本文版本应输出 `1.4.14`：
 
 ```bash
 "$HOME/.amh-native/venv/bin/python" -c 'from importlib.metadata import version; print(version("agent-memory-hub"))'
@@ -248,6 +248,7 @@ Cowork 执行过首次任务后，再检查其独立运行时：
 | 想让召回像工具调用一样是彩色、可展开/收起的一行 | Claude Code 里装 mod：`amh-native claude-mod --output ~/.claude/amh-mods/amh-recall-view`，再用 `claude --plugin-dir ~/.claude/amh-mods/amh-recall-view` 启动（或把该目录加入 `CLAUDE_CODE_PLUGIN_DIRS`）。装上后每条提示下方是一行蓝色标题和摘要，点「展开」看调用、入参和表格。mod 没加载时自动回到普通消息。 |
 | 「好的」「继续」「1」这类提示没有召回 | 有意为之：简短确认语没有可检索的主题，检索只会注入噪声。表格里会显示「跳过」及原因；带主题的短提示（如「灵鹤计划」）照常检索。 |
 | 召回会不会越用越准 | 会。1.4.11 起，每轮回答结束时，本机判断这轮注入的记忆有没有被用上（回答里出现了只有这条记忆才有的内容，比如具体的路径、命令或几段原话），只把「用上了 / 没用上」和记忆编号发给 Hub，不发提示和正文。Hub 每周用这些反馈加上组织的问题集重新校准一次；新门控在问题集上有提升、各项不退步，并且在真实使用反馈上不明显比现在差，才会启用。`amh-native recall-tuning` 查看反馈条数、上次校准的结论和门控版本；`amh-native recall-gold-upload --gold 问题集.json` 补充组织问题集。 |
+| 客户端要不要手动升级 | 1.4.14 起不用：后台进程每天检查一次，Hub 升级后，客户端会自动升到和 Hub 相同的版本（不会超过 Hub）。安装包要先核对发布页的校验和，装完再验证一遍，失败就装回原版本。`amh-native update` 查看状态，`--now` 立即检查，`--off` 关闭。用源码目录或开发模式安装的不会自动升级；Cowork 插件仍需重新导入。 |
 | 后台任务完成通知也触发了召回 | 1.4.11 起不会：宿主的后台事件（任务完成通知、命令输出回显）不是成员的提问，不检索、不显示「跳过」。 |
 | 想知道本机召回整体表现 | `amh-native hook-stats --days 7`：跳过与原因、命中/注入次数、走常驻服务还是子进程、混合或词法、耗时 p50/p90。不含提示原文。 |
 | Cowork 不生效 | 检查插件版本与启用状态、新建任务、核对独立运行时；CC 正常不代表 Cowork 正常。 |

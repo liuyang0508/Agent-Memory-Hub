@@ -570,6 +570,7 @@ def export_cowork_plugin(
         "recall_service.py",
         "recall_view.py",
         "usage.py",
+        "autoupdate.py",
         "client.py",
         "cowork_runtime.py",
         "runtime_sources.py",

@@ -121,9 +121,13 @@ def create_app(hub: Hub) -> FastAPI:
             semantic["gate"] = gate
             if gate.startswith("learned-"):
                 capabilities.append("relevance-gate-v1")
+        from agent_brain._version import __version__
+
         return {
             "protocol": 1,
             "service": "amh-native",
+            # Clients update themselves to this version (autoupdate.py).
+            "version": __version__,
             "capabilities": capabilities,
             # Model name, index and gate state only; no counts, paths or tenants.
             "semantic": semantic,
