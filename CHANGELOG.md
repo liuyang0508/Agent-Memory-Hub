@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.21] — 2026-11-05
+
+### Fixed
+
+- Upgrading a Hub with a large change log failed: 1.4.20 scrubbed old text and ran
+  a vacuum before accepting requests, past the 90 seconds an upgrade allows, and
+  rolled back. The scrub now runs beside the service in small batches, resumes after
+  a restart, and secure delete replaces the vacuum, which would have locked the
+  database for minutes. Do not deploy 1.4.20 on a Hub with existing data.
+
 ## [1.4.20] — 2026-11-04
 
 ### Security

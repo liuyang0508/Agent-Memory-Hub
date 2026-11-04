@@ -313,10 +313,17 @@ def serve(
         threading.Thread(target=maintain_semantic_index, name="amh-semantic", daemon=True).start()
         if autotune_days > 0:
             threading.Thread(target=recalibrate_from_use, name="amh-autotune", daemon=True).start()
-    try:
-        hub.scrub_history()
-    except sqlite3.Error as exc:
-        Console(stderr=True).print(f"历史修订清理未完成，下次启动重试：{exc}")
+
+    def scrub_old_text() -> None:
+        # Beside the service, never before it: on a large organization this takes
+        # minutes, and an upgrade gives the service 90 seconds to become ready.
+        clock.sleep(30.0)
+        try:
+            hub.scrub_history(pause=0.05)
+        except Exception as exc:  # noqa: BLE001 - keeps its progress; the next start resumes
+            Console(stderr=True).print(f"历史修订清理未完成，下次启动继续：{type(exc).__name__}")
+
+    threading.Thread(target=scrub_old_text, name="amh-scrub", daemon=True).start()
     uvicorn.run(create_app(hub), host=host, port=port, log_level="warning", access_log=False)
 
 
@@ -335,6 +342,21 @@ def purge_asset(
     if not yes:
         raise typer.BadParameter("这个操作不可恢复；确认后加 --yes")
     emit(Hub(db).purge_asset(asset_id, tenant=tenant))
+
+
+@app.command("compact")
+def compact(
+    db: Path = typer.Option(..., help="Hub 数据库，仅在服务端执行"),
+    yes: bool = typer.Option(False, "--yes", help="确认执行；期间写入会被阻塞，请在维护窗口运行"),
+) -> None:
+    """压缩 Hub 数据库并抹掉空闲页里的旧内容。发生泄露后、清理完成时运行一次。"""
+    from .hub import Hub
+
+    if not db.is_file() or db.is_symlink():
+        raise typer.BadParameter("--db 必须指向已有的普通 Hub 数据库文件")
+    if not yes:
+        raise typer.BadParameter("期间写入会被阻塞；在维护窗口确认后加 --yes")
+    emit(Hub(db).compact())
 
 
 @app.command("semantic-index")
@@ -967,7 +989,11 @@ def recall_trace(
             )
             + (f" · 信号 {item['signals']}" if item.get("signals") else "")
             + (f" · {item['state_detail']}" if item.get("state_detail") else "")
-            + (f" · 本轮{USAGE_LABELS.get(item['usage'], item['usage'])}" if item.get("usage") else "")
+            + (
+                f" · 本轮{USAGE_LABELS.get(item['usage'], item['usage'])}"
+                if item.get("usage")
+                else ""
+            )
         )
         for stage in item.get("stages", []):
             console.print(
@@ -1390,15 +1416,12 @@ def recall_gold_upload(
     from .recall_eval import load_gold
 
     cases = [
-        {k: case[k] for k in ("id", "query", "expect", "tags", "split")}
-        for case in load_gold(gold)
+        {k: case[k] for k in ("id", "query", "expect", "tags", "split")} for case in load_gold(gold)
     ]
     c = load(state)
     result: dict[str, Any] = {}
     for start in range(0, len(cases), 500):
-        result = c.transport.recall_gold(
-            cases[start : start + 500], replace=replace and start == 0
-        )
+        result = c.transport.recall_gold(cases[start : start + 500], replace=replace and start == 0)
     emit(result)
 
 
@@ -1424,11 +1447,7 @@ def update(
     if enabled is not None:
         c.config["auto_update"] = enabled
         atomic_json(state / "config.json", c.config)
-    report = (
-        autoupdate.check(state, c.config, c.transport)
-        if now
-        else autoupdate.status(state)
-    )
+    report = autoupdate.check(state, c.config, c.transport) if now else autoupdate.status(state)
     emit(
         {
             "auto_update": autoupdate.enabled(c.config),
