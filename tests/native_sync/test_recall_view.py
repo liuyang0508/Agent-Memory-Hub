@@ -383,7 +383,7 @@ def test_terminal_replies_are_not_prompts(text, admitted):
 
 
 SECTION_BODY = """《MEMORY》
-- rollout_summaries/2026-10-29-remote_latency.md (cwd=/Users/x, rollout_path=/x.jsonl, thread_id=abc)
+- rollout_summaries/2026-10-29-remote_latency.md (cwd=/tmp/x, rollout_path=/x.jsonl, thread_id=abc)
 
 ### keywords
 
