@@ -79,9 +79,7 @@ def _details_first(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 HINT_LINES = 4
-_MARKER = re.compile(
-    r"\[(/?)(AMH_(?:ORG_CONTEXT|ORG_CATALOG|RECALL_FEEDBACK)_V1)\]", re.I
-)
+_MARKER = re.compile(r"\[(/?)(AMH_(?:ORG_CONTEXT|ORG_CATALOG|RECALL_FEEDBACK)_V1)\]", re.I)
 
 
 def _neutral(text: str) -> str:
