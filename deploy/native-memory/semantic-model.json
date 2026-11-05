@@ -13,6 +13,23 @@
       "sha256": "0046da43cc8c424b317f56b092b0512aaaa65c4f925d2f16af9d9eeb4d0ef902"
     }
   ],
+  "large": {
+    "name": "jina-embeddings-v2-base-zh-fp32",
+    "min_memory_mb": 3500,
+    "min_available_mb": 1500,
+    "files": [
+      {
+        "path": "onnx/model.onnx",
+        "sha256": "4b0e9fa6e5c77cff56e0c9c673ba1aad61e793e592fdd4b05690b68826b7d3a2"
+      },
+      {
+        "path": "tokenizer.json",
+        "sha256": "0046da43cc8c424b317f56b092b0512aaaa65c4f925d2f16af9d9eeb4d0ef902"
+      }
+    ],
+    "model_id": "jinaai/jina-embeddings-v2-base-zh@fp32-xenova-7cb68f86",
+    "onnx": "onnx/model.onnx"
+  },
   "manifest": {
     "model_id": "jinaai/jina-embeddings-v2-base-zh@int8-xenova-7cb68f86",
     "onnx": "onnx/model_int8.onnx",
@@ -97,5 +114,5 @@
       "hint_items": 2
     }
   },
-  "calibration": "2026-11-04 org corpus replica (91 memory/rule documents), 105-case gold set (77 answerable incl. 22 realistic long prompts; 28 unanswerable incl. 16 everyday work prompts). hook_gate learned-v1 at threshold 0.30 (one-standard-error rule, SE 0.031), 5x5 grouped cross-validation: hit@1 87.8%, hit@3 91.4%, precision 74.4%, unanswerable left alone 75.0%, 1.56 memories per prompt; floor gate 0.40/0.08 on the same set: 85.7%, 92.2%, 56.6%, 64.3%, 2.87. hook_min_score/hook_margin stay the fallback while the generic-prompt bank warms. 1.4.18: full injection also needs lift (similarity minus the memory's similarity to everyday prompts) >= 0.08, picked in 23 of 25 grouped cross-validation folds over two org stores (94 and 34 memories); held-out utility 0.840->0.861 and 0.560->0.669, unanswerable left alone 75%->89% and 43%->89%, hit@1 88%->85% and 61%->57%. Title-only tier: probability >= 0.15 and lift >= 0.04, at most 2. 1.4.22: rule only, weights unchanged. On 91 real prompts with the live Hub's own numbers (labels from a blind reader; the threshold was chosen on these prompts, no untouched set remains): full at p>=0.7 and titles at p>=0.3 gave precision 37%->58%, wholly wrong prompts 14->8, wrong titles 72->40. A gate retrained on real prompts did not beat this when a whole session was held out, so it was not shipped."
+  "calibration": "2026-11-04 org corpus replica (91 memory/rule documents), 105-case gold set (77 answerable incl. 22 realistic long prompts; 28 unanswerable incl. 16 everyday work prompts). hook_gate learned-v1 at threshold 0.30 (one-standard-error rule, SE 0.031), 5x5 grouped cross-validation: hit@1 87.8%, hit@3 91.4%, precision 74.4%, unanswerable left alone 75.0%, 1.56 memories per prompt; floor gate 0.40/0.08 on the same set: 85.7%, 92.2%, 56.6%, 64.3%, 2.87. hook_min_score/hook_margin stay the fallback while the generic-prompt bank warms. 1.4.18: full injection also needs lift (similarity minus the memory's similarity to everyday prompts) >= 0.08, picked in 23 of 25 grouped cross-validation folds over two org stores (94 and 34 memories); held-out utility 0.840->0.861 and 0.560->0.669, unanswerable left alone 75%->89% and 43%->89%, hit@1 88%->85% and 61%->57%. Title-only tier: probability >= 0.15 and lift >= 0.04, at most 2. 1.4.22: rule only, weights unchanged. On 91 real prompts with the live Hub's own numbers (labels from a blind reader; the threshold was chosen on these prompts, no untouched set remains): full at p>=0.7 and titles at p>=0.3 gave precision 37%->58%, wholly wrong prompts 14->8, wrong titles 72->40. A gate retrained on real prompts did not beat this when a whole session was held out, so it was not shipped. 1.4.23: hosts with enough memory use the float export, whose similarities are identical on x86 and ARM; the gate is unchanged. On the same 91 prompts at this rule, simulated: precision 58%->61%, wholly wrong 8->7, prompts with a useful full memory 13->18, reached including titles 24->30."
 }

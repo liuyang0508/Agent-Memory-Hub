@@ -11,6 +11,9 @@
 #                     that cannot reach Hugging Face); DIR holds the paths listed
 #                     in semantic-model.json, each checked by sha256
 #
+# Environment: AMH_SEMANTIC_MODEL=large|small picks the model export; by default
+# hosts with at least 3.5 GB of memory and 1.5 GB free use the float export.
+#
 # What it does, in order, and stops at the first failure:
 #   1. finds Python 3.11-3.13 and systemd;
 #   2. downloads the release wheel, upgrade.sh and the model manifest, and checks
@@ -51,7 +54,7 @@ while [ "$#" -gt 0 ]; do
     --cn) cn=yes; shift ;;
     --no-semantic) semantic=off; shift ;;
     --model-dir) model_dir=${2:-}; shift 2 ;;
-    -h|--help) sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,28p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) die "unknown option: $1" ;;
   esac
 done
@@ -216,8 +219,21 @@ if [ "$semantic" = on ] && ! health | grep -q '"semantic-v1"' && [ "$(semantic_s
   [ -f "$SEMANTIC_ENV" ] || say "the model could not be fetched (details: the semantic.log in the backup directory above)."
   say "on a machine that can reach Hugging Face, download these files and keep their paths:"
   "$PY" - "$work/semantic-model.json" <<'PY' >&2
-import json, sys
+import json, os, sys
 spec = json.load(open(sys.argv[1]))
+large = spec.get("large")
+if large:
+    try:
+        info = {l.split(":")[0]: int(l.split()[1]) // 1024 for l in open("/proc/meminfo")}
+    except (OSError, ValueError, IndexError):
+        info = {}
+    choice = os.environ.get("AMH_SEMANTIC_MODEL") or "auto"
+    if choice == "large" or (
+        choice == "auto"
+        and info.get("MemTotal", 0) >= large["min_memory_mb"]
+        and info.get("MemAvailable", 0) >= large["min_available_mb"]
+    ):
+        spec["files"] = large["files"]
 for f in spec["files"]:
     print(f"    https://huggingface.co/{spec['repo']}/resolve/{spec['revision']}/{f['path']}")
     print(f"      -> <DIR>/{f['path']}   sha256 {f['sha256']}")
