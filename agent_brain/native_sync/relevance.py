@@ -46,6 +46,7 @@ ANCHOR_MIN_PROBABILITY = 0.1
 ANCHOR_MIN_LIFT = 0.0
 BACKGROUND_K = 10
 SECTION_CHARS = 1400  # Longer memories are injected as the section the prompt matched.
+LINE_REACH = 120  # How far back a section may start to open on a whole line.
 
 # Everyday prompts with no organization knowledge: the background a memory's
 # similarity is measured against. Fixed and versioned with the gate.
@@ -136,7 +137,16 @@ def section_span(text: str, start: int, end: int, limit: int = SECTION_CHARS) ->
             high = heading.start()
             break
     if high - low > limit:
+        floor = low
         low = max(low, start - max(0, limit - (end - start)) // 2)
+        # Open on a whole line: the next one if it comes before the match, else
+        # this one's beginning when it is near.
+        line = text.find("\n", low, start)
+        if line >= 0:
+            low = line + 1
+        else:
+            line = text.rfind("\n", max(floor, low - LINE_REACH), low)
+            low = line + 1 if line >= 0 else low
         high = min(high, low + limit)
     return low, high
 

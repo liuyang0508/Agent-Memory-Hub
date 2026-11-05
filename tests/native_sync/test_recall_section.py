@@ -116,3 +116,30 @@ def test_section_never_marks_the_whole_version_as_read():
 def test_gold_can_name_an_asset_directly():
     assert relevant({"asset_id": "asset_abc__p000003"}, ["asset_abc__p000003"])
     assert not relevant({"asset_id": "asset_abc__p000003"}, ["asset_abc__p000002"])
+
+
+def test_capped_section_opens_on_a_whole_line():
+    text = "第一行内容\n" * 400 + "命中这里的内容\n" + "后面的内容\n" * 400
+    start = text.index("命中")
+    low, high = section_span(text, start, start + 7, limit=300)
+    assert low == 0 or text[low - 1] == "\n"
+    assert low <= start and high >= start + 7 and high - low <= 300
+    # A long line with nowhere near to break keeps the window in view.
+    plain = "字" * 5000
+    low, _ = section_span(plain, 3000, 3200, limit=600)
+    assert 2800 <= low <= 3000
+
+
+def test_pack_keeps_a_sections_title_through_the_cut():
+    body = (
+        "《聚合笔记》\n"
+        + "无关的前文内容。\n" * 200
+        + "发布列车每周四出发。\n"
+        + "无关的后文内容。\n" * 200
+    )
+    section = {"char_start": 0, "char_end": len(body), "chars": 90000}
+    text, keys = pack([record(body, section)], covered=set(), query="发布列车", per_item_bytes=400)
+    assert "《聚合笔记》" in text and "发布列车" in text
+    assert keys and ":excerpt:" in keys[0]
+    # The anchor's line is not cut at its front.
+    assert "\n发布列车每周四出发" in text or "无关的前文内容。\n" in text

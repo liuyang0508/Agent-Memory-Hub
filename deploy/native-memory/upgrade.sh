@@ -90,10 +90,36 @@ if [ "${AMH_SEMANTIC:-on}" = off ]; then
   rm -f "$semantic_env"
 fi
 if [ -f "$spec" ] && [ "${AMH_SEMANTIC:-on}" != off ]; then
-  if model_dir=$(AMH_HF_ENDPOINT="${AMH_HF_ENDPOINT:-}" "$version_dir/venv/bin/python" - "$spec" 2>>"$backup/semantic.log" <<'PY'
+  if model_dir=$(AMH_HF_ENDPOINT="${AMH_HF_ENDPOINT:-}" AMH_SEMANTIC_MODEL="${AMH_SEMANTIC_MODEL:-}" "$version_dir/venv/bin/python" - "$spec" 2>>"$backup/semantic.log" <<'PY'
 import hashlib, json, os, sys, tempfile, urllib.request
 from pathlib import Path
 spec = json.loads(Path(sys.argv[1]).read_text())
+# The float export needs about 900 MB more than the quantized one, and only it
+# gives the same numbers on every CPU: use it where it fits. Small hosts, and
+# anything that cannot read its memory, stay quantized.
+def memory_mb():
+    values = {}
+    try:
+        for line in Path(os.environ.get("AMH_MEMINFO") or "/proc/meminfo").read_text().splitlines():
+            key, _, rest = line.partition(":")
+            values[key] = int(rest.split()[0]) // 1024
+    except (OSError, ValueError, IndexError):
+        return 0, 0
+    return values.get("MemTotal", 0), values.get("MemAvailable", 0)
+large = spec.get("large")
+choice = os.environ.get("AMH_SEMANTIC_MODEL") or "auto"
+total, available = memory_mb()
+if large and (
+    choice == "large"
+    or (choice == "auto" and total >= large["min_memory_mb"] and available >= large["min_available_mb"])
+):
+    spec = {
+        **spec,
+        "name": large["name"],
+        "files": large["files"],
+        "manifest": {**spec["manifest"], "model_id": large["model_id"], "onnx": large["onnx"]},
+    }
+print(f"semantic model choice={choice} memory={total}MB available={available}MB -> {spec['name']}", file=sys.stderr)
 target = Path(os.environ.get("AMH_MODEL_ROOT") or "/opt/amh-native/models") / (spec["name"] + "@" + spec["revision"][:12])
 def good(path, sha):
     if not path.is_file():
@@ -168,7 +194,7 @@ PY
   else
     # A model that already works is better than none: keep what is configured.
     if [ -f "$semantic_env" ]; then
-      echo 'new semantic model unavailable; keeping the configured one (see semantic.log)' >&2
+      echo 'new semantic model unavailable; keeping the configured one (see semantic.log; supply it with hub.sh --model-dir)' >&2
     else
       echo 'semantic model unavailable; Hub stays on lexical ranking (see semantic.log)' >&2
     fi

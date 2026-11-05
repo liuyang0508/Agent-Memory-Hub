@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.23] — 2026-11-05
+
+### Changed
+
+- A Hub with enough memory (3.5 GB total, 1.5 GB free) now uses the float export of
+  the embedding model. Its similarities are identical on x86 and ARM, and it tells
+  useful memories apart better than the quantized export does on x86. On the same 91
+  real prompts, with the same gate and thresholds: precision 55% to 61%, prompts
+  answered only with wrong memories 9 to 7, prompts with a useful full memory 14 to
+  18. Smaller hosts stay quantized; `AMH_SEMANTIC_MODEL=large|small` overrides. The
+  float export is 641 MB on disk and takes about 0.9 to 1.3 GB of memory. Changing
+  export rebuilds the index at startup; recall only trusts literal identifiers until
+  that finishes.
+
+### Fixed
+
+- A long memory's excerpt could open mid-word and lose its title. It now opens on a
+  whole line where one is near and keeps the title line through the cut.
+
 ## [1.4.22] — 2026-11-05
 
 ### Changed

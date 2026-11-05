@@ -29,7 +29,16 @@ Hub 1.4.2 支持飞书身份认证与明确管理员角色；首次授予、撤�
 
 Hub 用本地 ONNX 模型做语义检索，不依赖 PyTorch，不在运行时联网。部署脚本按 `deploy/native-memory/semantic-model.json` 固定的仓库、修订和每个文件的 sha256 准备模型：GitHub 部署流水线在 Hub 缺少已校验的副本时代为下载并随包上传（Hub 主机访问不了 huggingface.co），手工执行 `upgrade.sh` 时依次尝试同目录 `model/`、`AMH_HF_ENDPOINT`、hf-mirror.com、huggingface.co。任何一步失败都不阻断升级，Hub 保持仅词法检索。模型目录 `/opt/amh-native/models/<名称>@<修订前12位>`，环境文件 `/etc/amh-native/semantic.env`。
 
-当前模型 jina-embeddings-v2-base-zh（int8，约 160 MB，中英双语，Apache-2.0）。选型依据：在组织记忆副本上用 55 条有答案、12 条无答案的中文提问对比了 9 个模型；仅词法时首位命中 65%、前三 76%，无答案的提问 12 条全被注入内容；该模型加召回门控后首位 85.5%、前三 98.2%，无答案的提问只有 2 条被注入。常驻内存约增加 400 MB；同等准确率的 gte-multilingual-base 和 bge-m3 需要 0.8–1.1 GB，在 2 GB 内存的主机上不采用。
+当前模型 jina-embeddings-v2-base-zh（中英双语，Apache-2.0），同一修订有两个版本，`upgrade.sh` 按内存自动选（1.4.23 起）：
+
+| 版本 | 文件 | 常驻内存 | 用在 |
+|---|---|---|---|
+| 浮点 `onnx/model.onnx` | 641 MB | 约 0.9–1.3 GB | 总内存 ≥ 3.5 GB 且可用 ≥ 1.5 GB 的主机 |
+| 量化 int8 `onnx/model_int8.onnx` | 160 MB | 约 0.4 GB | 其余主机，或读不到内存信息时 |
+
+`AMH_SEMANTIC_MODEL=large` 或 `small` 可强制指定。换版本后 Hub 启动时重建索引（34 条记忆在本机约 11 秒，x86 云主机更慢），重建完成前提示时召回退回只认字面标识符的保护模式。浮点版在 x86 和 ARM 上结果逐值相同，所以本机评测的数字就是线上的数字；量化版两边不同，且 x86 上区分能力更差（见下文）。
+
+选型依据（int8）：选型依据：在组织记忆副本上用 55 条有答案、12 条无答案的中文提问对比了 9 个模型；仅词法时首位命中 65%、前三 76%，无答案的提问 12 条全被注入内容；该模型加召回门控后首位 85.5%、前三 98.2%，无答案的提问只有 2 条被注入。常驻内存约增加 400 MB；同等准确率的 gte-multilingual-base 和 bge-m3 需要 0.8–1.1 GB，在 2 GB 内存的主机上不采用。
 
 - 索引由 `serve` 自己维护：启动 30 秒后首轮全量编码，之后每 120 秒只编码新增或改动的记忆与规则（`--semantic-interval` 可调）；没有变化时不写库。
 - `GET /native/v1/health` 的 `semantic.state` 为 `ready` 时出现 `semantic-v1` 能力；`loading` 表示首轮未完成，`unavailable`/`error` 表示退回仅词法，原因写在召回明细的 `reasons` 里。
@@ -150,10 +159,10 @@ GitHub 访问慢时，用 `AMH_RELEASE_BASE` 指向内部镜像，目录结构�
 **主机访问不了 Hugging Face 时（1.4.17 起）**：模型下载失败，脚本结尾会用黄字写明「semantic recall is NOT running」，并列出要下载的模型文件地址、存放路径和 sha256。在能访问的机器上按列出的路径下好，放进同一个目录，拷到 Hub 主机上，然后重跑脚本：
 
 ```sh
-sudo bash hub.sh --model-dir /path/to/model-dir      # 目录内：tokenizer.json、onnx/model_int8.onnx
+sudo bash hub.sh --model-dir /path/to/model-dir      # 目录内：tokenizer.json，以及脚本列出的 onnx/model.onnx 或 onnx/model_int8.onnx
 ```
 
-文件仍按 sha256 核对。等待建索引时，如果 Hub 报告模型加载失败，健康检查的 `semantic.state` 会是 `unavailable`，`reason` 写明原因，脚本立即结束，不再空等 30 分钟。
+已有可用模型而新版本取不到时（比如大内存主机上缺浮点版），脚本保留原模型并提示，不会退回关键词。文件仍按 sha256 核对。等待建索引时，如果 Hub 报告模型加载失败，健康检查的 `semantic.state` 会是 `unavailable`，`reason` 写明原因，脚本立即结束，不再空等 30 分钟。
 
 ## 召回分档与上文补充（1.4.18 起）
 
@@ -170,7 +179,8 @@ sudo bash hub.sh --model-dir /path/to/model-dir      # 目录内：tokenizer.jso
 - 每周自动校准会把这套规则带进新门控，只能抬高全文门槛、不能降低；手动校准用 `recall-calibrate --lift --hint-threshold --hint-lift`。
 - **为什么门槛是 0.7**（1.4.22）：线上 Hub 上回放 91 条真实提问，由未看分数的标注者判断记忆是否有帮助。全文门槛 0.3→0.7、标题门槛 0.15→0.3 后，全文精确率 37%→58%，全部无用的提问 14→8 条，错误标题 72→40 条。门槛是在这批提问上选的，没有留下未碰过的测试集；有用提问的覆盖从 27 条降到 24 条，其中一部分要靠模型按标题去读，模型是否真的读取要看 `consulted` 标签。
 - **问题集不能代替真实提问**：同一门控在问题集上精确率约 51%，真实提问只有 37%。问题集的反例多是与组织无关的通用问题，真实提问常带组织里的词。用真实提问重训门控，在按会话隔离验证时没有胜过现有门控，所以没有发布。此前报告的第一条命中率 87% 也偏高：文件名出现在索引文件正文里就算命中；只按文件名判定，aihub 线上约 36%。
-- **量化模型的数值依赖 CPU**：同一个 `model_int8.onnx`，x86 算出的相似度和 ARM 不同，区分有用记忆的能力也更差（真实提问 AUC 约 0.68 对 0.78）。浮点模型 `model.onnx` 两种架构结果一致（AUC 0.80），但内存多约 900MB。在 ARM 机器上校准的门控，要用线上的数值复核（`/native/v1/recalls?trace_id=` 的 `gate.x`）。
+- **量化模型的数值依赖 CPU**：同一个 `model_int8.onnx`，x86 算出的相似度和 ARM 不同，区分有用记忆的能力也更差（真实提问 AUC 约 0.68 对 0.78）。浮点模型 `model.onnx` 两种架构结果一致（AUC 0.80）。量化版的 Hub 上，在 ARM 机器校准的门控要用线上数值复核（`/native/v1/recalls?trace_id=` 的 `gate.x`）。
+- **浮点版的效果**（1.4.23，同一批 91 条提问、同一门控和门槛，门槛不是为它选的）：全文精确率 55%（量化版线上实测）→61%，全部无用的提问 9→7 条，含有用全文的提问 14→18 条，加上标题的覆盖 25→30 条。同样没有留出未碰过的提问。
 - **上文补充**：Claude Code 里，16 个字以内、不带标识的短句（如「那第二个呢」），检索时会带上同一会话 30 分钟内的上一句提问。结果只给标题、不注入正文，因为找到的可能属于上一个话题。召回表会注明「上文补充」。
 
 ## 经营驾驶舱（1.4.20 起）

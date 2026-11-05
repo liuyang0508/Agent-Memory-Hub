@@ -151,16 +151,26 @@ def pack(
         budget = min(per_item_bytes, allowance - len(prefix.encode()) - 24)
         if budget < 40:
             continue
+        # A section's title line says what the text is part of: keep it through the cut.
+        head = ""
+        if rows[0].get("section") and display.startswith("《"):
+            line, _, rest = display.partition("\n")
+            if len(line.encode()) < budget // 4:
+                head, display = line + "\n", rest
+                budget -= len(head.encode())
         start = 0
         if len(display.encode()) > budget and query:
             lower = display.lower()
             anchors = [t for t in tokens(query) if len(t) > 1 and t in lower]
             if anchors:
                 best = max(anchors, key=lambda t: len(t) ** 2 / max(1, lower.count(t)))
-                start = max(0, lower.find(best) - budget // 8)
-        excerpt = display[start:].encode()[:budget].decode("utf8", errors="ignore")
+                found = lower.find(best)
+                start = max(0, found - budget // 8)
+                line_start = display.find("\n", start, found)
+                start = line_start + 1 if line_start >= 0 else start
+        excerpt = head + display[start:].encode()[:budget].decode("utf8", errors="ignore")
         # A section is a part of its source version, however completely it fits.
-        full = start == 0 and excerpt == display and not rows[0].get("section")
+        full = start == 0 and excerpt == head + display and not rows[0].get("section")
         keys = [
             coverage_key(r) if full else coverage_key(r) + ":excerpt:" + digest(excerpt)
             for r in rows
