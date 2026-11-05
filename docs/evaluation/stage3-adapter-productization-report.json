@@ -26,11 +26,11 @@
   "lifecycle_result_schema_version": "amh-adapter-lifecycle-result/v1",
   "manifest_count": 16,
   "manifest_schema_version": "amh-adapter-manifest/v1",
-  "manifest_sha256": "sha256:28c79d49e39a9dfb1317485759ff27235e1404744dcdc94552dce3b20a4bc707",
+  "manifest_sha256": "sha256:c02f0bf4370a76c6fb5dc7bd8c82200e4b3e8888e10e39bf92168e1af0ba3dc0",
   "manifests": [
     {
       "adapter_id": "aider",
-      "adapter_version": "1.4.25",
+      "adapter_version": "1.4.26",
       "channels": [
         "awareness",
         "cli"
@@ -67,7 +67,7 @@
     },
     {
       "adapter_id": "aone_copilot",
-      "adapter_version": "1.4.25",
+      "adapter_version": "1.4.26",
       "channels": [
         "awareness",
         "cli"
@@ -104,7 +104,7 @@
     },
     {
       "adapter_id": "claude_code",
-      "adapter_version": "1.4.25",
+      "adapter_version": "1.4.26",
       "channels": [
         "awareness",
         "cli",
@@ -153,7 +153,7 @@
     },
     {
       "adapter_id": "cline",
-      "adapter_version": "1.4.25",
+      "adapter_version": "1.4.26",
       "channels": [
         "cli",
         "mcp"
@@ -191,7 +191,7 @@
     },
     {
       "adapter_id": "codex",
-      "adapter_version": "1.4.25",
+      "adapter_version": "1.4.26",
       "channels": [
         "awareness",
         "cli",
@@ -240,7 +240,7 @@
     },
     {
       "adapter_id": "continue_dev",
-      "adapter_version": "1.4.25",
+      "adapter_version": "1.4.26",
       "channels": [
         "cli",
         "mcp"
@@ -278,7 +278,7 @@
     },
     {
       "adapter_id": "cursor",
-      "adapter_version": "1.4.25",
+      "adapter_version": "1.4.26",
       "channels": [
         "cli",
         "hook",
@@ -318,7 +318,7 @@
     },
     {
       "adapter_id": "github_copilot",
-      "adapter_version": "1.4.25",
+      "adapter_version": "1.4.26",
       "channels": [
         "awareness",
         "cli"
@@ -355,7 +355,7 @@
     },
     {
       "adapter_id": "hermes_agent",
-      "adapter_version": "1.4.25",
+      "adapter_version": "1.4.26",
       "channels": [
         "cli",
         "mcp"
@@ -393,7 +393,7 @@
     },
     {
       "adapter_id": "mulerun",
-      "adapter_version": "1.4.25",
+      "adapter_version": "1.4.26",
       "channels": [
         "cli"
       ],
@@ -429,7 +429,7 @@
     },
     {
       "adapter_id": "openclaw",
-      "adapter_version": "1.4.25",
+      "adapter_version": "1.4.26",
       "channels": [
         "cli",
         "mcp"
@@ -467,7 +467,7 @@
     },
     {
       "adapter_id": "openhuman",
-      "adapter_version": "1.4.25",
+      "adapter_version": "1.4.26",
       "channels": [
         "awareness",
         "cli"
@@ -504,7 +504,7 @@
     },
     {
       "adapter_id": "opensquilla",
-      "adapter_version": "1.4.25",
+      "adapter_version": "1.4.26",
       "channels": [
         "cli",
         "mcp"
@@ -542,7 +542,7 @@
     },
     {
       "adapter_id": "qoder",
-      "adapter_version": "1.4.25",
+      "adapter_version": "1.4.26",
       "channels": [
         "awareness",
         "cli",
@@ -586,7 +586,7 @@
     },
     {
       "adapter_id": "qoder_work",
-      "adapter_version": "1.4.25",
+      "adapter_version": "1.4.26",
       "channels": [
         "awareness",
         "cli",
@@ -630,7 +630,7 @@
     },
     {
       "adapter_id": "wukong",
-      "adapter_version": "1.4.25",
+      "adapter_version": "1.4.26",
       "channels": [
         "awareness",
         "cli",
@@ -670,7 +670,7 @@
       "schema_version": "amh-adapter-manifest/v1"
     }
   ],
-  "package_version": "1.4.25",
+  "package_version": "1.4.26",
   "pilot_batches": [
     {
       "adapters": [

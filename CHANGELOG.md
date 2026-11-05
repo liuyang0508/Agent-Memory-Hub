@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.26] — 2026-11-05
+
+### Fixed
+
+- The recall table could describe an injected section as a heading glued to a file name
+  ("keywords: 《MEMORY》"), which said nothing. It now shows the section's most telling
+  sentence.
+
 ## [1.4.25] — 2026-11-05
 
 ### Added

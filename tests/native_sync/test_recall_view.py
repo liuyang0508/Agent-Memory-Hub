@@ -329,7 +329,12 @@ def _wide_record():
 
 @pytest.mark.parametrize("columns", [70, 90, 100, 110, 118, 126, 160, None])
 def test_box_table_never_wraps_at_any_terminal_width(columns):
-    from agent_brain.native_sync.recall_view import _HOST_MARGIN, _UNKNOWN_COLUMNS, _box_table, _width
+    from agent_brain.native_sync.recall_view import (
+        _HOST_MARGIN,
+        _UNKNOWN_COLUMNS,
+        _box_table,
+        _width,
+    )
 
     lines = _box_table([_wide_record()], {"a:2:h": "packed"}, columns)
     assert {_width(line) for line in lines} == {_width(lines[0])}  # every line closes the box
@@ -375,3 +380,64 @@ def test_terminal_replies_are_not_prompts(text, admitted):
     from agent_brain.native_sync.recall_view import admit
 
     assert admit(text)[0] is admitted
+
+
+SECTION_BODY = """《MEMORY》
+- rollout_summaries/2026-10-29-remote_latency.md (cwd=/tmp/x, rollout_path=/x.jsonl, thread_id=abc)
+
+### keywords
+
+- cc-connect, v1.5.0, remote-claude-setup.sh, configured=false
+
+## User preferences
+
+- when diagnosing terminal lag, separate 网络、终端回显、画面刷新 and Claude 响应
+"""
+
+
+def _section_record(**extra):
+    return {
+        "asset_id": "a",
+        "revision": 5,
+        "body_hash": "h",
+        "title": "MEMORY",
+        "path": "MEMORY.md",
+        "kind": "memory",
+        "role": "navigation",
+        "product": "codex-shared",
+        "producer_name": "同事",
+        "part_index": 0,
+        "part_count": 10,
+        "body": SECTION_BODY,
+        "section": {"char_start": 0, "char_end": 300, "chars": 8000},
+        "recall": {"routes": {"lexical": 2, "semantic": 1}, "relevance": 0.73},
+        **extra,
+    }
+
+
+def test_section_summary_shows_a_sentence_not_a_heading_or_file_list():
+    from agent_brain.native_sync.recall_view import _summary
+
+    gist = _summary(_section_record(), "终端特别卡顿怎么办")
+    assert gist.startswith("User preferences：when diagnosing terminal lag")
+    assert "keywords" not in gist and "rollout" not in gist and "《MEMORY》" not in gist
+    # Words shared with the prompt pick the line.
+    other = _section_record(body="《M》\n第一句无关的内容\n\n这里讲网络延迟的排查\n")
+    assert _summary(other, "网络延迟怎么查").endswith("这里讲网络延迟的排查")
+    # A section holding only bookkeeping falls back rather than showing nothing.
+    assert _summary(_section_record(body="《M》\n### keywords\n\n- a, b\n"), "x")
+    # A memory delivered whole keeps its own description.
+    whole = {"body": "---\ndescription: 一句话说明\n---\n正文"}
+    assert _summary(whole, "x") == "一句话说明"
+
+
+def test_table_shows_what_a_section_says_and_stays_aligned():
+    from agent_brain.native_sync.recall import coverage_key
+    from agent_brain.native_sync.recall_view import _box_table, _width
+
+    record = _section_record()
+    lines = _box_table([record], {coverage_key(record): "packed"}, 120, "终端回显特别慢")
+    assert sum("内容：" in line for line in lines) == 1
+    assert not any("原因：" in line for line in lines)
+    assert not any("keywords" in line for line in lines)
+    assert len({_width(line) for line in lines}) == 1
