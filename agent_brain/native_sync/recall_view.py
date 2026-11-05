@@ -284,24 +284,6 @@ def _section_gist(text: str, query: str) -> str:
     return _one_line(best) if best else ""
 
 
-def _why(record: dict[str, Any], query: str) -> str:
-    """Why this memory came up, in the member's terms: its ranks and the words it shares."""
-    trace = record.get("recall")
-    routes = trace.get("routes") if isinstance(trace, dict) else None
-    ranks = routes if isinstance(routes, dict) else {}
-    parts = []
-    if isinstance(ranks.get("semantic"), int):
-        parts.append(f"语义相近排第 {ranks['semantic']}")
-    if isinstance(ranks.get("lexical"), int):
-        parts.append(f"关键词排第 {ranks['lexical']}")
-    body = record.get("body")
-    shared = _words(query) & _words(body) if isinstance(body, str) and query else set()
-    if shared:
-        words = sorted(shared, key=lambda word: (-len(word), word))[:4]
-        parts.append("共同词 " + "、".join(words))
-    return "，".join(parts)
-
-
 def _summary(record: dict[str, Any], query: str = "") -> str:
     """What the memory says, in one line: the matched section's telling sentence, its own
     description, the task groups of an index chunk, the entries of an index, or its first
@@ -424,8 +406,7 @@ def _box(
         previous_detail = bool(detail)
         if detail:
             out.append("│" + " " * (widths[0] + 2) + "├" + "┴".join(rest) + "┤")
-            for part in detail.split("\n"):
-                out.append("│" + " " * (widths[0] + 2) + "│ " + _fit(part, span - 2) + " │")
+            out.append("│" + " " * (widths[0] + 2) + "│ " + _fit(detail, span - 2) + " │")
     if previous_detail:
         out.append("└" + head + "┴" + "─" * span + "┘")
     else:
@@ -688,15 +669,5 @@ def _box_table(
         }
         rows.append([values[key] for key, _, _ in layout])
         summary = _plain(_summary(record, query))
-        reason = _plain(_why(record, query))
-        details.append(
-            "\n".join(
-                part
-                for part in (
-                    "内容：" + summary if summary else "",
-                    "原因：" + reason if reason else "",
-                )
-                if part
-            )
-        )
+        details.append("内容：" + summary if summary else "")
     return _box([head for _, head, _ in layout], rows, [width for _, _, width in layout], details)

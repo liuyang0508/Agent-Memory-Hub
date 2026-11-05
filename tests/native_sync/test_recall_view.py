@@ -230,10 +230,7 @@ def test_box_table_lines_up_mixed_width_text():
     lines = view.splitlines()
     table = [line for line in lines if line[:1] in "┌│├└"]
     # Top, header; per memory a rule, its row, a rule and its content line; bottom.
-    # A memory with ranks or words in common also says why, on one more line.
-    reasons = sum("原因：" in line for line in table)
-    assert reasons
-    assert len(table) == 2 + 4 * 3 + 1 + reasons and len({_width(line) for line in table}) == 1
+    assert len(table) == 2 + 4 * 3 + 1 and len({_width(line) for line in table}) == 1
     assert sum("内容：" in line for line in table) == 3
     assert "**" not in view and "`" not in view
     assert not any(mark in line for line in table for mark in "…·—§")
@@ -434,17 +431,13 @@ def test_section_summary_shows_a_sentence_not_a_heading_or_file_list():
     assert _summary(whole, "x") == "一句话说明"
 
 
-def test_table_says_why_in_plain_words_and_stays_aligned():
+def test_table_shows_what_a_section_says_and_stays_aligned():
     from agent_brain.native_sync.recall import coverage_key
-    from agent_brain.native_sync.recall_view import _box_table, _why, _width
+    from agent_brain.native_sync.recall_view import _box_table, _width
 
     record = _section_record()
-    reason = _why(record, "终端回显特别慢")
-    assert reason.startswith("语义相近排第 1，关键词排第 2") and "终端" in reason
     lines = _box_table([record], {coverage_key(record): "packed"}, 120, "终端回显特别慢")
     assert sum("内容：" in line for line in lines) == 1
-    assert sum("原因：" in line for line in lines) == 1
+    assert not any("原因：" in line for line in lines)
+    assert not any("keywords" in line for line in lines)
     assert len({_width(line) for line in lines}) == 1
-    # No ranks and nothing in common: no empty reason line.
-    bare = {**record, "recall": {}, "body": "《M》\n完全不同的内容\n"}
-    assert not any("原因：" in line for line in _box_table([bare], {}, 120, "abc"))
