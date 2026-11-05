@@ -24,7 +24,7 @@ from datetime import datetime
 from typing import Any
 from urllib.parse import urlsplit
 
-from .common import PRODUCTS, source_product
+from .common import PRODUCTS, source_product, tokens
 
 QUERY_CHARS = 1500
 DISPLAY_MODES = ("table", "summary", "off")
@@ -250,12 +250,21 @@ _MARKUP = re.compile(r"\*\*|__|`|\[\[|\]\]|^\s*[-*>]\s+|^\s*\d+\.\s+", re.M)
 _BOOKKEEPING = re.compile(r"rollout_summaries/|rollout_path=|thread_id=|^(applies_to|scope):", re.I)
 
 
+# Too common to say anything about why two texts belong together.
+_COMMON_WORDS = frozenset(
+    "一下 这个 那个 怎么 什么 帮我 我们 咱们 之前 不是 有没 没有 可以 一个 还有 然后 就是 现在 时候 的 了".split()
+)
+
+
+def _words(text: str) -> set[str]:
+    """Words and CJK pairs worth comparing; this module stays standard library only."""
+    return {t for t in tokens(text) if len(t) > 1 and t not in _COMMON_WORDS}
+
+
 def _section_gist(text: str, query: str) -> str:
     """The sentence of a matched section that shows what it says: most words in common
     with the prompt, else the first real sentence. Never a heading or a file list."""
-    from .relevance import query_terms, terms
-
-    wanted = query_terms(query)
+    wanted = _words(query)
     best, best_score, heading, keywords = "", -1, "", False
     for raw in text.splitlines():
         line = raw.strip()
@@ -268,7 +277,7 @@ def _section_gist(text: str, query: str) -> str:
             continue
         if keywords or _BOOKKEEPING.search(line) or line.startswith(("```", "|", "---")):
             continue
-        score = len(wanted & terms(line))
+        score = len(wanted & _words(line))
         if score > best_score:
             line = _MARKUP.sub("", line)
             best, best_score = (f"{heading}：{line}" if heading else line), score
@@ -277,8 +286,6 @@ def _section_gist(text: str, query: str) -> str:
 
 def _why(record: dict[str, Any], query: str) -> str:
     """Why this memory came up, in the member's terms: its ranks and the words it shares."""
-    from .relevance import query_terms, terms
-
     trace = record.get("recall")
     routes = trace.get("routes") if isinstance(trace, dict) else None
     ranks = routes if isinstance(routes, dict) else {}
@@ -288,7 +295,7 @@ def _why(record: dict[str, Any], query: str) -> str:
     if isinstance(ranks.get("lexical"), int):
         parts.append(f"关键词排第 {ranks['lexical']}")
     body = record.get("body")
-    shared = query_terms(query) & terms(body) if isinstance(body, str) and query else set()
+    shared = _words(query) & _words(body) if isinstance(body, str) and query else set()
     if shared:
         words = sorted(shared, key=lambda word: (-len(word), word))[:4]
         parts.append("共同词 " + "、".join(words))
