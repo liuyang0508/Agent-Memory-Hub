@@ -56,7 +56,9 @@ def test_uninstall_removes_only_owned_mcp_when_user_edits_other_settings(tmp_pat
     data["recentTheme"] = "new"
     claude.write_text(json.dumps(data))
     conflicts = install.uninstall_hooks(home, state)
-    assert str(codex) in conflicts and str(claude) in conflicts
+    assert str(codex) in conflicts
+    # Hosts rewrite this file all the time; our entry came out cleanly, so no conflict.
+    assert str(claude) not in conflicts
     cx, cc = tomllib.loads(codex.read_text()), json.loads(claude.read_text())
     assert "amh-org" not in cx["mcp_servers"] and "amh-org" not in cc["mcpServers"]
     assert cx["mcp_servers"]["later"]["command"] == "later"

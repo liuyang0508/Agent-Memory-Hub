@@ -1,6 +1,6 @@
 # 组织第二大脑：安装与使用手册
 
-适用版本：AMH 1.4.24。面向 macOS 成员；试点组织 linkcrux，组织地址 `https://platform.linkcrux.com`。核对日期：2026-11-05。
+适用版本：AMH 1.4.25。面向 macOS 成员；试点组织 linkcrux，组织地址 `https://platform.linkcrux.com`。核对日期：2026-11-05。
 
 ## 一、你能用它做什么
 
@@ -36,7 +36,7 @@ curl -fsSL https://github.com/liuyang0508/agent-memory-hub/releases/latest/downl
 需要固定安装本手册版本时，用下面这条代替：
 
 ```bash
-curl -fsSL https://github.com/liuyang0508/agent-memory-hub/releases/download/v1.4.24/install.sh | sh -s -- --org-memory --hub https://platform.linkcrux.com
+curl -fsSL https://github.com/liuyang0508/agent-memory-hub/releases/download/v1.4.25/install.sh | sh -s -- --org-memory --hub https://platform.linkcrux.com
 ```
 
 其他组织把最后的地址替换为管理员提供的 HTTPS 地址，不要填邮箱、账号或 SSH 地址。
@@ -110,7 +110,7 @@ CLI 和桌面共用的文件可能标为 `codex`：这表示无法从同一份�
 1. 安装器会在 Finder 定位 `cowork-plugin.zip`，默认位于 `~/.amh-native-sync/cowork-plugin.zip`。
 2. 打开 Claude 桌面应用，进入 **Customize → Plugins → Add plugin → Upload**。
 3. 选择刚生成的 ZIP，完成导入；已有同名插件时，核对后选择替换。
-4. 确认 **Amh native org** 已启用，版本为 1.4.24。本机绑定的插件还提供组织只读 MCP 工具；在新任务中使用。
+4. 确认 **Amh native org** 已启用，版本为 1.4.25。本机绑定的插件还提供组织只读 MCP 工具；在新任务中使用。
 
 文件选择窗口看不到隐藏目录时，按 **Command + Shift + G**，粘贴终端显示的 ZIP 完整路径，再按回车和“打开”。无需解压。
 5. 在 Cowork 新建任务，触发首次配对。
@@ -143,7 +143,7 @@ Cowork 执行过首次任务后，再检查其独立运行时：
 
 应与主客户端是同一成员、不同设备。未登记时，先核对插件启用状态与首次任务。
 
-检查版本，本文版本应输出 `1.4.24`：
+检查版本，本文版本应输出 `1.4.25`：
 
 ```bash
 "$HOME/.amh-native/venv/bin/python" -c 'from importlib.metadata import version; print(version("agent-memory-hub"))'
@@ -207,7 +207,16 @@ Cowork 执行过首次任务后，再检查其独立运行时：
 
 ## 十一、暂停、恢复、升级与卸载
 
-暂停主客户端：
+只想关掉其中一项时，用下面两条，互不影响：
+
+```bash
+"$HOME/.local/bin/amh-native" recall --disable   # 停用召回：提问时不再注入组织记忆，上传照常
+"$HOME/.local/bin/amh-native" upload --disable   # 停用写入：不再读取和上传本机内容，召回照常
+```
+
+恢复时把 `--disable` 改成 `--enable`。恢复上传后，停用期间改动过的内容会补传。停用写入不会撤回已上传的内容，撤回要找管理员执行 `purge-asset`。
+
+两项都停（召回、上传和组织检索工具）——暂停主客户端：
 
 ```bash
 "$HOME/.local/bin/amh-native" pause
@@ -227,7 +236,7 @@ Cowork 执行过首次任务后，再检查其独立运行时：
 "$HOME/.local/bin/amh-native" uninstall
 ```
 
-该命令恢复未被后续修改的配置并停用主客户端 LaunchAgent，**保留数据和软件**。出现 `conflicts` 时先核对后续编辑，不强行覆盖。完整重置登录、运行环境及残留 worker 是额外操作，需备份并核对范围；不要删除 `~/.codex`、`~/.claude` 或旧 AMH 记忆库。
+该命令停用主客户端 LaunchAgent，移除 AMH 添加的 Hook 和 MCP，保留你的其他配置和后来的修改，并暂停本机同步，**保留数据和软件**。已上传的内容仍在组织 Hub 上，撤回要找管理员。`conflicts` 列出没能完全还原的文件（比如 AMH 的某一项被改过，或 Codex 的 `config.toml` 后来改动过），脚本不强行覆盖；这些残留不会再召回或上传。重新执行安装命令即可恢复。完整重置登录、运行环境及残留 worker 是额外操作，需备份并核对范围；不要删除 `~/.codex`、`~/.claude` 或旧 AMH 记忆库。
 
 升级须先停用旧 worker，再更新客户端和 Cowork 插件，不能仅覆盖磁盘软件。现有数据和身份保留；管理员按 [升级说明](upgrade-1.4.0.zh.md) 操作。首次安装者不需要执行升级流程。
 

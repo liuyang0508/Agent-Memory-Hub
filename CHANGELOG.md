@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.25] — 2026-11-05
+
+### Added
+
+- `amh-native upload --disable` stops reading and uploading this device's content while
+  recall keeps working. `pause` stops both, which left no way to keep reading without
+  writing. Changes made meanwhile are uploaded when uploads are enabled again; what is
+  already on the Hub stays there.
+
+### Fixed
+
+- Uninstalling left all of AMH's hooks in place if `settings.json` had changed at all
+  since install, such as switching model, so recall kept injecting. It now removes
+  exactly what AMH added and keeps the rest, and pauses the profile so anything it could
+  not remove stays silent. Installing again resumes.
+
 ## [1.4.24] — 2026-11-05
 
 ### Added

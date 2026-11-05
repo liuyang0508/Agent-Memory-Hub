@@ -424,6 +424,57 @@ def install_hooks(home: Path, state: Path, *, products: list[str]) -> list[str]:
     return report
 
 
+def _remove_owned(path: Path, data: dict[str, Any], entry: dict[str, Any]) -> bool:
+    """Drop our Hook handlers from a file edited since install; False if one of ours was edited."""
+    before, after = entry.get("before") or {}, entry["after"]
+    previous = [
+        h
+        for entries in (before.get("hooks") or {}).values()
+        for item in entries
+        for h in item.get("hooks", [])
+    ]
+    owned = [
+        h
+        for entries in (after.get("hooks") or {}).values()
+        for item in entries
+        for h in item.get("hooks", [])
+        if h not in previous
+    ]
+    hooks = data.get("hooks")
+    if isinstance(hooks, dict):
+        for event, entries in list(hooks.items()):
+            kept = []
+            for item in entries:
+                handlers = [h for h in item.get("hooks", []) if h not in owned]
+                if handlers:
+                    kept.append({**item, "hooks": handlers})
+                elif not item.get("hooks"):
+                    kept.append(item)
+            if kept:
+                hooks[event] = kept
+            else:
+                del hooks[event]
+        if not hooks and "hooks" not in before:
+            del data["hooks"]
+    # A setting we turned on goes back unless the member has since chosen a value.
+    key = "autoMemoryEnabled"
+    if key in after and data.get(key) == after[key]:
+        if key in before:
+            data[key] = before[key]
+        else:
+            data.pop(key, None)
+    if not data and not entry.get("existed"):
+        path.unlink()
+    else:
+        atomic_json(path, data)
+    return not any(
+        _managed(h.get("command", ""))
+        for entries in (data.get("hooks") or {}).values()
+        for item in entries
+        for h in item.get("hooks", [])
+    )
+
+
 def uninstall_hooks(home: Path, state: Path) -> list[str]:
     """Restore receipt-owned values only if untouched since installation; report later edits as conflicts."""
     receipt = Path(state) / "install-receipt.json"
@@ -444,8 +495,16 @@ def uninstall_hooks(home: Path, state: Path) -> list[str]:
             conflicts.append(raw)
             continue
         if data != entry["after"]:
-            conflicts.append(raw)
-            continue  # Never discard edits made after install.
+            # The member or the host changed something else since install, which is
+            # the usual case: take out exactly what we added and leave the rest. A
+            # file with no Hook of ours is the MCP step's to judge; hosts rewrite
+            # ~/.claude.json constantly, and that says nothing about our entry.
+            if "hooks" in entry["after"]:
+                if not _remove_owned(path, data, entry):
+                    conflicts.append(raw)
+            elif raw not in saved.get("mcp", {}):
+                conflicts.append(raw)
+            continue
         if entry["existed"]:
             atomic_json(path, entry["before"])
         else:
