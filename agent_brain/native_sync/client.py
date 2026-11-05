@@ -739,6 +739,10 @@ class NativeClient:
                 for row in db.execute("SELECT key FROM meta WHERE key LIKE ?", (prefix + "%",))
             }
 
+    def uploads_enabled(self) -> bool:
+        """Whether this profile sends anything new to the Hub; recall is a separate switch."""
+        return self.config.get("uploads_enabled", True) is not False
+
     def sync(
         self,
         *,
@@ -775,6 +779,20 @@ class NativeClient:
                 return {"busy": True}
             self._refresh_profile()
             self._configure_storage_locked()
+            if not self.uploads_enabled():
+                # Nothing is read from the sources or sent while uploads are off.
+                # Delivery reports carry identifiers only, and recall needs no sync.
+                self.transport.me()
+                budget = (
+                    time.monotonic() + pass_budget_seconds
+                    if pass_budget_seconds is not None
+                    else None
+                )
+                return {
+                    "uploads": "off",
+                    "pushed": 0,
+                    "errors": self._report_recalls(deadline=budget),
+                }
             from .runtime_sources import process_observations, quarantine_changed_roots
 
             if progress:

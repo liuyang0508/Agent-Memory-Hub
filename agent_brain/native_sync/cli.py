@@ -1052,6 +1052,29 @@ def recall_policy(
     )
 
 
+@app.command("upload")
+def upload_policy(
+    state: Path = DEFAULT_STATE,
+    enabled: bool | None = typer.Option(None, "--enable/--disable"),
+) -> None:
+    """查看或更改本机上传：停用后不再读取和上传本机内容，召回照常；恢复后会补传停用期间的改动。"""
+    c = load(state)
+    if enabled is not None:
+        c.config["uploads_enabled"] = enabled
+        atomic_json(state / "config.json", c.config)
+        if enabled:
+            (state / "wake").touch()
+    emit(
+        {
+            "state": str(state.resolve()),
+            "uploads_enabled": c.uploads_enabled(),
+            "recall_enabled": c.recall_enabled(),
+            "paused": (state / "paused").exists(),
+            "on_hub": "已上传的内容不受影响；撤回需要管理员执行 purge-asset",
+        }
+    )
+
+
 @app.command("observe-to")
 def observe_to(
     target: Path = typer.Option(...),
@@ -1120,6 +1143,7 @@ def status(state: Path = DEFAULT_STATE) -> None:
         "identity": {k: v for k, v in c.identity.items() if k != "token"},
         "hub": c.config.get("hub"),
         "recall_enabled": c.recall_enabled(),
+        "uploads_enabled": c.uploads_enabled(),
         "sync_only": bool(c.config.get("sync_only", False)),
         "paused": (state / "paused").exists(),
         "observation_targets": c.config.get("observation_targets", []),
@@ -1616,7 +1640,17 @@ def uninstall(state: Path = DEFAULT_STATE, home: Path = typer.Option(Path.home()
                     ["launchctl", "bootout", f"{domain}/{os.getuid()}", str(p)], capture_output=True
                 )
             p.unlink()
-    emit({"conflicts": uninstall_hooks(home, state), "data": "preserved"})
+    conflicts = uninstall_hooks(home, state)
+    # Whatever a conflict left behind must not keep recalling or uploading.
+    if (state / "config.json").exists():
+        (state / "paused").touch()
+    emit(
+        {
+            "conflicts": conflicts,
+            "data": "preserved",
+            "on_hub": "已上传的内容仍在组织 Hub 上；撤回需要管理员执行 purge-asset",
+        }
+    )
 
 
 @app.command()
@@ -1817,6 +1851,8 @@ def setup(
             raise typer.Exit(1) from None
     if not sync_only:
         install_hooks(home, state, products=chosen)
+    # Setting up again after an uninstall means this device is back in use.
+    (state / "paused").unlink(missing_ok=True)
     if cowork_artifacts:
         plugin, connection = cowork_artifacts
         console.print(
