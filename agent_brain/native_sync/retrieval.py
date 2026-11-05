@@ -304,12 +304,23 @@ def retrieve(
             "SELECT a.payload FROM assets a WHERE " + predicate + " AND a.id=?",
             [*args, query.strip()],
         ).fetchone()
+        if not exact and "/" in query and query.strip().endswith(".md"):
+            # A memory cites another file by path. A file has its parts; open at the first.
+            exact = db.execute(
+                "SELECT a.payload FROM assets a WHERE "
+                + predicate
+                + " AND json_extract(a.payload,'$.path')=?"
+                " AND json_extract(a.payload,'$.part_index')=0"
+                " ORDER BY json_extract(a.payload,'$.observed_at') DESC",
+                [*args, query.strip()],
+            ).fetchone()
+        pinned = json.loads(exact["payload"])["asset_id"] if exact else query.strip()
         if exact:
             exact_hits: list[sqlite3.Row | dict[str, Any]] = [
                 {"payload": exact["payload"], "score": -1.0}
             ]
             lexical = exact_hits + [
-                row for row in lexical if json.loads(row["payload"])["asset_id"] != query.strip()
+                row for row in lexical if json.loads(row["payload"])["asset_id"] != pinned
             ]
         assets: dict[str, dict[str, Any]] = {}
         lex_hits: list[RetrievedItem] = []
@@ -565,7 +576,7 @@ def retrieve(
                 trace.row(hit.id)["declared_filter"] = {
                     k: v for k, v in verdict.items() if k != "drop"
                 }
-            elif verdict and hit.id != query.strip():
+            elif verdict and hit.id != pinned:
                 trace.drop(hit.id, verdict["reason"], verdict)
                 continue
             kept.append(hit)
@@ -618,7 +629,7 @@ def retrieve(
             # An exact authorized asset identifier is a deterministic lookup, even
             # when a semantic model associates its words with unrelated documents.
             before = trace.snapshot(fused)
-            fused.sort(key=lambda hit: hit.id != query.strip())
+            fused.sort(key=lambda hit: hit.id != pinned)
             trace.stage("exact_pin", before, trace.snapshot(fused))
         collecting = collect_gate or hub.gate_collect
         model = (
@@ -657,7 +668,7 @@ def retrieve(
             judged: list[tuple[float, RetrievedItem]] = []
             effects = {}
             for hit in fused:
-                if hit.id == query.strip():
+                if hit.id == pinned:
                     judged.append((2.0, hit))
                     continue
                 if hit.id not in pool:
@@ -770,7 +781,7 @@ def retrieve(
                     if relevance.contains_identifier(text, anchors):
                         passes = True
                         effects[hit.id] = "identifier"
-                if passes or hit.id == query.strip():
+                if passes or hit.id == pinned:
                     kept.append(hit)
                 else:
                     trace.drop(
@@ -793,7 +804,7 @@ def retrieve(
                 item = assets[hit.id]
                 text = (str(item.get("title", "")) + "\n" + str(item.get("body", ""))).casefold()
                 rank = route_ranks.get(hit.id, (None, None))[0] or 99
-                if hit.id == query.strip() or (
+                if hit.id == pinned or (
                     rank <= LEXICAL_GUARD_RANK and relevance.contains_identifier(text, anchors)
                 ):
                     kept.append(hit)

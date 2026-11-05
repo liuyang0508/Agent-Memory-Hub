@@ -13,6 +13,7 @@ from typing import Any
 from .knowledge import _source
 
 MAX_RESPONSE_BYTES = 12000
+WIDE_RESPONSE_BYTES = 48000
 MAX_EXCERPT_BYTES = 1200
 MAX_ITEMS = 20
 STAGES = ("lexical", "semantic", "hopfield", "rerank", "declared_filter", "decay", "mmr")
@@ -159,8 +160,11 @@ def _candidate(item: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
-def bounded_retrieval(result: dict[str, Any]) -> dict[str, Any]:
+def bounded_retrieval(result: dict[str, Any], *, wide: bool = False) -> dict[str, Any]:
     """Return at most 20 candidates and 12000 encoded JSON bytes, metadata included.
+
+    ``wide`` allows 48000 for a caller that trims rows itself: at 12000 only about four
+    rows fit, however many were asked for.
 
     Metadata is never silently rewritten to fit. A candidate whose metadata and
     excerpt would exceed the remaining budget is omitted and counted. Callers can
@@ -177,7 +181,7 @@ def bounded_retrieval(result: dict[str, Any]) -> dict[str, Any]:
     for item in raw[:MAX_ITEMS]:
         candidate = _candidate(item)
         response["items"].append(candidate)
-        if _size(response) > MAX_RESPONSE_BYTES:
+        if _size(response) > (WIDE_RESPONSE_BYTES if wide else MAX_RESPONSE_BYTES):
             response["items"].pop()
     response["omitted_items"] = len(raw) - len(response["items"])
     response["truncated"] = response["omitted_items"] > 0

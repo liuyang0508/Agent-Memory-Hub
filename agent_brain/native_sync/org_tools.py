@@ -14,19 +14,40 @@ import secrets
 import threading
 import time
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from .transport import HubHTTPError, Transport, validate_url
-from .common import source_product
+from .common import source_product, tokens
 
 MAX_CALLS = 12
 MAX_SEARCHES = 3
-MAX_CONTENT_BYTES = 32000
+MAX_CONTENT_BYTES = 64000
 RESEARCH_TTL = 600
 MAX_RESEARCHES = 32
 SEARCH_RESPONSE_BYTES = 12000
+HUB_RESPONSE_BYTES = 48000
+HUB_CANDIDATES = 20
 READ_RESPONSE_BYTES = 24000
+# A search lists candidates; reading is what shows them. A long excerpt per row meant
+# only three of eight fit, and the rest were dropped before the model saw them.
+SEARCH_EXCERPT_CHARS = 260
+# A handbook has many parts; left alone they fill the list and hide smaller documents.
+ROWS_PER_DOCUMENT = 2
+# What a candidate row says about its source: enough to judge it. Reading returns the rest.
+ROW_SOURCE_FIELDS = (
+    "title",
+    "path",
+    "product",
+    "project",
+    "kind",
+    "producer_name",
+    "uploader_name",
+    "observed_at",
+)
+# A memory that cites another file names it by path, like rollout_summaries/x.md.
+CITED_PATH = re.compile(r"(?<![\w./-])[\w.-]+(?:/[\w.-]+)+\.md\b")
+MAX_CITED_FILES = 8
 KINDS = {"memory", "transcript", "rule", "skill", "config"}
 ROLES = {"topic_memory", "navigation", "conversation_summary", "raw_memory", *KINDS}
 ID_PATTERN = re.compile(r"^[A-Za-z0-9_.-]{1,128}$")
@@ -181,6 +202,39 @@ class Research:
     closed: str = ""
 
 
+def _cited_path(query: str) -> str | None:
+    """The file a query names by path, such as a rollout summary a memory points to."""
+    match = CITED_PATH.search(query)
+    return match.group(0) if match else None
+
+
+def _cited_files(text: str, own_path: Any) -> list[str]:
+    """Other files a page points to, in the order it names them."""
+    found: list[str] = []
+    for match in CITED_PATH.finditer(text):
+        path = match.group(0)
+        if path != own_path and path not in found:
+            found.append(path)
+    return found[:MAX_CITED_FILES]
+
+
+def _focused(excerpt: str, query: str, limit: int = SEARCH_EXCERPT_CHARS) -> tuple[int, str]:
+    """The window of an excerpt holding the most query words, opened on a line start."""
+    if len(excerpt) <= limit:
+        return 0, excerpt
+    lower = excerpt.lower()
+    words = {word for word in tokens(query) if len(word) > 1}
+    hits = sorted(found.start() for word in words for found in re.finditer(re.escape(word), lower))
+    best, best_count = 0, -1
+    for start in hits:
+        count = sum(start <= other < start + limit for other in hits)
+        if count > best_count:
+            best, best_count = start, count
+    line = excerpt.rfind("\n", max(0, best - 80), best)
+    start = line + 1 if line >= 0 else max(0, best - 40)
+    return start, excerpt[start : start + limit]
+
+
 class OrganizationTools:
     def __init__(self, state: Path, policy: Path | None = None, *, product: str = "") -> None:
         self.state = Path(state)
@@ -188,6 +242,7 @@ class OrganizationTools:
         # Which product hosts this server, for the Hub's insight rollups only.
         self.product = str(product or "")[:64]
         self._asking_rejected = False
+        self._wide_rejected = False
         self.researches: dict[str, Research] = {}
         self.lock = threading.RLock()
 
@@ -365,7 +420,7 @@ class OrganizationTools:
         research_id: str | None = None,
         limit: int = 8,
         kinds: list[str] | None = None,
-        include_evidence: bool = False,
+        include_evidence: bool = True,
         project_filter: str | None = None,
     ) -> dict[str, Any]:
         with self.lock:
@@ -377,7 +432,7 @@ class OrganizationTools:
                 query = _characters(query, 8000).strip()
                 if not query or type(include_evidence) is not bool:
                     raise ValueError("invalid query")
-                _integer(limit, 1, 8)
+                limit = min(_integer(limit, 1), 8)
                 kinds = ["memory"] if kinds is None else sorted(set(kinds))
                 if not kinds or len(kinds) > 5 or any(kind not in KINDS for kind in kinds):
                     raise ValueError("invalid kinds")
@@ -385,8 +440,9 @@ class OrganizationTools:
                     _characters(project_filter, 256)
             except (ValueError, TypeError):
                 return self._error("invalid_arguments", research_id)
+            cited = _cited_path(query)
             payload = dict(
-                query=query,
+                query=cited or query,
                 limit=limit,
                 kinds=kinds,
                 include_evidence=include_evidence,
@@ -407,38 +463,65 @@ class OrganizationTools:
                     "session_digest": hashlib.sha256(research_id.encode()).hexdigest()[:16],
                 }
             )
+            # A Hub that predates a field rejects the request with 422. The search still
+            # has to be answered, only that field's benefit is lost.
+            extras: dict[str, Any] = {}
+            if asking:
+                extras["asking"] = asking
+            if not self._wide_rejected and limit > 1:
+                # More candidates than rows, so one document cannot fill the list.
+                extras.update(wide=True, limit=HUB_CANDIDATES)
             response = self._request(
-                transport,
-                "retrieve",
-                dict(payload, asking=asking) if asking else payload,
-                research_id,
-                research,
+                transport, "retrieve", {**payload, **extras}, research_id, research
             )
-            if (
-                asking
+            while (
+                extras
                 and isinstance(response, dict)
                 and response.get("ok") is False
                 and response.get("http_status") == 422
             ):
-                # A Hub before asking-context-v1 rejects the extra field; the
-                # search still has to be answered, only the hints are lost.
-                self._asking_rejected = True
-                response = self._request(transport, "retrieve", payload, research_id, research)
+                if "wide" in extras:
+                    del extras["wide"]
+                    del extras["limit"]
+                    self._wide_rejected = True
+                else:
+                    del extras["asking"]
+                    self._asking_rejected = True
+                response = self._request(
+                    transport, "retrieve", {**payload, **extras}, research_id, research
+                )
             if isinstance(response, dict) and response.get("ok") is False:
                 return response
             try:
                 if (
                     not isinstance(response, dict)
                     or not isinstance(response.get("items"), list)
-                    or len(response["items"]) > limit
+                    or len(response["items"]) > HUB_CANDIDATES
                 ):
                     raise ValueError("invalid search response")
-                if _size(response) > SEARCH_RESPONSE_BYTES:
+                if _size(response) > HUB_RESPONSE_BYTES:
                     raise ValueError("retrieval envelope too large")
                 rows: list[dict[str, Any]] = []
                 locators = {}
                 remaining = MAX_CONTENT_BYTES - research.content_bytes
-                for item in response["items"]:
+                items = response["items"]
+                if cited:
+                    # The file asked for by name comes first, whatever else mentions it.
+                    items = sorted(
+                        items,
+                        key=lambda item: str((item.get("source") or {}).get("path") or "") != cited,
+                    )
+                per_document: dict[str, int] = {}
+                dropped = 0
+                for item in items:
+                    if len(rows) >= limit:
+                        dropped += 1
+                        continue
+                    name = str(item.get("document_id"))
+                    if per_document.get(name, 0) >= ROWS_PER_DOCUMENT:
+                        dropped += 1
+                        continue
+                    per_document[name] = per_document.get(name, 0) + 1
                     asset, revision = _locator(item)
                     excerpt = _text(item.get("excerpt"), 1200)
                     if (
@@ -456,18 +539,20 @@ class OrganizationTools:
                     end = _integer(item.get("excerpt_char_end"))
                     if field not in {"body", "index_text"} or end != start + len(excerpt):
                         raise ValueError("invalid excerpt offsets")
+                    offset, focused = _focused(excerpt, query)
+                    source = _source(item.get("source"))
                     row = {
                         "asset_id": asset,
                         "revision": revision,
                         **document,
                         "role": item["role"],
-                        "source": _source(item.get("source")),
-                        "excerpt": excerpt,
-                        "excerpt_truncated": item["excerpt_truncated"],
+                        "source": {k: source[k] for k in ROW_SOURCE_FIELDS if k in source},
+                        "excerpt": focused,
+                        "excerpt_truncated": item["excerpt_truncated"] or focused != excerpt,
                         "version_verified": item["version_verified"],
                         "excerpt_source_field": field,
-                        "excerpt_char_start": start,
-                        "excerpt_char_end": end,
+                        "excerpt_char_start": start + offset,
+                        "excerpt_char_end": start + offset + len(focused),
                         "excerpt_scope": "asset_chunk",
                         "part_index": _integer(item.get("part_index", 0)),
                         "part_count": _integer(item.get("part_count", 1), 1),
@@ -540,17 +625,23 @@ class OrganizationTools:
                                 "aggregation",
                             )
                         }
-                    if len(excerpt.encode()) > remaining:
+                    # Diagnostics are checked above; they say nothing the model can use.
+                    # The document ids are for the locator below; a model read them as asset ids.
+                    row.pop("recall", None)
+                    row.pop("semantic_match", None)
+                    row.pop("document_id", None)
+                    row.pop("document_hash", None)
+                    if len(focused.encode()) > remaining:
                         break
                     # Leave room for the research wrapper and bounded retrieval status.
-                    if _size({"items": rows + [row]}) > 9500:
+                    if _size({"items": rows + [row]}) > 10500:
                         break
                     rows.append(row)
-                    remaining -= len(excerpt.encode())
+                    remaining -= len(focused.encode())
                     locators[(asset, revision)] = {
                         **document,
                         "readable": True,
-                        "source_identity": _stable_source(row["source"]),
+                        "source_identity": _stable_source(source),
                     }
                     _check_known_locator(research, (asset, revision), locators[(asset, revision)])
                 info = response.get("retrieval", {})
@@ -588,12 +679,13 @@ class OrganizationTools:
                         "items": rows,
                         "retrieval": retrieval,
                         "truncated": bool(response.get("truncated"))
-                        or len(rows) < len(response["items"]),
+                        or len(rows) + dropped < len(response["items"]),
                         "omitted_items": _integer(response.get("omitted_items", 0), 0, 1000000)
                         + len(response["items"])
-                        - len(rows),
+                        - len(rows)
+                        - dropped,
                         "missing": "Some candidates exceeded the remaining response/content budget."
-                        if len(rows) < len(response["items"])
+                        if len(rows) + dropped < len(response["items"])
                         else "",
                     },
                     transport,
@@ -645,11 +737,24 @@ class OrganizationTools:
                 return started
             transport, research_id, research = started
             problem = self._known(research, asset_id, revision)
+            if problem == "unknown_locator" and asset_id.startswith("asset_"):
+                # Named by a recall or another search rather than this research's own:
+                # the same exact lookup a read with no research_id does.
+                found = self.search(
+                    asset_id, research_id=research_id, limit=1, kinds=["memory", "rule"]
+                )
+                if found.get("ok") is False:
+                    return found
+                problem = self._known(research, asset_id, revision)
+                if problem == "unknown_locator" and any(
+                    key[0] == asset_id for key in research.locators
+                ):
+                    problem = "stale_version"
             if problem:
                 return self._error(problem, research_id)
             try:
                 _integer(cursor)
-                _integer(max_bytes, 4, 12000)
+                max_bytes = min(_integer(max_bytes, 4), 12000)
             except ValueError:
                 return self._error("invalid_arguments", research_id)
             page = (asset_id, revision, cursor)
@@ -705,19 +810,29 @@ class OrganizationTools:
                     or not cursor < next_cursor < total
                 ):
                     raise ValueError("invalid continuation")
+                page_result: dict[str, Any] = {
+                    "asset_id": asset_id,
+                    "revision": revision,
+                    "text": text,
+                    "source": source,
+                    "version": version,
+                    "cursor": cursor,
+                    "next_cursor": next_cursor,
+                    "complete": complete,
+                    "truncated": truncated,
+                    "total_bytes": total,
+                }
+                cited_files = _cited_files(text, source.get("path"))
+                if cited_files:
+                    # A handbook summarizes; the facts behind it are in these files.
+                    page_result["cited_files"] = cited_files
+                    page_result["cited_files_note"] = (
+                        "This page summarizes these files, which hold the details. If the "
+                        "answer is not fully here, pass the relevant path to search_org_memory "
+                        "as the query to open it."
+                    )
                 result = self._finish(
-                    {
-                        "asset_id": asset_id,
-                        "revision": revision,
-                        "text": text,
-                        "source": source,
-                        "version": version,
-                        "cursor": cursor,
-                        "next_cursor": next_cursor,
-                        "complete": complete,
-                        "truncated": truncated,
-                        "total_bytes": total,
-                    },
+                    page_result,
                     transport,
                     research_id,
                     research,

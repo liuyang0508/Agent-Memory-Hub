@@ -118,6 +118,7 @@ def create_app(hub: Hub) -> FastAPI:
             "recall-usage-feedback-v1",
             "recall-hints-v1",
             "recall-self-feedback-v1",
+            "org-catalog-v1",
         ]
         state = hub.semantic_status()
         semantic: dict[str, Any] = {k: state[k] for k in ("state", "model", "reason") if k in state}
@@ -420,13 +421,19 @@ def create_app(hub: Hub) -> FastAPI:
     ) -> dict[str, Any]:
         return {"items": hub.search(bearer(authorization), **data.model_dump())}
 
+    @app.get("/native/v1/catalog")
+    def catalog(authorization: str | None = Header(default=None)) -> dict[str, Any]:
+        """What this organization's memory covers, for a model to know when to look."""
+        return {"lines": hub.catalog(bearer(authorization))}
+
     @app.post("/native/v1/retrieve")
     def retrieve(
         data: RetrieveInput, authorization: str | None = Header(default=None)
     ) -> dict[str, Any]:
         from .retrieval_view import bounded_retrieval
 
-        return bounded_retrieval(hub.retrieve(bearer(authorization), **data.model_dump()))
+        options = data.model_dump(exclude={"wide"})
+        return bounded_retrieval(hub.retrieve(bearer(authorization), **options), wide=data.wide)
 
     @app.post("/native/v1/recall")
     def recall(

@@ -69,6 +69,8 @@ def work(state: Path, interval: float = 10, *, stop: threading.Event | None = No
     import fcntl
 
     from .autoupdate import INTERVAL as UPDATE_INTERVAL
+    from .catalog import REFRESH_SECONDS as CATALOG_REFRESH
+    from .catalog import refresh as refresh_catalog
     from .autoupdate import check as check_update
     from .autoupdate import due as update_due
     from .autoupdate import enabled as update_enabled
@@ -107,6 +109,7 @@ def work(state: Path, interval: float = 10, *, stop: threading.Event | None = No
         managed = managed_install()
         started_as = installed_version() if managed else None
         next_update = time.monotonic() + random.uniform(120, 900)
+        next_catalog = time.monotonic()
         next_probe = time.monotonic() + 60
         restart = False
         try:
@@ -161,6 +164,13 @@ def work(state: Path, interval: float = 10, *, stop: threading.Event | None = No
                     # observe every file's latest state once the deadline has elapsed.
                     delay = random.uniform(backoff / 2, backoff) if cooling_down else interval
                     next_run = time.monotonic() + delay
+                if time.monotonic() >= next_catalog and not (state / "paused").exists():
+                    next_catalog = time.monotonic() + CATALOG_REFRESH * random.uniform(0.9, 1.1)
+                    try:
+                        if c.recall_enabled():
+                            refresh_catalog(state, c.transport)
+                    except Exception:
+                        pass  # What is cached stays; recall does not depend on this.
                 if managed and time.monotonic() >= next_probe:
                     next_probe = time.monotonic() + 60
                     on_disk = installed_version()

@@ -630,6 +630,7 @@ def export_cowork_plugin(
         "recall_view.py",
         "usage.py",
         "autoupdate.py",
+        "catalog.py",
         "client.py",
         "cowork_runtime.py",
         "runtime_sources.py",

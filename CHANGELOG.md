@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.28] — 2026-11-06
+
+### Added
+
+- A session now starts knowing what organization memory covers: up to 2400 characters of
+  topics taken from the documents' own descriptions and task groups, kept fresh by the
+  worker, sent again after `/clear` and compaction. With the search tool one of many
+  deferred tools, a model otherwise almost never searched mid-task. Session summaries,
+  working files, indexes and one person's preferences are left out, and so are IP addresses.
+  `recall --disable` and `pause` stop it.
+
+### Changed
+
+- `search_org_memory` returns up to eight short candidates instead of about three long
+  ones, at most two from one document, and includes session summaries, ranked below curated
+  memory as before. A file path as the query opens that file, and a page read lists the
+  files it points to, because a handbook's details are often there.
+- A question's research budget is 64000 bytes instead of 32000. A read accepts an id named
+  by a recall or another search within an open research, and oversized `limit` and
+  `max_bytes` are clamped rather than refused.
+- The tool's instructions say when to look, including during the work, in place of
+  "only when needed".
+
+### Compatibility
+
+- A new client on an older Hub still searches, with fewer candidates and no topic list. An
+  older client on a new Hub behaves as before.
+
 ## [1.4.27] — 2026-11-05
 
 ### Changed

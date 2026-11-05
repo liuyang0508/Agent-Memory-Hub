@@ -99,6 +99,8 @@ class RetrieveInput(BaseModel):
     include_evidence: bool = False
     project_filter: str | None = Field(default=None, max_length=256)
     asking: AskingContext | None = None
+    # The caller trims rows itself and accepts a larger envelope. Older clients refuse one.
+    wide: bool = False
 
 
 class RecallInput(BaseModel):
