@@ -246,9 +246,59 @@ _HEADING = re.compile(r"^#{1,4}\s+(.+)$", re.M)
 _MARKUP = re.compile(r"\*\*|__|`|\[\[|\]\]|^\s*[-*>]\s+|^\s*\d+\.\s+", re.M)
 
 
-def _summary(record: dict[str, Any]) -> str:
-    """What the memory says, in one line: its own description, the task groups
-    of an index chunk, the entries of an index, or its first heading/sentence."""
+# What an aggregated note carries beside its content: file lists and keyword lines.
+_BOOKKEEPING = re.compile(r"rollout_summaries/|rollout_path=|thread_id=|^(applies_to|scope):", re.I)
+
+
+def _section_gist(text: str, query: str) -> str:
+    """The sentence of a matched section that shows what it says: most words in common
+    with the prompt, else the first real sentence. Never a heading or a file list."""
+    from .relevance import query_terms, terms
+
+    wanted = query_terms(query)
+    best, best_score, heading, keywords = "", -1, "", False
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("《"):
+            continue
+        marked = _HEADING.match(line)
+        if marked:
+            heading = marked.group(1).strip()
+            keywords = heading.casefold() == "keywords"
+            continue
+        if keywords or _BOOKKEEPING.search(line) or line.startswith(("```", "|", "---")):
+            continue
+        score = len(wanted & terms(line))
+        if score > best_score:
+            line = _MARKUP.sub("", line)
+            best, best_score = (f"{heading}：{line}" if heading else line), score
+    return _one_line(best) if best else ""
+
+
+def _why(record: dict[str, Any], query: str) -> str:
+    """Why this memory came up, in the member's terms: its ranks and the words it shares."""
+    from .relevance import query_terms, terms
+
+    trace = record.get("recall")
+    routes = trace.get("routes") if isinstance(trace, dict) else None
+    ranks = routes if isinstance(routes, dict) else {}
+    parts = []
+    if isinstance(ranks.get("semantic"), int):
+        parts.append(f"语义相近排第 {ranks['semantic']}")
+    if isinstance(ranks.get("lexical"), int):
+        parts.append(f"关键词排第 {ranks['lexical']}")
+    body = record.get("body")
+    shared = query_terms(query) & terms(body) if isinstance(body, str) and query else set()
+    if shared:
+        words = sorted(shared, key=lambda word: (-len(word), word))[:4]
+        parts.append("共同词 " + "、".join(words))
+    return "，".join(parts)
+
+
+def _summary(record: dict[str, Any], query: str = "") -> str:
+    """What the memory says, in one line: the matched section's telling sentence, its own
+    description, the task groups of an index chunk, the entries of an index, or its first
+    heading/sentence."""
     if record.get("deleted"):
         return ""  # a retired memory shows nothing of what it said
     body, index_text = record.get("body"), record.get("index_text")
@@ -257,6 +307,10 @@ def _summary(record: dict[str, Any]) -> str:
         text = index_text
     if not text.strip():
         return ""
+    if record.get("section"):
+        gist = _section_gist(text, query)
+        if gist:
+            return gist
     front = _FRONT.match(text)
     if front:
         described = _DESCRIPTION.search(front.group(1))
@@ -363,7 +417,8 @@ def _box(
         previous_detail = bool(detail)
         if detail:
             out.append("│" + " " * (widths[0] + 2) + "├" + "┴".join(rest) + "┤")
-            out.append("│" + " " * (widths[0] + 2) + "│ " + _fit(detail, span - 2) + " │")
+            for part in detail.split("\n"):
+                out.append("│" + " " * (widths[0] + 2) + "│ " + _fit(part, span - 2) + " │")
     if previous_detail:
         out.append("└" + head + "┴" + "─" * span + "┘")
     else:
@@ -443,7 +498,7 @@ def render(
         return (
             _as_plain("\n".join(lines))
             + "\n"
-            + "\n".join(_box_table(hits, states, terminal_columns()))
+            + "\n".join(_box_table(hits, states, terminal_columns(), query))
             + ("\n" + tail if tail else "")
         )
     lines += [
@@ -462,7 +517,7 @@ def render(
                 [
                     str(rank),
                     _cell(title, 28),
-                    _cell(_summary(record) or "—", 60),
+                    _cell(_summary(record, query) or "—", 60),
                     _kind(record),
                     _cell(PRODUCTS.get(product, product), 14),
                     _cell(_producer(record), 16),
@@ -595,7 +650,10 @@ def _box_title(record: dict[str, Any]) -> str:
 
 
 def _box_table(
-    hits: list[dict[str, Any]], states: dict[str, str], columns: int | None = None
+    hits: list[dict[str, Any]],
+    states: dict[str, str],
+    columns: int | None = None,
+    query: str = "",
 ) -> list[str]:
     from .recall import coverage_key
 
@@ -622,6 +680,16 @@ def _box_table(
             "state": STATE_SHORT.get(states.get(coverage_key(record), ""), "-"),
         }
         rows.append([values[key] for key, _, _ in layout])
-        summary = _plain(_summary(record))
-        details.append("内容：" + summary if summary else "")
+        summary = _plain(_summary(record, query))
+        reason = _plain(_why(record, query))
+        details.append(
+            "\n".join(
+                part
+                for part in (
+                    "内容：" + summary if summary else "",
+                    "原因：" + reason if reason else "",
+                )
+                if part
+            )
+        )
     return _box([head for _, head, _ in layout], rows, [width for _, _, width in layout], details)
