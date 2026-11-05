@@ -25,7 +25,7 @@
     "hook_margin": 0.08,
     "semantic_min_score": 0.3,
     "hook_gate": {
-      "version": "learned-v1",
+      "version": "learned-v1.1",
       "features": [
         "sim",
         "gap",
@@ -67,7 +67,7 @@
         0.193364
       ],
       "bias": -2.749657,
-      "threshold": 0.3,
+      "threshold": 0.7,
       "max_items": 3,
       "dedup": 0.5,
       "calibration": {
@@ -92,10 +92,10 @@
       },
       "relative": 0.5,
       "lift": 0.08,
-      "hint_threshold": 0.15,
+      "hint_threshold": 0.3,
       "hint_lift": 0.04,
       "hint_items": 2
     }
   },
-  "calibration": "2026-11-04 org corpus replica (91 memory/rule documents), 105-case gold set (77 answerable incl. 22 realistic long prompts; 28 unanswerable incl. 16 everyday work prompts). hook_gate learned-v1 at threshold 0.30 (one-standard-error rule, SE 0.031), 5x5 grouped cross-validation: hit@1 87.8%, hit@3 91.4%, precision 74.4%, unanswerable left alone 75.0%, 1.56 memories per prompt; floor gate 0.40/0.08 on the same set: 85.7%, 92.2%, 56.6%, 64.3%, 2.87. hook_min_score/hook_margin stay the fallback while the generic-prompt bank warms. 1.4.18: full injection also needs lift (similarity minus the memory's similarity to everyday prompts) >= 0.08, picked in 23 of 25 grouped cross-validation folds over two org stores (94 and 34 memories); held-out utility 0.840->0.861 and 0.560->0.669, unanswerable left alone 75%->89% and 43%->89%, hit@1 88%->85% and 61%->57%. Title-only tier: probability >= 0.15 and lift >= 0.04, at most 2."
+  "calibration": "2026-11-04 org corpus replica (91 memory/rule documents), 105-case gold set (77 answerable incl. 22 realistic long prompts; 28 unanswerable incl. 16 everyday work prompts). hook_gate learned-v1 at threshold 0.30 (one-standard-error rule, SE 0.031), 5x5 grouped cross-validation: hit@1 87.8%, hit@3 91.4%, precision 74.4%, unanswerable left alone 75.0%, 1.56 memories per prompt; floor gate 0.40/0.08 on the same set: 85.7%, 92.2%, 56.6%, 64.3%, 2.87. hook_min_score/hook_margin stay the fallback while the generic-prompt bank warms. 1.4.18: full injection also needs lift (similarity minus the memory's similarity to everyday prompts) >= 0.08, picked in 23 of 25 grouped cross-validation folds over two org stores (94 and 34 memories); held-out utility 0.840->0.861 and 0.560->0.669, unanswerable left alone 75%->89% and 43%->89%, hit@1 88%->85% and 61%->57%. Title-only tier: probability >= 0.15 and lift >= 0.04, at most 2. 1.4.22: rule only, weights unchanged. On 91 real prompts with the live Hub's own numbers (labels from a blind reader; the threshold was chosen on these prompts, no untouched set remains): full at p>=0.7 and titles at p>=0.3 gave precision 37%->58%, wholly wrong prompts 14->8, wrong titles 72->40. A gate retrained on real prompts did not beat this when a whole session was held out, so it was not shipped."
 }

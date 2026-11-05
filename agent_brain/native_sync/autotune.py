@@ -310,7 +310,7 @@ def run(
                 "ok": use_ok,
                 "labels": len(held),
             },
-            "threshold": candidate["best"]["threshold"],
+            "threshold": max(candidate["best"]["threshold"], base.threshold),
             "standard_error": candidate["standard_error"],
         }
     )
@@ -329,7 +329,9 @@ def run(
     day = datetime.fromtimestamp(now, timezone.utc).strftime("%Y%m%d")
     root = str(base.version).split("-fb")[0]
     final.version = f"{root}-fb{day}"
-    final.threshold = candidate["best"]["threshold"]
+    # Gold cross-validation favours lower thresholds than real prompts bear:
+    # recalibration may tighten the bar for full injection, never relax it.
+    final.threshold = max(candidate["best"]["threshold"], base.threshold)
     relevance.adopt_rule(final, base)
     embedding = str(
         (hub.semantic_state or {}).get("model") or getattr(hub._encoder, "model_id", "")

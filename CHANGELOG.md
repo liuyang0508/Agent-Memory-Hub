@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.22] — 2026-11-05
+
+### Changed
+
+- Prompt-time recall injects less. Replaying 91 real prompts on a live Hub, with a
+  blind reader judging each memory, full injection was right 37% of the time. The
+  bar for full injection rises from 0.3 to 0.7 and for titles from 0.15 to 0.3:
+  precision reaches 58%, prompts answered only with wrong memories fall from 14 to
+  8, wrong titles from 72 to 40, and prompts reached with a useful memory fall from
+  27 to 24, partly through titles the model has to choose to read. The thresholds
+  were chosen on these prompts; no untouched set remains. Weekly recalibration can
+  tighten the full-injection bar, not relax it.
+
+### Fixed
+
+- A long memory reached the prompt from its opening or its first shared keyword,
+  whatever part the prompt had matched. The Hub now hands the hook the section
+  around the match, titled, and the client no longer counts one section as having
+  read the whole memory.
+- Gold cases can name an asset id, so aggregated files can be judged part by part.
+
+### Notes
+
+- A gate retrained on real prompts looked better with prompts split at random, then
+  lost to the current gate once whole sessions were held out; it was not shipped.
+- Earlier reported hit@1 figures (87%) counted a file name appearing in an index's
+  text as a hit. Judged by file name on a live Hub, it is about 36%.
+- The same quantized model gives different similarities on x86 and ARM, and tells
+  useful memories apart less well on x86. See the operations guide.
+
 ## [1.4.21] — 2026-11-05
 
 ### Fixed
