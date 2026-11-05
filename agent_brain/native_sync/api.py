@@ -591,6 +591,7 @@ RECALL_ITEM_FIELDS = (
     "upstream",
     "verified",
     "observed_at",
+    "section",
 )
 RECALL_MATCH_FIELDS = (
     "similarity",

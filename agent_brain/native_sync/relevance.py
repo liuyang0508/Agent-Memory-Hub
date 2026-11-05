@@ -45,6 +45,7 @@ POOL_LEXICAL = 3  # plus the keyword search head
 ANCHOR_MIN_PROBABILITY = 0.1
 ANCHOR_MIN_LIFT = 0.0
 BACKGROUND_K = 10
+SECTION_CHARS = 1400  # Longer memories are injected as the section the prompt matched.
 
 # Everyday prompts with no organization knowledge: the background a memory's
 # similarity is measured against. Fixed and versioned with the gate.
@@ -116,6 +117,28 @@ _STOP = frozenset(
 )
 _WORD = re.compile(r"[a-z0-9_.\-/]{2,}")
 _CJK = re.compile(r"[\u4e00-\u9fff]+")
+
+
+_HEADING = re.compile(r"^#{1,2} .*$", re.M)
+
+
+def section_span(text: str, start: int, end: int, limit: int = SECTION_CHARS) -> tuple[int, int]:
+    """The heading-delimited part of ``text`` around a matched window, at most ``limit`` chars.
+
+    Aggregated notes run for thousands of characters across unrelated topics;
+    their opening says nothing about the part a prompt matched.
+    """
+    low, high = 0, len(text)
+    for heading in _HEADING.finditer(text):
+        if heading.start() <= start:
+            low = heading.start()
+        elif heading.start() >= end:
+            high = heading.start()
+            break
+    if high - low > limit:
+        low = max(low, start - max(0, limit - (end - start)) // 2)
+        high = min(high, low + limit)
+    return low, high
 
 
 def terms(text: str) -> set[str]:

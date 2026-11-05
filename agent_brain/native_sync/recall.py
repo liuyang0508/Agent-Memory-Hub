@@ -159,7 +159,8 @@ def pack(
                 best = max(anchors, key=lambda t: len(t) ** 2 / max(1, lower.count(t)))
                 start = max(0, lower.find(best) - budget // 8)
         excerpt = display[start:].encode()[:budget].decode("utf8", errors="ignore")
-        full = start == 0 and excerpt == display
+        # A section is a part of its source version, however completely it fits.
+        full = start == 0 and excerpt == display and not rows[0].get("section")
         keys = [
             coverage_key(r) if full else coverage_key(r) + ":excerpt:" + digest(excerpt)
             for r in rows

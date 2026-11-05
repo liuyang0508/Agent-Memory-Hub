@@ -401,6 +401,18 @@ def test_autotune_promotes_only_through_both_checks_and_can_roll_back(tmp_path, 
     assert hub.gate_model(tenant).version == "learned-v1"
 
 
+def test_autotune_never_relaxes_the_bar_for_full_injection(tmp_path, monkeypatch):
+    hub, token = topic_hub(tmp_path, None)
+    tenant = hub.identity(token)["tenant"]
+    monkeypatch.setattr(TopicBackend, "hook_gate", sim_only(threshold=0.9), raising=False)
+    hub._gate, hub._gate_error = None, None
+    report = autotune.run(
+        hub, tenant, cases=_gold(), labels=_labels(20, 20), token=token, apply=True
+    )
+    assert report["status"] == "promoted", report
+    assert report["threshold"] == 0.9 and hub.gate_model(tenant).threshold == 0.9
+
+
 def test_autotune_refuses_feedback_that_predicts_use_worse(tmp_path, monkeypatch):
     hub, token = topic_hub(tmp_path, None)
     tenant = hub.identity(token)["tenant"]

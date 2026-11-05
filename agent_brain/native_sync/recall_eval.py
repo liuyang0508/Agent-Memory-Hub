@@ -79,7 +79,7 @@ def split_of(case_id: str) -> str:
 
 def relevant(item: dict[str, Any], expect: Sequence[str]) -> bool:
     """Whether a returned memory is one the case expects."""
-    fields = [str(item.get(k) or "") for k in ("path", "title", "document_id", "body")]
+    fields = [str(item.get(k) or "") for k in ("asset_id", "path", "title", "document_id", "body")]
     return any(key and any(key in field for field in fields) for key in expect)
 
 

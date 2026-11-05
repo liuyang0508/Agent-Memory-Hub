@@ -1644,12 +1644,36 @@ class Hub:
         result = self.retrieve(
             token, query, limit=limit, kinds=["memory", "rule"], channel="hook", asking=asking
         )
+        for item in result["items"]:
+            self._focus_on_match(item)
         return {
             "items": result["items"],
             "hints": result.get("hints", []),
             "trace_id": result["retrieval"]["trace_id"],
             "retrieval": result["retrieval"],
         }
+
+    @staticmethod
+    def _focus_on_match(item: dict[str, Any]) -> None:
+        """Hand the hook the section a prompt matched instead of a long memory's opening.
+
+        ``body_hash`` keeps naming the whole source version, and ``section``
+        tells the client this text is a part of it.
+        """
+        from .relevance import SECTION_CHARS, section_span
+
+        body, match = item.get("body"), item.get("semantic_match")
+        if (
+            not isinstance(body, str)
+            or len(body) <= SECTION_CHARS
+            or not isinstance(match, dict)
+            or match.get("source_field") != "body"
+        ):
+            return
+        low, high = section_span(body, int(match["char_start"]), int(match["char_end"]))
+        item["section"] = {"char_start": low, "char_end": high, "chars": len(body)}
+        title = str(item.get("title") or "").strip()
+        item["body"] = (f"《{title}》\n" if title else "") + body[low:high]
 
     def recall_feedback(
         self, token: str, trace_id: str, events: list[dict[str, Any]]
