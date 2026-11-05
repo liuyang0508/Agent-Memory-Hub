@@ -156,6 +156,7 @@ class Hub:
         # Parsed window vectors per (tenant, asset, revision, content hash):
         # a query must not re-read and re-parse the whole index from SQLite.
         self._vectors: dict[str, dict[tuple[str, int, str, str], Any]] = {}
+        self._catalogs: dict[str, tuple[int, list[str]]] = {}
         self._insights_refreshed: dict[str, float] = {}
         with database(self.path) as db:
             db.executescript(HUB_SCHEMA)
@@ -1329,6 +1330,48 @@ class Hub:
             return self._encoder, None
         except Exception as exc:
             return None, "semantic_model_unavailable:" + type(exc).__name__
+
+    def catalog(self, token: str) -> list[str]:
+        """Topics of the tenant's curated memory, rebuilt only when something changed."""
+        from .asset_roles import PRIMARY_MEMORY_SQL, asset_role
+        from .catalog import build
+
+        with database(self.path) as db:
+            who = self._identity(db, token)
+            tenant = who["tenant"]
+            row = db.execute("SELECT max(seq) FROM changes WHERE tenant=?", (tenant,)).fetchone()
+            generation = row[0] or 0
+            cached = self._catalogs.get(tenant)
+            if cached and cached[0] == generation:
+                return list(cached[1])
+            db.create_function("native_asset_role", 3, asset_role, deterministic=True)
+            documents: dict[tuple[str, str], list[dict[str, Any]]] = {}
+            for found in db.execute(
+                "SELECT a.payload FROM assets a WHERE a.tenant=?"
+                " AND json_extract(a.payload,'$.deleted')=0"
+                " AND json_extract(a.payload,'$.encoding')='utf8'"
+                " AND json_extract(a.payload,'$.kind')='memory' AND " + PRIMARY_MEMORY_SQL,
+                (tenant,),
+            ):
+                item = json.loads(found["payload"])
+                if self._retrieval_valid(db, item):
+                    name = item.get("document_id") or item["asset_id"]
+                    documents.setdefault((item["source_store"], name), []).append(item)
+        lines = build(
+            [
+                {
+                    "path": parts[0].get("path"),
+                    "observed_at": parts[0].get("observed_at"),
+                    "text": "".join(
+                        part["body"]
+                        for part in sorted(parts, key=lambda p: p.get("part_index") or 0)
+                    ),
+                }
+                for parts in documents.values()
+            ]
+        )
+        self._catalogs[tenant] = (generation, lines)
+        return list(lines)
 
     def _retrieval_valid(self, db: sqlite3.Connection, item: dict[str, Any]) -> bool:
         from .materialize import assembled

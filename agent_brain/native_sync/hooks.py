@@ -154,6 +154,28 @@ def _display_text(record: dict[str, Any]) -> str:
     return text if isinstance(text, str) else ""
 
 
+def _catalog_output(
+    c: NativeClient, root: Path, product: str, payload: dict[str, Any]
+) -> dict[str, Any]:
+    """Tell a new session what the organization knows. A resumed one was already told."""
+    if payload.get("source") == "resume" or (root / "paused").exists():
+        return {}
+    from .catalog import block, load
+
+    lines = load(root)
+    body = block(lines)
+    if not body:
+        return {}
+    output: dict[str, Any] = {
+        "hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": body}
+    }
+    if c.config.get(DISPLAY_KEY, "table") != "off" and product in VISIBLE_MESSAGE_PRODUCTS:
+        output["systemMessage"] = (
+            f"组织记忆目录已提供给模型：{len(lines)} 个主题，需要时它会主动查询"
+        )
+    return output
+
+
 def _project_for(c: NativeClient, cwd: Any) -> str:
     """The project this device registered for the working directory; empty when unknown.
 
@@ -231,6 +253,8 @@ def _run(root: Path, product: str, payload: dict[str, Any]) -> dict[str, Any]:
         observe_backups(c, product, payload, session, epoch)
     if not c.recall_enabled():
         return {}
+    if event == "SessionStart":
+        return _catalog_output(c, root, product, payload)
     if event == "PostToolUse":
         from .lineage import record_tool_coverage
 

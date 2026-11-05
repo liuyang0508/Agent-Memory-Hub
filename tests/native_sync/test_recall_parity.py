@@ -348,7 +348,7 @@ def test_http_recall_feedback_listing_and_admin_page(tmp_path):
     assert len(admin_view.json()["traces"]) == 2 and "FULL_BODY" not in admin_view.text
 
 
-def test_mcp_bridge_passes_trace_and_recall_summary_through(tmp_path):
+def test_mcp_bridge_passes_trace_through_and_leaves_row_diagnostics_out(tmp_path):
     from agent_brain.native_sync.org_tools import OrganizationTools
     from test_org_mcp import TOKEN
 
@@ -389,8 +389,8 @@ def test_mcp_bridge_passes_trace_and_recall_summary_through(tmp_path):
         assert result["ok"], result
         assert len(result["retrieval"]["trace_id"]) == 24
         assert result["retrieval"]["stages"]["decay"] == "on"
-        assert result["items"][0]["recall"]["routes"]["lexical"] == 1
-        assert result["items"][0]["recall"]["final_rank"] == 1
+        # Per-row diagnostics stay on the trace: they took room from candidates in the row.
+        assert "recall" not in result["items"][0]
     finally:
         server.should_exit = True
         thread.join(5)

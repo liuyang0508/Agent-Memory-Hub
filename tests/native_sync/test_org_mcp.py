@@ -251,17 +251,14 @@ def test_byte_budget_tightens_read_page_and_never_stores_bodies(hub):
     rid = searched["research_id"]
     cursor = 0
     pages = []
-    for _ in range(3):
+    for _ in range(6):
         result = tools.read("asset_a", 2, rid, cursor=cursor)
         assert result["ok"], result
         pages.append(result)
         cursor = result["next_cursor"]
-    assert (
-        sum(len(page["text"].encode()) for page in pages)
-        + len(searched["items"][0]["excerpt"].encode())
-        == 32000
-    )
-    assert hub.calls[-1][1]["max_bytes"] == 7900
+    excerpt = len(searched["items"][0]["excerpt"].encode())
+    assert sum(len(page["text"].encode()) for page in pages) + excerpt == 64000
+    assert hub.calls[-1][1]["max_bytes"] == 4000 - excerpt
     assert tools.read("asset_a", 2, rid, cursor=cursor)["code"] == "budget_exhausted"
     state = repr(tools.researches)
     assert "A" * 100 not in state and TOKEN not in state
@@ -360,7 +357,8 @@ def test_search_response_limits_fields_and_retains_masked_offsets(hub):
     row = result["items"][0]
     assert row["excerpt_source_field"] == "index_text" and row["excerpt_char_start"] == 1000
     assert row["part_count"] == 3 and row["excerpt_scope"] == "asset_chunk"
-    assert "private_server_state" not in row and "private" not in row["semantic_match"]
+    assert "private_server_state" not in row and "semantic_match" not in row
+    assert "private" not in json.dumps(result)
     assert len(json.dumps(result, ensure_ascii=False, separators=(",", ":")).encode()) <= 12000
 
 
@@ -413,7 +411,7 @@ def test_utf8_read_offsets_are_bytes_and_upstream_is_only_an_asset_link(hub):
 
 
 def test_oversized_raw_response_is_rejected_even_if_unknown_fields_would_be_removed(hub):
-    hub.override = {"items": [hub.candidate()], "arbitrary_body": "x" * 12000}
+    hub.override = {"items": [hub.candidate()], "arbitrary_body": "x" * 48000}
     result = OrganizationTools(hub.state).search("question")
     assert result["code"] == "invalid_response"
     assert "arbitrary_body" not in json.dumps(result)
