@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.27] — 2026-11-05
+
+### Changed
+
+- Codex's `raw_memories.md` and `extensions/skysight/` are no longer uploaded.
+  `raw_memories.md` is consolidation's intermediate input, and `extensions/skysight/` holds
+  what Computer History derives from on-screen activity. Everything else in the store,
+  including `rollout_summaries/`, is uploaded as before.
+- Copies of these files already on a Hub stay there; only deleting the local file, or an
+  administrator's `purge-asset`, removes them.
+
 ## [1.4.26] — 2026-11-05
 
 ### Fixed

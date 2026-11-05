@@ -319,6 +319,20 @@ def transcript_metadata(path: str | Path) -> bool:
     return Path(path).name.lower().endswith(".meta.json")
 
 
+def withheld(root: Path, kind: str, rel: Path | str) -> bool:
+    """Codex files that stay on this machine even though they sit in its memory store.
+
+    raw_memories.md is consolidation's intermediate input, not memory meant to be
+    read, and extensions/skysight/ holds what Computer History derives from what a
+    person did on screen. ``memories`` is the store's name only for Codex; other
+    products keep theirs in ``memory``.
+    """
+    if kind != "memory" or root.name != "memories":
+        return False
+    parts = Path(rel).parts
+    return parts == ("raw_memories.md",) or parts[:2] == ("extensions", "skysight")
+
+
 def files(root: Path, kind: str) -> Iterator[Path]:
     """Enumerate eligible sources, excluding credentials, generated resources and symlink traversal.
 
@@ -347,7 +361,7 @@ def files(root: Path, kind: str) -> Iterator[Path]:
             continue
         if any((root / Path(*rel.parts[:i])).is_symlink() for i in range(1, len(rel.parts))):
             continue
-        if forbidden_file(p):
+        if forbidden_file(p) or withheld(root, kind, rel):
             continue
         if kind in ("memory", "rule") and p.suffix.lower() != ".md":
             continue

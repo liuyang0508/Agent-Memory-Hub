@@ -19,7 +19,15 @@ from .source_policy import (
     policy as scope_policy,
 )
 
-from .source import source_text, read_document, files, enqueue_document, queue_delete, screen
+from .source import (
+    enqueue_document,
+    files,
+    queue_delete,
+    read_document,
+    screen,
+    source_text,
+    withheld,
+)
 
 
 # Consecutive unavailable report uploads that end one sync pass.
@@ -689,6 +697,21 @@ class NativeClient:
                 ).fetchall()
                 for row in rows:
                     if row["path"] in seen:
+                        continue
+                    if (
+                        withheld(root, source["kind"], row["path"])
+                        and (root / row["path"]).exists()
+                    ):
+                        # Withheld is not deleted: tombstoning here would remove
+                        # the copy already on the Hub. Only an unsent version stops.
+                        for part in db.execute(
+                            "SELECT asset FROM source_parts WHERE base=?", (row["asset"],)
+                        ).fetchall():
+                            queued = db.execute(
+                                "SELECT payload FROM outbox WHERE asset=?", (part["asset"],)
+                            ).fetchone()
+                            if queued and not json.loads(queued["payload"]).get("deleted"):
+                                db.execute("DELETE FROM outbox WHERE asset=?", (part["asset"],))
                         continue
                     for part in db.execute(
                         "SELECT * FROM source_parts WHERE base=?", (row["asset"],)
