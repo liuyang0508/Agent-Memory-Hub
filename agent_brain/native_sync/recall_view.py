@@ -585,7 +585,7 @@ _COLUMNS: tuple[tuple[str, str, int], ...] = (
 # A narrow terminal first tightens columns that hold spare room, then gives up
 # whole columns, least useful first. A wrapped box is unreadable; a missing
 # column is not.
-_TIGHTER = {"title": 17, "author": 8}
+_TIGHTER = {"title": 18, "author": 8}
 _DROP_ORDER = ("version", "project", "source", "kind", "usage", "author", "routes")
 # The host indents a hook message and needs a spare column at the right edge.
 _HOST_MARGIN = 6
