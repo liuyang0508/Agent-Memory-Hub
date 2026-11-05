@@ -93,6 +93,7 @@ def test_fetch_falls_back_to_search_on_an_old_hub_and_keeps_other_errors():
     assert fetch(New(), "q") == {
         "items": [{"asset_id": "a"}],
         "hints": [],
+        "self_feedback_rate": 0.0,
         "trace_id": "f" * 24,
         "channel": "recall",
         "retrieval": {"mode": None, "reasons": []},

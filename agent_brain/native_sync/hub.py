@@ -43,8 +43,17 @@ SCRUB_REVISIONS = (
 SCRUB_DONE = "changes_text_scrubbed_v1"
 SCRUB_AT = "changes_text_scrub_position"
 SCRUB_BATCH = 100
-RULE_FIELDS = ("lift", "hint_threshold", "hint_lift", "hint_items")
+RULE_FIELDS = ("lift", "hint_threshold", "hint_lift", "hint_items", "nav_threshold")
 FEISHU_STATE_LIMIT = 1000
+
+
+def _unit_rate(raw: str | None, default: float) -> float:
+    """A share from the environment; anything unusable keeps the default."""
+    try:
+        value = float(raw) if raw not in (None, "") else default
+    except ValueError:
+        return default
+    return value if 0.0 <= value <= 1.0 else default
 
 
 class Hub:
@@ -131,6 +140,7 @@ class Hub:
         # recall then injects only a literal identifier match from the prompt
         # (AMH_NATIVE_HOOK_LEXICAL_GUARD=0 restores plain keyword injection).
         self.hook_lexical_guard = os.environ.get("AMH_NATIVE_HOOK_LEXICAL_GUARD", "1") != "0"
+        self.self_feedback_rate = _unit_rate(os.environ.get("AMH_NATIVE_SELF_FEEDBACK_RATE"), 0.2)
         # Generic-prompt bank vectors per model version, and each indexed
         # revision's background similarity to them (relevance.doc_bg).
         self._bank: dict[str, Any] = {}

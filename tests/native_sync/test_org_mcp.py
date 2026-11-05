@@ -174,8 +174,10 @@ def test_real_stdio_initialize_list_search_read_related_and_unpaired(tmp_path, h
                     "search_org_memory",
                     "read_org_memory",
                     "related_org_memory",
+                    "memory_feedback",
                 }
-                assert all(t.annotations.readOnlyHint for t in tools)
+                research = [t for t in tools if t.name != "memory_feedback"]
+                assert all(t.annotations.readOnlyHint for t in research)
                 assert all(
                     not {"tenant", "tenant_id", "hub", "token"} & t.inputSchema["properties"].keys()
                     for t in tools

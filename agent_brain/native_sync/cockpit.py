@@ -18,6 +18,7 @@ from statistics import median
 from typing import Any
 
 from . import insights
+from .recall_ledger import self_feedback_counts
 
 DAY_SECONDS = 86400
 WEEKS = 8
@@ -112,6 +113,17 @@ def _labels(db: sqlite3.Connection, tenant: str, since: float) -> list[dict[str,
             (tenant, since),
         )
     ]
+
+
+def _self_useful(said: dict[str, int]) -> float | None:
+    """Of the model's answers, how many relied on the memory with evidence we could find."""
+    return _ratio(
+        said["self_used"],
+        said["self_used"]
+        + said["self_used_unverified"]
+        + said["self_not_needed"]
+        + said["self_misleading"],
+    )
 
 
 def _usage(rows: list[dict[str, Any]], start: float, end: float) -> dict[str, int]:
@@ -561,6 +573,8 @@ def build(
     """The cockpit payload for a window of whole days ending today."""
     start = now - days * DAY_SECONDS
     previous_start = start - days * DAY_SECONDS
+    said_now = self_feedback_counts(db, tenant, since=start, until=now)
+    said_before = self_feedback_counts(db, tenant, since=previous_start, until=start)
     labels = _labels(db, tenant, previous_start)
     usage = _usage(labels, start, now + 1)
     usage_before = _usage(labels, previous_start, start)
@@ -641,6 +655,18 @@ def build(
                     was(_ratio(used_before, judged_before)),
                     unit="pct",
                     hint="被判定过的注入里，真正用上的比例。",
+                ),
+                _indicator(
+                    "self_useful",
+                    "模型自评有用率",
+                    _self_useful(said_now),
+                    was(_self_useful(said_before)),
+                    unit="pct",
+                    hint=(
+                        "抽样询问模型后，答“用了且找到依据”的比例。观察中，尚未用于调整门控；"
+                        f"本期询问 {said_now['self_asked']} 次，"
+                        f"答“误导” {said_now['self_misleading']} 次。"
+                    ),
                 ),
                 _indicator(
                     "reuse_share",

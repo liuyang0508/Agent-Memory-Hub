@@ -65,6 +65,9 @@ def fetch(
                 and isinstance(h.get("asset_id"), str)
                 and type(h.get("revision")) is int
             ],
+            "self_feedback_rate": result.get("self_feedback_rate")
+            if isinstance(result.get("self_feedback_rate"), (int, float))
+            else 0.0,
             "trace_id": trace_id if isinstance(trace_id, str) and len(trace_id) == 24 else None,
             "channel": "recall",
             # Shown to the member: how the Hub ranked this answer and why it degraded.

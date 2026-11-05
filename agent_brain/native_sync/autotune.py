@@ -391,6 +391,7 @@ def status(db: sqlite3.Connection, tenant: str, *, now: float | None = None) -> 
     gold = db.execute("SELECT COUNT(*) FROM recall_gold WHERE tenant=?", (tenant,)).fetchone()[0]
     return {
         "labels_7d": recall_ledger.usage_counts(db, tenant, since=now - 7 * 86400),
+        "self_feedback_7d": recall_ledger.self_feedback_counts(db, tenant, since=now - 7 * 86400),
         "labels_30d": recall_ledger.usage_counts(db, tenant, since=now - 30 * 86400),
         "gold_cases": int(gold),
         "last_run": last_report(db, tenant),

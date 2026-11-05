@@ -15,7 +15,7 @@ from .client import NativeClient
 from .common import atomic_text, digest, recall_budget
 from .storage import database, DB_TIMEOUT
 from .recall import coverage_key, pack
-from .recall import hint_keys, hint_of
+from .recall import FEEDBACK_RESERVE, feedback_block, hint_keys, hint_of
 from .recall_view import (
     DISPLAY_KEY,
     DISPLAY_MODES,
@@ -357,6 +357,7 @@ def _run(root: Path, product: str, payload: dict[str, Any]) -> dict[str, Any]:
     channel = "search"
     retrieval: dict[str, Any] | None = None
     hints: list[dict[str, Any]] = []
+    feedback_rate = 0.0
     budget = recall_budget(c.config)
     # Which path will answer: the resident worker's warm connection when it is
     # listening, otherwise a fresh subprocess that pays the handshakes itself.
@@ -376,6 +377,8 @@ def _run(root: Path, product: str, payload: dict[str, Any]) -> dict[str, Any]:
         if isinstance(response, dict):
             hits = response["items"]
             hints = [h for h in response.get("hints") or [] if isinstance(h, dict)]
+            rate = response.get("self_feedback_rate")
+            feedback_rate = float(rate) if isinstance(rate, (int, float)) else 0.0
             trace_id = response.get("trace_id")
             channel = response.get("channel", "recall")
             if isinstance(response.get("retrieval"), dict):
@@ -429,10 +432,20 @@ def _run(root: Path, product: str, payload: dict[str, Any]) -> dict[str, Any]:
         # What a borrowed topic finds may belong to the last question, not this
         # one: name it and let the model decide, never inject the text.
         hints = [*[hint_of(record) for record in hits if not record.get("deleted")], *hints]
+    # A sample of turns asks the model what the memories did. Claude Code only:
+    # it has the tool and a transcript to check the answer against. Stable per
+    # turn, so a retried hook does not change its mind.
+    asking_feedback = (
+        product == "claude-code"
+        and mode == "remote"
+        and not context
+        and bool(trace_id)
+        and int(digest(f"{session}:{trace_id}")[:8], 16) / 2**32 < feedback_rate
+    )
     body, keys = pack(
         [] if context else hits,
         covered=covered,
-        max_bytes=4096 - receipt_bytes,
+        max_bytes=4096 - receipt_bytes - (FEEDBACK_RESERVE if asking_feedback else 0),
         per_item_bytes=1536,
         query=search,
         hints=hints if mode == "remote" else None,
@@ -493,6 +506,11 @@ def _run(root: Path, product: str, payload: dict[str, Any]) -> dict[str, Any]:
         body = head + "\n" + view + "\n\n来源资料未经当前会话确认" + rest
     if body:
         marker = "amh-native-recall:" + digest(session + epoch + body)[:24]
+        asked = (
+            [r for r in hits if states.get(coverage_key(r)) == "packed"] if asking_feedback else []
+        )
+        if asked:
+            body += feedback_block(marker, asked)
         body += "\n" + marker
         try:
             with database(c.path) as db:
@@ -555,6 +573,8 @@ def _run(root: Path, product: str, payload: dict[str, Any]) -> dict[str, Any]:
                     if state == "packed":
                         _report(db, trace_id, [key], "packed")
                         _report(db, trace_id, [key], "emitted")
+                        if asking_feedback:
+                            _report(db, trace_id, [key], "self_asked")
                     elif state in ("covered", "budget"):
                         _report(db, trace_id, [key], state)
         except (sqlite3.Error, OSError):
