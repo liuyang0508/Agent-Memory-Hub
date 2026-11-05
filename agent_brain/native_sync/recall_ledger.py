@@ -26,7 +26,11 @@ FEEDBACK_EVENTS = frozenset({"cite", "support", "contradict", "confirm"})
 # usage.py): the answer used an injected memory, did not, or the model fetched
 # a memory the gate had held back and used that.
 USAGE_EVENTS = frozenset({"used", "unused", "consulted"})
-EVENTS = DELIVERY_EVENTS | FEEDBACK_EVENTS | USAGE_EVENTS
+# What the model said when asked: stored apart, never read by calibration.
+SELF_EVENTS = frozenset(
+    {"self_asked", "self_used", "self_used_unverified", "self_not_needed", "self_misleading"}
+)
+EVENTS = DELIVERY_EVENTS | FEEDBACK_EVENTS | USAGE_EVENTS | SELF_EVENTS
 LABEL_TTL = 180 * 86400
 # A delivery can only be reported for something the recall actually returned.
 DELIVERABLE_STATES = frozenset({"selected", "packed", "emitted", "confirmed", "cited"})
@@ -162,7 +166,7 @@ def apply_feedback(
         name = event.get("event")
         asset_id = str(event.get("asset_id") or "")
         candidate = candidates.get(asset_id)
-        if name in USAGE_EVENTS and candidate is None:
+        if name in (USAGE_EVENTS | SELF_EVENTS) and candidate is None:
             # The model may read any memory on its own; only candidates of
             # this recall say anything about the gate.
             ignored += 1
@@ -171,10 +175,16 @@ def apply_feedback(
             raise ValueError("feedback event does not match a trace candidate")
         if candidate["revision"] != event.get("revision"):
             raise ValueError("feedback revision does not match the recalled revision")
-        if name in (DELIVERY_EVENTS | USAGE_EVENTS) and row["device"] != who["device_id"]:
+        if name in (DELIVERY_EVENTS | USAGE_EVENTS | SELF_EVENTS) and (
+            row["device"] != who["device_id"]
+        ):
             raise ValueError("delivery and usage events must come from the recalling device")
         current = candidate.get("state", "candidate")
         states[asset_id] = current
+        if name in SELF_EVENTS:
+            _self_feedback(db, who, row, candidate, name, now)
+            applied += 1
+            continue
         if name in USAGE_EVENTS:
             outcome = _usage(db, who, row, candidate, name, now)
             if outcome == "ignored":
@@ -259,6 +269,52 @@ def apply_feedback(
     }
 
 
+def _self_feedback(
+    db: sqlite3.Connection,
+    who: dict[str, Any],
+    row: sqlite3.Row,
+    candidate: dict[str, Any],
+    name: str,
+    now: float,
+) -> None:
+    """Keep what the model said, with the evidence the gate saw, and nothing more."""
+    gate = candidate.get("gate") or {}
+    features = gate.get("x")
+    db.execute(
+        "INSERT OR IGNORE INTO recall_self_feedback VALUES(?,?,?,?,?,?,?,?,?)",
+        (
+            who["tenant"],
+            row["trace_id"],
+            candidate["asset_id"],
+            int(candidate["revision"]),
+            now,
+            name,
+            who["member_id"],
+            str(gate.get("version") or ""),
+            json.dumps(features if isinstance(features, list) else [], separators=(",", ":")),
+        ),
+    )
+    db.execute(
+        "DELETE FROM recall_self_feedback WHERE tenant=? AND created<?",
+        (who["tenant"], now - LABEL_TTL),
+    )
+
+
+def self_feedback_counts(
+    db: sqlite3.Connection, tenant: str, *, since: float = 0.0, until: float | None = None
+) -> dict[str, int]:
+    """How often the model was asked about a memory, and what it answered."""
+    counts = {name: 0 for name in sorted(SELF_EVENTS)}
+    query = "SELECT verdict, COUNT(*) n FROM recall_self_feedback WHERE tenant=? AND created>=?"
+    args: list[Any] = [tenant, since]
+    if until is not None:
+        query += " AND created<?"
+        args.append(until)
+    for r in db.execute(query + " GROUP BY verdict", args):
+        counts[r["verdict"]] = int(r["n"])
+    return counts
+
+
 def _usage(
     db: sqlite3.Connection,
     who: dict[str, Any],
@@ -306,9 +362,7 @@ def _usage(
     return "applied"
 
 
-def labels(
-    db: sqlite3.Connection, tenant: str, *, since: float = 0.0
-) -> list[dict[str, Any]]:
+def labels(db: sqlite3.Connection, tenant: str, *, since: float = 0.0) -> list[dict[str, Any]]:
     """Usage labels with the gate evidence they were judged on, oldest first."""
     rows = db.execute(
         "SELECT * FROM recall_labels WHERE tenant=? AND created>=? ORDER BY created",

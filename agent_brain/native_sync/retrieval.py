@@ -678,7 +678,7 @@ def retrieve(
                 )
                 probability = model.probability(values)
                 lift = relevance.lift_of(values)
-                anchored = relevance.anchored(probability, values)
+                passes, anchored = relevance.admitted(model, probability, values)
                 # The evidence travels with the trace (numbers only) so usage
                 # feedback can later be learned from what the gate saw.
                 trace.row(hit.id)["gate"] = {
@@ -691,11 +691,7 @@ def retrieve(
                 }
                 if collecting:
                     item["gate_features"] = values
-                if (
-                    collecting
-                    or anchored
-                    or (probability >= model.threshold and lift >= model.lift)
-                ):
+                if collecting or passes:
                     judged.append((probability, hit))
                     effects[hit.id] = "p=%.3f" % probability
                 else:

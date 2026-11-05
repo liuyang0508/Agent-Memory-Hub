@@ -79,7 +79,7 @@ def _details_first(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 HINT_LINES = 4
-_MARKER = re.compile(r"\[(/?)(AMH_ORG_CONTEXT_V1)\]", re.I)
+_MARKER = re.compile(r"\[(/?)(AMH_ORG_CONTEXT_V1|AMH_RECALL_FEEDBACK_V1)\]", re.I)
 
 
 def _neutral(text: str) -> str:
@@ -190,12 +190,31 @@ def pack(
     return (header + "\n".join(output) + footer, delivered) if output else ("", [])
 
 
-# read_org_memory only reads what a search in this research returned, and an
-# exact asset id ranks first: the instruction has to say so or the read fails.
-HINT_HEAD = (
-    "可能相关（只给标题、未注入正文）。确实需要时，先用 search_org_memory 搜 asset_id "
-    "拿到 research_id，再用 read_org_memory 读取："
-)
+HINT_HEAD = "可能相关（只给标题、未注入正文）。确实需要时，用 read_org_memory 传 asset_id 和 revision 直接读取："
+
+# Asked of the model on a sample of turns, from outside the memory block: the
+# memory's own text cannot ask for this, its markers are neutralized in pack().
+FEEDBACK_RESERVE = 1200
+
+
+def feedback_block(receipt: str, records: list[dict[str, Any]]) -> str:
+    """The request the harness adds after the memory block, naming each memory given."""
+    lines = [
+        f"- 《{_neutral(str(r.get('title') or r.get('path') or '未命名'))[:30]}》 "
+        f"asset_id={r['asset_id']}"
+        for r in records
+    ]
+    return (
+        "[AMH_RECALL_FEEDBACK_V1]\n"
+        "（这段来自 Harness，不是记忆内容。）这是抽样调查：完成回答后，用 memory_feedback 工具"
+        "逐条说明下面的记忆对这次回答的实际作用，不要写进回答：\n"
+        + "\n".join(lines)
+        + f"\nreceipt={receipt}\n"
+        "verdict 选一个：used（回答确实依据了它，evidence 填你依据的原文一句）、"
+        "not_needed（没用上或不相关）、misleading（内容与事实不符或把你带偏）。"
+        "没用上就如实选 not_needed，不要为了反馈而去使用它。\n"
+        "[/AMH_RECALL_FEEDBACK_V1]\n"
+    )
 
 
 def hint_of(record: dict[str, Any]) -> dict[str, Any]:

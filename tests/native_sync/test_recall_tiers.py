@@ -149,3 +149,46 @@ def test_an_identifier_needs_to_be_a_whole_token_and_not_plainly_off_topic():
     assert not relevance.anchored(0.05, values)  # the prompt shares a token and nothing else
     values[FEATURES.index("doc_bg")] = 0.6
     assert not relevance.anchored(0.2, values)  # closer to chit-chat than to this prompt
+
+
+def navigation(probability_sim, *, anchor=0.0):
+    values = [0.0] * len(FEATURES)
+    values[FEATURES.index("sim")] = probability_sim
+    values[FEATURES.index("nav")] = 1.0
+    values[FEATURES.index("anchor")] = anchor
+    values[FEATURES.index("lex_inv")] = 1.0
+    return values
+
+
+def test_index_files_clear_their_own_bar_and_no_identifier_excuses_them():
+    gate = tiered(lift=-1.0)
+    gate["nav_threshold"] = 0.9
+    model = GateModel.from_dict(gate)
+    assert GateModel.from_dict(model.to_dict()).nav_threshold == 0.9
+    middling, high = navigation(0.75), navigation(0.9)
+    assert 0.5 < model.probability(middling) < 0.9 and model.probability(high) > 0.9
+    assert relevance.admitted(model, model.probability(middling), middling) == (False, False)
+    assert relevance.admitted(model, model.probability(high), high)[0] is True
+    named = navigation(0.75, anchor=1.0)
+    assert relevance.admitted(model, model.probability(named), named) == (False, False)
+    # Ordinary memories are untouched, and with no bar set neither are index files.
+    plain = list(middling)
+    plain[FEATURES.index("nav")] = 0.0
+    assert relevance.admitted(model, model.probability(plain), plain)[0] is True
+    relaxed = GateModel.from_dict(tiered(lift=-1.0))
+    assert relevance.admitted(relaxed, relaxed.probability(middling), middling)[0] is True
+    fitted = GateModel(mean=[0.0] * 8, scale=[1.0] * 8, weights=[0.0] * 8, bias=0.0)
+    assert relevance.adopt_rule(fitted, model).nav_threshold == 0.9
+    with pytest.raises(ValueError):
+        GateModel.from_dict({**gate, "nav_threshold": 1.5})
+
+
+def test_shipped_rule_holds_index_files_to_the_higher_bar():
+    import json
+    from pathlib import Path
+
+    spec = json.loads(
+        (Path(__file__).parents[2] / "deploy/native-memory/semantic-model.json").read_text()
+    )
+    gate = GateModel.from_dict(spec["manifest"]["hook_gate"])
+    assert gate.nav_threshold == 0.9 and gate.threshold == 0.7 and gate.hint_threshold == 0.3

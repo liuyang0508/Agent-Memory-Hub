@@ -35,7 +35,11 @@ from typing import Any
 _ASCII = re.compile(r"[a-z0-9][a-z0-9_.:/\-]*[a-z0-9]")
 _CJK = re.compile(r"[一-鿿]{4,}")
 # Scaffolding the packer and the hook add around every memory.
-_SCAFFOLD = re.compile(r"\[片段截断\]|\[/?AMH_ORG_CONTEXT_V1\]|amh-native-recall:[0-9a-f]{24}")
+_SCAFFOLD = re.compile(
+    r"\[片段截断\]|\[/?AMH_ORG_CONTEXT_V1\]|\[AMH_RECALL_FEEDBACK_V1\].*?\[/AMH_RECALL_FEEDBACK_V1\]"
+    r"|amh-native-recall:[0-9a-f]{24}",
+    re.S,
+)
 MAX_MARKS = 4000
 MIN_OUTPUT_CHARS = 200
 STRONG_CHARS = 12

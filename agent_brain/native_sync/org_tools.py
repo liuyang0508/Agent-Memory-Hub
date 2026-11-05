@@ -30,6 +30,7 @@ READ_RESPONSE_BYTES = 24000
 KINDS = {"memory", "transcript", "rule", "skill", "config"}
 ROLES = {"topic_memory", "navigation", "conversation_summary", "raw_memory", *KINDS}
 ID_PATTERN = re.compile(r"^[A-Za-z0-9_.-]{1,128}$")
+RECEIPT_PATTERN = re.compile(r"^amh-native-recall:[0-9a-f]{24}$")
 SOURCE_FIELDS = {
     "tenant_id",
     "source_device_id",
@@ -622,12 +623,23 @@ class OrganizationTools:
         self,
         asset_id: str,
         revision: int,
-        research_id: str,
+        research_id: str | None = None,
         *,
         cursor: int = 0,
         max_bytes: int = 12000,
     ) -> dict[str, Any]:
         with self.lock:
+            if research_id is None:
+                # A recall named this memory: open a research on it directly. An
+                # exact id is a lookup on the Hub, authorized like any search.
+                found = self.search(asset_id, limit=1, kinds=["memory", "rule"])
+                if found.get("ok") is False:
+                    return found
+                research_id = str(found["research_id"])
+                research = self.researches[research_id]
+                if (asset_id, revision) not in research.locators:
+                    newer = any(key[0] == asset_id for key in research.locators)
+                    return self._error("stale_version" if newer else "unknown_locator", research_id)
             started = self._begin(research_id)
             if isinstance(started, dict):
                 return started
@@ -934,3 +946,64 @@ class OrganizationTools:
                 return result
             except (ValueError, TypeError, KeyError, AttributeError):
                 return self._error("invalid_response", research_id)
+
+    def feedback(
+        self, receipt: str, asset_id: str, verdict: str, evidence: str = ""
+    ) -> dict[str, Any]:
+        """Record what the model says a recalled memory did for this answer.
+
+        Local only: the verdict joins the delivery report queue, and the evidence
+        is checked here against the memory's digests and never leaves this machine.
+        """
+        from .recall_ledger import SELF_EVENTS
+        from .storage import database
+        from .usage import _digest, marks
+
+        event = {
+            "used": "self_used",
+            "not_needed": "self_not_needed",
+            "misleading": "self_misleading",
+        }
+        if (
+            verdict not in event
+            or not isinstance(receipt, str)
+            or not isinstance(asset_id, str)
+            or not ID_PATTERN.fullmatch(asset_id)
+            or not isinstance(evidence, str)
+        ):
+            return self._error("invalid_arguments")
+        marker = receipt.strip()
+        if not RECEIPT_PATTERN.fullmatch(marker):
+            return self._error("invalid_arguments")
+        with self.lock, database(self.state / "state.sqlite") as db:
+            row = db.execute(
+                "SELECT e.session, e.keys_json, t.trace_id FROM emitted e JOIN emitted_traces t "
+                "ON t.session=e.session AND t.marker=e.marker WHERE e.marker=?",
+                (marker,),
+            ).fetchone()
+            revision = None
+            if row is not None:
+                for key in json.loads(row["keys_json"]):
+                    parts = key.split(":")
+                    if parts[0] == asset_id:
+                        revision = int(parts[1])
+            if revision is None:
+                return self._error("unknown_locator")
+            name = event[verdict]
+            verified = None
+            if verdict == "used":
+                pending = db.execute(
+                    "SELECT fingerprint FROM usage_pending WHERE session=? AND trace_id=? AND asset=?",
+                    (row["session"], row["trace_id"], asset_id),
+                ).fetchone()
+                memory = (
+                    set(json.loads(pending["fingerprint"]).get("marks") or []) if pending else set()
+                )
+                verified = any(_digest(m, row["session"]) in memory for m in marks(evidence))
+                name = "self_used" if verified else "self_used_unverified"
+            assert name in SELF_EVENTS
+            db.execute(
+                "INSERT OR IGNORE INTO recall_reports VALUES(?,?,?,?,?)",
+                (row["trace_id"], asset_id, revision, name, time.time()),
+            )
+        return {"ok": True, "recorded": verdict, "evidence_found": verified}

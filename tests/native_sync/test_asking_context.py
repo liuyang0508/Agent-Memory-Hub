@@ -170,6 +170,7 @@ def test_worker_retries_without_hints_on_a_hub_that_predates_them():
     assert fetch(OldHub(), "q", asking=asking) == {
         "items": [{"asset_id": "a"}],
         "hints": [],
+        "self_feedback_rate": 0.0,
         "trace_id": "c" * 24,
         "channel": "recall",
         "retrieval": {"mode": None, "reasons": []},

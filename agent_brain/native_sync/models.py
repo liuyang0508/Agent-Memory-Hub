@@ -127,6 +127,11 @@ class RecallEvent(BaseModel):
         "used",
         "unused",
         "consulted",
+        "self_asked",
+        "self_used",
+        "self_used_unverified",
+        "self_not_needed",
+        "self_misleading",
     ]
 
 

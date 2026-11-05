@@ -151,12 +151,13 @@ def indexable_history(text: str) -> str:
     """Mask AMH-injected evidence for search while preserving transcript offsets and stored originals."""
     # Fixed machine boundaries survive wording changes and also match escaped
     # newlines in JSONL. Preserve offsets so nearby native text remains usable.
-    text = re.sub(
-        r"\[AMH_ORG_CONTEXT_V1\].*?\[/AMH_ORG_CONTEXT_V1\]",
-        lambda m: " " * len(m.group()),
-        text,
-        flags=re.S,
-    )
+    for block in ("AMH_ORG_CONTEXT_V1", "AMH_RECALL_FEEDBACK_V1"):
+        text = re.sub(
+            rf"\[{block}\].*?\[/{block}\]",
+            lambda m: " " * len(m.group()),
+            text,
+            flags=re.S,
+        )
     # Match the banner by its stable prefix rather than its exact wording: the
     # label changed once already, and a stale copy here let other members' text
     # through the mask and into this member's index.

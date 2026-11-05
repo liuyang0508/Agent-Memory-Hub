@@ -33,6 +33,7 @@ DISPLAY_KEY = "recall_display"
 _BLOCKS = [
     re.compile(r"<system-reminder\b[^>]*>.*?(?:</system-reminder>|$)", re.S | re.I),
     re.compile(r"\[AMH_ORG_CONTEXT_V1\].*?(?:\[/AMH_ORG_CONTEXT_V1\]|$)", re.S),
+    re.compile(r"\[AMH_RECALL_FEEDBACK_V1\].*?(?:\[/AMH_RECALL_FEEDBACK_V1\]|$)", re.S),
     re.compile(r"<agent[_-]brain\w*\b[^>]*>.*?(?:</agent[_-]brain\w*>|$)", re.S | re.I),
     re.compile(r"amh-native-recall:[0-9a-f]{24}"),
 ]

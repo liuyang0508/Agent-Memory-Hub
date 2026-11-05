@@ -209,6 +209,10 @@ class GateModel:
     hint_threshold: float = 0.0
     hint_lift: float = 0.0
     hint_items: int = 2
+    # Index and summary files touch every topic, and one member refreshing theirs
+    # moves results for everybody: above this bar only, and a shared identifier
+    # does not excuse them. 0 applies no extra bar.
+    nav_threshold: float = 0.0
     version: str = "learned-v1"
     calibration: dict[str, Any] = field(default_factory=dict)
 
@@ -229,6 +233,7 @@ class GateModel:
             hint_threshold=float(raw.get("hint_threshold", 0.0)),
             hint_lift=float(raw.get("hint_lift", 0.0)),
             hint_items=int(raw.get("hint_items", 2)),
+            nav_threshold=float(raw.get("nav_threshold", 0.0)),
             version=str(raw.get("version", "learned-v1")),
             calibration=dict(raw.get("calibration") or {}),
         )
@@ -241,6 +246,7 @@ class GateModel:
             model.lift,
             model.hint_threshold,
             model.hint_lift,
+            model.nav_threshold,
         ]
         if (
             not all(len(v) == len(FEATURES) for v in (model.mean, model.scale, model.weights))
@@ -254,6 +260,7 @@ class GateModel:
             or not -1 <= model.hint_lift <= 1
             or not 0 <= model.hint_threshold < 1
             or not 0 <= model.hint_items <= 8
+            or not 0 <= model.nav_threshold <= 1
         ):
             raise ValueError("invalid gate model")
         return model
@@ -274,6 +281,7 @@ class GateModel:
             "hint_threshold": self.hint_threshold,
             "hint_lift": self.hint_lift,
             "hint_items": self.hint_items,
+            "nav_threshold": self.nav_threshold,
             "calibration": self.calibration,
         }
 
@@ -316,6 +324,18 @@ def anchored(probability: float, values: Sequence[float]) -> bool:
     )
 
 
+def admitted(
+    model: GateModel, probability: float, values: Sequence[float], threshold: float | None = None
+) -> tuple[bool, bool]:
+    """(passes for full injection, passes because of a literal identifier)."""
+    bar = model.threshold if threshold is None else threshold
+    navigation = values[FEATURES.index("nav")] > 0 and model.nav_threshold > 0
+    anchor = anchored(probability, values) and not navigation
+    if navigation:
+        bar = max(bar, model.nav_threshold)
+    return anchor or (probability >= bar and lift_of(values) >= model.lift), anchor
+
+
 def adopt_rule(target: GateModel, source: GateModel) -> GateModel:
     """Carry the injection rule (not the fitted weights) from one gate to another."""
     for name in (
@@ -326,6 +346,7 @@ def adopt_rule(target: GateModel, source: GateModel) -> GateModel:
         "hint_threshold",
         "hint_lift",
         "hint_items",
+        "nav_threshold",
     ):
         setattr(target, name, getattr(source, name))
     return target
@@ -418,8 +439,8 @@ def select(model: GateModel, candidates: Sequence[Candidate], threshold: float) 
     keys: set[tuple[str, str]] = set()
     leader = 1.0
     for probability, candidate in scored:
-        anchor = anchored(probability, candidate.values)
-        if not anchor and (probability < threshold or lift_of(candidate.values) < model.lift):
+        passes, anchor = admitted(model, probability, candidate.values, threshold)
+        if not passes:
             continue
         if candidate.duplicate_key in keys or any(
             containment(candidate.shingles, other.shingles) >= model.dedup for other in chosen

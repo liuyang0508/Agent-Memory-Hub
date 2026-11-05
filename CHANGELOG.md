@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.24] — 2026-11-05
+
+### Added
+
+- The model can say what a recalled memory did. On a sample of turns (20% by default,
+  set by the Hub with `AMH_NATIVE_SELF_FEEDBACK_RATE`) Claude Code's hook asks, from
+  outside the memory block, and the model answers with the new `memory_feedback` tool:
+  used (with the sentence it relied on), not needed, or misleading. The sentence is
+  checked on the member's machine and never leaves it. This is observed only: verdicts
+  are kept apart from the labels calibration reads, until they have been compared with
+  independent judgement. The existing text-overlap rule almost never finds "used".
+  The cockpit shows the share as an observation.
+
+### Changed
+
+- Index and summary files need a relevance of 0.9 to be injected in full, and a shared
+  identifier no longer excuses them (gate `learned-v1.2`). They touch every topic, and
+  one member refreshing theirs moved precision on the same 91 prompts from 61% to 50%.
+  With this rule, before and after that refresh: precision 76% and 76%, prompts answered
+  only with wrong memories 4 and 4, prompts with a useful full memory 15 and 15 (down
+  from 18 and 16). The rule was chosen on these prompts.
+- `read_org_memory` no longer needs a search first: the `asset_id` and `revision` a
+  recall names can be read directly. Over this machine's 28 sessions, none of the 8
+  turns given titles went on to read one; reading took three steps.
+- `hub.sh` only mentions a leftover index service when it is running or enabled.
+
 ## [1.4.23] — 2026-11-05
 
 ### Changed
@@ -16,7 +42,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   useful memories apart better than the quantized export does on x86. On the same 91
   real prompts, with the same gate and thresholds: precision 55% to 61%, prompts
   answered only with wrong memories 9 to 7, prompts with a useful full memory 14 to
-  18. Smaller hosts stay quantized; `AMH_SEMANTIC_MODEL=large|small` overrides. The
+  18, simulated before release. On the live Hub the store had changed meanwhile and
+  measured 52%, 15 and 18; the store change, not the model, explains the gap (1.4.24).
+  Smaller hosts stay quantized; `AMH_SEMANTIC_MODEL=large|small` overrides. The
   float export is 641 MB on disk and takes about 0.9 to 1.3 GB of memory. Changing
   export rebuilds the index at startup; recall only trusts literal identifiers until
   that finishes.

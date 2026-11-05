@@ -1060,6 +1060,13 @@ class NativeClient:
             )
         errors: list[str] = []
         usage = {"used", "unused", "consulted"}
+        said = {
+            "self_asked",
+            "self_used",
+            "self_used_unverified",
+            "self_not_needed",
+            "self_misleading",
+        }
         # A lossy link drops some connections and not others: one timeout says
         # little about the next request, so a pass moves on to the next trace
         # and stops only after several failures in a row.
@@ -1071,8 +1078,9 @@ class NativeClient:
             batches = [
                 part[start : start + 64]
                 for part in (
-                    [e for e in events if e["event"] not in usage],
+                    [e for e in events if e["event"] not in usage | said],
                     [e for e in events if e["event"] in usage],
+                    [e for e in events if e["event"] in said],
                 )
                 for start in range(0, len(part), 64)
             ]

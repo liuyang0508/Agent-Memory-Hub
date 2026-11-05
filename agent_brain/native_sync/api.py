@@ -117,6 +117,7 @@ def create_app(hub: Hub) -> FastAPI:
             "asking-context-v1",
             "recall-usage-feedback-v1",
             "recall-hints-v1",
+            "recall-self-feedback-v1",
         ]
         state = hub.semantic_status()
         semantic: dict[str, Any] = {k: state[k] for k in ("state", "model", "reason") if k in state}
@@ -443,6 +444,7 @@ def create_app(hub: Hub) -> FastAPI:
         return {
             "items": recall_items(result["items"]),
             "hints": recall_hints(result.get("hints", [])),
+            "self_feedback_rate": hub.self_feedback_rate,
             "trace_id": result["trace_id"],
             "retrieval": _diagnostics({"retrieval": result["retrieval"]}),
         }

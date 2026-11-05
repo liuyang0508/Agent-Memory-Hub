@@ -163,7 +163,8 @@ if [ -f "$SEMANTIC_ENV" ]; then
     [ -f "$unit" ] || continue
     name=$(basename "$unit")
     [ "$name" = "$SERVICE.service" ] && continue
-    if grep -qE '^ExecStart=.*\bsemantic-index\b' "$unit"; then
+    if grep -qE '^ExecStart=.*\bsemantic-index\b' "$unit" \
+      && { systemctl is-active --quiet "$name" || systemctl is-enabled --quiet "$name"; }; then
       say "stopping a leftover index service: $name (unit file kept; re-enable with systemctl enable --now $name)"
       systemctl disable --now "$name" || say "could not stop $name; stop it by hand or recall stays on keywords"
     fi

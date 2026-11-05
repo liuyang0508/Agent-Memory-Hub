@@ -235,6 +235,23 @@ CREATE TABLE IF NOT EXISTS recall_labels(
 );
 CREATE INDEX IF NOT EXISTS recall_labels_recent ON recall_labels(tenant, created);
 
+-- Additive: what the model said about memories it was given, kept apart from
+-- recall_labels so calibration cannot learn from it before it has been checked
+-- against independent judgement. Identifiers, numbers and verdicts, no text.
+CREATE TABLE IF NOT EXISTS recall_self_feedback(
+    tenant TEXT NOT NULL,
+    trace_id TEXT NOT NULL,
+    asset_id TEXT NOT NULL,
+    revision INTEGER NOT NULL,
+    created REAL NOT NULL,
+    verdict TEXT NOT NULL,
+    member TEXT NOT NULL,
+    gate_version TEXT NOT NULL,
+    features TEXT NOT NULL,
+    PRIMARY KEY(tenant,trace_id,asset_id,verdict)
+);
+CREATE INDEX IF NOT EXISTS recall_self_feedback_recent ON recall_self_feedback(tenant, created);
+
 -- Additive: the organization's own gold questions (what a right recall looks
 -- like), contributed by members, and every gate the Hub calibrated from them.
 CREATE TABLE IF NOT EXISTS recall_gold(
