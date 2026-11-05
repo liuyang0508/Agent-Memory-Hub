@@ -26,7 +26,7 @@
   "lifecycle_result_schema_version": "amh-adapter-lifecycle-result/v1",
   "manifest_count": 16,
   "manifest_schema_version": "amh-adapter-manifest/v1",
-  "manifest_sha256": "sha256:c02f0bf4370a76c6fb5dc7bd8c82200e4b3e8888e10e39bf92168e1af0ba3dc0",
+  "manifest_sha256": "sha256:ba8fe7fc844303f78028e0ed7eeac72460f1f3c0f492fbd932af8c5a97bf0f51",
   "manifests": [
     {
       "adapter_id": "aider",
