@@ -14,7 +14,7 @@ from pathlib import Path
 from .client import NativeClient
 from .common import atomic_text, digest, recall_budget
 from .storage import database, DB_TIMEOUT
-from .recall import coverage_key, pack
+from .recall import coverage_key, pack_shown
 from .recall import FEEDBACK_RESERVE, feedback_block
 from .recall_view import (
     DEFAULT_DISPLAY,
@@ -39,6 +39,7 @@ VISIBLE_MESSAGE_PRODUCTS = frozenset({"claude-code", "cowork"})
 # marks each session it draws for under ``rich-display/``; the hook then writes
 # the view for it under ``recall-view/`` instead of a plain-text systemMessage.
 PANEL_PRODUCTS = frozenset({"claude-code"})
+PANEL_VIEW_SECONDS = 60
 _SESSION_FILE = re.compile(r"[^A-Za-z0-9_-]")
 
 
@@ -65,6 +66,10 @@ def _hand_to_panel(root: Path, product: str, payload: dict[str, Any], view: str)
     try:
         (root / "recall-view").mkdir(mode=0o700, exist_ok=True)
         atomic_text(root / "recall-view" / (name + ".json"), json.dumps(panel, ensure_ascii=False))
+        # The mod reads its view as the hook returns. Older ones only keep memory text around.
+        for old in (root / "recall-view").glob("*.json"):
+            if old.stem != name and time.time() - old.stat().st_mtime > PANEL_VIEW_SECONDS:
+                old.unlink(missing_ok=True)
     except OSError:
         return False
     return True
@@ -424,6 +429,8 @@ def _run(root: Path, product: str, payload: dict[str, Any]) -> dict[str, Any]:
     # Recalled bodies go straight into the prompt and nowhere else. Writing them
     # to disk would make a second copy of other members' memories on this
     # machine, which is exactly what local-first sharing is supposed to avoid.
+    # The member's view shows the same text and leaves no store of ours behind:
+    # the host prints it, and a mod's hand-off file is pruned in _hand_to_panel.
     # The delivery receipt is appended below; reserve it inside the byte cap.
     receipt_bytes = len("\namh-native-recall:") + 24
     # A sample of turns asks the model what the memories did. Claude Code only:
@@ -435,7 +442,7 @@ def _run(root: Path, product: str, payload: dict[str, Any]) -> dict[str, Any]:
         and bool(trace_id)
         and int(digest(f"{session}:{trace_id}")[:8], 16) / 2**32 < feedback_rate
     )
-    body, keys = pack(
+    body, keys, injected = pack_shown(
         hits,
         covered=covered,
         max_bytes=4096 - receipt_bytes - (FEEDBACK_RESERVE if asking_feedback else 0),
@@ -474,6 +481,7 @@ def _run(root: Path, product: str, payload: dict[str, Any]) -> dict[str, Any]:
             states=states,
             display=display,
             style="box" if product in VISIBLE_MESSAGE_PRODUCTS else "markdown",
+            injected=injected,
         )
     if body and view and product not in VISIBLE_MESSAGE_PRODUCTS:
         # Inside the organization block, so transcript capture strips it too.

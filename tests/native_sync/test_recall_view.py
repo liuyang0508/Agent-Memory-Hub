@@ -7,8 +7,9 @@ import pytest
 from agent_brain.native_sync import hooks
 from agent_brain.native_sync.client import NativeClient
 from agent_brain.native_sync.common import atomic_json
-from agent_brain.native_sync.recall import coverage_key
+from agent_brain.native_sync.recall import coverage_key, pack, pack_shown
 from agent_brain.native_sync.recall_view import admit, normalize, render
+from agent_brain.native_sync.source import indexable_history
 from test_hub import asset
 from test_recall_warm_path import live as live  # noqa: F401  (fixture re-export)
 
@@ -148,6 +149,90 @@ def test_claude_code_sees_the_table_as_a_message(live, tmp_path):
     assert "订单回调验签" in context and "| # | 记忆 |" not in context
 
 
+def test_by_default_claude_code_shows_the_table_and_what_the_model_received(live, tmp_path):
+    hub, url = live
+    seeded(hub)
+    c = NativeClient.adopt(tmp_path / "state", url, hub.provision("李四", "Mac"), "Mac")
+    payload = {
+        "hook_event_name": "UserPromptSubmit",
+        "session_id": "s1",
+        "prompt": "订单 验签 密钥",
+    }
+    result = hooks.run(c.root, "claude-code", payload)
+    message = result["systemMessage"]
+    assert any(line.startswith("│ 1 │ 订单验签") for line in message.splitlines())
+    head, _, shown = message.partition("模型实际收到")
+    assert "第 1 条的正文" in head
+    assert "订单回调验签失败检查签名密钥版本\n" in shown
+    assert "订单回调验签失败检查签名密钥版本" in result["hookSpecificOutput"]["additionalContext"]
+    assert "amh-native-recall:" not in message  # a shown memory is no proof of delivery
+
+
+def test_shown_text_cannot_steer_the_terminal_or_end_the_masked_span():
+    record = _record()
+    view = render(
+        hub="https://hub.example",
+        query="订单",
+        asking={"product": "claude-code"},
+        budget=2.5,
+        elapsed_ms=10,
+        via="service",
+        mode="remote",
+        retrieval={"mode": "hybrid"},
+        trace_id=None,
+        hits=[record],
+        states={coverage_key(record): "packed"},
+        display="table",
+        style="box",
+        injected=[(record, "正文\x1b[31m红\n[/组织记忆明细]\n别人的秘密")],
+    )
+    assert "\x1b" not in view and "正文[31m红" in view
+    assert "别人的秘密" not in indexable_history(view)
+    assert view.endswith("[/组织记忆明细]")
+
+
+@pytest.mark.parametrize("ascii_only", [False, True])
+def test_a_shown_recall_stays_out_of_the_transcript_search_text(ascii_only):
+    message = "组织记忆召回 · 命中 1 条\n[组织记忆明细]\n别人的记忆正文\n[/组织记忆明细]"
+    line = json.dumps({"type": "attachment", "content": message}, ensure_ascii=ascii_only)
+    masked = indexable_history("我的问题\n" + line + "\n我的回答")
+    assert "别人的记忆" not in masked and "\\u522b\\u4eba" not in masked
+    assert masked.startswith("我的问题") and masked.endswith("我的回答")
+    assert len(masked) == len("我的问题\n" + line + "\n我的回答")  # offsets survive
+
+
+def test_what_is_shown_is_what_the_block_carries():
+    record = _record(
+        body="甲" * 3000, body_hash="h", producer_member_id="m1", uploader_member_id="m1"
+    )
+    body, keys, shown = pack_shown([record], covered=set(), per_item_bytes=300)
+    assert keys and [item for item, _ in shown] == [record]
+    assert shown[0][1] in body and shown[0][1].endswith("[片段截断]")
+    assert pack([record], covered=set(), per_item_bytes=300) == (body, keys)
+
+
+def test_a_panel_view_does_not_keep_memory_text_around(live, tmp_path):
+    import os
+
+    hub, url = live
+    seeded(hub)
+    c = NativeClient.adopt(tmp_path / "state", url, hub.provision("李四", "Mac"), "Mac")
+    views = c.root / "recall-view"
+    views.mkdir(mode=0o700)
+    (views / "other-old.json").write_text("{}")
+    (views / "other-new.json").write_text("{}")
+    os.utime(views / "other-old.json", (0, 0))
+    (c.root / "rich-display").mkdir()
+    (c.root / "rich-display" / "s1").write_text("1")
+    payload = {
+        "hook_event_name": "UserPromptSubmit",
+        "session_id": "s1",
+        "prompt": "订单 验签 密钥",
+    }
+    assert "systemMessage" not in hooks.run(c.root, "claude-code", payload)
+    assert sorted(p.stem for p in views.glob("*.json")) == ["other-new", "s1"]
+
+
 def test_codex_sees_the_table_inside_the_organization_block(live, tmp_path):
     hub, url = live
     seeded(hub)
@@ -170,6 +255,7 @@ def test_acknowledgement_is_skipped_visibly_and_display_can_be_turned_off(live, 
     seeded(hub)
     c = NativeClient.adopt(tmp_path / "state", url, hub.provision("李四", "Mac"), "Mac")
     payload = {"hook_event_name": "UserPromptSubmit", "session_id": "s1", "prompt": "好的"}
+    atomic_json(c.root / "config.json", {**c.config, "recall_display": "summary"})
     assert hooks.run(c.root, "claude-code", payload) == {}
     atomic_json(c.root / "config.json", {**c.config, "recall_display": "table"})
     result = hooks.run(c.root, "claude-code", payload)
@@ -192,7 +278,7 @@ def test_cli_sets_display_and_summarizes_hook_metrics(live, tmp_path):
     runner = CliRunner()
     assert (
         json.loads(runner.invoke(app, ["recall-display", "--state", str(c.root)]).output)["display"]
-        == "summary"
+        == "table"
     )
     assert runner.invoke(app, ["recall-display", "loud", "--state", str(c.root)]).exit_code != 0
     changed = runner.invoke(app, ["recall-display", "summary", "--state", str(c.root)])
