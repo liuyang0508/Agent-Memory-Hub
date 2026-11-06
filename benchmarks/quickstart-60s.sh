@@ -298,6 +298,21 @@ start_isolated_phase() {
   fi
 }
 
+# With job control on, `wait` also returns when a job is reported as stopped. A phase stops
+# itself before it is continued, so a late report looked like a failure before it had run.
+wait_for_active_phase() {
+  local status
+  while :; do
+    wait "$ACTIVE_PID"
+    status=$?
+    if [ "$status" -gt 128 ] && kill -0 "$ACTIVE_PID" 2>/dev/null; then
+      kill -CONT "$ACTIVE_PID" 2>/dev/null || true
+      continue
+    fi
+    return "$status"
+  done
+}
+
 TARGET_SECONDS="${AMH_QUICKSTART_TARGET_SECONDS:-120}"
 echo "=== Quickstart benchmark — target < ${TARGET_SECONDS}s ==="
 echo "Tmp: $BENCH_ROOT"
@@ -314,7 +329,7 @@ if ! start_isolated_phase "$CLONE_LOG" git clone --depth=1 "$SOURCE_REPO" "$CLON
   echo "failed to establish isolated process group" >&2
   exit 1
 fi
-wait "$ACTIVE_PID"
+wait_for_active_phase
 CLONE_STATUS=$? ACTIVE_PID="" ACTIVE_PGID="" ACTIVE_BENCHMARK_PGID="" ACTIVE_GROUP_ANCHORED=0
 if [ "$CLONE_STATUS" -ne 0 ]; then
   echo "  ✗ git clone failed:"
@@ -332,7 +347,7 @@ if ! start_isolated_phase "$INSTALL_LOG" "$CLONE_DIR/install.sh" --minimal; then
   echo "failed to establish isolated process group" >&2
   exit 1
 fi
-wait "$ACTIVE_PID"
+wait_for_active_phase
 INSTALL_STATUS=$? ACTIVE_PID="" ACTIVE_PGID="" ACTIVE_BENCHMARK_PGID="" ACTIVE_GROUP_ANCHORED=0
 if [ "$INSTALL_STATUS" -ne 0 ]; then
   echo "  ✗ install.sh failed:"
@@ -352,7 +367,7 @@ if ! start_isolated_phase \
   echo "failed to establish isolated process group" >&2
   exit 1
 fi
-wait "$ACTIVE_PID"
+wait_for_active_phase
 SEARCH_STATUS=$? ACTIVE_PID="" ACTIVE_PGID="" ACTIVE_BENCHMARK_PGID="" ACTIVE_GROUP_ANCHORED=0
 if [ "$SEARCH_STATUS" -ne 0 ]; then
   echo "  ✗ first search failed:"
