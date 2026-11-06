@@ -445,11 +445,13 @@ def test_old_server_resurrection_is_reconciled_from_owned_tombstone(tmp_path):
     # Simulate an old server accepting a stale writer before this upgrade.
     with patch("agent_brain.native_sync.source.transcript_metadata", return_value=False):
         hub.put(c.identity["token"], {**live, "base_revision": 2})
-    assert hub.search(c.identity["token"], "REVIVE_CANARY")
+    found = hub.retrieve(c.identity["token"], "REVIVE_CANARY", kinds=["transcript"])["items"]
+    assert found
     c.sync()  # Delta observes remote resurrection of an owned local tombstone.
     assert c.pending_count() == 1
     c.sync()
-    assert c.pending_count() == 0 and not hub.search(c.identity["token"], "REVIVE_CANARY")
+    assert c.pending_count() == 0
+    assert not hub.retrieve(c.identity["token"], "REVIVE_CANARY", kinds=["transcript"])["items"]
 
 
 @pytest.mark.parametrize("allowlisted", [False, True])

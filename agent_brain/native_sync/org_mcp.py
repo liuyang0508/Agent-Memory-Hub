@@ -36,7 +36,7 @@ def create_server(state: Path, policy: Path | None = None, *, product: str = "")
         include_evidence: bool = True,
         project_filter: str | None = None,
     ) -> dict[str, Any]:
-        """Find organization candidates for a concrete question, at any step of the work. First call omits research_id; later calls reuse it. Use at most 3 distinct searches, rewriting with current entities/references. Results are short excerpts: read the best ones by asset_id and revision before concluding. Pass a file path such as rollout_summaries/x.md as the query to open a file a memory points to. Session summaries are included below curated memory; set include_evidence false to leave them out, and kinds to search transcripts/rules/etc. Excerpts and version_verified are not factual confirmation. No tenant, Hub or credential overrides."""
+        """Find organization candidates for a concrete question, at any step of the work. First call omits research_id; later calls reuse it. Use at most 3 distinct searches, rewriting with current entities/references. Results are short excerpts: read the best ones by asset_id and revision before concluding. Pass a file path such as rollout_summaries/x.md as the query to open a file a memory points to. Session summaries are included below curated memory; set include_evidence false to leave them out, and kinds to search rules, skills or configs. Excerpts and version_verified are not factual confirmation. No tenant, Hub or credential overrides."""
         return bridge.search(
             query,
             research_id=research_id,

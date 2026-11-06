@@ -48,8 +48,8 @@ ROW_SOURCE_FIELDS = (
 # A memory that cites another file names it by path, like rollout_summaries/x.md.
 CITED_PATH = re.compile(r"(?<![\w./-])[\w.-]+(?:/[\w.-]+)+\.md\b")
 MAX_CITED_FILES = 8
-KINDS = {"memory", "transcript", "rule", "skill", "config"}
-ROLES = {"topic_memory", "navigation", "conversation_summary", "raw_memory", *KINDS}
+KINDS = {"memory", "rule", "skill", "config"}
+ROLES = {"topic_memory", "navigation", "conversation_summary", "raw_memory", "transcript", *KINDS}
 ID_PATTERN = re.compile(r"^[A-Za-z0-9_.-]{1,128}$")
 RECEIPT_PATTERN = re.compile(r"^amh-native-recall:[0-9a-f]{24}$")
 SOURCE_FIELDS = {
@@ -434,7 +434,7 @@ class OrganizationTools:
                     raise ValueError("invalid query")
                 limit = min(_integer(limit, 1), 8)
                 kinds = ["memory"] if kinds is None else sorted(set(kinds))
-                if not kinds or len(kinds) > 5 or any(kind not in KINDS for kind in kinds):
+                if not kinds or len(kinds) > 4 or any(kind not in KINDS for kind in kinds):
                     raise ValueError("invalid kinds")
                 if project_filter is not None:
                     _characters(project_filter, 256)

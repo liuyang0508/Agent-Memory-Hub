@@ -655,6 +655,8 @@ def import_history(
         rows = [row for row in rows if row["kind"] in wanted]
     if current:
         rows = history.annotate_selection(current, rows)
+    else:
+        rows = [dict(row, scope_enabled=row["kind"] in source_policy.DEFAULT_KINDS) for row in rows]
     if not rows:
         emit({"imported": 0, "note": "未发现可导入的本地历史"})
         return
@@ -726,23 +728,9 @@ def import_history(
         emit({"imported": 0, "note": "未新增选择；已有选择和同步范围保持不变"})
         return
     if answer == "all":
-        picked = all_selectable(rows)
+        picked = all_selectable(rows if kind else [r for r in rows if r["scope_enabled"]])
     elif answer == "clean":
-        picked = [
-            row
-            for row in rows
-            if row["risk"] == "clean"
-            and (
-                not yes
-                or kind
-                or row["kind"]
-                in (
-                    source_policy.enabled(current.config)
-                    if current
-                    else source_policy.DEFAULT_KINDS
-                )
-            )
-        ]
+        picked = [row for row in rows if row["risk"] == "clean" and (kind or row["scope_enabled"])]
     else:
         picked_indices: set[int] = set()
         try:

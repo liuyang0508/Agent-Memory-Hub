@@ -495,7 +495,7 @@ def test_graph_reauthenticates_every_target_and_does_not_catch_permission_failur
 def test_binary_non_markdown_and_escaped_code_do_not_become_relations(env):
     hub, service, a, *_ = env
     hub.put(a["token"], asset("b", "evidence"))
-    hub.put(a["token"], asset("json", '{"body":"[b](b.md)"}', path="log.jsonl", kind="transcript"))
+    hub.put(a["token"], asset("json", '{"body":"[b](b.md)"}', path="log.jsonl", kind="config"))
     hub.put(a["token"], asset("code", "\\[b](b.md)\n````md\n```\n[b](b.md)\n````\n"))
     assert service.related(a["token"], "json", 1)["edges"] == []
     assert service.related(a["token"], "code", 1)["edges"] == []

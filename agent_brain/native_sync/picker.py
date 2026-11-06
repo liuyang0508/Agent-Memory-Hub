@@ -160,7 +160,7 @@ function toggleSelection(cb) {
 function pick(mode) {
   if (mode === "none") SELECTED.clear();
   else for (const r of visible()) {
-    if (r.risk !== "blocked" && (mode === "all" || r.risk === "clean")) SELECTED.add(r.i);
+    if (r.scope_enabled !== false && r.risk !== "blocked" && (mode === "all" || r.risk === "clean")) SELECTED.add(r.i);
   }
   render();
 }

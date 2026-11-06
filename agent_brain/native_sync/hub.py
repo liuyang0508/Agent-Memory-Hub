@@ -1269,6 +1269,9 @@ class Hub:
             candidates = []
             for row in rows:
                 item = json.loads(row["payload"])
+                # Whole conversations hold whatever passed through them.
+                if item["kind"] == "transcript":
+                    continue
                 weight = kind_weight.get(item["kind"], 1.0)
                 # Codex stores supporting session summaries/raw extraction in
                 # its memory directory too. They remain searchable evidence,

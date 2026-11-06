@@ -304,4 +304,4 @@ amh-native scope --state ~/.amh-native-sync --kind memory
 amh-native status --state ~/.amh-native-sync
 ```
 
-`scope` 设置的是完整上传范围，不是增量开关。`memory` 指产品维护的长期记忆；其他类型是会话记录 `transcript`、规则 `rule`、技能 `skill`、配置 `config`。需要多个类型时重复 `--kind`。关闭上传保留选择、队列和云端内容，正在执行的一轮同步结束后生效。已有会话中的上下文不会因关闭召回而撤回，验证时请新建会话。
+`scope` 设置的是完整上传范围，不是增量开关。`memory` 指产品维护的长期记忆；其他类型是会话记录 `transcript`、规则 `rule`、技能 `skill`、配置 `config`。新成员默认只上传 `memory`。会话记录即使上传，组织工具也搜不到、读不到（1.4.29 起），但同步接口仍能取到，所以不建议开启；已上传的要由管理员在 Hub 上用 `purge-asset` 清除。需要多个类型时重复 `--kind`。关闭上传保留选择、队列和云端内容，正在执行的一轮同步结束后生效。已有会话中的上下文不会因关闭召回而撤回，验证时请新建会话。

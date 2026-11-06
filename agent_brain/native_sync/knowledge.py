@@ -185,7 +185,8 @@ class NativeKnowledge:
         if row is None:
             raise KnowledgeConflict("asset_unavailable")
         item: dict[str, Any] = json.loads(row["payload"])
-        if item.get("deleted"):
+        # Whole conversations hold whatever passed through them, and read like absent ones.
+        if item.get("deleted") or item.get("kind") == "transcript":
             # Same result as a nonexistent/foreign asset, with no current revision.
             raise KnowledgeConflict("asset_unavailable")
         if revision is not None and row["revision"] != revision:
