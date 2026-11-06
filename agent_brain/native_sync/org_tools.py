@@ -560,6 +560,8 @@ class OrganizationTools:
                     }
                     if row["part_index"] >= row["part_count"]:
                         raise ValueError("invalid chunk index")
+                    if isinstance(item.get("section_title"), str):
+                        row["section"] = _characters(item["section_title"], 80)
                     if "recall" in item:
                         recall = item["recall"]
                         if not isinstance(recall, dict) or not isinstance(

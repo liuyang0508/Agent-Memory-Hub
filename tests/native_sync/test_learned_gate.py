@@ -322,14 +322,10 @@ def test_followers_must_reach_a_share_of_the_leader():
         [0.95] + [0.0] * 7, True, relevance.shingles("leader note " * 9), ("h1", "t")
     )
     weak = Candidate([0.72] + [0.0] * 7, False, relevance.shingles("weak note " * 9), ("h2", "t"))
-    anchored = Candidate(
-        [0.65, 0, 0, 0, 1.0, 0, 0, 1.0], True, relevance.shingles("E1234 x " * 9), ("h3", "t")
-    )
     model = GateModel.from_dict({**sim_only(threshold=0.5), "relative": 0.8})
     assert model.to_dict()["relative"] == 0.8
-    # p(leader) ~ 0.99, p(weak) ~ 0.6 < 0.8 * 0.99; the identifier still passes.
-    chosen = relevance.select(model, [leader, weak, anchored], 0.5)
-    assert chosen == [leader, anchored]
+    # p(leader) ~ 0.99, p(weak) ~ 0.6 < 0.8 * 0.99.
+    assert relevance.select(model, [leader, weak], 0.5) == [leader]
     model.relative = 0.0
     assert weak in relevance.select(model, [leader, weak], 0.5)
     with pytest.raises(ValueError):

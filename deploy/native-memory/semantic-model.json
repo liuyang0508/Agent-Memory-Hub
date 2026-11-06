@@ -109,9 +109,6 @@
       },
       "relative": 0.5,
       "lift": 0.08,
-      "hint_threshold": 0.3,
-      "hint_lift": 0.04,
-      "hint_items": 2,
       "nav_threshold": 0.9
     }
   },

@@ -15,12 +15,12 @@ from .client import NativeClient
 from .common import atomic_text, digest, recall_budget
 from .storage import database, DB_TIMEOUT
 from .recall import coverage_key, pack
-from .recall import FEEDBACK_RESERVE, feedback_block, hint_keys, hint_of
+from .recall import FEEDBACK_RESERVE, feedback_block
 from .recall_view import (
+    DEFAULT_DISPLAY,
     DISPLAY_KEY,
     DISPLAY_MODES,
     admit,
-    follow_up,
     normalize,
     render,
     render_skip,
@@ -28,9 +28,6 @@ from .recall_view import (
 
 # The previous prompt a short follow-up borrows for search, at most this long
 # and at most this old: a topic from another hour is not what "那第二个呢" means.
-CONTEXT_CHARS = 300
-CONTEXT_MAX_AGE = 1800.0
-CONTEXT_SCAN = 12
 # One long agentic turn can write megabytes after the delivery marker; missing
 # the marker means re-injecting the memory, so look far enough back.
 RECEIPT_TAIL_BYTES = 16_000_000
@@ -169,7 +166,7 @@ def _catalog_output(
     output: dict[str, Any] = {
         "hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": body}
     }
-    if c.config.get(DISPLAY_KEY, "table") != "off" and product in VISIBLE_MESSAGE_PRODUCTS:
+    if c.config.get(DISPLAY_KEY, DEFAULT_DISPLAY) != "off" and product in VISIBLE_MESSAGE_PRODUCTS:
         output["systemMessage"] = (
             f"组织记忆目录已提供给模型：{len(lines)} 个主题，需要时它会主动查询"
         )
@@ -266,7 +263,7 @@ def _run(root: Path, product: str, payload: dict[str, Any]) -> dict[str, Any]:
         except (sqlite3.Error, OSError, ValueError, TypeError, KeyError):
             pass  # Feedback is optional; the turn itself already finished.
         return {}
-    if event != "UserPromptSubmit":
+    if event != "UserPromptSubmit" or c.config.get("prompt_recall", True) is False:
         return {}
     try:
         # A new turn: whatever the last one injected can no longer be judged
@@ -278,9 +275,9 @@ def _run(root: Path, product: str, payload: dict[str, Any]) -> dict[str, Any]:
     prompt = payload.get("prompt", "")
     if not isinstance(prompt, str) or not prompt.strip():
         return {}
-    display = c.config.get(DISPLAY_KEY, "table")
+    display = c.config.get(DISPLAY_KEY, DEFAULT_DISPLAY)
     if display not in DISPLAY_MODES:
-        display = "table"
+        display = DEFAULT_DISPLAY
     query = normalize(prompt)
     admitted, skip_reason = admit(query)
     if not admitted:
@@ -302,7 +299,7 @@ def _run(root: Path, product: str, payload: dict[str, Any]) -> dict[str, Any]:
         except OSError:
             pass
         if (
-            display != "off"
+            display == "table"
             and product in VISIBLE_MESSAGE_PRODUCTS
             and skip_reason not in ("background_event", "terminal_reply")
         ):
@@ -347,27 +344,6 @@ def _run(root: Path, product: str, payload: dict[str, Any]) -> dict[str, Any]:
                             )
         except OSError:
             pass
-    # A short follow-up has no topic of its own; search with the previous
-    # prompt in front of it (the gate still judges every candidate).
-    search, context = query, ""
-    transcript_path = payload.get("transcript_path")
-    if product == "claude-code" and isinstance(transcript_path, str) and follow_up(query):
-        from .usage import recent_prompts
-
-        earlier = [
-            text
-            for text in (
-                normalize(p)
-                for p in recent_prompts(
-                    Path(transcript_path), limit=CONTEXT_SCAN, max_age=CONTEXT_MAX_AGE
-                )
-            )
-            if text and text != query and admit(text)[0] and not follow_up(text)
-        ]
-        if earlier:
-            context = earlier[-1][:CONTEXT_CHARS]
-            # This prompt first: previews and gap reports should read as what was asked.
-            search = query + "\n" + context
     with database(c.path) as db:
         covered = {
             r["key"]
@@ -380,7 +356,6 @@ def _run(root: Path, product: str, payload: dict[str, Any]) -> dict[str, Any]:
     trace_id = None
     channel = "search"
     retrieval: dict[str, Any] | None = None
-    hints: list[dict[str, Any]] = []
     feedback_rate = 0.0
     budget = recall_budget(c.config)
     # Which path will answer: the resident worker's warm connection when it is
@@ -396,11 +371,10 @@ def _run(root: Path, product: str, payload: dict[str, Any]) -> dict[str, Any]:
     try:
         from .query_worker import recall
 
-        response, via = recall(root, search[:8000], budget=budget, asking=asking)
+        response, via = recall(root, query[:8000], budget=budget, asking=asking)
         # Test doubles may still answer with a bare list of records.
         if isinstance(response, dict):
             hits = response["items"]
-            hints = [h for h in response.get("hints") or [] if isinstance(h, dict)]
             rate = response.get("self_feedback_rate")
             feedback_rate = float(rate) if isinstance(rate, (int, float)) else 0.0
             trace_id = response.get("trace_id")
@@ -420,7 +394,7 @@ def _run(root: Path, product: str, payload: dict[str, Any]) -> dict[str, Any]:
     except (OSError, ValueError, TimeoutError, sqlite3.Error):
         with database(c.path) as db:
             row = db.execute("SELECT value FROM meta WHERE key='last_auth'").fetchone()
-        hits = c.local_search(search) if row and time.time() - float(row["value"]) < 900 else []
+        hits = c.local_search(query) if row and time.time() - float(row["value"]) < 900 else []
         mode = "cache" if hits else "unavailable"
     if not c.recall_enabled():
         return {}
@@ -452,41 +426,22 @@ def _run(root: Path, product: str, payload: dict[str, Any]) -> dict[str, Any]:
     # machine, which is exactly what local-first sharing is supposed to avoid.
     # The delivery receipt is appended below; reserve it inside the byte cap.
     receipt_bytes = len("\namh-native-recall:") + 24
-    if context and mode == "remote":
-        # What a borrowed topic finds may belong to the last question, not this
-        # one: name it and let the model decide, never inject the text.
-        hints = [*[hint_of(record) for record in hits if not record.get("deleted")], *hints]
     # A sample of turns asks the model what the memories did. Claude Code only:
     # it has the tool and a transcript to check the answer against. Stable per
     # turn, so a retried hook does not change its mind.
     asking_feedback = (
         product == "claude-code"
         and mode == "remote"
-        and not context
         and bool(trace_id)
         and int(digest(f"{session}:{trace_id}")[:8], 16) / 2**32 < feedback_rate
     )
     body, keys = pack(
-        [] if context else hits,
+        hits,
         covered=covered,
         max_bytes=4096 - receipt_bytes - (FEEDBACK_RESERVE if asking_feedback else 0),
         per_item_bytes=1536,
-        query=search,
-        hints=hints if mode == "remote" else None,
+        query=query,
     )
-    if body and mode == "remote" and hints:
-        # A title is named once per session: repeating it every turn is noise.
-        try:
-            with database(c.path) as db:
-                db.executemany(
-                    "INSERT OR IGNORE INTO coverage VALUES(?,?,?)",
-                    [
-                        (session, epoch, key)
-                        for key in hint_keys(hints, covered, [] if context else hits)
-                    ],
-                )
-        except sqlite3.Error:
-            pass
     # Delivery state per recalled version: packed now, already injected earlier
     # in this session, ranked but outside the byte budget, or without text.
     packed_keys = {k.split(":excerpt:")[0] for k in keys}
@@ -496,8 +451,6 @@ def _run(root: Path, product: str, payload: dict[str, Any]) -> dict[str, Any]:
         key = coverage_key(record)
         if record.get("deleted") or not _display_text(record).strip():
             states[key] = "empty"
-        elif context:
-            states[key] = "hint"
         elif key in packed_keys:
             states[key] = "packed"
         elif key in seen_keys:
@@ -521,8 +474,6 @@ def _run(root: Path, product: str, payload: dict[str, Any]) -> dict[str, Any]:
             states=states,
             display=display,
             style="box" if product in VISIBLE_MESSAGE_PRODUCTS else "markdown",
-            hints=hints if mode == "remote" else None,
-            context=context,
         )
     if body and view and product not in VISIBLE_MESSAGE_PRODUCTS:
         # Inside the organization block, so transcript capture strips it too.

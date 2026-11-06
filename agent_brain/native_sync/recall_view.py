@@ -25,10 +25,13 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from .common import PRODUCTS, source_product, tokens
+from .recall import coverage_key
 
 QUERY_CHARS = 1500
 DISPLAY_MODES = ("table", "summary", "off")
 DISPLAY_KEY = "recall_display"
+# One line when something was injected, nothing otherwise. The table is for debugging.
+DEFAULT_DISPLAY = "summary"
 
 _BLOCKS = [
     re.compile(r"<system-reminder\b[^>]*>.*?(?:</system-reminder>|$)", re.S | re.I),
@@ -87,21 +90,6 @@ def _folded(text: str) -> str:
     return "".join(kept)
 
 
-FOLLOW_UP_CHARS = 16
-_TECHNICAL = re.compile(r"[A-Za-z0-9_./-]{3,}")
-
-
-def follow_up(query: str) -> bool:
-    """A short prompt with no topic of its own ("那第二个呢", "发布了告诉我"):
-    what it is about lives in the previous prompt."""
-    if len(_folded(query)) > FOLLOW_UP_CHARS:
-        return False
-    return not any(
-        any(ch.isdigit() for ch in token) or any(ch in token for ch in "_./-")
-        for token in _TECHNICAL.findall(query)
-    )
-
-
 # A terminal's own reply to a capability query, leaked into the prompt box:
 # "?62;22;52c>1;10;0c". Never something a member typed.
 _TERMINAL_REPLY = re.compile(r"(?:\x1b?\[?[?>]?\d+(?:;\d+)*[A-Za-z~]\s*)+")
@@ -145,7 +133,6 @@ STATE_TEXT = {
     "covered": "本会话已注入过",
     "budget": "超出注入预算",
     "empty": "无正文",
-    "hint": "只给标题",
 }
 REASON_TEXT = {
     "semantic_model_unavailable": "Hub 语义模型不可用",
@@ -224,7 +211,9 @@ def _updated(record: dict[str, Any]) -> str:
 
 
 def _title(record: dict[str, Any]) -> str:
-    """Navigation files share generic titles; name the file and the part instead."""
+    """Navigation files share generic titles; name their section, else the file and part."""
+    if record.get("section_title"):
+        return str(record["section_title"])
     path = str(record.get("path") or "")
     name = path.rsplit("/", 1)[-1]
     title = str(record.get("title") or "")
@@ -344,7 +333,6 @@ STATE_SHORT = {
     "covered": "已注入过",
     "budget": "超预算",
     "empty": "无正文",
-    "hint": "只给标题",
 }
 
 
@@ -434,8 +422,6 @@ def render(
     states: dict[str, str],
     display: str,
     style: str = "markdown",
-    hints: list[dict[str, Any]] | None = None,
-    context: str = "",
 ) -> str:
     """Call line, parameters and the recalled-memory table.
 
@@ -456,13 +442,18 @@ def render(
             "unavailable": "未取到（Hub 不可达或超时）",
             "denied": "设备被拒绝",
         }.get(mode, mode)
+    if display == "summary":
+        if mode == "denied":
+            return "组织记忆：设备被拒绝，请联系管理员"
+        delivered = [r for r in hits if states.get(coverage_key(r)) == "packed"]
+        if not delivered:
+            return ""
+        names = "、".join(f"《{_cell(_box_title(r), 32)}》" for r in delivered)
+        return f"组织记忆：注入 {len(delivered)} 条 · {names} · {elapsed_ms / 1000:.1f} 秒"
     lines = [
         f"**组织记忆召回** · {how} · 命中 {len(hits)} 条 · 注入 {packed} 条 · "
-        + (f"只给标题 {len(hints)} 条 · " if hints else "")
         + f"耗时 {elapsed_ms} ms / 预算 {round(budget * 1000)} ms · {VIA_TEXT.get(via, via)}",
     ]
-    if display == "summary":
-        return lines[0]
     lines.append(
         f"调用：`POST {base}/native/v1/recall` · 通道 hook · 范围 memory+rule · 上限 8 条"
         + (f" · trace `{trace_id}`" if trace_id else "")
@@ -474,20 +465,13 @@ def render(
         + (asking.get("project") or "未登记")
         + f" · 会话 {asking.get('session_digest') or '—'}"
     )
-    if context:
-        lines.append(
-            "上文补充：这句较短，检索时带上了上一轮提问「" + _cell(context, 40) + "」，结果只给标题"
-        )
-    tail = _hint_line(hints or [])
     if not hits:
-        lines += [tail] if tail else []
         return _as_plain("\n".join(lines)) if style == "box" else "\n".join(lines)
     if style == "box":
         return (
             _as_plain("\n".join(lines))
             + "\n"
             + "\n".join(_box_table(hits, states, terminal_columns(), query))
-            + ("\n" + tail if tail else "")
         )
     lines += [
         "",
@@ -495,8 +479,6 @@ def render(
         "|---|---|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     for rank, record in enumerate(hits, 1):
-        from .recall import coverage_key
-
         title = _title(record)
         product = source_product(str(record.get("product") or ""))
         lines.append(
@@ -520,24 +502,7 @@ def render(
             )
             + " |"
         )
-    if tail:
-        lines += ["", tail]
     return "\n".join(lines)
-
-
-def _hint_line(hints: list[dict[str, Any]]) -> str:
-    """The title-only tier in one line: named for the model, bodies not injected."""
-    if not hints:
-        return ""
-    names = []
-    for hint in hints:
-        title = _cell(hint.get("title") or hint.get("path") or hint.get("asset_id"), 28)
-        probability = hint.get("probability")
-        names.append(
-            f"《{title}》"
-            + (f"（{round(probability * 100)}%）" if isinstance(probability, (int, float)) else "")
-        )
-    return "只给标题（未注入正文，模型需要时自行读取）：" + "、".join(names)
 
 
 def render_skip(reason: str, query: str) -> str:
@@ -643,7 +608,6 @@ def _box_table(
     columns: int | None = None,
     query: str = "",
 ) -> list[str]:
-    from .recall import coverage_key
 
     layout = _layout(any(record.get("project") for record in hits), columns)
     rows: list[list[str]] = []

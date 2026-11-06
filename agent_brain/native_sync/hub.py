@@ -43,7 +43,7 @@ SCRUB_REVISIONS = (
 SCRUB_DONE = "changes_text_scrubbed_v1"
 SCRUB_AT = "changes_text_scrub_position"
 SCRUB_BATCH = 100
-RULE_FIELDS = ("lift", "hint_threshold", "hint_lift", "hint_items", "nav_threshold")
+RULE_FIELDS = ("lift", "nav_threshold")
 FEISHU_STATE_LIMIT = 1000
 
 
@@ -156,7 +156,7 @@ class Hub:
         # Parsed window vectors per (tenant, asset, revision, content hash):
         # a query must not re-read and re-parse the whole index from SQLite.
         self._vectors: dict[str, dict[tuple[str, int, str, str], Any]] = {}
-        self._catalogs: dict[str, tuple[int, list[str]]] = {}
+        self._catalogs: dict[tuple[str, str], tuple[int, list[str]]] = {}
         self._insights_refreshed: dict[str, float] = {}
         with database(self.path) as db:
             db.executescript(HUB_SCHEMA)
@@ -1344,7 +1344,8 @@ class Hub:
             tenant = who["tenant"]
             row = db.execute("SELECT max(seq) FROM changes WHERE tenant=?", (tenant,)).fetchone()
             generation = row[0] or 0
-            cached = self._catalogs.get(tenant)
+            scope = (tenant, who["device_id"])
+            cached = self._catalogs.get(scope)
             if cached and cached[0] == generation:
                 return list(cached[1])
             db.create_function("native_asset_role", 3, asset_role, deterministic=True)
@@ -1357,6 +1358,9 @@ class Hub:
                 (tenant,),
             ):
                 item = json.loads(found["payload"])
+                # This machine's own memory is already in front of its own product.
+                if item.get("source_device_id") == who["device_id"]:
+                    continue
                 if self._retrieval_valid(db, item):
                     name = item.get("document_id") or item["asset_id"]
                     documents.setdefault((item["source_store"], name), []).append(item)
@@ -1373,7 +1377,7 @@ class Hub:
                 for parts in documents.values()
             ]
         )
-        self._catalogs[tenant] = (generation, lines)
+        self._catalogs[scope] = (generation, lines)
         return list(lines)
 
     def _retrieval_valid(self, db: sqlite3.Connection, item: dict[str, Any]) -> bool:
@@ -1692,7 +1696,7 @@ class Hub:
         limit: int = 8,
         asking: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Hook-channel recall: hybrid ranking over curated memory and rules, full bodies.
+        """Hook-channel recall: what clears the relevance bar or names something rare, in full.
 
         Replaces the lexical-only search for the prompt-time hook so transcript
         chunks and supporting material cannot crowd out curated memory.
@@ -1704,7 +1708,6 @@ class Hub:
             self._focus_on_match(item)
         return {
             "items": result["items"],
-            "hints": result.get("hints", []),
             "trace_id": result["retrieval"]["trace_id"],
             "retrieval": result["retrieval"],
         }
@@ -1728,7 +1731,7 @@ class Hub:
             return
         low, high = section_span(body, int(match["char_start"]), int(match["char_end"]))
         item["section"] = {"char_start": low, "char_end": high, "chars": len(body)}
-        title = str(item.get("title") or "").strip()
+        title = str(item.get("section_title") or item.get("title") or "").strip()
         item["body"] = (f"《{title}》\n" if title else "") + body[low:high]
 
     def recall_feedback(

@@ -116,7 +116,7 @@ def create_app(hub: Hub) -> FastAPI:
             "insights-v1",
             "asking-context-v1",
             "recall-usage-feedback-v1",
-            "recall-hints-v1",
+            "literal-search-v1",
             "recall-self-feedback-v1",
             "org-catalog-v1",
             "session-digest-v1",
@@ -451,7 +451,7 @@ def create_app(hub: Hub) -> FastAPI:
         )
         return {
             "items": recall_items(result["items"]),
-            "hints": recall_hints(result.get("hints", [])),
+            "hints": [],  # Clients before 1.4.31 read this; there is no title-only tier now.
             "self_feedback_rate": hub.self_feedback_rate,
             "trace_id": result["trace_id"],
             "retrieval": _diagnostics({"retrieval": result["retrieval"]}),
@@ -576,6 +576,7 @@ def create_app(hub: Hub) -> FastAPI:
 # duplicate_sources, source_meta, hopfield_match, observed_at, content_hash)
 # and the index_text of non-transcripts never leave the Hub on this channel.
 RECALL_ITEM_FIELDS = (
+    "section_title",
     "asset_id",
     "revision",
     "tenant_id",
@@ -623,24 +624,6 @@ RECALL_TRACE_FIELDS = (
 )
 RECALL_BODY_BYTES = 64 * 1024
 RECALL_TOTAL_BYTES = 512 * 1024
-
-
-def recall_hints(hints: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Title-only recall tier: names and ids, never bodies."""
-    out = []
-    for hint in hints[:8]:
-        row: dict[str, Any] = {
-            key: str(hint.get(key) or "")[:256]
-            for key in ("asset_id", "title", "path", "product", "kind")
-        }
-        if not row["asset_id"] or type(hint.get("revision")) is not int:
-            continue
-        row["revision"] = hint["revision"]
-        probability = hint.get("probability")
-        if isinstance(probability, (int, float)):
-            row["probability"] = round(float(probability), 4)
-        out.append(row)
-    return out
 
 
 def recall_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:

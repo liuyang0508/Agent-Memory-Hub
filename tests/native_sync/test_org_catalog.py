@@ -100,20 +100,24 @@ def put(hub, who, key, body, **extra):
 
 def test_the_hub_lists_curated_memory_only(hub):
     who = hub.provision("A", "B", tenant="org")
+    reader = hub.provision("R", "S", tenant="org")
     put(hub, who, "topic", "# 订单验签", path="topic.md", product="codex")
     put(hub, who, "rollout", "# 一次会话", path="rollout_summaries/a.md", product="codex")
     put(hub, who, "raw", "# 原始", path="raw_memories.md", product="codex")
     put(hub, who, "rule", "# 规则", path="rule.md", kind="rule")
-    assert hub.catalog(who["token"]) == ["订单验签"]
+    assert hub.catalog(reader["token"]) == ["订单验签"]
+    # This machine's own memory is already in front of its own product.
+    assert hub.catalog(who["token"]) == []
 
 
 def test_the_catalog_follows_changes_and_stays_within_the_tenant(hub):
     who = hub.provision("A", "B", tenant="org")
+    reader = hub.provision("R", "S", tenant="org")
     other = hub.provision("C", "D", tenant="other")
     put(hub, other, "secret", "# 别家的主题", path="other.md")
-    assert hub.catalog(who["token"]) == []
+    assert hub.catalog(reader["token"]) == []
     record = put(hub, who, "topic", "# 第一版", path="topic.md")
-    assert hub.catalog(who["token"]) == ["第一版"]
+    assert hub.catalog(reader["token"]) == ["第一版"]
     hub.put(
         who["token"],
         asset(
@@ -125,15 +129,18 @@ def test_the_catalog_follows_changes_and_stays_within_the_tenant(hub):
             base_revision=record["revision"],
         ),
     )
-    assert hub.catalog(who["token"]) == []
+    assert hub.catalog(reader["token"]) == []
 
 
 def test_the_endpoint_needs_a_member(hub):
     who = hub.provision("A", "B", tenant="org")
     put(hub, who, "topic", "# 订单验签", path="topic.md")
+    reader = hub.provision("R", "S", tenant="org")
     client = TestClient(create_app(hub))
     assert client.get("/native/v1/catalog").status_code in (401, 403)
-    response = client.get("/native/v1/catalog", headers={"Authorization": "Bearer " + who["token"]})
+    response = client.get(
+        "/native/v1/catalog", headers={"Authorization": "Bearer " + reader["token"]}
+    )
     assert response.json() == {"lines": ["订单验签"]}
     assert "org-catalog-v1" in client.get("/native/v1/health").json()["capabilities"]
 
@@ -173,8 +180,8 @@ def started(c, source="startup", product="claude-code"):
 def test_a_new_session_is_told_what_the_organization_knows(live, tmp_path):  # noqa: F811
     hub_, url = live
     c = member(hub_, url, tmp_path)
-    who = c.identity
-    put(hub_, {"token": who["token"]}, "topic", "# 订单验签", path="topic.md")
+    colleague = hub_.provision("同事", "另一台")
+    put(hub_, colleague, "topic", "# 订单验签", path="topic.md")
     catalog.refresh(c.root, c.transport)
     out = started(c)
     context = out["hookSpecificOutput"]["additionalContext"]

@@ -493,7 +493,6 @@ def test_default_build_filters_large_supporting_assets_before_encoding(tmp_path)
         for prefix, kind, path in [
             ("transcript", "transcript", "chat.jsonl"),
             ("config", "config", "config.json"),
-            ("summary", "memory", "./rollout_summaries/session.md"),
             ("raw", "memory", ".\\raw_memories.md"),
         ]:
             hub.put(
@@ -505,7 +504,7 @@ def test_default_build_filters_large_supporting_assets_before_encoding(tmp_path)
     assert result["indexed"] == result["encoded"] == 2
     assert len(backend.seen) == 2 and not any("EXCLUDED" in text for text in backend.seen)
     with database(hub.path) as db:
-        assert db.execute("SELECT count(*) FROM assets").fetchone()[0] == 50
+        assert db.execute("SELECT count(*) FROM assets").fetchone()[0] == 38
 
 
 def test_explicit_scope_expansion_then_narrowing_preserves_sources_and_reports_partial(tmp_path):
@@ -520,7 +519,7 @@ def test_explicit_scope_expansion_then_narrowing_preserves_sources_and_reports_p
     ]:
         hub.put(token, asset(key, kind=kind, path=path, title="", body="复核 " + key))
     first = hub.rebuild_semantic(token)
-    assert (first["encoded"], first["reused"]) == (1, 0)
+    assert (first["encoded"], first["reused"]) == (2, 0)
     with database(hub.path) as db:
         original_descriptor = json.loads(
             db.execute("SELECT descriptor FROM native_semantic_meta").fetchone()[0]
@@ -530,13 +529,13 @@ def test_explicit_scope_expansion_then_narrowing_preserves_sources_and_reports_p
     expanded = hub.rebuild_semantic(
         token, kinds=["memory", "transcript", "config"], include_evidence=True
     )
-    assert (expanded["indexed"], expanded["encoded"], expanded["reused"]) == (4, 3, 1)
+    assert (expanded["indexed"], expanded["encoded"], expanded["reused"]) == (4, 2, 2)
     assert expanded["include_evidence"] is True
     assert set(expanded["kinds"]) == {"memory", "transcript", "config"}
     assert not hub.retrieve(token, "approval", kinds=["transcript"])["retrieval"]["degraded"]
     backend.seen.clear()
     narrowed = hub.rebuild_semantic(token)
-    assert (narrowed["indexed"], narrowed["encoded"], narrowed["reused"]) == (1, 0, 1)
+    assert (narrowed["indexed"], narrowed["encoded"], narrowed["reused"]) == (2, 0, 2)
     assert backend.seen == []
     with database(hub.path) as db:
         assert (
@@ -544,15 +543,18 @@ def test_explicit_scope_expansion_then_narrowing_preserves_sources_and_reports_p
             == original_descriptor
         )
         assert [tuple(row) for row in db.execute("SELECT * FROM assets ORDER BY id")] == sources
-        assert [row[0] for row in db.execute("SELECT asset_id FROM native_semantic_vectors")] == [
-            "topic"
+        assert [
+            row[0] for row in db.execute("SELECT asset_id FROM native_semantic_vectors ORDER BY 1")
+        ] == [
+            "summary",
+            "topic",
         ]
     default = hub.retrieve(token, "approval")
     assert not default["retrieval"]["degraded"]
     wider = hub.retrieve(
         token, "approval", kinds=["memory", "transcript", "config"], include_evidence=True
     )
-    assert wider["retrieval"]["semantic_index"] == {"current": 1, "eligible": 4}
+    assert wider["retrieval"]["semantic_index"] == {"current": 2, "eligible": 4}
     assert "semantic_index_incomplete_rebuild_required" in wider["retrieval"]["reasons"]
 
 

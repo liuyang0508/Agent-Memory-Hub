@@ -15,7 +15,7 @@ from agent_brain.native_sync.api import create_app
 from agent_brain.native_sync.client import NativeClient
 from agent_brain.native_sync.hub import Hub, _unit_rate
 from agent_brain.native_sync.org_tools import OrganizationTools
-from agent_brain.native_sync.recall import FEEDBACK_RESERVE, HINT_HEAD, feedback_block, pack
+from agent_brain.native_sync.recall import FEEDBACK_RESERVE, feedback_block, pack
 from agent_brain.native_sync.recall_view import normalize
 from agent_brain.native_sync.source import indexable_history
 from agent_brain.native_sync.storage import database
@@ -214,8 +214,3 @@ def test_read_says_when_the_named_version_moved_on(live, tmp_path, monkeypatch):
     tools = OrganizationTools(c.root)
     answer = tools.read("oss", 9)
     assert answer["ok"] is False and answer["code"] == "stale_version"
-
-
-def test_hint_tells_the_model_the_short_way():
-    assert "read_org_memory" in HINT_HEAD and "search_org_memory" not in HINT_HEAD
-    assert Path(__file__).exists()

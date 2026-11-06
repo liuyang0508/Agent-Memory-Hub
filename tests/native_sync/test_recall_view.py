@@ -7,6 +7,7 @@ import pytest
 from agent_brain.native_sync import hooks
 from agent_brain.native_sync.client import NativeClient
 from agent_brain.native_sync.common import atomic_json
+from agent_brain.native_sync.recall import coverage_key
 from agent_brain.native_sync.recall_view import admit, normalize, render
 from test_hub import asset
 from test_recall_warm_path import live as live  # noqa: F401  (fixture re-export)
@@ -94,22 +95,34 @@ def test_table_lists_call_parameters_and_each_memory():
     assert "MEMORY.md §3/15" in third and "词法4·语义2" in third
 
 
-def test_summary_mode_is_one_line():
-    view = render(
+def _summary(mode="remote", hits=(), states=None):
+    return render(
         hub="https://h",
         query="q",
         asking={},
         budget=1.2,
         elapsed_ms=10,
         via="worker",
-        mode="unavailable",
+        mode=mode,
         retrieval=None,
         trace_id=None,
-        hits=[],
-        states={},
+        hits=list(hits),
+        states=states or {},
         display="summary",
     )
-    assert "\n" not in view and "未取到" in view
+
+
+def test_summary_mode_says_nothing_unless_something_was_injected():
+    assert _summary() == ""
+    assert _summary("unavailable") == ""
+    record = _record()
+    line = _summary(hits=[record], states={coverage_key(record): "packed"})
+    assert "\n" not in line and "注入 1 条" in line and "《" in line
+    assert _summary(hits=[record], states={coverage_key(record): "covered"}) == ""
+
+
+def test_a_refused_device_is_always_told():
+    assert "设备被拒绝" in _summary("denied")
 
 
 def seeded(hub):
@@ -121,6 +134,7 @@ def test_claude_code_sees_the_table_as_a_message(live, tmp_path):
     hub, url = live
     seeded(hub)
     c = NativeClient.adopt(tmp_path / "state", url, hub.provision("李四", "Mac"), "Mac")
+    atomic_json(c.root / "config.json", {**c.config, "recall_display": "table"})
     payload = {
         "hook_event_name": "UserPromptSubmit",
         "session_id": "s1",
@@ -138,6 +152,7 @@ def test_codex_sees_the_table_inside_the_organization_block(live, tmp_path):
     hub, url = live
     seeded(hub)
     c = NativeClient.adopt(tmp_path / "state", url, hub.provision("李四", "Mac"), "Mac")
+    atomic_json(c.root / "config.json", {**c.config, "recall_display": "table"})
     payload = {
         "hook_event_name": "UserPromptSubmit",
         "session_id": "s1",
@@ -155,6 +170,8 @@ def test_acknowledgement_is_skipped_visibly_and_display_can_be_turned_off(live, 
     seeded(hub)
     c = NativeClient.adopt(tmp_path / "state", url, hub.provision("李四", "Mac"), "Mac")
     payload = {"hook_event_name": "UserPromptSubmit", "session_id": "s1", "prompt": "好的"}
+    assert hooks.run(c.root, "claude-code", payload) == {}
+    atomic_json(c.root / "config.json", {**c.config, "recall_display": "table"})
     result = hooks.run(c.root, "claude-code", payload)
     assert "跳过" in result["systemMessage"] and "hookSpecificOutput" not in result
     metric = json.loads((c.root / "hook-metrics.jsonl").read_text().splitlines()[-1])
@@ -175,7 +192,7 @@ def test_cli_sets_display_and_summarizes_hook_metrics(live, tmp_path):
     runner = CliRunner()
     assert (
         json.loads(runner.invoke(app, ["recall-display", "--state", str(c.root)]).output)["display"]
-        == "table"
+        == "summary"
     )
     assert runner.invoke(app, ["recall-display", "loud", "--state", str(c.root)]).exit_code != 0
     changed = runner.invoke(app, ["recall-display", "summary", "--state", str(c.root)])
@@ -245,6 +262,7 @@ def test_a_fresh_mod_mark_moves_the_view_into_a_panel_file(live, tmp_path):
     hub, url = live
     seeded(hub)
     c = NativeClient.adopt(tmp_path / "state", url, hub.provision("李四", "Mac"), "Mac")
+    atomic_json(c.root / "config.json", {**c.config, "recall_display": "table"})
     payload = {
         "hook_event_name": "UserPromptSubmit",
         "session_id": "sess-1/../x",
