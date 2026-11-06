@@ -147,11 +147,21 @@ def sensitive_key(key: str) -> bool:
     )
 
 
+# Wraps what the member sees of a recall: Claude Code keeps a hook's message in its
+# transcript, and other members' text must not reach this member's search index from there.
+RECALL_DETAIL = "组织记忆明细"
+
+
 def indexable_history(text: str) -> str:
     """Mask AMH-injected evidence for search while preserving transcript offsets and stored originals."""
     # Fixed machine boundaries survive wording changes and also match escaped
     # newlines in JSONL. Preserve offsets so nearby native text remains usable.
-    for block in ("AMH_ORG_CONTEXT_V1", "AMH_RECALL_FEEDBACK_V1"):
+    for block in (
+        "AMH_ORG_CONTEXT_V1",
+        "AMH_RECALL_FEEDBACK_V1",
+        RECALL_DETAIL,
+        json.dumps(RECALL_DETAIL)[1:-1].replace("\\", "\\\\"),
+    ):
         text = re.sub(
             rf"\[{block}\].*?\[/{block}\]",
             lambda m: " " * len(m.group()),

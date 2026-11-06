@@ -26,12 +26,13 @@ from urllib.parse import urlsplit
 
 from .common import PRODUCTS, source_product, tokens
 from .recall import coverage_key
+from .source import RECALL_DETAIL
 
 QUERY_CHARS = 1500
 DISPLAY_MODES = ("table", "summary", "off")
 DISPLAY_KEY = "recall_display"
-# One line when something was injected, nothing otherwise. The table is for debugging.
-DEFAULT_DISPLAY = "summary"
+# The table and what the model really received. "summary" is one line when injected.
+DEFAULT_DISPLAY = "table"
 
 _BLOCKS = [
     re.compile(r"<system-reminder\b[^>]*>.*?(?:</system-reminder>|$)", re.S | re.I),
@@ -422,11 +423,13 @@ def render(
     states: dict[str, str],
     display: str,
     style: str = "markdown",
+    injected: list[tuple[dict[str, Any], str]] | None = None,
 ) -> str:
     """Call line, parameters and the recalled-memory table.
 
     ``style`` is "markdown" for context the model reads and "box" for a hook
-    message the host prints verbatim.
+    message the host prints verbatim, which also shows ``injected``: each delivered
+    record with the text the model received. Other hosts show the model's block itself.
     """
     base = hub.rstrip("/") or "Hub"
     retrieval = retrieval or {}
@@ -468,11 +471,10 @@ def render(
     if not hits:
         return _as_plain("\n".join(lines)) if style == "box" else "\n".join(lines)
     if style == "box":
-        return (
-            _as_plain("\n".join(lines))
-            + "\n"
-            + "\n".join(_box_table(hits, states, terminal_columns(), query))
-        )
+        detail = [*_box_table(hits, states, terminal_columns(), query), *_injected(hits, injected)]
+        # A memory quoting the closing mark must not end the masked span early.
+        inner = "\n".join(detail).replace(f"[/{RECALL_DETAIL}]", f"［/{RECALL_DETAIL}］")
+        return f"{_as_plain(chr(10).join(lines))}\n[{RECALL_DETAIL}]\n{inner}\n[/{RECALL_DETAIL}]"
     lines += [
         "",
         "| # | 记忆 | 内容 | 类型 | 来源 | 作者 | 项目 | 版本 | 更新 | 命中路由 | 相关性 | 使用率 | 本轮 |",
@@ -503,6 +505,26 @@ def render(
             + " |"
         )
     return "\n".join(lines)
+
+
+# Another member's text reaches the terminal here: no cursor moves or colors from it.
+_CONTROL_CHARS = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
+
+
+def _injected(
+    hits: list[dict[str, Any]], injected: list[tuple[dict[str, Any], str]] | None
+) -> list[str]:
+    """The text the model received, under the table row each one belongs to."""
+    lines: list[str] = []
+    ranks = {coverage_key(record): rank for rank, record in enumerate(hits, 1)}
+    for record, text in injected or []:
+        rank = ranks.get(coverage_key(record), "?")
+        lines += [
+            "",
+            f"--- 第 {rank} 条的正文（模型实际收到）：《{_plain(_box_title(record))}》 ---",
+        ]
+        lines += _CONTROL_CHARS.sub("", text).split("\n")
+    return lines
 
 
 def render_skip(reason: str, query: str) -> str:

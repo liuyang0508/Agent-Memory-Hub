@@ -255,7 +255,7 @@ Cowork 执行过首次任务后，再检查其独立运行时：
 | 待上传一直不下降 | 查看 `status` 的 `pending`、错误和暂停状态；后台按批次继续上传，`upload_deferred` 表示留队而非丢弃。请求与批次设置见[后台同步预算](dual-hub.zh.md#后台同步的请求与单轮预算)。手动 `sync` 仍尝试完整队列并显示具体错误。 |
 | 云检索有结果，但产品未召回 | 新建会话；检查 Hook 启用/批准、提问相关性和超时。CLI 查询成功不能代替产品验收。 |
 | 跨境或高延迟网络下组织召回总是超时（`hook-metrics.jsonl` 里 `mode` 为 `unavailable`、`elapsed_ms` 贴着 `budget_ms`） | 后台 worker 会保持到 Hub 的连接，每次召回只花一个往返（`via` 为 `service`）；仍不够就 `amh-native recall-timeout 3` 调大总预算（秒，默认 1.2，宿主 Hook 超时随之重写），然后新建会话让产品重新加载 Hook 配置。 |
-| 想看每次召回调用了什么、召回了哪些记忆 | 默认只在确实注入时显示一行（注入几条、标题、耗时），没注入就不打扰。排查时运行 `amh-native recall-display table`，每条提示后显示完整表格：调用地址、查询摘要、检索方式、耗时，以及每条记忆的来源、作者、版本、命中路由、相关性和本轮是否注入。`recall-display off` 完全不显示。 |
+| 想看每次召回调用了什么、召回了哪些记忆 | 默认每条提示后显示表格：调用地址、查询摘要、检索方式、耗时，以及每条记忆的来源、作者、版本、命中路由、相关性和本轮是否注入。真正注入时，表格下面还有模型实际收到的正文。`recall-display summary` 只在注入时显示一行，`recall-display off` 完全不显示。 |
 | 提问时不想自动注入 | `amh-native recall --no-prompt`。提问内容不再发给 Hub，做法和产品原生记忆一样：开场给目录，模型需要时自己查。 |
 | 想让召回像工具调用一样是彩色、可展开/收起的一行 | Claude Code 里装 mod：`amh-native claude-mod --output ~/.claude/amh-mods/amh-recall-view`，再用 `claude --plugin-dir ~/.claude/amh-mods/amh-recall-view` 启动（或把该目录加入 `CLAUDE_CODE_PLUGIN_DIRS`）。装上后每条提示下方是一行蓝色标题和摘要，点「展开」看调用、入参和表格。mod 没加载时自动回到普通消息。 |
 | 「好的」「继续」「1」这类提示没有召回 | 有意为之：简短确认语没有可检索的主题，检索只会注入噪声。带主题的短提示（如「灵鹤计划」）照常检索。 |

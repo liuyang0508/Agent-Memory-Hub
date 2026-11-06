@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.32] — 2026-11-07
+
+### Changed
+
+- The recall table is the default again, and under it Claude Code shows the text the model
+  actually received for each injected memory. The host keeps this message out of the
+  model's context, so it costs no tokens. `amh-native recall-display summary` gives the
+  one line when injected.
+
+### Fixed
+
+- A recall shown in Claude Code stays out of the transcript's search text. The one-line
+  gists in the table used to reach it, a leak of other members' text into your own index.
+
 ## [1.4.31] — 2026-11-06
 
 ### Changed

@@ -85,7 +85,13 @@ def _neutral(text: str) -> str:
     return _MARKER.sub(lambda m: "［" + m.group(1) + m.group(2) + "］", text)
 
 
-def pack(
+def pack(records: list[dict[str, Any]], **options: Any) -> tuple[str, list[str]]:
+    """The block for the model and the coverage keys it delivers; see ``pack_shown``."""
+    body, keys, _ = pack_shown(records, **options)
+    return body, keys
+
+
+def pack_shown(
     records: list[dict[str, Any]],
     *,
     covered: set[str],
@@ -93,15 +99,17 @@ def pack(
     max_items: int = 5,
     per_item_bytes: int = 1536,
     query: str = "",
-) -> tuple[str, list[str]]:
-    """Bound total UTF-8 bytes and each item separately; preserve exact coverage.
+) -> tuple[str, list[str], list[tuple[dict[str, Any], str]]]:
+    """``pack``, plus each delivered record with the text it carried, for the member to see.
+
+    Bound total UTF-8 bytes and each item separately; preserve exact coverage.
 
     Excerpts use a stable per-item allowance, not leftover budget. A repeated
     query therefore cannot re-inject an old excerpt just because another item
     was covered. Partial delivery never marks the entire source version read.
     """
     if max_bytes <= 0 or max_items <= 0 or per_item_bytes <= 0:
-        return "", []
+        return "", [], []
     groups: dict[tuple[str, str], list[dict[str, Any]]] = {}
     names: dict[str, set[str | None]] = {}
     for r in records:
@@ -116,6 +124,7 @@ def pack(
     remaining = allowance
     output: list[str] = []
     delivered: list[str] = []
+    shown: list[tuple[dict[str, Any], str]] = []
     for rows in groups.values():
         if len(output) >= max_items:
             break
@@ -169,14 +178,16 @@ def pack(
         if all(key in covered for key in keys):
             continue
         # Memory text may quote the block's own markers; it must not close the block.
-        block = _neutral(prefix + excerpt + ("" if full else "\n[片段截断]") + "\n")
+        text = _neutral(excerpt + ("" if full else "\n[片段截断]"))
+        block = _neutral(prefix) + text + "\n"
         cost = len(block.encode()) + (1 if output else 0)
         if cost > remaining:
             continue  # Try a later short item, without changing this excerpt.
         output.append(block)
         delivered.extend(keys)
+        shown.append((rows[0], text))
         remaining -= cost
-    return (header + "\n".join(output) + footer, delivered) if output else ("", [])
+    return (header + "\n".join(output) + footer, delivered, shown) if output else ("", [], [])
 
 
 # Asked of the model on a sample of turns, from outside the memory block: the
