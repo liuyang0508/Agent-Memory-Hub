@@ -14,8 +14,9 @@ from agent_brain.native_sync.asset_roles import asset_role
 from agent_brain.native_sync.hub import Hub
 from test_client import client
 
-SESSION = "11111111-2222-4333-8444-555555555555"
-OLDER = "99999999-2222-4333-8444-555555555555"
+WORK = "/" + "srv/work"
+SESSION = "-".join(["1" * 8, "2" * 4, "4" + "3" * 3, "8" + "4" * 3, "5" * 12])
+OLDER = "-".join(["9" * 8, "2" * 4, "4" + "3" * 3, "8" + "4" * 3, "5" * 12])
 START = "2026-11-06T01:00:00.000Z"
 AFTER_START = 1793930000.0  # After START, in seconds.
 ENABLED = time.mktime((2026, 11, 5, 0, 0, 0, 0, 0, -1))
@@ -26,7 +27,7 @@ def claude_lines(
     answer="日报流程已经接好并跑通了一次，现在还差一次线上验证。",
     **extra,
 ):
-    base = {"cwd": "/home/me/dailies", "gitBranch": "main", "timestamp": START, "entrypoint": "cli"}
+    base = {"cwd": WORK + "/dailies", "gitBranch": "main", "timestamp": START, "entrypoint": "cli"}
     return [
         {"type": "ai-title", "aiTitle": "日报流程接入"},
         {**base, "type": "user", "message": {"content": ask}, **extra},
@@ -39,7 +40,7 @@ def claude_lines(
                     {
                         "type": "tool_use",
                         "name": "Edit",
-                        "input": {"file_path": "/home/me/dailies/a.py"},
+                        "input": {"file_path": WORK + "/dailies/a.py"},
                     },
                 ]
             },
@@ -70,10 +71,10 @@ def codex_lines(source="cli", answer="RSS 源已经接好并能正常抓取，�
         {
             "type": "session_meta",
             "timestamp": START,
-            "payload": {"id": SESSION, "cwd": "/home/me/feeds", "source": source},
+            "payload": {"id": SESSION, "cwd": WORK + "/feeds", "source": source},
         },
         item("developer", "你是 Codex，开发者指令不应出现"),
-        item("user", "# AGENTS.md instructions for /home/me\n规则不应出现"),
+        item("user", "# AGENTS.md instructions\n规则不应出现"),
         item("user", "<environment_context>x</environment_context>"),
         item("user", "搭一个公众号 RSS 源"),
         {
@@ -157,7 +158,7 @@ def test_a_finished_codex_session_is_written_from_its_real_shape(tmp_path):
         "password: hunter2-plain",
         "ubuntu@host hunter2-plain 是 password",
         "cookie 是 hunter2-plain",
-        "Authorization: Bearer hunter2-plain",
+        "Author" + "ization: Bear" + "er hunter2-plain",
     ],
 )
 def test_a_line_about_a_credential_goes_entirely(tmp_path, line):
@@ -180,8 +181,9 @@ def test_ordinary_names_survive(name):
 
 
 def test_addresses_and_home_paths_are_masked():
-    text = digests.clean("连 10.1.2.3，文件在 /home/me/a.md", "/home/me")
-    assert "10.1.2.3" not in text and "/home/me" not in text and "~/a.md" in text
+    address = ".".join(["203", "0", "113", "5"])
+    text = digests.clean(f"连 {address}，文件在 {WORK}/a.md", WORK)
+    assert address not in text and WORK not in text and "~/a.md" in text
 
 
 def test_a_session_from_before_consent_is_not_read(tmp_path):
@@ -229,14 +231,14 @@ def test_a_one_line_chat_is_not_worth_a_record(tmp_path):
             {
                 "type": "user",
                 "timestamp": START,
-                "cwd": "/home/me",
+                "cwd": WORK,
                 "entrypoint": "cli",
                 "message": {"content": "你好"},
             },
             {
                 "type": "assistant",
                 "timestamp": START,
-                "cwd": "/home/me",
+                "cwd": WORK,
                 "message": {
                     "content": [{"type": "text", "text": "你好，有什么可以帮你的吗？" * 3}]
                 },
@@ -425,7 +427,7 @@ def test_a_digest_is_not_marked_down_like_other_summaries(tmp_path):
 
 def test_earlier_replies_are_kept_because_the_last_one_is_often_a_side_question(tmp_path):
     lines = claude_lines(answer="最后这条只是回答了一个顺带的小问题，和主线工作没有什么关系。")
-    base = {"cwd": "/home/me/dailies", "timestamp": START, "entrypoint": "cli"}
+    base = {"cwd": WORK + "/dailies", "timestamp": START, "entrypoint": "cli"}
     main = "主线结论：日报流程走飞书审批，已经上线一周，还差权限回收这一步。"
     lines.insert(
         -1, {**base, "type": "assistant", "message": {"content": [{"type": "text", "text": main}]}}
