@@ -119,6 +119,7 @@ def create_app(hub: Hub) -> FastAPI:
             "recall-hints-v1",
             "recall-self-feedback-v1",
             "org-catalog-v1",
+            "session-digest-v1",
         ]
         state = hub.semantic_status()
         semantic: dict[str, Any] = {k: state[k] for k in ("state", "model", "reason") if k in state}

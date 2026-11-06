@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.30] — 2026-11-06
+
+### Added
+
+- Session digests, off until a person runs `amh-native digests --enable`. A session's own
+  file stays on its machine and a product only turns it into memory later, if at all, so
+  work done this morning could not be found this afternoon. Once a Claude Code or Codex
+  session has been idle for 30 minutes, the worker writes its title, what was asked, its
+  last three replies and which files changed, and syncs that like any memory. No model is
+  called.
+- Lines mentioning a credential are removed whole, unlabelled values, addresses and home
+  paths are masked, and a digest the screen flags is not written. Sessions begun before
+  enabling are never read, scripts and subagents are skipped, and `--forget` withdraws one.
+- The Hub treats them as session summaries: never injected and not listed in the catalog.
+  Unlike other summaries they are indexed by meaning and not marked down in search, since
+  a natural "pick up this work" query otherwise never reached them. Clients write them
+  only to a Hub reporting `session-digest-v1`.
+
 ## [1.4.29] — 2026-11-06
 
 ### Changed

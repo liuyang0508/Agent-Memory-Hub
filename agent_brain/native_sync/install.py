@@ -631,6 +631,7 @@ def export_cowork_plugin(
         "usage.py",
         "autoupdate.py",
         "catalog.py",
+        "digests.py",
         "client.py",
         "cowork_runtime.py",
         "runtime_sources.py",
