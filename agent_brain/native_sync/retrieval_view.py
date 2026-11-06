@@ -132,6 +132,8 @@ def _candidate(item: dict[str, Any]) -> dict[str, Any]:
     }
     if projection is not None:
         result["semantic_match"] = projection
+    if isinstance(item.get("section_title"), str):
+        result["section_title"] = item["section_title"]
     recall = item.get("recall")
     if isinstance(recall, dict):
         raw_routes = recall.get("routes")

@@ -76,7 +76,6 @@ def test_fresher_declared_memory_outranks_stale_state_on_equal_lexical_score(tmp
     assert by_id["stale"]["nature"] == {"value": "project_state", "provenance": "declared"}
     assert [s["stage"] for s in by_id["fresh"]["stages"]] == [
         "rrf_fusion",
-        "supporting_weight",
         "declared_filter",
         "decay",
     ]

@@ -25,7 +25,7 @@ from agent_brain.retrieval.hopfield import hopfield_expand
 from agent_brain.retrieval.mmr import _cosine_sim, mmr_rerank
 from agent_brain.retrieval.types import RetrievedItem
 from . import facets, recall_ledger, relevance, semantic
-from .asset_roles import PRIMARY_MEMORY_SQL, asset_role, is_session_digest
+from .asset_roles import CODEX_PRODUCTS, PRIMARY_MEMORY_SQL, SEMANTIC_MEMORY_SQL, asset_role
 from .common import digest, tokens
 from .storage import DB_TIMEOUT, database
 
@@ -33,7 +33,6 @@ if TYPE_CHECKING:
     from .hub import Hub
 
 KINDS = frozenset({"memory", "rule", "skill", "config", "transcript"})
-SUPPORTING = frozenset({"conversation_summary", "raw_memory", "transcript"})
 CHANNELS = frozenset({"tool", "hook", "cli", "benchmark"})
 CANDIDATES = 100
 HOPFIELD_SEEDS = 20
@@ -187,8 +186,14 @@ _COMMON_TOKENS = frozenset(
 
 # Degraded prompt-time recall: identifier matches among the top keyword
 # hits, at most this many injected.
-LEXICAL_GUARD_RANK = 3
 LEXICAL_GUARD_ITEMS = 2
+
+# What grep gives a native reader and a ranked search does not: a document that literally
+# contains the name in the question is found first.
+LITERAL_ANCHORS = 6
+LITERAL_CANDIDATES = 20
+# A name in this many documents or more does not say which one is meant.
+RARE_DOCUMENTS = 3
 
 
 def identifiers(query: str) -> list[str]:
@@ -207,6 +212,121 @@ def identifiers(query: str) -> list[str]:
         ):
             found.append(token.casefold())
     return list(dict.fromkeys(found))
+
+
+def _literal_position(item: dict[str, Any], anchor: str) -> int:
+    """Where the name appears in the body, or -1. Case folding keeps offsets for these tokens."""
+    body = str(item.get("body") or "")
+    folded = body.casefold()
+    return folded.find(anchor) if len(folded) == len(body) else -1
+
+
+def _literal_rows(
+    db: sqlite3.Connection, predicate: str, args: list[Any], anchors: list[str]
+) -> dict[str, list[dict[str, Any]]]:
+    """Documents literally containing each name, as grep would find them."""
+    found: dict[str, list[dict[str, Any]]] = {}
+    for anchor in anchors[:LITERAL_ANCHORS]:
+        words = tokens(anchor)
+        if not words:
+            continue
+        rows = db.execute(
+            "SELECT a.payload FROM search_index JOIN assets a ON a.tenant=search_index.tenant"
+            " AND a.id=search_index.asset_id WHERE search_index MATCH ? AND "
+            + predicate
+            + " ORDER BY bm25(search_index) LIMIT ?",
+            [" AND ".join('"' + word + '"' for word in words), *args, LITERAL_CANDIDATES],
+        ).fetchall()
+        for row in rows:
+            item = json.loads(row["payload"])
+            text = (str(item.get("title") or "") + "\n" + str(item.get("body") or "")).casefold()
+            if anchor in text:
+                found.setdefault(anchor, []).append(item)
+    return found
+
+
+_TOP_HEADING = re.compile(r"^#\s+(?:Task Group:\s*)?(.+)$", re.M)
+_ANY_HEADING = re.compile(r"^#{1,3}\s+(.+)$", re.M)
+
+
+def _name_section(item: dict[str, Any]) -> None:
+    """A file name says nothing about one part of a handbook; its own heading does. Beside
+    the title, not over it: the title is part of the source a later read must match."""
+    if item.get("role") not in ("navigation", "conversation_summary"):
+        return
+    body = str(item.get("body") or "")
+    match = item.get("semantic_match") or {}
+    before = body[: int(match.get("char_end") or 0)] if match.get("source_field") == "body" else ""
+    found = (
+        _TOP_HEADING.findall(before)
+        or _ANY_HEADING.findall(before)
+        or _TOP_HEADING.findall(body)[:1]
+        or _ANY_HEADING.findall(body)[:1]
+    )
+    if found:
+        item["section_title"] = " ".join(found[-1].split())[:80]
+
+
+def _native_here(item: dict[str, Any], who: dict[str, Any], asking: dict[str, Any] | None) -> bool:
+    """This machine's own product already reads this file; handing it back says nothing new."""
+    if item.get("source_device_id") != who.get("device_id") or not asking:
+        return False
+    product = str(asking.get("product") or "")
+    return item.get("product") == product or (
+        item.get("product") in CODEX_PRODUCTS and product in CODEX_PRODUCTS
+    )
+
+
+def _rare_names(
+    named: dict[str, list[dict[str, Any]]], who: dict[str, Any], asking: dict[str, Any] | None
+) -> dict[str, list[dict[str, Any]]]:
+    """The bar for a memory the model did not ask for: it names, as a whole token, something
+    few documents name, and this machine does not already have it."""
+    rare: dict[str, list[dict[str, Any]]] = {}
+    for anchor, rows in named.items():
+        whole = [
+            item
+            for item in rows
+            if relevance.whole_name(
+                (str(item.get("title") or "") + "\n" + str(item.get("body") or "")).casefold(),
+                anchor,
+            )
+        ]
+        documents = {str(item.get("document_id") or item["asset_id"]) for item in whole}
+        if len(documents) < RARE_DOCUMENTS and (
+            kept := [item for item in whole if not _native_here(item, who, asking)]
+        ):
+            rare[anchor] = kept
+    return rare
+
+
+def _literal_first(
+    fused: list[RetrievedItem],
+    assets: dict[str, dict[str, Any]],
+    named: dict[str, list[dict[str, Any]]],
+) -> tuple[list[RetrievedItem], dict[str, str]]:
+    """Documents naming what was asked come first, opening where the name appears."""
+    hits: dict[str, set[str]] = {}
+    for anchor, rows in named.items():
+        for item in rows:
+            hits.setdefault(item["asset_id"], set()).add(anchor)
+    for key, names in hits.items():
+        item = assets[key]
+        found = [(_literal_position(item, name), name) for name in names]
+        found = [pair for pair in found if pair[0] >= 0]
+        if found:
+            start, name = min(found)
+            earlier = item.get("semantic_match") or {}
+            item["semantic_match"] = dict(
+                similarity=float(earlier.get("similarity") or 0.0),
+                source_field="body",
+                char_start=start,
+                char_end=start + len(name),
+                offset_unit="unicode_code_points",
+                aggregation="literal",
+            )
+    kept = sorted(fused, key=lambda hit: -len(hits.get(hit.id, ())))
+    return kept, {key: "literal:" + str(len(names)) for key, names in hits.items()}
 
 
 def _best_window(
@@ -276,10 +396,12 @@ def retrieve(
         "json_extract(a.payload,'$.encoding')='utf8'",
         "json_extract(a.payload,'$.kind') IN (" + ",".join("?" for _ in kinds) + ")",
     ]
-    if not include_evidence:
-        filters.append(PRIMARY_MEMORY_SQL)
     if project_filter is not None:
         filters.append("json_extract(a.payload,'$.project')=?")
+    # A name can only be in a summary: grep finds it there, whatever the ranking excludes.
+    literal_predicate = " AND ".join([*filters, SEMANTIC_MEMORY_SQL])
+    if not include_evidence:
+        filters.append(PRIMARY_MEMORY_SQL)
     predicate = " AND ".join(filters)
     with database(hub.path) as db:
         # One normalization/classification implementation for returned roles and
@@ -329,6 +451,16 @@ def retrieve(
             if hub._retrieval_valid(db, item):
                 assets[item["asset_id"]] = item
                 lex_hits.append(RetrievedItem(item["asset_id"], -row["score"], None, None))
+        named: dict[str, list[dict[str, Any]]] = {}
+        for anchor, rows in _literal_rows(db, literal_predicate, args, identifiers(query)).items():
+            named[anchor] = [item for item in rows if hub._retrieval_valid(db, item)]
+        if channel == "hook":
+            named = _rare_names(named, who, asking)
+        for rows in named.values():
+            for item in rows:
+                if item["asset_id"] not in assets:
+                    assets[item["asset_id"]] = item
+                    lex_hits.append(RetrievedItem(item["asset_id"], 0.0, None, None))
         indexed: list[sqlite3.Row] = []
         metadata: semantic.SemanticDescriptor | None = None
         if semantic.exists(db):
@@ -513,22 +645,6 @@ def retrieve(
             "semantic": semantic_rank if semantic_used else DISABLED,
             "hopfield": hopfield_ranks.get(key) if hopfield_used else hopfield_state,
         }
-    # Supporting records can be requested, but repetition is not evidence that
-    # they should outrank topic facts. Exact ID lookup retains its lexical rank.
-    before = trace.snapshot(fused)
-    lowered = {
-        hit.id
-        for hit in fused
-        if assets[hit.id]["role"] in SUPPORTING and not is_session_digest(assets[hit.id]["path"])
-    }
-    fused = [replace(hit, score=hit.score * (0.55 if hit.id in lowered else 1.0)) for hit in fused]
-    fused.sort(key=lambda hit: hit.score, reverse=True)
-    trace.stage(
-        "supporting_weight",
-        before,
-        trace.snapshot(fused),
-        {key: "x0.55" for key in lowered},
-    )
     reranked = False
     rerank_state = DISABLED
     if hub.reranker is not None and fused:
@@ -627,6 +743,13 @@ def retrieve(
             chosen = {hit.id for hit in head}
             fused = head + [hit for hit in fused if hit.id not in chosen]
             trace.stage("mmr", before, trace.snapshot(fused))
+        rare: set[str] = set()
+        if named:
+            before = trace.snapshot(fused)
+            fused, effects = _literal_first(fused, assets, named)
+            if channel == "hook":
+                rare = set(effects)
+            trace.stage("literal_match", before, trace.snapshot(fused), effects)
         if exact:
             # An exact authorized asset identifier is a deterministic lookup, even
             # when a semantic model associates its words with unrelated documents.
@@ -650,7 +773,6 @@ def retrieve(
         gate = (
             hub.relevance_gate() if model is None and semantic_used and channel == "hook" else None
         )
-        hint_pool: list[tuple[float, str]] = []
         if model is not None and background is not None:
             # Learned relevance: inject only what the calibrated model rates
             # probably relevant (see relevance.py), at most model.max_items,
@@ -670,7 +792,7 @@ def retrieve(
             judged: list[tuple[float, RetrievedItem]] = []
             effects = {}
             for hit in fused:
-                if hit.id == pinned:
+                if hit.id == pinned or hit.id in rare:
                     judged.append((2.0, hit))
                     continue
                 if hit.id not in pool:
@@ -691,7 +813,10 @@ def retrieve(
                 )
                 probability = model.probability(values)
                 lift = relevance.lift_of(values)
-                passes, anchored = relevance.admitted(model, probability, values)
+                passes = relevance.admitted(model, probability, values)
+                if passes and not collecting and _native_here(item, who, asking):
+                    trace.drop(hit.id, "relevance_gate", {"reason": "native_here"})
+                    continue
                 # The evidence travels with the trace (numbers only) so usage
                 # feedback can later be learned from what the gate saw.
                 trace.row(hit.id)["gate"] = {
@@ -700,7 +825,6 @@ def retrieve(
                     "version": model.version,
                     "lift": round(lift, 4),
                     "x": [round(float(v), 5) for v in values],
-                    **({"anchor": True} if anchored else {}),
                 }
                 if collecting:
                     item["gate_features"] = values
@@ -708,12 +832,6 @@ def retrieve(
                     judged.append((probability, hit))
                     effects[hit.id] = "p=%.3f" % probability
                 else:
-                    if (
-                        model.hint_threshold
-                        and probability >= model.hint_threshold
-                        and lift >= model.hint_lift
-                    ):
-                        hint_pool.append((probability, hit.id))
                     trace.drop(
                         hit.id,
                         "relevance_gate",
@@ -726,17 +844,15 @@ def retrieve(
                     )
             judged.sort(key=lambda pair: -pair[0])
             if not collecting and model.relative and judged:
-                # Followers must reach a share of the leader's probability;
-                # a literal identifier from the prompt still passes.
-                leader = judged[0][0]
-                kept_judged = judged[:1]
-                for probability, hit in judged[1:]:
-                    gate_row = trace.row(hit.id).get("gate") or {}
-                    if probability >= model.relative * leader or gate_row.get("anchor"):
+                # Followers must reach a share of the leader's probability. What was
+                # asked for by name is not on this scale.
+                ranked_only = [probability for probability, _ in judged if probability <= 1]
+                leader = ranked_only[0] if ranked_only else 0.0
+                kept_judged = []
+                for probability, hit in judged:
+                    if probability > 1 or probability >= model.relative * leader:
                         kept_judged.append((probability, hit))
                     else:
-                        if model.hint_threshold and gate_row.get("lift", 0) >= model.hint_lift:
-                            hint_pool.append((probability, hit.id))
                         trace.drop(
                             hit.id,
                             "relevance_gate",
@@ -754,9 +870,8 @@ def retrieve(
         if gate is not None:
             # Prompt-time injection must be able to say "nothing relevant": a
             # keyword overlap alone is not relevance. Keep candidates the model
-            # rates above the floor and near the best match, plus literal
-            # identifiers from the prompt (error codes, symbols) that keyword
-            # search ranked near the top. Calibrated per model on the org corpus.
+            # rates above the floor and near the best match, plus what the prompt
+            # names outright. Calibrated per model on the org corpus.
             floor, margin = gate
             gate_scores = {
                 hit.id: (assets[hit.id].get("semantic_match") or {}).get("similarity")
@@ -764,7 +879,6 @@ def retrieve(
             }
             scored = [v for v in gate_scores.values() if isinstance(v, (int, float))]
             top_similarity = max(scored) if scored else None
-            anchors = identifiers(query)
             before = trace.snapshot(fused)
             kept, effects = [], {}
             for hit in fused:
@@ -775,14 +889,9 @@ def retrieve(
                     and value >= floor
                     and value >= top_similarity - margin
                 )
-                if not passes and anchors and (route_ranks.get(hit.id, (None, None))[0] or 99) <= 3:
-                    item = assets[hit.id]
-                    text = (
-                        str(item.get("title", "")) + "\n" + str(item.get("body", ""))
-                    ).casefold()
-                    if relevance.contains_identifier(text, anchors):
-                        passes = True
-                        effects[hit.id] = "identifier"
+                if hit.id in rare:
+                    passes = True
+                    effects[hit.id] = "identifier"
                 if passes or hit.id == pinned:
                     kept.append(hit)
                 else:
@@ -796,19 +905,12 @@ def retrieve(
         if channel == "hook" and not semantic_used and not collecting and hub.hook_lexical_guard:
             # Degraded (no semantic ranking, so no relevance gate): a shared
             # keyword is not relevance, and an unrelated memory injected into a
-            # conversation does harm. Keep only memories that literally contain
-            # an identifier from the prompt (path, code, version, symbol) and
-            # that keyword search ranked near the top; everything else is held.
-            anchors = identifiers(query)
+            # conversation does harm. Only what the prompt names outright goes in.
             before = trace.snapshot(fused)
             kept, effects = [], {}
             for hit in fused:
-                item = assets[hit.id]
-                text = (str(item.get("title", "")) + "\n" + str(item.get("body", ""))).casefold()
                 rank = route_ranks.get(hit.id, (None, None))[0] or 99
-                if hit.id == pinned or (
-                    rank <= LEXICAL_GUARD_RANK and relevance.contains_identifier(text, anchors)
-                ):
+                if hit.id == pinned or hit.id in rare:
                     kept.append(hit)
                     effects[hit.id] = "identifier"
                 else:
@@ -874,48 +976,10 @@ def retrieve(
                 hopfield=hopfield_ranks.get(hit.id),
             )
             duplicates[duplicate_key] = item
+            _name_section(item)
             results.append(item)
             row["state"] = "selected"
             row["final_rank"] = len(results)
-        # Title-only tier: probable memories the full rule held back are named
-        # (never their bodies) so the model can read one on demand.
-        hints: list[dict[str, Any]] = []
-        if hint_pool and model is not None and channel == "hook" and not collecting:
-            chosen_ids = {item["asset_id"] for item in results}
-            chosen_bodies = {item["body_hash"] for item in results}
-            for probability, key in sorted(hint_pool, key=lambda pair: -pair[0]):
-                item = assets.get(key)
-                if (
-                    item is None
-                    or key in chosen_ids
-                    or item.get("body_hash") in chosen_bodies
-                    or len(hints) >= model.hint_items
-                ):
-                    continue
-                current_row = db.execute(
-                    "SELECT payload FROM assets WHERE tenant=? AND id=? AND revision=?",
-                    (who["tenant"], key, item["revision"]),
-                ).fetchone()
-                if (
-                    current_row is None
-                    or json.loads(current_row["payload"])["content_hash"] != item["content_hash"]
-                    or not hub._retrieval_valid(db, item)
-                ):
-                    continue
-                chosen_ids.add(key)
-                chosen_bodies.add(item.get("body_hash"))
-                trace.row(key)["state"] = "hinted"
-                hints.append(
-                    {
-                        "asset_id": key,
-                        "revision": item["revision"],
-                        "title": item.get("title") or "",
-                        "path": item.get("path") or "",
-                        "product": item.get("product") or "",
-                        "kind": item.get("kind") or "",
-                        "probability": round(probability, 4),
-                    }
-                )
     stages = {
         "lexical": "on",
         "semantic": "on" if semantic_used else DISABLED,
@@ -1009,7 +1073,6 @@ def retrieve(
             item["recall"]["trace_id"] = None
     return {
         "items": results,
-        "hints": hints,
         "retrieval": {
             "mode": "hybrid" if semantic_used else "lexical",
             "degraded": bool(reasons),

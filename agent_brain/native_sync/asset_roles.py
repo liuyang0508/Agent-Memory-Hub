@@ -12,26 +12,18 @@ PRIMARY_MEMORY_SQL = (
     "NOT IN ('conversation_summary','raw_memory')"
 )
 
-# Session digests are summaries, kept out of injection and the catalog. But they are the
-# only record of recent work and are short, so a search must be able to rank them.
-DIGEST_PREFIX = "session_digests/"
+# What a search can rank by meaning: everything a person might ask about. Summaries stay out
+# of injection and the catalog but are the only record of how work actually went. Native
+# readers grep them; a raw extraction is not meant to be read.
 SEMANTIC_MEMORY_SQL = (
-    "("
-    + PRIMARY_MEMORY_SQL
-    + " OR substr(json_extract(a.payload,'$.path'),1,"
-    + str(len(DIGEST_PREFIX))
-    + ")='"
-    + DIGEST_PREFIX
-    + "')"
+    "native_asset_role(json_extract(a.payload,'$.product'),"
+    "json_extract(a.payload,'$.path'),json_extract(a.payload,'$.kind')) "
+    "<> 'raw_memory'"
 )
 
 CODEX_PRODUCTS = frozenset(
     {"codex", "codex-shared", "codex-cli", "codex-desktop", "chatgpt-desktop"}
 )
-
-
-def is_session_digest(path: str) -> bool:
-    return path.startswith(DIGEST_PREFIX)
 
 
 def asset_role(product: str, path: str, kind: str) -> str:

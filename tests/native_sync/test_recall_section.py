@@ -57,7 +57,7 @@ def test_recall_returns_the_matched_section_and_keeps_the_source_version(tmp_pat
     hub, token = hub_with(tmp_path, asset("big", title="聚合笔记", body=AGGREGATE))
     item = next(i for i in hub.recall(token, "发布")["items"] if i["asset_id"] == "big")
     assert "发布列车" in item["body"] and "审批需要" not in item["body"]
-    assert item["body"].startswith("《聚合笔记》\n")
+    assert item["body"].startswith("《发布》\n")
     assert item["section"]["chars"] == len(AGGREGATE)
     # The full source stays addressable: search and read are untouched.
     full = hub.retrieve(token, "发布", kinds=["memory"], channel="tool")["items"][0]

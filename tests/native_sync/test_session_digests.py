@@ -386,43 +386,24 @@ def test_the_portable_runtime_carries_the_module(tmp_path):
         assert "runtime/agent_brain/native_sync/digests.py" in bundle.namelist()
 
 
-def test_a_digest_can_be_found_by_meaning_but_stays_out_of_injection(tmp_path):
+def test_summaries_can_be_found_by_meaning_but_stay_out_of_injection(tmp_path):
     from test_hybrid_retrieval import asset, make
 
     hub, token, _ = make(tmp_path)
-    digest = dict(path="session_digests/a.md", product="claude-code")
-    hub.put(token, asset("digest", body="approval", **digest))
-    hub.put(token, asset("topic", body="approval"))
+    hub.put(token, asset("digest", body="approval 一", path="session_digests/a.md"))
+    hub.put(token, asset("topic", body="approval 二"))
     summary = dict(path="rollout_summaries/a.md", product="codex-cli")
-    hub.put(token, asset("rollout", body="approval", **summary))
+    hub.put(token, asset("rollout", body="approval 三", **summary))
     hub.rebuild_semantic(token)
 
     found = hub.retrieve(token, "两人复核", include_evidence=True)["items"]
-    assert {"digest", "topic"} <= {item["asset_id"] for item in found}
-    assert "digest" in {i["asset_id"] for i in found if i.get("semantic_match")}
-    assert "rollout" not in {i["asset_id"] for i in found if i.get("semantic_match")}
+    assert {"digest", "topic", "rollout"} <= {
+        i["asset_id"] for i in found if i.get("semantic_match")
+    }
 
     default = hub.retrieve(token, "两人复核")["items"]
     assert "digest" not in {item["asset_id"] for item in default}
-    recalled = hub.recall(token, "两人复核")
-    recalled = recalled["items"] if isinstance(recalled, dict) else recalled
-    assert "digest" not in {item["asset_id"] for item in recalled}
-
-
-def test_a_digest_is_not_marked_down_like_other_summaries(tmp_path):
-    from test_hybrid_retrieval import asset, make
-
-    hub, token, _ = make(tmp_path)
-    hub.put(
-        token,
-        asset("rollout", body="订单回调验签", path="rollout_summaries/a.md", product="codex-cli"),
-    )
-    hub.put(
-        token,
-        asset("digest", body="订单回调验签", path="session_digests/a.md", product="codex-cli"),
-    )
-    found = hub.retrieve(token, "订单回调验签", include_evidence=True)["items"]
-    assert [item["asset_id"] for item in found][0] == "digest"
+    assert "digest" not in {item["asset_id"] for item in hub.recall(token, "两人复核")["items"]}
 
 
 def test_earlier_replies_are_kept_because_the_last_one_is_often_a_side_question(tmp_path):

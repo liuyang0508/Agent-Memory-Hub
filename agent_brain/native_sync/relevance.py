@@ -42,8 +42,6 @@ from typing import Any
 FEATURES = ("sim", "gap", "doc_bg", "query_bg", "lex_inv", "nav", "body_cov", "anchor")
 POOL_SEMANTIC = 10  # candidates by similarity the model judges
 POOL_LEXICAL = 3  # plus the keyword search head
-ANCHOR_MIN_PROBABILITY = 0.1
-ANCHOR_MIN_LIFT = 0.0
 BACKGROUND_K = 10
 SECTION_CHARS = 1400  # Longer memories are injected as the section the prompt matched.
 LINE_REACH = 120  # How far back a section may start to open on a whole line.
@@ -203,15 +201,7 @@ class GateModel:
     # Rank features alone let a small store push its best match through any
     # prompt. A literal identifier from the prompt is exempt.
     lift: float = 0.0
-    # Title-only tier: below the full rule, memories at least this probable and
-    # this lifted are named (title + id) for the model to read on demand.
-    # 0 turns the tier off.
-    hint_threshold: float = 0.0
-    hint_lift: float = 0.0
-    hint_items: int = 2
-    # Index and summary files touch every topic, and one member refreshing theirs
-    # moves results for everybody: above this bar only, and a shared identifier
-    # does not excuse them. 0 applies no extra bar.
+    # Above 0, an index or summary file is never injected on its score (admitted).
     nav_threshold: float = 0.0
     version: str = "learned-v1"
     calibration: dict[str, Any] = field(default_factory=dict)
@@ -230,9 +220,6 @@ class GateModel:
             dedup=float(raw.get("dedup", 0.5)),
             relative=float(raw.get("relative", 0.0)),
             lift=float(raw.get("lift", 0.0)),
-            hint_threshold=float(raw.get("hint_threshold", 0.0)),
-            hint_lift=float(raw.get("hint_lift", 0.0)),
-            hint_items=int(raw.get("hint_items", 2)),
             nav_threshold=float(raw.get("nav_threshold", 0.0)),
             version=str(raw.get("version", "learned-v1")),
             calibration=dict(raw.get("calibration") or {}),
@@ -244,8 +231,6 @@ class GateModel:
             model.bias,
             model.threshold,
             model.lift,
-            model.hint_threshold,
-            model.hint_lift,
             model.nav_threshold,
         ]
         if (
@@ -257,9 +242,6 @@ class GateModel:
             or not 0 < model.dedup <= 1
             or not 0 <= model.relative < 1
             or not -1 <= model.lift <= 1
-            or not -1 <= model.hint_lift <= 1
-            or not 0 <= model.hint_threshold < 1
-            or not 0 <= model.hint_items <= 8
             or not 0 <= model.nav_threshold <= 1
         ):
             raise ValueError("invalid gate model")
@@ -278,9 +260,6 @@ class GateModel:
             "dedup": self.dedup,
             "relative": self.relative,
             "lift": self.lift,
-            "hint_threshold": self.hint_threshold,
-            "hint_lift": self.hint_lift,
-            "hint_items": self.hint_items,
             "nav_threshold": self.nav_threshold,
             "calibration": self.calibration,
         }
@@ -313,27 +292,35 @@ def contains_identifier(text: str, anchors: Sequence[str]) -> bool:
     return False
 
 
-def anchored(probability: float, values: Sequence[float]) -> bool:
-    """A literal identifier from the prompt in a top keyword hit, and not plainly off
-    topic: a shared token alone ("AgentOs" in a recruiting note) is not relevance."""
-    return (
-        values[FEATURES.index("anchor")] > 0
-        and values[FEATURES.index("lex_inv")] >= 1 / POOL_LEXICAL
-        and probability >= ANCHOR_MIN_PROBABILITY
-        and lift_of(values) >= ANCHOR_MIN_LIFT
-    )
+def whole_name(text: str, name: str) -> bool:
+    """The name itself, not part of a longer one: "terminal-bench" is not in
+    "agentos-terminal-bench-local". A sentence may still end right after it."""
+    start = text.find(name)
+    while start >= 0:
+        end = start + len(name)
+        before = text[start - 1] if start else " "
+        after = text[end] if end < len(text) else " "
+        if not (before.isascii() and (before.isalnum() or before in "_-./")) and not (
+            after.isascii() and (after.isalnum() or after in "_-")
+        ):
+            return True
+        start = text.find(name, start + 1)
+    return False
 
 
 def admitted(
     model: GateModel, probability: float, values: Sequence[float], threshold: float | None = None
-) -> tuple[bool, bool]:
-    """(passes for full injection, passes because of a literal identifier)."""
+) -> bool:
+    """Whether a memory goes in front of the model unasked.
+
+    An index or summary file spans many topics: its score says nothing about the part a
+    reader would see, and on real prompts every one injected was off topic. It can still be
+    read, and a prompt naming something in it finds it (retrieval.py).
+    """
+    if values[FEATURES.index("nav")] > 0 and model.nav_threshold > 0:
+        return False
     bar = model.threshold if threshold is None else threshold
-    navigation = values[FEATURES.index("nav")] > 0 and model.nav_threshold > 0
-    anchor = anchored(probability, values) and not navigation
-    if navigation:
-        bar = max(bar, model.nav_threshold)
-    return anchor or (probability >= bar and lift_of(values) >= model.lift), anchor
+    return probability >= bar and lift_of(values) >= model.lift
 
 
 def adopt_rule(target: GateModel, source: GateModel) -> GateModel:
@@ -343,9 +330,6 @@ def adopt_rule(target: GateModel, source: GateModel) -> GateModel:
         "dedup",
         "relative",
         "lift",
-        "hint_threshold",
-        "hint_lift",
-        "hint_items",
         "nav_threshold",
     ):
         setattr(target, name, getattr(source, name))
@@ -439,14 +423,13 @@ def select(model: GateModel, candidates: Sequence[Candidate], threshold: float) 
     keys: set[tuple[str, str]] = set()
     leader = 1.0
     for probability, candidate in scored:
-        passes, anchor = admitted(model, probability, candidate.values, threshold)
-        if not passes:
+        if not admitted(model, probability, candidate.values, threshold):
             continue
         if candidate.duplicate_key in keys or any(
             containment(candidate.shingles, other.shingles) >= model.dedup for other in chosen
         ):
             continue
-        if chosen and not anchor and probability < model.relative * leader:
+        if chosen and probability < model.relative * leader:
             continue
         keys.add(candidate.duplicate_key)
         if not chosen:

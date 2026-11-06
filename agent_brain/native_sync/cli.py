@@ -1061,9 +1061,17 @@ def recall_feedback(
 def recall_policy(
     state: Path = DEFAULT_STATE,
     enabled: bool | None = typer.Option(None, "--enable/--disable"),
+    prompt: bool | None = typer.Option(
+        None,
+        "--prompt/--no-prompt",
+        help="提问时是否自动注入；关闭后不再发送提问，目录和模型主动查询照常",
+    ),
 ) -> None:
     """查看或更改本 profile 召回；不会暂停上传 worker。"""
     c = load(state)
+    if prompt is not None:
+        c.config["prompt_recall"] = prompt
+        atomic_json(state / "config.json", c.config)
     if enabled is not None:
         c.config["recall_enabled"] = enabled
         if enabled:
@@ -1075,6 +1083,7 @@ def recall_policy(
         {
             "state": str(state.resolve()),
             "recall_enabled": c.recall_enabled(),
+            "prompt_recall": c.config.get("prompt_recall", True) is not False,
             "sync_only": bool(c.config.get("sync_only")),
             "uploads_paused": (state / "paused").exists(),
             "projection_conflicts": json.loads(conflicts.read_text()) if conflicts.exists() else {},
@@ -1261,11 +1270,11 @@ def recall_display(
     ),
 ) -> None:
     """查看或设置提示时组织召回在对话里的展示方式。"""
-    from .recall_view import DISPLAY_KEY, DISPLAY_MODES
+    from .recall_view import DEFAULT_DISPLAY, DISPLAY_KEY, DISPLAY_MODES
 
     c = load(state)
     if mode is None:
-        emit({"display": c.config.get(DISPLAY_KEY, "table"), "modes": list(DISPLAY_MODES)})
+        emit({"display": c.config.get(DISPLAY_KEY, DEFAULT_DISPLAY), "modes": list(DISPLAY_MODES)})
         return
     if mode not in DISPLAY_MODES:
         raise typer.BadParameter("可选：" + " / ".join(DISPLAY_MODES))
@@ -1356,10 +1365,6 @@ def recall_calibrate(
     lift: float = typer.Option(
         0.08, min=-1.0, max=1.0, help="全文注入的语义领先量下限（与日常提问相比）"
     ),
-    hint_threshold: float = typer.Option(
-        0.15, min=0.0, max=0.95, help="只给标题一档的相关概率下限；0 关闭"
-    ),
-    hint_lift: float = typer.Option(0.04, min=-1.0, max=1.0, help="只给标题一档的语义领先量下限"),
 ) -> None:
     """用问题集拟合召回相关性模型，按分组交叉验证选阈值，输出可部署的门控模型。"""
     from datetime import datetime, timezone
@@ -1386,8 +1391,6 @@ def recall_calibrate(
         dedup=dedup,
         relative=relative,
         lift=lift,
-        hint_threshold=hint_threshold,
-        hint_lift=hint_lift,
     )
     adopt_rule(fitted, rule)
     report = cross_validate(judged, rule=rule)

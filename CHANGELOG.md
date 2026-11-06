@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.31] — 2026-11-06
+
+### Changed
+
+- Organization recall now works the way Claude Code's and Codex's native memory do: an
+  index when a session starts, then the model searches and reads. Injection stays only for
+  a topic memory that clears the gate (probability 0.7, lift 0.08) and for a document naming
+  something rare from the prompt as a whole token, summaries and indexes included. All of it
+  is decided on the Hub, so existing clients get it on upgrade.
+- Search finds what a native reader's grep would: a document literally containing a name
+  from the question comes first, opening where the name appears. Summaries get semantic
+  vectors and no longer rank at 0.55.
+- The hook says one line when something was injected and nothing otherwise. The table is
+  `amh-native recall-display table`. A handbook part is named by its own section heading.
+- The session catalog leaves out what the asking machine already has.
+
+### Removed
+
+- The title-only tier: 30 hinted turns, 0 reads. `hints` stays in the reply, always empty.
+- The literal shortcut that dropped the injection bar to 0.1 for any identifier in a body.
+  `terminal-bench` matched `agentos-terminal-bench-local`, and `AgentOs` matched everything.
+- Injecting an index file on its score, a machine's own memory back to it, and searching a
+  short reply with the previous prompt.
+
+### Added
+
+- `amh-native recall --no-prompt`: nothing is injected or sent at prompt time; the catalog
+  and the model's own search stay.
+
+### Measured
+
+Held-out tasks written by an independent agent, real `claude -p` with no access outside the
+workspace, blind judge, correct / partial / wrong: Sonnet 43/11/15 to 44/14/11 (not a
+significant difference), Opus 16/3/4 to 18/3/2, Haiku 9/2/12 to 13/3/7. Cost per run fell
+about 25% on Sonnet and 40% on Opus. No real Codex process took part.
+
 ## [1.4.30] — 2026-11-06
 
 ### Added
