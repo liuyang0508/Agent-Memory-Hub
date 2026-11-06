@@ -305,3 +305,22 @@ amh-native status --state ~/.amh-native-sync
 ```
 
 `scope` 设置的是完整上传范围，不是增量开关。`memory` 指产品维护的长期记忆；其他类型是会话记录 `transcript`、规则 `rule`、技能 `skill`、配置 `config`。新成员默认只上传 `memory`。会话记录即使上传，组织工具也搜不到、读不到（1.4.29 起），但同步接口仍能取到，所以不建议开启；已上传的要由管理员在 Hub 上用 `purge-asset` 清除。需要多个类型时重复 `--kind`。关闭上传保留选择、队列和云端内容，正在执行的一轮同步结束后生效。已有会话中的上下文不会因关闭召回而撤回，验证时请新建会话。
+
+### 会话摘要（默认关闭）
+
+Claude Code 和 Codex 的会话文件只留在本机，产品也要过一段时间才会把它整理成记忆，所以刚做完的工作，换一台机器或换个同事就查不到。开启会话摘要后，会话空闲 30 分钟时，worker 会摘出标题、你的要求、最后三条回复和改动的文件，作为会话摘要上传。其他成员可以搜到，但不会自动注入，也不会进入开场目录。
+
+```sh
+# 开启（需要确认）；开启前开始的会话不会被读取
+amh-native digests --state ~/.amh-native-sync --enable
+# 查看最近生成的摘要
+amh-native digests --state ~/.amh-native-sync
+# 把开启前的某个会话也纳入
+amh-native digests --state ~/.amh-native-sync --add <会话 ID>
+# 撤回某个会话的摘要，之后也不再生成；all 表示全部
+amh-native digests --state ~/.amh-native-sync --forget <会话 ID>
+# 关闭；已上传的摘要保留，需要撤回时用 --forget all
+amh-native digests --state ~/.amh-native-sync --disable
+```
+
+摘要不调用模型。提到密码、令牌、cookie 的整行会被去掉，疑似密文、IP 和家目录路径会被遮住，命中手机号等隐私标记的摘要不会生成；这些规则不能保证识别所有敏感内容，所以默认关闭。脚本运行（`claude -p`、`codex exec`）和子任务不生成摘要。

@@ -71,6 +71,10 @@ def work(state: Path, interval: float = 10, *, stop: threading.Event | None = No
     from .autoupdate import INTERVAL as UPDATE_INTERVAL
     from .catalog import REFRESH_SECONDS as CATALOG_REFRESH
     from .catalog import refresh as refresh_catalog
+    from .digests import CAPABILITY as DIGEST_CAPABILITY
+    from .digests import RUN_SECONDS as DIGEST_SECONDS
+    from .digests import enabled as digests_enabled
+    from .digests import run as run_digests
     from .autoupdate import check as check_update
     from .autoupdate import due as update_due
     from .autoupdate import enabled as update_enabled
@@ -110,6 +114,7 @@ def work(state: Path, interval: float = 10, *, stop: threading.Event | None = No
         started_as = installed_version() if managed else None
         next_update = time.monotonic() + random.uniform(120, 900)
         next_catalog = time.monotonic()
+        next_digests = time.monotonic() + 60
         next_probe = time.monotonic() + 60
         restart = False
         try:
@@ -171,6 +176,20 @@ def work(state: Path, interval: float = 10, *, stop: threading.Event | None = No
                             refresh_catalog(state, c.transport)
                     except Exception:
                         pass  # What is cached stays; recall does not depend on this.
+                if time.monotonic() >= next_digests and not (state / "paused").exists():
+                    next_digests = time.monotonic() + DIGEST_SECONDS * random.uniform(0.9, 1.1)
+                    try:
+                        # An older Hub would rank these as curated memory and inject them.
+                        if digests_enabled(last_config) and DIGEST_CAPABILITY in (
+                            c.transport.health().get("capabilities") or []
+                        ):
+                            run_digests(
+                                state,
+                                last_config,
+                                lambda root, product: c.register(root, product, "", "memory"),
+                            )
+                    except Exception as exc:
+                        print(f"session digests skipped: {type(exc).__name__}", file=sys.stderr)
                 if managed and time.monotonic() >= next_probe:
                     next_probe = time.monotonic() + 60
                     on_disk = installed_version()

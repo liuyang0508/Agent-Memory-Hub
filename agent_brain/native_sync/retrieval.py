@@ -25,7 +25,7 @@ from agent_brain.retrieval.hopfield import hopfield_expand
 from agent_brain.retrieval.mmr import _cosine_sim, mmr_rerank
 from agent_brain.retrieval.types import RetrievedItem
 from . import facets, recall_ledger, relevance, semantic
-from .asset_roles import PRIMARY_MEMORY_SQL, asset_role
+from .asset_roles import PRIMARY_MEMORY_SQL, asset_role, is_session_digest
 from .common import digest, tokens
 from .storage import DB_TIMEOUT, database
 
@@ -516,16 +516,18 @@ def retrieve(
     # Supporting records can be requested, but repetition is not evidence that
     # they should outrank topic facts. Exact ID lookup retains its lexical rank.
     before = trace.snapshot(fused)
-    fused = [
-        replace(hit, score=hit.score * (0.55 if assets[hit.id]["role"] in SUPPORTING else 1.0))
+    lowered = {
+        hit.id
         for hit in fused
-    ]
+        if assets[hit.id]["role"] in SUPPORTING and not is_session_digest(assets[hit.id]["path"])
+    }
+    fused = [replace(hit, score=hit.score * (0.55 if hit.id in lowered else 1.0)) for hit in fused]
     fused.sort(key=lambda hit: hit.score, reverse=True)
     trace.stage(
         "supporting_weight",
         before,
         trace.snapshot(fused),
-        {h.id: "x0.55" for h in fused if assets[h.id]["role"] in SUPPORTING},
+        {key: "x0.55" for key in lowered},
     )
     reranked = False
     rerank_state = DISABLED

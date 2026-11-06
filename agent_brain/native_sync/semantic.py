@@ -16,7 +16,7 @@ from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any, Literal, NotRequired, Protocol, TypedDict, cast
 
 from .storage import database
-from .asset_roles import PRIMARY_MEMORY_SQL, asset_role
+from .asset_roles import SEMANTIC_MEMORY_SQL, asset_role
 from .common import KINDS
 
 if TYPE_CHECKING:
@@ -395,7 +395,7 @@ def rebuild(
         "json_extract(a.payload,'$.kind') IN (" + ",".join("?" for _ in selected_kinds) + ")",
     ]
     if not include_evidence:
-        filters.append(PRIMARY_MEMORY_SQL)
+        filters.append(SEMANTIC_MEMORY_SQL)
     predicate = " AND ".join(filters)
     config = descriptor(backend)
     with database(hub.path) as db:

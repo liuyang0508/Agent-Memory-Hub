@@ -219,6 +219,22 @@ class NativeClient:
             atomic_json(self.root / "config.json", self.config)
         return self.source_scope()
 
+    def set_session_digests(self, on: bool) -> dict[str, Any]:
+        """Enabling records the moment: sessions that began earlier are not read."""
+        import fcntl
+
+        with (self.root / "worker.lock").open("a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            self._refresh_profile()
+            current = dict(self.config.get("session_digests") or {})
+            if on and not current.get("enabled"):
+                current["since"] = time.time()
+            current["enabled"] = on
+            self.config["session_digests"] = current
+            self.config.setdefault("identity", self.identity)
+            atomic_json(self.root / "config.json", self.config)
+        return current
+
     def source_enabled(self, kind: str) -> bool:
         return kind in enabled_kinds(self.config)
 

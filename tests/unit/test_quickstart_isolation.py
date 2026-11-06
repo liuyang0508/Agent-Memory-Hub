@@ -1744,3 +1744,23 @@ def test_signal_sequence_cleans_only_benchmark_root_and_preserves_host(
     assert "✅ PASS" not in output
     assert not bench_root.exists()
     quickstart_fixture.assert_host_unchanged()
+
+
+def test_a_stop_report_is_not_taken_for_the_phase_exiting(tmp_path: Path) -> None:
+    """Bash reports the stop with status 128+SIGSTOP, and the phase is then still alive."""
+    script = (PROJECT_ROOT / "benchmarks/quickstart-60s.sh").read_text(encoding="utf-8")
+    start = script.index("wait_for_active_phase() {")
+    helper = script[start : script.index("\n}\n", start) + 3]
+    probe = tmp_path / "probe.sh"
+    probe.write_text(
+        "#!/usr/bin/env bash\nset -m\n"
+        + helper
+        + "bash -c 'kill -STOP \"$$\"; exit 7' &\nACTIVE_PID=$!\n"
+        # Bash 3.2 keeps waiting through a stop, so something else has to continue it there.
+        + '(sleep 1; kill -CONT "$ACTIVE_PID") &\n'
+        + "sleep 0.2\nwait_for_active_phase\necho status=$?\n",
+        encoding="utf-8",
+    )
+    result = subprocess.run(["bash", str(probe)], capture_output=True, text=True, timeout=10)
+    assert "status=7" in result.stdout, result.stdout + result.stderr
+    assert 'wait "$ACTIVE_PID"\nCLONE_STATUS' not in script

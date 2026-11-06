@@ -12,7 +12,26 @@ PRIMARY_MEMORY_SQL = (
     "NOT IN ('conversation_summary','raw_memory')"
 )
 
-CODEX_PRODUCTS = frozenset({"codex", "codex-shared", "codex-cli", "codex-desktop", "chatgpt-desktop"})
+# Session digests are summaries, kept out of injection and the catalog. But they are the
+# only record of recent work and are short, so a search must be able to rank them.
+DIGEST_PREFIX = "session_digests/"
+SEMANTIC_MEMORY_SQL = (
+    "("
+    + PRIMARY_MEMORY_SQL
+    + " OR substr(json_extract(a.payload,'$.path'),1,"
+    + str(len(DIGEST_PREFIX))
+    + ")='"
+    + DIGEST_PREFIX
+    + "')"
+)
+
+CODEX_PRODUCTS = frozenset(
+    {"codex", "codex-shared", "codex-cli", "codex-desktop", "chatgpt-desktop"}
+)
+
+
+def is_session_digest(path: str) -> bool:
+    return path.startswith(DIGEST_PREFIX)
 
 
 def asset_role(product: str, path: str, kind: str) -> str:
@@ -20,6 +39,8 @@ def asset_role(product: str, path: str, kind: str) -> str:
     if kind != "memory":
         return kind
     relative = PurePosixPath(path.replace("\\", "/"))
+    if relative.parts and relative.parts[0] == "session_digests":
+        return "conversation_summary"
     if product in CODEX_PRODUCTS:
         if relative.parts and relative.parts[0] == "rollout_summaries":
             return "conversation_summary"

@@ -592,6 +592,48 @@ def configure_scope(
     emit({"changed": True, "scope": c.set_source_scope(desired)})
 
 
+@app.command("digests")
+def session_digests_command(
+    state: Path = DEFAULT_STATE,
+    enable: bool = typer.Option(False, "--enable", help="开启：此后的会话结束时上传简短摘要"),
+    disable: bool = typer.Option(False, "--disable", help="关闭：不再生成；已上传的保留"),
+    add: str = typer.Option("", "--add", help="把开启前的某个会话也纳入，填会话 ID"),
+    forget: str = typer.Option("", "--forget", help="撤回某个会话的摘要且不再生成；all 表示全部"),
+    yes: bool = typer.Option(False, "--yes", help="开启时跳过确认"),
+) -> None:
+    """查看或开关会话摘要：标题、要求、最后三条回复和改动的文件，组织成员可检索。"""
+    from . import digests
+
+    c = load(state)
+    if enable and disable:
+        raise typer.BadParameter("--enable 和 --disable 不能同时使用")
+    if enable:
+        console.print(
+            "开启后，此后每个会话空闲 30 分钟时，会把标题、你的要求、最后三条回复和改动的文件"
+            "上传到组织，其他成员可以检索。像密码、令牌的行会被去掉，但不保证完全识别。"
+            "开启前的会话不会被读取。",
+            markup=False,
+        )
+        if not yes and not typer.confirm("确认开启？", default=False):
+            emit({"changed": False})
+            return
+        c.set_session_digests(True)
+    if disable:
+        c.set_session_digests(False)
+    if add:
+        digests.add(c.root, add)
+    withdrawn = digests.forget(c.root, forget) if forget else None
+    rows = digests.listing(c.root)
+    emit(
+        {
+            "enabled": digests.enabled(load(state).config),
+            "count": len(rows),
+            "recent": rows[:20],
+            **({"withdrawn": withdrawn} if withdrawn is not None else {}),
+        }
+    )
+
+
 @app.command()
 def bind(
     root: Path = typer.Option(...),
