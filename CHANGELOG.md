@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.29] — 2026-11-06
+
+### Changed
+
+- Whole conversations can no longer be found or read through the organization tools. A
+  model could ask `search_org_memory` for `kinds: ["transcript"]` and read what came back,
+  and a conversation holds whatever passed through it. The tool refuses that kind, and
+  the Hub refuses it on `/retrieve`, leaves it out of `/search` and answers `/read` and
+  `/related` as if it were absent, so older clients cannot reach it either. Automatic
+  recall and default search were never affected. Session summaries stay searchable.
+- History import: "select all" and "select clean" stop at the types this profile uploads.
+  A transcript or skill is still there to tick one by one, or with `--kind`, and asks for
+  confirmation as before.
+
+### Known limitation
+
+- `/native/v1/changes`, the device sync feed, still returns transcripts a device uploaded
+  to any member holding a token. Stopping the upload and purging the assets removes them;
+  new members upload memory only by default.
+
 ## [1.4.28] — 2026-11-06
 
 ### Added

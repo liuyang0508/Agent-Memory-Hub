@@ -93,8 +93,9 @@ class RetrieveInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     query: str = Field(max_length=8000)
     limit: int = Field(default=8, ge=1, le=20)
-    kinds: list[Literal["memory", "transcript", "rule", "skill", "config"]] | None = Field(
-        default=None, max_length=5
+    # Conversations stay on the member's machine: no client may ask the Hub for them.
+    kinds: list[Literal["memory", "rule", "skill", "config"]] | None = Field(
+        default=None, max_length=4
     )
     include_evidence: bool = False
     project_filter: str | None = Field(default=None, max_length=256)
