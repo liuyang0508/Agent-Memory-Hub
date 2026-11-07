@@ -1,4 +1,6 @@
-"""1.5.0: a dreaming pass keeps a small, dated, linked wiki of what the organization knows."""
+"""1.5.0: a dreaming pass keeps a small, dated, linked wiki of what the organization knows.
+
+1.5.1: the organization dreams in one place — a publishing pass holds the Hub's lease."""
 
 import json
 from pathlib import Path
@@ -85,10 +87,20 @@ def test_pull_walks_every_page_of_the_feed():
 class HubLink:
     """A Hub transport: metadata pages and whole-document reads, no bodies on the feed."""
 
-    def __init__(self, items, *, slow_first_page=False):
+    def __init__(self, items, *, slow_first_page=False, lease=None):
         self.items, self.slow, self.calls = items, slow_first_page, []
+        self.lease = lease or {"designated": True, "mine": True, "holder": "Mac", "expires": 1.0}
+        self.leases = []
 
     def call(self, path, data=None):
+        if path == dream.LEASE_PATH:
+            self.leases.append(data["action"])
+            if isinstance(self.lease, Exception):
+                raise self.lease
+            found = dict(self.lease)
+            if data["action"] == "release":
+                found.update({"mine": False, "holder": None, "expires": None})
+            return found
         self.calls.append((path, data))
         if path.startswith("changes?"):
             assert "metadata_only=true" in path and path.endswith("&kinds=memory")
@@ -104,7 +116,7 @@ class HubLink:
                 for item in page
             ]
             return {"items": meta, "cursor": cursor + len(page) if page else cursor}
-        assert path == "read" and data["max_bytes"] == 6
+        assert path == "read" and data["max_bytes"] == dream.READ_BYTES
         parts = sorted(
             (
                 item
@@ -416,6 +428,7 @@ def test_the_catalog_puts_the_wiki_index_first_with_short_names():
 def test_the_hub_lists_the_wiki_on_the_device_that_publishes_it_and_names_producers(tmp_path):
     hub = Hub(tmp_path / "hub.sqlite")
     who = hub.provision("张三", "Mac")
+    hub.admin_setting(hub.admin_create("ops"), "dream_devices", who["device_id"])
     front = "---\nname: deploy\ndescription: 部署说明\n---\n正文"
     hub.put(who["token"], asset("w", front, product="amh", path="org-wiki/deploy.md", title="w"))
     hub.put(
@@ -425,6 +438,68 @@ def test_the_hub_lists_the_wiki_on_the_device_that_publishes_it_and_names_produc
     feed = hub.changes(who["token"], 0)
     assert feed["items"] and all(item["producer_name"] == "张三" for item in feed["items"])
     assert "producer_name" not in hub.changes(who["token"], 0, metadata_only=True)["items"][0]
+
+
+def test_a_publishing_pass_stops_at_the_hub_gate_before_reading_or_calling_anything(tmp_path):
+    from agent_brain.native_sync.transport import HubHTTPError
+
+    def never(*_, **__):
+        pytest.fail("a refused pass reached a document or a model")
+
+    refusals = {
+        "not_designated": HubHTTPError(409, "dream_not_designated"),
+        "lease_held": HubHTTPError(409, "dream_lease_held"),
+        "hub_too_old": HubHTTPError(404),
+    }
+    for outcome, refusal in refusals.items():
+        state = tmp_path / outcome
+        link = HubLink([change("a", "正文")], lease=refusal)
+        report = dream.run(state, link, never, publish_pages=True, runner=never, home=tmp_path)
+        assert report["outcome"] == outcome and not report["published"]
+        assert report["message"] == dream.LEASE_MESSAGES[outcome]
+        assert link.calls == [] and link.leases == ["acquire"]
+        assert dream.status(state)["runs"][-1]["outcome"] == outcome
+
+
+def test_a_publishing_pass_holds_the_lease_while_it_runs_and_gives_it_back(tmp_path):
+    link = HubLink([change("a", "部署走 pre 线")])
+    report = dream.run(
+        tmp_path / "state",
+        link,
+        lambda *_: None,
+        publish_pages=True,
+        runner=fake_runner(["deploy"]),
+        home=tmp_path,
+    )
+    assert report["outcome"] == "published" and report["lease"]["mine"]
+    assert link.leases == ["acquire", "release"] and link.calls
+
+
+def test_a_review_pass_needs_no_lease_and_records_where_the_device_stands(tmp_path):
+    standing = {"designated": False, "mine": False, "holder": "Mac B", "expires": 9.0}
+    link = HubLink([change("a", "部署走 pre 线")], lease=standing)
+    report = dream.run(
+        tmp_path / "state", link, lambda *_: None, runner=fake_runner(["deploy"]), home=tmp_path
+    )
+    assert report["outcome"] == "reviewed" and link.calls
+    assert report["lease"] == {**standing, "supported": True, "refusal": ""}
+    assert link.leases == ["status"]
+
+
+def test_the_nightly_job_is_not_installed_where_the_hub_would_refuse_it(tmp_path, monkeypatch):
+    state = tmp_path / "state"
+    state.mkdir()
+    identity = {"tenant_id": "t", "member_id": "m", "member_name": "n", "device_id": "d", "token": "x"}
+    (state / "config.json").write_text(json.dumps({"hub": "http://127.0.0.1:9", "identity": identity}))
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+    standing = {"supported": True, "designated": False, "mine": False, "holder": None, "expires": None, "refusal": ""}
+    monkeypatch.setattr(dream, "lease", lambda transport, action="status", ttl=0: standing)
+    result = CliRunner().invoke(app, ["dream", "--schedule", "on", "--state", str(state)])
+    assert result.exit_code == 0, result.output
+    found = json.loads(result.output)
+    assert found["scheduled"] is False and found["outcome"] == "not_designated"
+    assert found["message"] == dream.LEASE_MESSAGES["not_designated"]
+    assert not (tmp_path / "Library").exists()
 
 
 def test_the_nightly_job_publishes_within_a_budget(tmp_path):

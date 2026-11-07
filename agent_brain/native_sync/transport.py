@@ -15,6 +15,8 @@ import ssl
 SAFE_ERROR_CODES = frozenset(
     {
         "stale_version",
+        "dream_not_designated",
+        "dream_lease_held",
         "incomplete_version",
         "asset_unavailable",
         "invalid_version",

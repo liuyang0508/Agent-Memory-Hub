@@ -322,11 +322,61 @@ def _call(transport: Any, path: str, data: Any = None, attempts: int = 4) -> Any
         try:
             return transport.call(path, data)
         except (OSError, ValueError) as exc:
-            if attempt == attempts - 1:
+            # A 4xx is the Hub's verdict, not the link's weather: say it at once.
+            status = int(getattr(exc, "http_status", 0) or 0)
+            if attempt == attempts - 1 or 400 <= status < 500:
                 raise
             time.sleep(1.5 * (attempt + 1))
             last = exc
     raise last  # pragma: no cover
+
+
+LEASE_PATH = "dream/lease"
+LEASE_SECONDS = 4 * 3600
+LEASE_MESSAGES = {
+    "hub_too_old": "Hub 低于 1.5.1，还没有做梦租约；先升级 Hub，再上传维基。",
+    "not_designated": (
+        "这台机器没有被管理员指定为组织做梦机器；请管理员在 Hub 管理页「组织做梦」里"
+        "填上这台设备的 ID。整理结果仍可不加 --publish 在本机查看。"
+    ),
+    "lease_held": "另一台指定机器正在做梦（租约未到期），这次不跑；稍后再试。",
+}
+
+
+def lease(transport: Any, action: str = "status", ttl: int = LEASE_SECONDS) -> dict[str, Any]:
+    """Where this device stands with the Hub's dreaming lease.
+
+    The organization dreams in one place. The Hub grants the lease only to a device an
+    administrator designated, and to one device at a time; ``acquire`` also renews a
+    lease this device holds. A transport without ``call`` is a plain feed (tests,
+    fixtures) and may do anything. A Hub too old to know the route answers 404: it can
+    be reviewed from here but never published to, which ``refusal`` names.
+    """
+    answer: dict[str, Any] = {
+        "supported": True,
+        "designated": False,
+        "mine": False,
+        "holder": None,
+        "expires": None,
+        "refusal": "",
+    }
+    if not hasattr(transport, "call"):
+        return {**answer, "supported": False, "designated": True, "mine": True}
+    try:
+        found = _call(transport, LEASE_PATH, {"action": action, "ttl_seconds": ttl})
+    except ValueError as exc:
+        code = getattr(exc, "code", "")
+        if getattr(exc, "http_status", None) == 404:
+            return {**answer, "supported": False, "refusal": "hub_too_old"}
+        if code == "dream_not_designated":
+            return {**answer, "refusal": "not_designated"}
+        if code == "dream_lease_held":
+            return {**answer, "designated": True, "refusal": "lease_held"}
+        raise
+    answer.update({k: found.get(k) for k in ("designated", "mine", "holder", "expires")})
+    if action == "acquire" and not answer["mine"]:
+        answer["refusal"] = "not_designated" if not answer["designated"] else "lease_held"
+    return answer
 
 
 def documents(items: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], dict[str, str]]:
@@ -804,6 +854,28 @@ def _keep(work: Path, state: Path, stamp: str) -> Path:
     return kept
 
 
+def _report(now: float, model: str, analyzer_model: str) -> dict[str, Any]:
+    return {
+        "started": now,
+        "run": time.strftime("%Y%m%d-%H%M%S", time.localtime(now)),
+        "documents": 0,
+        "changed": 0,
+        "feed": {},
+        "bundles": 0,
+        "model": model,
+        "analyzer_model": analyzer_model or model,
+        "analyzers": [],
+        "organizer": None,
+        "validation": None,
+        "cost": 0.0,
+        "leaks": 0,
+        "published": False,
+        "outcome": "",
+        "kept": "",
+        "lease": None,
+    }
+
+
 def run(
     state: Path,
     transport: Any,
@@ -819,37 +891,75 @@ def run(
     home: Path | None = None,
     now: float | None = None,
 ) -> dict[str, Any]:
-    """One dreaming pass. Nothing leaves this machine unless ``publish_pages`` is set."""
-    home = home or Path.home()
+    """One dreaming pass. Nothing leaves this machine unless ``publish_pages`` is set.
+
+    The organization dreams in one place: a publishing pass first takes the Hub's
+    dreaming lease, which only a device an administrator designated can hold, one at
+    a time. Refused, it records why and does nothing else: no document is read, no
+    model is called. A review-only pass asks where this device stands and goes on.
+    """
     now = time.time() if now is None else now
+    gate = lease(transport, "acquire" if publish_pages else "status")
+    if publish_pages and not gate["mine"]:
+        report = _report(now, model, analyzer_model)
+        report.update(
+            {"lease": gate, "outcome": gate["refusal"], "message": LEASE_MESSAGES[gate["refusal"]]}
+        )
+        _finish(state, load_ledger(state), report, now)
+        return report
+    try:
+        return _pass(
+            state,
+            transport,
+            register,
+            gate=gate,
+            publish_pages=publish_pages,
+            full=full,
+            model=model,
+            analyzer_model=analyzer_model,
+            budget=budget,
+            jobs=jobs,
+            runner=runner,
+            home=home,
+            now=now,
+        )
+    finally:
+        if publish_pages and gate["supported"]:
+            try:
+                lease(transport, "release")
+            except (OSError, ValueError):
+                pass
+
+
+def _pass(
+    state: Path,
+    transport: Any,
+    register: Callable[[Path, str], Any],
+    *,
+    gate: dict[str, Any],
+    publish_pages: bool,
+    full: bool,
+    model: str,
+    analyzer_model: str,
+    budget: float,
+    jobs: int,
+    runner: Callable[..., dict[str, Any]] | None,
+    home: Path | None,
+    now: float,
+) -> dict[str, Any]:
+    home = home or Path.home()
     runner = runner or run_agent
     stamp = time.strftime("%Y%m%d-%H%M%S", time.localtime(now))
     ledger = load_ledger(state)
-    feed: dict[str, Any] = {}
-    items = pull(transport, seen=ledger["seen"], full=full, report=feed)
+    report = _report(now, model, analyzer_model)
+    report["lease"] = gate
+    items = pull(transport, seen=ledger["seen"], full=full, report=report["feed"])
     docs, hub_wiki = documents(items)
     seen = ledger["seen"]
     changed = [
         doc for doc in docs if full or any(seen.get(asset) != rev for asset, rev in doc["parts"])
     ]
-    report: dict[str, Any] = {
-        "started": now,
-        "run": stamp,
-        "documents": len(docs),
-        "changed": len(changed),
-        "feed": feed,
-        "bundles": 0,
-        "model": model,
-        "analyzer_model": analyzer_model or model,
-        "analyzers": [],
-        "organizer": None,
-        "validation": None,
-        "cost": 0.0,
-        "leaks": 0,
-        "published": False,
-        "outcome": "",
-        "kept": "",
-    }
+    report.update({"documents": len(docs), "changed": len(changed)})
     current = published_pages(state) or hub_wiki
     report["pages_before"] = len([name for name in current if name != INDEX])
     if not changed:

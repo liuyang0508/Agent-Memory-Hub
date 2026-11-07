@@ -181,6 +181,15 @@ CREATE TABLE IF NOT EXISTS settings(
     value TEXT NOT NULL
 );
 
+-- One organization dreams in one place. The lease names the device running the
+-- pass right now and expires on its own. Additive: older Hubs never read it.
+CREATE TABLE IF NOT EXISTS dream_leases(
+    tenant TEXT PRIMARY KEY,
+    device TEXT NOT NULL,
+    acquired REAL NOT NULL,
+    expires REAL NOT NULL
+);
+
 CREATE VIRTUAL TABLE IF NOT EXISTS search_index USING fts5(
     tenant UNINDEXED,
     asset_id UNINDEXED,

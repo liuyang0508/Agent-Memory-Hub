@@ -221,3 +221,11 @@ class RuntimeInviteInput(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
     ttl_seconds: int = Field(default=PAIRING_DEFAULT_TTL, ge=60, le=PAIRING_MAX_TTL, strict=True)
+
+
+class DreamLeaseInput(BaseModel):
+    """Hold, check or give back the organization's dreaming lease."""
+
+    model_config = ConfigDict(extra="forbid")
+    action: Literal["status", "acquire", "release"] = "status"
+    ttl_seconds: int = Field(default=4 * 3600, ge=60, le=6 * 3600)

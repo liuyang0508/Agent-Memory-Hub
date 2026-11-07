@@ -26,6 +26,7 @@ from .models import (
     AdminRevokeInput,
     AdminSecretInput,
     AdminSettingInput,
+    DreamLeaseInput,
     AssetInput,
     EnrollInput,
     FeishuRedeemInput,
@@ -120,6 +121,7 @@ def create_app(hub: Hub) -> FastAPI:
             "recall-self-feedback-v1",
             "org-catalog-v1",
             "session-digest-v1",
+            "dream-lease-v1",
         ]
         state = hub.semantic_status()
         semantic: dict[str, Any] = {k: state[k] for k in ("state", "model", "reason") if k in state}
@@ -406,6 +408,15 @@ def create_app(hub: Hub) -> FastAPI:
     @app.post("/native/v1/assets")
     def put(data: AssetInput, authorization: str | None = Header(default=None)) -> dict[str, Any]:
         return hub.put(bearer(authorization), data.model_dump())
+
+    @app.post("/native/v1/dream/lease")
+    def dream_lease(
+        data: DreamLeaseInput, authorization: str | None = Header(default=None)
+    ) -> dict[str, Any]:
+        """The organization dreams in one place; see ``Hub.dream_lease``."""
+        return hub.dream_lease(
+            bearer(authorization), action=data.action, ttl_seconds=data.ttl_seconds
+        )
 
     @app.get("/native/v1/changes")
     def changes(

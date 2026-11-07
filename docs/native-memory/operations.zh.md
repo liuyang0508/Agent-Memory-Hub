@@ -296,7 +296,7 @@ ruff check agent_brain/native_sync tests/native_sync
 
 ## 离线整理（做梦）
 
-`amh-native dream` 由管理员在自己的机器上运行，用本机 Claude Code 登录调用模型，把 Hub 上全组织的记忆整理成组织维基（产品 `amh`，路径 `org-wiki/`）。默认只整理不上传；`--publish` 上传；`--schedule on` 装 launchd 任务每天 02:00 自动整理并上传，日志在 `~/.amh-native-sync/dream/schedule.log`。每次运行的维基、报告和代理流式日志保存在 `~/.amh-native-sync/dream/runs/<时间>/`，保留最近 20 次。
+`amh-native dream` 由管理员在自己的机器上运行，用本机 Claude Code 登录调用模型，把 Hub 上全组织的记忆整理成组织维基（产品 `amh`，路径 `org-wiki/`）。1.5.1 起只有 Hub 管理页「组织做梦」里填了设备 ID 的机器能上传（设置项 `dream_devices`），而且同一组织同一时间只有一台持有做梦租约；别的机器 `--publish` 会被拒，`--schedule on` 不会装任务。默认只整理不上传；`--publish` 上传；`--schedule on` 装 launchd 任务每天 02:00 自动整理并上传，日志在 `~/.amh-native-sync/dream/schedule.log`。每次运行的维基、报告和代理流式日志保存在 `~/.amh-native-sync/dream/runs/<时间>/`，保留最近 20 次。
 
 | 现象 | 含义 | 处理 |
 |---|---|---|
@@ -305,5 +305,9 @@ ruff check agent_brain/native_sync tests/native_sync
 | `validation.dropped` 里有 `screened` | 某页触发凭据筛查 | 页已删；到来源记忆文件里找出那段凭据并处理 |
 | `validation.overbuilt: true` | 维基比输入语料还大 | 下次运行组织者会压缩；持续如此就 `--full` 重做 |
 | 旧 Hub 拒收 `amh` 产品 | Hub 低于 1.5.0 | 升级 Hub 后自动补传 |
+| 报告 `outcome: not_designated` | 这台机器不在 Hub 的 `dream_devices` 名单里 | 管理页「组织做梦」填上设备 ID（设备表里能看到），或换到指定机器跑 |
+| 报告 `outcome: lease_held` | 另一台指定机器持有做梦租约 | 等它跑完；机器死掉的话租约最多 6 小时自动过期 |
+| 报告 `outcome: hub_too_old` | Hub 低于 1.5.1，没有租约接口 | 升级 Hub |
+| 后台同步报 `upload …: HubHTTPError`，且该机器曾发布维基 | 设备被移出 `dream_devices` | 加回名单后自动补传；要撤回就在该机器删除 `dream/wiki/org-wiki/` |
 
 详见 [组织维基与离线整理](dreaming.zh.md)。

@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.1] — 2026-11-08
+
+### Added
+
+- The organization dreams in one place. A Hub administrator names the devices allowed
+  to run `amh-native dream --publish` (`dream_devices`, on the admin page under
+  「组织做梦」 or through `POST /native/v1/admin/settings`); the Hub refuses wiki pages
+  (product `amh`) from any other device, while a tombstone from the owning device is
+  still accepted so a wiki can always be withdrawn. `POST /native/v1/dream/lease` hands
+  the one dreaming lease per organization to a designated device, renews it, gives it
+  back and lets it lapse on its own (four hours by default, six at most); health lists
+  `dream-lease-v1`.
+- A publishing pass takes the lease before it reads a document or calls a model and
+  gives it back when done. Refused, it records `not_designated`, `lease_held` or
+  `hub_too_old` with a plain message and does nothing else. `--schedule on` asks the
+  Hub first and installs nothing on a machine the Hub would refuse. A review-only pass
+  needs no lease and reports where the device stands.
+
+### Changed
+
+- The personal layer is left to the products themselves: Claude Code's and Codex's own
+  memory passes keep each machine's notes, and AMH reads what they produce. AMH does
+  the organization layer only; `docs/native-memory/dreaming.zh.md` says so.
+- The admin page shows each device's ID, so a device can be designated without the API.
+- A dreaming pass no longer retries a Hub request the Hub refused outright (HTTP 4xx);
+  the retries for a flaky link stay for everything else.
+
 ## [1.5.0] — 2026-11-07
 
 ### Added
