@@ -674,7 +674,13 @@ def dream_command(
             gate = dream.lease(Transport(c.config["hub"], c.identity["token"], timeout=30))
             refusal = gate["refusal"] or ("" if gate["designated"] else "not_designated")
             if refusal:
-                emit({"scheduled": False, "outcome": refusal, "message": dream.LEASE_MESSAGES[refusal]})
+                emit(
+                    {
+                        "scheduled": False,
+                        "outcome": refusal,
+                        "message": dream.LEASE_MESSAGES[refusal],
+                    }
+                )
                 return
         emit(schedule_dream(c.root, schedule == "on", budget or dream.DEFAULT_BUDGET))
         return

@@ -489,10 +489,25 @@ def test_a_review_pass_needs_no_lease_and_records_where_the_device_stands(tmp_pa
 def test_the_nightly_job_is_not_installed_where_the_hub_would_refuse_it(tmp_path, monkeypatch):
     state = tmp_path / "state"
     state.mkdir()
-    identity = {"tenant_id": "t", "member_id": "m", "member_name": "n", "device_id": "d", "token": "x"}
-    (state / "config.json").write_text(json.dumps({"hub": "http://127.0.0.1:9", "identity": identity}))
+    identity = {
+        "tenant_id": "t",
+        "member_id": "m",
+        "member_name": "n",
+        "device_id": "d",
+        "token": "x",
+    }
+    (state / "config.json").write_text(
+        json.dumps({"hub": "http://127.0.0.1:9", "identity": identity})
+    )
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
-    standing = {"supported": True, "designated": False, "mine": False, "holder": None, "expires": None, "refusal": ""}
+    standing = {
+        "supported": True,
+        "designated": False,
+        "mine": False,
+        "holder": None,
+        "expires": None,
+        "refusal": "",
+    }
     monkeypatch.setattr(dream, "lease", lambda transport, action="status", ttl=0: standing)
     result = CliRunner().invoke(app, ["dream", "--schedule", "on", "--state", str(state)])
     assert result.exit_code == 0, result.output
