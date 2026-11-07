@@ -49,7 +49,12 @@ PAGE = """<!doctype html>
   <table><thead><tr><th>姓名</th><th>成员 ID</th><th>设备</th></tr></thead><tbody id="members"></tbody></table>
 
   <h2>设备</h2>
-  <table><thead><tr><th>设备</th><th>所属成员</th><th>状态</th><th></th></tr></thead><tbody id="devices"></tbody></table>
+  <table><thead><tr><th>设备</th><th>设备 ID</th><th>所属成员</th><th>状态</th><th></th></tr></thead><tbody id="devices"></tbody></table>
+
+  <h2>组织做梦</h2>
+  <p class="muted">组织维基只由这里填的设备整理并上传（<span class="mono">amh-native dream --publish</span>），别的设备会被拒；同一时间只有一台在跑。设备 ID 见上表，多个用逗号分隔，留空表示谁也不能上传。</p>
+  <div class="row"><input id="s-dream-devices" placeholder="允许做梦并上传维基的设备 ID" size="60"></div>
+  <div class="row"><button class="primary" onclick="saveDream()">保存</button><span id="dream-msg" class="muted"></span></div>
 
   <h2>飞书登录</h2>
   <p class="muted">成员用飞书账号登录即可加入，没有邀请码。App Secret 保存后不会再显示。</p>
@@ -102,16 +107,17 @@ async function load() {
     || `<tr><td colspan="3" class="muted">还没有成员</td></tr>`;
 
   document.getElementById("devices").innerHTML = data.devices.map(d =>
-    `<tr><td>${esc(d.name)}</td><td>${esc(d.member_name)}</td>
+    `<tr><td>${esc(d.name)}</td><td class="mono">${esc(d.id)}</td><td>${esc(d.member_name)}</td>
      <td>${d.revoked ? "已撤销" : "正常"}</td>
      <td>${d.revoked ? "" : `<button onclick="revoke('${esc(d.id)}')">撤销</button>`}</td></tr>`).join("")
-    || `<tr><td colspan="4" class="muted">还没有设备</td></tr>`;
+    || `<tr><td colspan="5" class="muted">还没有设备</td></tr>`;
 
   // No invitation list: joining is done with a Feishu account.
 
   const s = data.settings || {};
   document.getElementById("s-app-id").value = s.feishu_app_id || "";
   document.getElementById("s-public-url").value = s.amh_hub_public_url || "";
+  document.getElementById("s-dream-devices").value = s.dream_devices || "";
   document.getElementById("s-tenant").value = s.feishu_tenant || "";
   document.getElementById("s-tenant-key").value = s.feishu_tenant_key || "";
   updateCallback();
@@ -127,6 +133,15 @@ async function revoke(id) {
   if (!confirm("撤销后该设备立即失去访问权限，确定？")) return;
   await api("/revoke", { device_id: id });
   load();
+}
+
+async function saveDream() {
+  const msg = document.getElementById("dream-msg");
+  try {
+    await api("/settings", { key: "dream_devices", value: document.getElementById("s-dream-devices").value.trim() });
+    msg.textContent = "已保存。";
+    load();
+  } catch (e) { msg.textContent = "保存失败：" + e.message; }
 }
 
 async function saveSettings() {

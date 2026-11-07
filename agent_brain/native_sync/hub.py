@@ -10,6 +10,7 @@ import threading
 import json
 import math
 import os
+import re
 import secrets
 import time
 import uuid
@@ -18,6 +19,11 @@ from .common import digest, source_product, tokens
 from .storage import database, HUB_SCHEMA, DB_TIMEOUT
 from .models import AssetInput
 from .admin_auth import AdminAuth, AdminCredential, WebAdminSession
+
+# The organization's wiki is the product its dreaming pass writes; see dream.py.
+DREAM_PRODUCT = "amh"
+DREAM_LEASE_SECONDS = 4 * 3600
+DREAM_LEASE_MAX = 6 * 3600
 
 if TYPE_CHECKING:
     from .semantic import IndexRefreshResult, SemanticBackend
@@ -286,7 +292,8 @@ class Hub:
                 row["key"]: row["value"]
                 for row in db.execute(
                     "SELECT key,value FROM settings WHERE key IN "
-                    "('feishu_app_id','amh_hub_public_url','feishu_tenant','feishu_tenant_key')"
+                    "('feishu_app_id','amh_hub_public_url','feishu_tenant','feishu_tenant_key',"
+                    "'dream_devices')"
                 )
             }
         return {"members": members, "devices": devices, "settings": settings}
@@ -470,6 +477,7 @@ class Hub:
             "feishu_tenant",
             "feishu_tenant_key",
             "recall_query_preview",
+            "dream_devices",
         }
         if key not in allowed:
             raise ValueError("unknown setting")
@@ -483,10 +491,81 @@ class Hub:
         with database(self.path) as db:
             db.execute("BEGIN IMMEDIATE")
             self._admin(db, token)
+            if key == "dream_devices":
+                # The devices allowed to run the organization's dreaming pass and
+                # publish its wiki: each must be a known, live device. Empty means
+                # nobody, which is where a fresh Hub starts.
+                wanted = sorted({part for part in re.split(r"[\s,]+", value) if part})
+                for device in wanted:
+                    if not db.execute(
+                        "SELECT 1 FROM devices WHERE id=? AND revoked=0", (device,)
+                    ).fetchone():
+                        raise ValueError("unknown device")
+                value = ",".join(wanted)
             if value:
                 db.execute("INSERT OR REPLACE INTO settings VALUES(?,?)", (key, value))
             else:
                 db.execute("DELETE FROM settings WHERE key=?", (key,))
+
+    @staticmethod
+    def _dream_devices(db: sqlite3.Connection) -> set[str]:
+        row = db.execute("SELECT value FROM settings WHERE key='dream_devices'").fetchone()
+        return {part for part in re.split(r"[\s,]+", row["value"]) if part} if row else set()
+
+    def dream_lease(
+        self, token: str, *, action: str = "status", ttl_seconds: int = DREAM_LEASE_SECONDS
+    ) -> dict[str, Any]:
+        """Hold, check or give back the organization's dreaming lease.
+
+        The organization dreams in one place. Only a device an administrator listed
+        in ``dream_devices`` may hold the lease, one device at a time; holding it
+        again renews it. The lease expires on its own, so a pass that died does not
+        block the next night. ``status`` and ``release`` never refuse.
+        """
+        from .knowledge import KnowledgeConflict
+
+        ttl = max(60, min(int(ttl_seconds), DREAM_LEASE_MAX))
+        with database(self.path) as db:
+            db.execute("BEGIN IMMEDIATE")
+            who = self._identity(db, token)
+            designated = who["device_id"] in self._dream_devices(db)
+            now = time.time()
+            db.execute(
+                "DELETE FROM dream_leases WHERE tenant=? AND expires<=?", (who["tenant"], now)
+            )
+            row = db.execute(
+                "SELECT device,acquired,expires FROM dream_leases WHERE tenant=?",
+                (who["tenant"],),
+            ).fetchone()
+            holder = row["device"] if row else None
+            expires = row["expires"] if row else None
+            if action == "acquire":
+                if not designated:
+                    raise KnowledgeConflict("dream_not_designated")
+                if holder not in (None, who["device_id"]):
+                    raise KnowledgeConflict("dream_lease_held")
+                expires = now + ttl
+                db.execute(
+                    "INSERT OR REPLACE INTO dream_leases VALUES(?,?,?,?)",
+                    (who["tenant"], who["device_id"], row["acquired"] if row else now, expires),
+                )
+                holder = who["device_id"]
+            elif action == "release":
+                if holder == who["device_id"]:
+                    db.execute("DELETE FROM dream_leases WHERE tenant=?", (who["tenant"],))
+                    holder, expires = None, None
+            elif action != "status":
+                raise ValueError("unknown lease action")
+            name = None
+            if holder is not None:
+                found = db.execute("SELECT name FROM devices WHERE id=?", (holder,)).fetchone()
+                name = found["name"] if found else holder
+        return {
+            "designated": designated,
+            "mine": holder == who["device_id"],
+            "holder": name,
+            "expires": expires,
+        }
 
     def admin_secret_set(self, token: AdminCredential, app_secret: str) -> None:
         """Store the application secret separately so it is never read back by the page."""
@@ -877,6 +956,17 @@ class Hub:
         with database(self.path) as db:
             db.execute("BEGIN IMMEDIATE")
             who = self._identity(db, token)
+            if (
+                source_product(item["product"]) == DREAM_PRODUCT
+                and not item["deleted"]
+                and who["device_id"] not in self._dream_devices(db)
+            ):
+                from .knowledge import KnowledgeConflict
+
+                # The organization's wiki is written by its dreaming pass alone, from
+                # a device an administrator designated. A tombstone from the owning
+                # device is still accepted, so a wiki can always be withdrawn.
+                raise KnowledgeConflict("dream_not_designated")
             old = db.execute(
                 "SELECT * FROM assets WHERE tenant=? AND id=?", (who["tenant"], item["asset_id"])
             ).fetchone()

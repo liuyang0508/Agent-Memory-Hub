@@ -1,6 +1,6 @@
 # 组织维基与离线整理（「做梦」）
 
-适用于 AMH 1.5.0。设计依据：Anthropic《The components of agent memory》（2026-11-06）和 cookbook《Dreaming with a dynamic workflow》。
+适用于 AMH 1.5.1。设计依据：Anthropic《The components of agent memory》（2026-11-06）和 cookbook《Dreaming with a dynamic workflow》。
 
 ## 这是什么
 
@@ -9,6 +9,23 @@
 `amh-native dream` 在管理员自己的机器上，定期回看 Hub 上全组织共享的记忆文件和会话摘录，整理成一份小而互相链接的**组织维基**：一个主题一页，每条事实带来源（成员 · 产品 · 日期）和核验状态（已核验 / 推断 / 冲突），过期的写明"原为 X，现为 Y"，有 `_index.md` 索引。维基作为产品 `amh` 的记忆资产上传回 Hub，和别的记忆一样被搜索、被注入；它的索引成为每个会话开场目录的前几行。
 
 模型调用走本机的 Claude Code（`claude -p`，用本机的登录），不在服务器上放任何密钥，也不新增数据外流的去处。
+
+## 分层：个人层交给原生，AMH 只做组织层（2026-11-08 定）
+
+Claude Code 和 Codex 各自都有自己的整理：Claude Code 的 Auto-dream 整理本机本项目的记忆目录（2.1.78 起带在程序里，按账号灰度放开），Codex 的记忆分抽取、合并两步在本机后台跑。它们只看自己、只留本机、没有对外接口。AMH 不重复做这一层：各机器的记忆由各产品自己整理，AMH 采集的正是它们整理后的产物（Claude Code 的 MEMORY.md 与主题文件，Codex 的 memory_summary.md、MEMORY.md 与 rollout_summaries）。
+
+AMH 只做它们都不做的组织层：跨人、跨产品把这些产物去重、标来源与核验状态、标冲突，整理成全组织可读的维基。
+
+## 只在一处跑（1.5.1 起）
+
+组织维基由一台指定机器整理和上传，不是谁装了 AMH 谁都能跑。
+
+- **指定**：Hub 管理员在管理页「组织做梦」里填允许的设备 ID（设备表里能看到；多个用逗号分隔，留空表示谁也不能上传），或 `POST /native/v1/admin/settings` 写 `dream_devices`。只认存在且未撤销的设备。
+- **门禁**：Hub 拒收名单外设备上传的产品 `amh` 页面（HTTP 409，`dream_not_designated`）；名单外的设备仍可提交自己已发布页面的墓碑，维基随时能撤回。
+- **租约**：`--publish` 的一次运行先向 Hub 要做梦租约（`POST /native/v1/dream/lease`），同一组织同一时间只有一台机器持有；拿到后才读文档、才调模型，结束归还；机器中途死掉，租约默认 4 小时后自动过期。被拒时报告的 `outcome` 是 `not_designated`、`lease_held` 或 `hub_too_old`（Hub 低于 1.5.1），附一句说明，不读文档、不调模型。
+- **定时**：`--schedule on` 先问 Hub 这台机器有没有资格，没有就不装任务。
+- **只看不传**：不加 `--publish` 的运行不需要租约，任何成员都可以在本机整理出来看；报告里 `lease.designated` 说明这台机器是不是指定机器。
+- **换机器**：先在旧机器删除 `~/.amh-native-sync/dream/wiki/org-wiki/`，让墓碑把旧页撤回，再把新机器加进名单；否则两台机器会各发一套页面。
 
 ## 怎么跑
 
@@ -61,3 +78,5 @@ cookbook 同规模（11 份、283KB）用 Haiku 分析员花 $0.36。本实现�
 - 停止：`amh-native dream --schedule off`。
 - 撤回维基：删除 `~/.amh-native-sync/dream/wiki/org-wiki/` 下的文件（或整个目录），后台同步会提交墓碑；Hub 上历史版本按常规保留策略处理。
 - 旧 Hub（1.5.0 以前）不认识产品 `amh`，上传会被拒收并记在 `outbox_rejections`，不影响其他上传；升级 Hub 后自动补传。
+- Hub 在 1.5.0 到 1.5.1 之间：没有租约接口，`--publish` 报 `hub_too_old` 不跑，`--schedule on` 不装；先升级 Hub。
+- 设备被移出名单：它上传的维基页会被拒收并排到队尾，加回名单后自动补传；要撤回就在该机器删除维基目录。

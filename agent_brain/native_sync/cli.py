@@ -666,6 +666,22 @@ def dream_command(
     if schedule:
         if schedule not in ("on", "off"):
             raise typer.BadParameter("--schedule 只接受 on 或 off")
+        if schedule == "on":
+            # The organization dreams in one place: a nightly job on a machine the
+            # Hub would refuse anyway is noise in a log, so it is not installed.
+            from .transport import Transport
+
+            gate = dream.lease(Transport(c.config["hub"], c.identity["token"], timeout=30))
+            refusal = gate["refusal"] or ("" if gate["designated"] else "not_designated")
+            if refusal:
+                emit(
+                    {
+                        "scheduled": False,
+                        "outcome": refusal,
+                        "message": dream.LEASE_MESSAGES[refusal],
+                    }
+                )
+                return
         emit(schedule_dream(c.root, schedule == "on", budget or dream.DEFAULT_BUDGET))
         return
     if publish and not yes:
