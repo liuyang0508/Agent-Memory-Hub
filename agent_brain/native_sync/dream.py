@@ -54,6 +54,7 @@ BUNDLE_CHARS = 24_000
 DOCUMENT_CHARS = 60_000
 PAGE_CHARS = 30_000
 PAGE_LIMIT = 64_000
+WORDING = "个人隐私措辞"  # the one screening label that is about words, not data
 DEFAULT_MODEL = "opus"
 DEFAULT_BUDGET = 12.0
 AGENT_BUDGET = 3.0
@@ -617,6 +618,7 @@ def validate(wiki: Path, *, input_chars: int = 0) -> dict[str, Any]:
         "pages": 0,
         "chars": 0,
         "dropped": [],
+        "flagged": [],
         "retired": [],
         "dangling": [],
         "oversized": [],
@@ -655,10 +657,15 @@ def validate(wiki: Path, *, input_chars: int = 0) -> dict[str, Any]:
             report["dropped"].append({"page": slug, "reason": "too_large"})
             continue
         verdict = screen(text)
-        if verdict["risk"] != "clean":
+        # A credential or an identifier (phone, ID, card, e-mail) never leaves; a page
+        # that merely uses words like 诊断 or 贷款 about the organization's work stays,
+        # and the report names it so the reviewer looks.
+        if verdict["risk"] == "blocked" or any(r != WORDING for r in verdict["reasons"]):
             path.unlink()
             report["dropped"].append({"page": slug, "reason": "screened"})
             continue
+        if verdict["reasons"]:
+            report["flagged"].append({"page": slug, "reasons": verdict["reasons"]})
         if len(text) > PAGE_CHARS:
             report["oversized"].append(slug)
         pages[slug] = text

@@ -29,9 +29,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- The catalog puts the wiki index first, each line carrying the page's short name as a
-  search term, and tells the model to verify facts marked inferred or in conflict; the
-  injection header says the same.
+- The catalog puts the whole wiki index first with its own budget (6000 chars), each
+  line carrying the page's short name as a search term; a page the index lists and a
+  document a wiki page was written from are not repeated; the rest keeps 2400 chars.
+  It tells the model to verify facts marked inferred or in conflict; the injection
+  header says the same.
+- A dreaming pass drops a page holding a credential, phone number, ID, card or e-mail
+  and keeps a page that merely uses words such as 诊断 or 贷款, listing it in the report
+  as `flagged` for the reviewer.
 
 
 ### Changed

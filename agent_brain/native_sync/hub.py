@@ -1405,6 +1405,7 @@ class Hub:
                 {
                     "path": parts[0].get("path"),
                     "observed_at": parts[0].get("observed_at"),
+                    "assets": [part["asset_id"] for part in parts],
                     "text": "".join(
                         part["body"]
                         for part in sorted(parts, key=lambda p: p.get("part_index") or 0)

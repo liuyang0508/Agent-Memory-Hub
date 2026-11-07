@@ -196,21 +196,25 @@ def test_validate_retires_stubs_repoints_links_and_completes_the_index(tmp_path)
     (tmp_path / "secret.md").write_text(
         page("secret", "-----BEGIN %s KEY-----\nabc" % "RSA PRIVATE")
     )
+    (tmp_path / "phone.md").write_text(page("phone", "联系 13800138000"))
+    (tmp_path / "words.md").write_text(page("words", "sealed 集诊断用过后即退役"))
     (tmp_path / "loose.md").write_text(page("loose"))
     (tmp_path / "_index.md").write_text(
         "# 索引\n\n## 部署\n- [[old-name]] — 旧\n- [[gone]] — 没了\n"
     )
     report = dream.validate(tmp_path, input_chars=10_000)
     assert report["retired"] == ["old-name"] and not (tmp_path / "old-name.md").exists()
-    assert {d["page"] for d in report["dropped"]} == {"bad", "wrong", "secret"}
-    assert not (tmp_path / "secret.md").exists()
+    assert {d["page"] for d in report["dropped"]} == {"bad", "wrong", "secret", "phone"}
+    assert not (tmp_path / "secret.md").exists() and not (tmp_path / "phone.md").exists()
+    assert report["flagged"] == [{"page": "words", "reasons": ["个人隐私措辞"]}]
+    assert (tmp_path / "words.md").exists()
     assert "见 [[deploy]] 和 [[nowhere]]" in (tmp_path / "deploy.md").read_text()
     assert report["dangling"] == ["nowhere"]
     index = (tmp_path / "_index.md").read_text()
     assert "- [[deploy]] — 旧" in index and "[[gone]]" not in index and "[[old-name]]" not in index
-    assert index.endswith("## 未分组\n- [[loose]] — loose 说明\n")
-    assert report["index_removed"] == ["gone"] and report["index_added"] == ["loose"]
-    assert report["pages"] == 2 and not report["overbuilt"]
+    assert index.endswith("## 未分组\n- [[loose]] — loose 说明\n- [[words]] — words 说明\n")
+    assert report["index_removed"] == ["gone"] and report["index_added"] == ["loose", "words"]
+    assert report["pages"] == 3 and not report["overbuilt"]
 
 
 def test_validate_flags_an_overbuilt_wiki_and_oversized_pages(tmp_path):
@@ -387,13 +391,22 @@ def test_the_catalog_puts_the_wiki_index_first_with_short_names():
     ]
     front = "---\nname: deploy-pre\ndescription: 生产跑 pre 线\n---\n"
     assert catalog.describe("org-wiki/deploy-pre.md", front) == ["deploy-pre：生产跑 pre 线"]
+    page_text = front.replace("---\n", "---\nmetadata:\n  sources: [old@1, older@3]\n", 1)
     documents = [
-        {"path": "new.md", "text": "# 新主题", "observed_at": 9},
+        {"path": "new.md", "text": "# 新主题", "observed_at": 9, "assets": ["new"]},
+        {"path": "covered.md", "text": "# 旧主题", "observed_at": 8, "assets": ["old"]},
+        {"path": "org-wiki/deploy-pre.md", "text": page_text, "observed_at": 2},
         {"path": "org-wiki/_index.md", "text": index, "observed_at": 1},
     ]
-    assert catalog.build(documents) == [
+    # The index comes first whatever its age and keeps its own budget; a page the index
+    # lists is not repeated; a document a page was written from is not a second topic.
+    assert catalog.build(documents, limit=12) == [
         "deploy-pre：生产跑 pre 线",
         "accept-37：验收 37 关 …",
+        "新主题",
+    ]
+    assert catalog.build(documents, index_limit=30) == [
+        "deploy-pre：生产跑 pre 线",
         "新主题",
     ]
     block = catalog.block(["x"])
