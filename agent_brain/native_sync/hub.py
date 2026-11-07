@@ -56,6 +56,9 @@ def _unit_rate(raw: str | None, default: float) -> float:
     return value if 0.0 <= value <= 1.0 else default
 
 
+CHANGE_KINDS = ("memory", "rule", "skill", "config", "transcript")
+
+
 class Hub:
     """Single-node authority; each mutation commits assets, changes and FTS together.
 
@@ -1074,15 +1077,33 @@ class Hub:
         )
 
     def changes(
-        self, token: str, cursor: int, limit: int = 100, *, metadata_only: bool = False
+        self,
+        token: str,
+        cursor: int,
+        limit: int = 100,
+        *,
+        metadata_only: bool = False,
+        kinds: Sequence[str] | None = None,
     ) -> dict[str, Any]:
-        """Read a stable tenant-scoped sequence page, including deletions; an empty page retains cursor."""
+        """Read a stable tenant-scoped sequence page, including deletions; an empty page retains cursor.
+
+        ``kinds`` narrows the page to those asset kinds: a dreaming pass wants the
+        200 memory entries of a feed, not its 48,000 transcript parts.
+        """
         with database(self.path) as db:
             who = self._identity(db, token)
             page = min(max(1, limit), 100)
+            wanted = [kind for kind in (kinds or ()) if kind in CHANGE_KINDS]
+            narrow = (
+                " AND json_extract(payload,'$.kind') IN (%s)" % ",".join("?" * len(wanted))
+                if wanted
+                else ""
+            )
             rows = db.execute(
-                "SELECT seq,payload FROM changes WHERE tenant=? AND seq>? ORDER BY seq LIMIT ?",
-                (who["tenant"], max(0, cursor), page),
+                "SELECT seq,payload FROM changes WHERE tenant=? AND seq>?"
+                + narrow
+                + " ORDER BY seq LIMIT ?",
+                (who["tenant"], max(0, cursor), *wanted, page),
             ).fetchall()
             from .evidence import metadata
 
@@ -1095,15 +1116,26 @@ class Hub:
                 items = [item for item in items if not item.get("scrubbed")]
                 while rows and not items:
                     rows = db.execute(
-                        "SELECT seq,payload FROM changes WHERE tenant=? AND seq>? "
-                        "ORDER BY seq LIMIT ?",
-                        (who["tenant"], rows[-1]["seq"], page),
+                        "SELECT seq,payload FROM changes WHERE tenant=? AND seq>?"
+                        + narrow
+                        + " ORDER BY seq LIMIT ?",
+                        (who["tenant"], rows[-1]["seq"], *wanted, page),
                     ).fetchall()
                     items = [
                         item
                         for item in (json.loads(r["payload"]) for r in rows)
                         if not item.get("scrubbed")
                     ]
+            if not metadata_only and items:
+                # A dreaming pass cites who recorded a fact; the feed otherwise names nobody.
+                names = {
+                    row["id"]: row["name"]
+                    for row in db.execute(
+                        "SELECT id,name FROM members WHERE tenant=?", (who["tenant"],)
+                    )
+                }
+                for item in items:
+                    item["producer_name"] = names.get(item.get("producer_member_id")) or "未知"
             proofs: dict[tuple[str, ...], list[tuple[str, int]]] = {}
             for item in items:
                 key = self._proof_key(item)
@@ -1358,8 +1390,12 @@ class Hub:
                 (tenant,),
             ):
                 item = json.loads(found["payload"])
-                # This machine's own memory is already in front of its own product.
-                if item.get("source_device_id") == who["device_id"]:
+                # This machine's own memory is already in front of its own product; the
+                # wiki is nobody's own memory, even on the machine that publishes it.
+                if (
+                    item.get("source_device_id") == who["device_id"]
+                    and item.get("product") != "amh"
+                ):
                     continue
                 if self._retrieval_valid(db, item):
                     name = item.get("document_id") or item["asset_id"]
@@ -1369,6 +1405,7 @@ class Hub:
                 {
                     "path": parts[0].get("path"),
                     "observed_at": parts[0].get("observed_at"),
+                    "assets": [part["asset_id"] for part in parts],
                     "text": "".join(
                         part["body"]
                         for part in sorted(parts, key=lambda p: p.get("part_index") or 0)

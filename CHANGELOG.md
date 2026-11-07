@@ -7,7 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.4.32] — 2026-11-07
+## [1.5.0] — 2026-11-07
+
+### Added
+
+- `amh-native dream`: an offline pass that reads back over everything the organization
+  shares and keeps a small linked wiki beside it, each fact dated, attributed and marked
+  verified, inferred or in conflict, with an index the catalog shows every session. It
+  runs on the operator's machine through headless Claude Code with no shell, no network,
+  nothing readable outside a temporary work tree and a spending ceiling; code then checks
+  front matter, links, the index and credentials before anything may leave the machine.
+  Nothing is uploaded unless `--publish` is given; `--schedule on` dreams nightly. The
+  pages are memory assets of a new product, `amh`, under `org-wiki/`; an older Hub
+  rejects them and keeps everything else. See `docs/native-memory/dreaming.zh.md`.
+- The change feed names who recorded each document, so a dreaming pass can cite them.
+- A dreaming pass reads the change feed as metadata and fetches only the bodies it
+  needs through `/native/v1/read`; transcript parts and superseded revisions never
+  travel. `report.json` counts them under `feed`.
+- `GET /native/v1/changes` takes `kinds=memory,rule` and serves only those asset
+  kinds; a dreaming pass asks for `memory`. Older Hubs ignore the parameter.
+
+### Changed
+
+- The catalog puts the whole wiki index first with its own budget (6000 chars), each
+  line carrying the page's short name as a search term; a page the index lists and a
+  document a wiki page was written from are not repeated; the rest keeps 2400 chars.
+  It tells the model to verify facts marked inferred or in conflict; the injection
+  header says the same.
+- A dreaming pass drops a page holding a credential, phone number, ID, card or e-mail
+  and keeps a page that merely uses words such as 诊断 or 贷款, listing it in the report
+  as `flagged` for the reviewer.
+
 
 ### Changed
 

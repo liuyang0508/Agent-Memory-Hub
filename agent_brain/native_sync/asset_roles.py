@@ -31,6 +31,12 @@ def asset_role(product: str, path: str, kind: str) -> str:
     if kind != "memory":
         return kind
     relative = PurePosixPath(path.replace("\\", "/"))
+    if product == "amh":
+        # The wiki a dreaming pass keeps: its index is navigation, like MEMORY.md; a
+        # page is curated memory with its sources and verification written in.
+        if relative.parts[:1] == ("org-wiki",):
+            return "navigation" if relative.name == "_index.md" else "wiki"
+        return "topic_memory"
     if relative.parts and relative.parts[0] == "session_digests":
         return "conversation_summary"
     if product in CODEX_PRODUCTS:

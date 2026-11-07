@@ -49,7 +49,15 @@ ROW_SOURCE_FIELDS = (
 CITED_PATH = re.compile(r"(?<![\w./-])[\w.-]+(?:/[\w.-]+)+\.md\b")
 MAX_CITED_FILES = 8
 KINDS = {"memory", "rule", "skill", "config"}
-ROLES = {"topic_memory", "navigation", "conversation_summary", "raw_memory", "transcript", *KINDS}
+ROLES = {
+    "topic_memory",
+    "wiki",
+    "navigation",
+    "conversation_summary",
+    "raw_memory",
+    "transcript",
+    *KINDS,
+}
 ID_PATTERN = re.compile(r"^[A-Za-z0-9_.-]{1,128}$")
 RECEIPT_PATTERN = re.compile(r"^amh-native-recall:[0-9a-f]{24}$")
 SOURCE_FIELDS = {

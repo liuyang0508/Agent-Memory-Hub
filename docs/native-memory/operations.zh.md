@@ -293,3 +293,17 @@ ruff check agent_brain/native_sync tests/native_sync
 专项测试覆盖并发邀请、重复写入、进程事务中断、网络失败后的队列恢复、响应丢失后版本收敛、持续 Hook 事件下的退避，以及数据库锁定/恢复。真实四端、双机和公网延迟仍需在对应环境留证。
 
 1.3.1 → 1.3.2 的身份迁移、缓存清理、元数据防复活与回滚边界见 [专项升级说明](upgrade-1.3.2.zh.md)。
+
+## 离线整理（做梦）
+
+`amh-native dream` 由管理员在自己的机器上运行，用本机 Claude Code 登录调用模型，把 Hub 上全组织的记忆整理成组织维基（产品 `amh`，路径 `org-wiki/`）。默认只整理不上传；`--publish` 上传；`--schedule on` 装 launchd 任务每天 02:00 自动整理并上传，日志在 `~/.amh-native-sync/dream/schedule.log`。每次运行的维基、报告和代理流式日志保存在 `~/.amh-native-sync/dream/runs/<时间>/`，保留最近 20 次。
+
+| 现象 | 含义 | 处理 |
+|---|---|---|
+| 报告 `outcome: leak` | 某个代理的工具结果里出现了家目录路径 | 本次结果作废，不会上传；看 `runs/<时间>/logs/` 找到是哪一步，通常是 deny 规则没生效（Claude Code 版本）或 `AMH_CLAUDE_BIN` 指错 |
+| 报告 `outcome: failed` | 所有分析员都失败（超时、预算不够、未登录） | `claude -p` 手动跑一句确认登录；加 `--budget` |
+| `validation.dropped` 里有 `screened` | 某页触发凭据筛查 | 页已删；到来源记忆文件里找出那段凭据并处理 |
+| `validation.overbuilt: true` | 维基比输入语料还大 | 下次运行组织者会压缩；持续如此就 `--full` 重做 |
+| 旧 Hub 拒收 `amh` 产品 | Hub 低于 1.5.0 | 升级 Hub 后自动补传 |
+
+详见 [组织维基与离线整理](dreaming.zh.md)。
