@@ -1,7 +1,12 @@
 """1.5.1: the organization dreams in one place — a designated device, one lease at a time."""
 
+import gzip
+import io
+import json
 import sqlite3
 import time
+from email.message import Message
+from urllib import error
 
 import pytest
 from fastapi.testclient import TestClient
@@ -9,6 +14,7 @@ from fastapi.testclient import TestClient
 from agent_brain.native_sync.api import create_app
 from agent_brain.native_sync.hub import Hub
 from agent_brain.native_sync.knowledge import KnowledgeConflict
+from agent_brain.native_sync.transport import HubHTTPError, Transport
 from test_hub import asset
 
 WIKI = "---\nname: deploy\ndescription: 部署说明\n---\n正文"
@@ -92,3 +98,21 @@ def test_the_lease_route_speaks_the_public_error_vocabulary(hub):
     )
     assert took.status_code == 200 and took.json()["mine"]
     assert client.post("/native/v1/assets", json=wiki(), headers=headers).status_code == 200
+
+
+def test_the_client_reads_the_error_code_through_a_gzipping_proxy(monkeypatch):
+    """aihub's nginx gzips a 409 envelope too; the code must survive the trip."""
+    link = Transport("http://127.0.0.1:9", "device-token", timeout=5)
+    headers = Message()
+    headers["Content-Type"] = "application/json"
+    headers["Content-Encoding"] = "gzip"
+    envelope = {"code": "dream_not_designated", "detail": "dream not designated"}
+    body = gzip.compress(json.dumps(envelope).encode())
+
+    def refuse(req, timeout=None):
+        raise error.HTTPError(req.full_url, 409, "Conflict", headers, io.BytesIO(body))
+
+    monkeypatch.setattr(link.opener, "open", refuse)
+    with pytest.raises(HubHTTPError) as caught:
+        link.call("dream/lease", {"action": "acquire"})
+    assert (caught.value.http_status, caught.value.code) == (409, "dream_not_designated")

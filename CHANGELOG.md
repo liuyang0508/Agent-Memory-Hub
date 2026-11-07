@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.2] — 2026-11-08
+
+### Fixed
+
+- The client now reads a Hub error code even when a proxy gzips the error body, as
+  aihub's nginx does. Before this, every refusal over such a link read as the generic
+  `request_rejected`, so `amh-native dream --publish` on a device the Hub had not
+  designated crashed with `Hub HTTP 409` instead of reporting `not_designated`; the
+  same misreading hid `stale_version` and the other codes from the sync client.
+
 ## [1.5.1] — 2026-11-08
 
 ### Added
