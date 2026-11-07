@@ -128,10 +128,13 @@ class Transport:
             code = "request_rejected"
             try:
                 # Parse only a small finite error envelope, never arbitrary detail.
-                body = json.loads(exc.read(4096))
+                # A proxy in front of the Hub gzips the envelope like any other body
+                # (aihub, 2026-11-08), so decode it the way a success is decoded.
+                raw = bytearray(exc.read(4096))
+                body = json.loads(_inflate(raw, exc.headers.get("Content-Encoding", "") or ""))
                 if isinstance(body, dict) and body.get("code") in SAFE_ERROR_CODES:
                     code = body["code"]
-            except (ValueError, TypeError, OSError):
+            except (ValueError, TypeError, OSError, EOFError):
                 pass
             finally:
                 exc.close()
