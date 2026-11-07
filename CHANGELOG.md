@@ -21,6 +21,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   pages are memory assets of a new product, `amh`, under `org-wiki/`; an older Hub
   rejects them and keeps everything else. See `docs/native-memory/dreaming.zh.md`.
 - The change feed names who recorded each document, so a dreaming pass can cite them.
+- A dreaming pass reads the change feed as metadata and fetches only the bodies it
+  needs through `/native/v1/read`; transcript parts and superseded revisions never
+  travel. `report.json` counts them under `feed`.
 
 ### Changed
 

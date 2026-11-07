@@ -43,6 +43,10 @@ LEDGER = "ledger.json"
 RUNS = "runs"
 RUNS_KEPT = 20
 PAGE_ITEMS = 20
+META_ITEMS = 100  # metadata pages carry no bodies and no proofs
+READ_BYTES = 64_000  # the Hub's ceiling per read
+READ_PAGES = 4  # 256 KB, more than render_input keeps
+READERS = 4
 # What the wiki is distilled from: curated memory and session summaries, never raw
 # extractions or transcripts, and never one person's preferences.
 INPUT_ROLES = frozenset({"topic_memory", "navigation", "conversation_summary"})
@@ -163,12 +167,79 @@ ORGANIZER_BRIEF = (
 # --- what goes in -----------------------------------------------------------------
 
 
-def pull(transport: Any) -> list[dict[str, Any]]:
-    """Every change the Hub shows this device, in sequence order; bodies included."""
+def pull(
+    transport: Any,
+    *,
+    seen: dict[str, int] | None = None,
+    full: bool = False,
+    report: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    """The feed's current memory documents, bodies included.
+
+    A Hub feed is mostly transcript parts and superseded revisions. Reading all of it
+    with bodies took over 40 minutes on a slow link (linkcrux, 2026-11-07), so the pass
+    reads the feed as metadata first and then fetches only the bodies it needs: the
+    wiki pages, and every memory document with a part this ledger has not seen (all of
+    them when ``full``). A transport without ``call`` serves whole pages and is used
+    as it is.
+    """
+    seen = seen or {}
+    found = report if report is not None else {}
+    if not hasattr(transport, "call"):
+        whole = _feed(transport)
+        found.update({"feed": len(whole), "read": 0, "unread": 0})
+        return whole
+    meta = _metadata(transport)
+    latest: dict[str, dict[str, Any]] = {}
+    for item in meta:
+        if item.get("asset_id"):
+            latest[str(item["asset_id"])] = item
+    groups: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for item in latest.values():
+        if item.get("deleted") or item.get("kind") != "memory":
+            continue
+        key = (
+            str(item.get("source_store") or ""),
+            str(item.get("document_id") or item["asset_id"]),
+        )
+        groups.setdefault(key, []).append(item)
+    wanted: list[list[dict[str, Any]]] = []
+    for parts in groups.values():
+        parts.sort(key=lambda p: int(p.get("part_index") or 0))
+        if (
+            full
+            or str(parts[0].get("product") or "") == PRODUCT
+            or any(seen.get(str(p["asset_id"])) != int(p.get("revision") or 0) for p in parts)
+        ):
+            wanted.append(parts)
+    items: list[dict[str, Any]] = []
+    unread = 0
+    with ThreadPoolExecutor(max_workers=READERS) as pool:
+        for parts, body in zip(wanted, pool.map(lambda p: _read(transport, p[0]), wanted)):
+            if body is None:
+                unread += 1
+                continue
+            source, text = body
+            head = dict(parts[0])
+            head.update({key: source.get(key) for key in SOURCE_FIELDS})
+            head.update({"body": text, "encoding": "utf8"})
+            items.append(head)
+            # The whole document arrived with the first part; the other parts keep
+            # their identity so the ledger remembers every revision it has seen.
+            items.extend(dict(part, body="") for part in parts[1:])
+    found.update({"feed": len(meta), "read": len(wanted) - unread, "unread": unread})
+    return items
+
+
+SOURCE_FIELDS = ("path", "title", "product", "project", "producer_name", "observed_at")
+
+
+def _feed(transport: Any) -> list[dict[str, Any]]:
+    """Every change a page-serving transport shows, in sequence order."""
     items: list[dict[str, Any]] = []
     cursor = 0
     for _ in range(100_000):
-        page = _page(transport, cursor)
+        page = transport.changes(cursor)
         found = page.get("items") if isinstance(page, dict) else None
         if not isinstance(found, list):
             raise ValueError("invalid change feed")
@@ -180,17 +251,71 @@ def pull(transport: Any) -> list[dict[str, Any]]:
     return items
 
 
-def _page(transport: Any, cursor: int, attempts: int = 4) -> Any:
-    """One page of the feed. A flaky link to the Hub is the common case, not the exception."""
+def _metadata(transport: Any) -> list[dict[str, Any]]:
+    """The whole feed without bodies. A page that times out is retried smaller."""
+    items: list[dict[str, Any]] = []
+    cursor = 0
+    limit = META_ITEMS
+    for _ in range(100_000):
+        try:
+            # A big page gets one chance; the small size is retried like any request.
+            page = _call(
+                transport,
+                f"changes?cursor={cursor}&limit={limit}&metadata_only=true",
+                attempts=1 if limit > PAGE_ITEMS else 4,
+            )
+        except (OSError, ValueError):
+            if limit <= PAGE_ITEMS:
+                raise
+            limit = max(PAGE_ITEMS, limit // 5)
+            continue
+        found = page.get("items") if isinstance(page, dict) else None
+        if not isinstance(found, list):
+            raise ValueError("invalid change feed")
+        items.extend(item for item in found if isinstance(item, dict))
+        after = int(page.get("cursor") or 0)
+        if not found or after <= cursor:
+            break
+        cursor = after
+    return items
+
+
+def _read(transport: Any, head: dict[str, Any]) -> tuple[dict[str, Any], str] | None:
+    """One current document, whole, by its first part; None when the Hub would not serve it."""
+    pieces: list[str] = []
+    source: dict[str, Any] = {}
+    cursor = 0
+    for _ in range(READ_PAGES):
+        try:
+            page = _call(
+                transport,
+                "read",
+                {
+                    "asset_id": str(head["asset_id"]),
+                    "revision": int(head.get("revision") or 0),
+                    "cursor": cursor,
+                    "max_bytes": READ_BYTES,
+                },
+            )
+        except (OSError, ValueError, PermissionError):
+            return None
+        if not isinstance(page, dict) or not isinstance(page.get("text"), str):
+            return None
+        pieces.append(page["text"])
+        if isinstance(page.get("source"), dict):
+            source = dict(page["source"])
+        after = page.get("next_cursor")
+        if not isinstance(after, int) or after <= cursor:
+            break
+        cursor = after
+    return source, "".join(pieces)
+
+
+def _call(transport: Any, path: str, data: Any = None, attempts: int = 4) -> Any:
+    """One Hub request. A flaky link to the Hub is the common case, not the exception."""
     for attempt in range(attempts):
         try:
-            if hasattr(transport, "call"):
-                # Small pages: a Hub proves every memory document on a page, and a large
-                # page times out on a slow link (measured 2026-11-07: 100 items, 60 s).
-                return transport.call(
-                    f"changes?cursor={cursor}&limit={PAGE_ITEMS}&metadata_only=false"
-                )
-            return transport.changes(cursor)
+            return transport.call(path, data)
         except (OSError, ValueError) as exc:
             if attempt == attempts - 1:
                 raise
@@ -689,7 +814,8 @@ def run(
     runner = runner or run_agent
     stamp = time.strftime("%Y%m%d-%H%M%S", time.localtime(now))
     ledger = load_ledger(state)
-    items = pull(transport)
+    feed: dict[str, Any] = {}
+    items = pull(transport, seen=ledger["seen"], full=full, report=feed)
     docs, hub_wiki = documents(items)
     seen = ledger["seen"]
     changed = [
@@ -700,6 +826,7 @@ def run(
         "run": stamp,
         "documents": len(docs),
         "changed": len(changed),
+        "feed": feed,
         "bundles": 0,
         "model": model,
         "analyzer_model": analyzer_model or model,
