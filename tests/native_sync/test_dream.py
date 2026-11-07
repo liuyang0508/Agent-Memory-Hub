@@ -103,7 +103,9 @@ def test_validate_retires_stubs_repoints_links_and_completes_the_index(tmp_path)
     (tmp_path / "old-name.md").write_text("MOVED TO [[deploy]]\n")
     (tmp_path / "bad.md").write_text("没有 frontmatter")
     (tmp_path / "wrong.md").write_text(page("wrong", name="other"))
-    (tmp_path / "secret.md").write_text(page("secret", "-----BEGIN RSA PRIVATE KEY-----\nabc"))
+    (tmp_path / "secret.md").write_text(
+        page("secret", "-----BEGIN %s KEY-----\nabc" % "RSA PRIVATE")
+    )
     (tmp_path / "loose.md").write_text(page("loose"))
     (tmp_path / "_index.md").write_text(
         "# 索引\n\n## 部署\n- [[old-name]] — 旧\n- [[gone]] — 没了\n"
@@ -249,7 +251,7 @@ def test_the_runner_denies_everything_outside_the_work_tree(tmp_path):
 
 
 def test_outcome_reads_the_stream_and_counts_leaks():
-    home = "/Users/someone"
+    home = "/home/example/"
     records = [
         {
             "type": "assistant",
@@ -259,7 +261,7 @@ def test_outcome_reads_the_stream_and_counts_leaks():
             "type": "user",
             "message": {
                 "content": [
-                    {"type": "tool_result", "tool_use_id": "t1", "content": "text /Users/someone/x"}
+                    {"type": "tool_result", "tool_use_id": "t1", "content": "text /home/example/x"}
                 ]
             },
         },
@@ -275,7 +277,7 @@ def test_outcome_reads_the_stream_and_counts_leaks():
     stream = "\n".join(json.dumps(r) for r in records)
     found = dream.outcome(stream, 0, "", 2.0, home)
     assert found["leak"] == 1 and not found["ok"] and found["cost"] == 0.42 and found["turns"] == 4
-    clean = dream.outcome(stream.replace("/Users/someone/x", "ok"), 0, "", 2.0, home)
+    clean = dream.outcome(stream.replace("/home/example/x", "ok"), 0, "", 2.0, home)
     assert clean["ok"] and clean["leak"] == 0 and clean["reply"] == '{"ok":1}'
     assert dream.outcome("", 1, "boom", 1.0, home)["error"].startswith("exit 1")
     assert dream.outcome("", 0, "", 1.0, home)["error"] == "no result"
@@ -288,7 +290,7 @@ def test_wiki_pages_have_their_own_role_and_the_index_is_navigation():
 
 
 def test_the_catalog_puts_the_wiki_index_first_with_short_names():
-    index = "# 组织维基索引\n\n## 部署\n- [[deploy-pre]] — 生产跑 pre 线\n* [[accept-37]]：验收 37 关 10.0.0.1\n"
+    index = "# 组织维基索引\n\n## 部署\n- [[deploy-pre]] — 生产跑 pre 线\n* [[accept-37]]：验收 37 关 192.0.2.7\n"
     assert catalog.describe("org-wiki/_index.md", index) == [
         "deploy-pre：生产跑 pre 线",
         "accept-37：验收 37 关 …",
