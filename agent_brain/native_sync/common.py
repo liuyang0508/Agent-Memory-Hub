@@ -26,6 +26,7 @@ PRODUCTS = {
     "cowork": "Claude Cowork",
     "codex-desktop": "Codex 客户端",
     "chatgpt-desktop": "ChatGPT 客户端",
+    "amh": "AMH 组织整理",  # The organization wiki a dreaming pass writes.
 }
 
 KINDS = {

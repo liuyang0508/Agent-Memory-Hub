@@ -7,7 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.4.32] — 2026-11-07
+## [1.5.0] — 2026-11-07
+
+### Added
+
+- `amh-native dream`: an offline pass that reads back over everything the organization
+  shares and keeps a small linked wiki beside it, each fact dated, attributed and marked
+  verified, inferred or in conflict, with an index the catalog shows every session. It
+  runs on the operator's machine through headless Claude Code with no shell, no network,
+  nothing readable outside a temporary work tree and a spending ceiling; code then checks
+  front matter, links, the index and credentials before anything may leave the machine.
+  Nothing is uploaded unless `--publish` is given; `--schedule on` dreams nightly. The
+  pages are memory assets of a new product, `amh`, under `org-wiki/`; an older Hub
+  rejects them and keeps everything else. See `docs/native-memory/dreaming.zh.md`.
+- The change feed names who recorded each document, so a dreaming pass can cite them.
+
+### Changed
+
+- The catalog puts the wiki index first, each line carrying the page's short name as a
+  search term, and tells the model to verify facts marked inferred or in conflict; the
+  injection header says the same.
+
 
 ### Changed
 

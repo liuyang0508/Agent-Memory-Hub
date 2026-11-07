@@ -323,9 +323,12 @@ def _kind(record: dict[str, Any]) -> str:
     kind = {"memory": "记忆", "rule": "规则", "skill": "技能", "transcript": "会话"}.get(
         str(record.get("kind")), str(record.get("kind") or "")
     )
-    role = {"navigation": "索引", "topic": "主题", "conversation_summary": "摘要"}.get(
-        str(record.get("role") or ""), ""
-    )
+    role = {
+        "navigation": "索引",
+        "topic": "主题",
+        "wiki": "维基",
+        "conversation_summary": "摘要",
+    }.get(str(record.get("role") or ""), "")
     return kind + ("·" + role if role else "")
 
 
@@ -637,9 +640,9 @@ def _box_table(
     for rank, record in enumerate(hits, 1):
         product = source_product(str(record.get("product") or ""))
         role = str(record.get("role") or "")
-        kind = {"navigation": "索引", "conversation_summary": "摘要"}.get(role) or _kind(
-            record
-        ).split("·")[0]
+        kind = {"navigation": "索引", "wiki": "维基", "conversation_summary": "摘要"}.get(
+            role
+        ) or _kind(record).split("·")[0]
         values = {
             "rank": str(rank),
             "title": _plain(_box_title(record)),

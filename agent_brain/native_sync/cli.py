@@ -23,7 +23,14 @@ from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn, TimeEl
 
 from .client import NativeClient
 from . import source_policy
-from .common import PRODUCTS, PAIRING_MAX_TTL, atomic_json, display_name, source_product
+from .common import (
+    PRODUCTS,
+    PAIRING_MAX_TTL,
+    atomic_json,
+    atomic_text,
+    display_name,
+    source_product,
+)
 from .storage import database
 from .install import (
     discover as discover_products,
@@ -632,6 +639,86 @@ def session_digests_command(
             **({"withdrawn": withdrawn} if withdrawn is not None else {}),
         }
     )
+
+
+@app.command("dream")
+def dream_command(
+    state: Path = DEFAULT_STATE,
+    publish: bool = typer.Option(
+        False, "--publish", help="把整理结果作为组织维基上传；默认只整理出来给人看"
+    ),
+    full: bool = typer.Option(False, "--full", help="全量重做，不只看上次之后变过的文件"),
+    model: str = typer.Option("", "--model", help="组织者用的模型（默认 opus）"),
+    analyzer_model: str = typer.Option("", "--analyzer-model", help="分析员用的模型（默认同上）"),
+    budget: float = typer.Option(0.0, "--budget", help="本次花费上限，美元等价（默认 12）"),
+    jobs: int = typer.Option(0, "--jobs", help="同时运行的分析员数（默认 3）"),
+    status: bool = typer.Option(False, "--status", help="只看最近几次运行的情况"),
+    schedule: str = typer.Option("", "--schedule", help="on：每天 02:00 自动整理并上传；off：取消"),
+    yes: bool = typer.Option(False, "--yes", help="上传时跳过确认"),
+) -> None:
+    """离线整理组织记忆成维基（"做梦"）：合并、标日期和核验状态、修冲突、建索引。"""
+    from . import dream
+
+    c = load(state)
+    if status:
+        emit(dream.status(c.root))
+        return
+    if schedule:
+        if schedule not in ("on", "off"):
+            raise typer.BadParameter("--schedule 只接受 on 或 off")
+        emit(schedule_dream(c.root, schedule == "on", budget or dream.DEFAULT_BUDGET))
+        return
+    if publish and not yes:
+        console.print(
+            "整理结果会作为组织维基上传，组织成员的会话会读到。上传前会做凭据筛查，"
+            "但不保证完全识别；不加 --publish 可以先整理出来看。",
+            markup=False,
+        )
+        if not typer.confirm("确认上传？", default=False):
+            emit({"changed": False})
+            return
+    from .transport import Transport
+
+    # Pages of the feed carry bodies, and the link to a Hub is not always quick.
+    feed = Transport(c.config["hub"], c.identity["token"], timeout=60)
+    report = dream.run(
+        c.root,
+        feed,
+        lambda root, product: c.register(root, product, "", "memory"),
+        publish_pages=publish,
+        full=full,
+        model=model or dream.DEFAULT_MODEL,
+        analyzer_model=analyzer_model,
+        budget=budget or dream.DEFAULT_BUDGET,
+        jobs=jobs or dream.DEFAULT_JOBS,
+    )
+    emit(report)
+
+
+def schedule_dream(state: Path, on: bool, budget: float) -> dict[str, Any]:
+    """Load or unload the nightly dreaming job in the user's launchd domain."""
+    import plistlib
+
+    from .dream import schedule_plist
+
+    path, data = schedule_plist(state, Path.home(), budget=budget)
+    domain = f"gui/{os.getuid()}"
+    if path.exists():
+        subprocess.run(["launchctl", "bootout", domain, str(path)], capture_output=True)
+    if not on:
+        if path.exists():
+            path.unlink()
+        return {"scheduled": False, "plist": str(path)}
+    path.parent.mkdir(parents=True, exist_ok=True)
+    atomic_text(path, plistlib.dumps(data).decode())
+    result = subprocess.run(["launchctl", "bootstrap", domain, str(path)], capture_output=True)
+    if result.returncode:
+        return {
+            "scheduled": False,
+            "plist": str(path),
+            "error": result.stderr.decode(errors="replace").strip()[-200:],
+        }
+    return {"scheduled": True, "plist": str(path), "hour": 2, "budget": budget}
 
 
 @app.command()

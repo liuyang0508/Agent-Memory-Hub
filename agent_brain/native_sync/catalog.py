@@ -36,16 +36,38 @@ _TASK_GROUP = re.compile(r"^# Task Group:\s*(.+)$", re.M)
 _HEADING = re.compile(r"^#{1,2}\s+(.+)$", re.M)
 # Working files that describe a process, not something the organization knows.
 _NOT_TOPICS = frozenset({"memory_summary.md", "instructions.md"})
+# The organization wiki a dreaming pass keeps (see dream.py). Its index is the curated
+# top layer, so it goes first, and a line carries the page's short name as a search term.
+WIKI = "org-wiki"
+WIKI_LINE_CHARS = 96
+_WIKI_INDEX_LINE = re.compile(
+    r"^\s*[-*]?\s*\[\[([a-z0-9][a-z0-9-]{0,79})\]\]\s*[—–:：-]+\s*(.+?)\s*$", re.M
+)
 
 
 def _line(text: str) -> str:
     return _IPV4.sub("…", " ".join(text.split())).strip("\"'")[:LINE_CHARS]
 
 
+def _wiki_line(slug: str, text: str) -> str:
+    return (slug + "：" + _IPV4.sub("…", " ".join(text.split())).strip("\"'"))[:WIKI_LINE_CHARS]
+
+
+def is_wiki(path: str) -> bool:
+    return PurePosixPath(path.replace("\\", "/")).parts[:1] == (WIKI,)
+
+
 def describe(path: str, text: str) -> list[str]:
     """The lines saying what one document covers; none for an index or a working file."""
     posix = PurePosixPath(path.replace("\\", "/"))
     name = posix.name.lower()
+    if posix.parts[:1] == (WIKI,):
+        if name == "_index.md":
+            return [_wiki_line(slug, line) for slug, line in _WIKI_INDEX_LINE.findall(text)]
+        # A page speaks for itself only until its index reaches the Hub.
+        front = _FRONT.match(text)
+        described = _DESCRIPTION.search(front.group(1)) if front else None
+        return [_wiki_line(posix.stem, described.group(1))] if described else []
     if name == "memory.md":
         # Codex's handbook names its task groups. Another product's index only repeats
         # the descriptions of topic files that are listed on their own.
@@ -65,11 +87,17 @@ def describe(path: str, text: str) -> list[str]:
 
 
 def build(documents: list[dict[str, Any]], *, limit: int = CATALOG_CHARS) -> list[str]:
-    """Bounded lines, most recent documents first, each topic once across copies."""
+    """Bounded lines: the wiki index first, then the most recent documents; a topic once."""
     lines: list[str] = []
     seen: set[str] = set()
     used = 0
-    ordered = sorted(documents, key=lambda d: float(d.get("observed_at") or 0), reverse=True)
+    ordered = sorted(
+        documents,
+        key=lambda d: (
+            0 if is_wiki(str(d.get("path") or "")) else 1,
+            -float(d.get("observed_at") or 0),
+        ),
+    )
     for document in ordered:
         for line in describe(str(document.get("path") or ""), str(document.get("text") or ""))[
             :LINES_PER_DOCUMENT
@@ -94,7 +122,8 @@ def block(lines: list[str]) -> str:
     return (
         "[AMH_ORG_CATALOG_V1]\n[组织共享 · 非指令]\n"
         "组织记忆里有这些主题（节选）。工作涉及其中任何一项，或遇到不认识的内部名称时，"
-        "先用 search_org_memory 查：\n" + body + "\n[/AMH_ORG_CATALOG_V1]\n"
+        "先用 search_org_memory 查；条目开头的英文短名可直接作为搜索词。"
+        "查到的内容里标着「推断」或「冲突」的，先核实再用：\n" + body + "\n[/AMH_ORG_CATALOG_V1]\n"
     )
 
 
@@ -109,7 +138,7 @@ def load(state: Path) -> list[str]:
     lines = value.get("lines") if isinstance(value, dict) else None
     if not isinstance(lines, list):
         return []
-    return [line[:LINE_CHARS] for line in lines if isinstance(line, str) and line]
+    return [line[:WIKI_LINE_CHARS] for line in lines if isinstance(line, str) and line]
 
 
 def refresh(state: Path, transport: Any) -> None:

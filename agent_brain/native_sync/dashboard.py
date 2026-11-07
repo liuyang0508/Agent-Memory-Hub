@@ -333,7 +333,7 @@ let token = sessionStorage.getItem("amh_dash") || sessionStorage.getItem("amh_ad
 let days = 30;
 let last = null;
 const WINDOWS = [[7, "7 天"], [30, "30 天"], [90, "90 天"], [365, "一年"]];
-const PRODUCTS = {"claude-code": "Claude Code", "codex-cli": "Codex CLI", "codex-desktop": "Codex 桌面版", "cowork": "Cowork", "chatgpt": "ChatGPT", "unknown": "未知"};
+const PRODUCTS = {"claude-code": "Claude Code", "codex-cli": "Codex CLI", "codex-desktop": "Codex 桌面版", "cowork": "Cowork", "chatgpt": "ChatGPT", "amh": "组织维基", "unknown": "未知"};
 const MODES = {hybrid: "混合（词法 + 语义）", lexical: "仅词法", unknown: "未知"};
 const REASONS = {
   semantic_index_not_built: "语义索引未建", semantic_model_not_configured: "未配置语义模型",

@@ -1104,6 +1104,16 @@ class Hub:
                         for item in (json.loads(r["payload"]) for r in rows)
                         if not item.get("scrubbed")
                     ]
+            if not metadata_only and items:
+                # A dreaming pass cites who recorded a fact; the feed otherwise names nobody.
+                names = {
+                    row["id"]: row["name"]
+                    for row in db.execute(
+                        "SELECT id,name FROM members WHERE tenant=?", (who["tenant"],)
+                    )
+                }
+                for item in items:
+                    item["producer_name"] = names.get(item.get("producer_member_id")) or "未知"
             proofs: dict[tuple[str, ...], list[tuple[str, int]]] = {}
             for item in items:
                 key = self._proof_key(item)
@@ -1358,8 +1368,12 @@ class Hub:
                 (tenant,),
             ):
                 item = json.loads(found["payload"])
-                # This machine's own memory is already in front of its own product.
-                if item.get("source_device_id") == who["device_id"]:
+                # This machine's own memory is already in front of its own product; the
+                # wiki is nobody's own memory, even on the machine that publishes it.
+                if (
+                    item.get("source_device_id") == who["device_id"]
+                    and item.get("product") != "amh"
+                ):
                     continue
                 if self._retrieval_valid(db, item):
                     name = item.get("document_id") or item["asset_id"]
