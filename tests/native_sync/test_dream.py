@@ -91,8 +91,9 @@ class HubLink:
     def call(self, path, data=None):
         self.calls.append((path, data))
         if path.startswith("changes?"):
-            assert "metadata_only=true" in path
+            assert "metadata_only=true" in path and path.endswith("&kinds=memory")
             query = dict(part.split("=") for part in path[len("changes?") :].split("&"))
+            # An older Hub ignores ``kinds``; this one serves everything, as that Hub would.
             cursor, limit = int(query["cursor"]), int(query["limit"])
             if self.slow and limit > 20:
                 self.slow = False

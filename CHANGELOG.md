@@ -24,6 +24,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A dreaming pass reads the change feed as metadata and fetches only the bodies it
   needs through `/native/v1/read`; transcript parts and superseded revisions never
   travel. `report.json` counts them under `feed`.
+- `GET /native/v1/changes` takes `kinds=memory,rule` and serves only those asset
+  kinds; a dreaming pass asks for `memory`. Older Hubs ignore the parameter.
 
 ### Changed
 

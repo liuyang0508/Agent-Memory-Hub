@@ -412,9 +412,16 @@ def create_app(hub: Hub) -> FastAPI:
         cursor: int = Query(default=0, ge=0),
         limit: int = Query(default=100, ge=1, le=100),
         metadata_only: bool = False,
+        kinds: str | None = Query(default=None, max_length=64, pattern=r"^[a-z,]*$"),
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
-        return hub.changes(bearer(authorization), cursor, limit, metadata_only=metadata_only)
+        return hub.changes(
+            bearer(authorization),
+            cursor,
+            limit,
+            metadata_only=metadata_only,
+            kinds=[kind for kind in (kinds or "").split(",") if kind] or None,
+        )
 
     @app.post("/native/v1/search")
     def search(

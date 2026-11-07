@@ -252,7 +252,11 @@ def _feed(transport: Any) -> list[dict[str, Any]]:
 
 
 def _metadata(transport: Any) -> list[dict[str, Any]]:
-    """The whole feed without bodies. A page that times out is retried smaller."""
+    """The feed's memory entries without bodies. A page that times out is retried smaller.
+
+    A Hub from 1.5.0 on serves only the asked kinds; an older Hub ignores the parameter
+    and the caller filters, as it must anyway.
+    """
     items: list[dict[str, Any]] = []
     cursor = 0
     limit = META_ITEMS
@@ -261,7 +265,7 @@ def _metadata(transport: Any) -> list[dict[str, Any]]:
             # A big page gets one chance; the small size is retried like any request.
             page = _call(
                 transport,
-                f"changes?cursor={cursor}&limit={limit}&metadata_only=true",
+                f"changes?cursor={cursor}&limit={limit}&metadata_only=true&kinds=memory",
                 attempts=1 if limit > PAGE_ITEMS else 4,
             )
         except (OSError, ValueError):

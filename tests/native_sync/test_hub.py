@@ -79,6 +79,24 @@ def test_repeated_upload_idempotent_and_stale_write_rejected(hub):
     assert [i["revision"] for i in hub.changes(a["token"], 0)["items"]] == [2]
 
 
+def test_changes_can_be_narrowed_to_some_kinds(hub):
+    a = enroll(hub)
+    hub.put(a["token"], asset("m"))
+    hub.put(a["token"], asset("t", kind="transcript", path="s/t.jsonl", title="t"))
+    hub.put(a["token"], asset("m2", path="notes.md", title="n"))
+    whole = hub.changes(a["token"], 0, metadata_only=True)
+    memory = hub.changes(a["token"], 0, metadata_only=True, kinds=["memory"])
+    assert [i["asset_id"] for i in whole["items"]] == ["m", "t", "m2"]
+    assert [i["asset_id"] for i in memory["items"]] == ["m", "m2"]
+    assert memory["cursor"] == whole["cursor"] == 3
+    one = hub.changes(a["token"], 0, limit=1, kinds=["memory"])
+    assert [i["asset_id"] for i in one["items"]] == ["m"] and one["cursor"] == 1
+    rest = hub.changes(a["token"], one["cursor"], limit=1, kinds=["memory"])
+    assert [i["asset_id"] for i in rest["items"]] == ["m2"] and rest["cursor"] == 3
+    # An unknown kind narrows nothing rather than everything.
+    assert len(hub.changes(a["token"], 0, metadata_only=True, kinds=["nope"])["items"]) == 3
+
+
 def test_cannot_spoof_producer_or_overwrite_another_members_asset(hub):
     a, b = enroll(hub), enroll(hub, name="李四")
     hub.put(a["token"], asset())
