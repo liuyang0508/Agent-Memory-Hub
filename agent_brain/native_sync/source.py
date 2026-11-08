@@ -10,6 +10,7 @@ import hashlib
 import json
 import re
 from pathlib import Path
+from . import codex_store
 from .projection import strip_managed
 from .common import legacy_memory_command, wire_product
 from .facets import source_meta
@@ -330,17 +331,17 @@ def transcript_metadata(path: str | Path) -> bool:
 
 
 def withheld(root: Path, kind: str, rel: Path | str) -> bool:
-    """Codex files that stay on this machine even though they sit in its memory store.
+    """Codex files that stay on this machine even though they sit in a memory store.
 
-    raw_memories.md is consolidation's intermediate input, not memory meant to be
-    read, and extensions/skysight/ holds what Computer History derives from what a
-    person did on screen. ``memories`` is the store's name only for Codex; other
-    products keep theirs in ``memory``.
+    Generated artifacts (raw_memories.md, phase2_workspace_diff.md) are not memory
+    meant to be read, extensions/skysight/ holds what Computer History derives from
+    what a person did on screen, and the store Codex no longer reads stops updating
+    (codex_store.withheld). ``memories``/``memories_v2`` are Codex's store names;
+    other products keep theirs in ``memory``.
     """
-    if kind != "memory" or root.name != "memories":
+    if kind != "memory" or not codex_store.is_store(root):
         return False
-    parts = Path(rel).parts
-    return parts == ("raw_memories.md",) or parts[:2] == ("extensions", "skysight")
+    return codex_store.withheld(root, rel)
 
 
 def files(root: Path, kind: str) -> Iterator[Path]:

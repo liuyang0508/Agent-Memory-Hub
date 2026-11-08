@@ -11,6 +11,7 @@ import re
 import shlex
 import shutil
 from pathlib import Path
+from . import codex_store
 from .common import (
     PRODUCTS,
     atomic_json,
@@ -39,26 +40,29 @@ def discover(home: Path) -> list[dict[str, Any]]:
             "roots": [str(p) for p in cc],
         }
     )
+    # Codex keeps v1 memory in memories/ and v2 in memories_v2/; which one a machine
+    # reads follows Codex's own rule (codex_store.active). The store Codex reads
+    # comes first; the other is watched too so a switch needs no reinstall.
+    codex_roots = [str(p) for p in codex_store.roots(home / ".codex")]
     result.append(
         {
             "product": "codex-cli",
             "name": PRODUCTS["codex-cli"],
             "detected": bool(shutil.which("codex") or (home / ".codex").exists()),
-            "roots": [str(home / ".codex/memories")],
+            "roots": codex_roots,
         }
     )
     # The ChatGPT desktop app manages Codex memory on this host ("Codex 记忆 →
-    # 本地主机" in its settings), and that store is ~/.codex/memories. It is the
-    # same directory Codex CLI and the Codex app use, so the three share one
-    # store; rows are deduplicated by absolute path and labelled codex.
-    codex_store = home / ".codex/memories"
+    # 本地主机" in its settings), and that store is the same ~/.codex one Codex
+    # CLI and the Codex app use, so the three share it; rows are deduplicated by
+    # absolute path and labelled codex.
     if (Path("/Applications") / "ChatGPT.app").exists():
         result.append(
             {
                 "product": "chatgpt-desktop",
                 "name": PRODUCTS["chatgpt-desktop"],
                 "detected": True,
-                "roots": [str(codex_store)],
+                "roots": codex_roots,
                 "note": "记忆在「设置 → 个性化 → Codex 记忆」，与 Codex 共用同一份本地存储",
             }
         )
@@ -68,7 +72,7 @@ def discover(home: Path) -> list[dict[str, Any]]:
                 "product": "codex-desktop",
                 "name": PRODUCTS["codex-desktop"],
                 "detected": True,
-                "roots": [str(codex_store)],
+                "roots": codex_roots,
                 "note": "与 Codex CLI 共用同一份存储",
             }
         )
@@ -106,9 +110,10 @@ def discover_assets(home: Path, product: str) -> list[dict[str, str]]:
     elif product in ("codex-cli", "codex-desktop", "chatgpt-desktop"):
         base = home / ".codex"
         candidates = [
-            # The curated store. It was missing here, so Codex and the ChatGPT
+            # The curated stores. v1 was missing here once, so Codex and the ChatGPT
             # desktop app were "detected" but contributed no memory rows at all.
             (base / "memories", "memory"),
+            (base / "memories_v2", "memory"),
             (base / "sessions", "transcript"),
             (base / "AGENTS.md", "rule"),
             (base / "skills", "skill"),
@@ -621,6 +626,7 @@ def export_cowork_plugin(
         "profiles.py",
         "source.py",
         "source_policy.py",
+        "codex_store.py",
         "materialize.py",
         "worker.py",
         "lineage.py",

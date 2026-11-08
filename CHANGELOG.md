@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.3] — 2026-11-08
+
+### Added
+
+- Codex's second memory store, `~/.codex/memories_v2/`, is now watched. Codex puts a
+  fresh machine on v2 and keeps a machine that already has `memories/` on v1 unless
+  `[memories] version` says otherwise (codex-rs `core/src/config/mod.rs`, unchanged
+  through rust-v0.167.0); `amh-native install` follows the same rule, shares the store
+  Codex actually reads, and lists the other one so a later switch needs no reinstall.
+
+### Changed
+
+- When a machine moves from v1 to v2, the v1 copies already on the Hub stay and stop
+  updating, the way `raw_memories.md` was handled in 1.4.27; the v2 store takes over.
+  Inside a v2 store, Codex's `.git/` baseline and its `phase2_workspace_diff.md`
+  prompt artifact are never uploaded.
+
+### Fixed
+
+- Installation no longer creates `~/.codex/memories` on a machine Codex would put on
+  v2. Codex reads the mere existence of that directory as "this machine is on v1", so
+  the old behaviour silently moved such a machine back to v1 and abandoned its v2 store.
+
 ## [1.5.2] — 2026-11-08
 
 ### Fixed
