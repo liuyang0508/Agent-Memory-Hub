@@ -676,7 +676,7 @@ function renderHealth(d) {
   const tile = (k, val, small) => h("div", {class: "tile"}, h("div", {class: "k", text: k}), h("div", {class: "val"}, val, small && h("small", {text: small})));
   put("tiles",
     tile("语义检索", statusTag(ready ? "good" : "critical") , ready ? (x.semantic_model || "") : (x.semantic_reason || x.semantic_state)),
-    tile("相关性门控", x.gate || "未运行", ready ? "每周按使用反馈校准" : "语义可用后才工作"),
+    tile("相关性门控", x.retrieval_mode === "literal" ? "字面模式" : (x.gate || "未运行"), x.retrieval_mode === "literal" ? "只注入提示里点名的记忆" : (ready ? "每周按使用反馈校准" : "语义可用后才工作")),
     tile("自动校准", run ? (RUNS[run.status] || run.status) : "尚未运行", run && run.at ? fmtTime(run.at) : "问题集 " + num(t.gold_cases || 0) + " 题"),
     tile("使用反馈（30 天）", num(judged) + " 条", "用上 " + num((labels.used || 0) + (labels.consulted || 0)) + " · 没用上 " + num(labels.unused || 0)),
     tile("设备", num(x.active_devices) + " / " + num(x.devices), "在用 / 全部"),

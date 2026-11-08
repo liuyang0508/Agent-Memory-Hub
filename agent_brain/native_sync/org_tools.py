@@ -21,7 +21,7 @@ from .transport import HubHTTPError, Transport, validate_url
 from .common import source_product, tokens
 
 MAX_CALLS = 12
-MAX_SEARCHES = 3
+MAX_SEARCHES = 8  # literal search needs more tries than ranked search did (1.5.4)
 MAX_CONTENT_BYTES = 64000
 RESEARCH_TTL = 600
 MAX_RESEARCHES = 32

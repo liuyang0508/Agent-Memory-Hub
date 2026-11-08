@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.4] — 2026-11-08
+
+### Changed
+
+- Recall ranks literally by default, like grep: the search tool matches each
+  space-separated word or phrase as a case-insensitive exact substring and ranks
+  documents by how many terms they match, and the prompt-time hook injects only memory
+  that names something the prompt names. Semantic ranking, BM25 fusion and the learned
+  gate stay in the code as `AMH_NATIVE_RETRIEVAL=hybrid` on the Hub; the semantic index
+  keeps being maintained so the switch back is immediate. On the 30 held-out prompts
+  (2026-11-07) literal answered as well as hybrid (53/8/8 against 50/11/8) at lower cost
+  per question; vague questions take more searches, so the research budget allows 8
+  searches instead of 3, and the MCP instructions describe the literal matching.
+- In hybrid mode a wiki page needs a higher relevance probability than other memory
+  before it is injected unasked: `AMH_NATIVE_WIKI_MARGIN`, default 0.08 on top of the
+  gate threshold. Wiki pages name many identifiers and cleared the gate on every
+  distractor prompt measured on 2026-11-07; 0.78 blocked two of the three leaks. The
+  recall trace records the bar each candidate was held to.
+- Health reports `retrieval.mode` and `retrieval.wiki_margin` (capability
+  `retrieval-mode-v1`); the admin cockpit shows the mode; weekly gate recalibration
+  and `POST /native/v1/recall/autotune` are skipped in literal mode (`literal_mode`).
+
 ## [1.5.3] — 2026-11-08
 
 ### Added

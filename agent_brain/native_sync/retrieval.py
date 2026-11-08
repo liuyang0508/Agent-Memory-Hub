@@ -346,6 +346,52 @@ def _best_window(
     return windows[index], float(sims[index])
 
 
+# Literal mode scans this many of the newest eligible documents for substrings.
+SUBSTRING_SCAN = 5000
+
+
+def substring_terms(query: str) -> list[str]:
+    """Each whitespace-separated word or phrase, case-folded, in order, without repeats."""
+    seen: list[str] = []
+    for raw in query.split():
+        term = raw.casefold()
+        if term and term not in seen:
+            seen.append(term)
+    return seen[:16]
+
+
+def _substring_rows(
+    db: sqlite3.Connection, predicate: str, args: list[Any], query: str
+) -> list[sqlite3.Row | dict[str, Any]]:
+    """grep-like ranking: documents matching more distinct terms first, then more occurrences.
+
+    No synonyms, no stemming, no tokenizer: a term matches where its characters appear,
+    the way Claude Code and Codex search their own memory. Rows mirror the BM25 rows
+    (``payload``, negative ``score`` where lower is better) so the rest of the pipeline
+    is unchanged.
+    """
+    terms = substring_terms(query)
+    if not terms:
+        return []
+    scored: list[tuple[int, int, dict[str, Any]]] = []
+    for row in db.execute(
+        "SELECT a.payload FROM assets a WHERE "
+        + predicate
+        + " ORDER BY json_extract(a.payload,'$.observed_at') DESC LIMIT ?",
+        [*args, SUBSTRING_SCAN],
+    ):
+        item = json.loads(row["payload"])
+        text = (str(item.get("title") or "") + "\n" + str(item.get("body") or "")).casefold()
+        found = [term for term in terms if term in text]
+        if found:
+            scored.append((len(found), sum(text.count(term) for term in found), item))
+    scored.sort(key=lambda entry: (-entry[0], -entry[1]))
+    return [
+        {"payload": json.dumps(item), "score": -(distinct * 1000.0 + min(occurrences, 999))}
+        for distinct, occurrences, item in scored[:CANDIDATES]
+    ]
+
+
 def retrieve(
     hub: Hub,
     token: str,
@@ -422,6 +468,14 @@ def retrieve(
                 + " ORDER BY score LIMIT ?",
                 [match, *args, CANDIDATES],
             ).fetchall()
+        literal_mode = hub.retrieval_mode == "literal"
+        if literal_mode:
+            reasons.append("literal_mode")
+            if channel != "hook":
+                # The search tool ranks like grep. The prompt-time hook keeps the
+                # keyword candidates for its table; it injects only what the prompt
+                # names (the lexical guard below), whatever ranked them.
+                lexical = _substring_rows(db, predicate, args, query)
         exact = db.execute(
             "SELECT a.payload FROM assets a WHERE " + predicate + " AND a.id=?",
             [*args, query.strip()],
@@ -463,7 +517,7 @@ def retrieve(
                     lex_hits.append(RetrievedItem(item["asset_id"], 0.0, None, None))
         indexed: list[sqlite3.Row] = []
         metadata: semantic.SemanticDescriptor | None = None
-        if semantic.exists(db):
+        if not literal_mode and semantic.exists(db):
             record_row = db.execute(
                 "SELECT descriptor FROM native_semantic_meta WHERE tenant=?", (who["tenant"],)
             ).fetchone()
@@ -521,7 +575,9 @@ def retrieve(
     # the learned gate reads the prompt's similarity to the whole store.
     all_scores: dict[str, float] = {}
     backend: Any = None
-    if metadata is None:
+    if literal_mode:
+        pass  # ranking never consults the semantic index in this mode
+    elif metadata is None:
         reasons.append("semantic_index_not_built")
     else:
         backend, error = hub._semantic_backend()
@@ -813,7 +869,9 @@ def retrieve(
                 )
                 probability = model.probability(values)
                 lift = relevance.lift_of(values)
-                passes = relevance.admitted(model, probability, values)
+                # A wiki page spans a topic and names many identifiers: it needs more.
+                bar = model.threshold + (hub.wiki_margin if item.get("role") == "wiki" else 0.0)
+                passes = relevance.admitted(model, probability, values, threshold=bar)
                 if passes and not collecting and _native_here(item, who, asking):
                     trace.drop(hit.id, "relevance_gate", {"reason": "native_here"})
                     continue
@@ -821,7 +879,7 @@ def retrieve(
                 # feedback can later be learned from what the gate saw.
                 trace.row(hit.id)["gate"] = {
                     "probability": round(probability, 4),
-                    "threshold": model.threshold,
+                    "threshold": round(bar, 4),
                     "version": model.version,
                     "lift": round(lift, 4),
                     "x": [round(float(v), 5) for v in values],
@@ -837,7 +895,7 @@ def retrieve(
                         "relevance_gate",
                         {
                             "probability": round(probability, 4),
-                            "threshold": model.threshold,
+                            "threshold": round(bar, 4),
                             "lift": round(lift, 4),
                             "floor": model.lift,
                         },
@@ -1035,7 +1093,10 @@ def retrieve(
         "project_filter": project_filter,
         "asking": _asking(asking),
         "stages": stages,
-        "retrieval": {"mode": "hybrid" if semantic_used else "lexical", "reasons": list(reasons)},
+        "retrieval": {
+            "mode": "literal" if literal_mode else "hybrid" if semantic_used else "lexical",
+            "reasons": list(reasons),
+        },
         "candidates": [
             {
                 "asset_id": key,
@@ -1074,7 +1135,7 @@ def retrieve(
     return {
         "items": results,
         "retrieval": {
-            "mode": "hybrid" if semantic_used else "lexical",
+            "mode": "literal" if literal_mode else "hybrid" if semantic_used else "lexical",
             "degraded": bool(reasons),
             "reasons": reasons,
             "model": metadata,
