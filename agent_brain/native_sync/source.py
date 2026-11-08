@@ -10,7 +10,7 @@ import hashlib
 import json
 import re
 from pathlib import Path
-from . import codex_store
+from .codex_store import is_store as is_codex_store, withheld as codex_withheld
 from .projection import strip_managed
 from .common import legacy_memory_command, wire_product
 from .facets import source_meta
@@ -339,9 +339,9 @@ def withheld(root: Path, kind: str, rel: Path | str) -> bool:
     (codex_store.withheld). ``memories``/``memories_v2`` are Codex's store names;
     other products keep theirs in ``memory``.
     """
-    if kind != "memory" or not codex_store.is_store(root):
+    if kind != "memory" or not is_codex_store(root):
         return False
-    return codex_store.withheld(root, rel)
+    return codex_withheld(root, rel)
 
 
 def files(root: Path, kind: str) -> Iterator[Path]:
