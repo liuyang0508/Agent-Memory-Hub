@@ -122,6 +122,7 @@ def create_app(hub: Hub) -> FastAPI:
             "org-catalog-v1",
             "session-digest-v1",
             "dream-lease-v1",
+            "retrieval-mode-v1",
         ]
         state = hub.semantic_status()
         semantic: dict[str, Any] = {k: state[k] for k in ("state", "model", "reason") if k in state}
@@ -141,6 +142,8 @@ def create_app(hub: Hub) -> FastAPI:
             "capabilities": capabilities,
             # Model name, index and gate state only; no counts, paths or tenants.
             "semantic": semantic,
+            # How recall ranks (literal like grep, or hybrid) and the wiki gate margin.
+            "retrieval": {"mode": hub.retrieval_mode, "wiki_margin": hub.wiki_margin},
         }
 
     @app.get("/native/v1/ready")

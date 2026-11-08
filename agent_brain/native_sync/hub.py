@@ -29,6 +29,23 @@ if TYPE_CHECKING:
     from .semantic import IndexRefreshResult, SemanticBackend
 
 
+# Wiki pages name many identifiers and cleared the learned gate on every distractor
+# prompt measured on 2026-11-07 (0.75-0.96 against 0.79-0.93 on real questions): their
+# bar is this much higher. 0.78 blocked two of the three measured leaks.
+WIKI_MARGIN = 0.08
+
+
+def _retrieval_mode(value: str | None) -> str:
+    """ "literal" ranks like grep and injects only what the prompt names; "hybrid" adds
+    semantic ranking, BM25 fusion and the learned gate. Literal is the default since
+    1.5.4: on the 30 held-out prompts it answered as well (53/8/8 against 50/11/8) at
+    lower cost, and it is how Claude Code and Codex search their own memory."""
+    mode = (value or "literal").strip().lower()
+    if mode not in ("literal", "hybrid"):
+        raise ValueError("AMH_NATIVE_RETRIEVAL must be literal or hybrid")
+    return mode
+
+
 def _env_float(name: str) -> float | None:
     value = os.environ.get(name, "").strip()
     if not value:
@@ -89,6 +106,8 @@ class Hub:
         hook_min_score: float | None = None,
         hook_margin: float | None = None,
         hook_gate: dict[str, Any] | None = None,
+        retrieval_mode: str | None = None,
+        wiki_margin: float | None = None,
     ) -> None:
         self.path = Path(path)
         # Decay/signals re-rank by default; Hopfield association is opt-in
@@ -149,6 +168,13 @@ class Hub:
         # recall then injects only a literal identifier match from the prompt
         # (AMH_NATIVE_HOOK_LEXICAL_GUARD=0 restores plain keyword injection).
         self.hook_lexical_guard = os.environ.get("AMH_NATIVE_HOOK_LEXICAL_GUARD", "1") != "0"
+        # How recall ranks (see _retrieval_mode). The semantic index keeps being
+        # maintained in literal mode so switching back is immediate.
+        self.retrieval_mode = _retrieval_mode(
+            retrieval_mode or os.environ.get("AMH_NATIVE_RETRIEVAL")
+        )
+        margin = wiki_margin if wiki_margin is not None else _env_float("AMH_NATIVE_WIKI_MARGIN")
+        self.wiki_margin = WIKI_MARGIN if margin is None else margin
         self.self_feedback_rate = _unit_rate(os.environ.get("AMH_NATIVE_SELF_FEEDBACK_RATE"), 0.2)
         # Generic-prompt bank vectors per model version, and each indexed
         # revision's background similarity to them (relevance.doc_bg).
@@ -1902,6 +1928,9 @@ class Hub:
             last = last_report(db, who["tenant"]) or {}
         if time.time() - float(last.get("at") or 0) < 3600 or self.autotune_lock.locked():
             return {"started": False, "reason": "ran_within_the_hour"}
+        if self.retrieval_mode == "literal":
+            # The gate is not consulted in literal mode; recalibrating it would read nothing.
+            return {"started": False, "reason": "literal_mode"}
         if not self.semantic_model or self.semantic_state.get("state") != "ready":
             return {"started": False, "reason": "semantic_not_ready"}
         threading.Thread(
@@ -2025,6 +2054,7 @@ class Hub:
                 "semantic_state": state.get("state", "off"),
                 "semantic_model": state.get("model"),
                 "semantic_reason": state.get("reason"),
+                "retrieval_mode": self.retrieval_mode,
                 "gate": self.gate_state() if state.get("state") == "ready" else None,
                 "autotune": autotune.status(db, scope, now=now),
                 "members": dashboard["totals"]["members"],

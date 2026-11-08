@@ -310,7 +310,7 @@ def serve(
         clock.sleep(600)
         while True:
             try:
-                if hub.semantic_state.get("state") == "ready":
+                if hub.semantic_state.get("state") == "ready" and hub.retrieval_mode != "literal":
                     for tenant in due(hub, interval=autotune_days * 86400):
                         run_and_remember(hub, tenant)
             except Exception:  # noqa: BLE001 - recall keeps the live gate

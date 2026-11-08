@@ -16,7 +16,7 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
 from agent_brain.native_sync import org_tools
-from agent_brain.native_sync.org_tools import OrganizationTools
+from agent_brain.native_sync.org_tools import MAX_SEARCHES, OrganizationTools
 from agent_brain.native_sync.transport import HubHTTPError, Transport
 
 TOKEN = "synthetic-isolated-device-credential-DO-NOT-RETURN"
@@ -230,18 +230,18 @@ def test_empty_policy_works_but_mismatch_and_pause_never_send_requests(hub, tmp_
     assert len(hub.calls) == before
 
 
-def test_three_searches_duplicate_and_ttl_have_no_extra_network(hub, monkeypatch):
+def test_the_search_budget_duplicate_and_ttl_have_no_extra_network(hub, monkeypatch):
     tools = OrganizationTools(hub.state)
     first = tools.search("one")
     rid = first["research_id"]
     assert tools.search("one", research_id=rid)["code"] == "duplicate_request"
-    assert tools.search("two", research_id=rid)["ok"]
-    assert tools.search("three", research_id=rid)["ok"]
-    assert tools.search("four", research_id=rid)["code"] == "budget_exhausted"
-    assert len(hub.calls) == 3
+    for n in range(2, MAX_SEARCHES + 1):  # literal search needs more tries (1.5.4)
+        assert tools.search(f"question {n}", research_id=rid)["ok"]
+    assert tools.search("one more", research_id=rid)["code"] == "budget_exhausted"
+    assert len(hub.calls) == MAX_SEARCHES
     tools.researches[rid].created -= 601
     assert tools.read("asset_a", 2, rid)["code"] == "research_expired"
-    assert len(hub.calls) == 3
+    assert len(hub.calls) == MAX_SEARCHES
 
 
 def test_byte_budget_tightens_read_page_and_never_stores_bodies(hub):

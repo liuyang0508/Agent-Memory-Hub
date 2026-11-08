@@ -152,7 +152,7 @@ def _reason(code: str) -> str:
     return REASON_TEXT.get(code.split(":", 1)[0], code)
 
 
-MODE_TEXT = {"hybrid": "混合（词法+语义）", "lexical": "仅词法"}
+MODE_TEXT = {"hybrid": "混合（词法+语义）", "lexical": "仅词法", "literal": "字面（像 grep）"}
 VIA_TEXT = {"service": "常驻服务（热连接）", "worker": "子进程", "disabled": "已关闭"}
 
 
