@@ -23,6 +23,7 @@ from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn, TimeEl
 
 from .client import NativeClient
 from . import source_policy
+from .codex_store import may_create
 from .common import (
     PRODUCTS,
     PAIRING_MAX_TTL,
@@ -1942,7 +1943,7 @@ def setup(
         for binding in bindings:
             root = Path(binding["root"])
             kind = binding["kind"]
-            if kind == "memory":
+            if kind == "memory" and may_create(root):
                 root.mkdir(parents=True, exist_ok=True)
             source_product = (
                 "codex"
