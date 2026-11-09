@@ -638,6 +638,7 @@ def export_cowork_plugin(
         "autoupdate.py",
         "catalog.py",
         "digests.py",
+        "dream_request.py",
         "client.py",
         "cowork_runtime.py",
         "runtime_sources.py",

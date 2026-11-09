@@ -32,10 +32,20 @@ from typing import Any, Callable
 
 from .asset_roles import asset_role
 from .common import atomic_json, atomic_text, source_product
+from .dream_request import (
+    DIRECTORY,
+    POLL_IDLE_SECONDS as POLL_IDLE_SECONDS,
+    POLL_SECONDS as POLL_SECONDS,
+    REQUEST_FILE,
+    REQUEST_PATH,
+    call as _call,
+    pick_up as pick_up,
+    request,
+    spawn_pass as spawn_pass,
+)
 from .source import screen
 
 PRODUCT = "amh"
-DIRECTORY = "dream"
 PUBLISH_ROOT = "wiki"
 WIKI = "org-wiki"
 INDEX = "_index.md"
@@ -316,21 +326,6 @@ def _read(transport: Any, head: dict[str, Any]) -> tuple[dict[str, Any], str] | 
     return source, "".join(pieces)
 
 
-def _call(transport: Any, path: str, data: Any = None, attempts: int = 4) -> Any:
-    """One Hub request. A flaky link to the Hub is the common case, not the exception."""
-    for attempt in range(attempts):
-        try:
-            return transport.call(path, data)
-        except (OSError, ValueError) as exc:
-            # A 4xx is the Hub's verdict, not the link's weather: say it at once.
-            status = int(getattr(exc, "http_status", 0) or 0)
-            if attempt == attempts - 1 or 400 <= status < 500:
-                raise
-            time.sleep(1.5 * (attempt + 1))
-            last = exc
-    raise last  # pragma: no cover
-
-
 LEASE_PATH = "dream/lease"
 LEASE_SECONDS = 4 * 3600
 LEASE_MESSAGES = {
@@ -377,6 +372,31 @@ def lease(transport: Any, action: str = "status", ttl: int = LEASE_SECONDS) -> d
     if action == "acquire" and not answer["mine"]:
         answer["refusal"] = "not_designated" if not answer["designated"] else "lease_held"
     return answer
+
+
+REQUEST_MESSAGES = {
+    "no_request": "没有待处理的做梦请求：管理员没有点「现在做梦」，或者已经有机器做完了。",
+    "request_taken": "另一台指定机器已经领取了这次请求。",
+}
+MESSAGES = {**LEASE_MESSAGES, **REQUEST_MESSAGES}
+
+
+def _close_request(transport: Any, report: dict[str, Any] | None) -> None:
+    """Tell the Hub how the requested pass ended; the administrator's page shows it."""
+    if report is None:
+        outcome, message = "failed", "进程异常退出"
+    else:
+        outcome = str(report.get("outcome") or "failed")
+        validation = report.get("validation") or {}
+        message = str(
+            report.get("message")
+            or f"{validation.get('pages', report.get('pages_before', 0))} 页 · "
+            f"变过 {report.get('changed', 0)} 份 · 花费 {float(report.get('cost') or 0):.2f}"
+        )
+    try:
+        request(transport, "finish", outcome=outcome[:40], message=message[:200])
+    except (OSError, ValueError):
+        pass
 
 
 def documents(items: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], dict[str, str]]:
@@ -890,6 +910,7 @@ def run(
     runner: Callable[..., dict[str, Any]] | None = None,
     home: Path | None = None,
     now: float | None = None,
+    on_request: bool = False,
 ) -> dict[str, Any]:
     """One dreaming pass. Nothing leaves this machine unless ``publish_pages`` is set.
 
@@ -897,18 +918,34 @@ def run(
     dreaming lease, which only a device an administrator designated can hold, one at
     a time. Refused, it records why and does nothing else: no document is read, no
     model is called. A review-only pass asks where this device stands and goes on.
+
+    ``on_request`` is the pass the worker starts after an administrator pressed
+    「现在做梦」: it publishes, claims the request before anything else and reports
+    how it ended, whatever that was.
     """
     now = time.time() if now is None else now
+    if on_request:
+        publish_pages = True
+        claim = request(transport, "claim")
+        refusal = claim["refusal"] or ("" if claim["supported"] else "hub_too_old")
+        if refusal:
+            refused = _report(now, model, analyzer_model)
+            refused.update({"request": claim, "outcome": refusal, "message": MESSAGES[refusal]})
+            _finish(state, load_ledger(state), refused, now)
+            return refused
     gate = lease(transport, "acquire" if publish_pages else "status")
     if publish_pages and not gate["mine"]:
-        report = _report(now, model, analyzer_model)
-        report.update(
-            {"lease": gate, "outcome": gate["refusal"], "message": LEASE_MESSAGES[gate["refusal"]]}
+        refused = _report(now, model, analyzer_model)
+        refused.update(
+            {"lease": gate, "outcome": gate["refusal"], "message": MESSAGES[gate["refusal"]]}
         )
-        _finish(state, load_ledger(state), report, now)
-        return report
+        _finish(state, load_ledger(state), refused, now)
+        if on_request:
+            _close_request(transport, refused)
+        return refused
+    report: dict[str, Any] | None = None
     try:
-        return _pass(
+        report = _pass(
             state,
             transport,
             register,
@@ -923,12 +960,15 @@ def run(
             home=home,
             now=now,
         )
+        return report
     finally:
         if publish_pages and gate["supported"]:
             try:
                 lease(transport, "release")
             except (OSError, ValueError):
                 pass
+        if on_request:
+            _close_request(transport, report)
 
 
 def _pass(
