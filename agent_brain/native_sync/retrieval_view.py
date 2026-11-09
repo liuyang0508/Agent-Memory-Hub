@@ -36,7 +36,9 @@ def _diagnostics(result: dict[str, Any]) -> dict[str, Any]:
     """Project known aggregate fields, never arbitrary nested server state."""
     raw = result.get("retrieval", {})
     meta: dict[str, Any] = {
-        "mode": raw.get("mode") if raw.get("mode") in {"lexical", "hybrid"} else "unknown",
+        "mode": raw.get("mode")
+        if raw.get("mode") in {"lexical", "hybrid", "literal"}
+        else "unknown",
         "degraded": bool(raw.get("degraded", False)),
         "reasons": [_clip(str(value), 80) for value in raw.get("reasons", [])[:10]],
         "reranked": bool(raw.get("reranked", False)),

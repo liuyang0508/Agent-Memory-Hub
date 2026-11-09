@@ -90,6 +90,52 @@ def test_the_hook_injects_only_what_the_prompt_names(tmp_path, monkeypatch):
     assert ids(hub.recall(token, "审批流程怎么走")) == []
 
 
+def test_a_name_with_a_chinese_prefix_is_still_a_name(tmp_path, monkeypatch):
+    """澄海交付验收-3d7ae9 names one project. The identifier extractor keeps the code, and
+    the whole-name check must not take the hyphen before it for a longer identifier."""
+    monkeypatch.setenv("AMH_NATIVE_HOOK_LEXICAL_GUARD", "1")
+    hub = Hub(tmp_path / "hub.sqlite", retrieval_mode="literal")
+    colleague = hub.provision("one", "colleague")["token"]
+    reader = hub.provision("one", "reader")["token"]
+    hub.put(
+        colleague,
+        asset(
+            "c1",
+            title="澄海回滚",
+            body="澄海交付验收-3d7ae9 的回滚确认码是 RB-7781，仅限验收负责人使用",
+            product="cowork",
+            project="",
+        ),
+    )
+    hub.put(
+        colleague,
+        asset(
+            "q1",
+            title="青帆周报",
+            body="青帆周报试验-1103 的交付流程：周五前提交周报草稿",
+            product="cowork",
+            project="",
+        ),
+    )
+    asking = {"product": "claude-code", "project": ""}
+    assert ids(hub.recall(reader, "澄海交付验收-3d7ae9 的回滚确认码是什么", asking=asking)) == [
+        "c1"
+    ]
+    assert ids(hub.recall(reader, "青帆周报试验-1103 的交付流程", asking=asking)) == ["q1"]
+    assert ids(hub.recall(reader, "交付流程怎么走", asking=asking)) == []
+
+
+def test_the_client_keeps_the_literal_mode_for_display():
+    from agent_brain.native_sync import query_worker
+
+    class Transport:
+        def recall(self, query, **kwargs):
+            return {"items": [], "retrieval": {"mode": "literal", "reasons": ["literal_mode"]}}
+
+    answer = query_worker.fetch(Transport(), "q", limit=8, asking=None)
+    assert answer["retrieval"] == {"mode": "literal", "reasons": ["literal_mode"]}
+
+
 # --- reversibility ------------------------------------------------------------------
 
 

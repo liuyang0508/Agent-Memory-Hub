@@ -292,17 +292,29 @@ def contains_identifier(text: str, anchors: Sequence[str]) -> bool:
     return False
 
 
+def _joins_ascii(text: str, index: int, step: int) -> bool:
+    """A separator joins two parts of one identifier only when its other side is ASCII
+    alphanumeric too: "澄海交付验收-3d7ae9" is a Chinese word and a code, not a longer code."""
+    other = index + step
+    return 0 <= other < len(text) and text[other].isascii() and text[other].isalnum()
+
+
 def whole_name(text: str, name: str) -> bool:
     """The name itself, not part of a longer one: "terminal-bench" is not in
-    "agentos-terminal-bench-local". A sentence may still end right after it."""
+    "agentos-terminal-bench-local". A sentence may still end right after it, and a
+    Chinese word joined to it by a hyphen is a prefix in another script, not a longer name."""
     start = text.find(name)
     while start >= 0:
         end = start + len(name)
         before = text[start - 1] if start else " "
         after = text[end] if end < len(text) else " "
-        if not (before.isascii() and (before.isalnum() or before in "_-./")) and not (
-            after.isascii() and (after.isalnum() or after in "_-")
-        ):
+        longer_before = before.isascii() and (
+            before.isalnum() or (before in "_-./" and _joins_ascii(text, start - 1, -1))
+        )
+        longer_after = after.isascii() and (
+            after.isalnum() or (after in "_-" and _joins_ascii(text, end, 1))
+        )
+        if not longer_before and not longer_after:
             return True
         start = text.find(name, start + 1)
     return False

@@ -334,7 +334,7 @@ let days = 30;
 let last = null;
 const WINDOWS = [[7, "7 天"], [30, "30 天"], [90, "90 天"], [365, "一年"]];
 const PRODUCTS = {"claude-code": "Claude Code", "codex-cli": "Codex CLI", "codex-desktop": "Codex 桌面版", "cowork": "Cowork", "chatgpt": "ChatGPT", "amh": "组织维基", "unknown": "未知"};
-const MODES = {hybrid: "混合（词法 + 语义）", lexical: "仅词法", unknown: "未知"};
+const MODES = {literal: "字面（像 grep）", hybrid: "混合（词法 + 语义）", lexical: "仅词法", unknown: "未知"};
 const REASONS = {
   semantic_index_not_built: "语义索引未建", semantic_model_not_configured: "未配置语义模型",
   semantic_index_model_mismatch_rebuild_required: "索引与模型不一致", semantic_index_incomplete_rebuild_required: "语义索引未建完",
