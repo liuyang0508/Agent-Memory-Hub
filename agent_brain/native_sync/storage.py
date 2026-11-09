@@ -190,6 +190,20 @@ CREATE TABLE IF NOT EXISTS dream_leases(
     expires REAL NOT NULL
 );
 
+-- An administrator's standing request for a dreaming pass ("现在做梦"): one per
+-- organization, claimed by a designated device and closed with its outcome.
+-- Additive: older Hubs never read it.
+CREATE TABLE IF NOT EXISTS dream_requests(
+    tenant TEXT PRIMARY KEY,
+    requested REAL NOT NULL,
+    requested_by TEXT NOT NULL DEFAULT '',
+    device TEXT,
+    claimed REAL,
+    finished REAL,
+    outcome TEXT NOT NULL DEFAULT '',
+    message TEXT NOT NULL DEFAULT ''
+);
+
 CREATE VIRTUAL TABLE IF NOT EXISTS search_index USING fts5(
     tenant UNINDEXED,
     asset_id UNINDEXED,

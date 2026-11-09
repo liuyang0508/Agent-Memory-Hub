@@ -656,11 +656,19 @@ def dream_command(
     status: bool = typer.Option(False, "--status", help="只看最近几次运行的情况"),
     schedule: str = typer.Option("", "--schedule", help="on：每天 02:00 自动整理并上传；off：取消"),
     yes: bool = typer.Option(False, "--yes", help="上传时跳过确认"),
+    on_request: bool = typer.Option(
+        False,
+        "--on-request",
+        hidden=True,
+        help="后台进程在管理员点了「现在做梦」后调用：领取请求、整理并上传、回报结果",
+    ),
 ) -> None:
     """离线整理组织记忆成维基（"做梦"）：合并、标日期和核验状态、修冲突、建索引。"""
     from . import dream
 
     c = load(state)
+    if on_request:
+        publish = yes = True
     if status:
         emit(dream.status(c.root))
         return
@@ -708,6 +716,7 @@ def dream_command(
         analyzer_model=analyzer_model,
         budget=budget or dream.DEFAULT_BUDGET,
         jobs=jobs or dream.DEFAULT_JOBS,
+        on_request=on_request,
     )
     emit(report)
 

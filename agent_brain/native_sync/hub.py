@@ -24,6 +24,7 @@ from .admin_auth import AdminAuth, AdminCredential, WebAdminSession
 DREAM_PRODUCT = "amh"
 DREAM_LEASE_SECONDS = 4 * 3600
 DREAM_LEASE_MAX = 6 * 3600
+DREAM_REQUEST_STALE = DREAM_LEASE_MAX  # a claimed request nobody closed by then is abandoned
 
 if TYPE_CHECKING:
     from .semantic import IndexRefreshResult, SemanticBackend
@@ -592,6 +593,146 @@ class Hub:
             "holder": name,
             "expires": expires,
         }
+
+    # --- 「现在做梦」: an administrator's standing request for a pass ------------------
+
+    def _operator_name(self, db: sqlite3.Connection, token: AdminCredential) -> str:
+        if isinstance(token, WebAdminSession):
+            return str(AdminAuth(self).resolve(db, token.token).get("name") or "")
+        row = db.execute("SELECT label FROM admins WHERE hash=?", (digest(token),)).fetchone()
+        return str(row["label"]) if row else ""
+
+    def _dream_status(self, db: sqlite3.Connection) -> dict[str, Any]:
+        now = time.time()
+        names = {row["id"]: row["name"] for row in db.execute("SELECT id,name FROM devices")}
+        devices = [{"id": d, "name": names.get(d, d)} for d in sorted(self._dream_devices(db))]
+        lease = db.execute(
+            "SELECT device,acquired,expires FROM dream_leases WHERE tenant=? AND expires>?",
+            (self.tenant, now),
+        ).fetchone()
+        running = (
+            {
+                "device": names.get(lease["device"], lease["device"]),
+                "since": lease["acquired"],
+                "expires": lease["expires"],
+            }
+            if lease
+            else None
+        )
+        row = db.execute(
+            "SELECT * FROM dream_requests WHERE tenant=?", (self.tenant,)
+        ).fetchone()
+        request = None
+        if row:
+            request = {
+                "requested": row["requested"],
+                "requested_by": row["requested_by"],
+                "device": names.get(row["device"], row["device"]) if row["device"] else None,
+                "claimed": row["claimed"],
+                "finished": row["finished"],
+                "outcome": row["outcome"],
+                "message": row["message"],
+                "pending": row["finished"] is None,
+            }
+        return {"devices": devices, "running": running, "request": request}
+
+    def admin_dream_status(self, token: AdminCredential) -> dict[str, Any]:
+        """Designated devices, a pass running now and the last request; no memory text."""
+        with database(self.path) as db:
+            self._admin(db, token)
+            return self._dream_status(db)
+
+    @staticmethod
+    def _request_open(row: sqlite3.Row | None, now: float) -> bool:
+        """An unfinished request whose claim, if any, has not gone stale."""
+        return (
+            row is not None
+            and row["finished"] is None
+            and (row["claimed"] is None or row["claimed"] > now - DREAM_REQUEST_STALE)
+        )
+
+    def admin_dream_request(self, token: AdminCredential) -> dict[str, Any]:
+        """「现在做梦」: ask the designated device for one publishing pass.
+
+        One request stands at a time; asking again while it is open returns it
+        unchanged. Nothing is requested while no device is designated, since
+        nobody could pick it up.
+        """
+        with database(self.path) as db:
+            db.execute("BEGIN IMMEDIATE")
+            self._admin(db, token)
+            if not self._dream_devices(db):
+                raise ValueError("no dream device")
+            now = time.time()
+            row = db.execute(
+                "SELECT * FROM dream_requests WHERE tenant=?", (self.tenant,)
+            ).fetchone()
+            if not self._request_open(row, now):
+                db.execute(
+                    "INSERT OR REPLACE INTO dream_requests VALUES(?,?,?,NULL,NULL,NULL,'','')",
+                    (self.tenant, now, self._operator_name(db, token)[:80]),
+                )
+            return self._dream_status(db)
+
+    def dream_request(
+        self, token: str, *, action: str = "poll", outcome: str = "", message: str = ""
+    ) -> dict[str, Any]:
+        """A device asks after, claims or closes the administrator's request.
+
+        ``poll`` never refuses: it says whether a request waits for this device. Only
+        a designated device may ``claim`` one, and only the device that claimed it may
+        ``finish`` it. A claim left open for DREAM_REQUEST_STALE seconds is abandoned
+        and another designated device may take it.
+        """
+        from .knowledge import KnowledgeConflict
+
+        with database(self.path) as db:
+            db.execute("BEGIN IMMEDIATE")
+            who = self._identity(db, token)
+            designated = who["device_id"] in self._dream_devices(db)
+            now = time.time()
+            row = db.execute(
+                "SELECT * FROM dream_requests WHERE tenant=?", (who["tenant"],)
+            ).fetchone()
+            unfinished = row is not None and row["finished"] is None
+            mine = unfinished and row["device"] == who["device_id"]
+            free = unfinished and (
+                row["claimed"] is None or row["claimed"] <= now - DREAM_REQUEST_STALE
+            )
+            answer: dict[str, Any] = {
+                "designated": designated,
+                "pending": False,
+                "requested": None,
+            }
+            if action == "poll":
+                if designated and (mine or free):
+                    answer.update({"pending": True, "requested": row["requested"]})
+                return answer
+            if action == "claim":
+                if not designated:
+                    raise KnowledgeConflict("dream_not_designated")
+                if not unfinished:
+                    raise KnowledgeConflict("dream_no_request")
+                if not (mine or free):
+                    raise KnowledgeConflict("dream_request_taken")
+                db.execute(
+                    "UPDATE dream_requests SET device=?,claimed=? WHERE tenant=?",
+                    (who["device_id"], row["claimed"] if mine else now, who["tenant"]),
+                )
+                answer.update({"pending": True, "requested": row["requested"]})
+                return answer
+            if action == "finish":
+                if not mine:
+                    raise KnowledgeConflict(
+                        "dream_request_taken" if unfinished else "dream_no_request"
+                    )
+                db.execute(
+                    "UPDATE dream_requests SET finished=?,outcome=?,message=? WHERE tenant=?",
+                    (now, outcome[:40], message[:200], who["tenant"]),
+                )
+                answer.update({"requested": row["requested"], "finished": now})
+                return answer
+            raise ValueError("unknown request action")
 
     def admin_secret_set(self, token: AdminCredential, app_secret: str) -> None:
         """Store the application secret separately so it is never read back by the page."""

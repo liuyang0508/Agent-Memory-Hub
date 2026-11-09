@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.6] — 2026-11-09
+
+### Added
+
+- 「现在做梦」 on the admin page. An administrator asks for one publishing pass
+  (`POST /native/v1/admin/dream/run`); the designated device's background worker asks
+  the Hub every minute (`POST /native/v1/dream/request`) and starts
+  `amh-native dream --on-request`, which claims the request before reading anything,
+  publishes under the usual lease and reports how it ended. The page shows the request
+  waiting, the device running and the last outcome (`GET /native/v1/admin/dream`). One
+  request stands at a time; a claim nobody closed within six hours is abandoned. Devices
+  that are not designated, and Hubs without the route, ask once an hour. Nothing dreams
+  unless asked: no schedule is installed and nothing is uploaded, as before. Health lists
+  `dream-request-v1`.
+
+### Changed
+
+- `docs/native-memory/dreaming.zh.md` says plainly that dreaming is off by default and
+  lists the three ways to turn it on: one manual pass, the nightly job, the admin button.
+
 ## [1.5.5] — 2026-11-09
 
 ### Fixed

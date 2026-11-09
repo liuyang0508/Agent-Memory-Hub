@@ -75,6 +75,9 @@ def work(state: Path, interval: float = 10, *, stop: threading.Event | None = No
     from .digests import RUN_SECONDS as DIGEST_SECONDS
     from .digests import enabled as digests_enabled
     from .digests import run as run_digests
+    from .dream_request import POLL_IDLE_SECONDS as DREAM_IDLE
+    from .dream_request import POLL_SECONDS as DREAM_POLL
+    from .dream_request import pick_up as pick_up_dream
     from .autoupdate import check as check_update
     from .autoupdate import due as update_due
     from .autoupdate import enabled as update_enabled
@@ -115,6 +118,7 @@ def work(state: Path, interval: float = 10, *, stop: threading.Event | None = No
         next_update = time.monotonic() + random.uniform(120, 900)
         next_catalog = time.monotonic()
         next_digests = time.monotonic() + 60
+        next_dream = time.monotonic() + 90
         next_probe = time.monotonic() + 60
         restart = False
         try:
@@ -190,6 +194,18 @@ def work(state: Path, interval: float = 10, *, stop: threading.Event | None = No
                             )
                     except Exception as exc:
                         print(f"session digests skipped: {type(exc).__name__}", file=sys.stderr)
+                if time.monotonic() >= next_dream and not (state / "paused").exists():
+                    # 「现在做梦」: an administrator's request waits on the Hub for the
+                    # designated device, which asks every minute; other devices rarely.
+                    pace = DREAM_IDLE
+                    try:
+                        standing = pick_up_dream(state, c.transport)
+                        if standing.get("supported") and standing.get("designated"):
+                            pace = DREAM_POLL
+                    except Exception as exc:
+                        pace = DREAM_POLL * 5
+                        print(f"dream request check skipped: {type(exc).__name__}", file=sys.stderr)
+                    next_dream = time.monotonic() + pace * random.uniform(0.9, 1.1)
                 if managed and time.monotonic() >= next_probe:
                     next_probe = time.monotonic() + 60
                     on_disk = installed_version()

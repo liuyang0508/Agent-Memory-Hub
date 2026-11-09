@@ -229,3 +229,12 @@ class DreamLeaseInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     action: Literal["status", "acquire", "release"] = "status"
     ttl_seconds: int = Field(default=4 * 3600, ge=60, le=6 * 3600)
+
+
+class DreamRequestInput(BaseModel):
+    """Ask after, claim or close the administrator's standing request for a pass."""
+
+    model_config = ConfigDict(extra="forbid")
+    action: Literal["poll", "claim", "finish"] = "poll"
+    outcome: str = Field(default="", max_length=40)
+    message: str = Field(default="", max_length=200)

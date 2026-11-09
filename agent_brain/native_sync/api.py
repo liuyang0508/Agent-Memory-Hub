@@ -27,6 +27,7 @@ from .models import (
     AdminSecretInput,
     AdminSettingInput,
     DreamLeaseInput,
+    DreamRequestInput,
     AssetInput,
     EnrollInput,
     FeishuRedeemInput,
@@ -123,6 +124,7 @@ def create_app(hub: Hub) -> FastAPI:
             "session-digest-v1",
             "dream-lease-v1",
             "retrieval-mode-v1",
+            "dream-request-v1",
         ]
         state = hub.semantic_status()
         semantic: dict[str, Any] = {k: state[k] for k in ("state", "model", "reason") if k in state}
@@ -281,6 +283,19 @@ def create_app(hub: Hub) -> FastAPI:
         hub.admin_setting(operator(request, authorization), data.key, data.value)
         return {"saved": data.key}
 
+    @app.get("/native/v1/admin/dream")
+    def admin_dream(
+        request: Request, authorization: str | None = Header(default=None)
+    ) -> dict[str, Any]:
+        return hub.admin_dream_status(operator(request, authorization))
+
+    @app.post("/native/v1/admin/dream/run")
+    def admin_dream_run(
+        request: Request, authorization: str | None = Header(default=None)
+    ) -> dict[str, Any]:
+        """「现在做梦」: the designated device's worker picks the request up within a minute."""
+        return hub.admin_dream_request(operator(request, authorization))
+
     @app.post("/native/v1/admin/secret")
     def admin_secret(
         request: Request, data: AdminSecretInput, authorization: str | None = Header(default=None)
@@ -419,6 +434,15 @@ def create_app(hub: Hub) -> FastAPI:
         """The organization dreams in one place; see ``Hub.dream_lease``."""
         return hub.dream_lease(
             bearer(authorization), action=data.action, ttl_seconds=data.ttl_seconds
+        )
+
+    @app.post("/native/v1/dream/request")
+    def dream_request(
+        data: DreamRequestInput, authorization: str | None = Header(default=None)
+    ) -> dict[str, Any]:
+        """A device asks after, claims or closes 「现在做梦」; see ``Hub.dream_request``."""
+        return hub.dream_request(
+            bearer(authorization), action=data.action, outcome=data.outcome, message=data.message
         )
 
     @app.get("/native/v1/changes")

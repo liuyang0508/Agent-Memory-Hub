@@ -55,6 +55,9 @@ PAGE = """<!doctype html>
   <p class="muted">组织维基只由这里填的设备整理并上传（<span class="mono">amh-native dream --publish</span>），别的设备会被拒；同一时间只有一台在跑。设备 ID 见上表，多个用逗号分隔，留空表示谁也不能上传。</p>
   <div class="row"><input id="s-dream-devices" placeholder="允许做梦并上传维基的设备 ID" size="60"></div>
   <div class="row"><button class="primary" onclick="saveDream()">保存</button><span id="dream-msg" class="muted"></span></div>
+  <p class="muted">默认不会自动做梦，也不会自动上传。要现在整理并上传一次，点下面的按钮：指定设备上的后台进程一分钟内领取，跑完把结果写回这里。要每晚自动跑，在指定设备上执行 <span class="mono">amh-native dream --schedule on</span>。</p>
+  <div class="row"><button onclick="dreamNow()">现在做梦</button><span id="dream-now" class="muted"></span></div>
+  <p id="dream-status" class="muted" role="status"></p>
 
   <h2>飞书登录</h2>
   <p class="muted">成员用飞书账号登录即可加入，没有邀请码。App Secret 保存后不会再显示。</p>
@@ -121,6 +124,7 @@ async function load() {
   document.getElementById("s-tenant").value = s.feishu_tenant || "";
   document.getElementById("s-tenant-key").value = s.feishu_tenant_key || "";
   updateCallback();
+  loadDream();
 }
 
 function updateCallback() {
@@ -142,6 +146,40 @@ async function saveDream() {
     msg.textContent = "已保存。";
     load();
   } catch (e) { msg.textContent = "保存失败：" + e.message; }
+}
+
+const OUTCOMES = {
+  published: "已整理并上传", nothing_new: "没有新内容，维基没动", reviewed: "只整理未上传", failed: "失败",
+  leak: "检出泄漏，未上传", not_designated: "设备未被指定", lease_held: "另一台正在做梦",
+  hub_too_old: "Hub 版本太旧", no_request: "没有待处理请求", request_taken: "被另一台领走",
+};
+let dreamTimer = null;
+function dreamText(d) {
+  const parts = [];
+  if (d.running) parts.push(`${d.running.device} 正在做梦（${when(d.running.since)} 开始）`);
+  const r = d.request;
+  if (!r) parts.push("还没有从这里触发过。");
+  else if (r.pending && !r.device) parts.push(`已请求（${when(r.requested)}，${r.requested_by || "管理员"}），等待指定设备领取`);
+  else if (r.pending) parts.push(`${r.device} 已领取（${when(r.claimed)}），正在跑`);
+  else parts.push(`上次：${when(r.finished)} · ${OUTCOMES[r.outcome] || r.outcome}${r.message ? "：" + r.message : ""}`);
+  if (!d.devices.length) parts.push("还没有指定做梦设备，先在上面填设备 ID。");
+  return parts.join(" · ");
+}
+async function loadDream() {
+  const box = document.getElementById("dream-status");
+  try {
+    const d = await api("/dream");
+    box.textContent = dreamText(d);
+    const busy = Boolean(d.running) || Boolean(d.request && d.request.pending);
+    if (busy && !dreamTimer) dreamTimer = setInterval(loadDream, 10000);
+    if (!busy && dreamTimer) { clearInterval(dreamTimer); dreamTimer = null; }
+  } catch (e) { box.textContent = "做梦状态读取失败：" + e.message; }
+}
+async function dreamNow() {
+  const msg = document.getElementById("dream-now");
+  if (!confirm("指定设备会在一分钟内开始整理并上传组织维基，本次花费上限 12 美元等价，走该设备的 Claude 订阅。确定？")) return;
+  try { await api("/dream/run", {}); msg.textContent = "已请求。"; loadDream(); }
+  catch (e) { msg.textContent = "请求失败：" + e.message; }
 }
 
 async function saveSettings() {
