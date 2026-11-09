@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.5] — 2026-11-09
+
+### Fixed
+
+- Literal mode injects memory named by a Chinese word joined to a code with a hyphen,
+  such as `澄海交付验收-3d7ae9` or `青帆周报试验-1103`. The identifier extractor keeps
+  only the ASCII part of such a name, and the whole-name check then took the hyphen
+  before it as proof of a longer identifier, so the Hub returned nothing for a prompt
+  naming the project outright. A separator now counts as joining a longer name only
+  when the character on its other side is ASCII alphanumeric; `terminal-bench` is
+  still not `agentos-terminal-bench-local`.
+- `retrieval.mode` reaches clients as `literal`: the Hub's response projection and the
+  client's recall worker only knew `lexical` and `hybrid`, so the prompt-time line said
+  "Hub 检索" instead of "字面（像 grep）" and the cockpit's mode breakdown showed the raw
+  word.
+
 ## [1.5.4] — 2026-11-08
 
 ### Changed

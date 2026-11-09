@@ -72,7 +72,9 @@ def fetch(
             "channel": "recall",
             # Shown to the member: how the Hub ranked this answer and why it degraded.
             "retrieval": {
-                "mode": raw.get("mode") if raw.get("mode") in ("hybrid", "lexical") else None,
+                "mode": raw.get("mode")
+                if raw.get("mode") in ("hybrid", "lexical", "literal")
+                else None,
                 "reasons": [str(r)[:80] for r in reasons[:4]],
             },
         }

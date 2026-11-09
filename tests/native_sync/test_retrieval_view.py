@@ -167,3 +167,10 @@ def test_upstream_names_asset_and_does_not_invent_historical_target_revision(api
     assert edge["evidence"]["relation_scope"] == "asset"
     assert edge["evidence"]["target_revision_binding"] == "current_lookup"
     assert edge["evidence"]["original_target_revision"] is None
+
+
+def test_literal_mode_is_reported_as_such(api):
+    _, _, returned, client, headers = api
+    returned["retrieval"] = {"mode": "literal", "degraded": False, "reasons": ["literal_mode"]}
+    response = client.post("/native/v1/retrieve", json={"query": "q"}, headers=headers)
+    assert response.json()["retrieval"]["mode"] == "literal"

@@ -98,6 +98,11 @@ def test_whole_name_allows_sentence_ends_but_not_longer_names():
     assert not relevance.whole_name("agentos-terminal-bench-local", "terminal-bench")
     assert not relevance.whole_name("e12345", "e1234")
     assert not relevance.whole_name("a/e1234", "e1234")
+    # A Chinese word joined by a hyphen is a prefix in another script, not a longer name.
+    assert relevance.whole_name("澄海交付验收-3d7ae9 的回滚确认码", "3d7ae9")
+    assert relevance.whole_name("青帆周报试验-1103 的交付流程", "1103")
+    assert relevance.whole_name("编号-3d7ae9-验收", "3d7ae9")
+    assert not relevance.whole_name("v1-3d7ae9", "3d7ae9")
 
 
 def test_an_index_file_is_never_injected_on_its_score():
