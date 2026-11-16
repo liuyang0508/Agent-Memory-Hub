@@ -16,7 +16,7 @@ metadata:
   modified: 2026-10-29T04:08:12.900Z
 ---
 
-Body text with a [[user-profile-liuyang]] link and [[amh-project|alias]].
+Body text with a [[user-profile-example]] link and [[amh-project|alias]].
 
 ## Rules
 
@@ -55,7 +55,7 @@ def test_frontmatter_ignores_third_level_flow_lists_and_tolerates_bom():
 
 
 def test_wikilinks_and_sections_skip_fenced_code():
-    assert facets.wikilinks(CLAUDE_MEMORY) == ["user-profile-liuyang", "amh-project"]
+    assert facets.wikilinks(CLAUDE_MEMORY) == ["user-profile-example", "amh-project"]
     assert facets.sections(CLAUDE_MEMORY) == ["Rules", "Details"]
 
 

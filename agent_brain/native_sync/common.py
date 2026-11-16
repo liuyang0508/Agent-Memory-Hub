@@ -168,3 +168,86 @@ def request_timeout(budget: float) -> float:
 def hook_timeout(budget: float) -> int:
     """Whole seconds the host may wait for the prompt hook: the budget plus delivery headroom."""
     return max(2, math.ceil(budget + HOOK_TIMEOUT_MARGIN))
+
+
+# Shared by Hub admission and the client immediately before automatic injection.
+LITERAL_ANCHORS = 6
+
+_IDENTIFIER = re.compile(r"[A-Za-z0-9][A-Za-z0-9_./-]*[A-Za-z0-9]")
+_TREE_ENTRY = re.compile(r"[├└]─")
+# Files every project has: naming one says nothing about which memory.
+_COMMON_TOKENS = frozenset(
+    {
+        "memory.md",
+        "memory_summary",
+        "memory_summary.md",
+        "claude.md",
+        "agents.md",
+        "readme.md",
+        "skill.md",
+    }
+)
+
+
+def identifiers(query: str) -> list[str]:
+    """Literal technical tokens: digits, underscores, dotted or slashed paths, camelCase."""
+    # Pasted directory trees describe layout, not entities requested by the user.
+    # normalize() can flatten one pasted block onto a single line, so exclude that
+    # line from automatic identifier admission while preserving the request above it.
+    query = "\n".join(line for line in query.splitlines() if not _TREE_ENTRY.search(line))
+    found = []
+    for token in _IDENTIFIER.findall(query):
+        if len(token) < 3 or token.casefold() in _COMMON_TOKENS:
+            continue
+        # A status code or a year is in everything; "5101" or an order number is specific.
+        if token.isdigit() and (len(token) < 4 or re.fullmatch(r"(?:19|20)\d\d", token)):
+            continue
+        if (
+            any(ch.isdigit() for ch in token)
+            or any(ch in token for ch in "_./-")
+            or re.search(r"[a-z][A-Z]", token)
+        ):
+            found.append(token.casefold())
+    return list(dict.fromkeys(found))
+
+
+def _joins_name(text: str, index: int, step: int) -> bool:
+    """Paths can contain non-ASCII names; a Chinese prose prefix joined with a
+    hyphen (澄海交付验收-3d7ae9) still leaves an independently named code."""
+    other = index + step
+    if not 0 <= other < len(text):
+        return False
+    char = text[other]
+    return (char.isalnum() and (text[index] in "./" or char.isascii())) or (
+        text[index] == "/" and char in "._-"
+    )
+
+
+def whole_name(text: str, name: str) -> bool:
+    return whole_name_position(text, name) >= 0
+
+
+def whole_name_position(text: str, name: str) -> int:
+    """The name itself, not part of a longer one: "terminal-bench" is not in
+    "agentos-terminal-bench-local". A sentence may still end right after it, and a
+    Chinese word joined to it by a hyphen is a prefix in another script, not a longer name.
+    Directory prefixes and filename stems are not complete names either. Return the
+    accepted occurrence so section selection cannot drift to an earlier partial match.
+    """
+    if not name:
+        return -1
+    start = text.find(name)
+    while start >= 0:
+        end = start + len(name)
+        before = text[start - 1] if start else " "
+        after = text[end] if end < len(text) else " "
+        longer_before = before.isascii() and (
+            before.isalnum() or (before in "_-./" and _joins_name(text, start - 1, -1))
+        )
+        longer_after = after.isascii() and (
+            after.isalnum() or (after in "_-./" and _joins_name(text, end, 1))
+        )
+        if not longer_before and not longer_after:
+            return start
+        start = text.find(name, start + 1)
+    return -1

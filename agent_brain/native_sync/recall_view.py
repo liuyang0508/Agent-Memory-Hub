@@ -144,6 +144,7 @@ REASON_TEXT = {
     "semantic_query_failed": "语义检索出错",
     "gate_background_pending": "门控背景未就绪",
     "hook_lexical_guard": "只注入含提问中标识的记忆",
+    "client_literal_guard": "已排除没有完整标识匹配的片段",
 }
 
 
@@ -187,6 +188,13 @@ def _similarity(record: dict[str, Any]) -> str:
     if isinstance(chance, (int, float)) and 0 <= chance <= 1:
         return f"{round(chance * 100)}%"
     match = record.get("semantic_match") or {}
+    routes = trace.get("routes") if isinstance(trace, dict) else None
+    if (
+        isinstance(match, dict)
+        and match.get("aggregation") == "literal"
+        and not (isinstance(routes, dict) and isinstance(routes.get("semantic"), int))
+    ):
+        return "未计算"
     value = match.get("similarity") if isinstance(match, dict) else None
     return f"{value:.2f}" if isinstance(value, (int, float)) else "—"
 

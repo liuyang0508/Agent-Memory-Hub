@@ -26,7 +26,7 @@ from agent_brain.retrieval.mmr import _cosine_sim, mmr_rerank
 from agent_brain.retrieval.types import RetrievedItem
 from . import facets, recall_ledger, relevance, semantic
 from .asset_roles import CODEX_PRODUCTS, PRIMARY_MEMORY_SQL, SEMANTIC_MEMORY_SQL, asset_role
-from .common import digest, tokens
+from .common import LITERAL_ANCHORS, digest, identifiers, tokens
 from .storage import DB_TIMEOUT, database
 
 if TYPE_CHECKING:
@@ -169,56 +169,22 @@ def _compact_times(times_set: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-_IDENTIFIER = re.compile(r"[A-Za-z0-9][A-Za-z0-9_./-]*[A-Za-z0-9]")
-# Files every project has: naming one says nothing about which memory.
-_COMMON_TOKENS = frozenset(
-    {
-        "memory.md",
-        "memory_summary",
-        "memory_summary.md",
-        "claude.md",
-        "agents.md",
-        "readme.md",
-        "skill.md",
-    }
-)
-
-
 # Degraded prompt-time recall: identifier matches among the top keyword
 # hits, at most this many injected.
 LEXICAL_GUARD_ITEMS = 2
 
 # What grep gives a native reader and a ranked search does not: a document that literally
 # contains the name in the question is found first.
-LITERAL_ANCHORS = 6
 LITERAL_CANDIDATES = 20
 # A name in this many documents or more does not say which one is meant.
 RARE_DOCUMENTS = 3
-
-
-def identifiers(query: str) -> list[str]:
-    """Literal technical tokens: digits, underscores, dotted or slashed paths, camelCase."""
-    found = []
-    for token in _IDENTIFIER.findall(query):
-        if len(token) < 3 or token.casefold() in _COMMON_TOKENS:
-            continue
-        # A status code or a year is in everything; "5101" or an order number is specific.
-        if token.isdigit() and (len(token) < 4 or re.fullmatch(r"(?:19|20)\d\d", token)):
-            continue
-        if (
-            any(ch.isdigit() for ch in token)
-            or any(ch in token for ch in "_./-")
-            or re.search(r"[a-z][A-Z]", token)
-        ):
-            found.append(token.casefold())
-    return list(dict.fromkeys(found))
 
 
 def _literal_position(item: dict[str, Any], anchor: str) -> int:
     """Where the name appears in the body, or -1. Case folding keeps offsets for these tokens."""
     body = str(item.get("body") or "")
     folded = body.casefold()
-    return folded.find(anchor) if len(folded) == len(body) else -1
+    return relevance.whole_name_position(folded, anchor) if len(folded) == len(body) else -1
 
 
 def _literal_rows(
@@ -318,7 +284,7 @@ def _literal_first(
             start, name = min(found)
             earlier = item.get("semantic_match") or {}
             item["semantic_match"] = dict(
-                similarity=float(earlier.get("similarity") or 0.0),
+                similarity=earlier.get("similarity"),
                 source_field="body",
                 char_start=start,
                 char_end=start + len(name),

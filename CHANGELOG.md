@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Automatic recall no longer treats directory-tree entries or reference-path prefixes
+  as requests for the surrounding business notes. Hub admission, matched-section
+  selection and the client before injection share complete-identifier boundaries;
+  explicit full-path searches and genuine named entities remain available.
+- Literal matches without a computed relevance score display “未计算” rather than
+  a fabricated `0.00`. Clients also reject partial-name results from an older Hub.
+
 ## [1.5.6] — 2026-11-09
 
 ### Added
