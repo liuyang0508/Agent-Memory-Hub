@@ -9,7 +9,14 @@ import time
 from pathlib import Path
 from typing import Any
 from .transport import HubHTTPError, Transport
-from .common import recall_budget, request_timeout, runtime_argv
+from .common import (
+    LITERAL_ANCHORS,
+    identifiers,
+    recall_budget,
+    request_timeout,
+    runtime_argv,
+    whole_name,
+)
 
 
 def _recall(transport: Any, query: str, limit: int, asking: dict[str, Any] | None) -> Any:
@@ -44,6 +51,27 @@ def fetch(
             result["retrieval"] if isinstance(result.get("retrieval"), dict) else {}
         )
         reasons: list[Any] = raw["reasons"] if isinstance(raw.get("reasons"), list) else []
+        if "hook_lexical_guard" in reasons:
+            # Validate the returned section using the same name boundaries as the
+            # Hub. A path prefix from an older Hub must not become injected context.
+            anchors = identifiers(query)[:LITERAL_ANCHORS]
+            kept = [
+                item
+                for item in items
+                if query.strip() in (item.get("asset_id"), item.get("path"))
+                or any(
+                    whole_name(
+                        (
+                            str(item.get("title") or "") + "\n" + str(item.get("body") or "")
+                        ).casefold(),
+                        anchor,
+                    )
+                    for anchor in anchors
+                )
+            ]
+            if len(kept) < len(items):
+                reasons = ["client_literal_guard", *reasons]
+            items = kept
         hints = result.get("hints") if isinstance(result.get("hints"), list) else []
         return {
             "items": items,
